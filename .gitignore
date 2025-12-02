@@ -1,0 +1,128 @@
+# ============================================
+# Cass Vessel - Unified .gitignore
+# Python Backend + Godot Frontend
+# ============================================
+
+# --------------------------------------------
+# Python / Backend
+# --------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Environment variables (contains API keys!)
+.env
+.env.local
+.env.*.local
+
+# ChromaDB / VectorDB data
+backend/data/
+data/chroma/
+*.db
+
+# Memory exports (may contain personal data)
+memory_export_*.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# --------------------------------------------
+# Godot / Frontend
+# --------------------------------------------
+
+# Godot 4 specific
+.godot/
+
+# Godot imports
+*.import
+
+# Mono/.NET
+.mono/
+mono_crash.*.json
+
+# Export templates
+export_presets.cfg
+
+# Builds
+*.exe
+*.x86_64
+*.pck
+*.apk
+*.aab
+
+# C#/.NET
+bin/
+obj/
+*.csproj.user
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# NuGet
+packages/
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Rider
+.idea/
+
+# --------------------------------------------
+# Models / Assets (optional - uncomment if large)
+# --------------------------------------------
+# *.glb
+# *.gltf
+# *.fbx
+# *.blend1
+
+# --------------------------------------------
+# Project specific
+# --------------------------------------------
+
+# Don't commit test outputs
+test_output/
+tmp/
+
+# Sensitive exports
+*.private.*
+
+# Large model files (uncomment if needed)
+# godot-frontend/models/*.glb
+# godot-frontend/models/*.fbx

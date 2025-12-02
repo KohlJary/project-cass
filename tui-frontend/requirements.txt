@@ -1,0 +1,20 @@
+# TUI Frontend Dependencies for Cass Vessel
+
+# Core TUI framework
+textual==0.47.1
+
+# HTTP client for API calls
+httpx==0.26.0
+
+# WebSocket client for real-time communication
+websockets==12.0
+
+# Environment variables
+python-dotenv==1.0.0
+textual-terminal
+
+# Clipboard support
+pyperclip==1.8.2
+
+# Audio playback for TTS
+pygame>=2.5.0
