@@ -18,6 +18,8 @@ class Message:
     content: str
     timestamp: str
     animations: Optional[List[Dict]] = None
+    excluded: bool = False  # If True, excluded from summarization, context, and embeddings
+    user_id: Optional[str] = None  # User ID for user messages (None for assistant)
 
 
 @dataclass
@@ -31,6 +33,7 @@ class Conversation:
     last_summary_timestamp: Optional[str] = None
     messages_since_last_summary: int = 0
     project_id: Optional[str] = None  # Optional project association
+    working_summary: Optional[str] = None  # Token-optimized summary for prompt context
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -42,7 +45,8 @@ class Conversation:
             "messages": [asdict(msg) for msg in self.messages],
             "last_summary_timestamp": self.last_summary_timestamp,
             "messages_since_last_summary": self.messages_since_last_summary,
-            "project_id": self.project_id
+            "project_id": self.project_id,
+            "working_summary": self.working_summary
         }
 
     @classmethod
@@ -57,7 +61,8 @@ class Conversation:
             messages=messages,
             last_summary_timestamp=data.get("last_summary_timestamp"),
             messages_since_last_summary=data.get("messages_since_last_summary", 0),
-            project_id=data.get("project_id")
+            project_id=data.get("project_id"),
+            working_summary=data.get("working_summary")
         )
 
 
@@ -157,7 +162,8 @@ class ConversationManager:
         conversation_id: str,
         role: str,
         content: str,
-        animations: Optional[List[Dict]] = None
+        animations: Optional[List[Dict]] = None,
+        user_id: Optional[str] = None
     ) -> bool:
         """Add a message to a conversation"""
         conversation = self.load_conversation(conversation_id)
@@ -170,7 +176,8 @@ class ConversationManager:
             role=role,
             content=content,
             timestamp=datetime.now().isoformat(),
-            animations=animations
+            animations=animations,
+            user_id=user_id if role == "user" else None  # Only set for user messages
         )
         conversation.messages.append(message)
 
@@ -378,7 +385,7 @@ class ConversationManager:
         if not conversation:
             return []
 
-        # Find messages after last_summary_timestamp
+        # Find messages after last_summary_timestamp, excluding flagged messages
         if conversation.last_summary_timestamp:
             # Get messages newer than last summary
             unsummarized = [
@@ -389,10 +396,10 @@ class ConversationManager:
                     "animations": m.animations
                 }
                 for m in conversation.messages
-                if m.timestamp > conversation.last_summary_timestamp
+                if m.timestamp > conversation.last_summary_timestamp and not m.excluded
             ]
         else:
-            # No summaries yet, get all messages
+            # No summaries yet, get all messages (except excluded)
             unsummarized = [
                 {
                     "role": m.role,
@@ -401,6 +408,7 @@ class ConversationManager:
                     "animations": m.animations
                 }
                 for m in conversation.messages
+                if not m.excluded
             ]
 
         # Return up to max_messages (oldest first)
@@ -462,6 +470,114 @@ class ConversationManager:
             return False
 
         return conversation.messages_since_last_summary >= threshold
+
+    def update_working_summary(
+        self,
+        conversation_id: str,
+        working_summary: str
+    ) -> bool:
+        """
+        Update the working summary for a conversation.
+
+        The working summary is a token-optimized consolidation of all
+        summary chunks, used for prompt context instead of individual chunks.
+
+        Args:
+            conversation_id: Conversation ID
+            working_summary: The new working summary text
+
+        Returns:
+            True if updated successfully
+        """
+        conversation = self.load_conversation(conversation_id)
+
+        if not conversation:
+            return False
+
+        conversation.working_summary = working_summary
+        self._save_conversation(conversation)
+
+        return True
+
+    def get_working_summary(self, conversation_id: str) -> Optional[str]:
+        """
+        Get the working summary for a conversation.
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            Working summary text or None
+        """
+        conversation = self.load_conversation(conversation_id)
+
+        if not conversation:
+            return None
+
+        return conversation.working_summary
+
+    def exclude_message(
+        self,
+        conversation_id: str,
+        message_timestamp: str,
+        exclude: bool = True
+    ) -> bool:
+        """
+        Mark a message as excluded (or un-exclude it).
+
+        Excluded messages are skipped during summarization and context retrieval.
+
+        Args:
+            conversation_id: Conversation ID
+            message_timestamp: Timestamp of the message to exclude
+            exclude: True to exclude, False to un-exclude
+
+        Returns:
+            True if message was found and updated
+        """
+        conversation = self.load_conversation(conversation_id)
+
+        if not conversation:
+            return False
+
+        # Find and update the message
+        found = False
+        for msg in conversation.messages:
+            if msg.timestamp == message_timestamp:
+                msg.excluded = exclude
+                found = True
+                break
+
+        if found:
+            self._save_conversation(conversation)
+
+        return found
+
+    def get_message_by_timestamp(
+        self,
+        conversation_id: str,
+        message_timestamp: str
+    ) -> Optional[Message]:
+        """
+        Get a specific message by timestamp.
+
+        Args:
+            conversation_id: Conversation ID
+            message_timestamp: Timestamp of the message
+
+        Returns:
+            Message if found, None otherwise
+        """
+        conversation = self.load_conversation(conversation_id)
+
+        if not conversation:
+            return None
+
+        for msg in conversation.messages:
+            if msg.timestamp == message_timestamp:
+                return msg
+
+        return None
 
 
 if __name__ == "__main__":

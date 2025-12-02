@@ -17,16 +17,21 @@ from datetime import datetime, timedelta
 
 # Try to use Agent SDK client, fall back to raw API
 try:
-    from agent_client import CassAgentClient, CassClient, SDK_AVAILABLE
+    from agent_client import CassAgentClient, CassClient, OllamaClient, SDK_AVAILABLE
     USE_AGENT_SDK = SDK_AVAILABLE
 except ImportError:
     USE_AGENT_SDK = False
+
+# LLM Provider options
+LLM_PROVIDER_ANTHROPIC = "anthropic"
+LLM_PROVIDER_LOCAL = "local"
 
 from claude_client import ClaudeClient
 from memory import CassMemory, initialize_attractor_basins
 from gestures import ResponseProcessor
 from conversations import ConversationManager
 from projects import ProjectManager
+from users import UserManager
 from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
 import base64
@@ -51,6 +56,10 @@ app.add_middleware(
 # Initialize components
 memory = CassMemory()
 response_processor = ResponseProcessor()
+user_manager = UserManager()
+
+# Current user context (will support multi-user in future)
+current_user_id: Optional[str] = None
 
 # Track in-progress summarizations to prevent duplicates
 _summarization_in_progress: set = set()
@@ -60,6 +69,10 @@ project_manager = ProjectManager()
 # Client will be initialized on startup
 agent_client = None
 legacy_client = None
+ollama_client = None
+
+# LLM Provider Configuration
+current_llm_provider = LLM_PROVIDER_ANTHROPIC  # Default to Anthropic
 
 # TTS Configuration
 tts_enabled = True  # Can be toggled via API
@@ -107,6 +120,42 @@ async def generate_missing_journals(days_to_check: int = 7):
                 )
                 generated.append(date_str)
                 print(f"   ✓ Journal created for {date_str}")
+
+                # Generate user observations for each user who had conversations that day
+                user_ids_for_date = memory.get_user_ids_by_date(date_str)
+                for user_id in user_ids_for_date:
+                    profile = user_manager.load_profile(user_id)
+                    if not profile:
+                        continue
+
+                    # Get conversations filtered to just this user
+                    user_conversations = memory.get_conversations_by_date(date_str, user_id=user_id)
+                    if not user_conversations:
+                        continue
+
+                    print(f"   🔍 Analyzing {len(user_conversations)} conversations for observations about {profile.display_name}...")
+                    # Format conversation text for analysis
+                    conversation_text = "\n\n---\n\n".join([
+                        conv.get("content", "") for conv in user_conversations[:15]
+                    ])
+                    new_observations = await memory.generate_user_observations(
+                        user_id=user_id,
+                        display_name=profile.display_name,
+                        conversation_text=conversation_text,
+                        anthropic_api_key=ANTHROPIC_API_KEY
+                    )
+                    for obs_text in new_observations:
+                        obs = user_manager.add_observation(user_id, obs_text)
+                        if obs:
+                            memory.embed_user_observation(
+                                user_id=user_id,
+                                observation_id=obs.id,
+                                observation_text=obs.observation,
+                                display_name=profile.display_name,
+                                timestamp=obs.timestamp
+                            )
+                    if new_observations:
+                        print(f"   ✓ Added {len(new_observations)} new observations about {profile.display_name}")
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
 
@@ -143,12 +192,20 @@ async def daily_journal_task():
 
 @app.on_event("startup")
 async def startup_event():
-    global agent_client, legacy_client
+    global agent_client, legacy_client, ollama_client, current_user_id
 
     # Initialize attractor basins if needed
     if memory.count() == 0:
         print("Initializing attractor basins...")
         initialize_attractor_basins(memory)
+
+    # Load default user (Kohl for now, will support multi-user later)
+    kohl = user_manager.get_user_by_name("Kohl")
+    if kohl:
+        current_user_id = kohl.user_id
+        print(f"👤 Loaded user: {kohl.display_name} ({kohl.relationship})")
+    else:
+        print("⚠️  No default user found. Run init_kohl_profile.py to create.")
 
     # Initialize appropriate client
     if USE_AGENT_SDK:
@@ -160,6 +217,13 @@ async def startup_event():
     else:
         print("⚠️  Agent SDK not available, using raw API client")
         legacy_client = ClaudeClient()
+
+    # Initialize Ollama client for local mode
+    from config import OLLAMA_ENABLED
+    if OLLAMA_ENABLED:
+        print("🖥️  Initializing Ollama client for local LLM...")
+        ollama_client = OllamaClient()
+        print(f"   ✓ Ollama ready (model: {ollama_client.model})")
 
     # Preload TTS voice for faster first response
     print("🔊 Preloading TTS voice...")
@@ -448,13 +512,34 @@ async def execute_journal_tool(
 
 # === Summarization Helper ===
 
-async def generate_and_store_summary(conversation_id: str):
+# Minimum confidence threshold for auto-summarization
+SUMMARIZATION_CONFIDENCE_THRESHOLD = 0.6
+
+async def generate_and_store_summary(conversation_id: str, force: bool = False, websocket=None):
     """
     Generate a summary chunk for unsummarized messages.
 
+    Uses local LLM to evaluate whether now is a good breakpoint for summarization,
+    giving Cass agency over her own memory consolidation.
+
     Args:
         conversation_id: ID of conversation to summarize
+        force: If True, skip evaluation and summarize immediately (for manual /summarize)
+        websocket: Optional WebSocket to send status updates to TUI
     """
+    async def notify(message: str, status: str = "info"):
+        """Send notification to websocket if available"""
+        if websocket:
+            try:
+                await websocket.send_json({
+                    "type": "system",
+                    "message": message,
+                    "status": status,
+                    "timestamp": datetime.now().isoformat()
+                })
+            except Exception:
+                pass  # Don't fail summarization if notification fails
+
     # Prevent duplicate summarization
     if conversation_id in _summarization_in_progress:
         print(f"Summary already in progress for conversation {conversation_id}, skipping")
@@ -473,7 +558,29 @@ async def generate_and_store_summary(conversation_id: str):
             print(f"No messages to summarize for conversation {conversation_id}")
             return
 
+        # Evaluate whether now is a good time to summarize (unless forced)
+        if not force:
+            print(f"🔍 Evaluating summarization readiness for {len(messages)} messages...")
+            await notify(f"🔍 Evaluating memory consolidation ({len(messages)} messages)...", "evaluating")
+            evaluation = await memory.evaluate_summarization_readiness(messages)
+
+            should_summarize = evaluation.get("should_summarize", False)
+            confidence = evaluation.get("confidence", 0.0)
+            reason = evaluation.get("reason", "No reason")
+
+            print(f"   Evaluation: should_summarize={should_summarize}, confidence={confidence:.2f}")
+            print(f"   Reason: {reason}")
+
+            # Only proceed if evaluation says yes with sufficient confidence
+            if not should_summarize or confidence < SUMMARIZATION_CONFIDENCE_THRESHOLD:
+                print(f"   ⏸ Deferring summarization (confidence {confidence:.2f} < {SUMMARIZATION_CONFIDENCE_THRESHOLD})")
+                await notify(f"⏸ Deferring memory consolidation: {reason}", "deferred")
+                return
+
+            print(f"   ✓ Proceeding with summarization")
+
         print(f"Generating summary for {len(messages)} messages in conversation {conversation_id}")
+        await notify(f"📝 Consolidating {len(messages)} messages into memory...", "summarizing")
 
         # Generate summary
         summary_text = await memory.generate_summary_chunk(
@@ -484,6 +591,7 @@ async def generate_and_store_summary(conversation_id: str):
 
         if not summary_text:
             print("Failed to generate summary")
+            await notify("❌ Memory consolidation failed", "error")
             return
 
         # Get timeframe
@@ -507,6 +615,24 @@ async def generate_and_store_summary(conversation_id: str):
         )
 
         print(f"✓ Summary generated and stored for conversation {conversation_id}")
+        await notify(f"✓ Memory consolidated ({len(messages)} messages summarized)", "complete")
+
+        # Update working summary (incremental if possible, full rebuild if not)
+        await notify("🔄 Updating working summary...", "working_summary")
+        conversation = conversation_manager.load_conversation(conversation_id)
+        if conversation:
+            existing_summary = conversation.working_summary
+            working_summary = await memory.generate_working_summary(
+                conversation_id=conversation_id,
+                conversation_title=conversation.title,
+                new_chunk=summary_text,  # The chunk we just created
+                existing_summary=existing_summary  # Existing working summary to integrate into
+            )
+            if working_summary:
+                conversation_manager.update_working_summary(conversation_id, working_summary)
+                mode = "incremental" if existing_summary else "initial"
+                print(f"✓ Working summary updated ({mode}, {len(working_summary)} chars)")
+                await notify("✓ Working summary updated", "complete")
 
     except Exception as e:
         print(f"Error generating summary: {e}")
@@ -624,7 +750,19 @@ async def chat(request: ChatRequest):
             query=request.message,
             conversation_id=request.conversation_id
         )
-        memory_context = memory.format_hierarchical_context(hierarchical)
+        # Use working summary if available (token-optimized)
+        working_summary = conversation_manager.get_working_summary(request.conversation_id) if request.conversation_id else None
+        memory_context = memory.format_hierarchical_context(hierarchical, working_summary=working_summary)
+
+        # Add user context if we have a current user
+        if current_user_id:
+            user_context_entries = memory.retrieve_user_context(
+                query=request.message,
+                user_id=current_user_id
+            )
+            user_context = memory.format_user_context(user_context_entries)
+            if user_context:
+                memory_context = user_context + "\n\n" + memory_context
 
         # Add project context if conversation is in a project
         if project_id:
@@ -635,7 +773,13 @@ async def chat(request: ChatRequest):
             project_context = memory.format_project_context(project_docs)
             if project_context:
                 memory_context = project_context + "\n\n" + memory_context
-    
+
+    # Get unsummarized message count to determine if summarization is available
+    unsummarized_count = 0
+    if request.conversation_id:
+        unsummarized_messages = conversation_manager.get_unsummarized_messages(request.conversation_id)
+        unsummarized_count = len(unsummarized_messages)
+
     tool_uses = []
 
     if USE_AGENT_SDK and agent_client:
@@ -643,7 +787,8 @@ async def chat(request: ChatRequest):
         response = await agent_client.send_message(
             message=request.message,
             memory_context=memory_context,
-            project_id=project_id
+            project_id=project_id,
+            unsummarized_count=unsummarized_count
         )
 
         raw_response = response.raw
@@ -679,9 +824,10 @@ async def chat(request: ChatRequest):
                     is_error=not tool_result.get("success", False)
                 )
 
-                # Update response data
+                # Update response data - accumulate text from before and after tool calls
                 raw_response += "\n" + response.raw
-                clean_text = response.text  # Use latest text
+                if response.text:
+                    clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
                 animations.extend(response.gestures)
                 tool_uses = response.tool_uses
 
@@ -699,11 +845,12 @@ async def chat(request: ChatRequest):
         clean_text = processed["text"]
         animations = processed["animations"]
     
-    # Store in memory (with conversation_id if provided)
+    # Store in memory (with conversation_id and user_id if provided)
     memory.store_conversation(
         user_message=request.message,
         assistant_response=raw_response,
-        conversation_id=request.conversation_id
+        conversation_id=request.conversation_id,
+        user_id=current_user_id
     )
 
     # Store in conversation if conversation_id provided
@@ -711,7 +858,8 @@ async def chat(request: ChatRequest):
         conversation_manager.add_message(
             conversation_id=request.conversation_id,
             role="user",
-            content=request.message
+            content=request.message,
+            user_id=current_user_id
         )
         conversation_manager.add_message(
             conversation_id=request.conversation_id,
@@ -856,7 +1004,12 @@ async def search_conversations(query: str, limit: int = 10):
 async def get_conversation_summaries(conversation_id: str):
     """Get all summary chunks for a conversation"""
     summaries = memory.get_summaries_for_conversation(conversation_id)
-    return {"summaries": summaries, "count": len(summaries)}
+    working_summary = conversation_manager.get_working_summary(conversation_id)
+    return {
+        "summaries": summaries,
+        "count": len(summaries),
+        "working_summary": working_summary
+    }
 
 
 @app.post("/conversations/{conversation_id}/summarize")
@@ -874,12 +1027,84 @@ async def trigger_summarization(conversation_id: str):
             "message": "Summarization already in progress for this conversation"
         }
 
-    # Trigger summarization
-    asyncio.create_task(generate_and_store_summary(conversation_id))
+    # Trigger summarization (force=True bypasses evaluation for manual trigger)
+    asyncio.create_task(generate_and_store_summary(conversation_id, force=True))
 
     return {
         "status": "started",
         "message": f"Summarization started for conversation {conversation_id}"
+    }
+
+
+class ExcludeMessageRequest(BaseModel):
+    message_timestamp: str
+    exclude: bool = True  # True to exclude, False to un-exclude
+
+
+@app.post("/conversations/{conversation_id}/exclude")
+async def exclude_message(conversation_id: str, request: ExcludeMessageRequest):
+    """
+    Exclude a message from summarization and context retrieval.
+
+    Also removes the message from ChromaDB embeddings if excluding,
+    preventing it from polluting memory retrieval.
+    """
+    # Check if conversation exists
+    conv = conversation_manager.load_conversation(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Find the message to get its content for ChromaDB removal
+    msg = conversation_manager.get_message_by_timestamp(conversation_id, request.message_timestamp)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    # Update the message exclusion status
+    success = conversation_manager.exclude_message(
+        conversation_id,
+        request.message_timestamp,
+        request.exclude
+    )
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update message")
+
+    # If excluding, try to remove from ChromaDB
+    embeddings_removed = 0
+    if request.exclude:
+        try:
+            # Search for matching entries in ChromaDB by content
+            # The stored format is "User: {msg}\nCass: {response}"
+            results = memory.collection.get(
+                where={
+                    "$and": [
+                        {"conversation_id": conversation_id},
+                        {"type": "conversation"}
+                    ]
+                },
+                include=["documents", "metadatas"]
+            )
+
+            # Find entries that contain this message's content
+            ids_to_remove = []
+            for i, doc in enumerate(results.get("documents", [])):
+                if msg.content[:100] in doc:  # Match on first 100 chars
+                    ids_to_remove.append(results["ids"][i])
+
+            if ids_to_remove:
+                memory.collection.delete(ids=ids_to_remove)
+                embeddings_removed = len(ids_to_remove)
+                print(f"Removed {embeddings_removed} embeddings for excluded message")
+
+        except Exception as e:
+            print(f"Warning: Could not remove embeddings: {e}")
+
+    action = "excluded" if request.exclude else "un-excluded"
+    return {
+        "status": action,
+        "conversation_id": conversation_id,
+        "message_timestamp": request.message_timestamp,
+        "embeddings_removed": embeddings_removed
     }
 
 
@@ -1324,6 +1549,40 @@ async def generate_journal(request: JournalGenerateRequest):
         conversation_count=len(conversations)
     )
 
+    # Generate user observations for each user who had conversations that day
+    observations_added = 0
+    user_ids_for_date = memory.get_user_ids_by_date(date)
+    for user_id in user_ids_for_date:
+        profile = user_manager.load_profile(user_id)
+        if not profile:
+            continue
+
+        # Get conversations filtered to just this user
+        user_conversations = memory.get_conversations_by_date(date, user_id=user_id)
+        if not user_conversations:
+            continue
+
+        conversation_text = "\n\n---\n\n".join([
+            conv.get("content", "") for conv in user_conversations[:15]
+        ])
+        new_observations = await memory.generate_user_observations(
+            user_id=user_id,
+            display_name=profile.display_name,
+            conversation_text=conversation_text,
+            anthropic_api_key=ANTHROPIC_API_KEY
+        )
+        for obs_text in new_observations:
+            obs = user_manager.add_observation(user_id, obs_text)
+            if obs:
+                memory.embed_user_observation(
+                    user_id=user_id,
+                    observation_id=obs.id,
+                    observation_text=obs.observation,
+                    display_name=profile.display_name,
+                    timestamp=obs.timestamp
+                )
+                observations_added += 1
+
     return {
         "status": "created",
         "journal": {
@@ -1331,7 +1590,8 @@ async def generate_journal(request: JournalGenerateRequest):
             "date": date,
             "content": journal_text,
             "summaries_used": len(summaries),
-            "conversations_used": len(conversations)
+            "conversations_used": len(conversations),
+            "observations_added": observations_added
         }
     }
 
@@ -1469,6 +1729,191 @@ class TTSConfigRequest(BaseModel):
     voice: Optional[str] = None
 
 
+class LLMProviderRequest(BaseModel):
+    provider: str  # "anthropic" or "local"
+
+
+# === LLM Provider Endpoints ===
+
+@app.get("/settings/llm-provider")
+async def get_llm_provider():
+    """Get current LLM provider setting"""
+    from config import OLLAMA_ENABLED
+    return {
+        "current": current_llm_provider,
+        "available": [LLM_PROVIDER_ANTHROPIC, LLM_PROVIDER_LOCAL] if OLLAMA_ENABLED else [LLM_PROVIDER_ANTHROPIC],
+        "local_enabled": OLLAMA_ENABLED,
+        "local_model": ollama_client.model if ollama_client else None
+    }
+
+
+@app.post("/settings/llm-provider")
+async def set_llm_provider(request: LLMProviderRequest):
+    """Set LLM provider for chat"""
+    global current_llm_provider
+
+    from config import OLLAMA_ENABLED
+
+    if request.provider not in [LLM_PROVIDER_ANTHROPIC, LLM_PROVIDER_LOCAL]:
+        raise HTTPException(status_code=400, detail=f"Invalid provider. Must be '{LLM_PROVIDER_ANTHROPIC}' or '{LLM_PROVIDER_LOCAL}'")
+
+    if request.provider == LLM_PROVIDER_LOCAL and not OLLAMA_ENABLED:
+        raise HTTPException(status_code=400, detail="Local LLM not enabled. Set OLLAMA_ENABLED=true in .env")
+
+    if request.provider == LLM_PROVIDER_LOCAL and not ollama_client:
+        raise HTTPException(status_code=500, detail="Ollama client not initialized")
+
+    # Clear conversation history when switching providers to prevent stale state
+    old_provider = current_llm_provider
+    current_llm_provider = request.provider
+
+    if old_provider != request.provider:
+        # Clear both clients' conversation histories on switch
+        if agent_client:
+            agent_client.conversation_history = []
+        if ollama_client:
+            ollama_client.conversation_history = []
+
+    return {
+        "provider": current_llm_provider,
+        "model": ollama_client.model if current_llm_provider == LLM_PROVIDER_LOCAL else "claude-sonnet"
+    }
+
+
+# === User Context Endpoints ===
+
+@app.get("/users/current")
+async def get_current_user():
+    """Get current user info"""
+    if not current_user_id:
+        return {"user": None}
+
+    profile = user_manager.load_profile(current_user_id)
+    if not profile:
+        return {"user": None}
+
+    return {
+        "user": {
+            "user_id": profile.user_id,
+            "display_name": profile.display_name,
+            "relationship": profile.relationship
+        }
+    }
+
+
+@app.get("/users")
+async def list_users():
+    """List all users"""
+    return {"users": user_manager.list_users()}
+
+
+@app.get("/users/{user_id}")
+async def get_user(user_id: str):
+    """Get a specific user's profile"""
+    profile = user_manager.load_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Get ALL observations, not just recent
+    observations = user_manager.load_observations(user_id)
+
+    return {
+        "profile": profile.to_dict(),
+        "observations": [obs.to_dict() for obs in observations]
+    }
+
+
+@app.delete("/users/observations/{observation_id}")
+async def delete_observation(observation_id: str):
+    """Delete a specific observation"""
+    # Find which user has this observation
+    users = user_manager.list_users()
+    for user_info in users:
+        user_id = user_info["user_id"]
+        observations = user_manager.load_observations(user_id)
+
+        # Find and remove the observation
+        for obs in observations:
+            if obs.id == observation_id:
+                # Remove from user's observations
+                updated_obs = [o for o in observations if o.id != observation_id]
+                user_manager._save_observations(user_id, updated_obs)
+
+                # Remove from ChromaDB
+                try:
+                    memory.collection.delete(ids=[f"user_observation_{observation_id}"])
+                except Exception:
+                    pass  # May not exist in ChromaDB
+
+                return {"status": "deleted", "observation_id": observation_id}
+
+    raise HTTPException(status_code=404, detail="Observation not found")
+
+
+class SetCurrentUserRequest(BaseModel):
+    user_id: str
+
+
+@app.post("/users/current")
+async def set_current_user(request: SetCurrentUserRequest):
+    """Set the current active user"""
+    global current_user_id
+
+    profile = user_manager.load_profile(request.user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    current_user_id = request.user_id
+
+    return {
+        "user": {
+            "user_id": profile.user_id,
+            "display_name": profile.display_name,
+            "relationship": profile.relationship
+        }
+    }
+
+
+class CreateUserRequest(BaseModel):
+    display_name: str
+    relationship: str = "user"
+    notes: str = ""
+
+
+@app.post("/users")
+async def create_user(request: CreateUserRequest):
+    """Create a new user profile"""
+    # Check if user with same name exists
+    existing = user_manager.get_user_by_name(request.display_name)
+    if existing:
+        raise HTTPException(status_code=400, detail=f"User '{request.display_name}' already exists")
+
+    profile = user_manager.create_user(
+        display_name=request.display_name,
+        relationship=request.relationship,
+        notes=request.notes
+    )
+
+    # Embed the new user profile in memory
+    context = user_manager.get_user_context(profile.user_id)
+    if context:
+        memory.embed_user_profile(
+            user_id=profile.user_id,
+            profile_content=context,
+            display_name=profile.display_name,
+            timestamp=profile.updated_at
+        )
+
+    return {
+        "user": {
+            "user_id": profile.user_id,
+            "display_name": profile.display_name,
+            "relationship": profile.relationship,
+            "created_at": profile.created_at
+        }
+    }
+
+
 @app.get("/tts/config")
 async def get_tts_config():
     """Get current TTS configuration"""
@@ -1579,7 +2024,21 @@ async def websocket_endpoint(websocket: WebSocket):
                     query=user_message,
                     conversation_id=conversation_id
                 )
-                memory_context = memory.format_hierarchical_context(hierarchical)
+                # Use working summary if available (token-optimized)
+                working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
+                memory_context = memory.format_hierarchical_context(hierarchical, working_summary=working_summary)
+
+                # Add user context if we have a current user
+                user_context_count = 0
+                if current_user_id:
+                    user_context_entries = memory.retrieve_user_context(
+                        query=user_message,
+                        user_id=current_user_id
+                    )
+                    user_context_count = len(user_context_entries)
+                    user_context = memory.format_user_context(user_context_entries)
+                    if user_context:
+                        memory_context = user_context + "\n\n" + memory_context
 
                 # Add project context if conversation is in a project
                 project_docs_count = 0
@@ -1593,11 +2052,18 @@ async def websocket_endpoint(websocket: WebSocket):
                     if project_context:
                         memory_context = project_context + "\n\n" + memory_context
 
+                # Get unsummarized message count to determine if summarization is available
+                unsummarized_count = 0
+                if conversation_id:
+                    unsummarized_messages = conversation_manager.get_unsummarized_messages(conversation_id)
+                    unsummarized_count = len(unsummarized_messages)
+
                 # Send "thinking" status with memory info
                 memory_summary = {
                     "summaries_count": len(hierarchical.get("summaries", [])),
                     "details_count": len(hierarchical.get("details", [])),
                     "project_docs_count": project_docs_count,
+                    "user_context_count": user_context_count,
                     "has_context": bool(memory_context)
                 }
                 await websocket.send_json({
@@ -1609,18 +2075,37 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 tool_uses = []
 
-                # Update status before calling Claude
+                # Update status before calling LLM
+                provider_label = "local model" if current_llm_provider == LLM_PROVIDER_LOCAL else "Claude"
                 await websocket.send_json({
                     "type": "thinking",
-                    "status": "Generating response...",
+                    "status": f"Generating response ({provider_label})...",
                     "timestamp": datetime.now().isoformat()
                 })
 
-                if USE_AGENT_SDK and agent_client:
+                # Check if using local LLM
+                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
+                    # Use local Ollama for response (no tool support)
+                    response = await ollama_client.send_message(
+                        message=user_message,
+                        memory_context=memory_context,
+                        project_id=project_id,
+                        unsummarized_count=unsummarized_count
+                    )
+                    raw_response = response.raw
+                    clean_text = response.text
+                    animations = response.gestures
+                    tool_uses = []  # No tool support in local mode
+                    total_input_tokens = response.input_tokens
+                    total_output_tokens = response.output_tokens
+
+                elif USE_AGENT_SDK and agent_client:
+                    # Use Anthropic Claude API with Agent SDK
                     response = await agent_client.send_message(
                         message=user_message,
                         memory_context=memory_context,
-                        project_id=project_id
+                        project_id=project_id,
+                        unsummarized_count=unsummarized_count
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -1666,9 +2151,10 @@ async def websocket_endpoint(websocket: WebSocket):
                                 is_error=not tool_result.get("success", False)
                             )
 
-                            # Update response data
+                            # Update response data - accumulate text from before and after tool calls
                             raw_response += "\n" + response.raw
-                            clean_text = response.text
+                            if response.text:
+                                clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
                             animations.extend(response.gestures)
                             tool_uses = response.tool_uses
 
@@ -1691,11 +2177,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     total_input_tokens = 0
                     total_output_tokens = 0
 
-                # Store in memory (with conversation_id if provided)
+                # Store in memory (with conversation_id and user_id if provided)
                 memory.store_conversation(
                     user_message=user_message,
                     assistant_response=raw_response,
-                    conversation_id=conversation_id
+                    conversation_id=conversation_id,
+                    user_id=current_user_id
                 )
 
                 # Store in conversation if conversation_id provided
@@ -1703,7 +2190,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     conversation_manager.add_message(
                         conversation_id=conversation_id,
                         role="user",
-                        content=user_message
+                        content=user_message,
+                        user_id=current_user_id
                     )
                     conversation_manager.add_message(
                         conversation_id=conversation_id,
@@ -1731,8 +2219,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     # Trigger summarization if needed
                     if should_summarize:
-                        # Run summarization in background
-                        asyncio.create_task(generate_and_store_summary(conversation_id))
+                        # Run summarization in background, pass websocket for status updates
+                        asyncio.create_task(generate_and_store_summary(conversation_id, websocket=websocket))
 
                 # Generate TTS audio if enabled
                 # Pass raw_response so emote tags can be extracted for tone adjustment

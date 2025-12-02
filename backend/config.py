@@ -58,3 +58,10 @@ MEMORY_RETRIEVAL_COUNT = 5  # How many relevant memories to pull
 # Memory summarization settings
 AUTO_SUMMARY_INTERVAL = 20  # Generate summary after N messages without one
 SUMMARY_CONTEXT_MESSAGES = 30  # How many recent messages to include when generating summary
+
+# Local LLM Configuration (Ollama)
+# Set OLLAMA_ENABLED=true in .env to use local models for internal tasks (summarization, journaling)
+OLLAMA_ENABLED = os.getenv("OLLAMA_ENABLED", "false").lower() == "true"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")  # Model for summarization/journaling
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b-instruct-q8_0")  # Model for chat (can be different)

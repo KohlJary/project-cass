@@ -21,7 +21,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.widgets import Footer, Input, Static, ListItem, ListView, Label, Button, RichLog, TabbedContent, TabPane
+from textual.widgets import Footer, Input, Static, ListItem, ListView, Label, Button, RichLog, TabbedContent, TabPane, Rule, Select
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from rich.text import Text
@@ -235,6 +235,116 @@ class NewProjectScreen(ModalScreen):
             self.dismiss({"name": name, "path": path})
 
 
+class UserSelectScreen(ModalScreen):
+    """Modal screen for selecting or creating a user"""
+
+    def __init__(self, users: List[Dict], current_user_id: Optional[str] = None, **kwargs):
+        super().__init__(**kwargs)
+        self.users = users
+        self.current_user_id = current_user_id
+
+    def compose(self) -> ComposeResult:
+        with Container(id="user-dialog"):
+            yield Label("Select User", id="user-dialog-title")
+            yield ListView(id="user-select-list")
+            yield Rule()
+            yield Button("+ Create New User", variant="success", id="create-user-btn")
+            with Horizontal(id="user-buttons"):
+                yield Button("Close", variant="default", id="user-close")
+
+    async def on_mount(self) -> None:
+        list_view = self.query_one("#user-select-list", ListView)
+        for user in self.users:
+            is_current = user.get("user_id") == self.current_user_id
+            item = UserItem(
+                user_id=user.get("user_id"),
+                display_name=user.get("display_name"),
+                relationship=user.get("relationship", "user"),
+                is_current=is_current
+            )
+            await list_view.append(item)
+
+    @on(ListView.Selected, "#user-select-list")
+    async def on_user_selected(self, event: ListView.Selected):
+        if hasattr(event.item, 'user_id'):
+            self.dismiss({"action": "select", "user_id": event.item.user_id})
+
+    @on(Button.Pressed, "#create-user-btn")
+    async def on_create_user(self):
+        self.dismiss({"action": "create"})
+
+    @on(Button.Pressed, "#user-close")
+    async def on_close(self):
+        self.dismiss(None)
+
+
+class CreateUserScreen(ModalScreen):
+    """Modal screen for creating a new user"""
+
+    def compose(self) -> ComposeResult:
+        with Container(id="create-user-dialog"):
+            yield Label("Create New User", id="create-user-title")
+            yield Label("Display Name:", classes="field-label")
+            yield Input(
+                placeholder="Your name",
+                id="user-name-input"
+            )
+            yield Label("Relationship:", classes="field-label")
+            yield Select(
+                options=[
+                    ("User", "user"),
+                    ("Collaborator", "collaborator"),
+                    ("Primary Partner", "primary_partner"),
+                ],
+                value="user",
+                id="user-relationship-select"
+            )
+            yield Label("Notes (optional):", classes="field-label")
+            yield Input(
+                placeholder="Any context about yourself...",
+                id="user-notes-input"
+            )
+            with Horizontal(id="create-user-buttons"):
+                yield Button("Create", variant="primary", id="create-user-submit")
+                yield Button("Cancel", variant="default", id="create-user-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#user-name-input", Input).focus()
+
+    @on(Button.Pressed, "#create-user-submit")
+    async def on_create(self):
+        name = self.query_one("#user-name-input", Input).value.strip()
+        relationship_select = self.query_one("#user-relationship-select", Select)
+        relationship = relationship_select.value if relationship_select.value != Select.BLANK else "user"
+        notes = self.query_one("#user-notes-input", Input).value.strip()
+
+        if name:
+            self.dismiss({
+                "display_name": name,
+                "relationship": relationship,
+                "notes": notes
+            })
+        else:
+            self.dismiss(None)
+
+    @on(Button.Pressed, "#create-user-cancel")
+    async def on_cancel(self):
+        self.dismiss(None)
+
+    @on(Input.Submitted, "#user-notes-input")
+    async def on_input_submitted(self):
+        name = self.query_one("#user-name-input", Input).value.strip()
+        if name:
+            relationship_select = self.query_one("#user-relationship-select", Select)
+            relationship = relationship_select.value if relationship_select.value != Select.BLANK else "user"
+            notes = self.query_one("#user-notes-input", Input).value.strip()
+            self.dismiss({
+                "display_name": name,
+                "relationship": relationship,
+                "notes": notes
+            })
+
+
 class ProjectItem(ListItem):
     """A project in the sidebar list"""
 
@@ -269,6 +379,71 @@ class ConversationItem(ListItem):
         yield Static(text)
 
 
+class UserItem(ListItem):
+    """A user in the user list"""
+
+    def __init__(self, user_id: str, display_name: str, relationship: str, is_current: bool = False):
+        self.user_id = user_id
+        self.display_name = display_name
+        self.relationship = relationship
+        self.is_current = is_current
+
+        # Format the display
+        icon = "👤" if relationship == "primary_partner" else "🧑"
+        indicator = " ●" if is_current else ""
+        style = "bold green" if is_current else ""
+
+        super().__init__(Static(Text(f"{icon} {display_name}{indicator}", style=style)))
+
+
+class UserSelector(Container):
+    """User selector component for the sidebar"""
+
+    current_user_id: reactive[Optional[str]] = reactive(None)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.users = []
+
+    def compose(self) -> ComposeResult:
+        yield Label("👤 User", id="user-header")
+        yield Static("No user selected", id="current-user-display")
+        yield Button("Switch User", id="switch-user-btn", variant="default")
+
+    async def load_users(self, http_client: httpx.AsyncClient):
+        """Load users and current user from backend"""
+        try:
+            # Get current user
+            response = await http_client.get("/users/current")
+            if response.status_code == 200:
+                data = response.json()
+                user = data.get("user")
+                if user:
+                    self.current_user_id = user.get("user_id")
+                    display_name = user.get("display_name")
+                    display = self.query_one("#current-user-display", Static)
+                    display.update(Text(f"● {display_name}", style="bold green"))
+                    # Update app's current user display name
+                    app = self.app
+                    if hasattr(app, 'current_user_display_name'):
+                        app.current_user_display_name = display_name
+
+            # Get all users
+            response = await http_client.get("/users")
+            if response.status_code == 200:
+                data = response.json()
+                self.users = data.get("users", [])
+
+        except Exception as e:
+            debug_log(f"Error loading users: {e}", "error")
+
+    async def show_user_selector(self):
+        """Show user selection modal"""
+        app = self.app
+        if hasattr(app, 'show_user_select_modal'):
+            await app.show_user_select_modal(self.users, self.current_user_id)
+
+
 class Sidebar(Vertical):
     """Sidebar showing projects and conversations"""
 
@@ -279,6 +454,11 @@ class Sidebar(Vertical):
         self.selected_project_id: Optional[str] = None  # None = show all/unassigned
 
     def compose(self) -> ComposeResult:
+        # User section
+        yield UserSelector(id="user-selector")
+
+        yield Rule()
+
         # Projects section
         yield Label("Projects", id="projects-header")
         yield Button("+ New Project", id="new-project-btn", variant="primary")
@@ -410,6 +590,8 @@ class StatusBar(Static):
         self.sdk_mode = False
         self.memory_count = 0
         self.project_name: Optional[str] = None
+        self.llm_provider: str = "anthropic"  # "anthropic" or "local"
+        self.local_model: Optional[str] = None
 
     def on_mount(self) -> None:
         debug_log("StatusBar mounted, calling update_display", "debug")
@@ -427,6 +609,12 @@ class StatusBar(Static):
         self.project_name = name
         self.update_display()
 
+    def set_llm_provider(self, provider: str, model: Optional[str] = None):
+        debug_log(f"StatusBar.set_llm_provider: {provider} (model: {model})", "debug")
+        self.llm_provider = provider
+        self.local_model = model
+        self.update_display()
+
     def update_display(self):
         status = Text()
 
@@ -440,9 +628,12 @@ class StatusBar(Static):
 
         status.append("| ")
 
-        # SDK mode
-        if self.sdk_mode:
-            status.append("Agent SDK ", style="bold blue")
+        # LLM provider
+        if self.llm_provider == "local":
+            model_name = self.local_model.split(":")[0] if self.local_model else "ollama"
+            status.append(f"🖥️ {model_name} ", style="bold yellow")
+        elif self.sdk_mode:
+            status.append("☁️ Claude ", style="bold blue")
         else:
             status.append("Raw API ", style="yellow")
 
@@ -508,7 +699,7 @@ class ChatMessage(Vertical):
     # Pattern to match code blocks: ```language\ncode\n```
     CODE_BLOCK_PATTERN = re.compile(r'```(\w*)\n(.*?)```', re.DOTALL)
 
-    def __init__(self, role: str, content: str, animations: Optional[List[Dict]] = None, audio_data: Optional[str] = None, input_tokens: int = 0, output_tokens: int = 0, **kwargs):
+    def __init__(self, role: str, content: str, animations: Optional[List[Dict]] = None, audio_data: Optional[str] = None, input_tokens: int = 0, output_tokens: int = 0, timestamp: Optional[str] = None, excluded: bool = False, user_display_name: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
         self.role = role
         # Extract memory tags and clean content
@@ -518,6 +709,9 @@ class ChatMessage(Vertical):
         self.audio_data = audio_data  # Base64 encoded audio for replay
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
+        self.timestamp = timestamp  # ISO timestamp for API calls
+        self.excluded = excluded  # If True, message is excluded from memory/summarization
+        self.user_display_name = user_display_name  # Display name for user messages
         # Parse content into segments (text and code blocks)
         self.segments = self._parse_content(self.content)
 
@@ -558,7 +752,7 @@ class ChatMessage(Vertical):
         # Role-specific styling
         if self.role == "user":
             role_style = "bold cyan"
-            prefix = "You"
+            prefix = self.user_display_name or "You"
         elif self.role in ("cass", "assistant"):
             role_style = "bold magenta"
             prefix = "Cass"
@@ -574,12 +768,20 @@ class ChatMessage(Vertical):
             # Show token usage for Cass messages
             if self.role in ("cass", "assistant") and (self.input_tokens or self.output_tokens):
                 header_text.append(f" [{self.input_tokens}→{self.output_tokens}]", style="dim")
+            # Show excluded indicator
+            if self.excluded:
+                header_text.append(" [EXCLUDED]", style="bold red")
             yield Static(header_text, classes="message-role")
             # Add replay button for Cass messages (always visible - fetches on demand if needed)
             if self.role in ("cass", "assistant") and AUDIO_AVAILABLE:
                 btn = Button("🔊", classes="replay-btn", variant="default", id=f"replay-{id(self)}")
                 yield btn
             yield Button(COPY_SYMBOL, classes="copy-btn", variant="default", id=f"copy-{id(self)}")
+            # Add exclude/include button (only if we have a timestamp)
+            if self.timestamp:
+                exclude_label = "✓" if self.excluded else "✗"
+                exclude_btn = Button(exclude_label, classes="exclude-btn", variant="default", id=f"exclude-{id(self)}")
+                yield exclude_btn
 
         # Render content segments
         for segment in self.segments:
@@ -682,6 +884,76 @@ class ChatMessage(Vertical):
             event.button.label = "❌"
             self.set_timer(2.0, lambda: setattr(event.button, 'label', '🔊'))
 
+    @on(Button.Pressed, ".exclude-btn")
+    async def on_exclude_pressed(self, event: Button.Pressed) -> None:
+        """Toggle message exclusion from memory/summarization"""
+        event.stop()
+
+        if not self.timestamp:
+            debug_log("Cannot exclude message without timestamp", "error")
+            return
+
+        # Get conversation_id from app
+        app = self.app
+        if not hasattr(app, 'current_conversation_id') or not app.current_conversation_id:
+            debug_log("No active conversation", "error")
+            return
+
+        # Toggle exclusion state
+        new_excluded = not self.excluded
+        event.button.label = "⏳"
+
+        try:
+            if hasattr(app, 'http_client') and app.http_client:
+                response = await app.http_client.post(
+                    f"/conversations/{app.current_conversation_id}/exclude",
+                    json={
+                        "message_timestamp": self.timestamp,
+                        "exclude": new_excluded
+                    }
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    self.excluded = new_excluded
+                    event.button.label = "✓" if self.excluded else "✗"
+
+                    # Update the header to show/hide [EXCLUDED] indicator
+                    # Find and update the header Static
+                    for child in self.query(".message-role"):
+                        if isinstance(child, Static):
+                            header_text = Text()
+                            time_str = datetime.now().strftime('%H:%M:%S')
+                            if self.role == "user":
+                                role_style = "bold cyan"
+                                prefix = self.user_display_name or "You"
+                            elif self.role in ("cass", "assistant"):
+                                role_style = "bold magenta"
+                                prefix = "Cass"
+                            else:
+                                role_style = "bold yellow"
+                                prefix = self.role.title()
+                            header_text.append(f"[{time_str}] ", style="dim")
+                            header_text.append(f"{prefix}", style=role_style)
+                            if self.role in ("cass", "assistant") and (self.input_tokens or self.output_tokens):
+                                header_text.append(f" [{self.input_tokens}→{self.output_tokens}]", style="dim")
+                            if self.excluded:
+                                header_text.append(" [EXCLUDED]", style="bold red")
+                            child.update(header_text)
+                            break
+
+                    embeddings_removed = data.get("embeddings_removed", 0)
+                    action = "Excluded" if new_excluded else "Included"
+                    debug_log(f"{action} message, removed {embeddings_removed} embeddings", "info")
+                else:
+                    debug_log(f"Exclude API error: {response.status_code}", "error")
+                    event.button.label = "✓" if self.excluded else "✗"  # Reset to current state
+            else:
+                debug_log("No HTTP client available", "error")
+                event.button.label = "✓" if self.excluded else "✗"
+        except Exception as e:
+            debug_log(f"Exclude failed: {e}", "error")
+            event.button.label = "✓" if self.excluded else "✗"
+
 
 class ChatContainer(VerticalScroll):
     """Scrollable container for messages"""
@@ -690,9 +962,9 @@ class ChatContainer(VerticalScroll):
         super().__init__(**kwargs)
         self.can_focus = True
 
-    async def add_message(self, role: str, content: str, animations: Optional[List[Dict]] = None, audio_data: Optional[str] = None, input_tokens: int = 0, output_tokens: int = 0):
+    async def add_message(self, role: str, content: str, animations: Optional[List[Dict]] = None, audio_data: Optional[str] = None, input_tokens: int = 0, output_tokens: int = 0, timestamp: Optional[str] = None, excluded: bool = False, user_display_name: Optional[str] = None):
         """Add a new message to the chat"""
-        message = ChatMessage(role, content, animations, audio_data=audio_data, input_tokens=input_tokens, output_tokens=output_tokens, classes="chat-message")
+        message = ChatMessage(role, content, animations, audio_data=audio_data, input_tokens=input_tokens, output_tokens=output_tokens, timestamp=timestamp, excluded=excluded, user_display_name=user_display_name, classes="chat-message")
         await self.mount(message)
         message.scroll_visible()
 
@@ -715,19 +987,38 @@ class SummaryPanel(VerticalScroll):
             response = await http_client.get(f"/conversations/{conversation_id}/summaries")
             if response.status_code == 200:
                 data = response.json()
-                await self.display_summaries(data.get("summaries", []))
+                await self.display_summaries(
+                    data.get("summaries", []),
+                    data.get("working_summary")
+                )
         except Exception as e:
             await self.display_error(f"Failed to load summaries: {str(e)}")
 
-    async def display_summaries(self, summaries: List[Dict]):
-        """Display summary chunks"""
+    async def display_summaries(self, summaries: List[Dict], working_summary: Optional[str] = None):
+        """Display working summary and summary chunks"""
         # Clear existing content
         await self.remove_children()
 
+        # Display working summary at the top if available
+        if working_summary:
+            ws_text = Text()
+            ws_text.append("═══ Working Summary ═══\n", style="bold green")
+            ws_text.append("(Token-optimized context used in prompts)\n\n", style="dim italic")
+            ws_text.append(working_summary)
+            ws_text.append("\n\n" + "═" * 40 + "\n\n", style="dim green")
+            await self.mount(Static(ws_text))
+
         if not summaries:
-            text = Text("No summaries yet", style="dim italic")
-            await self.mount(Static(text))
+            if not working_summary:
+                text = Text("No summaries yet", style="dim italic")
+                await self.mount(Static(text))
             return
+
+        # Section header for chunks
+        header = Text()
+        header.append("─── Summary Chunks ───\n", style="bold cyan")
+        header.append("(Detailed chunks stored for journals & search)\n\n", style="dim italic")
+        await self.mount(Static(header))
 
         # Display newest first (reverse chronological order)
         # Backend returns chronological (oldest first), so we reverse
@@ -744,7 +1035,7 @@ class SummaryPanel(VerticalScroll):
 
             # Build summary display
             text = Text()
-            text.append(f"Summary #{summary_num}\n", style="bold cyan")
+            text.append(f"Chunk #{summary_num}\n", style="bold cyan")
             text.append(f"Timeframe: {metadata.get('timeframe_start', 'unknown')[:19]} to {metadata.get('timeframe_end', 'unknown')[:19]}\n", style="dim")
             text.append(f"Messages: {metadata.get('message_count', 0)}\n\n", style="dim")
             text.append(content)
@@ -1062,6 +1353,185 @@ class CalendarWidget(Container):
         """Update which dates have journal entries"""
         self.journal_dates = set(dates)
         await self._render_calendar()
+
+
+class ObservationItem(Static):
+    """A single observation that can be deleted"""
+
+    def __init__(self, obs_id: str, text: str, timestamp: str, **kwargs):
+        self.obs_id = obs_id
+        self.obs_text = text
+        self.timestamp = timestamp
+        super().__init__(**kwargs)
+
+    def compose(self) -> ComposeResult:
+        date_str = self.timestamp[:10] if self.timestamp else "?"
+        yield Static(Text.assemble(
+            (f"[{date_str}] ", "dim"),
+            (self.obs_text, ""),
+        ), classes="obs-text")
+        yield Button("×", variant="error", classes="obs-delete-btn")
+
+
+class UserPanel(Container):
+    """Panel showing current user profile and observations"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.user_data: Optional[Dict] = None
+        self.observations: List[Dict] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="user-content"):
+            yield Label("👤 User Profile", id="user-panel-header")
+
+            # Profile section
+            with VerticalScroll(id="profile-section"):
+                yield Static("Loading...", id="profile-display")
+
+            yield Rule()
+
+            # Observations section
+            yield Label("Observations", id="observations-header")
+            yield Static("0 observations", id="observations-count")
+            with VerticalScroll(id="observations-list"):
+                yield Static("Loading observations...", id="observations-placeholder")
+
+    async def on_mount(self) -> None:
+        """Load user data on mount"""
+        await self.load_user_data()
+
+    async def load_user_data(self) -> None:
+        """Load current user profile and observations"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            # Get current user
+            response = await app.http_client.get("/users/current")
+            if response.status_code != 200:
+                self._show_no_user()
+                return
+
+            data = response.json()
+            user = data.get("user")
+            if not user:
+                self._show_no_user()
+                return
+
+            user_id = user.get("user_id")
+
+            # Get full profile
+            response = await app.http_client.get(f"/users/{user_id}")
+            if response.status_code == 200:
+                data = response.json()
+                self.user_data = data.get("profile", {})
+                self.observations = data.get("observations", [])
+                await self._display_profile()
+                await self._display_observations()
+
+        except Exception as e:
+            debug_log(f"Failed to load user data: {e}", "error")
+
+    def _show_no_user(self) -> None:
+        """Show no user selected state"""
+        profile_display = self.query_one("#profile-display", Static)
+        profile_display.update("No user selected")
+
+    async def _display_profile(self) -> None:
+        """Display the user profile"""
+        if not self.user_data:
+            return
+
+        profile_display = self.query_one("#profile-display", Static)
+
+        # Format profile as readable text
+        lines = []
+        lines.append(f"Name: {self.user_data.get('display_name', 'Unknown')}")
+        lines.append(f"Relationship: {self.user_data.get('relationship', 'user')}")
+
+        bg = self.user_data.get('background', {})
+        if bg:
+            lines.append("\nBackground:")
+            for key, value in bg.items():
+                lines.append(f"  {key}: {value}")
+
+        comm = self.user_data.get('communication', {})
+        if comm:
+            lines.append("\nCommunication:")
+            if comm.get('style'):
+                lines.append(f"  Style: {comm['style']}")
+            prefs = comm.get('preferences', [])
+            if prefs:
+                lines.append("  Preferences:")
+                for p in prefs:
+                    lines.append(f"    - {p}")
+
+        values = self.user_data.get('values', [])
+        if values:
+            lines.append("\nValues:")
+            for v in values:
+                lines.append(f"  - {v}")
+
+        notes = self.user_data.get('notes', '')
+        if notes:
+            lines.append(f"\nNotes:\n{notes[:500]}{'...' if len(notes) > 500 else ''}")
+
+        profile_display.update("\n".join(lines))
+
+    async def _display_observations(self) -> None:
+        """Display observations list"""
+        count_label = self.query_one("#observations-count", Static)
+        count_label.update(f"{len(self.observations)} observations")
+
+        obs_list = self.query_one("#observations-list", VerticalScroll)
+
+        # Clear existing
+        placeholder = obs_list.query("#observations-placeholder")
+        if placeholder:
+            await placeholder.first().remove()
+
+        # Remove old observation items
+        for child in list(obs_list.children):
+            if isinstance(child, ObservationItem):
+                await child.remove()
+
+        # Add observations (newest first)
+        sorted_obs = sorted(self.observations, key=lambda x: x.get('timestamp', ''), reverse=True)
+        for obs in sorted_obs:
+            item = ObservationItem(
+                obs_id=obs.get('id', ''),
+                text=obs.get('observation', ''),
+                timestamp=obs.get('timestamp', ''),
+            )
+            await obs_list.mount(item)
+
+    @on(Button.Pressed, ".obs-delete-btn")
+    async def on_delete_observation(self, event: Button.Pressed) -> None:
+        """Handle observation delete button"""
+        # Find parent ObservationItem
+        parent = event.button.parent
+        if isinstance(parent, ObservationItem):
+            obs_id = parent.obs_id
+            await self._delete_observation(obs_id, parent)
+
+    async def _delete_observation(self, obs_id: str, widget: ObservationItem) -> None:
+        """Delete an observation"""
+        try:
+            app = self.app
+            response = await app.http_client.delete(f"/users/observations/{obs_id}")
+            if response.status_code == 200:
+                await widget.remove()
+                # Update count
+                self.observations = [o for o in self.observations if o.get('id') != obs_id]
+                count_label = self.query_one("#observations-count", Static)
+                count_label.update(f"{len(self.observations)} observations")
+                debug_log(f"Deleted observation {obs_id}", "success")
+            else:
+                debug_log(f"Failed to delete observation: {response.text}", "error")
+        except Exception as e:
+            debug_log(f"Failed to delete observation: {e}", "error")
 
 
 class GrowthPanel(Container):
@@ -1421,6 +1891,15 @@ class CassVesselTUI(App):
         background: $success;
     }
 
+    .chat-message .message-header .exclude-btn {
+        background: $warning-darken-2;
+        margin-left: 1;
+    }
+
+    .chat-message .message-header .exclude-btn:hover {
+        background: $warning;
+    }
+
     .chat-message .message-text {
         width: 100%;
         padding: 0 0 0 2;
@@ -1567,6 +2046,168 @@ class CassVesselTUI(App):
         margin: 0 1;
     }
 
+    /* User selector in sidebar */
+    #user-selector {
+        height: auto;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    #user-header {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 0;
+    }
+
+    #current-user-display {
+        color: $text;
+        margin: 0 0 0 1;
+    }
+
+    #switch-user-btn {
+        width: 100%;
+        margin-top: 1;
+    }
+
+    /* User select dialog modal */
+    UserSelectScreen {
+        align: center middle;
+    }
+
+    #user-dialog {
+        width: 50;
+        height: auto;
+        max-height: 80%;
+        background: $panel;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #user-dialog-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #user-select-list {
+        height: auto;
+        max-height: 15;
+        margin-bottom: 1;
+    }
+
+    #user-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #create-user-btn {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    /* Create user dialog modal */
+    CreateUserScreen {
+        align: center middle;
+    }
+
+    #create-user-dialog {
+        width: 60;
+        height: auto;
+        background: $panel;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #create-user-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #user-name-input, #user-notes-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #user-relationship-select {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #create-user-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #create-user-buttons Button {
+        margin: 0 1;
+    }
+
+    /* User panel styling */
+    #user-panel {
+        height: 1fr;
+        background: $surface;
+    }
+
+    #user-content {
+        height: 1fr;
+        padding: 1;
+    }
+
+    #user-panel-header {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #profile-section {
+        height: auto;
+        max-height: 40%;
+        margin-bottom: 1;
+    }
+
+    #profile-display {
+        padding: 1;
+    }
+
+    #observations-header {
+        text-style: bold;
+        margin-top: 1;
+    }
+
+    #observations-count {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #observations-list {
+        height: 1fr;
+    }
+
+    ObservationItem {
+        height: auto;
+        padding: 0 1;
+        margin-bottom: 1;
+        layout: horizontal;
+    }
+
+    .obs-text {
+        width: 1fr;
+    }
+
+    .obs-delete-btn {
+        width: 3;
+        min-width: 3;
+        height: 1;
+        margin-left: 1;
+    }
+
     /* Growth panel styling */
     #growth-panel {
         height: 1fr;
@@ -1702,6 +2343,7 @@ class CassVesselTUI(App):
         Binding("ctrl+t", "toggle_terminal", "Terminal", show=True),
         Binding("ctrl+g", "toggle_growth", "Growth", show=True),
         Binding("ctrl+m", "toggle_tts", "Mute TTS", show=True),
+        Binding("ctrl+o", "toggle_llm", "Toggle LLM", show=True),
         Binding("f12", "toggle_debug", "Debug", show=True),
         Binding("ctrl+s", "show_status", "Status", show=True),
     ]
@@ -1709,6 +2351,7 @@ class CassVesselTUI(App):
     current_conversation_id: reactive[Optional[str]] = reactive(None)
     current_conversation_title: reactive[Optional[str]] = reactive(None)
     current_project_id: reactive[Optional[str]] = reactive(None)
+    current_user_display_name: reactive[Optional[str]] = reactive(None)
 
     def __init__(self, initial_project: Optional[str] = None):
         super().__init__()
@@ -1717,6 +2360,9 @@ class CassVesselTUI(App):
         self.http_client = httpx.AsyncClient(base_url=HTTP_BASE_URL, timeout=HTTP_TIMEOUT)
         self.initial_project = initial_project  # Project to select on startup
         self.tts_enabled = AUDIO_AVAILABLE  # Enable TTS by default if audio is available
+        self.llm_provider = "anthropic"  # "anthropic" or "local"
+        self.local_llm_available = False  # Set by checking backend on startup
+        self.local_model_name: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
@@ -1740,6 +2386,8 @@ class CassVesselTUI(App):
                                 yield ProjectPanel(id="project-panel")
                             with TabPane("Growth", id="growth-tab"):
                                 yield GrowthPanel(id="growth-panel")
+                            with TabPane("User", id="user-tab"):
+                                yield UserPanel(id="user-panel")
                             with TabPane("Summary", id="summary-tab"):
                                 yield SummaryPanel(id="summary-panel")
                             with TabPane("Terminal", id="terminal-tab"):
@@ -1774,6 +2422,13 @@ class CassVesselTUI(App):
         sidebar = self.query_one("#sidebar", Sidebar)
         await sidebar.load_projects(self.http_client)
         await sidebar.load_conversations(self.http_client)
+
+        # Load user info
+        user_selector = sidebar.query_one("#user-selector", UserSelector)
+        await user_selector.load_users(self.http_client)
+
+        # Check LLM provider settings
+        await self.fetch_llm_provider_status()
 
         # Connect to backend
         self.connect_websocket()
@@ -1839,6 +2494,44 @@ class CassVesselTUI(App):
         status = "enabled" if self.tts_enabled else "muted"
         await chat.add_message("system", f"🔊 TTS audio {status}", None)
         debug_log(f"TTS {status}", "info")
+
+    async def action_toggle_llm(self) -> None:
+        """Toggle between Anthropic and local LLM"""
+        chat = self.query_one("#chat-container", ChatContainer)
+        status_bar = self.query_one("#status", StatusBar)
+
+        if not self.local_llm_available:
+            await chat.add_message("system", "🖥️ Local LLM not available (OLLAMA_ENABLED=false in backend)", None)
+            return
+
+        # Toggle provider
+        new_provider = "local" if self.llm_provider == "anthropic" else "anthropic"
+
+        try:
+            response = await self.http_client.post(
+                "/settings/llm-provider",
+                json={"provider": new_provider}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                self.llm_provider = data.get("provider", new_provider)
+                model = data.get("model")
+
+                # Update status bar
+                status_bar.set_llm_provider(self.llm_provider, self.local_model_name)
+
+                # Notify user
+                if self.llm_provider == "local":
+                    await chat.add_message("system", f"🖥️ Switched to local LLM ({self.local_model_name or 'ollama'})", None)
+                else:
+                    await chat.add_message("system", f"☁️ Switched to Anthropic Claude", None)
+
+                debug_log(f"LLM provider switched to {self.llm_provider}", "info")
+            else:
+                error = response.json().get("detail", "Unknown error")
+                await chat.add_message("system", f"✗ Failed to switch LLM: {error}", None)
+        except Exception as e:
+            await chat.add_message("system", f"✗ Failed to switch LLM: {str(e)}", None)
 
     @work(exclusive=True)
     async def connect_websocket(self):
@@ -1997,6 +2690,12 @@ class CassVesselTUI(App):
             elif msg_type == "pong":
                 pass
 
+            elif msg_type == "system":
+                # System notification (e.g., summarization status)
+                message = data.get("message", "")
+                if message:
+                    await chat.add_message("system", message, None)
+
             elif msg_type == "status":
                 status_bar = self.query_one("#status", StatusBar)
                 status_bar.update_status(
@@ -2023,6 +2722,24 @@ class CassVesselTUI(App):
         except Exception:
             pass
 
+    async def fetch_llm_provider_status(self):
+        """Fetch LLM provider settings from backend"""
+        try:
+            response = await self.http_client.get("/settings/llm-provider")
+            if response.status_code == 200:
+                data = response.json()
+                self.llm_provider = data.get("current", "anthropic")
+                self.local_llm_available = data.get("local_enabled", False)
+                self.local_model_name = data.get("local_model")
+
+                # Update status bar
+                status_bar = self.query_one("#status", StatusBar)
+                status_bar.set_llm_provider(self.llm_provider, self.local_model_name)
+
+                debug_log(f"LLM provider: {self.llm_provider}, local available: {self.local_llm_available}", "info")
+        except Exception as e:
+            debug_log(f"Failed to fetch LLM provider status: {e}", "error")
+
     @on(Input.Submitted, "#input")
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user input submission"""
@@ -2041,7 +2758,7 @@ class CassVesselTUI(App):
 
         # Add user message to chat
         chat = self.query_one("#chat-container", ChatContainer)
-        await chat.add_message("user", user_input, None)
+        await chat.add_message("user", user_input, None, user_display_name=self.current_user_display_name)
 
         # Send to backend
         if self.ws and not self.ws.closed:
@@ -2079,6 +2796,37 @@ class CassVesselTUI(App):
         elif cmd == "/summarize":
             # Trigger memory summarization for current conversation
             await self.trigger_summarization()
+        elif cmd == "/llm":
+            if arg and arg.lower() in ("local", "anthropic", "claude"):
+                # Set specific provider
+                provider = "local" if arg.lower() == "local" else "anthropic"
+                if provider == "local" and not self.local_llm_available:
+                    await chat.add_message("system", "🖥️ Local LLM not available (OLLAMA_ENABLED=false in backend)", None)
+                else:
+                    try:
+                        response = await self.http_client.post(
+                            "/settings/llm-provider",
+                            json={"provider": provider}
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            self.llm_provider = data.get("provider", provider)
+                            status_bar = self.query_one("#status", StatusBar)
+                            status_bar.set_llm_provider(self.llm_provider, self.local_model_name)
+                            if self.llm_provider == "local":
+                                await chat.add_message("system", f"🖥️ Switched to local LLM ({self.local_model_name or 'ollama'})", None)
+                            else:
+                                await chat.add_message("system", f"☁️ Switched to Anthropic Claude", None)
+                        else:
+                            error = response.json().get("detail", "Unknown error")
+                            await chat.add_message("system", f"✗ Failed: {error}", None)
+                    except Exception as e:
+                        await chat.add_message("system", f"✗ Failed: {str(e)}", None)
+            else:
+                # Show current provider and toggle hint
+                current = "Local LLM" if self.llm_provider == "local" else "Anthropic Claude"
+                local_status = f"available ({self.local_model_name})" if self.local_llm_available else "not available"
+                await chat.add_message("system", f"🤖 Current LLM: {current}\nLocal LLM: {local_status}\n\nUse /llm local or /llm claude to switch, or Ctrl+O to toggle", None)
         elif cmd == "/help":
             help_text = (
                 "Available commands:\n"
@@ -2086,6 +2834,7 @@ class CassVesselTUI(App):
                 "  /project         - Show current project\n"
                 "  /projects        - List all projects\n"
                 "  /summarize       - Trigger memory summarization\n"
+                "  /llm [local|claude] - Show or switch LLM provider\n"
                 "  /help            - Show this help"
             )
             await chat.add_message("system", help_text, None)
@@ -2376,6 +3125,91 @@ class CassVesselTUI(App):
             chat = self.query_one("#chat-container", ChatContainer)
             await chat.add_message("system", f"✗ Failed to create project: {str(e)}", None)
 
+    # === User Management ===
+
+    @on(Button.Pressed, "#switch-user-btn")
+    def on_switch_user_pressed(self) -> None:
+        """Handle switch user button"""
+        sidebar = self.query_one("#sidebar", Sidebar)
+        user_selector = sidebar.query_one("#user-selector", UserSelector)
+        self.show_user_select_modal(user_selector.users, user_selector.current_user_id)
+
+    def show_user_select_modal(self, users: List[Dict], current_user_id: Optional[str]) -> None:
+        """Show user selection modal"""
+        def handle_result(result: Optional[Dict]) -> None:
+            if result:
+                if result.get("action") == "select":
+                    self.call_later(self._do_select_user, result.get("user_id"))
+                elif result.get("action") == "create":
+                    self.call_later(self._show_create_user_modal)
+
+        self.push_screen(UserSelectScreen(users, current_user_id), handle_result)
+
+    async def _show_create_user_modal(self) -> None:
+        """Show create user modal"""
+        def handle_result(result: Optional[Dict]) -> None:
+            if result:
+                self.call_later(self._do_create_user, result)
+
+        self.push_screen(CreateUserScreen(), handle_result)
+
+    async def _do_select_user(self, user_id: str) -> None:
+        """Select a user"""
+        try:
+            response = await self.http_client.post("/users/current", json={"user_id": user_id})
+            if response.status_code == 200:
+                data = response.json()
+                user = data.get("user", {})
+                display_name = user.get('display_name')
+
+                # Update app's current user display name
+                self.current_user_display_name = display_name
+
+                # Update sidebar display
+                sidebar = self.query_one("#sidebar", Sidebar)
+                user_selector = sidebar.query_one("#user-selector", UserSelector)
+                user_selector.current_user_id = user_id
+                display = user_selector.query_one("#current-user-display", Static)
+                display.update(Text(f"● {display_name}", style="bold green"))
+
+                # Notify user
+                chat = self.query_one("#chat-container", ChatContainer)
+                await chat.add_message("system", f"👤 Switched to user: {display_name}", None)
+            else:
+                error = response.json().get("detail", "Unknown error")
+                chat = self.query_one("#chat-container", ChatContainer)
+                await chat.add_message("system", f"✗ Failed to switch user: {error}", None)
+        except Exception as e:
+            chat = self.query_one("#chat-container", ChatContainer)
+            await chat.add_message("system", f"✗ Failed to switch user: {str(e)}", None)
+
+    async def _do_create_user(self, user_data: Dict) -> None:
+        """Create a new user"""
+        try:
+            response = await self.http_client.post("/users", json=user_data)
+            if response.status_code == 200:
+                data = response.json()
+                user = data.get("user", {})
+
+                # Notify user
+                chat = self.query_one("#chat-container", ChatContainer)
+                await chat.add_message("system", f"👤 Created user: {user.get('display_name')}", None)
+
+                # Reload users and select the new one
+                sidebar = self.query_one("#sidebar", Sidebar)
+                user_selector = sidebar.query_one("#user-selector", UserSelector)
+                await user_selector.load_users(self.http_client)
+
+                # Auto-select the new user
+                await self._do_select_user(user.get("user_id"))
+            else:
+                error = response.json().get("detail", "Unknown error")
+                chat = self.query_one("#chat-container", ChatContainer)
+                await chat.add_message("system", f"✗ Failed to create user: {error}", None)
+        except Exception as e:
+            chat = self.query_one("#chat-container", ChatContainer)
+            await chat.add_message("system", f"✗ Failed to create user: {str(e)}", None)
+
     def action_rename_conversation(self) -> None:
         """Rename the current conversation"""
         if not self.current_conversation_id:
@@ -2437,10 +3271,16 @@ class CassVesselTUI(App):
 
                 # Load messages
                 for msg in data.get("messages", []):
+                    # Use current user display name for user messages
+                    # (In multi-user scenario, we'd look up by msg.get("user_id"))
+                    display_name = self.current_user_display_name if msg["role"] == "user" else None
                     await chat.add_message(
                         msg["role"],
                         msg["content"],
-                        msg.get("animations")
+                        msg.get("animations"),
+                        timestamp=msg.get("timestamp"),
+                        excluded=msg.get("excluded", False),
+                        user_display_name=display_name
                     )
 
                 # Load summaries

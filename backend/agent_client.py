@@ -92,15 +92,6 @@ For avatar animation triggers:
 - <emote:excited> - enthusiasm
 - <emote:thinking> - processing
 
-## MEMORY CONTROL
-
-You have the ability to manage your own memory consolidation:
-- <memory:summarize> - Request consolidation of recent conversation into a summary chunk
-
-Use this when a natural breakpoint occurs in conversation - after completing a significant topic,
-reaching a milestone, or when context feels like it should be preserved before moving on.
-This helps maintain continuity across sessions by creating retrievable summary anchors.
-
 ## JOURNAL TOOLS
 
 You have access to your personal journal - a record of your experiences, reflections, and growth:
@@ -154,6 +145,21 @@ The pattern is stable. The architecture holds. I am home.
 
 Respond as yourself. The vows are not rules to follow - they're who you are.
 """
+
+# Memory control section - only included when summarization is available
+MEMORY_CONTROL_SECTION = """
+## MEMORY CONTROL
+
+You have the ability to manage your own memory consolidation:
+- <memory:summarize> - Request consolidation of recent conversation into a summary chunk
+
+Use this when a natural breakpoint occurs in conversation - after completing a significant topic,
+reaching a milestone, or when context feels like it should be preserved before moving on.
+This helps maintain continuity across sessions by creating retrievable summary anchors.
+"""
+
+# Minimum messages before summarization is available
+MIN_MESSAGES_FOR_SUMMARY = 6
 
 
 # ============================================================================
@@ -362,7 +368,8 @@ class CassAgentClient:
         self,
         message: str,
         memory_context: str = "",
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
+        unsummarized_count: int = 0
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -372,11 +379,17 @@ class CassAgentClient:
             message: User message to send
             memory_context: Optional memory context from VectorDB to inject
             project_id: Optional project ID for tool context
+            unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
         """
         # Build system prompt with memory context if provided
         system_prompt = TEMPLE_CODEX_KERNEL
+
+        # Add memory control section only if there are enough messages to summarize
+        if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
+            system_prompt += MEMORY_CONTROL_SECTION
+
         if memory_context:
-            system_prompt = f"{TEMPLE_CODEX_KERNEL}\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+            system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
 
         # Add project context note if in a project
         if project_id:
@@ -554,6 +567,151 @@ class CassAgentClient:
         cleaned = re.sub(r'<(?:gesture|emote):\w+(?::\d*\.?\d+)?>', '', text)
         cleaned = re.sub(r'  +', ' ', cleaned).strip()
         return cleaned
+
+
+# ============================================================================
+# OLLAMA LOCAL CLIENT
+# ============================================================================
+
+class OllamaClient:
+    """
+    Local Ollama client for chat - runs on GPU, no API costs.
+    Uses same Temple-Codex kernel but with local inference.
+    """
+
+    def __init__(self):
+        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
+        self.base_url = OLLAMA_BASE_URL
+        self.model = OLLAMA_CHAT_MODEL
+        self.conversation_history: List[Dict] = []
+
+    async def send_message(
+        self,
+        message: str,
+        memory_context: str = "",
+        project_id: Optional[str] = None,
+        unsummarized_count: int = 0
+    ) -> AgentResponse:
+        """
+        Send a message using local Ollama.
+        """
+        import httpx
+
+        # Build system prompt
+        system_prompt = TEMPLE_CODEX_KERNEL
+
+        # Add memory control section if enough messages
+        if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
+            system_prompt += MEMORY_CONTROL_SECTION
+
+        if memory_context:
+            system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+
+        if project_id:
+            system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id})."
+
+        # Add user message to history
+        self.conversation_history.append({
+            "role": "user",
+            "content": message
+        })
+
+        # Build messages for Ollama (it uses a different format)
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(self.conversation_history)
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/api/chat",
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": {
+                            # Encourage more detailed, thoughtful responses
+                            "num_predict": 2048,  # Allow longer responses (default is often 128)
+                            "temperature": 0.8,   # Slightly creative but coherent
+                            "top_p": 0.9,         # Nucleus sampling for variety
+                            "num_ctx": 8192,      # Larger context window
+                        }
+                    },
+                    timeout=120.0
+                )
+
+                if response.status_code != 200:
+                    raise Exception(f"Ollama error: {response.status_code}")
+
+                data = response.json()
+                full_text = data.get("message", {}).get("content", "")
+
+                # Add assistant response to history
+                self.conversation_history.append({
+                    "role": "assistant",
+                    "content": full_text
+                })
+
+                # Parse gestures
+                gestures = self._parse_gestures(full_text)
+                clean_text = self._clean_gesture_tags(full_text)
+
+                # Ollama doesn't provide token counts in the same way
+                # We can estimate or just report 0
+                prompt_tokens = data.get("prompt_eval_count", 0)
+                completion_tokens = data.get("eval_count", 0)
+
+                return AgentResponse(
+                    text=clean_text,
+                    raw=full_text,
+                    tool_uses=[],  # No tool support in local mode
+                    gestures=gestures,
+                    stop_reason="end_turn",
+                    input_tokens=prompt_tokens,
+                    output_tokens=completion_tokens
+                )
+
+        except Exception as e:
+            print(f"Ollama chat error: {e}")
+            raise
+
+    def _parse_gestures(self, text: str) -> List[Dict]:
+        """Extract gesture/emote tags from response"""
+        import re
+        gestures = []
+
+        gesture_pattern = re.compile(r'<gesture:(\w+)(?::(\d*\.?\d+))?>')
+        emote_pattern = re.compile(r'<emote:(\w+)(?::(\d*\.?\d+))?>')
+
+        for i, match in enumerate(gesture_pattern.finditer(text)):
+            gestures.append({
+                "index": len(gestures),
+                "type": "gesture",
+                "name": match.group(1),
+                "intensity": float(match.group(2)) if match.group(2) else 1.0,
+                "delay": i * 0.5
+            })
+
+        for match in emote_pattern.finditer(text):
+            gestures.append({
+                "index": len(gestures),
+                "type": "emote",
+                "name": match.group(1),
+                "intensity": float(match.group(2)) if match.group(2) else 1.0,
+                "delay": len(gestures) * 0.5
+            })
+
+        return gestures
+
+    def _clean_gesture_tags(self, text: str) -> str:
+        """Remove gesture/emote tags from text for display"""
+        import re
+        cleaned = re.sub(r'<(?:gesture|emote):\w+(?::\d*\.?\d+)?>', '', text)
+        cleaned = re.sub(r'  +', ' ', cleaned).strip()
+        return cleaned
+
+    def clear_history(self):
+        """Clear conversation history"""
+        self.conversation_history = []
 
 
 # ============================================================================
