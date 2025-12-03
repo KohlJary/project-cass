@@ -679,6 +679,9 @@ TASK_TOOLS = [
     }
 ]
 
+# Import self-model tools from handlers
+from handlers.self_model import SELF_MODEL_TOOLS
+
 
 # ============================================================================
 # DYNAMIC TOOL SELECTION
@@ -702,6 +705,15 @@ TASK_KEYWORDS = frozenset({
     "complete", "done", "finish", "finished"
 })
 
+SELF_MODEL_KEYWORDS = frozenset({
+    "reflect", "reflection", "self-model", "self model",
+    "my opinion", "my position", "i think", "i believe",
+    "disagree", "disagreement", "my view",
+    "growth edge", "growth edges", "developing",
+    "who am i", "identity", "myself",
+    "form opinion", "record observation"
+})
+
 
 def should_include_calendar_tools(message: str) -> bool:
     """Check if message warrants calendar tools."""
@@ -713,6 +725,12 @@ def should_include_task_tools(message: str) -> bool:
     """Check if message warrants task tools."""
     message_lower = message.lower()
     return any(kw in message_lower for kw in TASK_KEYWORDS)
+
+
+def should_include_self_model_tools(message: str) -> bool:
+    """Check if message warrants self-model tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in SELF_MODEL_KEYWORDS)
 
 
 # ============================================================================
@@ -786,6 +804,10 @@ class CassAgentClient:
             if should_include_task_tools(message):
                 tools.extend(TASK_TOOLS)
 
+            # Self-model tools - only if message mentions reflection/identity
+            if should_include_self_model_tools(message):
+                tools.extend(SELF_MODEL_TOOLS)
+
         # Project tools only available in project context
         if project_id and self.enable_tools:
             tools.extend(PROJECT_DOCUMENT_TOOLS)
@@ -802,7 +824,9 @@ class CassAgentClient:
         message: str,
         memory_context: str = "",
         project_id: Optional[str] = None,
-        unsummarized_count: int = 0
+        unsummarized_count: int = 0,
+        image: Optional[str] = None,
+        image_media_type: Optional[str] = None
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -813,6 +837,8 @@ class CassAgentClient:
             memory_context: Optional memory context from VectorDB to inject
             project_id: Optional project ID for tool context
             unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
+            image: Optional base64 encoded image data
+            image_media_type: Optional media type for image (e.g., "image/png")
         """
         # Build system prompt with memory context if provided
         system_prompt = TEMPLE_CODEX_KERNEL
@@ -839,9 +865,29 @@ class CassAgentClient:
         # Get tools based on context and message content
         tools = self.get_tools(project_id, message=message)
 
+        # Build message content - can include image for vision
+        if image and image_media_type:
+            print(f"[Vision] Including image: {image_media_type}, {len(image)} bytes base64")
+            user_content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image_media_type,
+                        "data": image
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": message
+                }
+            ]
+        else:
+            user_content = message
+
         # Start fresh - no history from previous exchanges
         # Context comes from memory system in system_prompt
-        self._tool_chain_messages = [{"role": "user", "content": message}]
+        self._tool_chain_messages = [{"role": "user", "content": user_content}]
         self._current_system_prompt = system_prompt
 
         api_kwargs = {
@@ -1143,6 +1189,10 @@ class OllamaClient:
         # Task tools - only if message mentions tasks/todos
         if should_include_task_tools(message):
             tools.extend(TASK_TOOLS)
+
+        # Self-model tools - only if message mentions reflection/identity
+        if should_include_self_model_tools(message):
+            tools.extend(SELF_MODEL_TOOLS)
 
         # Project tools only available in project context
         if project_id:

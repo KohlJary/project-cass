@@ -22,6 +22,7 @@ from .panels import (
     GrowthPanel,
     CalendarEventsPanel,
     TasksPanel,
+    SelfModelPanel,
 )
 from .calendar import CalendarDay, CalendarWidget, EventCalendarDay, EventCalendarWidget
 
@@ -51,6 +52,7 @@ __all__ = [
     "GrowthPanel",
     "CalendarEventsPanel",
     "TasksPanel",
+    "SelfModelPanel",
     # Calendar
     "CalendarDay",
     "CalendarWidget",

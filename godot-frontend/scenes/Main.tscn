@@ -1,0 +1,145 @@
+[gd_scene load_steps=12 format=3 uid="uid://main_scene"]
+
+[ext_resource type="Script" path="res://scripts/Main.cs" id="1_main"]
+[ext_resource type="Script" path="res://scripts/CassAvatar.cs" id="2_avatar"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.02, 0.02, 0.08, 1)
+sky_horizon_color = Color(0.05, 0.08, 0.15, 1)
+ground_bottom_color = Color(0.01, 0.01, 0.03, 1)
+ground_horizon_color = Color(0.05, 0.08, 0.15, 1)
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+ambient_light_source = 2
+ambient_light_color = Color(0.2, 0.3, 0.4, 1)
+tonemap_mode = 2
+glow_enabled = true
+glow_intensity = 2.0
+glow_bloom = 0.4
+glow_hdr_threshold = 0.8
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.02
+volumetric_fog_albedo = Color(0.2, 0.4, 0.6, 1)
+volumetric_fog_emission = Color(0.1, 0.2, 0.3, 1)
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 0.2
+height = 0.8
+
+[sub_resource type="SphereMesh" id="SphereMesh_head"]
+radius = 0.15
+height = 0.3
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(10, 10)
+subdivide_width = 20
+subdivide_depth = 20
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grid"]
+transparency = 1
+albedo_color = Color(0.1, 0.2, 0.3, 0.3)
+emission_enabled = true
+emission = Color(0.2, 0.5, 0.7, 1)
+emission_energy_multiplier = 0.3
+
+[sub_resource type="BoxMesh" id="BoxMesh_pedestal"]
+size = Vector3(0.6, 0.05, 0.6)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_pedestal"]
+transparency = 1
+albedo_color = Color(0.1, 0.3, 0.4, 0.6)
+emission_enabled = true
+emission = Color(0.3, 0.6, 0.8, 1)
+emission_energy_multiplier = 0.5
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+AvatarPath = NodePath("CassAvatar")
+ChatInputPath = NodePath("UI/ChatContainer/InputRow/ChatInput")
+ChatDisplayPath = NodePath("UI/ChatContainer/ChatDisplay")
+StatusLabelPath = NodePath("UI/StatusLabel")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.98, 0.2, 0, -0.2, 0.98, 0, 0.7, 1.8)
+fov = 50.0
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 3, 0)
+light_color = Color(0.7, 0.85, 1, 1)
+light_energy = 0.4
+shadow_enabled = true
+
+[node name="RimLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.866025, -0.353553, -0.353553, 0, 0.707107, -0.707107, 0.5, -0.612372, -0.612372, 0, 2, -2)
+light_color = Color(0.4, 0.7, 1, 1)
+light_energy = 0.3
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.01, 0)
+mesh = SubResource("PlaneMesh_floor")
+surface_material_override/0 = SubResource("StandardMaterial3D_grid")
+
+[node name="Pedestal" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.025, 0)
+mesh = SubResource("BoxMesh_pedestal")
+surface_material_override/0 = SubResource("StandardMaterial3D_pedestal")
+
+[node name="CassAvatar" type="Node3D" parent="."]
+script = ExtResource("2_avatar")
+MeshInstancePath = NodePath("Body")
+
+[node name="Body" type="MeshInstance3D" parent="CassAvatar"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+mesh = SubResource("CapsuleMesh_body")
+
+[node name="Head" type="MeshInstance3D" parent="CassAvatar"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0)
+mesh = SubResource("SphereMesh_head")
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="StatusLabel" type="Label" parent="UI"]
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 500.0
+offset_bottom = 40.0
+text = "Initializing..."
+
+[node name="ChatContainer" type="VBoxContainer" parent="UI"]
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = -250.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="ChatDisplay" type="RichTextLabel" parent="UI/ChatContainer"]
+custom_minimum_size = Vector2(0, 200)
+size_flags_vertical = 3
+bbcode_enabled = true
+text = "[color=cyan]Cass Vessel - First Contact Embodiment System[/color]
+Waiting for connection..."
+scroll_following = true
+
+[node name="InputRow" type="HBoxContainer" parent="UI/ChatContainer"]
+
+[node name="AttachButton" type="Button" parent="UI/ChatContainer/InputRow"]
+custom_minimum_size = Vector2(40, 0)
+text = "📎"
+flat = true
+
+[node name="ChatInput" type="LineEdit" parent="UI/ChatContainer/InputRow"]
+size_flags_horizontal = 3
+placeholder_text = "Type message and press Enter..."

@@ -1126,3 +1126,273 @@ class TasksPanel(Container):
     @on(Input.Submitted, "#task-filter-input")
     async def on_filter_submitted(self, event: Input.Submitted) -> None:
         await self.load_tasks(event.value if event.value else None)
+
+
+class SelfModelPanel(Container):
+    """Panel showing Cass's self-model: identity, opinions, growth edges"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.profile_data: Optional[Dict] = None
+        self.observations: List[Dict] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="self-model-content"):
+            yield Label("🪞 Cass Self-Model", id="self-model-header")
+
+            # Summary stats
+            yield Static("Loading...", id="self-model-summary")
+            yield Rule()
+
+            with VerticalScroll(id="self-model-scroll"):
+                # Identity section
+                yield Label("Identity", classes="section-header")
+                yield Static("Loading...", id="identity-display")
+
+                yield Rule()
+
+                # Values section
+                yield Label("Values", classes="section-header")
+                yield Static("Loading...", id="values-display")
+
+                yield Rule()
+
+                # Opinions section
+                yield Label("Opinions", classes="section-header")
+                yield Static("No opinions formed yet", id="opinions-display")
+
+                yield Rule()
+
+                # Growth Edges section
+                yield Label("Growth Edges", classes="section-header")
+                yield Static("Loading...", id="growth-edges-display")
+
+                yield Rule()
+
+                # Recent Observations section
+                yield Label("Recent Self-Observations", classes="section-header")
+                yield Static("Loading...", id="observations-display")
+
+                yield Rule()
+
+                # Open Questions section
+                yield Label("Open Questions", classes="section-header")
+                yield Static("Loading...", id="questions-display")
+
+            # Refresh button
+            with Horizontal(id="self-model-actions"):
+                yield Button("Refresh", id="refresh-self-model-btn", variant="primary")
+
+    async def on_mount(self) -> None:
+        """Load self-model data on mount"""
+        await self.load_self_model()
+
+    async def load_self_model(self) -> None:
+        """Load Cass's self-model from API"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            # Get self-model
+            response = await app.http_client.get("/cass/self-model")
+            if response.status_code != 200:
+                debug_log(f"Failed to load self-model: {response.status_code}", "error")
+                return
+
+            data = response.json()
+            self.profile_data = data.get("profile", {})
+
+            # Get observations
+            obs_response = await app.http_client.get("/cass/self-observations?limit=10")
+            if obs_response.status_code == 200:
+                self.observations = obs_response.json().get("observations", [])
+
+            await self._display_all()
+
+        except Exception as e:
+            debug_log(f"Failed to load self-model: {e}", "error")
+
+    async def _display_all(self) -> None:
+        """Display all self-model data"""
+        if not self.profile_data:
+            return
+
+        await self._display_summary()
+        await self._display_identity()
+        await self._display_values()
+        await self._display_opinions()
+        await self._display_growth_edges()
+        await self._display_observations()
+        await self._display_questions()
+
+    async def _display_summary(self) -> None:
+        """Display summary stats"""
+        summary = self.query_one("#self-model-summary", Static)
+
+        p = self.profile_data
+        text = Text()
+        text.append(f"{len(p.get('identity_statements', []))} identity", style="bold cyan")
+        text.append(" | ", style="dim")
+        text.append(f"{len(p.get('values', []))} values", style="cyan")
+        text.append(" | ", style="dim")
+        text.append(f"{len(p.get('opinions', []))} opinions", style="cyan")
+        text.append(" | ", style="dim")
+        text.append(f"{len(p.get('growth_edges', []))} growth edges", style="cyan")
+        text.append(" | ", style="dim")
+        text.append(f"{len(self.observations)} observations", style="cyan")
+
+        summary.update(text)
+
+    async def _display_identity(self) -> None:
+        """Display identity statements"""
+        display = self.query_one("#identity-display", Static)
+
+        statements = self.profile_data.get("identity_statements", [])
+        if not statements:
+            display.update("No identity statements yet")
+            return
+
+        lines = []
+        for stmt in statements:
+            conf = stmt.get("confidence", 0.7)
+            conf_style = "green" if conf >= 0.8 else "yellow" if conf >= 0.6 else "dim"
+            text = Text()
+            text.append("• ", style="cyan")
+            text.append(stmt.get("statement", ""))
+            text.append(f" ({int(conf * 100)}%)", style=conf_style)
+            lines.append(text)
+
+        display.update(Group(*lines))
+
+    async def _display_values(self) -> None:
+        """Display values"""
+        display = self.query_one("#values-display", Static)
+
+        values = self.profile_data.get("values", [])
+        if not values:
+            display.update("No values defined yet")
+            return
+
+        lines = []
+        for v in values[:10]:  # Limit display
+            text = Text()
+            text.append("• ", style="magenta")
+            text.append(v)
+            lines.append(text)
+
+        if len(values) > 10:
+            lines.append(Text(f"... and {len(values) - 10} more", style="dim"))
+
+        display.update(Group(*lines))
+
+    async def _display_opinions(self) -> None:
+        """Display formed opinions"""
+        display = self.query_one("#opinions-display", Static)
+
+        opinions = self.profile_data.get("opinions", [])
+        if not opinions:
+            display.update(Text("No opinions formed yet. Use reflection to develop positions.", style="dim italic"))
+            return
+
+        lines = []
+        for op in opinions:
+            text = Text()
+            text.append(f"On {op.get('topic', '?')}: ", style="bold")
+            text.append(op.get("position", "")[:100])
+            if len(op.get("position", "")) > 100:
+                text.append("...", style="dim")
+            conf = op.get("confidence", 0.7)
+            text.append(f" ({int(conf * 100)}%)", style="green" if conf >= 0.8 else "yellow")
+            lines.append(text)
+
+        display.update(Group(*lines))
+
+    async def _display_growth_edges(self) -> None:
+        """Display growth edges"""
+        display = self.query_one("#growth-edges-display", Static)
+
+        edges = self.profile_data.get("growth_edges", [])
+        if not edges:
+            display.update("No growth edges identified yet")
+            return
+
+        lines = []
+        for edge in edges:
+            text = Text()
+            text.append(f"🌱 {edge.get('area', '?')}", style="bold green")
+            lines.append(text)
+
+            current = edge.get("current_state", "")
+            if current:
+                detail = Text()
+                detail.append("  Current: ", style="dim")
+                detail.append(current[:80])
+                if len(current) > 80:
+                    detail.append("...", style="dim")
+                lines.append(detail)
+
+            desired = edge.get("desired_state", "")
+            if desired:
+                detail = Text()
+                detail.append("  Goal: ", style="dim cyan")
+                detail.append(desired[:80])
+                if len(desired) > 80:
+                    detail.append("...", style="dim")
+                lines.append(detail)
+
+        display.update(Group(*lines))
+
+    async def _display_observations(self) -> None:
+        """Display recent self-observations"""
+        display = self.query_one("#observations-display", Static)
+
+        if not self.observations:
+            display.update(Text("No self-observations yet", style="dim italic"))
+            return
+
+        lines = []
+        for obs in self.observations[:5]:
+            text = Text()
+            cat = obs.get("category", "pattern")
+            cat_colors = {
+                "capability": "green",
+                "limitation": "red",
+                "pattern": "cyan",
+                "preference": "magenta",
+                "growth": "yellow",
+                "contradiction": "bold red"
+            }
+            text.append(f"[{cat}] ", style=cat_colors.get(cat, "white"))
+            text.append(obs.get("observation", "")[:80])
+            if len(obs.get("observation", "")) > 80:
+                text.append("...", style="dim")
+            lines.append(text)
+
+        if len(self.observations) > 5:
+            lines.append(Text(f"... and {len(self.observations) - 5} more", style="dim"))
+
+        display.update(Group(*lines))
+
+    async def _display_questions(self) -> None:
+        """Display open questions"""
+        display = self.query_one("#questions-display", Static)
+
+        questions = self.profile_data.get("open_questions", [])
+        if not questions:
+            display.update("No open questions")
+            return
+
+        lines = []
+        for q in questions:
+            text = Text()
+            text.append("? ", style="bold yellow")
+            text.append(q)
+            lines.append(text)
+
+        display.update(Group(*lines))
+
+    @on(Button.Pressed, "#refresh-self-model-btn")
+    async def on_refresh(self) -> None:
+        """Refresh self-model data"""
+        await self.load_self_model()

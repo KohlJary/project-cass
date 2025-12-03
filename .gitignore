@@ -128,3 +128,4 @@ tmp/
 # godot-frontend/models/*.fbx
 backend/models/piper/en_US-amy-medium.onnx
 backend/models/piper/en_US-amy-medium.onnx.json
+cass-vessel-(4.2)

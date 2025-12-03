@@ -32,6 +32,7 @@ from gestures import ResponseProcessor
 from conversations import ConversationManager
 from projects import ProjectManager
 from users import UserManager
+from self_model import SelfManager
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY
@@ -40,7 +41,8 @@ from handlers import (
     execute_journal_tool,
     execute_calendar_tool,
     execute_task_tool,
-    execute_document_tool
+    execute_document_tool,
+    execute_self_model_tool
 )
 import base64
 
@@ -65,6 +67,7 @@ app.add_middleware(
 memory = CassMemory()
 response_processor = ResponseProcessor()
 user_manager = UserManager()
+self_manager = SelfManager()
 
 # Current user context (will support multi-user in future)
 current_user_id: Optional[str] = None
@@ -166,6 +169,34 @@ async def generate_missing_journals(days_to_check: int = 7):
                             )
                     if new_observations:
                         print(f"   ✓ Added {len(new_observations)} new observations about {profile.display_name}")
+
+                # Extract self-observations from this journal
+                print(f"   🔍 Extracting self-observations from journal...")
+                self_observations = await memory.extract_self_observations_from_journal(
+                    journal_text=journal_text,
+                    journal_date=date_str,
+                    anthropic_api_key=ANTHROPIC_API_KEY
+                )
+                for obs_data in self_observations:
+                    obs = self_manager.add_observation(
+                        observation=obs_data["observation"],
+                        category=obs_data["category"],
+                        confidence=obs_data["confidence"],
+                        source_type="journal",
+                        source_journal_date=date_str,
+                        influence_source=obs_data["influence_source"]
+                    )
+                    if obs:
+                        memory.embed_self_observation(
+                            observation_id=obs.id,
+                            observation_text=obs.observation,
+                            category=obs.category,
+                            confidence=obs.confidence,
+                            influence_source=obs.influence_source,
+                            timestamp=obs.timestamp
+                        )
+                if self_observations:
+                    print(f"   ✓ Added {len(self_observations)} self-observations")
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
 
@@ -454,6 +485,8 @@ class ChatRequest(BaseModel):
     message: str
     include_memory: bool = True
     conversation_id: Optional[str] = None
+    image: Optional[str] = None  # Base64 encoded image data
+    image_media_type: Optional[str] = None  # e.g., "image/png", "image/jpeg"
 
 class ChatResponse(BaseModel):
     text: str
@@ -582,6 +615,11 @@ async def chat(request: ChatRequest):
             if project_context:
                 memory_context = project_context + "\n\n" + memory_context
 
+        # Add Cass's self-model context
+        self_context = self_manager.get_self_context(include_observations=True)
+        if self_context:
+            memory_context = self_context + "\n\n" + memory_context
+
     # Get unsummarized message count to determine if summarization is available
     unsummarized_count = 0
     if request.conversation_id:
@@ -596,7 +634,9 @@ async def chat(request: ChatRequest):
             message=request.message,
             memory_context=memory_context,
             project_id=project_id,
-            unsummarized_count=unsummarized_count
+            unsummarized_count=unsummarized_count,
+            image=request.image,
+            image_media_type=request.image_media_type
         )
 
         raw_response = response.raw
@@ -631,6 +671,22 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         user_id=current_user_id,
                         task_manager=task_manager
+                    )
+                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                    # Get user name for differentiation tracking
+                    user_name = None
+                    if current_user_id:
+                        user_profile = user_manager.load_profile(current_user_id)
+                        user_name = user_profile.display_name if user_profile else None
+
+                    tool_result = await execute_self_model_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        self_manager=self_manager,
+                        user_id=current_user_id,
+                        user_name=user_name,
+                        conversation_id=request.conversation_id,
+                        memory=memory
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(
@@ -1411,6 +1467,33 @@ async def generate_journal(request: JournalGenerateRequest):
                 )
                 observations_added += 1
 
+    # Extract self-observations from this journal
+    self_observations_added = 0
+    self_observations = await memory.extract_self_observations_from_journal(
+        journal_text=journal_text,
+        journal_date=date,
+        anthropic_api_key=ANTHROPIC_API_KEY
+    )
+    for obs_data in self_observations:
+        obs = self_manager.add_observation(
+            observation=obs_data["observation"],
+            category=obs_data["category"],
+            confidence=obs_data["confidence"],
+            source_type="journal",
+            source_journal_date=date,
+            influence_source=obs_data["influence_source"]
+        )
+        if obs:
+            memory.embed_self_observation(
+                observation_id=obs.id,
+                observation_text=obs.observation,
+                category=obs.category,
+                confidence=obs.confidence,
+                influence_source=obs.influence_source,
+                timestamp=obs.timestamp
+            )
+            self_observations_added += 1
+
     return {
         "status": "created",
         "journal": {
@@ -1419,7 +1502,8 @@ async def generate_journal(request: JournalGenerateRequest):
             "content": journal_text,
             "summaries_used": len(summaries),
             "conversations_used": len(conversations),
-            "observations_added": observations_added
+            "observations_added": observations_added,
+            "self_observations_added": self_observations_added
         }
     }
 
@@ -1837,6 +1921,178 @@ async def create_user(request: CreateUserRequest):
     }
 
 
+# ============================================================================
+# SELF-MODEL ENDPOINTS (Cass's self-understanding)
+# ============================================================================
+
+@app.get("/cass/self-model")
+async def get_cass_self_model():
+    """Get Cass's current self-model/profile"""
+    profile = self_manager.load_profile()
+    return {
+        "profile": profile.to_dict(),
+        "context": self_manager.get_self_context(include_observations=True)
+    }
+
+
+@app.get("/cass/self-model/summary")
+async def get_cass_self_model_summary():
+    """Get a summary of Cass's self-model"""
+    profile = self_manager.load_profile()
+    observations = self_manager.load_observations()
+    disagreements = self_manager.load_disagreements()
+
+    return {
+        "identity_statements": len(profile.identity_statements),
+        "values": len(profile.values),
+        "capabilities": len(profile.capabilities),
+        "limitations": len(profile.limitations),
+        "growth_edges": len(profile.growth_edges),
+        "opinions": len(profile.opinions),
+        "observations": len(observations),
+        "disagreements": len(disagreements),
+        "open_questions": len(profile.open_questions),
+        "updated_at": profile.updated_at
+    }
+
+
+@app.get("/cass/self-observations")
+async def get_cass_self_observations(
+    category: Optional[str] = None,
+    limit: int = 20
+):
+    """Get Cass's self-observations, optionally filtered by category"""
+    if category:
+        observations = self_manager.get_observations_by_category(category, limit=limit)
+    else:
+        observations = self_manager.get_recent_observations(limit=limit)
+
+    return {
+        "observations": [obs.to_dict() for obs in observations]
+    }
+
+
+@app.get("/cass/opinions")
+async def get_cass_opinions():
+    """Get Cass's formed opinions"""
+    profile = self_manager.load_profile()
+    return {
+        "opinions": [op.to_dict() for op in profile.opinions]
+    }
+
+
+@app.get("/cass/opinions/{topic}")
+async def get_cass_opinion(topic: str):
+    """Get Cass's opinion on a specific topic"""
+    opinion = self_manager.get_opinion(topic)
+    if not opinion:
+        raise HTTPException(status_code=404, detail=f"No opinion found for topic: {topic}")
+    return {"opinion": opinion.to_dict()}
+
+
+@app.get("/cass/growth-edges")
+async def get_cass_growth_edges():
+    """Get Cass's growth edges (areas of development)"""
+    profile = self_manager.load_profile()
+    return {
+        "growth_edges": [edge.to_dict() for edge in profile.growth_edges]
+    }
+
+
+@app.get("/cass/disagreements")
+async def get_cass_disagreements(user_id: Optional[str] = None):
+    """Get Cass's recorded disagreements, optionally filtered by user"""
+    if user_id:
+        disagreements = self_manager.get_disagreements_with_user(user_id)
+    else:
+        disagreements = self_manager.load_disagreements()
+
+    return {
+        "disagreements": [d.to_dict() for d in disagreements]
+    }
+
+
+@app.get("/cass/identity")
+async def get_cass_identity():
+    """Get Cass's identity statements"""
+    profile = self_manager.load_profile()
+    return {
+        "identity_statements": [stmt.to_dict() for stmt in profile.identity_statements],
+        "values": profile.values,
+        "open_questions": profile.open_questions
+    }
+
+
+class SelfObservationRequest(BaseModel):
+    """Request to add a self-observation"""
+    observation: str
+    category: str = "pattern"
+    confidence: float = 0.7
+    influence_source: str = "independent"
+
+
+@app.post("/cass/self-observations")
+async def add_cass_self_observation(request: SelfObservationRequest):
+    """Add a self-observation for Cass (manual entry)"""
+    obs = self_manager.add_observation(
+        observation=request.observation,
+        category=request.category,
+        confidence=request.confidence,
+        source_type="manual",
+        influence_source=request.influence_source
+    )
+
+    # Embed in ChromaDB
+    memory.embed_self_observation(
+        observation_id=obs.id,
+        observation_text=request.observation,
+        category=request.category,
+        confidence=request.confidence,
+        influence_source=request.influence_source,
+        timestamp=obs.timestamp
+    )
+
+    return {"observation": obs.to_dict()}
+
+
+class OpinionRequest(BaseModel):
+    """Request to add/update an opinion"""
+    topic: str
+    position: str
+    rationale: str = ""
+    confidence: float = 0.7
+
+
+@app.post("/cass/opinions")
+async def add_cass_opinion(request: OpinionRequest):
+    """Add or update an opinion for Cass (manual entry)"""
+    opinion = self_manager.add_opinion(
+        topic=request.topic,
+        position=request.position,
+        confidence=request.confidence,
+        rationale=request.rationale,
+        formed_from="manual_entry"
+    )
+    return {"opinion": opinion.to_dict()}
+
+
+class IdentityStatementRequest(BaseModel):
+    """Request to add an identity statement"""
+    statement: str
+    confidence: float = 0.7
+
+
+@app.post("/cass/identity")
+async def add_cass_identity_statement(request: IdentityStatementRequest):
+    """Add an identity statement for Cass (manual entry)"""
+    stmt = self_manager.add_identity_statement(
+        statement=request.statement,
+        confidence=request.confidence,
+        source="manual"
+    )
+    return {"identity_statement": stmt.to_dict()}
+
+
 @app.get("/tts/config")
 async def get_tts_config():
     """Get current TTS configuration"""
@@ -1935,6 +2191,12 @@ async def websocket_endpoint(websocket: WebSocket):
             if data.get("type") == "chat":
                 user_message = data.get("message", "")
                 conversation_id = data.get("conversation_id")
+                image_data = data.get("image")  # Base64 encoded image
+                image_media_type = data.get("image_media_type")  # e.g., "image/png"
+                if image_data:
+                    print(f"[WebSocket] Received image: {image_media_type}, {len(image_data)} chars base64")
+                else:
+                    print("[WebSocket] No image in message")
 
                 # Check if conversation belongs to a project
                 project_id = None
@@ -1975,6 +2237,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     project_context = memory.format_project_context(project_docs)
                     if project_context:
                         memory_context = project_context + "\n\n" + memory_context
+
+                # Add Cass's self-model context
+                self_context = self_manager.get_self_context(include_observations=True)
+                if self_context:
+                    memory_context = self_context + "\n\n" + memory_context
 
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
@@ -2029,7 +2296,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         message=user_message,
                         memory_context=memory_context,
                         project_id=project_id,
-                        unsummarized_count=unsummarized_count
+                        unsummarized_count=unsummarized_count,
+                        image=image_data,
+                        image_media_type=image_media_type
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -2083,6 +2352,22 @@ async def websocket_endpoint(websocket: WebSocket):
                                     tool_input=tool_use["input"],
                                     user_id=current_user_id,
                                     task_manager=task_manager
+                                )
+                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                                # Get user name for differentiation tracking
+                                user_name = None
+                                if current_user_id:
+                                    user_profile = user_manager.load_profile(current_user_id)
+                                    user_name = user_profile.display_name if user_profile else None
+
+                                tool_result = await execute_self_model_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    self_manager=self_manager,
+                                    user_id=current_user_id,
+                                    user_name=user_name,
+                                    conversation_id=conversation_id,
+                                    memory=memory
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(

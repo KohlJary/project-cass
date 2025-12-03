@@ -46,6 +46,7 @@ from widgets import (
     GrowthPanel,
     CalendarEventsPanel,
     TasksPanel,
+    SelfModelPanel,
 )
 
 # Import screens
@@ -265,6 +266,8 @@ class CassVesselTUI(App):
                                 yield TasksPanel(id="tasks-panel")
                             with TabPane("Growth", id="growth-tab"):
                                 yield GrowthPanel(id="growth-panel")
+                            with TabPane("Self", id="self-model-tab"):
+                                yield SelfModelPanel(id="self-model-panel")
                             with TabPane("User", id="user-tab"):
                                 yield UserPanel(id="user-panel")
                             with TabPane("Summary", id="summary-tab"):

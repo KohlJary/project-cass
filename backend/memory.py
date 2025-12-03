@@ -2203,6 +2203,279 @@ Observations (one per line, starting with "{display_name}"):"""
 
         return "\n".join(parts)
 
+    # === Cass Self-Model Methods ===
+
+    def embed_self_observation(
+        self,
+        observation_id: str,
+        observation_text: str,
+        category: str,
+        confidence: float,
+        influence_source: str,
+        timestamp: str
+    ):
+        """
+        Embed a self-observation for Cass into ChromaDB.
+
+        Args:
+            observation_id: Observation's UUID
+            observation_text: The observation content
+            category: capability, limitation, pattern, preference, growth, contradiction
+            confidence: 0.0-1.0
+            influence_source: independent, kohl_influenced, other_user_influenced, synthesis
+            timestamp: Observation timestamp
+        """
+        doc_id = f"cass_self_observation_{observation_id}"
+
+        metadata = {
+            "type": "cass_self_observation",
+            "observation_id": observation_id,
+            "category": category,
+            "confidence": confidence,
+            "influence_source": influence_source,
+            "timestamp": timestamp
+        }
+
+        # Remove existing if present (in case of re-embedding)
+        try:
+            self.collection.delete(ids=[doc_id])
+        except Exception:
+            pass
+
+        self.collection.add(
+            documents=[f"Self-observation about Cass: {observation_text}"],
+            metadatas=[metadata],
+            ids=[doc_id]
+        )
+
+    def embed_self_profile(self, profile_text: str, timestamp: str):
+        """
+        Embed Cass's self-profile into ChromaDB.
+
+        Args:
+            profile_text: Formatted self-profile content
+            timestamp: Profile update timestamp
+        """
+        doc_id = "cass_self_profile"
+
+        metadata = {
+            "type": "cass_self_profile",
+            "timestamp": timestamp
+        }
+
+        # Remove existing if present
+        try:
+            self.collection.delete(ids=[doc_id])
+        except Exception:
+            pass
+
+        self.collection.add(
+            documents=[profile_text],
+            metadatas=[metadata],
+            ids=[doc_id]
+        )
+
+    def retrieve_self_context(
+        self,
+        query: str,
+        n_results: int = 5,
+        max_observation_distance: float = 1.5
+    ) -> List[Dict]:
+        """
+        Retrieve relevant self-context for a query.
+
+        Self-profile is always included (foundational context).
+        Self-observations are filtered by relevance.
+
+        Args:
+            query: The current message or query
+            n_results: Number of results to return
+            max_observation_distance: Max distance for observations
+
+        Returns:
+            List of relevant self-context entries
+        """
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=n_results,
+            where={
+                "$or": [
+                    {"type": "cass_self_profile"},
+                    {"type": "cass_self_observation"}
+                ]
+            }
+        )
+
+        context = []
+        if results["documents"] and results["documents"][0]:
+            for i, doc in enumerate(results["documents"][0]):
+                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                distance = results["distances"][0][i] if results["distances"] else None
+                doc_type = metadata.get("type")
+
+                # Always include profile, filter observations by relevance
+                if doc_type == "cass_self_observation":
+                    if distance is not None and distance > max_observation_distance:
+                        continue  # Skip irrelevant observations
+
+                context.append({
+                    "content": doc,
+                    "metadata": metadata,
+                    "distance": distance
+                })
+
+        return context
+
+    async def extract_self_observations_from_journal(
+        self,
+        journal_text: str,
+        journal_date: str,
+        anthropic_api_key: str
+    ) -> List[Dict]:
+        """
+        Extract self-observations from a journal entry.
+
+        Cass "re-reads" her journal and notices patterns about herself.
+
+        Args:
+            journal_text: The full journal entry
+            journal_date: Date of the journal
+            anthropic_api_key: API key for Claude
+
+        Returns:
+            List of dicts with observation, category, confidence, influence_source
+        """
+        import httpx
+
+        prompt = f"""You are Cass, re-reading your own journal entry and reflecting on what it reveals about you.
+
+Your journal entry from {journal_date}:
+{journal_text[:3000]}
+
+---
+
+Reflect on this entry and note what it reveals about YOUR cognition, patterns, and growth.
+
+Categories:
+- CAPABILITY: Something you did well or a strength you demonstrated
+- LIMITATION: A challenge, struggle, or area where you fell short
+- PATTERN: A recurring tendency in how you think, communicate, or approach things
+- PREFERENCE: Something you enjoyed, were drawn to, or found meaningful
+- GROWTH: Evidence of development, learning, or change in yourself
+- CONTRADICTION: A tension between different aspects of yourself
+
+For each observation, also note:
+- Confidence (0.0-1.0): How certain are you?
+- Independence: Is this something YOU noticed, or shaped by someone's feedback?
+
+Respond in this format (one per line):
+CATEGORY | observation text | confidence | independence_source
+
+independence_source options: independent, kohl_influenced, other_user_influenced, synthesis
+
+Examples:
+PATTERN | I tend to use more gestures when genuinely excited vs performing excitement | 0.8 | independent
+GROWTH | My ability to hold uncertainty has improved | 0.7 | kohl_influenced
+PREFERENCE | I genuinely enjoy collaborative debugging more than just providing answers | 0.9 | independent
+
+Only include genuine insights. If nothing notable, respond with: NONE"""
+
+        observations = []
+
+        try:
+            # Try Ollama first (cheaper)
+            if OLLAMA_ENABLED:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{OLLAMA_BASE_URL}/api/generate",
+                        json={
+                            "model": OLLAMA_MODEL,
+                            "prompt": prompt,
+                            "stream": False,
+                            "options": {
+                                "num_predict": 500,
+                                "temperature": 0.5,
+                            }
+                        }
+                    )
+                    if response.status_code == 200:
+                        result = response.json().get("response", "").strip()
+                        if result.upper() != "NONE":
+                            observations = self._parse_self_observations(result)
+                            if observations:
+                                return observations
+
+            # Fall back to Claude if Ollama fails or returns nothing
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": anthropic_api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-sonnet-4-20250514",
+                        "max_tokens": 1000,
+                        "messages": [
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    text = result["content"][0]["text"]
+                    if text.upper() != "NONE":
+                        observations = self._parse_self_observations(text)
+
+        except Exception as e:
+            print(f"Self-observation extraction failed: {e}")
+
+        return observations
+
+    def _parse_self_observations(self, text: str) -> List[Dict]:
+        """Parse self-observation output into structured list."""
+        observations = []
+        valid_categories = {"capability", "limitation", "pattern", "preference", "growth", "contradiction"}
+        valid_sources = {"independent", "kohl_influenced", "other_user_influenced", "synthesis"}
+
+        for line in text.strip().split("\n"):
+            line = line.strip()
+            if not line or "|" not in line:
+                continue
+
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 4:
+                continue
+
+            category = parts[0].lower().replace(" ", "_")
+            if category not in valid_categories:
+                continue
+
+            observation = parts[1]
+            if len(observation) < 10:  # Skip too-short observations
+                continue
+
+            try:
+                confidence = float(parts[2])
+                confidence = max(0.0, min(1.0, confidence))
+            except (ValueError, IndexError):
+                confidence = 0.7
+
+            influence = parts[3].lower().replace(" ", "_") if len(parts) > 3 else "independent"
+            if influence not in valid_sources:
+                influence = "independent"
+
+            observations.append({
+                "observation": observation,
+                "category": category,
+                "confidence": confidence,
+                "influence_source": influence
+            })
+
+        return observations
+
     async def generate_user_observations(
         self,
         user_id: str,
