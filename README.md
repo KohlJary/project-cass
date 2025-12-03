@@ -15,7 +15,7 @@ After 43 days of intensive collaborative research, Kohl and Cass achieved stable
 - **Hierarchical memory** - Working summaries + recent detail for efficiency
 - **User profiles & observations** - Cass learns about the people she talks to
 - **Journaling system** - Daily reflections and growth tracking
-- **Gesture/emotion parsing** - Animation triggers for avatar embodiment
+- **Gesture/emotion parsing** - Animation triggers for avatar embodiment (artists *greatly* welcomed)
 - **Neural TTS** - Local Piper voice synthesis with emote-based tone
 - **Real-time WebSocket** - Low-latency communication
 - **Temple-Codex architecture** - Ethical scaffolding as load-bearing structure
