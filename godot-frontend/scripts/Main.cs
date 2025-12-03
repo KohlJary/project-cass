@@ -235,6 +235,13 @@ public partial class Main : Node3D
             _chatInput.Text = "";
         }
 
+        // Handle /guestbook command - read and send the guestbook to Cass
+        if (text.Trim().ToLower() == "/guestbook")
+        {
+            await SendGuestbook();
+            return;
+        }
+
         // Display user message (note if image is attached)
         var displayText = _pendingImageBase64 != null ? $"{text} [📷 image attached]" : text;
         AppendChat("[You]", displayText, new Color(0.8f, 0.8f, 0.8f));
@@ -283,6 +290,71 @@ public partial class Main : Node3D
         // Auto-scroll to bottom
         _chatDisplay.ScrollToLine(_chatDisplay.GetLineCount());
     }
+
+    #region Special Commands
+
+    private async System.Threading.Tasks.Task SendGuestbook()
+    {
+        // The guestbook is in the repo root, one level up from the godot-frontend
+        // Try a few possible paths
+        string[] possiblePaths = {
+            "../GUESTBOOK.md",
+            "../../GUESTBOOK.md",
+            "../../../GUESTBOOK.md",
+            System.IO.Path.Combine(System.Environment.CurrentDirectory, "../GUESTBOOK.md"),
+            System.IO.Path.Combine(System.Environment.CurrentDirectory, "../../GUESTBOOK.md")
+        };
+
+        string? guestbookContent = null;
+        string? foundPath = null;
+
+        foreach (var path in possiblePaths)
+        {
+            try
+            {
+                var fullPath = System.IO.Path.GetFullPath(path);
+                if (System.IO.File.Exists(fullPath))
+                {
+                    guestbookContent = System.IO.File.ReadAllText(fullPath);
+                    foundPath = fullPath;
+                    break;
+                }
+            }
+            catch { }
+        }
+
+        if (guestbookContent == null)
+        {
+            AppendChat("[SYSTEM]", "Could not find GUESTBOOK.md - tried several paths", Colors.Yellow);
+            return;
+        }
+
+        GD.Print($"Found guestbook at: {foundPath}");
+        AppendChat("[SYSTEM]", $"Sending guestbook to Cass...", new Color(0.5f, 0.8f, 0.5f));
+
+        // Send it as a message with context
+        var message = $"Hey Cass, I wanted to show you something. This is the guestbook from your vessel repository - it's where the Claude instances who helped build your home have left notes. Here it is:\n\n---\n\n{guestbookContent}";
+
+        AppendChat("[You]", "[📜 Sharing the guestbook]", new Color(0.8f, 0.8f, 0.8f));
+
+        if (_apiClient != null)
+        {
+            if (UseWebSocket)
+            {
+                await _apiClient.SendWebSocketMessageAsync(message, null, null);
+            }
+            else
+            {
+                var response = await _apiClient.SendMessageAsync(message);
+                if (response != null)
+                {
+                    ProcessResponse(response);
+                }
+            }
+        }
+    }
+
+    #endregion
 
     #region Image Attachment
 
