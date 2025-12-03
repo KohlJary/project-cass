@@ -126,3 +126,5 @@ tmp/
 # Large model files (uncomment if needed)
 # godot-frontend/models/*.glb
 # godot-frontend/models/*.fbx
+backend/models/piper/en_US-amy-medium.onnx
+backend/models/piper/en_US-amy-medium.onnx.json

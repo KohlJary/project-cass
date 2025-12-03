@@ -54,6 +54,33 @@ class RenameConversationScreen(ModalScreen):
             self.dismiss(new_title)
 
 
+class DeleteConversationScreen(ModalScreen):
+    """Modal screen for confirming conversation deletion"""
+
+    def __init__(self, title: str, **kwargs):
+        super().__init__(**kwargs)
+        self.title = title
+
+    def compose(self) -> ComposeResult:
+        with Container(id="delete-dialog"):
+            yield Label("Delete Conversation", id="delete-title")
+            yield Static(f"Are you sure you want to delete:\n\n\"{self.title}\"?\n\nThis cannot be undone.", id="delete-message")
+            with Horizontal(id="delete-buttons"):
+                yield Button("Delete", variant="error", id="delete-confirm")
+                yield Button("Cancel", variant="default", id="delete-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#delete-cancel", Button).focus()
+
+    @on(Button.Pressed, "#delete-confirm")
+    async def on_confirm(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#delete-cancel")
+    async def on_cancel(self):
+        self.dismiss(False)
+
+
 class NewProjectScreen(ModalScreen):
     """Modal screen for creating a new project"""
 

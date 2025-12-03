@@ -4,6 +4,7 @@ Modal screens for user interactions
 """
 from .modals import (
     RenameConversationScreen,
+    DeleteConversationScreen,
     NewProjectScreen,
     UserSelectScreen,
     CreateUserScreen,
@@ -11,6 +12,7 @@ from .modals import (
 
 __all__ = [
     "RenameConversationScreen",
+    "DeleteConversationScreen",
     "NewProjectScreen",
     "UserSelectScreen",
     "CreateUserScreen",

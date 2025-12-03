@@ -106,7 +106,61 @@ Write ONLY the summary, no quotes or labels:"""
             print(f"Gist generation failed: {e}")
 
         return None
-    
+
+    async def generate_journal_summary(self, journal_text: str) -> Optional[str]:
+        """
+        Generate a short summary of a journal entry using local LLM.
+
+        The summary is stored with the journal and used by list/search tools
+        instead of dumping full journal content.
+
+        Args:
+            journal_text: The full journal entry text
+
+        Returns:
+            A ~150-200 char summary, or None if generation fails
+        """
+        if not OLLAMA_ENABLED:
+            return None
+
+        try:
+            import httpx
+
+            prompt = f"""Summarize this personal journal entry in 1-2 sentences (under 200 characters).
+Focus on the main topics, emotions, or events discussed.
+
+Journal:
+{journal_text[:2500]}
+
+Write ONLY the summary, no quotes or labels:"""
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "num_predict": 150,
+                            "temperature": 0.3,
+                        }
+                    }
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    summary = result.get("response", "").strip()
+                    # Ensure it's not too long
+                    if len(summary) > 250:
+                        summary = summary[:247] + "..."
+                    return summary if summary else None
+
+        except Exception as e:
+            print(f"Journal summary generation failed: {e}")
+
+        return None
+
     async def store_conversation(
         self,
         user_message: str,
@@ -1318,7 +1372,7 @@ Observations (one per line, starting with "{display_name}"):"""
 
         return all_observations
 
-    def store_journal_entry(
+    async def store_journal_entry(
         self,
         date: str,
         journal_text: str,
@@ -1327,6 +1381,9 @@ Observations (one per line, starting with "{display_name}"):"""
     ) -> str:
         """
         Store a journal entry in memory.
+
+        Generates a summary using local LLM for efficient retrieval by
+        list/search tools.
 
         Args:
             date: Date the journal is about (YYYY-MM-DD)
@@ -1339,6 +1396,9 @@ Observations (one per line, starting with "{display_name}"):"""
         """
         timestamp = datetime.now().isoformat()
 
+        # Generate summary for efficient retrieval
+        summary = await self.generate_journal_summary(journal_text)
+
         # Build metadata
         entry_metadata = {
             "timestamp": timestamp,
@@ -1348,6 +1408,10 @@ Observations (one per line, starting with "{display_name}"):"""
             "conversation_count": conversation_count,
             "is_journal": True  # Quick flag for filtering
         }
+
+        # Add summary if generated
+        if summary:
+            entry_metadata["summary"] = summary
 
         entry_id = self._generate_id(f"journal:{date}", timestamp)
 

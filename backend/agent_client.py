@@ -969,7 +969,81 @@ class CassAgentClient:
             input_tokens=input_tokens,
             output_tokens=output_tokens
         )
-    
+
+    async def continue_with_tool_results(
+        self,
+        tool_results: List[Dict]
+    ) -> AgentResponse:
+        """
+        Continue conversation after providing multiple tool results at once.
+
+        This is needed for parallel tool calls - Claude expects ALL results
+        in a single message before continuing.
+
+        Args:
+            tool_results: List of dicts with keys: tool_use_id, result, is_error
+        """
+        # Build a single message with all tool results
+        content = []
+        for tr in tool_results:
+            content.append({
+                "type": "tool_result",
+                "tool_use_id": tr["tool_use_id"],
+                "content": tr["result"],
+                "is_error": tr.get("is_error", False)
+            })
+
+        self._tool_chain_messages.append({
+            "role": "user",
+            "content": content
+        })
+
+        # Call Claude API with the tool chain context
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=self._current_system_prompt,
+            messages=self._tool_chain_messages
+        )
+
+        # Extract text content and tool uses
+        full_text = ""
+        tool_uses = []
+
+        for block in response.content:
+            if block.type == "text":
+                full_text += block.text
+            elif block.type == "tool_use":
+                tool_uses.append({
+                    "id": block.id,
+                    "tool": block.name,
+                    "input": block.input
+                })
+
+        # Track assistant response for potential further tool calls
+        self._tool_chain_messages.append({
+            "role": "assistant",
+            "content": response.content
+        })
+
+        # Parse gestures from response
+        gestures = self._parse_gestures(full_text)
+        clean_text = self._clean_gesture_tags(full_text)
+
+        # Extract usage info
+        input_tokens = response.usage.input_tokens if response.usage else 0
+        output_tokens = response.usage.output_tokens if response.usage else 0
+
+        return AgentResponse(
+            text=clean_text,
+            raw=full_text,
+            tool_uses=tool_uses,
+            gestures=gestures,
+            stop_reason=response.stop_reason,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens
+        )
+
     def _parse_gestures(self, text: str) -> List[Dict]:
         """Extract gesture/emote tags from response"""
         import re

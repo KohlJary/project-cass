@@ -32,8 +32,16 @@ from gestures import ResponseProcessor
 from conversations import ConversationManager
 from projects import ProjectManager
 from users import UserManager
+from calendar_manager import CalendarManager
+from task_manager import TaskManager
 from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
+from handlers import (
+    execute_journal_tool,
+    execute_calendar_tool,
+    execute_task_tool,
+    execute_document_tool
+)
 import base64
 
 
@@ -65,6 +73,8 @@ current_user_id: Optional[str] = None
 _summarization_in_progress: set = set()
 conversation_manager = ConversationManager()
 project_manager = ProjectManager()
+calendar_manager = CalendarManager()
+task_manager = TaskManager()
 
 # Client will be initialized on startup
 agent_client = None
@@ -112,7 +122,7 @@ async def generate_missing_journals(days_to_check: int = 7):
             )
 
             if journal_text:
-                memory.store_journal_entry(
+                await memory.store_journal_entry(
                     date=date_str,
                     journal_text=journal_text,
                     summary_count=len(summaries),
@@ -256,258 +266,6 @@ async def startup_event():
 ║  Memory:   {memory.count():^30} entries  ║
 ╚═══════════════════════════════════════════════════════════╝
     """)
-
-
-# === Tool Execution Helper ===
-
-async def execute_document_tool(
-    tool_name: str,
-    tool_input: Dict,
-    project_id: str
-) -> Dict:
-    """
-    Execute a project document tool.
-
-    Args:
-        tool_name: Name of the tool to execute
-        tool_input: Input parameters for the tool
-        project_id: Project ID context
-
-    Returns:
-        Dict with 'success', 'result', and optionally 'error'
-    """
-    try:
-        if tool_name == "create_project_document":
-            document = project_manager.add_document(
-                project_id=project_id,
-                title=tool_input["title"],
-                content=tool_input["content"],
-                created_by="cass"
-            )
-            if not document:
-                return {"success": False, "error": "Project not found"}
-
-            # Embed the document
-            chunks = memory.embed_project_document(
-                project_id=project_id,
-                document_id=document.id,
-                title=document.title,
-                content=document.content
-            )
-            project_manager.mark_document_embedded(project_id, document.id)
-
-            return {
-                "success": True,
-                "result": f"Created document '{document.title}' (ID: {document.id}) with {chunks} chunks embedded."
-            }
-
-        elif tool_name == "list_project_documents":
-            documents = project_manager.list_documents(project_id)
-            if not documents:
-                return {
-                    "success": True,
-                    "result": "No documents found in this project."
-                }
-
-            doc_list = []
-            for d in documents:
-                preview = d.content[:150] + "..." if len(d.content) > 150 else d.content
-                doc_list.append(f"- **{d.title}** (ID: {d.id})\n  Created: {d.created_at[:10]}\n  Preview: {preview}")
-
-            return {
-                "success": True,
-                "result": f"Found {len(documents)} document(s):\n\n" + "\n\n".join(doc_list)
-            }
-
-        elif tool_name == "get_project_document":
-            document = None
-            if tool_input.get("document_id"):
-                document = project_manager.get_document(project_id, tool_input["document_id"])
-            elif tool_input.get("title"):
-                document = project_manager.get_document_by_title(project_id, tool_input["title"])
-
-            if not document:
-                return {"success": False, "error": "Document not found"}
-
-            return {
-                "success": True,
-                "result": f"# {document.title}\n\n**ID:** {document.id}\n**Created:** {document.created_at}\n**Updated:** {document.updated_at}\n\n---\n\n{document.content}"
-            }
-
-        elif tool_name == "update_project_document":
-            document = project_manager.update_document(
-                project_id=project_id,
-                document_id=tool_input["document_id"],
-                title=tool_input.get("title"),
-                content=tool_input.get("content")
-            )
-
-            if not document:
-                return {"success": False, "error": "Document not found"}
-
-            # Re-embed if content changed
-            if tool_input.get("content"):
-                memory.remove_project_document_embeddings(project_id, document.id)
-                chunks = memory.embed_project_document(
-                    project_id=project_id,
-                    document_id=document.id,
-                    title=document.title,
-                    content=document.content
-                )
-                project_manager.mark_document_embedded(project_id, document.id)
-                return {
-                    "success": True,
-                    "result": f"Updated document '{document.title}' and re-embedded ({chunks} chunks)."
-                }
-
-            return {
-                "success": True,
-                "result": f"Updated document '{document.title}'."
-            }
-
-        elif tool_name == "search_project_documents":
-            query = tool_input["query"]
-            limit = tool_input.get("limit", 5)
-
-            results = memory.search_project_documents(
-                query=query,
-                project_id=project_id,
-                n_results=limit
-            )
-
-            if not results:
-                return {
-                    "success": True,
-                    "result": f"No documents found matching '{query}'."
-                }
-
-            result_lines = [f"Found {len(results)} document(s) matching '{query}':\n"]
-            for r in results:
-                relevance_pct = int(r["relevance"] * 100)
-                result_lines.append(
-                    f"- **{r['title']}** (ID: {r['document_id']}, {relevance_pct}% relevant)\n"
-                    f"  Best matching section:\n  > {r['best_chunk'][:200]}..."
-                )
-
-            return {
-                "success": True,
-                "result": "\n\n".join(result_lines)
-            }
-
-        else:
-            return {"success": False, "error": f"Unknown tool: {tool_name}"}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-# === Journal Tool Execution Helper ===
-
-async def execute_journal_tool(
-    tool_name: str,
-    tool_input: Dict
-) -> Dict:
-    """
-    Execute a journal tool.
-
-    Args:
-        tool_name: Name of the tool to execute
-        tool_input: Input parameters for the tool
-
-    Returns:
-        Dict with 'success', 'result', and optionally 'error'
-    """
-    try:
-        if tool_name == "recall_journal":
-            date = tool_input.get("date")
-
-            if date:
-                # Get specific journal entry
-                journal = memory.get_journal_entry(date)
-                if not journal:
-                    return {
-                        "success": True,
-                        "result": f"No journal entry found for {date}. You may not have journaled that day, or the journal hasn't been generated yet."
-                    }
-
-                return {
-                    "success": True,
-                    "result": f"# Journal Entry - {date}\n\n{journal['content']}\n\n---\n*Written: {journal['metadata'].get('timestamp', 'unknown')}*"
-                }
-            else:
-                # Get most recent journal
-                journals = memory.get_recent_journals(n=1)
-                if not journals:
-                    return {
-                        "success": True,
-                        "result": "No journal entries found yet. You haven't written any journals."
-                    }
-
-                journal = journals[0]
-                date = journal["metadata"].get("journal_date", "unknown")
-                return {
-                    "success": True,
-                    "result": f"# Most Recent Journal - {date}\n\n{journal['content']}\n\n---\n*Written: {journal['metadata'].get('timestamp', 'unknown')}*"
-                }
-
-        elif tool_name == "list_journals":
-            limit = tool_input.get("limit", 10)
-            journals = memory.get_recent_journals(n=limit)
-
-            if not journals:
-                return {
-                    "success": True,
-                    "result": "No journal entries found yet."
-                }
-
-            journal_list = []
-            for j in journals:
-                date = j["metadata"].get("journal_date", "unknown")
-                preview = j["content"][:150] + "..." if len(j["content"]) > 150 else j["content"]
-                summaries = j["metadata"].get("summary_count", 0)
-                journal_list.append(f"**{date}** ({summaries} summaries used)\n> {preview}")
-
-            return {
-                "success": True,
-                "result": f"Found {len(journals)} journal(s):\n\n" + "\n\n".join(journal_list)
-            }
-
-        elif tool_name == "search_journals":
-            query = tool_input["query"]
-            limit = tool_input.get("limit", 5)
-
-            # Use semantic search on journal type
-            results = memory.collection.query(
-                query_texts=[query],
-                n_results=limit,
-                where={"type": "journal"}
-            )
-
-            if not results["documents"] or not results["documents"][0]:
-                return {
-                    "success": True,
-                    "result": f"No journal entries found matching '{query}'."
-                }
-
-            result_lines = [f"Found {len(results['documents'][0])} journal(s) matching '{query}':\n"]
-            for i, doc in enumerate(results["documents"][0]):
-                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
-                date = metadata.get("journal_date", "unknown")
-                distance = results["distances"][0][i] if results["distances"] else 1.0
-                relevance_pct = int(max(0, 1 - distance) * 100)
-                preview = doc[:200] + "..." if len(doc) > 200 else doc
-                result_lines.append(f"**{date}** ({relevance_pct}% relevant)\n> {preview}")
-
-            return {
-                "success": True,
-                "result": "\n\n".join(result_lines)
-            }
-
-        else:
-            return {"success": False, "error": f"Unknown journal tool: {tool_name}"}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 # === Summarization Helper ===
@@ -856,13 +614,31 @@ async def chat(request: ChatRequest):
                 if tool_name in ["recall_journal", "list_journals", "search_journals"]:
                     tool_result = await execute_journal_tool(
                         tool_name=tool_name,
-                        tool_input=tool_use["input"]
+                        tool_input=tool_use["input"],
+                        memory=memory
+                    )
+                elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
+                    tool_result = await execute_calendar_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        user_id=current_user_id,
+                        calendar_manager=calendar_manager,
+                        conversation_id=request.conversation_id
+                    )
+                elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
+                    tool_result = await execute_task_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        user_id=current_user_id,
+                        task_manager=task_manager
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
-                        project_id=project_id
+                        project_id=project_id,
+                        project_manager=project_manager,
+                        memory=memory
                     )
                 else:
                     tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
@@ -1593,8 +1369,8 @@ async def generate_journal(request: JournalGenerateRequest):
             detail="Failed to generate journal entry"
         )
 
-    # Store the journal entry
-    entry_id = memory.store_journal_entry(
+    # Store the journal entry (generates summary via local LLM)
+    entry_id = await memory.store_journal_entry(
         date=date,
         journal_text=journal_text,
         summary_count=len(summaries),
@@ -1771,6 +1547,101 @@ async def backfill_journals(request: JournalBackfillRequest):
         "days_checked": request.days,
         "journals_generated": len(generated),
         "dates": generated
+    }
+
+
+# === Calendar Endpoints ===
+
+@app.get("/calendar/upcoming")
+async def get_upcoming_events(days: int = 7, limit: int = 20):
+    """
+    Get upcoming calendar events for the current user.
+
+    Args:
+        days: Number of days to look ahead (default 7)
+        limit: Maximum number of events to return (default 20)
+    """
+    if not current_user_id:
+        return {"events": [], "message": "No user logged in"}
+
+    events = calendar_manager.get_upcoming_events(
+        user_id=current_user_id,
+        days=days,
+        limit=limit
+    )
+
+    return {
+        "events": [e.to_dict() for e in events],
+        "user_id": current_user_id,
+        "days": days
+    }
+
+
+@app.get("/calendar/events")
+async def get_events_in_range(
+    start: str,
+    end: str,
+    include_completed: bool = False
+):
+    """
+    Get calendar events within a date range.
+
+    Args:
+        start: Start date/time in ISO format
+        end: End date/time in ISO format
+        include_completed: Include completed events (default False)
+    """
+    if not current_user_id:
+        return {"events": [], "message": "No user logged in"}
+
+    try:
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+
+    events = calendar_manager.get_events_in_range(
+        user_id=current_user_id,
+        start=start_dt,
+        end=end_dt,
+        include_completed=include_completed
+    )
+
+    return {
+        "events": [e.to_dict() for e in events],
+        "user_id": current_user_id,
+        "start": start,
+        "end": end
+    }
+
+
+# === Task Endpoints ===
+
+@app.get("/tasks")
+async def get_tasks(
+    filter: Optional[str] = None,
+    include_completed: bool = False
+):
+    """
+    Get tasks for the current user.
+
+    Args:
+        filter: Optional Taskwarrior-style filter (e.g., "+work", "project:home")
+        include_completed: Include completed tasks (default False)
+    """
+    if not current_user_id:
+        return {"tasks": [], "message": "No user logged in"}
+
+    tasks = task_manager.list_tasks(
+        user_id=current_user_id,
+        filter_str=filter,
+        include_completed=include_completed
+    )
+
+    return {
+        "tasks": [t.to_dict() for t in tasks],
+        "user_id": current_user_id,
+        "filter": filter
     }
 
 
@@ -2170,15 +2041,24 @@ async def websocket_endpoint(websocket: WebSocket):
                     total_output_tokens = response.output_tokens
 
                     # Handle tool calls
+                    tool_iteration = 0
                     while response.stop_reason == "tool_use" and tool_uses:
-                        # Send status update
+                        tool_iteration += 1
+                        # Send status update with debug info
+                        tool_names = [t['tool'] for t in tool_uses]
+                        await websocket.send_json({
+                            "type": "debug",
+                            "message": f"[Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
+                            "timestamp": datetime.now().isoformat()
+                        })
                         await websocket.send_json({
                             "type": "thinking",
-                            "status": f"Executing tool: {tool_uses[0]['tool']}...",
+                            "status": f"Executing: {', '.join(tool_names)}...",
                             "timestamp": datetime.now().isoformat()
                         })
 
-                        # Execute each tool
+                        # Execute ALL tools first, collect results
+                        all_tool_results = []
                         for tool_use in tool_uses:
                             tool_name = tool_use["tool"]
 
@@ -2186,38 +2066,80 @@ async def websocket_endpoint(websocket: WebSocket):
                             if tool_name in ["recall_journal", "list_journals", "search_journals"]:
                                 tool_result = await execute_journal_tool(
                                     tool_name=tool_name,
-                                    tool_input=tool_use["input"]
+                                    tool_input=tool_use["input"],
+                                    memory=memory
+                                )
+                            elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
+                                tool_result = await execute_calendar_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_id=current_user_id,
+                                    calendar_manager=calendar_manager,
+                                    conversation_id=conversation_id
+                                )
+                            elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
+                                tool_result = await execute_task_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_id=current_user_id,
+                                    task_manager=task_manager
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
-                                    project_id=project_id
+                                    project_id=project_id,
+                                    project_manager=project_manager,
+                                    memory=memory
                                 )
                             else:
                                 tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
 
-                            # Continue conversation with tool result
-                            response = await agent_client.continue_with_tool_result(
-                                tool_use_id=tool_use["id"],
-                                result=tool_result.get("result", tool_result.get("error", "Unknown error")),
-                                is_error=not tool_result.get("success", False)
-                            )
+                            # Debug: log tool result
+                            result_preview = str(tool_result.get("result", tool_result.get("error", "?")))[:100]
+                            await websocket.send_json({
+                                "type": "debug",
+                                "message": f"[Tool Result] {tool_name}: success={tool_result.get('success')}, result={result_preview}...",
+                                "timestamp": datetime.now().isoformat()
+                            })
 
-                            # Update response data - accumulate text from before and after tool calls
-                            raw_response += "\n" + response.raw
-                            if response.text:
-                                clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
-                            animations.extend(response.gestures)
-                            tool_uses = response.tool_uses
+                            all_tool_results.append({
+                                "tool_use_id": tool_use["id"],
+                                "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
+                                "is_error": not tool_result.get("success", False)
+                            })
 
-                            # Accumulate token usage
-                            total_input_tokens += response.input_tokens
-                            total_output_tokens += response.output_tokens
+                        # Submit ALL results at once
+                        await websocket.send_json({
+                            "type": "debug",
+                            "message": f"[Submitting {len(all_tool_results)} tool results to Claude...]",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        response = await agent_client.continue_with_tool_results(all_tool_results)
 
-                            # Break if no more tools
-                            if response.stop_reason != "tool_use":
-                                break
+                        # Debug: log continuation response
+                        text_preview = response.text[:200] if response.text else "(empty)"
+                        await websocket.send_json({
+                            "type": "debug",
+                            "message": f"[Continuation] stop_reason={response.stop_reason}, has_text={bool(response.text)}, new_tools={len(response.tool_uses)}",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        await websocket.send_json({
+                            "type": "debug",
+                            "message": f"[Continuation text] {text_preview}",
+                            "timestamp": datetime.now().isoformat()
+                        })
+
+                        # Update response data
+                        raw_response += "\n" + response.raw
+                        if response.text:
+                            clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
+                        animations.extend(response.gestures)
+                        tool_uses = response.tool_uses
+
+                        # Accumulate token usage
+                        total_input_tokens += response.input_tokens
+                        total_output_tokens += response.output_tokens
                 else:
                     raw_response = legacy_client.send_message(
                         user_message=user_message,
@@ -2231,7 +2153,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     total_output_tokens = 0
 
                 # Store in memory (with conversation_id and user_id if provided)
-                memory.store_conversation(
+                await memory.store_conversation(
                     user_message=user_message,
                     assistant_response=raw_response,
                     conversation_id=conversation_id,
@@ -2301,6 +2223,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         import traceback
                         traceback.print_exc()
 
+                # Determine provider and model for this response
+                if USE_AGENT_SDK and agent_client:
+                    response_provider = "anthropic"
+                    response_model = agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
+                else:
+                    response_provider = "anthropic"
+                    response_model = "claude-sonnet-4-20250514"
+
                 # Send combined response with text and audio
                 await websocket.send_json({
                     "type": "response",
@@ -2313,7 +2243,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     "audio_format": "mp3" if audio_base64 else None,
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
-                    "timestamp": datetime.now().isoformat()
+                    "timestamp": datetime.now().isoformat(),
+                    "provider": response_provider,
+                    "model": response_model
                 })
                 
             elif data.get("type") == "ping":

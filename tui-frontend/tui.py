@@ -51,6 +51,7 @@ from widgets import (
 # Import screens
 from screens import (
     RenameConversationScreen,
+    DeleteConversationScreen,
     NewProjectScreen,
     UserSelectScreen,
     CreateUserScreen,
@@ -209,6 +210,7 @@ class CassVesselTUI(App):
         Binding("ctrl+n", "new_conversation", "New Chat", show=True),
         Binding("ctrl+p", "new_project", "New Project", show=True),
         Binding("ctrl+r", "rename_conversation", "Rename", show=True),
+        Binding("ctrl+d", "delete_conversation", "Delete", show=True),
         Binding("ctrl+l", "clear_chat", "Clear", show=True),
         Binding("ctrl+t", "toggle_terminal", "Terminal", show=True),
         Binding("ctrl+g", "toggle_growth", "Growth", show=True),
@@ -1289,6 +1291,53 @@ class CassVesselTUI(App):
         except Exception as e:
             chat = self.query_one("#chat-container", ChatContainer)
             await chat.add_message("system", f"✗ Rename failed: {str(e)}", None)
+
+    def action_delete_conversation(self) -> None:
+        """Delete the current conversation"""
+        if not self.current_conversation_id:
+            self.call_later(self._show_no_conversation_error)
+            return
+
+        # Show delete confirmation modal
+        current_title = self.current_conversation_title or "Untitled"
+
+        def handle_delete_result(confirmed: bool) -> None:
+            if confirmed:
+                self.call_later(self._do_delete)
+
+        self.push_screen(DeleteConversationScreen(current_title), handle_delete_result)
+
+    async def _do_delete(self) -> None:
+        """Helper to perform the actual delete operation"""
+        try:
+            response = await self.http_client.delete(
+                f"/conversations/{self.current_conversation_id}"
+            )
+            if response.status_code == 200:
+                deleted_title = self.current_conversation_title
+                chat = self.query_one("#chat-container", ChatContainer)
+
+                # Clear current conversation state
+                self.current_conversation_id = None
+                self.current_conversation_title = None
+
+                # Clear chat
+                await chat.remove_children()
+                await chat.add_message("system", f"✓ Deleted: {deleted_title}", None)
+
+                # Clear summaries
+                summary_panel = self.query_one("#summary-panel", SummaryPanel)
+                await summary_panel.display_summaries([])
+
+                # Reload sidebar
+                sidebar = self.query_one("#sidebar", Sidebar)
+                await sidebar.load_conversations(self.http_client)
+            else:
+                chat = self.query_one("#chat-container", ChatContainer)
+                await chat.add_message("system", "✗ Failed to delete conversation", None)
+        except Exception as e:
+            chat = self.query_one("#chat-container", ChatContainer)
+            await chat.add_message("system", f"✗ Delete failed: {str(e)}", None)
 
     async def load_conversation(self, conversation_id: str):
         """Load a conversation and display its history"""

@@ -387,6 +387,41 @@ CSS = """
         margin: 0 1;
     }
 
+    /* Delete confirmation dialog modal */
+    DeleteConversationScreen {
+        align: center middle;
+    }
+
+    #delete-dialog {
+        width: 60;
+        height: auto;
+        background: $panel;
+        border: thick $error;
+        padding: 1 2;
+    }
+
+    #delete-title {
+        text-align: center;
+        text-style: bold;
+        color: $error;
+        margin-bottom: 1;
+    }
+
+    #delete-message {
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    #delete-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+    }
+
+    #delete-buttons Button {
+        margin: 0 1;
+    }
+
     /* New project dialog modal */
     NewProjectScreen {
         align: center middle;

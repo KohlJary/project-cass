@@ -6,7 +6,7 @@ from typing import Dict
 from task_manager import TaskManager, Priority, TaskStatus
 
 
-async def handle_task_tool(
+async def execute_task_tool(
     tool_name: str,
     tool_input: Dict,
     user_id: str,

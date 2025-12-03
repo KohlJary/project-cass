@@ -6,7 +6,7 @@ from typing import Dict, Optional
 from calendar_manager import CalendarManager, RecurrenceType
 
 
-async def handle_calendar_tool(
+async def execute_calendar_tool(
     tool_name: str,
     tool_input: Dict,
     user_id: str,
