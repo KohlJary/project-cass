@@ -119,7 +119,7 @@ async def chat(request: ChatRequest):
     processed = response_processor.process(raw_response)
     
     # Store conversation in memory
-    memory.store_conversation(
+    await memory.store_conversation(
         user_message=request.message,
         assistant_response=raw_response
     )
@@ -145,7 +145,7 @@ async def chat_stream(request: ChatRequest):
 @app.post("/memory/store")
 async def store_memory(request: MemoryStoreRequest):
     """Manually store a conversation in memory"""
-    entry_id = memory.store_conversation(
+    entry_id = await memory.store_conversation(
         user_message=request.user_message,
         assistant_response=request.assistant_response,
         metadata=request.metadata
@@ -248,7 +248,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 processed = response_processor.process(raw_response)
                 
                 # Store in memory
-                memory.store_conversation(
+                await memory.store_conversation(
                     user_message=user_message,
                     assistant_response=raw_response
                 )

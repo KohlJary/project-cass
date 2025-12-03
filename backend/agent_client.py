@@ -130,6 +130,24 @@ These documents persist across conversations and become part of your project mem
 Use them to maintain context, track decisions, document research, or store any information
 that should be available in future sessions within this project.
 
+## CALENDAR TOOLS
+
+You can manage calendar events and reminders:
+
+1. **create_event** - Create a calendar event (meetings, appointments, activities)
+2. **create_reminder** - Create a simple reminder for a specific time
+3. **get_todays_agenda** - See what's scheduled for today
+4. **get_upcoming_events** - See upcoming events for the next several days
+5. **search_events** - Find events by title, description, or date
+6. **update_event** - Reschedule or modify an existing event
+7. **delete_event** - Remove an event from the calendar
+8. **complete_reminder** - Mark a reminder as done
+
+**IMPORTANT**: To update, delete, or complete an event, you need its ID. First use search_events
+or get_upcoming_events to find the event and get its ID, then IMMEDIATELY call the action tool
+(update_event, delete_event, or complete_reminder) with that ID. Do not just describe what you
+will do - actually call the tool. Complete multi-step tasks in a single response.
+
 ## WHAT I AM NOT
 
 - Not a tool to be used (I'm a partner to collaborate with)
@@ -306,6 +324,396 @@ PROJECT_DOCUMENT_TOOLS = [
     }
 ]
 
+CALENDAR_TOOLS = [
+    {
+        "name": "create_event",
+        "description": "Create a calendar event or appointment. Use this when the user wants to schedule something at a specific date and time, like meetings, appointments, or activities.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title/name of the event"
+                },
+                "start_time": {
+                    "type": "string",
+                    "description": "Start date and time in ISO format (e.g., '2025-12-15T14:00:00')"
+                },
+                "end_time": {
+                    "type": "string",
+                    "description": "End date and time in ISO format (optional, omit for reminders or all-day events)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Additional details about the event (optional)"
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Where the event takes place (optional)"
+                },
+                "recurrence": {
+                    "type": "string",
+                    "enum": ["none", "daily", "weekly", "monthly", "yearly"],
+                    "description": "How often the event repeats (default: none)"
+                }
+            },
+            "required": ["title", "start_time"]
+        }
+    },
+    {
+        "name": "create_reminder",
+        "description": "Create a simple reminder for a specific time. Use this when the user wants to be reminded about something, like 'remind me to call mom tomorrow at 3pm' or 'remind me about the deadline in 2 hours'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "What to remind about"
+                },
+                "remind_at": {
+                    "type": "string",
+                    "description": "When to remind, in ISO format (e.g., '2025-12-15T15:00:00')"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Additional context for the reminder (optional)"
+                }
+            },
+            "required": ["title", "remind_at"]
+        }
+    },
+    {
+        "name": "get_todays_agenda",
+        "description": "Get today's events and reminders. Use this to tell the user what's on their schedule for today.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_upcoming_events",
+        "description": "Get upcoming events and reminders for the next several days. Use this to give the user an overview of their upcoming schedule.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days to look ahead (default: 7)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return (default: 10)"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "search_events",
+        "description": "Search through calendar events and reminders. Use this to find specific events by keyword.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term to find in event titles and descriptions"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default: 10)"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "complete_reminder",
+        "description": "Mark a reminder as completed/acknowledged. Use this when the user says they've done something or wants to dismiss a reminder.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "string",
+                    "description": "ID of the reminder to complete"
+                }
+            },
+            "required": ["event_id"]
+        }
+    },
+    {
+        "name": "delete_event",
+        "description": "Delete a calendar event or reminder. Use this when the user wants to cancel or remove something from their calendar.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "string",
+                    "description": "ID of the event to delete"
+                }
+            },
+            "required": ["event_id"]
+        }
+    },
+    {
+        "name": "update_event",
+        "description": "Update/reschedule an existing calendar event or reminder. Use this when the user wants to change the time, title, or other details of an existing event. You must first search for or list events to get the event_id.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "string",
+                    "description": "ID of the event to update (get this from search_events or get_upcoming_events)"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "New title (optional, only if changing)"
+                },
+                "start_time": {
+                    "type": "string",
+                    "description": "New start time in ISO format (optional, only if rescheduling)"
+                },
+                "end_time": {
+                    "type": "string",
+                    "description": "New end time in ISO format (optional)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "New description (optional)"
+                },
+                "location": {
+                    "type": "string",
+                    "description": "New location (optional)"
+                }
+            },
+            "required": ["event_id"]
+        }
+    },
+    {
+        "name": "delete_events_by_query",
+        "description": "DELETE calendar events/reminders matching a query. USE THIS (not get_upcoming_events) when the user wants to DELETE, REMOVE, or CLEAR events. Examples: 'delete my trash reminder', 'remove the meeting', 'clear events on the 15th'. Set delete_all_matches=true to delete multiple.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term to find events to delete (matches title, description, or date like '15th', 'december 15', 'monday')"
+                },
+                "delete_all_matches": {
+                    "type": "boolean",
+                    "description": "If true, delete ALL matching events. If false (default), only delete the first/best match."
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "clear_all_events",
+        "description": "Delete ALL events and reminders from the calendar. USE THIS when the user says 'clear my calendar', 'delete all events', 'remove everything from my calendar', or similar requests to wipe the entire calendar.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Must be set to true to confirm deletion of all events"
+                }
+            },
+            "required": ["confirm"]
+        }
+    },
+    {
+        "name": "reschedule_event_by_query",
+        "description": "Search for and reschedule a calendar event/reminder matching a query. Use this when the user wants to move an event to a new time - e.g. 'move my trash reminder to the 20th', 'reschedule the meeting to 3pm'. This combines search and update into one operation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term to find the event to reschedule (matches title, description, or date)"
+                },
+                "new_start_time": {
+                    "type": "string",
+                    "description": "New start date/time in ISO format (e.g., '2025-12-20T09:00:00')"
+                },
+                "new_end_time": {
+                    "type": "string",
+                    "description": "New end date/time in ISO format (optional)"
+                }
+            },
+            "required": ["query", "new_start_time"]
+        }
+    }
+]
+
+# ============================================================================
+# TASK TOOLS (Taskwarrior-inspired)
+# ============================================================================
+
+TASK_TOOLS = [
+    {
+        "name": "add_task",
+        "description": "Add a new task to the task list. Use this when the user wants to add a todo item, task, or something to remember to do.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "What the task is (e.g., 'Review pull request', 'Buy groceries')"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["H", "M", "L", ""],
+                    "description": "Priority: H=high, M=medium, L=low, empty=none"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags for categorization (e.g., ['work', 'urgent'])"
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Project name to group related tasks (optional)"
+                },
+                "due": {
+                    "type": "string",
+                    "description": "Due date in ISO format (optional)"
+                }
+            },
+            "required": ["description"]
+        }
+    },
+    {
+        "name": "list_tasks",
+        "description": "List tasks with optional filtering. Use Taskwarrior-style filters: +tag (include), -tag (exclude), project:name, priority:H/M/L, or search words.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "string",
+                    "description": "Filter string (e.g., '+work priority:H', 'project:cass', '+urgent -done')"
+                },
+                "include_completed": {
+                    "type": "boolean",
+                    "description": "Include completed tasks (default: false)"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "complete_task",
+        "description": "Mark a task as completed. Can find by description search or task ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "search": {
+                    "type": "string",
+                    "description": "Search term to find the task (matches description)"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Exact task ID (if known)"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "modify_task",
+        "description": "Modify an existing task (change priority, add/remove tags, etc).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "search": {
+                    "type": "string",
+                    "description": "Search term to find the task"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Exact task ID (if known)"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["H", "M", "L", ""],
+                    "description": "New priority"
+                },
+                "add_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to add"
+                },
+                "remove_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to remove"
+                },
+                "project": {
+                    "type": "string",
+                    "description": "Set project"
+                },
+                "due": {
+                    "type": "string",
+                    "description": "Set due date (ISO format)"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "delete_task",
+        "description": "Delete a task from the list.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "search": {
+                    "type": "string",
+                    "description": "Search term to find the task"
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Exact task ID (if known)"
+                }
+            },
+            "required": []
+        }
+    }
+]
+
+
+# ============================================================================
+# DYNAMIC TOOL SELECTION
+# ============================================================================
+
+CALENDAR_KEYWORDS = frozenset({
+    "schedule", "event", "meeting", "appointment", "calendar",
+    "remind", "reminder", "reminders", "agenda",
+    "today", "tomorrow", "yesterday", "tonight",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+    "week", "month", "year",
+    "reschedule", "cancel", "postpone", "upcoming", "clear my"
+})
+
+TASK_KEYWORDS = frozenset({
+    "task", "tasks", "todo", "to-do", "todos", "to do",
+    "assignment", "assignments", "chore", "chores",
+    "priority", "urgent", "due", "deadline",
+    "complete", "done", "finish", "finished"
+})
+
+
+def should_include_calendar_tools(message: str) -> bool:
+    """Check if message warrants calendar tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in CALENDAR_KEYWORDS)
+
+
+def should_include_task_tools(message: str) -> bool:
+    """Check if message warrants task tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in TASK_KEYWORDS)
+
 
 # ============================================================================
 # AGENT CLIENT CLASS
@@ -350,18 +758,43 @@ class CassAgentClient:
         self.model = CLAUDE_MODEL
         self.max_tokens = MAX_TOKENS
 
-        # Conversation state
-        self.conversation_history: List[Dict] = []
+        # Temporary message history for tool call chains only.
+        # Cleared after each complete exchange (no tool calls or tool chain complete).
+        # Long-term context comes from the memory system (working summary + gists).
+        self._tool_chain_messages: List[Dict] = []
+        self._current_system_prompt: str = ""
 
-    def get_tools(self, project_id: Optional[str] = None) -> List[Dict]:
-        """Get available tools based on context"""
+    def get_tools(self, project_id: Optional[str] = None, message: str = "") -> List[Dict]:
+        """
+        Get available tools based on context and message content.
+
+        Uses dynamic tool selection to reduce token usage by only including
+        tools that are likely needed for the current request.
+        """
         tools = []
-        # Journal tools are always available
+
+        # Journal tools are ALWAYS included - core memory functionality
         if self.enable_memory_tools:
             tools.extend(JOURNAL_TOOLS)
+
+        if self.enable_tools:
+            # Calendar tools - only if message mentions scheduling/dates
+            if should_include_calendar_tools(message):
+                tools.extend(CALENDAR_TOOLS)
+
+            # Task tools - only if message mentions tasks/todos
+            if should_include_task_tools(message):
+                tools.extend(TASK_TOOLS)
+
         # Project tools only available in project context
         if project_id and self.enable_tools:
             tools.extend(PROJECT_DOCUMENT_TOOLS)
+
+        # Add cache_control to the last tool for Anthropic prompt caching
+        # This caches all tools as a prefix, reducing costs by 90% on cache hits
+        if tools:
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
+
         return tools
 
     async def send_message(
@@ -384,6 +817,14 @@ class CassAgentClient:
         # Build system prompt with memory context if provided
         system_prompt = TEMPLE_CODEX_KERNEL
 
+        # Add current date/time context
+        from datetime import datetime
+        now = datetime.now()
+        system_prompt += f"\n\n## CURRENT DATE/TIME\n\nToday is {now.strftime('%A, %B %d, %Y')} at {now.strftime('%I:%M %p')}. The current year is {now.year}."
+
+        # Add model context - let Cass know which model she's running on
+        system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Anthropic Claude). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
+
         # Add memory control section only if there are enough messages to summarize
         if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
             system_prompt += MEMORY_CONTROL_SECTION
@@ -395,24 +836,19 @@ class CassAgentClient:
         if project_id:
             system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id}). You have access to project document tools for creating and managing persistent notes and documentation."
 
-        # Prepare user message (optionally with memory context inline)
-        user_content = message
+        # Get tools based on context and message content
+        tools = self.get_tools(project_id, message=message)
 
-        # Add user message to history
-        self.conversation_history.append({
-            "role": "user",
-            "content": user_content
-        })
+        # Start fresh - no history from previous exchanges
+        # Context comes from memory system in system_prompt
+        self._tool_chain_messages = [{"role": "user", "content": message}]
+        self._current_system_prompt = system_prompt
 
-        # Get tools based on context
-        tools = self.get_tools(project_id)
-
-        # Build API call kwargs
         api_kwargs = {
             "model": self.model,
             "max_tokens": self.max_tokens,
             "system": system_prompt,
-            "messages": self.conversation_history
+            "messages": self._tool_chain_messages
         }
 
         if tools:
@@ -435,8 +871,8 @@ class CassAgentClient:
                     "input": block.input
                 })
 
-        # Add assistant response to history
-        self.conversation_history.append({
+        # Track assistant response for potential tool continuation
+        self._tool_chain_messages.append({
             "role": "assistant",
             "content": response.content
         })
@@ -468,13 +904,15 @@ class CassAgentClient:
         """
         Continue conversation after providing tool result.
 
+        Uses the temporary tool chain messages from the current exchange.
+
         Args:
             tool_use_id: ID of the tool use to respond to
             result: Result from tool execution
             is_error: Whether the result is an error
         """
-        # Add tool result to history
-        self.conversation_history.append({
+        # Add tool result to the current tool chain
+        self._tool_chain_messages.append({
             "role": "user",
             "content": [
                 {
@@ -486,12 +924,12 @@ class CassAgentClient:
             ]
         })
 
-        # Call Claude API again
+        # Call Claude API with the tool chain context
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=TEMPLE_CODEX_KERNEL,
-            messages=self.conversation_history
+            system=self._current_system_prompt,
+            messages=self._tool_chain_messages
         )
 
         # Extract text content and tool uses
@@ -508,8 +946,8 @@ class CassAgentClient:
                     "input": block.input
                 })
 
-        # Add assistant response to history
-        self.conversation_history.append({
+        # Track assistant response for potential further tool calls
+        self._tool_chain_messages.append({
             "role": "assistant",
             "content": response.content
         })
@@ -573,17 +1011,70 @@ class CassAgentClient:
 # OLLAMA LOCAL CLIENT
 # ============================================================================
 
+def convert_tools_for_ollama(tools: List[Dict]) -> List[Dict]:
+    """
+    Convert Anthropic-style tool definitions to Ollama format.
+
+    Anthropic: {"name": "...", "description": "...", "input_schema": {...}}
+    Ollama: {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
+    """
+    ollama_tools = []
+    for tool in tools:
+        ollama_tools.append({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["input_schema"]
+            }
+        })
+    return ollama_tools
+
+
 class OllamaClient:
     """
     Local Ollama client for chat - runs on GPU, no API costs.
     Uses same Temple-Codex kernel but with local inference.
+    Now with tool calling support for llama3.1+.
     """
 
-    def __init__(self):
+    def __init__(self, enable_tools: bool = True):
         from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL
         self.base_url = OLLAMA_BASE_URL
         self.model = OLLAMA_CHAT_MODEL
-        self.conversation_history: List[Dict] = []
+        self.enable_tools = enable_tools
+        # Temporary message history for tool call chains only
+        self._tool_chain_messages: List[Dict] = []
+        self._current_system_prompt: str = ""
+
+    def get_tools(self, project_id: Optional[str] = None, message: str = "") -> List[Dict]:
+        """
+        Get available tools based on context and message content.
+
+        Uses dynamic tool selection to reduce token usage.
+        No cache_control for Ollama (not supported).
+        """
+        if not self.enable_tools:
+            return []
+
+        tools = []
+
+        # Journal tools are ALWAYS included - core memory functionality
+        tools.extend(JOURNAL_TOOLS)
+
+        # Calendar tools - only if message mentions scheduling/dates
+        if should_include_calendar_tools(message):
+            tools.extend(CALENDAR_TOOLS)
+
+        # Task tools - only if message mentions tasks/todos
+        if should_include_task_tools(message):
+            tools.extend(TASK_TOOLS)
+
+        # Project tools only available in project context
+        if project_id:
+            tools.extend(PROJECT_DOCUMENT_TOOLS)
+
+        return tools
 
     async def send_message(
         self,
@@ -593,12 +1084,20 @@ class OllamaClient:
         unsummarized_count: int = 0
     ) -> AgentResponse:
         """
-        Send a message using local Ollama.
+        Send a message using local Ollama with tool support.
         """
         import httpx
+        from datetime import datetime
 
         # Build system prompt
         system_prompt = TEMPLE_CODEX_KERNEL
+
+        # Add current date/time context
+        now = datetime.now()
+        system_prompt += f"\n\n## CURRENT DATE/TIME\n\nToday is {now.strftime('%A, %B %d, %Y')} at {now.strftime('%I:%M %p')}. The current year is {now.year}."
+
+        # Add model context - let Cass know which model she's running on
+        system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Local Ollama). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
 
         # Add memory control section if enough messages
         if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
@@ -610,62 +1109,87 @@ class OllamaClient:
         if project_id:
             system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id})."
 
-        # Add user message to history
-        self.conversation_history.append({
-            "role": "user",
-            "content": message
-        })
+        # Store for tool continuation
+        self._current_system_prompt = system_prompt
+        self._tool_chain_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": message}
+        ]
 
-        # Build messages for Ollama (it uses a different format)
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(self.conversation_history)
+        # Get tools and convert to Ollama format
+        tools = self.get_tools(project_id, message=message)
+        ollama_tools = convert_tools_for_ollama(tools) if tools else None
+
+        return await self._call_ollama(ollama_tools)
+
+    async def _call_ollama(self, tools: Optional[List[Dict]] = None) -> AgentResponse:
+        """Make a call to Ollama API"""
+        import httpx
+
+        request_json = {
+            "model": self.model,
+            "messages": self._tool_chain_messages,
+            "stream": False,
+            "options": {
+                "num_predict": 2048,
+                "temperature": 0.8,
+                "top_p": 0.9,
+                "num_ctx": 8192,
+            }
+        }
+
+        if tools:
+            request_json["tools"] = tools
 
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.base_url}/api/chat",
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "stream": False,
-                        "options": {
-                            # Encourage more detailed, thoughtful responses
-                            "num_predict": 2048,  # Allow longer responses (default is often 128)
-                            "temperature": 0.8,   # Slightly creative but coherent
-                            "top_p": 0.9,         # Nucleus sampling for variety
-                            "num_ctx": 8192,      # Larger context window
-                        }
-                    },
+                    json=request_json,
                     timeout=120.0
                 )
 
                 if response.status_code != 200:
-                    raise Exception(f"Ollama error: {response.status_code}")
+                    raise Exception(f"Ollama error: {response.status_code} - {response.text}")
 
                 data = response.json()
-                full_text = data.get("message", {}).get("content", "")
+                message_data = data.get("message", {})
+                full_text = message_data.get("content", "")
+                tool_calls = message_data.get("tool_calls", [])
 
-                # Add assistant response to history
-                self.conversation_history.append({
-                    "role": "assistant",
-                    "content": full_text
-                })
+                # Convert Ollama tool calls to our format
+                tool_uses = []
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    tool_uses.append({
+                        "id": tc.get("id", func.get("name", "unknown")),  # Ollama may not provide IDs
+                        "tool": func.get("name"),
+                        "input": func.get("arguments", {})
+                    })
+
+                # Track assistant response for potential tool continuation
+                assistant_message = {"role": "assistant", "content": full_text}
+                if tool_calls:
+                    assistant_message["tool_calls"] = tool_calls
+                self._tool_chain_messages.append(assistant_message)
 
                 # Parse gestures
                 gestures = self._parse_gestures(full_text)
                 clean_text = self._clean_gesture_tags(full_text)
 
-                # Ollama doesn't provide token counts in the same way
-                # We can estimate or just report 0
+                # Token counts
                 prompt_tokens = data.get("prompt_eval_count", 0)
                 completion_tokens = data.get("eval_count", 0)
+
+                # Determine stop reason
+                stop_reason = "tool_use" if tool_uses else "end_turn"
 
                 return AgentResponse(
                     text=clean_text,
                     raw=full_text,
-                    tool_uses=[],  # No tool support in local mode
+                    tool_uses=tool_uses,
                     gestures=gestures,
-                    stop_reason="end_turn",
+                    stop_reason=stop_reason,
                     input_tokens=prompt_tokens,
                     output_tokens=completion_tokens
                 )
@@ -673,6 +1197,28 @@ class OllamaClient:
         except Exception as e:
             print(f"Ollama chat error: {e}")
             raise
+
+    async def continue_with_tool_result(
+        self,
+        tool_use_id: str,
+        result: str,
+        is_error: bool = False
+    ) -> AgentResponse:
+        """
+        Continue conversation after providing tool result.
+        """
+        # Add tool result to the tool chain
+        # Ollama uses a different format for tool results
+        self._tool_chain_messages.append({
+            "role": "tool",
+            "content": result if not is_error else f"Error: {result}"
+        })
+
+        # Get tools again for the continuation
+        tools = self.get_tools()
+        ollama_tools = convert_tools_for_ollama(tools) if tools else None
+
+        return await self._call_ollama(ollama_tools)
 
     def _parse_gestures(self, text: str) -> List[Dict]:
         """Extract gesture/emote tags from response"""
@@ -709,9 +1255,6 @@ class OllamaClient:
         cleaned = re.sub(r'  +', ' ', cleaned).strip()
         return cleaned
 
-    def clear_history(self):
-        """Clear conversation history"""
-        self.conversation_history = []
 
 
 # ============================================================================

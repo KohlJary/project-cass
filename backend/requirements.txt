@@ -8,6 +8,9 @@ python-dotenv>=1.0.0
 anthropic>=0.39.0
 claude-agent-sdk>=0.1.0
 
+# OpenAI API (optional - for multi-LLM support)
+openai>=1.0.0
+
 # Vector Database for Memory
 chromadb>=0.4.22
 numpy<2.0  # Compatibility fix

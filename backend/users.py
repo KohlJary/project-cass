@@ -20,13 +20,25 @@ class UserObservation:
     timestamp: str
     observation: str
     source_conversation_id: Optional[str] = None
+    source_summary_id: Optional[str] = None  # Which summary chunk this came from
+    source_message_id: Optional[str] = None  # Which specific message (for future use)
+    source_journal_date: Optional[str] = None  # Journal date that triggered extraction
 
     def to_dict(self) -> Dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'UserObservation':
-        return cls(**data)
+        # Handle older observations without new fields
+        return cls(
+            id=data["id"],
+            timestamp=data["timestamp"],
+            observation=data["observation"],
+            source_conversation_id=data.get("source_conversation_id"),
+            source_summary_id=data.get("source_summary_id"),
+            source_message_id=data.get("source_message_id"),
+            source_journal_date=data.get("source_journal_date")
+        )
 
 
 @dataclass
@@ -315,7 +327,10 @@ class UserManager:
         self,
         user_id: str,
         observation: str,
-        source_conversation_id: Optional[str] = None
+        source_conversation_id: Optional[str] = None,
+        source_summary_id: Optional[str] = None,
+        source_message_id: Optional[str] = None,
+        source_journal_date: Optional[str] = None
     ) -> Optional[UserObservation]:
         """Add an observation about a user"""
         profile = self.load_profile(user_id)
@@ -326,7 +341,10 @@ class UserManager:
             id=str(uuid.uuid4()),
             timestamp=datetime.now().isoformat(),
             observation=observation,
-            source_conversation_id=source_conversation_id
+            source_conversation_id=source_conversation_id,
+            source_summary_id=source_summary_id,
+            source_message_id=source_message_id,
+            source_journal_date=source_journal_date
         )
 
         # Load existing and append

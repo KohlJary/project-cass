@@ -641,6 +641,55 @@ async def generate_and_store_summary(conversation_id: str, force: bool = False, 
         _summarization_in_progress.discard(conversation_id)
 
 
+# === Auto-Title Generation ===
+
+async def generate_conversation_title(conversation_id: str, user_message: str, assistant_response: str, websocket=None):
+    """
+    Generate a title for a conversation based on the first exchange.
+    Uses a fast, cheap API call to create a concise title.
+    Optionally notifies the client via WebSocket when done.
+    """
+    try:
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = await client.messages.create(
+            model="claude-3-5-haiku-latest",
+            max_tokens=50,
+            messages=[{
+                "role": "user",
+                "content": f"Generate a short, descriptive title (3-6 words) for a conversation that started with:\n\nUser: {user_message[:500]}\n\nAssistant: {assistant_response[:500]}\n\nRespond with ONLY the title, no quotes or punctuation."
+            }]
+        )
+
+        title = response.content[0].text.strip().strip('"').strip("'")
+
+        # Ensure reasonable length
+        if len(title) > 60:
+            title = title[:57] + "..."
+
+        # Update the conversation title
+        conversation_manager.update_title(conversation_id, title)
+        print(f"Auto-generated title for {conversation_id}: {title}")
+
+        # Notify client via WebSocket if available
+        if websocket:
+            try:
+                await websocket.send_json({
+                    "type": "title_updated",
+                    "conversation_id": conversation_id,
+                    "title": title,
+                    "timestamp": datetime.now().isoformat()
+                })
+            except Exception as ws_err:
+                print(f"Failed to send title update via WebSocket: {ws_err}")
+
+        return title
+    except Exception as e:
+        print(f"Failed to generate title for {conversation_id}: {e}")
+        return None
+
+
 # === Request/Response Models ===
 
 class ChatRequest(BaseModel):
@@ -669,6 +718,7 @@ class MemoryQueryRequest(BaseModel):
 class ConversationCreateRequest(BaseModel):
     title: Optional[str] = None
     project_id: Optional[str] = None
+    user_id: Optional[str] = None
 
 class ConversationUpdateTitleRequest(BaseModel):
     title: str
@@ -954,20 +1004,22 @@ async def create_conversation(request: ConversationCreateRequest):
     """Create a new conversation"""
     conversation = conversation_manager.create_conversation(
         title=request.title,
-        project_id=request.project_id
+        project_id=request.project_id,
+        user_id=request.user_id
     )
     return {
         "id": conversation.id,
         "title": conversation.title,
         "created_at": conversation.created_at,
         "message_count": 0,
-        "project_id": conversation.project_id
+        "project_id": conversation.project_id,
+        "user_id": conversation.user_id
     }
 
 @app.get("/conversations")
-async def list_conversations(limit: Optional[int] = None):
-    """List all conversations"""
-    conversations = conversation_manager.list_conversations(limit=limit)
+async def list_conversations(limit: Optional[int] = None, user_id: Optional[str] = None):
+    """List all conversations, optionally filtered by user_id"""
+    conversations = conversation_manager.list_conversations(limit=limit, user_id=user_id)
     return {"conversations": conversations, "count": len(conversations)}
 
 @app.get("/conversations/{conversation_id}")
@@ -1995,6 +2047,7 @@ manager = ConnectionManager()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket for real-time bidirectional communication"""
+    global current_user_id
     await manager.connect(websocket)
     
     await websocket.send_json({
@@ -2200,6 +2253,13 @@ async def websocket_endpoint(websocket: WebSocket):
                         animations=animations
                     )
 
+                    # Auto-generate title on first exchange
+                    message_count = conversation_manager.get_message_count(conversation_id)
+                    if message_count == 2:  # First user + first assistant message
+                        asyncio.create_task(generate_conversation_title(
+                            conversation_id, user_message, clean_text, websocket=websocket
+                        ))
+
                     # Check if summarization is needed
                     should_summarize = False
 
@@ -2269,7 +2329,99 @@ async def websocket_endpoint(websocket: WebSocket):
                     "memory_count": memory.count(),
                     "timestamp": datetime.now().isoformat()
                 })
-                
+
+            elif data.get("type") == "onboarding_intro":
+                # Handle new user onboarding - Cass introduces herself
+                user_id = data.get("user_id")
+                conversation_id = data.get("conversation_id")
+
+                if not user_id or not conversation_id:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Missing user_id or conversation_id for onboarding"
+                    })
+                    continue
+
+                # Load user profile
+                profile = user_manager.load_profile(user_id)
+                if not profile:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "User not found"
+                    })
+                    continue
+
+                # Set as current user
+                current_user_id = user_id
+
+                # Build profile context
+                profile_context = user_manager.get_user_context(user_id) or "No additional profile information provided."
+
+                # Format the onboarding prompt
+                from config import ONBOARDING_INTRO_PROMPT
+                intro_context = ONBOARDING_INTRO_PROMPT.format(
+                    display_name=profile.display_name,
+                    relationship=profile.relationship,
+                    profile_context=profile_context
+                )
+
+                # Send thinking status
+                await websocket.send_json({
+                    "type": "thinking",
+                    "status": "Cass is preparing to introduce herself...",
+                    "timestamp": datetime.now().isoformat()
+                })
+
+                try:
+                    # Generate introduction using the LLM
+                    if USE_AGENT_SDK and agent_client:
+                        response = await agent_client.send_message(
+                            message="[New user just created their profile. Please introduce yourself warmly.]",
+                            memory_context=intro_context,
+                            project_id=None,
+                            unsummarized_count=0
+                        )
+                        raw_response = response.raw
+                        clean_text = response.text
+                        animations = response.gestures
+                        total_input_tokens = response.input_tokens
+                        total_output_tokens = response.output_tokens
+
+                        # Store in conversation
+                        conversation_manager.add_message(
+                            conversation_id=conversation_id,
+                            role="assistant",
+                            content=clean_text,
+                            animations=animations,
+                            input_tokens=total_input_tokens,
+                            output_tokens=total_output_tokens,
+                            provider="anthropic",
+                            model=agent_client.model if hasattr(agent_client, 'model') else None
+                        )
+
+                        # Send response
+                        await websocket.send_json({
+                            "type": "response",
+                            "text": clean_text,
+                            "animations": animations,
+                            "raw": raw_response,
+                            "conversation_id": conversation_id,
+                            "input_tokens": total_input_tokens,
+                            "output_tokens": total_output_tokens,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Agent client not available for onboarding"
+                        })
+                except Exception as e:
+                    print(f"Onboarding error: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Failed to generate introduction: {str(e)}"
+                    })
+
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 

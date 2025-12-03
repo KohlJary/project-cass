@@ -1,0 +1,38 @@
+[Unit]
+Description=Cass Vessel Backend Server
+After=network.target
+
+[Service]
+Type=simple
+User=${USER}
+Group=${USER}
+WorkingDirectory=${INSTALL_DIR}/backend
+Environment="PATH=${INSTALL_DIR}/backend/venv/bin"
+ExecStart=${INSTALL_DIR}/backend/venv/bin/python main_sdk.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cass-vessel
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
+# --- Installation Instructions ---
+# 1. Copy this file and replace variables:
+#    sed "s|\${USER}|$(whoami)|g; s|\${INSTALL_DIR}|/path/to/cass-vessel|g" \
+#        cass-vessel.service.template > cass-vessel.service
+#
+# 2. Install the service:
+#    sudo cp cass-vessel.service /etc/systemd/system/
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable cass-vessel
+#    sudo systemctl start cass-vessel

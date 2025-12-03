@@ -22,6 +22,7 @@ SCROLL_ANIMATION = os.getenv("SCROLL_ANIMATION", "true").lower() == "true"
 # Connection settings
 WS_RECONNECT_DELAY = 5  # seconds
 HTTP_TIMEOUT = 30.0  # seconds
+HTTP_TIMEOUT_LONG = 180.0  # seconds - for long operations like journal generation
 
 # Project context settings
 # Can be set via --project flag or /project command

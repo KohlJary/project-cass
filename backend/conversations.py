@@ -20,6 +20,12 @@ class Message:
     animations: Optional[List[Dict]] = None
     excluded: bool = False  # If True, excluded from summarization, context, and embeddings
     user_id: Optional[str] = None  # User ID for user messages (None for assistant)
+    # Token usage metadata (for assistant messages)
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    # Provider/model metadata (for assistant messages)
+    provider: Optional[str] = None  # "anthropic", "openai", "local"
+    model: Optional[str] = None  # e.g., "claude-sonnet-4-20250514", "gpt-4o"
 
 
 @dataclass
@@ -34,6 +40,7 @@ class Conversation:
     messages_since_last_summary: int = 0
     project_id: Optional[str] = None  # Optional project association
     working_summary: Optional[str] = None  # Token-optimized summary for prompt context
+    user_id: Optional[str] = None  # Owner of this conversation
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -46,7 +53,8 @@ class Conversation:
             "last_summary_timestamp": self.last_summary_timestamp,
             "messages_since_last_summary": self.messages_since_last_summary,
             "project_id": self.project_id,
-            "working_summary": self.working_summary
+            "working_summary": self.working_summary,
+            "user_id": self.user_id
         }
 
     @classmethod
@@ -62,7 +70,8 @@ class Conversation:
             last_summary_timestamp=data.get("last_summary_timestamp"),
             messages_since_last_summary=data.get("messages_since_last_summary", 0),
             project_id=data.get("project_id"),
-            working_summary=data.get("working_summary")
+            working_summary=data.get("working_summary"),
+            user_id=data.get("user_id")
         )
 
 
@@ -105,7 +114,8 @@ class ConversationManager:
     def create_conversation(
         self,
         title: Optional[str] = None,
-        project_id: Optional[str] = None
+        project_id: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> Conversation:
         """Create a new conversation"""
         conversation_id = str(uuid.uuid4())
@@ -117,7 +127,8 @@ class ConversationManager:
             created_at=now,
             updated_at=now,
             messages=[],
-            project_id=project_id
+            project_id=project_id,
+            user_id=user_id
         )
 
         # Save conversation
@@ -131,7 +142,8 @@ class ConversationManager:
             "created_at": now,
             "updated_at": now,
             "message_count": 0,
-            "project_id": project_id
+            "project_id": project_id,
+            "user_id": user_id
         })
         self._save_index(index)
 
@@ -163,7 +175,11 @@ class ConversationManager:
         role: str,
         content: str,
         animations: Optional[List[Dict]] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None
     ) -> bool:
         """Add a message to a conversation"""
         conversation = self.load_conversation(conversation_id)
@@ -177,7 +193,11 @@ class ConversationManager:
             content=content,
             timestamp=datetime.now().isoformat(),
             animations=animations,
-            user_id=user_id if role == "user" else None  # Only set for user messages
+            user_id=user_id if role == "user" else None,  # Only set for user messages
+            input_tokens=input_tokens if role == "assistant" else None,
+            output_tokens=output_tokens if role == "assistant" else None,
+            provider=provider if role == "assistant" else None,
+            model=model if role == "assistant" else None
         )
         conversation.messages.append(message)
 
@@ -224,12 +244,24 @@ class ConversationManager:
 
         self._save_index(index)
 
-    def list_conversations(self, limit: Optional[int] = None) -> List[Dict]:
+    def list_conversations(
+        self,
+        limit: Optional[int] = None,
+        user_id: Optional[str] = None
+    ) -> List[Dict]:
         """
-        List all conversations with metadata.
+        List conversations with metadata.
         Returns most recently updated first.
+
+        Args:
+            limit: Maximum number of conversations to return
+            user_id: If provided, only return conversations for this user
         """
         index = self._load_index()
+
+        # Filter by user_id if provided
+        if user_id:
+            index = [c for c in index if c.get("user_id") == user_id]
 
         # Sort by updated_at descending
         index.sort(key=lambda x: x.get("updated_at", ""), reverse=True)

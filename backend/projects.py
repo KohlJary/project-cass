@@ -43,6 +43,7 @@ class Project:
     files: List[ProjectFile] = field(default_factory=list)
     documents: List[ProjectDocument] = field(default_factory=list)
     description: Optional[str] = None
+    user_id: Optional[str] = None  # Owner of this project
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -54,7 +55,8 @@ class Project:
             "updated_at": self.updated_at,
             "files": [asdict(f) for f in self.files],
             "documents": [asdict(d) for d in self.documents],
-            "description": self.description
+            "description": self.description,
+            "user_id": self.user_id
         }
 
     @classmethod
@@ -70,7 +72,8 @@ class Project:
             updated_at=data["updated_at"],
             files=files,
             documents=documents,
-            description=data.get("description")
+            description=data.get("description"),
+            user_id=data.get("user_id")
         )
 
 
@@ -114,7 +117,8 @@ class ProjectManager:
         self,
         name: str,
         working_directory: str,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> Project:
         """Create a new project"""
         project_id = str(uuid.uuid4())
@@ -130,7 +134,8 @@ class ProjectManager:
             created_at=now,
             updated_at=now,
             files=[],
-            description=description
+            description=description,
+            user_id=user_id
         )
 
         # Save project
@@ -144,7 +149,8 @@ class ProjectManager:
             "working_directory": working_dir,
             "created_at": now,
             "updated_at": now,
-            "file_count": 0
+            "file_count": 0,
+            "user_id": user_id
         })
         self._save_index(index)
 
@@ -213,12 +219,19 @@ class ProjectManager:
 
         self._save_index(index)
 
-    def list_projects(self) -> List[Dict]:
+    def list_projects(self, user_id: Optional[str] = None) -> List[Dict]:
         """
-        List all projects with metadata.
+        List projects with metadata.
         Returns most recently updated first.
+
+        Args:
+            user_id: If provided, only return projects for this user
         """
         index = self._load_index()
+
+        # Filter by user_id if provided
+        if user_id:
+            index = [p for p in index if p.get("user_id") == user_id]
 
         # Sort by updated_at descending
         index.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
