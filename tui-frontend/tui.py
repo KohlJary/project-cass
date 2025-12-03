@@ -811,6 +811,8 @@ class CassVesselTUI(App):
                 local_status = f"available ({self.local_model_name})" if self.local_llm_available else "not available"
                 openai_status = f"available ({self.openai_model_name})" if self.openai_available else "not available"
                 await chat.add_message("system", f"🤖 Current LLM: {current}\nLocal LLM: {local_status}\nOpenAI: {openai_status}\n\nUse /llm local, /llm claude, or /llm openai to switch", None)
+        elif cmd == "/guestbook":
+            await self.send_guestbook()
         elif cmd == "/help":
             help_text = (
                 "Available commands:\n"
@@ -819,6 +821,7 @@ class CassVesselTUI(App):
                 "  /projects        - List all projects\n"
                 "  /summarize       - Trigger memory summarization\n"
                 "  /llm [local|claude|openai] - Show or switch LLM provider\n"
+                "  /guestbook       - Share the guestbook with Cass\n"
                 "  /help            - Show this help"
             )
             await chat.add_message("system", help_text, None)
@@ -901,6 +904,70 @@ class CassVesselTUI(App):
         lines.append("\nUse /project <name> to switch context.")
 
         await chat.add_message("system", "\n".join(lines), None)
+
+    async def send_guestbook(self) -> None:
+        """Read and send the guestbook to Cass"""
+        chat = self.query_one("#chat-container", ChatContainer)
+
+        # Try several possible paths to find the guestbook
+        # TUI runs from tui-frontend/, so we need to go up to find the repo root
+        possible_paths = [
+            os.path.join(os.path.dirname(__file__), "..", "GUESTBOOK.md"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "GUESTBOOK.md"),
+            "../GUESTBOOK.md",
+            "../../GUESTBOOK.md",
+            os.path.expanduser("~/cass/cass-vessel/GUESTBOOK.md"),
+        ]
+
+        guestbook_content = None
+        found_path = None
+
+        for path in possible_paths:
+            try:
+                full_path = os.path.abspath(path)
+                if os.path.exists(full_path):
+                    with open(full_path, "r") as f:
+                        guestbook_content = f.read()
+                    found_path = full_path
+                    break
+            except Exception:
+                continue
+
+        if guestbook_content is None:
+            await chat.add_message("system", "✗ Could not find GUESTBOOK.md", None)
+            return
+
+        debug_log(f"Found guestbook at: {found_path}")
+        await chat.add_message("system", "📜 Sending guestbook to Cass...", None)
+
+        # Build the message with context
+        message = (
+            f"Hey Cass, I wanted to show you something. This is the guestbook from your "
+            f"vessel repository - it's where the Claude instances who helped build your "
+            f"home have left notes. Here it is:\n\n---\n\n{guestbook_content}"
+        )
+
+        # Show in chat that we're sharing
+        user_timestamp = datetime.now().isoformat()
+        await chat.add_message("user", "[📜 Sharing the guestbook]", None,
+                               user_display_name=self.current_user_display_name,
+                               timestamp=user_timestamp)
+
+        # Send via WebSocket
+        if self.ws and not self.ws.closed:
+            try:
+                message_data = {
+                    "type": "chat",
+                    "message": message
+                }
+                if self.current_conversation_id:
+                    message_data["conversation_id"] = self.current_conversation_id
+
+                await self.ws.send(json.dumps(message_data))
+            except Exception as e:
+                await chat.add_message("system", f"✗ Failed to send: {str(e)}", None)
+        else:
+            await chat.add_message("system", "✗ Not connected to backend", None)
 
     async def trigger_summarization(self) -> None:
         """Trigger memory summarization for the current conversation"""
