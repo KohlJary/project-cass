@@ -1745,11 +1745,21 @@ class LLMProviderRequest(BaseModel):
 @app.get("/settings/llm-provider")
 async def get_llm_provider():
     """Get current LLM provider setting"""
-    from config import OLLAMA_ENABLED
+    from config import OLLAMA_ENABLED, OPENAI_ENABLED, OPENAI_MODEL, CLAUDE_MODEL
+
+    available = [LLM_PROVIDER_ANTHROPIC]
+    if OPENAI_ENABLED:
+        available.append("openai")
+    if OLLAMA_ENABLED:
+        available.append(LLM_PROVIDER_LOCAL)
+
     return {
         "current": current_llm_provider,
-        "available": [LLM_PROVIDER_ANTHROPIC, LLM_PROVIDER_LOCAL] if OLLAMA_ENABLED else [LLM_PROVIDER_ANTHROPIC],
+        "available": available,
+        "openai_enabled": OPENAI_ENABLED,
         "local_enabled": OLLAMA_ENABLED,
+        "anthropic_model": CLAUDE_MODEL,
+        "openai_model": OPENAI_MODEL if OPENAI_ENABLED else None,
         "local_model": ollama_client.model if ollama_client else None
     }
 
@@ -1785,6 +1795,28 @@ async def set_llm_provider(request: LLMProviderRequest):
         "provider": current_llm_provider,
         "model": ollama_client.model if current_llm_provider == LLM_PROVIDER_LOCAL else "claude-sonnet"
     }
+
+
+@app.get("/settings/ollama-models")
+async def get_ollama_models():
+    """Fetch available models from local Ollama instance"""
+    from config import OLLAMA_ENABLED, OLLAMA_BASE_URL
+    import httpx
+
+    if not OLLAMA_ENABLED:
+        return {"models": [], "error": "Ollama not enabled"}
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+            if response.status_code == 200:
+                data = response.json()
+                models = [m["name"] for m in data.get("models", [])]
+                return {"models": models}
+            else:
+                return {"models": [], "error": f"Ollama returned {response.status_code}"}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
 
 
 # === User Context Endpoints ===
