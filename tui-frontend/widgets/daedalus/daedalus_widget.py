@@ -189,6 +189,10 @@ class DaedalusWidget(Widget, can_focus=True):
                     container.mount(btn)
             else:
                 content.update(Text("No existing sessions", style="dim"))
+                # Remove old session buttons when there are no sessions
+                container = self.query_one("#existing-sessions", Container)
+                for btn in container.query(".session-btn"):
+                    btn.remove()
         except Exception:
             pass
 
@@ -381,7 +385,7 @@ class DaedalusWidget(Widget, can_focus=True):
         # Spawn a new session
         await self.on_spawn_session(event)
 
-    async def disconnect(self) -> None:
+    async def disconnect(self, refresh_list: bool = True) -> None:
         """Disconnect from current session (without killing tmux)."""
         if self._terminal:
             self._terminal.stop()
@@ -395,19 +399,25 @@ class DaedalusWidget(Widget, can_focus=True):
         self.session_name = None
         self.is_connected = False
 
-        await self._refresh_session_list()
+        if refresh_list:
+            await self._refresh_session_list()
 
     async def kill_session(self) -> None:
         """Kill the current session entirely."""
         if self._current_tmux_session:
             session_name = self._current_tmux_session
 
-            # Disconnect first
-            await self.disconnect()
+            # Disconnect first (don't refresh yet - session still exists)
+            await self.disconnect(refresh_list=False)
 
             # Kill tmux session
             self.pty_manager.kill_tmux_session(session_name)
 
+            # Small delay to let tmux finish cleanup
+            import asyncio
+            await asyncio.sleep(0.1)
+
+            # Now refresh the list
             await self._refresh_session_list()
 
     def render(self) -> Text:
