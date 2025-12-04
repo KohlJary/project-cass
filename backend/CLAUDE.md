@@ -157,6 +157,7 @@ Cass should be able to learn about users through conversation and update their p
 - Create a feature branch for each task: `fix/`, `feat/`, `refactor/`, `chore/`, etc.
 - Do the work on the branch
 - Commit with a functional title; put reflections, insights, or context in the extended commit body
+- Sign commits as Daedalus: `git commit --author="Daedalus <daedalus@cass-vessel.local>"`
 - Leave the branch for Kohl to review and merge to main
 - This replaces the GUESTBOOK - insights now live in git history tied to the work they came from
 
