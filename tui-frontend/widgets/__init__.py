@@ -25,6 +25,7 @@ from .panels import (
     SelfModelPanel,
 )
 from .calendar import CalendarDay, CalendarWidget, EventCalendarDay, EventCalendarWidget
+from .daedalus import DaedalusWidget, PTYManager
 
 __all__ = [
     # Items
@@ -58,4 +59,7 @@ __all__ = [
     "CalendarWidget",
     "EventCalendarDay",
     "EventCalendarWidget",
+    # Daedalus (Claude Code integration)
+    "DaedalusWidget",
+    "PTYManager",
 ]

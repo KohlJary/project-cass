@@ -124,6 +124,35 @@ class UserProfile:
         return cls.from_dict(data)
 
 
+@dataclass
+class PerUserJournalEntry:
+    """A journal entry Cass wrote about a specific user"""
+    id: str
+    user_id: str
+    journal_date: str
+    content: str
+    conversation_count: int
+    topics_discussed: List[str] = field(default_factory=list)
+    relationship_insights: List[str] = field(default_factory=list)
+    timestamp: str = ""
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PerUserJournalEntry':
+        return cls(
+            id=data["id"],
+            user_id=data["user_id"],
+            journal_date=data["journal_date"],
+            content=data["content"],
+            conversation_count=data.get("conversation_count", 0),
+            topics_discussed=data.get("topics_discussed", []),
+            relationship_insights=data.get("relationship_insights", []),
+            timestamp=data.get("timestamp", "")
+        )
+
+
 class UserManager:
     """
     Manages user profiles and observations with persistence.
@@ -171,6 +200,10 @@ class UserManager:
     def _get_observations_path(self, user_id: str) -> Path:
         """Get path to user's observations.json"""
         return self._get_user_dir(user_id) / "observations.json"
+
+    def _get_journals_path(self, user_id: str) -> Path:
+        """Get path to user's journals.json"""
+        return self._get_user_dir(user_id) / "journals.json"
 
     # === User CRUD ===
 
@@ -228,6 +261,12 @@ class UserManager:
         path = self._get_observations_path(user_id)
         with open(path, 'w') as f:
             json.dump([o.to_dict() for o in observations], f, indent=2)
+
+    def _save_journals(self, user_id: str, journals: List[PerUserJournalEntry]):
+        """Save per-user journals as JSON"""
+        path = self._get_journals_path(user_id)
+        with open(path, 'w') as f:
+            json.dump([j.to_dict() for j in journals], f, indent=2)
 
     def load_profile(self, user_id: str) -> Optional[UserProfile]:
         """Load a user's profile"""
@@ -448,6 +487,105 @@ class UserManager:
                 return obs
 
         return None
+
+    # === Per-User Journals ===
+
+    def load_user_journals(self, user_id: str) -> List[PerUserJournalEntry]:
+        """Load all journals Cass has written about this user"""
+        path = self._get_journals_path(user_id)
+
+        if not path.exists():
+            return []
+
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+            return [PerUserJournalEntry.from_dict(j) for j in data]
+        except Exception:
+            return []
+
+    def add_user_journal(
+        self,
+        user_id: str,
+        journal_date: str,
+        content: str,
+        conversation_count: int,
+        topics_discussed: Optional[List[str]] = None,
+        relationship_insights: Optional[List[str]] = None
+    ) -> Optional[PerUserJournalEntry]:
+        """Add a journal entry about a user"""
+        profile = self.load_profile(user_id)
+        if not profile:
+            return None
+
+        now = datetime.now().isoformat()
+        entry = PerUserJournalEntry(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            journal_date=journal_date,
+            content=content,
+            conversation_count=conversation_count,
+            topics_discussed=topics_discussed or [],
+            relationship_insights=relationship_insights or [],
+            timestamp=now
+        )
+
+        # Load existing and append
+        journals = self.load_user_journals(user_id)
+        journals.append(entry)
+        self._save_journals(user_id, journals)
+
+        return entry
+
+    def get_user_journal_by_date(
+        self,
+        user_id: str,
+        journal_date: str
+    ) -> Optional[PerUserJournalEntry]:
+        """Get journal entry for a specific date"""
+        journals = self.load_user_journals(user_id)
+        for journal in journals:
+            if journal.journal_date == journal_date:
+                return journal
+        return None
+
+    def get_recent_user_journals(
+        self,
+        user_id: str,
+        limit: int = 10
+    ) -> List[PerUserJournalEntry]:
+        """Get most recent journals about a user"""
+        journals = self.load_user_journals(user_id)
+        # Sort by journal_date descending
+        journals.sort(key=lambda x: x.journal_date, reverse=True)
+        return journals[:limit]
+
+    def search_user_journals(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 5
+    ) -> List[PerUserJournalEntry]:
+        """Simple text search in user journals"""
+        journals = self.load_user_journals(user_id)
+        query_lower = query.lower()
+
+        # Simple keyword matching
+        matches = []
+        for journal in journals:
+            score = 0
+            content_lower = journal.content.lower()
+            if query_lower in content_lower:
+                score += content_lower.count(query_lower)
+            for topic in journal.topics_discussed:
+                if query_lower in topic.lower():
+                    score += 2
+            if score > 0:
+                matches.append((score, journal))
+
+        # Sort by score descending
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return [m[1] for m in matches[:limit]]
 
     # === Context Building ===
 

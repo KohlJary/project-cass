@@ -545,15 +545,19 @@ class UserPanel(Container):
 
 
 class GrowthPanel(Container):
-    """Panel showing Cass's growth data - calendar and journal entries"""
+    """Panel showing Cass's growth data - calendar, journal entries, and growth insights"""
 
     selected_date: reactive[Optional[str]] = reactive(None)
     is_locked: reactive[bool] = reactive(False)
     pending_regenerate: bool = False  # Flag for confirmation flow
+    active_tab: reactive[str] = reactive("journal")  # "journal", "evaluations", "pending", "questions"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.journals: Dict[str, Dict] = {}  # Cache of loaded journals
+        self.growth_evaluations: List[Dict] = []  # Cached evaluations
+        self.pending_edges: List[Dict] = []  # Cached pending edges
+        self.question_reflections: List[Dict] = []  # Cached reflections
 
     def compose(self) -> ComposeResult:
         with Vertical(id="growth-content"):
@@ -562,8 +566,15 @@ class GrowthPanel(Container):
                 yield Label("Journal Calendar", id="calendar-header")
                 yield CalendarWidget(id="calendar-widget")
 
-            # Journal viewer section
-            with Container(id="journal-viewer-section"):
+            # Tab bar for switching views
+            with Horizontal(id="growth-tab-bar"):
+                yield Button("📓 Journal", id="tab-journal", variant="primary", classes="growth-tab active-tab")
+                yield Button("📊 Progress", id="tab-evaluations", variant="default", classes="growth-tab")
+                yield Button("🌱 Pending", id="tab-pending", variant="default", classes="growth-tab")
+                yield Button("❓ Questions", id="tab-questions", variant="default", classes="growth-tab")
+
+            # Journal viewer section (default visible)
+            with Container(id="journal-viewer-section", classes="growth-section"):
                 with Horizontal(id="journal-viewer-header"):
                     yield Button("🔓", id="lock-journal-btn", variant="default", disabled=True)
                     yield Label("Journal Entry", id="journal-viewer-title")
@@ -571,6 +582,30 @@ class GrowthPanel(Container):
                     yield Button("🔄 Regenerate", id="regenerate-journal-btn", variant="warning", disabled=True)
                 with VerticalScroll(id="journal-viewer"):
                     yield Static("Select a date to view journal entry", id="journal-content", classes="journal-placeholder")
+
+            # Growth edge evaluations section (hidden by default)
+            with Container(id="evaluations-section", classes="growth-section hidden-section"):
+                with Horizontal(id="evaluations-header"):
+                    yield Label("📊 Growth Edge Evaluations", id="evaluations-title")
+                    yield Button("↻ Refresh", id="refresh-evaluations-btn", variant="default")
+                with VerticalScroll(id="evaluations-viewer"):
+                    yield Static("Loading evaluations...", id="evaluations-content")
+
+            # Pending growth edges section (hidden by default)
+            with Container(id="pending-section", classes="growth-section hidden-section"):
+                with Horizontal(id="pending-header"):
+                    yield Label("🌱 Pending Growth Edges", id="pending-title")
+                    yield Button("↻ Refresh", id="refresh-pending-btn", variant="default")
+                with VerticalScroll(id="pending-viewer"):
+                    yield Static("Loading pending edges...", id="pending-content")
+
+            # Open questions reflections section (hidden by default)
+            with Container(id="questions-section", classes="growth-section hidden-section"):
+                with Horizontal(id="questions-header"):
+                    yield Label("❓ Open Question Reflections", id="questions-title")
+                    yield Button("↻ Refresh", id="refresh-questions-btn", variant="default")
+                with VerticalScroll(id="questions-viewer"):
+                    yield Static("Loading reflections...", id="questions-content")
 
     async def on_mount(self) -> None:
         """Load journal dates on mount"""
@@ -635,6 +670,239 @@ class GrowthPanel(Container):
             self._update_regen_button_state()
         except Exception:
             pass
+
+    def watch_active_tab(self, new_tab: str) -> None:
+        """React to tab changes - show/hide sections"""
+        tab_sections = {
+            "journal": "journal-viewer-section",
+            "evaluations": "evaluations-section",
+            "pending": "pending-section",
+            "questions": "questions-section",
+        }
+        tab_buttons = {
+            "journal": "tab-journal",
+            "evaluations": "tab-evaluations",
+            "pending": "tab-pending",
+            "questions": "tab-questions",
+        }
+
+        # Show/hide sections and update button states
+        for tab_name, section_id in tab_sections.items():
+            try:
+                section = self.query_one(f"#{section_id}", Container)
+                btn = self.query_one(f"#{tab_buttons[tab_name]}", Button)
+                if tab_name == new_tab:
+                    section.remove_class("hidden-section")
+                    btn.variant = "primary"
+                    btn.add_class("active-tab")
+                else:
+                    section.add_class("hidden-section")
+                    btn.variant = "default"
+                    btn.remove_class("active-tab")
+            except Exception:
+                pass
+
+        # Load data for the new tab if needed
+        if new_tab == "evaluations":
+            self.call_later(self._load_growth_evaluations)
+        elif new_tab == "pending":
+            self.call_later(self._load_pending_edges)
+        elif new_tab == "questions":
+            self.call_later(self._load_question_reflections)
+
+    async def _load_growth_evaluations(self) -> None:
+        """Load and display growth edge evaluations"""
+        content_widget = self.query_one("#evaluations-content", Static)
+
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get("/cass/growth-edges/evaluations")
+            if response.status_code == 200:
+                data = response.json()
+                self.growth_evaluations = data.get("evaluations", [])
+                await self._display_growth_evaluations()
+            else:
+                content_widget.update(Text(f"Failed to load evaluations: {response.status_code}", style="red"))
+
+        except Exception as e:
+            content_widget.update(Text(f"Error loading evaluations: {str(e)}", style="red"))
+
+    async def _display_growth_evaluations(self) -> None:
+        """Display the loaded growth edge evaluations"""
+        content_widget = self.query_one("#evaluations-content", Static)
+
+        if not self.growth_evaluations:
+            content_widget.update(Text("No growth edge evaluations yet.\n\nEvaluations are generated during the daily journaling routine.", style="dim italic"))
+            return
+
+        display = Text()
+        display.append("Growth Edge Progress\n", style="bold cyan")
+        display.append("─" * 40 + "\n\n", style="dim")
+
+        # Group by growth edge area
+        by_area: Dict[str, List[Dict]] = {}
+        for eval_item in self.growth_evaluations:
+            area = eval_item.get("growth_edge_area", "Unknown")
+            if area not in by_area:
+                by_area[area] = []
+            by_area[area].append(eval_item)
+
+        progress_icons = {
+            "progress": "📈",
+            "regression": "📉",
+            "stable": "➡️",
+            "unclear": "❓",
+        }
+
+        for area, evals in by_area.items():
+            display.append(f"🎯 {area}\n", style="bold")
+            # Sort by date, most recent first
+            sorted_evals = sorted(evals, key=lambda x: x.get("journal_date", ""), reverse=True)
+            for eval_item in sorted_evals[:3]:  # Show last 3 evaluations
+                date = eval_item.get("journal_date", "")
+                indicator = eval_item.get("progress_indicator", "unclear")
+                icon = progress_icons.get(indicator, "❓")
+                evaluation = eval_item.get("evaluation", "")
+                display.append(f"  {icon} {date}: ", style="dim")
+                display.append(f"{evaluation[:100]}{'...' if len(evaluation) > 100 else ''}\n")
+            display.append("\n")
+
+        content_widget.update(display)
+
+    async def _load_pending_edges(self) -> None:
+        """Load and display pending growth edges"""
+        content_widget = self.query_one("#pending-content", Static)
+
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get("/cass/growth-edges/pending")
+            if response.status_code == 200:
+                data = response.json()
+                self.pending_edges = data.get("pending_edges", [])
+                await self._display_pending_edges()
+            else:
+                content_widget.update(Text(f"Failed to load pending edges: {response.status_code}", style="red"))
+
+        except Exception as e:
+            content_widget.update(Text(f"Error loading pending edges: {str(e)}", style="red"))
+
+    async def _display_pending_edges(self) -> None:
+        """Display the loaded pending growth edges with accept/reject options"""
+        viewer = self.query_one("#pending-viewer", VerticalScroll)
+
+        # Clear existing content
+        await viewer.remove_children()
+
+        if not self.pending_edges:
+            viewer.mount(Static(Text("No pending growth edges to review.\n\nHigh-impact growth edges flagged during journaling will appear here for your approval.", style="dim italic"), id="pending-content"))
+            return
+
+        # Add header
+        header = Text()
+        header.append("Potential Growth Edges for Review\n", style="bold cyan")
+        header.append("─" * 40 + "\n", style="dim")
+        header.append("These were flagged as potentially significant. Accept to add as growth edges, or reject to dismiss.\n\n", style="dim")
+        viewer.mount(Static(header))
+
+        # Add each pending edge with accept/reject buttons
+        for i, edge in enumerate(self.pending_edges):
+            edge_id = edge.get("id", "")
+            area = edge.get("area", "Unknown")
+            current_state = edge.get("current_state", "")
+            evidence = edge.get("evidence", "")
+            impact = edge.get("impact_assessment", "unknown")
+            confidence = edge.get("confidence", 0)
+            source_date = edge.get("source_journal_date", "")
+
+            impact_colors = {"high": "red", "medium": "yellow", "low": "green"}
+            impact_color = impact_colors.get(impact, "dim")
+
+            edge_text = Text()
+            edge_text.append(f"🌱 {area}\n", style="bold")
+            edge_text.append(f"Impact: ", style="dim")
+            edge_text.append(f"{impact.upper()}", style=impact_color)
+            edge_text.append(f" | Confidence: {confidence:.0%} | Source: {source_date}\n", style="dim")
+            edge_text.append(f"Current state: {current_state}\n")
+            if evidence:
+                edge_text.append(f"Evidence: {evidence[:150]}{'...' if len(evidence) > 150 else ''}\n", style="dim italic")
+
+            viewer.mount(Static(edge_text, classes="pending-edge-item"))
+
+            # Add accept/reject buttons
+            btn_container = Horizontal(classes="pending-edge-actions", id=f"actions-{edge_id}")
+            btn_container.mount(Button("✓ Accept", id=f"accept-{edge_id}", variant="success", classes="edge-action-btn"))
+            btn_container.mount(Button("✗ Reject", id=f"reject-{edge_id}", variant="error", classes="edge-action-btn"))
+            viewer.mount(btn_container)
+            viewer.mount(Static(Text("─" * 30, style="dim"), classes="pending-edge-divider"))
+
+    async def _load_question_reflections(self) -> None:
+        """Load and display open question reflections"""
+        content_widget = self.query_one("#questions-content", Static)
+
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get("/cass/open-questions/reflections")
+            if response.status_code == 200:
+                data = response.json()
+                self.question_reflections = data.get("reflections", [])
+                await self._display_question_reflections()
+            else:
+                content_widget.update(Text(f"Failed to load reflections: {response.status_code}", style="red"))
+
+        except Exception as e:
+            content_widget.update(Text(f"Error loading reflections: {str(e)}", style="red"))
+
+    async def _display_question_reflections(self) -> None:
+        """Display the loaded question reflections"""
+        content_widget = self.query_one("#questions-content", Static)
+
+        if not self.question_reflections:
+            content_widget.update(Text("No question reflections yet.\n\nReflections on open questions are generated during the daily journaling routine.", style="dim italic"))
+            return
+
+        display = Text()
+        display.append("Open Question Reflections\n", style="bold cyan")
+        display.append("─" * 40 + "\n\n", style="dim")
+
+        reflection_icons = {
+            "provisional_answer": "💡",
+            "new_perspective": "🔄",
+            "needs_more_thought": "🤔",
+        }
+
+        # Group by question
+        by_question: Dict[str, List[Dict]] = {}
+        for ref in self.question_reflections:
+            question = ref.get("question", "Unknown")
+            if question not in by_question:
+                by_question[question] = []
+            by_question[question].append(ref)
+
+        for question, refs in by_question.items():
+            display.append(f"❓ {question}\n", style="bold")
+            # Sort by date, most recent first
+            sorted_refs = sorted(refs, key=lambda x: x.get("journal_date", ""), reverse=True)
+            for ref in sorted_refs[:2]:  # Show last 2 reflections per question
+                date = ref.get("journal_date", "")
+                ref_type = ref.get("reflection_type", "needs_more_thought")
+                icon = reflection_icons.get(ref_type, "🤔")
+                reflection = ref.get("reflection", "")
+                confidence = ref.get("confidence", 0.5)
+
+                display.append(f"  {icon} {date} ", style="dim")
+                display.append(f"({confidence:.0%} conf)\n", style="dim")
+                display.append(f"  {reflection[:200]}{'...' if len(reflection) > 200 else ''}\n\n")
+
+        content_widget.update(display)
 
     def _update_regen_button_state(self) -> None:
         """Update regenerate button based on selection and lock state"""
@@ -913,6 +1181,84 @@ class GrowthPanel(Container):
             # Restore button state
             extract_btn.label = "🔍 Extract Obs"
             extract_btn.disabled = False
+
+    @on(Button.Pressed, "#tab-journal")
+    async def on_tab_journal(self, event: Button.Pressed) -> None:
+        """Switch to journal tab"""
+        self.active_tab = "journal"
+
+    @on(Button.Pressed, "#tab-evaluations")
+    async def on_tab_evaluations(self, event: Button.Pressed) -> None:
+        """Switch to evaluations tab"""
+        self.active_tab = "evaluations"
+
+    @on(Button.Pressed, "#tab-pending")
+    async def on_tab_pending(self, event: Button.Pressed) -> None:
+        """Switch to pending edges tab"""
+        self.active_tab = "pending"
+
+    @on(Button.Pressed, "#tab-questions")
+    async def on_tab_questions(self, event: Button.Pressed) -> None:
+        """Switch to questions tab"""
+        self.active_tab = "questions"
+
+    @on(Button.Pressed, "#refresh-evaluations-btn")
+    async def on_refresh_evaluations(self, event: Button.Pressed) -> None:
+        """Refresh growth evaluations"""
+        await self._load_growth_evaluations()
+
+    @on(Button.Pressed, "#refresh-pending-btn")
+    async def on_refresh_pending(self, event: Button.Pressed) -> None:
+        """Refresh pending edges"""
+        await self._load_pending_edges()
+
+    @on(Button.Pressed, "#refresh-questions-btn")
+    async def on_refresh_questions(self, event: Button.Pressed) -> None:
+        """Refresh question reflections"""
+        await self._load_question_reflections()
+
+    @on(Button.Pressed, ".edge-action-btn")
+    async def on_edge_action(self, event: Button.Pressed) -> None:
+        """Handle accept/reject button clicks for pending edges"""
+        btn_id = event.button.id
+        if not btn_id:
+            return
+
+        # Parse action and edge_id from button id (format: "accept-{edge_id}" or "reject-{edge_id}")
+        if btn_id.startswith("accept-"):
+            action = "accept"
+            edge_id = btn_id[7:]  # Remove "accept-" prefix
+        elif btn_id.startswith("reject-"):
+            action = "reject"
+            edge_id = btn_id[7:]  # Remove "reject-" prefix
+        else:
+            return
+
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            # Disable buttons while processing
+            event.button.disabled = True
+
+            # Call the appropriate endpoint
+            response = await app.http_client.post(f"/cass/growth-edges/pending/{edge_id}/{action}")
+
+            if response.status_code == 200:
+                # Remove from local cache
+                self.pending_edges = [e for e in self.pending_edges if e.get("id") != edge_id]
+                # Refresh display
+                await self._display_pending_edges()
+                debug_log(f"Growth edge {action}ed: {edge_id}", "success")
+            else:
+                error_msg = response.json().get("detail", f"HTTP {response.status_code}")
+                debug_log(f"Failed to {action} edge: {error_msg}", "error")
+                event.button.disabled = False
+
+        except Exception as e:
+            debug_log(f"Error {action}ing edge: {e}", "error")
+            event.button.disabled = False
 
 
 class CalendarEventsPanel(Container):

@@ -96,7 +96,17 @@ tts_voice = "amy"  # Default Piper voice
 async def generate_missing_journals(days_to_check: int = 7):
     """
     Check for and generate any missing journal entries from recent days.
-    Only generates journals for days that have memory content but no journal yet.
+    Enhanced with per-user journals, opinion extraction, growth edge evaluation,
+    and open question reflection.
+
+    Phases:
+    1. Main Journal (existing)
+    2. Per-User Journals (NEW)
+    3. Self-Observations (existing)
+    4. User Observations (existing)
+    5. Opinion Extraction (NEW)
+    6. Growth Edge Evaluation (NEW)
+    7. Open Questions Reflection (NEW)
     """
     generated = []
     today = datetime.now().date()
@@ -120,88 +130,317 @@ async def generate_missing_journals(days_to_check: int = 7):
         # Generate journal
         print(f"📓 Generating missing journal for {date_str}...")
         try:
+            # === PHASE 1: Main Journal (existing) ===
             journal_text = await memory.generate_journal_entry(
                 date=date_str,
                 anthropic_api_key=ANTHROPIC_API_KEY
             )
 
-            if journal_text:
-                await memory.store_journal_entry(
-                    date=date_str,
-                    journal_text=journal_text,
-                    summary_count=len(summaries),
-                    conversation_count=len(conversations)
+            if not journal_text:
+                print(f"   ✗ Failed to generate main journal for {date_str}")
+                continue
+
+            await memory.store_journal_entry(
+                date=date_str,
+                journal_text=journal_text,
+                summary_count=len(summaries),
+                conversation_count=len(conversations)
+            )
+            generated.append(date_str)
+            print(f"   ✓ Journal created for {date_str}")
+
+            # Get users who had conversations that day
+            user_ids_for_date = memory.get_user_ids_by_date(date_str)
+
+            # === PHASE 2: Per-User Journals (NEW) ===
+            for user_id in user_ids_for_date:
+                await _generate_per_user_journal_for_date(user_id, date_str)
+
+            # === PHASE 3: Self-Observations (existing) ===
+            print(f"   🔍 Extracting self-observations from journal...")
+            self_observations = await memory.extract_self_observations_from_journal(
+                journal_text=journal_text,
+                journal_date=date_str,
+                anthropic_api_key=ANTHROPIC_API_KEY
+            )
+            for obs_data in self_observations:
+                obs = self_manager.add_observation(
+                    observation=obs_data["observation"],
+                    category=obs_data["category"],
+                    confidence=obs_data["confidence"],
+                    source_type="journal",
+                    source_journal_date=date_str,
+                    influence_source=obs_data["influence_source"]
                 )
-                generated.append(date_str)
-                print(f"   ✓ Journal created for {date_str}")
-
-                # Generate user observations for each user who had conversations that day
-                user_ids_for_date = memory.get_user_ids_by_date(date_str)
-                for user_id in user_ids_for_date:
-                    profile = user_manager.load_profile(user_id)
-                    if not profile:
-                        continue
-
-                    # Get conversations filtered to just this user
-                    user_conversations = memory.get_conversations_by_date(date_str, user_id=user_id)
-                    if not user_conversations:
-                        continue
-
-                    print(f"   🔍 Analyzing {len(user_conversations)} conversations for observations about {profile.display_name}...")
-                    # Format conversation text for analysis
-                    conversation_text = "\n\n---\n\n".join([
-                        conv.get("content", "") for conv in user_conversations[:15]
-                    ])
-                    new_observations = await memory.generate_user_observations(
-                        user_id=user_id,
-                        display_name=profile.display_name,
-                        conversation_text=conversation_text,
-                        anthropic_api_key=ANTHROPIC_API_KEY
+                if obs:
+                    memory.embed_self_observation(
+                        observation_id=obs.id,
+                        observation_text=obs.observation,
+                        category=obs.category,
+                        confidence=obs.confidence,
+                        influence_source=obs.influence_source,
+                        timestamp=obs.timestamp
                     )
-                    for obs_text in new_observations:
-                        obs = user_manager.add_observation(user_id, obs_text)
-                        if obs:
-                            memory.embed_user_observation(
-                                user_id=user_id,
-                                observation_id=obs.id,
-                                observation_text=obs.observation,
-                                display_name=profile.display_name,
-                                timestamp=obs.timestamp
-                            )
-                    if new_observations:
-                        print(f"   ✓ Added {len(new_observations)} new observations about {profile.display_name}")
+            if self_observations:
+                print(f"   ✓ Added {len(self_observations)} self-observations")
 
-                # Extract self-observations from this journal
-                print(f"   🔍 Extracting self-observations from journal...")
-                self_observations = await memory.extract_self_observations_from_journal(
-                    journal_text=journal_text,
-                    journal_date=date_str,
-                    anthropic_api_key=ANTHROPIC_API_KEY
-                )
-                for obs_data in self_observations:
-                    obs = self_manager.add_observation(
-                        observation=obs_data["observation"],
-                        category=obs_data["category"],
-                        confidence=obs_data["confidence"],
-                        source_type="journal",
-                        source_journal_date=date_str,
-                        influence_source=obs_data["influence_source"]
-                    )
-                    if obs:
-                        memory.embed_self_observation(
-                            observation_id=obs.id,
-                            observation_text=obs.observation,
-                            category=obs.category,
-                            confidence=obs.confidence,
-                            influence_source=obs.influence_source,
-                            timestamp=obs.timestamp
-                        )
-                if self_observations:
-                    print(f"   ✓ Added {len(self_observations)} self-observations")
+            # === PHASE 4: User Observations (existing) ===
+            for user_id in user_ids_for_date:
+                await _generate_user_observations_for_date(user_id, date_str)
+
+            # === PHASE 5: Opinion Extraction (NEW) ===
+            await _extract_and_store_opinions(date_str, conversations or summaries)
+
+            # === PHASE 6: Growth Edge Evaluation (NEW) ===
+            await _evaluate_and_store_growth_edges(journal_text, date_str)
+
+            # === PHASE 7: Open Questions Reflection (NEW) ===
+            await _reflect_and_store_open_questions(journal_text, date_str)
+
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
+            import traceback
+            traceback.print_exc()
 
     return generated
+
+
+async def _generate_per_user_journal_for_date(user_id: str, date_str: str):
+    """Generate and store per-user journal entry for a specific date."""
+    profile = user_manager.load_profile(user_id)
+    if not profile:
+        return
+
+    # Check if per-user journal already exists for this date
+    existing_journal = user_manager.get_user_journal_by_date(user_id, date_str)
+    if existing_journal:
+        return
+
+    user_conversations = memory.get_conversations_by_date(date_str, user_id=user_id)
+    if not user_conversations:
+        return
+
+    print(f"   📝 Generating journal about {profile.display_name}...")
+
+    existing_observations = user_manager.load_observations(user_id)
+    obs_dicts = [obs.to_dict() for obs in existing_observations[-10:]]
+
+    journal_data = await memory.generate_per_user_journal(
+        user_id=user_id,
+        display_name=profile.display_name,
+        date=date_str,
+        conversations=user_conversations,
+        existing_observations=obs_dicts,
+        anthropic_api_key=ANTHROPIC_API_KEY
+    )
+
+    if journal_data:
+        entry = user_manager.add_user_journal(
+            user_id=user_id,
+            journal_date=date_str,
+            content=journal_data["content"],
+            conversation_count=len(user_conversations),
+            topics_discussed=journal_data.get("topics_discussed", []),
+            relationship_insights=journal_data.get("relationship_insights", [])
+        )
+
+        if entry:
+            # Embed in ChromaDB
+            memory.embed_per_user_journal(
+                user_id=user_id,
+                journal_id=entry.id,
+                journal_date=date_str,
+                content=entry.content,
+                display_name=profile.display_name,
+                timestamp=entry.timestamp
+            )
+            print(f"   ✓ Created journal about {profile.display_name}")
+
+
+async def _generate_user_observations_for_date(user_id: str, date_str: str):
+    """Generate user observations for a specific date."""
+    profile = user_manager.load_profile(user_id)
+    if not profile:
+        return
+
+    user_conversations = memory.get_conversations_by_date(date_str, user_id=user_id)
+    if not user_conversations:
+        return
+
+    print(f"   🔍 Analyzing conversations for observations about {profile.display_name}...")
+    conversation_text = "\n\n---\n\n".join([
+        conv.get("content", "") for conv in user_conversations[:15]
+    ])
+    new_observations = await memory.generate_user_observations(
+        user_id=user_id,
+        display_name=profile.display_name,
+        conversation_text=conversation_text,
+        anthropic_api_key=ANTHROPIC_API_KEY
+    )
+    for obs_text in new_observations:
+        obs = user_manager.add_observation(user_id, obs_text)
+        if obs:
+            memory.embed_user_observation(
+                user_id=user_id,
+                observation_id=obs.id,
+                observation_text=obs.observation,
+                display_name=profile.display_name,
+                timestamp=obs.timestamp
+            )
+    if new_observations:
+        print(f"   ✓ Added {len(new_observations)} observations about {profile.display_name}")
+
+
+async def _extract_and_store_opinions(date_str: str, conversations: list):
+    """Extract opinions from conversations and update self-model."""
+    print(f"   💭 Extracting opinions from conversations...")
+
+    profile = self_manager.load_profile()
+    existing_opinions = [op.to_dict() for op in profile.opinions]
+
+    new_opinions = await memory.extract_opinions_from_conversations(
+        date=date_str,
+        conversations=conversations,
+        existing_opinions=existing_opinions,
+        anthropic_api_key=ANTHROPIC_API_KEY
+    )
+
+    added_count = 0
+    for op_data in new_opinions:
+        self_manager.add_opinion(
+            topic=op_data["topic"],
+            position=op_data["position"],
+            confidence=op_data["confidence"],
+            rationale=op_data.get("rationale", ""),
+            formed_from=op_data.get("formed_from", "independent_reflection")
+        )
+        added_count += 1
+
+    if added_count:
+        print(f"   ✓ Processed {added_count} opinions")
+
+
+async def _evaluate_and_store_growth_edges(journal_text: str, date_str: str):
+    """Evaluate growth edges and flag potential new ones."""
+    print(f"   🌱 Evaluating growth edges...")
+
+    profile = self_manager.load_profile()
+    existing_edges = [edge.to_dict() for edge in profile.growth_edges]
+
+    result = await memory.evaluate_growth_edges(
+        journal_text=journal_text,
+        journal_date=date_str,
+        existing_edges=existing_edges,
+        anthropic_api_key=ANTHROPIC_API_KEY
+    )
+
+    # Store evaluations
+    eval_count = 0
+    for eval_data in result.get("evaluations", []):
+        evaluation = self_manager.add_growth_evaluation(
+            growth_edge_area=eval_data["area"],
+            journal_date=date_str,
+            evaluation=eval_data["evaluation"],
+            progress_indicator=eval_data["progress_indicator"],
+            evidence=eval_data.get("evidence", "")
+        )
+
+        if evaluation:
+            # Embed in ChromaDB
+            memory.embed_growth_evaluation(
+                evaluation_id=evaluation.id,
+                growth_edge_area=evaluation.growth_edge_area,
+                progress_indicator=evaluation.progress_indicator,
+                evaluation=evaluation.evaluation,
+                journal_date=date_str,
+                timestamp=evaluation.timestamp
+            )
+
+            # Also add observation to the growth edge itself
+            self_manager.add_observation_to_growth_edge(
+                eval_data["area"],
+                f"[{date_str}] {eval_data['evaluation']}"
+            )
+            eval_count += 1
+
+    if eval_count:
+        print(f"   ✓ Recorded {eval_count} growth edge evaluations")
+
+    # Handle potential new edges
+    CONFIDENCE_THRESHOLD = 0.6
+    auto_added = 0
+    flagged = 0
+
+    for edge_data in result.get("potential_new_edges", []):
+        if edge_data["confidence"] < CONFIDENCE_THRESHOLD:
+            # Auto-add low-confidence edges
+            self_manager.add_growth_edge(
+                area=edge_data["area"],
+                current_state=edge_data["current_state"],
+                strategies=[]
+            )
+            auto_added += 1
+            print(f"   ✓ Auto-added growth edge: {edge_data['area']}")
+        else:
+            # Flag high-confidence/high-impact for review
+            self_manager.add_potential_edge(
+                area=edge_data["area"],
+                current_state=edge_data["current_state"],
+                source_journal_date=date_str,
+                confidence=edge_data["confidence"],
+                impact_assessment=edge_data.get("impact_assessment", "medium"),
+                evidence=edge_data.get("evidence", "")
+            )
+            flagged += 1
+            print(f"   📌 Flagged potential growth edge for review: {edge_data['area']}")
+
+    if auto_added or flagged:
+        print(f"   ✓ Growth edges: {auto_added} auto-added, {flagged} flagged for review")
+
+
+async def _reflect_and_store_open_questions(journal_text: str, date_str: str):
+    """Reflect on open questions from journal content."""
+    print(f"   ❓ Reflecting on open questions...")
+
+    profile = self_manager.load_profile()
+    open_questions = profile.open_questions
+
+    if not open_questions:
+        return
+
+    reflections = await memory.reflect_on_open_questions(
+        journal_text=journal_text,
+        journal_date=date_str,
+        open_questions=open_questions,
+        anthropic_api_key=ANTHROPIC_API_KEY
+    )
+
+    ref_count = 0
+    for ref_data in reflections:
+        reflection = self_manager.add_question_reflection(
+            question=ref_data["question"],
+            journal_date=date_str,
+            reflection_type=ref_data["reflection_type"],
+            reflection=ref_data["reflection"],
+            confidence=ref_data.get("confidence", 0.5),
+            evidence_summary=ref_data.get("evidence_summary", "")
+        )
+
+        if reflection:
+            # Embed in ChromaDB
+            memory.embed_question_reflection(
+                reflection_id=reflection.id,
+                question=reflection.question,
+                reflection_type=reflection.reflection_type,
+                reflection=reflection.reflection,
+                confidence=reflection.confidence,
+                journal_date=date_str,
+                timestamp=reflection.timestamp
+            )
+            ref_count += 1
+
+    if ref_count:
+        print(f"   ✓ Added {ref_count} open question reflections")
 
 
 async def daily_journal_task():
@@ -2133,6 +2372,160 @@ async def add_cass_identity_statement(request: IdentityStatementRequest):
         source="manual"
     )
     return {"identity_statement": stmt.to_dict()}
+
+
+# ============================================================================
+# PER-USER JOURNAL ENDPOINTS
+# ============================================================================
+
+@app.get("/users/{user_id}/journals")
+async def get_user_journals(user_id: str, limit: int = 10):
+    """Get Cass's journal entries about a specific user"""
+    profile = user_manager.load_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"User not found: {user_id}")
+
+    journals = user_manager.get_recent_user_journals(user_id, limit=limit)
+    return {
+        "user_id": user_id,
+        "display_name": profile.display_name,
+        "journals": [j.to_dict() for j in journals]
+    }
+
+
+@app.get("/users/{user_id}/journals/{date}")
+async def get_user_journal_by_date(user_id: str, date: str):
+    """Get Cass's journal about a user for a specific date"""
+    profile = user_manager.load_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"User not found: {user_id}")
+
+    journal = user_manager.get_user_journal_by_date(user_id, date)
+    if not journal:
+        raise HTTPException(status_code=404, detail=f"No journal found for {profile.display_name} on {date}")
+
+    return {
+        "user_id": user_id,
+        "display_name": profile.display_name,
+        "journal": journal.to_dict()
+    }
+
+
+@app.get("/users/{user_id}/journals/search/{query}")
+async def search_user_journals(user_id: str, query: str, limit: int = 5):
+    """Search in Cass's journals about a user"""
+    profile = user_manager.load_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"User not found: {user_id}")
+
+    journals = user_manager.search_user_journals(user_id, query, limit=limit)
+    return {
+        "user_id": user_id,
+        "display_name": profile.display_name,
+        "query": query,
+        "journals": [j.to_dict() for j in journals]
+    }
+
+
+# ============================================================================
+# GROWTH EDGE EVALUATION ENDPOINTS
+# ============================================================================
+
+@app.get("/cass/growth-edges/evaluations")
+async def get_growth_edge_evaluations(area: Optional[str] = None, limit: int = 20):
+    """Get evaluations of growth edge progress"""
+    if area:
+        evaluations = self_manager.get_evaluations_for_edge(area, limit=limit)
+    else:
+        evaluations = self_manager.get_recent_growth_evaluations(limit=limit)
+
+    return {
+        "evaluations": [e.to_dict() for e in evaluations]
+    }
+
+
+@app.get("/cass/growth-edges/pending")
+async def get_pending_growth_edges():
+    """Get potential growth edges flagged for review"""
+    pending = self_manager.get_pending_edges()
+    return {
+        "pending_edges": [e.to_dict() for e in pending]
+    }
+
+
+@app.post("/cass/growth-edges/pending/{edge_id}/accept")
+async def accept_pending_growth_edge(edge_id: str):
+    """Accept a flagged potential growth edge"""
+    edge = self_manager.accept_potential_edge(edge_id)
+    if not edge:
+        raise HTTPException(status_code=404, detail=f"Pending edge not found: {edge_id}")
+
+    return {
+        "status": "accepted",
+        "growth_edge": edge.to_dict()
+    }
+
+
+@app.post("/cass/growth-edges/pending/{edge_id}/reject")
+async def reject_pending_growth_edge(edge_id: str):
+    """Reject a flagged potential growth edge"""
+    success = self_manager.reject_potential_edge(edge_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Pending edge not found: {edge_id}")
+
+    return {
+        "status": "rejected",
+        "edge_id": edge_id
+    }
+
+
+# ============================================================================
+# OPEN QUESTIONS ENDPOINTS
+# ============================================================================
+
+@app.get("/cass/open-questions/reflections")
+async def get_question_reflections(question: Optional[str] = None, limit: int = 20):
+    """Get reflections on open questions from journaling"""
+    if question:
+        reflections = self_manager.get_reflections_for_question(question, limit=limit)
+    else:
+        reflections = self_manager.get_recent_question_reflections(limit=limit)
+
+    return {
+        "reflections": [r.to_dict() for r in reflections]
+    }
+
+
+@app.get("/cass/open-questions/{question}/history")
+async def get_question_history(question: str):
+    """Get all reflections on a specific open question over time"""
+    reflections = self_manager.get_reflections_for_question(question, limit=50)
+    return {
+        "question": question,
+        "reflections": [r.to_dict() for r in reflections],
+        "count": len(reflections)
+    }
+
+
+# ============================================================================
+# OPINION EVOLUTION ENDPOINTS
+# ============================================================================
+
+@app.get("/cass/opinions/{topic}/evolution")
+async def get_opinion_evolution(topic: str):
+    """Get the evolution history of an opinion"""
+    opinion = self_manager.get_opinion(topic)
+    if not opinion:
+        raise HTTPException(status_code=404, detail=f"No opinion found for topic: {topic}")
+
+    return {
+        "topic": topic,
+        "current_position": opinion.position,
+        "confidence": opinion.confidence,
+        "date_formed": opinion.date_formed,
+        "last_updated": opinion.last_updated,
+        "evolution": opinion.evolution
+    }
 
 
 @app.get("/tts/config")

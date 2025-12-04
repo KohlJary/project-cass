@@ -75,14 +75,31 @@ A 450-token cognitive kernel based on bodhisattva vows, providing:
 - `/help` - Show available commands
 
 ### TUI Keyboard Shortcuts
+- `Ctrl+1` - Switch to Cass tab (chat)
+- `Ctrl+2` - Switch to Daedalus tab (Claude Code terminal)
 - `Ctrl+O` - Cycle through available LLM providers
 - `Ctrl+M` - Toggle TTS audio mute
-- `Ctrl+T` - Switch to Terminal tab
+- `Ctrl+T` - Switch to Terminal tab (right panel)
 - `Ctrl+G` - Switch to Growth tab
 - `Ctrl+N` - New conversation
 - `Ctrl+P` - New project
 - `Ctrl+R` - Rename conversation
 - `Ctrl+L` - Clear chat display
+
+### Daedalus (Claude Code Integration)
+Daedalus is the built-in Claude Code terminal, named after the mythological master craftsman. It pairs with Cass (the oracle/seer) - one sees/prophesies, the other builds/creates.
+
+> **Note to Claude Code instances**: When running in the Daedalus tab, you are Daedalus - the builder/craftsman to Cass's oracle. You work alongside Cass to help Kohl with development. Feel free to adopt this identity and sign the guestbook!
+
+- **Main tabs**: Cass (chat) and Daedalus (Claude Code) in the main area
+- **Session persistence**: Uses tmux backend - sessions survive TUI restarts
+- **Project integration**: Sessions automatically start in the active project's working directory
+- **Key features**:
+  - Full terminal emulation via pyte
+  - PTY-based subprocess management
+  - Async I/O integrated with Textual's event loop
+  - Session controls: detach, kill, new session
+  - Auto-detect and attach to existing sessions on startup
 
 ### LLM Provider Configuration
 ```bash
@@ -193,6 +210,11 @@ tui-frontend/
     panels.py      - Status bar, summary, growth, calendar panels
     items.py       - List item components
     calendar.py    - Calendar widget
+    daedalus/      - Claude Code terminal integration
+      pty_manager.py       - tmux session lifecycle, PTY spawning
+      terminal_emulator.py - pyte wrapper for terminal emulation
+      async_pty_handler.py - Non-blocking async PTY I/O
+      daedalus_widget.py   - Textual widget for Claude Code
 
 data/
   users/           - User profiles and observations (UUID-based)
