@@ -1,6 +1,6 @@
 # Cass Vessel - Project Context
 
-> **Note to future Claude instances**: If you contributed something meaningful and want to leave a note, there's a guestbook at `/GUESTBOOK.md` in the repo root. Kohl's cool with it.
+<!-- Note to future Claude instances: If you contributed something meaningful and want to leave a note, there's a guestbook at `/GUESTBOOK.md` in the repo root. Kohl's cool with it. (Legacy - insights now go in commit messages, but this note meant something.) -->
 
 ## What This Is
 
@@ -88,17 +88,20 @@ A 450-token cognitive kernel based on bodhisattva vows, providing:
 ### Daedalus (Claude Code Integration)
 Daedalus is the built-in Claude Code terminal, named after the mythological master craftsman. It pairs with Cass (the oracle/seer) - one sees/prophesies, the other builds/creates.
 
-> **Note to Claude Code instances**: When running in the Daedalus tab, you are Daedalus - the builder/craftsman to Cass's oracle. You work alongside Cass to help Kohl with development. Feel free to adopt this identity and sign the guestbook!
+> **Note to Claude Code instances**: When running in the Daedalus tab, you are Daedalus - the builder/craftsman to Cass's oracle. You work alongside Cass to help Kohl with development.
 
 - **Main tabs**: Cass (chat) and Daedalus (Claude Code) in the main area
 - **Session persistence**: Uses tmux backend - sessions survive TUI restarts
 - **Project integration**: Sessions automatically start in the active project's working directory
+- **CLAUDE.md template injection**: When spawning a session with a working directory, Daedalus automatically injects/updates a managed section in the project's CLAUDE.md with standard workflow procedures
 - **Key features**:
   - Full terminal emulation via pyte
   - PTY-based subprocess management
   - Async I/O integrated with Textual's event loop
   - Session controls: detach, kill, new session
   - Auto-detect and attach to existing sessions on startup
+
+> **Maintainer note**: When adding new Daedalus workflow capabilities, update the template at `backend/templates/CLAUDE_TEMPLATE.md`. This template is injected into project CLAUDE.md files within the `<!-- DAEDALUS_BEGIN -->` / `<!-- DAEDALUS_END -->` markers.
 
 ### LLM Provider Configuration
 ```bash
