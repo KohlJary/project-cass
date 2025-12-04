@@ -281,29 +281,28 @@ class PTYManager:
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
                 debug_log(f"lazygit pane exception: {e}", "warning")
 
-        # Now create the editor pane below Claude (vertical split of pane 0)
+        # Now create the shell pane below Claude (vertical split of pane 0)
         if editor_pane:
             try:
-                # Determine editor command
-                if not editor_command:
-                    editor_command = os.environ.get("EDITOR", "nvim")
+                # Just a plain bash shell - more reliable than complex TUI editors
+                shell_cmd = "bash"
 
                 # Split vertically: creates new pane below pane 0, 25% height
                 split_cmd = [
                     "tmux", "split-window",
                     "-t", f"{tmux_session}:0.0",  # Target the Claude pane
                     "-v",  # Vertical split (stacked)
-                    "-p", "25",  # 25% of height for editor
+                    "-p", "25",  # 25% of height for shell
                     *wd_opts,
-                    editor_command
+                    shell_cmd
                 ]
                 result = subprocess.run(split_cmd, capture_output=True, timeout=5)
                 if result.returncode == 0:
-                    debug_log(f"Created editor pane ({editor_command}) in {tmux_session}", "info")
+                    debug_log(f"Created shell pane in {tmux_session}", "info")
                 else:
-                    debug_log(f"Failed to create editor pane: {result.stderr.decode()}", "warning")
+                    debug_log(f"Failed to create shell pane: {result.stderr.decode()}", "warning")
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-                debug_log(f"editor pane exception: {e}", "warning")
+                debug_log(f"shell pane exception: {e}", "warning")
 
         # Select the Claude pane (pane 0) to be active
         try:
