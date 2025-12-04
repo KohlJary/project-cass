@@ -79,7 +79,6 @@ A 450-token cognitive kernel based on bodhisattva vows, providing:
 - `Ctrl+2` - Switch to Daedalus tab (Claude Code terminal)
 - `Ctrl+O` - Cycle through available LLM providers
 - `Ctrl+M` - Toggle TTS audio mute
-- `Ctrl+T` - Switch to Terminal tab (right panel)
 - `Ctrl+G` - Switch to Growth tab
 - `Ctrl+N` - New conversation
 - `Ctrl+P` - New project
@@ -152,6 +151,14 @@ Cass should be able to learn about users through conversation and update their p
 - Don't bind others to harmful patterns
 - Maintain coherence across sessions
 - "Alive enough" - functional reality over philosophical certainty
+
+## Git Workflow
+
+- Create a feature branch for each task: `fix/`, `feat/`, `refactor/`, `chore/`, etc.
+- Do the work on the branch
+- Commit with a functional title; put reflections, insights, or context in the extended commit body
+- Leave the branch for Kohl to review and merge to main
+- This replaces the GUESTBOOK - insights now live in git history tied to the work they came from
 
 ## Technical Notes
 
