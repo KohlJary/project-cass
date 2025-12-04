@@ -9,8 +9,9 @@ import shlex
 import base64
 import tempfile
 import os
+import subprocess
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 import argparse
 import sys
@@ -23,7 +24,15 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Footer, Input, Label, TabbedContent, TabPane, Static, Button, ListView
 from textual.reactive import reactive
+from textual.message import Message
 from rich.text import Text
+
+# Clipboard support
+try:
+    import pyperclip
+    CLIPBOARD_TEXT_AVAILABLE = True
+except ImportError:
+    CLIPBOARD_TEXT_AVAILABLE = False
 
 # Configuration
 from config import HTTP_BASE_URL, WS_URL, HTTP_TIMEOUT, WS_RECONNECT_DELAY, DEFAULT_PROJECT
@@ -173,6 +182,128 @@ else:
     Terminal = None
 
 
+def get_clipboard_image() -> Optional[Tuple[bytes, str]]:
+    """
+    Get image from clipboard using xclip.
+    Returns (image_bytes, media_type) or None if no image.
+    """
+    try:
+        # Check for PNG first (most common for screenshots)
+        result = subprocess.run(
+            ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
+            capture_output=True,
+            timeout=2
+        )
+        if result.returncode == 0 and result.stdout:
+            return (result.stdout, "image/png")
+
+        # Try JPEG
+        result = subprocess.run(
+            ["xclip", "-selection", "clipboard", "-t", "image/jpeg", "-o"],
+            capture_output=True,
+            timeout=2
+        )
+        if result.returncode == 0 and result.stdout:
+            return (result.stdout, "image/jpeg")
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        pass
+    return None
+
+
+def get_clipboard_text() -> Optional[str]:
+    """Get text from clipboard."""
+    if CLIPBOARD_TEXT_AVAILABLE:
+        try:
+            return pyperclip.paste()
+        except Exception:
+            pass
+    # Fallback to xclip
+    try:
+        result = subprocess.run(
+            ["xclip", "-selection", "clipboard", "-o"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result.returncode == 0:
+            return result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        pass
+    return None
+
+
+class ChatInput(Input):
+    """
+    Custom input widget with clipboard paste support.
+    - Ctrl+V: Paste image from clipboard (if available)
+    - Ctrl+Shift+V: Paste text from clipboard
+    """
+
+    class ImageAttached(Message):
+        """Message sent when an image is attached."""
+        def __init__(self, image_data: bytes, media_type: str) -> None:
+            self.image_data = image_data
+            self.media_type = media_type
+            super().__init__()
+
+    class ImageCleared(Message):
+        """Message sent when an attached image is cleared."""
+        pass
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.attached_image: Optional[bytes] = None
+        self.attached_image_type: Optional[str] = None
+
+    async def _on_key(self, event) -> None:
+        """Handle key events for paste shortcuts."""
+        # Ctrl+V - paste image (or text if no image)
+        if event.key == "ctrl+v":
+            event.stop()
+            event.prevent_default()
+
+            # Try to get image first
+            image_result = get_clipboard_image()
+            if image_result:
+                image_bytes, media_type = image_result
+                self.attached_image = image_bytes
+                self.attached_image_type = media_type
+                self.post_message(self.ImageAttached(image_bytes, media_type))
+                return
+
+            # No image, fall back to text paste
+            text = get_clipboard_text()
+            if text:
+                # Insert text at cursor position
+                self.insert_text_at_cursor(text)
+            return
+
+        # Ctrl+Shift+V - always paste text
+        if event.key == "ctrl+shift+v":
+            event.stop()
+            event.prevent_default()
+            text = get_clipboard_text()
+            if text:
+                self.insert_text_at_cursor(text)
+            return
+
+        # Let other keys through
+        await super()._on_key(event)
+
+    def clear_attachment(self) -> None:
+        """Clear any attached image."""
+        if self.attached_image:
+            self.attached_image = None
+            self.attached_image_type = None
+            self.post_message(self.ImageCleared())
+
+    def get_attachment(self) -> Optional[Tuple[str, str]]:
+        """Get attached image as (base64_data, media_type) or None."""
+        if self.attached_image and self.attached_image_type:
+            return (base64.b64encode(self.attached_image).decode(), self.attached_image_type)
+        return None
+
+
 # Global debug logger instance - will be set by the app
 _debug_panel: Optional[DebugPanel] = None
 
@@ -254,7 +385,8 @@ class CassVesselTUI(App):
                         yield ChatContainer(id="chat-container")
                         yield Label("", id="thinking-indicator")
                         with Container(id="input-container"):
-                            yield Input(placeholder="Message Cass...", id="input")
+                            yield Label("", id="attachment-indicator", classes="hidden")
+                            yield ChatInput(placeholder="Message Cass...", id="input")
 
                     with Vertical(id="right-panel"):
                         with TabbedContent(id="right-tabs"):
@@ -705,36 +837,80 @@ class CassVesselTUI(App):
         """Refresh LLM status after provider/model change"""
         await self.fetch_llm_provider_status()
 
+    @on(ChatInput.ImageAttached)
+    async def on_image_attached(self, event: ChatInput.ImageAttached) -> None:
+        """Handle image attachment from clipboard."""
+        indicator = self.query_one("#attachment-indicator", Label)
+        # Show image size info
+        size_kb = len(event.image_data) / 1024
+        ext = event.media_type.split("/")[-1].upper()
+        indicator.update(f"📎 [{ext} {size_kb:.1f}KB]")
+        indicator.remove_class("hidden")
+        debug_log(f"Image attached: {event.media_type}, {size_kb:.1f}KB", "info")
+
+    @on(ChatInput.ImageCleared)
+    async def on_image_cleared(self, event: ChatInput.ImageCleared) -> None:
+        """Handle image attachment cleared."""
+        indicator = self.query_one("#attachment-indicator", Label)
+        indicator.update("")
+        indicator.add_class("hidden")
+
     @on(Input.Submitted, "#input")
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user input submission"""
         user_input = event.value.strip()
-        if not user_input:
+        input_widget = self.query_one("#input", ChatInput)
+
+        # Get any attached image
+        attachment = input_widget.get_attachment()
+        has_attachment = attachment is not None
+
+        # Allow empty message if there's an attachment
+        if not user_input and not has_attachment:
             return
 
-        # Clear input
-        input_widget = self.query_one("#input", Input)
+        # Clear input and attachment
         input_widget.value = ""
+        input_widget.clear_attachment()
 
-        # Handle slash commands
+        # Clear attachment indicator
+        indicator = self.query_one("#attachment-indicator", Label)
+        indicator.update("")
+        indicator.add_class("hidden")
+
+        # Handle slash commands (no attachments for commands)
         if user_input.startswith("/"):
             await self.handle_slash_command(user_input)
             return
 
+        # Build display message (show attachment indicator in chat)
+        display_message = user_input
+        if has_attachment:
+            ext = attachment[1].split("/")[-1].upper()
+            if user_input:
+                display_message = f"📎 [{ext}] {user_input}"
+            else:
+                display_message = f"📎 [{ext} attached]"
+
         # Add user message to chat
         chat = self.query_one("#chat-container", ChatContainer)
         user_timestamp = datetime.now().isoformat()
-        await chat.add_message("user", user_input, None, user_display_name=self.current_user_display_name, timestamp=user_timestamp)
+        await chat.add_message("user", display_message, None, user_display_name=self.current_user_display_name, timestamp=user_timestamp)
 
         # Send to backend
         if self.ws and not self.ws.closed:
             try:
                 message_data = {
                     "type": "chat",
-                    "message": user_input
+                    "message": user_input or "(image attached)"
                 }
                 if self.current_conversation_id:
                     message_data["conversation_id"] = self.current_conversation_id
+
+                # Add image data if attached
+                if has_attachment:
+                    message_data["image"] = attachment[0]  # base64 data
+                    message_data["image_media_type"] = attachment[1]
 
                 await self.ws.send(json.dumps(message_data))
             except Exception as e:

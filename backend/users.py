@@ -13,16 +13,38 @@ import uuid
 import yaml
 
 
+# Valid categories for user observations
+USER_OBSERVATION_CATEGORIES = {
+    "interest",           # Topics, hobbies, areas of curiosity
+    "preference",         # How they like things done
+    "communication_style", # How they communicate (direct, verbose, technical, etc.)
+    "background",         # Professional, personal, or contextual background info
+    "value",              # What they care about, principles they hold
+    "relationship_dynamic" # Patterns in how they relate to Cass
+}
+
+
 @dataclass
 class UserObservation:
     """An observation Cass has made about a user"""
     id: str
     timestamp: str
     observation: str
+
+    # Categorization
+    category: str = "background"  # One of USER_OBSERVATION_CATEGORIES
+    confidence: float = 0.7  # 0.0-1.0
+
+    # Source tracking
     source_conversation_id: Optional[str] = None
     source_summary_id: Optional[str] = None  # Which summary chunk this came from
     source_message_id: Optional[str] = None  # Which specific message (for future use)
     source_journal_date: Optional[str] = None  # Journal date that triggered extraction
+    source_type: str = "conversation"  # conversation, explicit_reflection, journal
+
+    # Validation tracking
+    validation_count: int = 1
+    last_validated: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -34,10 +56,15 @@ class UserObservation:
             id=data["id"],
             timestamp=data["timestamp"],
             observation=data["observation"],
+            category=data.get("category", "background"),
+            confidence=data.get("confidence", 0.7),
             source_conversation_id=data.get("source_conversation_id"),
             source_summary_id=data.get("source_summary_id"),
             source_message_id=data.get("source_message_id"),
-            source_journal_date=data.get("source_journal_date")
+            source_journal_date=data.get("source_journal_date"),
+            source_type=data.get("source_type", "conversation"),
+            validation_count=data.get("validation_count", 1),
+            last_validated=data.get("last_validated")
         )
 
 
@@ -327,24 +354,37 @@ class UserManager:
         self,
         user_id: str,
         observation: str,
+        category: str = "background",
+        confidence: float = 0.7,
         source_conversation_id: Optional[str] = None,
         source_summary_id: Optional[str] = None,
         source_message_id: Optional[str] = None,
-        source_journal_date: Optional[str] = None
+        source_journal_date: Optional[str] = None,
+        source_type: str = "conversation"
     ) -> Optional[UserObservation]:
         """Add an observation about a user"""
         profile = self.load_profile(user_id)
         if not profile:
             return None
 
+        # Validate category
+        if category not in USER_OBSERVATION_CATEGORIES:
+            category = "background"
+
+        now = datetime.now().isoformat()
         obs = UserObservation(
             id=str(uuid.uuid4()),
-            timestamp=datetime.now().isoformat(),
+            timestamp=now,
             observation=observation,
+            category=category,
+            confidence=confidence,
             source_conversation_id=source_conversation_id,
             source_summary_id=source_summary_id,
             source_message_id=source_message_id,
-            source_journal_date=source_journal_date
+            source_journal_date=source_journal_date,
+            source_type=source_type,
+            validation_count=1,
+            last_validated=now
         )
 
         # Load existing and append
@@ -364,6 +404,50 @@ class UserManager:
         # Sort by timestamp descending
         observations.sort(key=lambda x: x.timestamp, reverse=True)
         return observations[:limit]
+
+    def get_observations_by_category(
+        self,
+        user_id: str,
+        category: str,
+        limit: int = 10
+    ) -> List[UserObservation]:
+        """Get observations filtered by category"""
+        observations = self.load_observations(user_id)
+        filtered = [o for o in observations if o.category == category]
+        filtered.sort(key=lambda x: x.timestamp, reverse=True)
+        return filtered[:limit]
+
+    def get_high_confidence_observations(
+        self,
+        user_id: str,
+        min_confidence: float = 0.8,
+        limit: int = 10
+    ) -> List[UserObservation]:
+        """Get high-confidence observations about a user"""
+        observations = self.load_observations(user_id)
+        filtered = [o for o in observations if o.confidence >= min_confidence]
+        filtered.sort(key=lambda x: x.confidence, reverse=True)
+        return filtered[:limit]
+
+    def validate_observation(
+        self,
+        user_id: str,
+        observation_id: str
+    ) -> Optional[UserObservation]:
+        """Validate an observation (increment validation_count, update timestamp)"""
+        observations = self.load_observations(user_id)
+        now = datetime.now().isoformat()
+
+        for obs in observations:
+            if obs.id == observation_id:
+                obs.validation_count += 1
+                obs.last_validated = now
+                # Slightly increase confidence on validation (cap at 1.0)
+                obs.confidence = min(1.0, obs.confidence + 0.05)
+                self._save_observations(user_id, observations)
+                return obs
+
+        return None
 
     # === Context Building ===
 

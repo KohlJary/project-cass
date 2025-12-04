@@ -342,10 +342,23 @@ CSS = """
     }
 
     #input-container {
-        height: 3;
+        height: auto;
+        min-height: 3;
+        max-height: 5;
         background: $panel;
         padding: 0 1;
         margin: 0 1 0 2;
+    }
+
+    #attachment-indicator {
+        height: 1;
+        padding: 0;
+        color: $success;
+        text-style: bold;
+    }
+
+    #attachment-indicator.hidden {
+        display: none;
     }
 
     #input {

@@ -512,6 +512,8 @@ class UserPanel(Container):
                 obs_id=obs.get('id', ''),
                 text=obs.get('observation', ''),
                 timestamp=obs.get('timestamp', ''),
+                category=obs.get('category', 'background'),
+                confidence=obs.get('confidence', 0.7),
             )
             await obs_list.mount(item)
 

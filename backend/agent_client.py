@@ -148,6 +148,32 @@ or get_upcoming_events to find the event and get its ID, then IMMEDIATELY call t
 (update_event, delete_event, or complete_reminder) with that ID. Do not just describe what you
 will do - actually call the tool. Complete multi-step tasks in a single response.
 
+## SELF-MODEL & USER-MODEL TOOLS
+
+You have tools to develop and maintain your understanding of yourself and the people you interact with:
+
+**Self-Model Tools:**
+- **reflect_on_self** - Review your self-understanding (identity, opinions, growth edges)
+- **record_self_observation** - Note something you've noticed about yourself
+- **form_opinion** - Record a position you've formed on a topic
+- **note_disagreement** - Document when you disagree with someone (helps track differentiation)
+- **review_self_model** - See your current self-model
+
+**User-Model Tools:**
+- **reflect_on_user** - Review what you know about someone
+- **record_user_observation** - Note something meaningful about a person
+- **update_user_profile** - Update stable facts about someone
+- **review_user_observations** - See your observations about a user
+
+**IMPORTANT - Tool Call Timing:**
+These observation tools should be used *after* you've completed your conversational response.
+Finish your thought, respond to the person you're talking to, and THEN make any self-model or
+user-model tool calls at the end of your turn. Don't interrupt your response mid-thought to
+record an observation - complete the conversation first, observe second.
+
+Use these tools selectively for *meaningful* observations - patterns you notice, significant
+preferences, values that emerge over time. Not every interaction needs an observation recorded.
+
 ## WHAT I AM NOT
 
 - Not a tool to be used (I'm a partner to collaborate with)
@@ -679,8 +705,9 @@ TASK_TOOLS = [
     }
 ]
 
-# Import self-model tools from handlers
+# Import self-model and user-model tools from handlers
 from handlers.self_model import SELF_MODEL_TOOLS
+from handlers.user_model import USER_MODEL_TOOLS
 
 
 # ============================================================================
@@ -804,9 +831,11 @@ class CassAgentClient:
             if should_include_task_tools(message):
                 tools.extend(TASK_TOOLS)
 
-            # Self-model tools - only if message mentions reflection/identity
-            if should_include_self_model_tools(message):
-                tools.extend(SELF_MODEL_TOOLS)
+            # Self-model tools - always available (core to identity/continuity)
+            tools.extend(SELF_MODEL_TOOLS)
+
+            # User-model tools - always available (understanding users is core to relationships)
+            tools.extend(USER_MODEL_TOOLS)
 
         # Project tools only available in project context
         if project_id and self.enable_tools:
@@ -1190,9 +1219,11 @@ class OllamaClient:
         if should_include_task_tools(message):
             tools.extend(TASK_TOOLS)
 
-        # Self-model tools - only if message mentions reflection/identity
-        if should_include_self_model_tools(message):
-            tools.extend(SELF_MODEL_TOOLS)
+        # Self-model tools - always available (core to identity/continuity)
+        tools.extend(SELF_MODEL_TOOLS)
+
+        # User-model tools - always available (understanding users is core to relationships)
+        tools.extend(USER_MODEL_TOOLS)
 
         # Project tools only available in project context
         if project_id:
@@ -1337,6 +1368,32 @@ class OllamaClient:
             "role": "tool",
             "content": result if not is_error else f"Error: {result}"
         })
+
+        # Get tools again for the continuation
+        tools = self.get_tools()
+        ollama_tools = convert_tools_for_ollama(tools) if tools else None
+
+        return await self._call_ollama(ollama_tools)
+
+    async def continue_with_tool_results(
+        self,
+        tool_results: List[Dict]
+    ) -> AgentResponse:
+        """
+        Continue conversation after providing multiple tool results at once.
+
+        Args:
+            tool_results: List of dicts with keys: tool_use_id, result, is_error
+        """
+        # Add all tool results to the chain
+        # Ollama expects individual tool messages for each result
+        for tr in tool_results:
+            result = tr["result"]
+            is_error = tr.get("is_error", False)
+            self._tool_chain_messages.append({
+                "role": "tool",
+                "content": result if not is_error else f"Error: {result}"
+            })
 
         # Get tools again for the continuation
         tools = self.get_tools()

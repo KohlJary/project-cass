@@ -129,3 +129,4 @@ tmp/
 backend/models/piper/en_US-amy-medium.onnx
 backend/models/piper/en_US-amy-medium.onnx.json
 cass-vessel-(4.2)
+godot-frontend/CassVessel.csproj.old

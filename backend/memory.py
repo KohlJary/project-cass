@@ -2076,9 +2076,11 @@ Observations (one per line, starting with "{display_name}"):"""
         user_id: str,
         observation_id: str,
         observation_text: str,
-        display_name: str,
         timestamp: str,
-        source_conversation_id: Optional[str] = None
+        display_name: Optional[str] = None,
+        source_conversation_id: Optional[str] = None,
+        category: str = "background",
+        confidence: float = 0.7
     ):
         """
         Embed a single observation about a user.
@@ -2087,19 +2089,24 @@ Observations (one per line, starting with "{display_name}"):"""
             user_id: User's UUID
             observation_id: Observation's UUID
             observation_text: The observation content
-            display_name: User's display name
             timestamp: Observation timestamp
+            display_name: User's display name (optional)
             source_conversation_id: Optional conversation this came from
+            category: Observation category
+            confidence: Confidence level (0.0-1.0)
         """
         doc_id = f"user_observation_{observation_id}"
 
         metadata = {
             "type": "user_observation",
             "user_id": user_id,
-            "display_name": display_name,
             "observation_id": observation_id,
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            "category": category,
+            "confidence": confidence
         }
+        if display_name:
+            metadata["display_name"] = display_name
         if source_conversation_id:
             metadata["source_conversation_id"] = source_conversation_id
 
@@ -2109,8 +2116,9 @@ Observations (one per line, starting with "{display_name}"):"""
         except Exception:
             pass
 
+        name_part = f" {display_name}" if display_name else ""
         self.collection.add(
-            documents=[f"Observation about {display_name}: {observation_text}"],
+            documents=[f"Observation about user{name_part}: {observation_text}"],
             metadatas=[metadata],
             ids=[doc_id]
         )
