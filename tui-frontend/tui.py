@@ -68,20 +68,6 @@ from screens import (
     CreateUserScreen,
 )
 
-# Terminal support - use our fast terminal with better performance
-try:
-    from widgets.terminal_fast import Terminal as BaseTerminal
-    from textual import events
-    TERMINAL_AVAILABLE = True
-except ImportError:
-    try:
-        # Fallback to original textual_terminal
-        from textual_terminal import Terminal as BaseTerminal
-        TERMINAL_AVAILABLE = True
-    except ImportError:
-        TERMINAL_AVAILABLE = False
-        BaseTerminal = None
-
 # Audio playback for TTS
 try:
     import pygame
@@ -169,23 +155,6 @@ def is_audio_playing() -> bool:
         except Exception:
             pass
     return False
-
-
-# Custom Terminal with paste support
-if TERMINAL_AVAILABLE:
-    class Terminal(BaseTerminal):
-        """Terminal widget with clipboard paste support."""
-
-        async def on_paste(self, event: events.Paste) -> None:
-            """Handle paste events by sending pasted text to the terminal."""
-            if self.emulator is None:
-                return
-
-            event.stop()
-            if event.text:
-                await self.send_queue.put(["stdin", event.text])
-else:
-    Terminal = None
 
 
 def get_clipboard_image() -> Optional[Tuple[bytes, str]]:
@@ -374,7 +343,6 @@ class CassVesselTUI(App):
         Binding("ctrl+r", "rename_conversation", "Rename", show=True),
         Binding("ctrl+d", "delete_conversation", "Delete", show=True),
         Binding("ctrl+l", "clear_chat", "Clear", show=True),
-        Binding("ctrl+t", "toggle_terminal", "Terminal", show=True),
         Binding("ctrl+g", "toggle_growth", "Growth", show=True),
         Binding("ctrl+k", "toggle_calendar", "Calendar", show=True),
         Binding("ctrl+m", "toggle_tts", "Mute TTS", show=True),
@@ -442,13 +410,6 @@ class CassVesselTUI(App):
                                 yield UserPanel(id="user-panel")
                             with TabPane("Summary", id="summary-tab"):
                                 yield SummaryPanel(id="summary-panel")
-                            with TabPane("Terminal", id="terminal-tab"):
-                                if TERMINAL_AVAILABLE:
-                                    # Start interactive bash - user can launch claude manually
-                                    # (bash -i sources .bashrc which sets up nvm/PATH properly)
-                                    yield Terminal(command="bash -i", id="terminal", default_colors="textual")
-                                else:
-                                    yield Static("Terminal not available.\nInstall: pip install textual-terminal", id="terminal-placeholder")
 
         yield Footer()
 
@@ -496,15 +457,6 @@ class CassVesselTUI(App):
         # Connect to backend
         self.connect_websocket()
 
-        # Start the terminal if available
-        if TERMINAL_AVAILABLE:
-            try:
-                terminal = self.query_one("#terminal", Terminal)
-                terminal.start()
-                debug_log("Terminal started", "success")
-            except Exception as e:
-                debug_log(f"Failed to start terminal: {e}", "error")
-
         # Handle initial project if specified via CLI or env
         if self.initial_project:
             # Defer to allow projects to load first
@@ -521,18 +473,6 @@ class CassVesselTUI(App):
         debug_panel.toggle_class("visible")
         if debug_panel.has_class("visible"):
             debug_log("Debug panel shown", "info")
-
-    def action_toggle_terminal(self) -> None:
-        """Toggle to Terminal tab"""
-        tabs = self.query_one("#right-tabs", TabbedContent)
-        tabs.active = "terminal-tab"
-        # Focus the terminal if available
-        if TERMINAL_AVAILABLE:
-            try:
-                terminal = self.query_one("#terminal", Terminal)
-                terminal.focus()
-            except Exception:
-                pass
 
     def action_toggle_growth(self) -> None:
         """Toggle to Growth tab"""
@@ -1090,7 +1030,6 @@ class CassVesselTUI(App):
         project = matches[0]
         self.current_project_id = project["id"]
         await sidebar.select_project(project["id"], self.http_client)
-        await self.restart_terminal_in_project(project["id"])
 
         # Load project documents
         project_panel = self.query_one("#project-panel", ProjectPanel)
@@ -1265,8 +1204,6 @@ class CassVesselTUI(App):
             # Select this project
             self.current_project_id = event.item.project_id
             await sidebar.select_project(event.item.project_id, self.http_client)
-            # Restart terminal in project directory
-            await self.restart_terminal_in_project(event.item.project_id)
 
             # Load project documents and start auto-refresh
             await project_panel.load_documents(self.http_client, event.item.project_id)
@@ -1286,44 +1223,6 @@ class CassVesselTUI(App):
             await project_panel.load_documents(self.http_client, None)
             # Clear status bar project
             status_bar.set_project(None)
-
-    async def restart_terminal_in_project(self, project_id: str) -> None:
-        """Change the terminal directory to the project's working directory"""
-        if not TERMINAL_AVAILABLE:
-            return
-
-        try:
-            # Get project info to find working directory
-            response = await self.http_client.get(f"/projects/{project_id}")
-            if response.status_code != 200:
-                debug_log(f"Failed to get project info: {response.status_code}", "error")
-                return
-
-            project = response.json()
-            working_dir = project.get("working_directory", "~")
-
-            debug_log(f"Project selected: {working_dir}", "info")
-
-            # Send cd command to the terminal
-            try:
-                terminal = self.query_one("#terminal", Terminal)
-                if terminal.send_queue:
-                    # Send cd command followed by Enter
-                    cd_command = f"cd {shlex.quote(working_dir)}\n"
-                    await terminal.send_queue.put(["stdin", cd_command])
-                    debug_log(f"Sent cd command to terminal: {working_dir}", "success")
-            except Exception as e:
-                debug_log(f"Failed to send cd command: {e}", "warning")
-
-            chat = self.query_one("#chat-container", ChatContainer)
-            await chat.add_message(
-                "system",
-                f"📁 Project: {project.get('name')}\n   Path: {working_dir}",
-                None
-            )
-
-        except Exception as e:
-            debug_log(f"Failed to get project info: {e}", "error")
 
     @on(Button.Pressed, "#new-conversation-btn")
     async def on_new_conversation_pressed(self) -> None:
