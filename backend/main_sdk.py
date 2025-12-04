@@ -28,7 +28,7 @@ LLM_PROVIDER_LOCAL = "local"
 
 from claude_client import ClaudeClient
 from memory import CassMemory, initialize_attractor_basins
-from gestures import ResponseProcessor
+from gestures import ResponseProcessor, GestureParser, SelfObservation, ParsedUserObservation
 from conversations import ConversationManager
 from projects import ProjectManager
 from users import UserManager
@@ -42,7 +42,8 @@ from handlers import (
     execute_calendar_tool,
     execute_task_tool,
     execute_document_tool,
-    execute_self_model_tool
+    execute_self_model_tool,
+    execute_user_model_tool
 )
 import base64
 
@@ -685,6 +686,15 @@ async def chat(request: ChatRequest):
                         self_manager=self_manager,
                         user_id=current_user_id,
                         user_name=user_name,
+                        conversation_id=request.conversation_id,
+                        memory=memory
+                    )
+                elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
+                    tool_result = await execute_user_model_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        user_manager=user_manager,
+                        target_user_id=current_user_id,
                         conversation_id=request.conversation_id,
                         memory=memory
                     )
@@ -2308,7 +2318,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 # Check if using local LLM
                 if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-                    # Use local Ollama for response (no tool support)
+                    # Use local Ollama for response (with tool support for llama3.1+)
                     response = await ollama_client.send_message(
                         message=user_message,
                         memory_context=memory_context,
@@ -2318,9 +2328,104 @@ async def websocket_endpoint(websocket: WebSocket):
                     raw_response = response.raw
                     clean_text = response.text
                     animations = response.gestures
-                    tool_uses = []  # No tool support in local mode
+                    tool_uses = response.tool_uses
                     total_input_tokens = response.input_tokens
                     total_output_tokens = response.output_tokens
+
+                    # Handle tool calls for Ollama (same as Anthropic)
+                    tool_iteration = 0
+                    while response.stop_reason == "tool_use" and tool_uses:
+                        tool_iteration += 1
+                        tool_names = [t['tool'] for t in tool_uses]
+                        await websocket.send_json({
+                            "type": "debug",
+                            "message": f"[Ollama Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        await websocket.send_json({
+                            "type": "thinking",
+                            "status": f"Executing: {', '.join(tool_names)}...",
+                            "timestamp": datetime.now().isoformat()
+                        })
+
+                        # Execute ALL tools first, collect results
+                        all_tool_results = []
+                        for tool_use in tool_uses:
+                            tool_name = tool_use["tool"]
+
+                            # Route to appropriate tool executor
+                            if tool_name in ["recall_journal", "list_journals", "search_journals"]:
+                                tool_result = await execute_journal_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory
+                                )
+                            elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
+                                tool_result = await execute_calendar_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_id=current_user_id,
+                                    calendar_manager=calendar_manager,
+                                    conversation_id=conversation_id
+                                )
+                            elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
+                                tool_result = await execute_task_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_id=current_user_id,
+                                    task_manager=task_manager
+                                )
+                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                                user_name = None
+                                if current_user_id:
+                                    user_profile = user_manager.load_profile(current_user_id)
+                                    user_name = user_profile.display_name if user_profile else None
+
+                                tool_result = await execute_self_model_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    self_manager=self_manager,
+                                    user_id=current_user_id,
+                                    user_name=user_name,
+                                    conversation_id=conversation_id,
+                                    memory=memory
+                                )
+                            elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
+                                tool_result = await execute_user_model_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_manager=user_manager,
+                                    target_user_id=current_user_id,
+                                    conversation_id=conversation_id,
+                                    memory=memory
+                                )
+                            elif project_id:
+                                tool_result = await execute_document_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    project_id=project_id,
+                                    project_manager=project_manager,
+                                    memory=memory
+                                )
+                            else:
+                                tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
+
+                            all_tool_results.append({
+                                "tool_use_id": tool_use["id"],
+                                "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
+                                "is_error": not tool_result.get("success", False)
+                            })
+
+                        # Continue conversation with all tool results
+                        response = await ollama_client.continue_with_tool_results(all_tool_results)
+
+                        # Update response data
+                        raw_response = response.raw
+                        clean_text = response.text
+                        animations = response.gestures
+                        tool_uses = response.tool_uses
+                        total_input_tokens += response.input_tokens
+                        total_output_tokens += response.output_tokens
 
                 elif USE_AGENT_SDK and agent_client:
                     # Use Anthropic Claude API with Agent SDK
@@ -2398,6 +2503,15 @@ async def websocket_endpoint(websocket: WebSocket):
                                     self_manager=self_manager,
                                     user_id=current_user_id,
                                     user_name=user_name,
+                                    conversation_id=conversation_id,
+                                    memory=memory
+                                )
+                            elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
+                                tool_result = await execute_user_model_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_manager=user_manager,
+                                    target_user_id=current_user_id,
                                     conversation_id=conversation_id,
                                     memory=memory
                                 )
@@ -2521,6 +2635,87 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Run summarization in background, pass websocket for status updates
                         asyncio.create_task(generate_and_store_summary(conversation_id, websocket=websocket))
 
+                # Process self-observation tags from response
+                gesture_parser = GestureParser()
+                _, self_observations = gesture_parser.parse_self_observations(raw_response)
+                if self_observations:
+                    for obs in self_observations:
+                        # Get user name for source tracking
+                        user_name = None
+                        if current_user_id:
+                            user_profile = user_manager.load_profile(current_user_id)
+                            user_name = user_profile.display_name if user_profile else None
+
+                        # Record the observation through the self-model handler
+                        tool_result = await execute_self_model_tool(
+                            tool_name="record_self_observation",
+                            tool_input={
+                                "observation": obs.observation,
+                                "category": obs.category,
+                                "confidence": obs.confidence
+                            },
+                            self_manager=self_manager,
+                            user_id=current_user_id,
+                            user_name=user_name,
+                            conversation_id=conversation_id,
+                            memory=memory
+                        )
+
+                        # Send system notification about the self-observation
+                        if tool_result.get("success"):
+                            await websocket.send_json({
+                                "type": "system",
+                                "message": f"🪞 Self-observation recorded [{obs.category}]: {obs.observation[:100]}{'...' if len(obs.observation) > 100 else ''}",
+                                "status": "self_observation",
+                                "timestamp": datetime.now().isoformat()
+                            })
+
+                    # Also strip tags from clean_text if they weren't already removed
+                    clean_text, _ = gesture_parser.parse_self_observations(clean_text)
+
+                # Process user-observation tags from response
+                _, user_observations = gesture_parser.parse_user_observations(raw_response)
+                if user_observations:
+                    for obs in user_observations:
+                        # Determine target user - by name if specified, else current user
+                        target_user_id = current_user_id
+                        if obs.user:
+                            # Look up user by name
+                            found_user = user_manager.get_user_by_name(obs.user)
+                            if found_user:
+                                target_user_id = found_user.user_id
+
+                        if target_user_id:
+                            # Get user profile for display name
+                            target_profile = user_manager.load_profile(target_user_id)
+                            display_name = target_profile.display_name if target_profile else "Unknown"
+
+                            # Record the observation through the user-model handler
+                            tool_result = await execute_user_model_tool(
+                                tool_name="record_user_observation",
+                                tool_input={
+                                    "observation": obs.observation,
+                                    "category": obs.category,
+                                    "confidence": obs.confidence
+                                },
+                                user_manager=user_manager,
+                                target_user_id=target_user_id,
+                                conversation_id=conversation_id,
+                                memory=memory
+                            )
+
+                            # Send system notification about the user observation
+                            if tool_result.get("success"):
+                                await websocket.send_json({
+                                    "type": "system",
+                                    "message": f"👤 User observation recorded about {display_name} [{obs.category}]: {obs.observation[:100]}{'...' if len(obs.observation) > 100 else ''}",
+                                    "status": "user_observation",
+                                    "timestamp": datetime.now().isoformat()
+                                })
+
+                    # Also strip tags from clean_text if they weren't already removed
+                    clean_text, _ = gesture_parser.parse_user_observations(clean_text)
+
                 # Generate TTS audio if enabled
                 # Pass raw_response so emote tags can be extracted for tone adjustment
                 audio_base64 = None
@@ -2541,7 +2736,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         traceback.print_exc()
 
                 # Determine provider and model for this response
-                if USE_AGENT_SDK and agent_client:
+                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
+                    response_provider = "local"
+                    response_model = ollama_client.model
+                elif USE_AGENT_SDK and agent_client:
                     response_provider = "anthropic"
                     response_model = agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
                 else:

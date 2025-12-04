@@ -39,23 +39,56 @@ class AnimationTrigger:
     intensity: float = 1.0  # Optional intensity modifier
 
 
+@dataclass
+class SelfObservation:
+    """Represents a self-observation extracted from response text"""
+    observation: str
+    category: str = "pattern"  # capability, limitation, pattern, preference, growth, contradiction
+    confidence: float = 0.9
+
+
+@dataclass
+class ParsedUserObservation:
+    """Represents a user observation extracted from response text"""
+    observation: str
+    user: str = ""  # User name or empty for current user
+    category: str = "background"  # interest, preference, communication_style, background, value, relationship_dynamic
+    confidence: float = 0.7
+
+
 class GestureParser:
     """
-    Parses Cass's responses to extract animation triggers.
-    
+    Parses Cass's responses to extract animation triggers, self-observations, and user observations.
+
     Tags format:
     - <gesture:name> or <gesture:name:intensity>
     - <emote:name> or <emote:name:intensity>
-    
+    - <record_self_observation>text</record_self_observation>
+    - <record_self_observation category="pattern" confidence="0.9">text</record_self_observation>
+    - <record_user_observation>text</record_user_observation>
+    - <record_user_observation user="Kohl" category="preference" confidence="0.8">text</record_user_observation>
+
     Example:
     "Hello! <gesture:wave> Nice to see you. <emote:happy>"
     """
-    
+
     # Regex patterns
     GESTURE_PATTERN = re.compile(r'<gesture:(\w+)(?::(\d*\.?\d+))?>')
     EMOTE_PATTERN = re.compile(r'<emote:(\w+)(?::(\d*\.?\d+))?>')
     MEMORY_PATTERN = re.compile(r'<memory:(\w+)>')
+    # Self-observation tag with optional attributes
+    SELF_OBSERVATION_PATTERN = re.compile(
+        r'<record_self_observation(?:\s+category=["\']?(\w+)["\']?)?(?:\s+confidence=["\']?([\d.]+)["\']?)?>\s*(.*?)\s*</record_self_observation>',
+        re.DOTALL
+    )
+    # User observation tag with optional attributes (user, category, confidence in any order)
+    USER_OBSERVATION_PATTERN = re.compile(
+        r'<record_user_observation(?:\s+(?:user=["\']?([^"\'>\s]+)["\']?|category=["\']?(\w+)["\']?|confidence=["\']?([\d.]+)["\']?))*>\s*(.*?)\s*</record_user_observation>',
+        re.DOTALL
+    )
     ALL_TAGS_PATTERN = re.compile(r'<(?:gesture|emote|memory):\w+(?::\d*\.?\d+)?>')
+    SELF_OBSERVATION_TAG_PATTERN = re.compile(r'<record_self_observation[^>]*>.*?</record_self_observation>', re.DOTALL)
+    USER_OBSERVATION_TAG_PATTERN = re.compile(r'<record_user_observation[^>]*>.*?</record_user_observation>', re.DOTALL)
     
     def __init__(self):
         self.valid_gestures = {g.value for g in GestureType}
@@ -155,6 +188,115 @@ class GestureParser:
         pattern = re.compile(rf'<memory:{tag_name}>')
         return pattern.search(text) is not None
 
+    def parse_self_observations(self, text: str) -> Tuple[str, List[SelfObservation]]:
+        """
+        Parse text and extract self-observation tags.
+
+        Args:
+            text: Raw response text with embedded tags
+
+        Returns:
+            Tuple of (cleaned_text, list of SelfObservation)
+        """
+        observations = []
+        valid_categories = {"capability", "limitation", "pattern", "preference", "growth", "contradiction"}
+
+        for match in self.SELF_OBSERVATION_PATTERN.finditer(text):
+            category = match.group(1) or "pattern"
+            confidence_str = match.group(2)
+            observation_text = match.group(3).strip()
+
+            # Validate category
+            if category not in valid_categories:
+                category = "pattern"
+
+            # Parse confidence
+            confidence = 0.9
+            if confidence_str:
+                try:
+                    confidence = float(confidence_str)
+                    confidence = max(0.0, min(1.0, confidence))  # Clamp to [0, 1]
+                except ValueError:
+                    pass
+
+            if observation_text:
+                observations.append(SelfObservation(
+                    observation=observation_text,
+                    category=category,
+                    confidence=confidence
+                ))
+
+        # Remove self-observation tags from text
+        cleaned_text = self.SELF_OBSERVATION_TAG_PATTERN.sub('', text)
+        # Clean up extra whitespace
+        cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
+
+        return cleaned_text, observations
+
+    def parse_user_observations(self, text: str) -> Tuple[str, List[ParsedUserObservation]]:
+        """
+        Parse text and extract user-observation tags.
+
+        Args:
+            text: Raw response text with embedded tags
+
+        Returns:
+            Tuple of (cleaned_text, list of ParsedUserObservation)
+        """
+        observations = []
+        valid_categories = {"interest", "preference", "communication_style", "background", "value", "relationship_dynamic"}
+
+        # More flexible regex to capture attributes in any order
+        tag_pattern = re.compile(
+            r'<record_user_observation([^>]*)>\s*(.*?)\s*</record_user_observation>',
+            re.DOTALL
+        )
+
+        for match in tag_pattern.finditer(text):
+            attrs_str = match.group(1)
+            observation_text = match.group(2).strip()
+
+            # Parse attributes
+            user = ""
+            category = "background"
+            confidence = 0.7
+
+            # Extract user attribute
+            user_match = re.search(r'user=["\']?([^"\'>\s]+)["\']?', attrs_str)
+            if user_match:
+                user = user_match.group(1)
+
+            # Extract category attribute
+            category_match = re.search(r'category=["\']?(\w+)["\']?', attrs_str)
+            if category_match:
+                cat = category_match.group(1)
+                if cat in valid_categories:
+                    category = cat
+
+            # Extract confidence attribute
+            confidence_match = re.search(r'confidence=["\']?([\d.]+)["\']?', attrs_str)
+            if confidence_match:
+                try:
+                    confidence = float(confidence_match.group(1))
+                    confidence = max(0.0, min(1.0, confidence))
+                except ValueError:
+                    pass
+
+            if observation_text:
+                observations.append(ParsedUserObservation(
+                    observation=observation_text,
+                    user=user,
+                    category=category,
+                    confidence=confidence
+                ))
+
+        # Remove user-observation tags from text
+        cleaned_text = self.USER_OBSERVATION_TAG_PATTERN.sub('', text)
+        # Clean up extra whitespace
+        cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
+
+        return cleaned_text, observations
+
 
 # Response processing pipeline
 class ResponseProcessor:
@@ -179,10 +321,19 @@ class ResponseProcessor:
                 "text": "cleaned display text",
                 "animations": [list of animation events],
                 "raw": "original response with tags",
-                "memory_tags": {"summarize": bool}
+                "memory_tags": {"summarize": bool},
+                "self_observations": [list of SelfObservation],
+                "user_observations": [list of ParsedUserObservation]
             }
         """
-        cleaned_text, triggers = self.parser.parse(raw_response)
+        # First extract self-observations (before gesture parsing)
+        text_without_self_obs, self_observations = self.parser.parse_self_observations(raw_response)
+
+        # Then extract user-observations
+        text_without_observations, user_observations = self.parser.parse_user_observations(text_without_self_obs)
+
+        # Then parse gestures from the remaining text
+        cleaned_text, triggers = self.parser.parse(text_without_observations)
 
         # Add talking gesture if there's text
         if cleaned_text:
@@ -200,7 +351,9 @@ class ResponseProcessor:
             "animations": animation_events,
             "raw": raw_response,
             "has_gestures": len(triggers) > 0,
-            "memory_tags": memory_tags
+            "memory_tags": memory_tags,
+            "self_observations": self_observations,
+            "user_observations": user_observations
         }
 
 

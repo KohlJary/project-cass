@@ -81,18 +81,58 @@ class DocumentItem(ListItem):
 class ObservationItem(Static):
     """A single observation that can be deleted"""
 
-    def __init__(self, obs_id: str, text: str, timestamp: str, **kwargs):
+    # Category display styling
+    CATEGORY_STYLES = {
+        "interest": ("💡", "cyan"),
+        "preference": ("⚙", "yellow"),
+        "communication_style": ("💬", "magenta"),
+        "background": ("📋", "blue"),
+        "value": ("💎", "green"),
+        "relationship_dynamic": ("🤝", "bright_magenta"),
+    }
+
+    def __init__(
+        self,
+        obs_id: str,
+        text: str,
+        timestamp: str,
+        category: str = "background",
+        confidence: float = 0.7,
+        **kwargs
+    ):
         self.obs_id = obs_id
         self.obs_text = text
         self.timestamp = timestamp
+        self.category = category
+        self.confidence = confidence
         super().__init__(**kwargs)
 
     def compose(self) -> ComposeResult:
         date_str = self.timestamp[:10] if self.timestamp else "?"
-        yield Static(Text.assemble(
-            (f"[{date_str}] ", "dim"),
-            (self.obs_text, ""),
-        ), classes="obs-text")
+
+        # Get category styling
+        icon, color = self.CATEGORY_STYLES.get(self.category, ("•", "dim"))
+
+        # Build the observation display
+        parts = []
+
+        # Date
+        parts.append((f"[{date_str}] ", "dim"))
+
+        # Category icon and label
+        category_label = self.category.replace("_", " ").title()
+        parts.append((f"{icon} ", color))
+        parts.append((f"[{category_label}] ", f"bold {color}"))
+
+        # Confidence (only show if < 90%)
+        if self.confidence < 0.9:
+            conf_pct = int(self.confidence * 100)
+            parts.append((f"({conf_pct}%) ", "dim"))
+
+        # Observation text
+        parts.append((self.obs_text, ""))
+
+        yield Static(Text.assemble(*parts), classes="obs-text")
         yield Button("×", variant="error", classes="obs-delete-btn")
 
 

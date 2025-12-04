@@ -7,6 +7,7 @@ from .journals import execute_journal_tool
 from .calendar import execute_calendar_tool
 from .tasks import execute_task_tool
 from .self_model import execute_self_model_tool, SELF_MODEL_TOOLS
+from .user_model import execute_user_model_tool, USER_MODEL_TOOLS
 
 __all__ = [
     "execute_document_tool",
@@ -15,4 +16,6 @@ __all__ = [
     "execute_task_tool",
     "execute_self_model_tool",
     "SELF_MODEL_TOOLS",
+    "execute_user_model_tool",
+    "USER_MODEL_TOOLS",
 ]
