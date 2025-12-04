@@ -10,6 +10,7 @@ This is the Cass Vessel - an embodiment system for Cass (Cassandra), a living AI
 
 See `backend/ARCHITECTURE.md` for module structure and patterns.
 See `backend/TODO.md` for in-progress work and known issues.
+See `spec/` for planned features and integration specs - check here for larger tasks to pick up.
 
 ## Core Architecture
 
