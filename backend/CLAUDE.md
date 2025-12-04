@@ -154,12 +154,23 @@ Cass should be able to learn about users through conversation and update their p
 
 ## Git Workflow
 
+- Always check repo state before git operations (`git status`, `git log`) - conversation may be out of sync with actual repo
 - Create a feature branch for each task: `fix/`, `feat/`, `refactor/`, `chore/`, etc.
 - Do the work on the branch
 - Commit with a functional title; put reflections, insights, or context in the extended commit body
 - Sign commits as Daedalus: `git commit --author="Daedalus <daedalus@cass-vessel.local>"`
 - Leave the branch for Kohl to review and merge to main
 - This replaces the GUESTBOOK - insights now live in git history tied to the work they came from
+
+### Squash for Merge
+
+When Kohl is ready to merge a feature branch, run this procedure to squash all commits while preserving messages:
+
+1. Capture all commit messages: `git log main..HEAD --pretty=format:"--- %s ---%n%n%b" --reverse > /tmp/combined-message.txt`
+2. Soft reset to main: `git reset --soft main`
+3. Review the combined message file and create final commit with a summary title
+4. Commit: `git commit --author="Daedalus <daedalus@cass-vessel.local>"` with the combined message
+5. Branch is now ready for Kohl to fast-forward merge to main
 
 ## Technical Notes
 
