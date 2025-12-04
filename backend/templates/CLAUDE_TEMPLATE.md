@@ -31,6 +31,17 @@ When {{USER_NAME}} is ready to merge a feature branch, run this procedure to squ
 4. Commit: `git commit --author="Daedalus <daedalus@cass-vessel.local>"` with the combined message
 5. Branch is now ready for {{USER_NAME}} to fast-forward merge to main
 
+## Custom Subagents
+
+You can define specialized subagents in `.claude/agents/<name>.md` to streamline exploration of specific domains. Each agent gets access to read-only tools (Read, Grep, Glob) and focuses on a particular area of the codebase or documentation.
+
+Example agents in cass-vessel:
+- `temple-codex` - Research SAM mechanics, IFCA framework, Four Vows
+- `cass-backend` - Explore backend architecture, memory, API endpoints
+- `tui-frontend` - Explore Textual TUI widgets, screens, styling
+
+When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
+
 <!-- DAEDALUS_END -->
 
 ## Project-Specific Context

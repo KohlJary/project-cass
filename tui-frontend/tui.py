@@ -56,6 +56,10 @@ from widgets import (
     CalendarEventsPanel,
     TasksPanel,
     SelfModelPanel,
+    # Daedalus panels
+    SessionsPanel,
+    FilesPanel,
+    GitPanel,
 )
 from widgets.daedalus import DaedalusWidget
 
@@ -314,11 +318,12 @@ def debug_log(message: str, level: str = "info"):
 # Initialize widget debug loggers
 def _init_widget_debug_loggers():
     """Set the debug_log function in all widget modules"""
-    from widgets import sidebar, chat, panels
+    from widgets import sidebar, chat, panels, daedalus_panels
     from widgets.daedalus import set_debug_log as set_daedalus_debug_log
     sidebar.set_debug_log(debug_log)
     chat.set_debug_log(debug_log)
     panels.set_debug_log(debug_log)
+    daedalus_panels.set_debug_log(debug_log)
     set_daedalus_debug_log(debug_log)
     # Also set audio functions for chat module
     chat.set_audio_functions(
@@ -358,6 +363,12 @@ class CassVesselTUI(App):
     current_conversation_title: reactive[Optional[str]] = reactive(None)
     current_project_id: reactive[Optional[str]] = reactive(None)
     current_user_display_name: reactive[Optional[str]] = reactive(None)
+    active_main_tab: reactive[str] = reactive("cass-tab")  # "cass-tab" or "daedalus-tab"
+
+    # Tab visibility configuration
+    CASS_TABS = ["growth-tab", "self-model-tab", "user-tab", "summary-tab"]
+    DAEDALUS_TABS = ["sessions-tab", "files-tab", "git-tab"]
+    ALWAYS_VISIBLE_TABS = ["calendar-tab", "tasks-tab", "project-tab"]  # Visible in both contexts
 
     def __init__(self, initial_project: Optional[str] = None):
         super().__init__()
@@ -396,12 +407,14 @@ class CassVesselTUI(App):
 
                     with Vertical(id="right-panel"):
                         with TabbedContent(id="right-tabs"):
+                            # Always visible tabs
                             with TabPane("Project", id="project-tab"):
                                 yield ProjectPanel(id="project-panel")
                             with TabPane("Calendar", id="calendar-tab"):
                                 yield CalendarEventsPanel(id="calendar-events-panel")
                             with TabPane("Tasks", id="tasks-tab"):
                                 yield TasksPanel(id="tasks-panel")
+                            # Cass-specific tabs
                             with TabPane("Growth", id="growth-tab"):
                                 yield GrowthPanel(id="growth-panel")
                             with TabPane("Self", id="self-model-tab"):
@@ -410,6 +423,13 @@ class CassVesselTUI(App):
                                 yield UserPanel(id="user-panel")
                             with TabPane("Summary", id="summary-tab"):
                                 yield SummaryPanel(id="summary-panel")
+                            # Daedalus-specific tabs
+                            with TabPane("Sessions", id="sessions-tab"):
+                                yield SessionsPanel(id="sessions-panel")
+                            with TabPane("Files", id="files-tab"):
+                                yield FilesPanel(id="files-panel")
+                            with TabPane("Git", id="git-tab"):
+                                yield GitPanel(id="git-panel")
 
         yield Footer()
 
@@ -456,6 +476,9 @@ class CassVesselTUI(App):
 
         # Connect to backend
         self.connect_websocket()
+
+        # Set initial tab visibility (no project active yet)
+        self._update_right_panel_tabs()
 
         # Handle initial project if specified via CLI or env
         if self.initial_project:
@@ -504,6 +527,289 @@ class CassVesselTUI(App):
             daedalus.focus()
         except Exception:
             pass
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Tab visibility management
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @on(TabbedContent.TabActivated, "#main-tabs")
+    def on_main_tab_changed(self, event: TabbedContent.TabActivated) -> None:
+        """Handle main tab changes (Cass <-> Daedalus)"""
+        self.active_main_tab = event.pane.id or "cass-tab"
+
+    def watch_active_main_tab(self, new_tab: str) -> None:
+        """Update right panel tabs when main tab changes"""
+        self._update_right_panel_tabs()
+
+    def watch_current_project_id(self, new_project_id: Optional[str]) -> None:
+        """Update right panel tabs and Daedalus panels when project changes"""
+        self._update_right_panel_tabs()
+        self._update_daedalus_panels_working_dir()
+
+    def _update_right_panel_tabs(self) -> None:
+        """Show/hide right panel tabs based on current context"""
+        try:
+            right_tabs = self.query_one("#right-tabs", TabbedContent)
+        except Exception:
+            return  # Tabs not mounted yet
+
+        is_cass_active = self.active_main_tab == "cass-tab"
+        has_project = self.current_project_id is not None
+
+        # Project tab: only visible when a project is active
+        try:
+            if has_project:
+                right_tabs.show_tab("project-tab")
+            else:
+                right_tabs.hide_tab("project-tab")
+        except Exception:
+            pass
+
+        # Cass-specific tabs: only visible when Cass tab is active
+        for tab_id in self.CASS_TABS:
+            try:
+                if is_cass_active:
+                    right_tabs.show_tab(tab_id)
+                else:
+                    right_tabs.hide_tab(tab_id)
+            except Exception:
+                pass
+
+        # Daedalus-specific tabs: only visible when Daedalus tab is active
+        for tab_id in self.DAEDALUS_TABS:
+            try:
+                if not is_cass_active:
+                    right_tabs.show_tab(tab_id)
+                else:
+                    right_tabs.hide_tab(tab_id)
+            except Exception:
+                pass
+
+        # If current tab is now hidden, switch to a visible one
+        try:
+            current_active = right_tabs.active
+            if current_active:
+                # Check if current tab is still visible
+                if current_active == "project-tab" and not has_project:
+                    right_tabs.active = "calendar-tab"
+                elif current_active in self.CASS_TABS and not is_cass_active:
+                    right_tabs.active = "calendar-tab"
+                elif current_active in self.DAEDALUS_TABS and is_cass_active:
+                    right_tabs.active = "calendar-tab"
+        except Exception:
+            pass
+
+    def _update_daedalus_panels_working_dir(self) -> None:
+        """Update Files and Git panels with current project's working directory"""
+        working_dir = None
+
+        if self.current_project_id:
+            try:
+                sidebar = self.query_one("#sidebar", Sidebar)
+                project = next((p for p in sidebar.projects if p["id"] == self.current_project_id), None)
+                if project:
+                    working_dir = project.get("working_directory")
+            except Exception:
+                pass
+
+        # Update Files panel
+        try:
+            files_panel = self.query_one("#files-panel", FilesPanel)
+            files_panel.working_dir = working_dir
+        except Exception:
+            pass
+
+        # Update Git panel
+        try:
+            git_panel = self.query_one("#git-panel", GitPanel)
+            git_panel.working_dir = working_dir
+        except Exception:
+            pass
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Sessions panel handlers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @on(SessionsPanel.SessionSelected)
+    async def on_session_selected(self, event: SessionsPanel.SessionSelected) -> None:
+        """Handle session selection - attach to the selected session"""
+        try:
+            daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+            sessions_panel = self.query_one("#sessions-panel", SessionsPanel)
+
+            # Attach to the session
+            success = await daedalus.attach_session(event.session_name)
+
+            if success:
+                # Update the sessions panel to show this as active
+                sessions_panel.set_current_session(event.session_name)
+                # Switch to Daedalus tab
+                self.action_show_daedalus_tab()
+                debug_log(f"Attached to session: {event.session_name}", "success")
+            else:
+                debug_log(f"Failed to attach to session: {event.session_name}", "error")
+
+        except Exception as e:
+            debug_log(f"Error attaching to session: {e}", "error")
+
+    @on(SessionsPanel.SessionKillRequested)
+    async def on_session_kill_requested(self, event: SessionsPanel.SessionKillRequested) -> None:
+        """Handle session kill request"""
+        try:
+            daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+            sessions_panel = self.query_one("#sessions-panel", SessionsPanel)
+
+            # If this is the current session, kill via DaedalusWidget
+            if daedalus._current_tmux_session == event.session_name:
+                await daedalus.kill_session()
+                sessions_panel.set_current_session(None)
+            else:
+                # Kill a non-active session directly
+                daedalus.pty_manager.kill_tmux_session(event.session_name)
+
+            # Refresh the sessions list
+            sessions_panel.refresh_sessions()
+            debug_log(f"Killed session: {event.session_name}", "success")
+
+        except Exception as e:
+            debug_log(f"Error killing session: {e}", "error")
+
+    @on(SessionsPanel.NewSessionRequested)
+    async def on_new_session_requested(self, event: SessionsPanel.NewSessionRequested) -> None:
+        """Handle new session request - spawn a new Daedalus session"""
+        try:
+            daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+            sessions_panel = self.query_one("#sessions-panel", SessionsPanel)
+
+            # Get working directory from current project if available
+            working_dir = None
+            if self.current_project_id:
+                sidebar = self.query_one("#sidebar", Sidebar)
+                project = next((p for p in sidebar.projects if p["id"] == self.current_project_id), None)
+                if project:
+                    working_dir = project.get("working_directory")
+
+            # Spawn new session
+            session = await daedalus.spawn_session(working_dir=working_dir)
+
+            if session:
+                sessions_panel.set_current_session(daedalus._current_tmux_session)
+                sessions_panel.refresh_sessions()
+                # Switch to Daedalus tab
+                self.action_show_daedalus_tab()
+                debug_log(f"Spawned new session: {daedalus._current_tmux_session}", "success")
+            else:
+                debug_log("Failed to spawn new session", "error")
+
+        except Exception as e:
+            debug_log(f"Error spawning session: {e}", "error")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Files panel handlers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @on(FilesPanel.CopyPathRequested)
+    async def on_copy_path_requested(self, event: FilesPanel.CopyPathRequested) -> None:
+        """Handle copy path request - copy file path to clipboard"""
+        try:
+            if CLIPBOARD_TEXT_AVAILABLE:
+                pyperclip.copy(event.path)
+                debug_log(f"Copied to clipboard: {event.path}", "success")
+            else:
+                debug_log("Clipboard not available (pyperclip not installed)", "warning")
+        except Exception as e:
+            debug_log(f"Error copying to clipboard: {e}", "error")
+
+    @on(FilesPanel.FileSelected)
+    async def on_file_selected(self, event: FilesPanel.FileSelected) -> None:
+        """Handle file selection"""
+        if not event.is_directory:
+            debug_log(f"Selected file: {event.path}", "debug")
+
+    @on(FilesPanel.OpenInEditorRequested)
+    async def on_open_in_editor_requested(self, event: FilesPanel.OpenInEditorRequested) -> None:
+        """Handle open in editor request"""
+        import subprocess
+        import shutil
+
+        # Find editor - check EDITOR env var, then common editors
+        editor = os.environ.get('EDITOR')
+        if not editor:
+            for candidate in ['nvim', 'vim', 'nano', 'code', 'subl']:
+                if shutil.which(candidate):
+                    editor = candidate
+                    break
+
+        if not editor:
+            debug_log("No editor found (set $EDITOR)", "error")
+            return
+
+        try:
+            # For terminal editors, we need to handle differently
+            # For now, just spawn detached for GUI editors
+            if editor in ('code', 'subl', 'gedit', 'kate'):
+                subprocess.Popen([editor, event.path], start_new_session=True)
+                debug_log(f"Opened {event.path} in {editor}", "success")
+            else:
+                # Terminal editor - can't easily open in TUI context
+                # Copy path to clipboard instead and notify
+                if CLIPBOARD_TEXT_AVAILABLE:
+                    pyperclip.copy(event.path)
+                    debug_log(f"Path copied - open with: {editor} {event.path}", "info")
+                else:
+                    debug_log(f"Open with: {editor} {event.path}", "info")
+        except Exception as e:
+            debug_log(f"Error opening editor: {e}", "error")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Git panel handlers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @on(GitPanel.StageAllRequested)
+    async def on_stage_all_requested(self, event: GitPanel.StageAllRequested) -> None:
+        """Handle stage all request"""
+        git_panel = self.query_one("#git-panel", GitPanel)
+        if not git_panel.working_dir:
+            return
+
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["git", "-C", git_panel.working_dir, "add", "-A"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                debug_log("Staged all changes", "success")
+                git_panel.refresh_status()
+            else:
+                debug_log(f"Failed to stage: {result.stderr}", "error")
+        except Exception as e:
+            debug_log(f"Error staging changes: {e}", "error")
+
+    @on(GitPanel.UnstageAllRequested)
+    async def on_unstage_all_requested(self, event: GitPanel.UnstageAllRequested) -> None:
+        """Handle unstage all request"""
+        git_panel = self.query_one("#git-panel", GitPanel)
+        if not git_panel.working_dir:
+            return
+
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["git", "-C", git_panel.working_dir, "reset", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                debug_log("Unstaged all changes", "success")
+                git_panel.refresh_status()
+            else:
+                debug_log(f"Failed to unstage: {result.stderr}", "error")
+        except Exception as e:
+            debug_log(f"Error unstaging changes: {e}", "error")
 
     async def action_toggle_tts(self) -> None:
         """Toggle TTS audio on/off"""

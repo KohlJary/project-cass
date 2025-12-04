@@ -26,6 +26,7 @@ from .panels import (
 )
 from .calendar import CalendarDay, CalendarWidget, EventCalendarDay, EventCalendarWidget
 from .daedalus import DaedalusWidget, PTYManager
+from .daedalus_panels import SessionsPanel, FilesPanel, GitPanel
 
 __all__ = [
     # Items
@@ -62,4 +63,8 @@ __all__ = [
     # Daedalus (Claude Code integration)
     "DaedalusWidget",
     "PTYManager",
+    # Daedalus panels
+    "SessionsPanel",
+    "FilesPanel",
+    "GitPanel",
 ]
