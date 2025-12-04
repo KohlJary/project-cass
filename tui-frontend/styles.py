@@ -1176,4 +1176,128 @@ CSS = """
         background: $surface-darken-1;
         border-top: solid $surface-darken-2;
     }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       Daedalus Panels (Sessions, Files, Git)
+       ───────────────────────────────────────────────────────────────────────── */
+
+    #sessions-panel {
+        height: 1fr;
+        padding: 1;
+        background: $surface;
+    }
+
+    #sessions-panel .panel-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+        color: $primary;
+    }
+
+    #sessions-panel #sessions-list {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    #sessions-panel .session-controls {
+        height: auto;
+        margin-top: 1;
+        layout: horizontal;
+        align: center middle;
+    }
+
+    #sessions-panel .control-btn {
+        margin: 0 1;
+    }
+
+    #files-panel {
+        height: 1fr;
+        padding: 1;
+        background: $surface;
+    }
+
+    #files-panel .panel-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+        color: $primary;
+    }
+
+    #files-panel #files-tree {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    #files-panel #files-content {
+        height: 1fr;
+    }
+
+    #files-panel #files-tree {
+        height: 40%;
+        min-height: 5;
+    }
+
+    #files-panel .file-info {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        text-style: italic;
+    }
+
+    #files-panel #file-preview {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0;
+        margin-top: 1;
+    }
+
+    #files-panel #file-preview-content {
+        padding: 1;
+    }
+
+    #files-panel .preview-placeholder {
+        color: $text-muted;
+        text-style: italic;
+        text-align: center;
+        padding: 2;
+    }
+
+    #files-panel .file-controls {
+        height: auto;
+        margin-top: 1;
+        layout: horizontal;
+        align: center middle;
+    }
+
+    #git-panel {
+        height: 1fr;
+        padding: 1;
+        background: $surface;
+    }
+
+    #git-panel .panel-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+        color: $primary;
+    }
+
+    #git-panel #git-content {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 1;
+    }
+
+    #git-panel .git-controls {
+        height: auto;
+        margin-top: 1;
+        layout: horizontal;
+        align: center middle;
+    }
+
+    #git-panel .control-btn {
+        margin: 0 1;
+    }
     """
