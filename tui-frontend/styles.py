@@ -143,6 +143,61 @@ CSS = """
         width: 2fr;
     }
 
+    /* Main tabs (Cass / Daedalus) */
+    #main-tabs {
+        height: 1fr;
+    }
+
+    #main-tabs > ContentSwitcher {
+        height: 1fr;
+    }
+
+    #cass-tab, #daedalus-tab {
+        height: 1fr;
+    }
+
+    /* Daedalus (Claude Code) tab styling */
+    #daedalus-widget {
+        height: 1fr;
+        background: #1e1e1e;
+        padding: 0;
+    }
+
+    #daedalus-widget .daedalus-no-session {
+        height: 1fr;
+        align: center middle;
+        padding: 2;
+        background: $surface;
+    }
+
+    #daedalus-widget .daedalus-content {
+        height: 1fr;
+        background: #1e1e1e;
+    }
+
+    #daedalus-widget .hidden {
+        display: none;
+    }
+
+    #daedalus-widget .session-info {
+        text-align: center;
+        margin-bottom: 2;
+    }
+
+    #daedalus-widget .spawn-btn {
+        margin: 1 2;
+    }
+
+    #daedalus-widget .session-list {
+        height: auto;
+        max-height: 50%;
+        margin-top: 2;
+    }
+
+    #daedalus-widget .session-btn {
+        margin: 0 2 1 2;
+    }
+
     #right-panel {
         width: 1fr;
     }
@@ -817,6 +872,133 @@ CSS = """
     #journal-content.journal-placeholder {
         color: $text-muted;
         text-style: italic;
+    }
+
+    /* Growth Panel Tab Bar */
+    #growth-tab-bar {
+        height: 3;
+        padding: 0 1;
+        align: left middle;
+        border-bottom: solid $surface-darken-1;
+    }
+
+    .growth-tab {
+        min-width: 12;
+        height: 2;
+        margin-right: 1;
+    }
+
+    .growth-tab.active-tab {
+        text-style: bold;
+    }
+
+    /* Growth Section Visibility */
+    .growth-section {
+        height: 1fr;
+    }
+
+    .hidden-section {
+        display: none;
+    }
+
+    /* Evaluations Section */
+    #evaluations-section {
+        height: 1fr;
+    }
+
+    #evaluations-header {
+        height: 3;
+        align: center middle;
+        padding: 0 1;
+    }
+
+    #evaluations-title {
+        width: 1fr;
+        text-style: bold;
+        color: $primary;
+    }
+
+    #evaluations-viewer {
+        height: 1fr;
+        padding: 1;
+    }
+
+    #evaluations-content {
+        width: 100%;
+        height: auto;
+    }
+
+    /* Pending Edges Section */
+    #pending-section {
+        height: 1fr;
+    }
+
+    #pending-header {
+        height: 3;
+        align: center middle;
+        padding: 0 1;
+    }
+
+    #pending-title {
+        width: 1fr;
+        text-style: bold;
+        color: $primary;
+    }
+
+    #pending-viewer {
+        height: 1fr;
+        padding: 1;
+    }
+
+    #pending-content {
+        width: 100%;
+        height: auto;
+    }
+
+    .pending-edge-item {
+        margin-bottom: 1;
+    }
+
+    .pending-edge-actions {
+        height: 3;
+        align: left middle;
+        margin-bottom: 1;
+    }
+
+    .edge-action-btn {
+        min-width: 10;
+        margin-right: 1;
+    }
+
+    .pending-edge-divider {
+        margin-bottom: 1;
+    }
+
+    /* Questions Section */
+    #questions-section {
+        height: 1fr;
+    }
+
+    #questions-header {
+        height: 3;
+        align: center middle;
+        padding: 0 1;
+    }
+
+    #questions-title {
+        width: 1fr;
+        text-style: bold;
+        color: $primary;
+    }
+
+    #questions-viewer {
+        height: 1fr;
+        padding: 1;
+    }
+
+    #questions-content {
+        width: 100%;
+        height: auto;
     }
 
     /* Calendar Events Panel styling */

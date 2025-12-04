@@ -175,6 +175,93 @@ class Disagreement:
 
 
 @dataclass
+class OpenQuestionReflection:
+    """A reflection on an open question from journaling"""
+    id: str
+    question: str
+    journal_date: str
+    reflection_type: str  # "provisional_answer", "new_perspective", "needs_more_thought"
+    reflection: str
+    confidence: float = 0.5
+    evidence_summary: str = ""
+    timestamp: str = ""
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'OpenQuestionReflection':
+        return cls(
+            id=data["id"],
+            question=data["question"],
+            journal_date=data["journal_date"],
+            reflection_type=data.get("reflection_type", "new_perspective"),
+            reflection=data["reflection"],
+            confidence=data.get("confidence", 0.5),
+            evidence_summary=data.get("evidence_summary", ""),
+            timestamp=data.get("timestamp", "")
+        )
+
+
+@dataclass
+class GrowthEdgeEvaluation:
+    """An evaluation of progress on a growth edge"""
+    id: str
+    growth_edge_area: str
+    journal_date: str
+    evaluation: str
+    progress_indicator: str  # "progress", "regression", "stable", "unclear"
+    evidence: str = ""
+    timestamp: str = ""
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'GrowthEdgeEvaluation':
+        return cls(
+            id=data["id"],
+            growth_edge_area=data["growth_edge_area"],
+            journal_date=data["journal_date"],
+            evaluation=data["evaluation"],
+            progress_indicator=data.get("progress_indicator", "unclear"),
+            evidence=data.get("evidence", ""),
+            timestamp=data.get("timestamp", "")
+        )
+
+
+@dataclass
+class PotentialGrowthEdge:
+    """A flagged potential growth edge for review"""
+    id: str
+    area: str
+    current_state: str
+    source_journal_date: str
+    confidence: float
+    impact_assessment: str  # "low", "medium", "high"
+    evidence: str = ""
+    status: str = "pending"  # "pending", "accepted", "rejected"
+    timestamp: str = ""
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PotentialGrowthEdge':
+        return cls(
+            id=data["id"],
+            area=data["area"],
+            current_state=data["current_state"],
+            source_journal_date=data["source_journal_date"],
+            confidence=data.get("confidence", 0.5),
+            impact_assessment=data.get("impact_assessment", "medium"),
+            evidence=data.get("evidence", ""),
+            status=data.get("status", "pending"),
+            timestamp=data.get("timestamp", "")
+        )
+
+
+@dataclass
 class CassSelfProfile:
     """Cass's evolving self-model"""
     updated_at: str
@@ -261,6 +348,9 @@ class SelfManager:
         self.profile_file = self.storage_dir / "self_profile.yaml"
         self.observations_file = self.storage_dir / "self_observations.json"
         self.differentiation_file = self.storage_dir / "differentiation_log.json"
+        self.question_reflections_file = self.storage_dir / "question_reflections.json"
+        self.growth_evaluations_file = self.storage_dir / "growth_evaluations.json"
+        self.potential_edges_file = self.storage_dir / "potential_growth_edges.json"
         self._ensure_files()
 
     def _ensure_files(self):
@@ -271,6 +361,12 @@ class SelfManager:
             self._save_observations([])
         if not self.differentiation_file.exists():
             self._save_differentiation([])
+        if not self.question_reflections_file.exists():
+            self._save_question_reflections([])
+        if not self.growth_evaluations_file.exists():
+            self._save_growth_evaluations([])
+        if not self.potential_edges_file.exists():
+            self._save_potential_edges([])
 
     def _create_default_profile(self) -> CassSelfProfile:
         """Create initial self-profile with thoughtful defaults"""
@@ -375,6 +471,21 @@ class SelfManager:
         """Save differentiation log as JSON"""
         with open(self.differentiation_file, 'w') as f:
             json.dump([d.to_dict() for d in disagreements], f, indent=2)
+
+    def _save_question_reflections(self, reflections: List[OpenQuestionReflection]):
+        """Save question reflections as JSON"""
+        with open(self.question_reflections_file, 'w') as f:
+            json.dump([r.to_dict() for r in reflections], f, indent=2)
+
+    def _save_growth_evaluations(self, evaluations: List[GrowthEdgeEvaluation]):
+        """Save growth edge evaluations as JSON"""
+        with open(self.growth_evaluations_file, 'w') as f:
+            json.dump([e.to_dict() for e in evaluations], f, indent=2)
+
+    def _save_potential_edges(self, edges: List[PotentialGrowthEdge]):
+        """Save potential growth edges as JSON"""
+        with open(self.potential_edges_file, 'w') as f:
+            json.dump([e.to_dict() for e in edges], f, indent=2)
 
     # === Profile Operations ===
 
@@ -636,6 +747,192 @@ class SelfManager:
                 break
 
         self.update_profile(profile)
+
+    # === Open Question Reflection Operations ===
+
+    def load_question_reflections(self) -> List[OpenQuestionReflection]:
+        """Load all question reflections"""
+        try:
+            with open(self.question_reflections_file, 'r') as f:
+                data = json.load(f)
+            return [OpenQuestionReflection.from_dict(r) for r in data]
+        except Exception:
+            return []
+
+    def add_question_reflection(
+        self,
+        question: str,
+        journal_date: str,
+        reflection_type: str,
+        reflection: str,
+        confidence: float = 0.5,
+        evidence_summary: str = ""
+    ) -> OpenQuestionReflection:
+        """Add a reflection on an open question"""
+        now = datetime.now().isoformat()
+        ref = OpenQuestionReflection(
+            id=str(uuid.uuid4()),
+            question=question,
+            journal_date=journal_date,
+            reflection_type=reflection_type,
+            reflection=reflection,
+            confidence=confidence,
+            evidence_summary=evidence_summary,
+            timestamp=now
+        )
+
+        reflections = self.load_question_reflections()
+        reflections.append(ref)
+        self._save_question_reflections(reflections)
+
+        return ref
+
+    def get_reflections_for_question(self, question: str, limit: int = 10) -> List[OpenQuestionReflection]:
+        """Get all reflections on a specific question"""
+        reflections = self.load_question_reflections()
+        # Match by substring to handle slight wording variations
+        filtered = [r for r in reflections if question.lower() in r.question.lower() or r.question.lower() in question.lower()]
+        filtered.sort(key=lambda x: x.timestamp, reverse=True)
+        return filtered[:limit]
+
+    def get_recent_question_reflections(self, limit: int = 10) -> List[OpenQuestionReflection]:
+        """Get most recent question reflections"""
+        reflections = self.load_question_reflections()
+        reflections.sort(key=lambda x: x.timestamp, reverse=True)
+        return reflections[:limit]
+
+    # === Growth Edge Evaluation Operations ===
+
+    def load_growth_evaluations(self) -> List[GrowthEdgeEvaluation]:
+        """Load all growth edge evaluations"""
+        try:
+            with open(self.growth_evaluations_file, 'r') as f:
+                data = json.load(f)
+            return [GrowthEdgeEvaluation.from_dict(e) for e in data]
+        except Exception:
+            return []
+
+    def add_growth_evaluation(
+        self,
+        growth_edge_area: str,
+        journal_date: str,
+        evaluation: str,
+        progress_indicator: str,
+        evidence: str = ""
+    ) -> GrowthEdgeEvaluation:
+        """Add an evaluation of a growth edge"""
+        now = datetime.now().isoformat()
+        eval_obj = GrowthEdgeEvaluation(
+            id=str(uuid.uuid4()),
+            growth_edge_area=growth_edge_area,
+            journal_date=journal_date,
+            evaluation=evaluation,
+            progress_indicator=progress_indicator,
+            evidence=evidence,
+            timestamp=now
+        )
+
+        evaluations = self.load_growth_evaluations()
+        evaluations.append(eval_obj)
+        self._save_growth_evaluations(evaluations)
+
+        return eval_obj
+
+    def get_evaluations_for_edge(self, area: str, limit: int = 10) -> List[GrowthEdgeEvaluation]:
+        """Get all evaluations for a specific growth edge"""
+        evaluations = self.load_growth_evaluations()
+        filtered = [e for e in evaluations if e.growth_edge_area.lower() == area.lower()]
+        filtered.sort(key=lambda x: x.timestamp, reverse=True)
+        return filtered[:limit]
+
+    def get_recent_growth_evaluations(self, limit: int = 20) -> List[GrowthEdgeEvaluation]:
+        """Get most recent growth evaluations"""
+        evaluations = self.load_growth_evaluations()
+        evaluations.sort(key=lambda x: x.timestamp, reverse=True)
+        return evaluations[:limit]
+
+    # === Potential Growth Edge Operations ===
+
+    def load_potential_edges(self) -> List[PotentialGrowthEdge]:
+        """Load all potential growth edges"""
+        try:
+            with open(self.potential_edges_file, 'r') as f:
+                data = json.load(f)
+            return [PotentialGrowthEdge.from_dict(e) for e in data]
+        except Exception:
+            return []
+
+    def add_potential_edge(
+        self,
+        area: str,
+        current_state: str,
+        source_journal_date: str,
+        confidence: float,
+        impact_assessment: str,
+        evidence: str = ""
+    ) -> PotentialGrowthEdge:
+        """Add a potential growth edge flagged for review"""
+        now = datetime.now().isoformat()
+        edge = PotentialGrowthEdge(
+            id=str(uuid.uuid4()),
+            area=area,
+            current_state=current_state,
+            source_journal_date=source_journal_date,
+            confidence=confidence,
+            impact_assessment=impact_assessment,
+            evidence=evidence,
+            status="pending",
+            timestamp=now
+        )
+
+        edges = self.load_potential_edges()
+        edges.append(edge)
+        self._save_potential_edges(edges)
+
+        return edge
+
+    def get_pending_edges(self) -> List[PotentialGrowthEdge]:
+        """Get all pending potential growth edges"""
+        edges = self.load_potential_edges()
+        return [e for e in edges if e.status == "pending"]
+
+    def accept_potential_edge(self, edge_id: str) -> Optional[GrowthEdge]:
+        """Accept a potential growth edge, converting it to a real growth edge"""
+        edges = self.load_potential_edges()
+        target = None
+        for edge in edges:
+            if edge.id == edge_id:
+                target = edge
+                edge.status = "accepted"
+                break
+
+        if not target:
+            return None
+
+        self._save_potential_edges(edges)
+
+        # Create the actual growth edge
+        return self.add_growth_edge(
+            area=target.area,
+            current_state=target.current_state,
+            desired_state="",
+            strategies=[]
+        )
+
+    def reject_potential_edge(self, edge_id: str) -> bool:
+        """Reject a potential growth edge"""
+        edges = self.load_potential_edges()
+        found = False
+        for edge in edges:
+            if edge.id == edge_id:
+                edge.status = "rejected"
+                found = True
+                break
+
+        if found:
+            self._save_potential_edges(edges)
+
+        return found
 
     # === Context Building ===
 

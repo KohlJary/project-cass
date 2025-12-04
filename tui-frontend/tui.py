@@ -57,6 +57,7 @@ from widgets import (
     TasksPanel,
     SelfModelPanel,
 )
+from widgets.daedalus import DaedalusWidget
 
 # Import screens
 from screens import (
@@ -67,14 +68,19 @@ from screens import (
     CreateUserScreen,
 )
 
-# Terminal support
+# Terminal support - use our fast terminal with better performance
 try:
-    from textual_terminal import Terminal as BaseTerminal
+    from widgets.terminal_fast import Terminal as BaseTerminal
     from textual import events
     TERMINAL_AVAILABLE = True
 except ImportError:
-    TERMINAL_AVAILABLE = False
-    BaseTerminal = None
+    try:
+        # Fallback to original textual_terminal
+        from textual_terminal import Terminal as BaseTerminal
+        TERMINAL_AVAILABLE = True
+    except ImportError:
+        TERMINAL_AVAILABLE = False
+        BaseTerminal = None
 
 # Audio playback for TTS
 try:
@@ -306,21 +312,45 @@ class ChatInput(Input):
 
 # Global debug logger instance - will be set by the app
 _debug_panel: Optional[DebugPanel] = None
+_debug_log_file: Optional[str] = None
+
+def _init_debug_log_file():
+    """Initialize debug log file in temp directory."""
+    global _debug_log_file
+    import tempfile
+    _debug_log_file = os.path.join(tempfile.gettempdir(), "cass-tui-debug.log")
+    # Clear the file on startup
+    with open(_debug_log_file, "w") as f:
+        f.write(f"=== Cass TUI Debug Log Started ===\n")
 
 def debug_log(message: str, level: str = "info"):
-    """Log to debug panel if available, else print"""
+    """Log to debug panel and file if available, else print"""
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    formatted = f"[{timestamp}] [{level.upper()}] {message}"
+
     if _debug_panel:
         _debug_panel.log(message, level)
-    print(f"[{level.upper()}] {message}")
+
+    if _debug_log_file:
+        try:
+            with open(_debug_log_file, "a") as f:
+                f.write(formatted + "\n")
+        except Exception:
+            pass
+
+    print(formatted)
 
 
 # Initialize widget debug loggers
 def _init_widget_debug_loggers():
     """Set the debug_log function in all widget modules"""
     from widgets import sidebar, chat, panels
+    from widgets.daedalus import set_debug_log as set_daedalus_debug_log
     sidebar.set_debug_log(debug_log)
     chat.set_debug_log(debug_log)
     panels.set_debug_log(debug_log)
+    set_daedalus_debug_log(debug_log)
     # Also set audio functions for chat module
     chat.set_audio_functions(
         play_audio_from_base64,
@@ -351,6 +381,9 @@ class CassVesselTUI(App):
         Binding("ctrl+o", "toggle_llm", "Toggle LLM", show=True),
         Binding("f12", "toggle_debug", "Debug", show=True),
         Binding("ctrl+s", "show_status", "Status", show=True),
+        # Main tab switching (Cass/Daedalus)
+        Binding("ctrl+1", "show_cass_tab", "Cass", show=False),
+        Binding("ctrl+2", "show_daedalus_tab", "Daedalus", show=False),
     ]
 
     current_conversation_id: reactive[Optional[str]] = reactive(None)
@@ -382,11 +415,16 @@ class CassVesselTUI(App):
             with Vertical(id="chat-area"):
                 with Horizontal(id="content-columns"):
                     with Vertical(id="chat-column"):
-                        yield ChatContainer(id="chat-container")
-                        yield Label("", id="thinking-indicator")
-                        with Container(id="input-container"):
-                            yield Label("", id="attachment-indicator", classes="hidden")
-                            yield ChatInput(placeholder="Message Cass...", id="input")
+                        # Main tabs: Cass (chat) and Daedalus (Claude Code)
+                        with TabbedContent(id="main-tabs"):
+                            with TabPane("Cass", id="cass-tab"):
+                                yield ChatContainer(id="chat-container")
+                                yield Label("", id="thinking-indicator")
+                                with Container(id="input-container"):
+                                    yield Label("", id="attachment-indicator", classes="hidden")
+                                    yield ChatInput(placeholder="Message Cass...", id="input")
+                            with TabPane("Daedalus", id="daedalus-tab"):
+                                yield DaedalusWidget(id="daedalus-widget")
 
                     with Vertical(id="right-panel"):
                         with TabbedContent(id="right-tabs"):
@@ -416,10 +454,14 @@ class CassVesselTUI(App):
 
     async def on_mount(self) -> None:
         """Initialize the app"""
+        # Initialize debug log file first
+        _init_debug_log_file()
+
         # Set up global debug panel
         global _debug_panel
         _debug_panel = self.query_one("#debug-panel", DebugPanel)
         debug_log("Debug panel initialized", "success")
+        debug_log(f"Debug log file: {_debug_log_file}", "info")
 
         # Initialize widget debug loggers
         _init_widget_debug_loggers()
@@ -501,6 +543,27 @@ class CassVesselTUI(App):
         """Toggle to Calendar tab"""
         tabs = self.query_one("#right-tabs", TabbedContent)
         tabs.active = "calendar-tab"
+
+    def action_show_cass_tab(self) -> None:
+        """Switch to Cass chat tab (Ctrl+1)"""
+        try:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            tabs.active = "cass-tab"
+            # Focus the input
+            self.query_one("#input", ChatInput).focus()
+        except Exception:
+            pass
+
+    def action_show_daedalus_tab(self) -> None:
+        """Switch to Daedalus (Claude Code) tab (Ctrl+2)"""
+        try:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            tabs.active = "daedalus-tab"
+            # Focus the Daedalus widget
+            daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+            daedalus.focus()
+        except Exception:
+            pass
 
     async def action_toggle_tts(self) -> None:
         """Toggle TTS audio on/off"""
