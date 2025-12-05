@@ -1,0 +1,244 @@
+/**
+ * Chat screen - main conversation interface
+ */
+
+import React, { useCallback, useState, useEffect } from 'react';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Text,
+  KeyboardAvoidingView,
+  Platform,
+  Modal,
+  Pressable,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { ConnectionStatus } from '../components/ConnectionStatus';
+import { MessageList } from '../components/MessageList';
+import { TypingIndicator } from '../components/TypingIndicator';
+import { InputBar } from '../components/InputBar';
+import { ConversationList } from '../components/ConversationList';
+import { SummaryPanel } from '../components/SummaryPanel';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { useChatStore } from '../store/chatStore';
+import { apiClient } from '../api/client';
+import { colors } from '../theme/colors';
+
+interface Props {
+  userId: string;
+  displayName: string;
+  onLogout: () => void;
+  pendingOnboarding: boolean;
+  onOnboardingComplete: () => void;
+}
+
+export function ChatScreen({
+  userId,
+  displayName,
+  onLogout,
+  pendingOnboarding,
+  onOnboardingComplete,
+}: Props) {
+  const { sendMessage, sendOnboardingIntro, reconnect, isConnected } = useWebSocket();
+  const { messages, addMessage, conversations, currentConversationId, setCurrentConversationId } = useChatStore();
+
+  // Get current conversation title
+  const currentConversation = conversations.find(c => c.id === currentConversationId);
+  const conversationTitle = currentConversation?.title;
+  const [showConversations, setShowConversations] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [onboardingTriggered, setOnboardingTriggered] = useState(false);
+  const [awaitingConnection, setAwaitingConnection] = useState(false);
+
+  // Step 1: When pendingOnboarding, force a fresh WebSocket connection
+  useEffect(() => {
+    if (pendingOnboarding && !onboardingTriggered && !awaitingConnection) {
+      console.log('New user onboarding: forcing WebSocket reconnection');
+      setAwaitingConnection(true);
+      reconnect();
+    }
+  }, [pendingOnboarding, onboardingTriggered, awaitingConnection, reconnect]);
+
+  // Step 2: When connected (after reconnect), trigger the onboarding
+  useEffect(() => {
+    const triggerOnboarding = async () => {
+      if (pendingOnboarding && isConnected && awaitingConnection && !onboardingTriggered) {
+        console.log('WebSocket connected, triggering onboarding intro');
+        setOnboardingTriggered(true);
+        try {
+          // Create a new conversation for the intro (with user_id)
+          const conversation = await apiClient.createConversation('First Conversation', userId || undefined);
+          setCurrentConversationId(conversation.id);
+
+          // Small delay before sending to ensure conversation is set in state
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          // Send onboarding intro message
+          const sent = sendOnboardingIntro(conversation.id);
+          console.log('Onboarding intro sent:', sent, 'conversation:', conversation.id);
+
+          // Mark onboarding as complete
+          onOnboardingComplete();
+          setAwaitingConnection(false);
+        } catch (err) {
+          console.error('Failed to trigger onboarding:', err);
+          setOnboardingTriggered(false);
+          setAwaitingConnection(false);
+        }
+      }
+    };
+    triggerOnboarding();
+  }, [pendingOnboarding, isConnected, awaitingConnection, onboardingTriggered]);
+
+  const handleSend = useCallback(
+    (text: string) => {
+      // Add user message locally
+      addMessage({
+        role: 'user',
+        content: text,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Send via WebSocket with conversation ID
+      sendMessage(text, currentConversationId);
+    },
+    [sendMessage, addMessage, currentConversationId]
+  );
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setShowConversations(true)}
+        >
+          <Text style={styles.menuButtonText}>☰</Text>
+        </TouchableOpacity>
+        <ConnectionStatus />
+        <View style={styles.headerSpacer} />
+        <TouchableOpacity
+          style={styles.userMenuButton}
+          onPress={() => setShowUserMenu(true)}
+        >
+          <Text style={styles.userIndicator}>{displayName}</Text>
+          <Text style={styles.userMenuIcon}>▼</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* User Menu Modal */}
+      <Modal
+        visible={showUserMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowUserMenu(false)}
+      >
+        <Pressable style={styles.menuOverlay} onPress={() => setShowUserMenu(false)}>
+          <View style={styles.userMenuContainer}>
+            <Text style={styles.userMenuHeader}>{displayName}</Text>
+            <TouchableOpacity
+              style={styles.userMenuItem}
+              onPress={() => {
+                setShowUserMenu(false);
+                onLogout();
+              }}
+            >
+              <Text style={styles.userMenuItemText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <SummaryPanel
+        conversationId={currentConversationId}
+        conversationTitle={conversationTitle}
+      />
+
+      <KeyboardAvoidingView
+        style={styles.chatContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+        <MessageList messages={messages} />
+        <TypingIndicator />
+        <InputBar onSend={handleSend} disabled={!isConnected} />
+      </KeyboardAvoidingView>
+
+      <ConversationList
+        visible={showConversations}
+        onClose={() => setShowConversations(false)}
+      />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  menuButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  menuButtonText: {
+    fontSize: 24,
+    color: colors.textPrimary,
+  },
+  headerSpacer: {
+    flex: 1,
+  },
+  userMenuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  userIndicator: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
+  userMenuIcon: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginLeft: 4,
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 60,
+    paddingRight: 12,
+  },
+  userMenuContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    minWidth: 150,
+    overflow: 'hidden',
+  },
+  userMenuHeader: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.background,
+  },
+  userMenuItem: {
+    padding: 12,
+  },
+  userMenuItemText: {
+    fontSize: 14,
+    color: colors.error,
+  },
+  chatContainer: {
+    flex: 1,
+  },
+});

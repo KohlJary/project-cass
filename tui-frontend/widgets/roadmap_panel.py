@@ -112,6 +112,7 @@ class RoadmapPanel(Container):
             # Status filter tabs
             with Horizontal(id="roadmap-filters"):
                 yield Button("All", id="filter-all", variant="primary", classes="filter-btn active")
+                yield Button("Backlog", id="filter-backlog", variant="default", classes="filter-btn")
                 yield Button("Ready", id="filter-ready", variant="default", classes="filter-btn")
                 yield Button("Active", id="filter-active", variant="default", classes="filter-btn")
                 yield Button("Review", id="filter-review", variant="default", classes="filter-btn")
@@ -144,7 +145,9 @@ class RoadmapPanel(Container):
             # Build URL with filter
             url = "/roadmap/items"
             params = []
-            if self.current_filter == "ready":
+            if self.current_filter == "backlog":
+                params.append("status=backlog")
+            elif self.current_filter == "ready":
                 params.append("status=ready")
             elif self.current_filter == "active":
                 params.append("status=in_progress")
@@ -275,6 +278,7 @@ class RoadmapPanel(Container):
         # Update button styling
         filter_map = {
             "all": "filter-all",
+            "backlog": "filter-backlog",
             "ready": "filter-ready",
             "active": "filter-active",
             "review": "filter-review",
@@ -305,6 +309,10 @@ class RoadmapPanel(Container):
     @on(Button.Pressed, "#filter-all")
     async def on_filter_all(self) -> None:
         self.current_filter = "all"
+
+    @on(Button.Pressed, "#filter-backlog")
+    async def on_filter_backlog(self) -> None:
+        self.current_filter = "backlog"
 
     @on(Button.Pressed, "#filter-ready")
     async def on_filter_ready(self) -> None:

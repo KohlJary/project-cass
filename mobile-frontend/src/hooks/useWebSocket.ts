@@ -1,11 +1,11 @@
 /**
- * WebSocket hook with reconnection logic
+ * WebSocket hook with reconnection logic and JWT authentication
  */
 
 import { useEffect, useRef, useCallback } from 'react';
 import { Platform } from 'react-native';
 import { useChatStore } from '../store/chatStore';
-import { useUserStore } from '../store/userStore';
+import { useAuthStore } from '../store/authStore';
 import { WebSocketMessage, WebSocketResponse } from '../api/types';
 
 // Backend WebSocket URL
@@ -13,7 +13,7 @@ import { WebSocketMessage, WebSocketResponse } from '../api/types';
 // - Local IP for same network: ws://192.168.0.17:8000/ws
 // - Tunnel for remote access: wss://fair-chefs-show.loca.lt/ws
 // - Emulator: ws://10.0.2.2:8000/ws (Android) or ws://localhost:8000/ws (iOS)
-const WS_URL = 'wss://pushing-instructions-weather-ron.trycloudflare.com/ws';
+const WS_BASE_URL = 'wss://serial-around-described-cut.trycloudflare.com/ws';
 
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000];
 const PING_INTERVAL = 30000;
@@ -104,11 +104,21 @@ export function useWebSocket() {
   const connect = useCallback(() => {
     if (ws.current?.readyState === WebSocket.OPEN) return;
 
+    // Get auth token for WebSocket connection
+    const { accessToken } = useAuthStore.getState();
+    if (!accessToken) {
+      console.log('No auth token available, skipping WebSocket connection');
+      return;
+    }
+
+    // Build WebSocket URL with token as query parameter
+    const wsUrl = `${WS_BASE_URL}?token=${encodeURIComponent(accessToken)}`;
+
     setConnecting(true);
-    console.log('Connecting to WebSocket:', WS_URL);
+    console.log('Connecting to WebSocket with auth...');
 
     try {
-      ws.current = new WebSocket(WS_URL);
+      ws.current = new WebSocket(wsUrl);
 
       ws.current.onopen = () => {
         console.log('WebSocket connected');
@@ -179,13 +189,13 @@ export function useWebSocket() {
         return false;
       }
 
-      const { userId } = useUserStore.getState();
+      const { user } = useAuthStore.getState();
 
       const message: WebSocketMessage = {
         type: 'chat',
         message: text,
         conversation_id: conversationId || undefined,
-        user_id: userId || undefined,
+        user_id: user?.user_id || undefined,
       };
 
       ws.current.send(JSON.stringify(message));
@@ -201,12 +211,12 @@ export function useWebSocket() {
         return false;
       }
 
-      const { userId } = useUserStore.getState();
+      const { user } = useAuthStore.getState();
 
       const message: WebSocketMessage = {
         type: 'onboarding_intro',
         conversation_id: conversationId,
-        user_id: userId || undefined,
+        user_id: user?.user_id || undefined,
       };
 
       console.log('Sending onboarding_intro:', message);
