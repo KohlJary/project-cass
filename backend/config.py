@@ -3,9 +3,18 @@ Cass Vessel - Configuration
 Environment variables and settings
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Data directory - resolve to absolute path
+# Can be overridden with DATA_DIR env var
+_default_data_dir = Path(__file__).parent / "data"
+DATA_DIR = Path(os.getenv("DATA_DIR", str(_default_data_dir))).resolve()
+
+# Ensure data directory exists
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Claude API Configuration
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -19,7 +28,7 @@ OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "4096"))
 OPENAI_ENABLED = os.getenv("OPENAI_ENABLED", "false").lower() == "true"
 
 # Memory/VectorDB Configuration
-CHROMA_PERSIST_DIR = "./data/chroma"
+CHROMA_PERSIST_DIR = str(DATA_DIR / "chroma")
 COLLECTION_NAME = "cass_memory"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Local embedding model
 
