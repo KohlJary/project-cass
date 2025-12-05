@@ -56,6 +56,7 @@ from widgets import (
     CalendarEventsPanel,
     TasksPanel,
     SelfModelPanel,
+    RoadmapPanel,
     # Daedalus panels
     SessionsPanel,
     FilesPanel,
@@ -368,7 +369,7 @@ class CassVesselTUI(App):
     # Tab visibility configuration
     CASS_TABS = ["growth-tab", "self-model-tab", "user-tab", "summary-tab"]
     DAEDALUS_TABS = ["sessions-tab", "files-tab", "git-tab"]
-    ALWAYS_VISIBLE_TABS = ["calendar-tab", "tasks-tab", "project-tab"]  # Visible in both contexts
+    ALWAYS_VISIBLE_TABS = ["calendar-tab", "tasks-tab", "documents-tab", "roadmap-tab"]  # Visible in both contexts
 
     def __init__(self, initial_project: Optional[str] = None):
         super().__init__()
@@ -408,12 +409,14 @@ class CassVesselTUI(App):
                     with Vertical(id="right-panel"):
                         with TabbedContent(id="right-tabs"):
                             # Always visible tabs
-                            with TabPane("Project", id="project-tab"):
+                            with TabPane("Documents", id="documents-tab"):
                                 yield ProjectPanel(id="project-panel")
                             with TabPane("Calendar", id="calendar-tab"):
                                 yield CalendarEventsPanel(id="calendar-events-panel")
                             with TabPane("Tasks", id="tasks-tab"):
                                 yield TasksPanel(id="tasks-panel")
+                            with TabPane("Roadmap", id="roadmap-tab"):
+                                yield RoadmapPanel(id="roadmap-panel")
                             # Cass-specific tabs
                             with TabPane("Growth", id="growth-tab"):
                                 yield GrowthPanel(id="growth-panel")
@@ -556,12 +559,12 @@ class CassVesselTUI(App):
         is_cass_active = self.active_main_tab == "cass-tab"
         has_project = self.current_project_id is not None
 
-        # Project tab: only visible when a project is active
+        # Documents tab: only visible when a project is active
         try:
             if has_project:
-                right_tabs.show_tab("project-tab")
+                right_tabs.show_tab("documents-tab")
             else:
-                right_tabs.hide_tab("project-tab")
+                right_tabs.hide_tab("documents-tab")
         except Exception:
             pass
 
@@ -590,7 +593,7 @@ class CassVesselTUI(App):
             current_active = right_tabs.active
             if current_active:
                 # Check if current tab is still visible
-                if current_active == "project-tab" and not has_project:
+                if current_active == "documents-tab" and not has_project:
                     right_tabs.active = "calendar-tab"
                 elif current_active in self.CASS_TABS and not is_cass_active:
                     right_tabs.active = "calendar-tab"
