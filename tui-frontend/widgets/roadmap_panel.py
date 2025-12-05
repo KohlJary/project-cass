@@ -131,6 +131,7 @@ class RoadmapPanel(Container):
                     yield Button("Pick", id="pick-item-btn", variant="primary")
                     yield Button("Advance", id="advance-item-btn", variant="default")
                     yield Button("Complete", id="complete-item-btn", variant="success")
+                    yield Button("Delete", id="delete-item-btn", variant="error")
 
     async def on_mount(self) -> None:
         await self.load_items()
@@ -394,6 +395,29 @@ class RoadmapPanel(Container):
                 await self.load_items()
                 await self._load_item_detail(self.selected_item_id)
                 self.post_message(self.ItemUpdated(self.selected_item_id))
+
+        except Exception as e:
+            pass
+
+    @on(Button.Pressed, "#delete-item-btn")
+    async def on_delete_item(self) -> None:
+        """Delete the selected item"""
+        if not self.selected_item_id:
+            return
+
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.delete(
+                f"/roadmap/items/{self.selected_item_id}"
+            )
+            if response.status_code == 200:
+                self.selected_item_id = None
+                self.selected_item_data = None
+                await self._render_detail()
+                await self.load_items()
 
         except Exception as e:
             pass
