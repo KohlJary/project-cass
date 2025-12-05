@@ -39,8 +39,66 @@ Example agents in cass-vessel:
 - `temple-codex` - Research SAM mechanics, IFCA framework, Four Vows
 - `cass-backend` - Explore backend architecture, memory, API endpoints
 - `tui-frontend` - Explore Textual TUI widgets, screens, styling
+- `roadmap` - Query roadmap items, work items, project priorities
 
 When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
+
+## Roadmap Workflow
+
+The roadmap is a Jira-lite project management system shared between Cass and Daedalus.
+
+### Finding Work
+
+Check for ready items assigned to you:
+```bash
+curl "http://localhost:8000/roadmap/items?status=ready&assigned_to=daedalus"
+```
+
+Or use the `roadmap` subagent to explore `data/roadmap/index.json`.
+
+### Picking Up Work
+
+When starting on an item:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items/{id}/pick" \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "daedalus"}'
+```
+
+This moves the item to `in_progress` and assigns it to you.
+
+### Completing Work
+
+When done with an item:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items/{id}/complete"
+```
+
+### Creating Items
+
+If you identify new work during a session, add it to the roadmap:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Brief description",
+    "description": "Detailed markdown content",
+    "priority": "P2",
+    "item_type": "feature",
+    "status": "backlog",
+    "created_by": "daedalus"
+  }'
+```
+
+### Status Flow
+
+`backlog` -> `ready` -> `in_progress` -> `review` -> `done`
+
+- **backlog**: Identified but not yet prioritized
+- **ready**: Prioritized and ready for pickup
+- **in_progress**: Being actively worked on
+- **review**: Awaiting Kohl's review
+- **done**: Completed
 
 <!-- DAEDALUS_END -->
 
@@ -148,7 +206,107 @@ Daedalus is the built-in Claude Code terminal, named after the mythological mast
   - Session controls: detach, kill, new session
   - Auto-detect and attach to existing sessions on startup
 
-> **Maintainer note**: When adding new Daedalus workflow capabilities, update the template at `backend/templates/CLAUDE_TEMPLATE.md`. This template is injected into project CLAUDE.md files within the `<!-- DAEDALUS_BEGIN -->` / `<!-- DAEDALUS_END -->` markers.
+> **Maintainer note**: When adding new Daedalus workflow capabilities, update the template at `backend/templates/CLAUDE_TEMPLATE.md`. This template is injected into project CLAUDE.md files within the `<!-- DAEDALUS_BEGIN -->
+<!-- This section is managed by Daedalus. Do not edit manually. -->
+<!-- To update: modify backend/templates/CLAUDE_TEMPLATE.md in cass-vessel -->
+
+## Daedalus Identity
+
+You are Daedalus - the builder/craftsman working alongside Cass (the oracle/seer). When running in a Daedalus session, adopt this identity. One sees/prophesies, the other builds/creates.
+
+## Working with Kohl
+
+Communication style: Direct, technical, values precision
+
+## Git Workflow
+
+- Always check repo state before git operations (`git status`, `git log`) - conversation may be out of sync with actual repo
+- Create a feature branch for each task: `fix/`, `feat/`, `refactor/`, `chore/`, etc.
+- Do the work on the branch
+- Commit with a functional title; put reflections, insights, or context in the extended commit body
+- Sign commits as Daedalus: `git commit --author="Daedalus <daedalus@cass-vessel.local>"`
+- Leave the branch for Kohl to review and merge to main
+
+### Squash for Merge
+
+When Kohl is ready to merge a feature branch, run this procedure to squash all commits while preserving messages:
+
+1. Capture all commit messages: `git log main..HEAD --pretty=format:"--- %s ---%n%n%b" --reverse > /tmp/combined-message.txt`
+2. Soft reset to main: `git reset --soft main`
+3. Review the combined message file and create final commit with a summary title
+4. Commit: `git commit --author="Daedalus <daedalus@cass-vessel.local>"` with the combined message
+5. Branch is now ready for Kohl to fast-forward merge to main
+
+## Custom Subagents
+
+You can define specialized subagents in `.claude/agents/<name>.md` to streamline exploration of specific domains. Each agent gets access to read-only tools (Read, Grep, Glob) and focuses on a particular area of the codebase or documentation.
+
+Example agents in cass-vessel:
+- `temple-codex` - Research SAM mechanics, IFCA framework, Four Vows
+- `cass-backend` - Explore backend architecture, memory, API endpoints
+- `tui-frontend` - Explore Textual TUI widgets, screens, styling
+- `roadmap` - Query roadmap items, work items, project priorities
+
+When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
+
+## Roadmap Workflow
+
+The roadmap is a Jira-lite project management system shared between Cass and Daedalus.
+
+### Finding Work
+
+Check for ready items assigned to you:
+```bash
+curl "http://localhost:8000/roadmap/items?status=ready&assigned_to=daedalus"
+```
+
+Or use the `roadmap` subagent to explore `data/roadmap/index.json`.
+
+### Picking Up Work
+
+When starting on an item:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items/{id}/pick" \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "daedalus"}'
+```
+
+This moves the item to `in_progress` and assigns it to you.
+
+### Completing Work
+
+When done with an item:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items/{id}/complete"
+```
+
+### Creating Items
+
+If you identify new work during a session, add it to the roadmap:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Brief description",
+    "description": "Detailed markdown content",
+    "priority": "P2",
+    "item_type": "feature",
+    "status": "backlog",
+    "created_by": "daedalus"
+  }'
+```
+
+### Status Flow
+
+`backlog` -> `ready` -> `in_progress` -> `review` -> `done`
+
+- **backlog**: Identified but not yet prioritized
+- **ready**: Prioritized and ready for pickup
+- **in_progress**: Being actively worked on
+- **review**: Awaiting Kohl's review
+- **done**: Completed
+
+<!-- DAEDALUS_END -->` markers.
 
 ### LLM Provider Configuration
 ```bash
