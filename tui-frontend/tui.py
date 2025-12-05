@@ -347,7 +347,7 @@ class CassVesselTUI(App):
     CSS = CSS  # Imported from styles.py
 
     BINDINGS = [
-        Binding("ctrl+x", "quit", "Quit", show=True),
+        Binding("ctrl+q", "quit", "Quit", show=True),
         Binding("ctrl+n", "new_conversation", "New Chat", show=True),
         Binding("ctrl+p", "new_project", "New Project", show=True),
         Binding("ctrl+r", "rename_conversation", "Rename", show=True),
@@ -637,6 +637,12 @@ class CassVesselTUI(App):
         """Update right panel tabs and Daedalus panels when project changes"""
         self._update_right_panel_tabs()
         self._update_daedalus_panels_working_dir()
+        # Update roadmap panel's project filter
+        try:
+            roadmap_panel = self.query_one("#roadmap-panel", RoadmapPanel)
+            roadmap_panel.set_project(new_project_id)
+        except Exception:
+            pass
 
     def _update_right_panel_tabs(self) -> None:
         """Show/hide right panel tabs based on current context"""
@@ -1543,12 +1549,165 @@ class CassVesselTUI(App):
             await self.send_guestbook()
         elif cmd == "/settings":
             await self.action_open_settings()
+        elif cmd == "/roadmap":
+            # Toggle roadmap scope and view mode
+            try:
+                roadmap_panel = self.query_one("#roadmap-panel", RoadmapPanel)
+                if args and args[0].lower() == "all":
+                    roadmap_panel.show_all_projects = True
+                    await chat.add_message("system", "Roadmap: showing all projects", None)
+                elif args and args[0].lower() == "flat":
+                    roadmap_panel.group_by_milestone = False
+                    await chat.add_message("system", "Roadmap: flat list view", None)
+                elif args and args[0].lower() == "milestones":
+                    roadmap_panel.group_by_milestone = True
+                    await chat.add_message("system", "Roadmap: grouped by milestone", None)
+                else:
+                    roadmap_panel.show_all_projects = False
+                    if self.current_project_id:
+                        await chat.add_message("system", "Roadmap: showing current project only", None)
+                    else:
+                        await chat.add_message("system", "Roadmap: no project selected (showing all)", None)
+            except Exception as e:
+                await chat.add_message("system", f"Error: {e}", None)
+        elif cmd == "/milestone":
+            # Milestone management commands
+            try:
+                if not args:
+                    # List milestones
+                    response = await self.http_client.get("/roadmap/milestones")
+                    if response.status_code == 200:
+                        milestones = response.json().get("milestones", [])
+                        if milestones:
+                            lines = ["Milestones:"]
+                            for m in milestones:
+                                prog_response = await self.http_client.get(f"/roadmap/milestones/{m['id']}/progress")
+                                prog = prog_response.json() if prog_response.status_code == 200 else {}
+                                done = prog.get("done_items", 0)
+                                total = prog.get("total_items", 0)
+                                status = "[OK]" if prog.get("progress_pct", 0) >= 100 else "[>>]"
+                                lines.append(f"  {status} {m['title']} ({done}/{total}) - #{m['id'][:8]}")
+                            await chat.add_message("system", "\n".join(lines), None)
+                        else:
+                            await chat.add_message("system", "No milestones found", None)
+                elif args[0].lower() == "create" and len(args) > 1:
+                    # Create milestone: /milestone create <title>
+                    title = " ".join(args[1:])
+                    response = await self.http_client.post(
+                        "/roadmap/milestones",
+                        json={"title": title}
+                    )
+                    if response.status_code == 200:
+                        m = response.json().get("milestone", {})
+                        await chat.add_message("system", f"Created milestone: {m.get('title')} (#{m.get('id', '')[:8]})", None)
+                        # Refresh roadmap
+                        roadmap_panel = self.query_one("#roadmap-panel", RoadmapPanel)
+                        await roadmap_panel.load_items()
+                    else:
+                        await chat.add_message("system", f"Error creating milestone: {response.text}", None)
+                elif args[0].lower() == "assign" and len(args) >= 3:
+                    # Assign item to milestone: /milestone assign <item_id> <milestone_id>
+                    item_id = args[1]
+                    milestone_id = args[2]
+                    response = await self.http_client.put(
+                        f"/roadmap/items/{item_id}",
+                        json={"milestone_id": milestone_id}
+                    )
+                    if response.status_code == 200:
+                        await chat.add_message("system", f"Assigned item #{item_id} to milestone #{milestone_id[:8]}", None)
+                        roadmap_panel = self.query_one("#roadmap-panel", RoadmapPanel)
+                        await roadmap_panel.load_items()
+                    else:
+                        await chat.add_message("system", f"Error: {response.text}", None)
+                else:
+                    await chat.add_message("system", "Usage:\n  /milestone - List milestones\n  /milestone create <title> - Create milestone\n  /milestone assign <item_id> <milestone_id> - Assign item to milestone", None)
+            except Exception as e:
+                await chat.add_message("system", f"Error: {e}", None)
+        elif cmd == "/link":
+            # Link management commands
+            try:
+                if len(args) < 3:
+                    await chat.add_message("system", (
+                        "Usage:\n"
+                        "  /link <source_id> <type> <target_id> - Add link\n"
+                        "  /link remove <source_id> <type> <target_id> - Remove link\n"
+                        "  /link show <item_id> - Show item links\n\n"
+                        "Link types: depends_on, blocks, related, parent, child"
+                    ), None)
+                elif args[0].lower() == "remove" and len(args) >= 4:
+                    # Remove link: /link remove <source> <type> <target>
+                    source_id = args[1]
+                    link_type = args[2]
+                    target_id = args[3]
+                    response = await self.http_client.request(
+                        "DELETE",
+                        f"/roadmap/items/{source_id}/links",
+                        json={"target_id": target_id, "link_type": link_type}
+                    )
+                    if response.status_code == 200:
+                        await chat.add_message("system", f"Removed {link_type} link from #{source_id} to #{target_id}", None)
+                        roadmap_panel = self.query_one("#roadmap-panel", RoadmapPanel)
+                        await roadmap_panel.load_items()
+                    else:
+                        await chat.add_message("system", f"Error: {response.text}", None)
+                elif args[0].lower() == "show" and len(args) >= 2:
+                    # Show links: /link show <item_id>
+                    item_id = args[1]
+                    response = await self.http_client.get(f"/roadmap/items/{item_id}/links")
+                    if response.status_code == 200:
+                        data = response.json()
+                        links = data.get("links", [])
+                        is_blocked = data.get("is_blocked", False)
+                        blocking = data.get("blocking_items", [])
+
+                        if not links and not is_blocked:
+                            await chat.add_message("system", f"Item #{item_id} has no links", None)
+                        else:
+                            lines = [f"Links for #{item_id}:"]
+                            if is_blocked:
+                                lines.append("  [BLOCKED] Waiting on:")
+                                for b in blocking:
+                                    lines.append(f"    - #{b['id']}: {b['title']} ({b['status']})")
+                            for link in links:
+                                lines.append(f"  {link['link_type']}: #{link['target_id']} - {link['target_title']} ({link['target_status']})")
+                            await chat.add_message("system", "\n".join(lines), None)
+                    else:
+                        await chat.add_message("system", f"Error: {response.text}", None)
+                else:
+                    # Add link: /link <source> <type> <target>
+                    source_id = args[0]
+                    link_type = args[1]
+                    target_id = args[2]
+
+                    # Validate link type
+                    valid_types = ["depends_on", "blocks", "related", "parent", "child"]
+                    if link_type not in valid_types:
+                        await chat.add_message("system", f"Invalid link type. Valid types: {', '.join(valid_types)}", None)
+                    else:
+                        response = await self.http_client.post(
+                            f"/roadmap/items/{source_id}/links",
+                            json={"target_id": target_id, "link_type": link_type}
+                        )
+                        if response.status_code == 200:
+                            await chat.add_message("system", f"Added {link_type} link: #{source_id} -> #{target_id}", None)
+                            roadmap_panel = self.query_one("#roadmap-panel", RoadmapPanel)
+                            await roadmap_panel.load_items()
+                        else:
+                            await chat.add_message("system", f"Error: {response.text}", None)
+            except Exception as e:
+                await chat.add_message("system", f"Error: {e}", None)
         elif cmd == "/help":
             help_text = (
                 "Available commands:\n"
                 "  /project <name>  - Set active project context\n"
                 "  /project         - Show current project\n"
                 "  /projects        - List all projects\n"
+                "  /roadmap [all|flat|milestones] - Roadmap view options\n"
+                "  /milestone       - List milestones with progress\n"
+                "  /milestone create <title> - Create new milestone\n"
+                "  /milestone assign <item> <milestone> - Assign item\n"
+                "  /link <src> <type> <tgt> - Link items (depends_on, blocks, related)\n"
+                "  /link show <item> - Show item links and dependencies\n"
                 "  /summarize       - Trigger memory summarization\n"
                 "  /llm [local|claude|openai] - Show or switch LLM provider\n"
                 "  /settings        - Open settings (or Ctrl+\\)\n"

@@ -76,7 +76,8 @@ curl -X POST "http://localhost:8000/roadmap/items/{id}/complete"
 
 ### Creating Items
 
-If you identify new work during a session, add it to the roadmap:
+If you identify new work during a session, add it to the roadmap. **Always include project_id** to scope items to the current project:
+
 ```bash
 curl -X POST "http://localhost:8000/roadmap/items" \
   -H "Content-Type: application/json" \
@@ -86,9 +87,17 @@ curl -X POST "http://localhost:8000/roadmap/items" \
     "priority": "P2",
     "item_type": "feature",
     "status": "backlog",
+    "project_id": "PROJECT_ID_HERE",
     "created_by": "daedalus"
   }'
 ```
+
+To find the project ID for the current project:
+```bash
+curl "http://localhost:8000/projects" | jq '.projects[] | select(.name == "Project Name") | .id'
+```
+
+**Project Cass ID**: `0f93906c-d049-4315-8ffa-72a62dd26ca0`
 
 ### Status Flow
 
@@ -282,7 +291,8 @@ curl -X POST "http://localhost:8000/roadmap/items/{id}/complete"
 
 ### Creating Items
 
-If you identify new work during a session, add it to the roadmap:
+If you identify new work during a session, add it to the roadmap. **Always include project_id** to scope items to the current project:
+
 ```bash
 curl -X POST "http://localhost:8000/roadmap/items" \
   -H "Content-Type: application/json" \
@@ -292,9 +302,17 @@ curl -X POST "http://localhost:8000/roadmap/items" \
     "priority": "P2",
     "item_type": "feature",
     "status": "backlog",
+    "project_id": "PROJECT_ID_HERE",
     "created_by": "daedalus"
   }'
 ```
+
+To find the project ID for the current project:
+```bash
+curl "http://localhost:8000/projects" | jq '.projects[] | select(.name == "Project Name") | .id'
+```
+
+**Project Cass ID**: `0f93906c-d049-4315-8ffa-72a62dd26ca0`
 
 ### Status Flow
 

@@ -1325,6 +1325,16 @@ CSS = """
         color: $primary;
     }
 
+    #roadmap-scope-label {
+        margin-left: 1;
+        width: auto;
+    }
+
+    #toggle-all-projects-btn {
+        margin-left: 1;
+        min-width: 16;
+    }
+
     #refresh-roadmap-btn {
         dock: right;
     }
@@ -1381,6 +1391,61 @@ CSS = """
 
     #roadmap-actions.hidden {
         display: none;
+    }
+
+    /* Milestone sections */
+    .milestone-section {
+        margin-bottom: 1;
+    }
+
+    .milestone-section Collapsible {
+        border: solid $surface-darken-1;
+        padding: 0;
+    }
+
+    .milestone-section.completed Collapsible {
+        border: solid $success-darken-2;
+    }
+
+    .milestone-section.completed CollapsibleTitle {
+        color: $success;
+    }
+
+    .milestone-section.unassigned Collapsible {
+        border: dashed $surface-darken-2;
+    }
+
+    .milestone-section.unassigned CollapsibleTitle {
+        color: $text-muted;
+    }
+
+    #toggle-milestone-group-btn {
+        margin-left: 1;
+    }
+
+    /* Expandable items with children */
+    .expandable-item {
+        padding: 0;
+        margin-bottom: 0;
+    }
+
+    .expandable-item .parent-item {
+        padding: 0;
+    }
+
+    .expandable-item .children-container {
+        padding-left: 2;
+        border-left: solid $primary-darken-2;
+        margin-left: 1;
+    }
+
+    .expandable-item .children-container.hidden {
+        display: none;
+    }
+
+    .expandable-item .child-item {
+        margin-bottom: 0;
+        border-bottom: none;
     }
 
     /* ─────────────────────────────────────────────────────────────────────────

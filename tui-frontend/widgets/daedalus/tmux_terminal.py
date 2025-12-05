@@ -322,7 +322,8 @@ class TmuxTerminal(Terminal):
             "ctrl+y": "\x19",
             "ctrl+z": "\x1a",
             # Ctrl+special keys
-            "ctrl+[": "\x1b",  # Escape
+            "escape": "\x1b",  # Escape key
+            "ctrl+[": "\x1b",  # Escape (alternative)
             "ctrl+\\": "\x1c",
             "ctrl+]": "\x1d",
             "ctrl+^": "\x1e",

@@ -102,7 +102,7 @@ class SettingsScreen(ModalScreen):
 
                         yield Label("Current Shortcuts", classes="setting-label")
                         yield Static(
-                            "Ctrl+X  Quit application\n"
+                            "Ctrl+Q  Quit application\n"
                             "Ctrl+1  Switch to Cass tab\n"
                             "Ctrl+2  Switch to Daedalus tab\n"
                             "Ctrl+G  Growth tab\n"
