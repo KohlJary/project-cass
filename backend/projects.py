@@ -11,6 +11,31 @@ from pathlib import Path
 import uuid
 
 
+class PathTraversalError(Exception):
+    """Raised when a file path attempts to escape the project directory"""
+    pass
+
+
+def validate_path_within_directory(file_path: str, base_directory: str) -> str:
+    """
+    Validate that a file path is within a base directory.
+    Returns the resolved absolute path if valid.
+    Raises PathTraversalError if the path would escape the base directory.
+    """
+    # Resolve both paths to absolute, normalized form
+    base = Path(base_directory).resolve()
+    target = Path(file_path).resolve()
+
+    # Check if target is within base (or is base itself)
+    try:
+        target.relative_to(base)
+        return str(target)
+    except ValueError:
+        raise PathTraversalError(
+            f"Path '{file_path}' is outside the project directory '{base_directory}'"
+        )
+
+
 @dataclass
 class ProjectFile:
     """A file associated with a project"""
@@ -265,8 +290,11 @@ class ProjectManager:
         if not project:
             return None
 
-        # Normalize path
+        # Normalize and expand the path
         abs_path = os.path.abspath(os.path.expanduser(file_path))
+
+        # Validate path is within project working directory
+        abs_path = validate_path_within_directory(abs_path, project.working_directory)
 
         # Check if file exists
         if not os.path.isfile(abs_path):
@@ -299,7 +327,9 @@ class ProjectManager:
         if not project:
             return False
 
+        # Normalize and validate path
         abs_path = os.path.abspath(os.path.expanduser(file_path))
+        abs_path = validate_path_within_directory(abs_path, project.working_directory)
 
         # Find and remove
         project.files = [f for f in project.files if f.path != abs_path]
@@ -317,7 +347,9 @@ class ProjectManager:
         if not project:
             return False
 
+        # Normalize and validate path
         abs_path = os.path.abspath(os.path.expanduser(file_path))
+        abs_path = validate_path_within_directory(abs_path, project.working_directory)
 
         for f in project.files:
             if f.path == abs_path:

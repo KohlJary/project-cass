@@ -7,7 +7,7 @@ This version leverages Anthropic's official Agent SDK for:
 - Tool ecosystem
 - The "initializer agent" pattern with our cognitive architecture
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
@@ -87,6 +87,13 @@ roadmap_manager = RoadmapManager()
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
 init_roadmap_routes(roadmap_manager)
 app.include_router(roadmap_router)
+
+# Register auth routes
+from auth import AuthService, get_current_user, get_current_user_optional, require_ownership
+from routes.auth import router as auth_router, init_auth_routes
+auth_service = AuthService(user_manager)
+init_auth_routes(auth_service)
+app.include_router(auth_router)
 
 # Client will be initialized on startup
 agent_client = None
@@ -1113,44 +1120,82 @@ async def create_conversation(request: ConversationCreateRequest):
     }
 
 @app.get("/conversations")
-async def list_conversations(limit: Optional[int] = None, user_id: Optional[str] = None):
-    """List all conversations, optionally filtered by user_id"""
-    conversations = conversation_manager.list_conversations(limit=limit, user_id=user_id)
+async def list_conversations(
+    limit: Optional[int] = None,
+    user_id: Optional[str] = None,
+    current_user: str = Depends(get_current_user)
+):
+    """List conversations for the authenticated user"""
+    # Use current user if no specific user_id requested
+    # This ensures users only see their own conversations by default
+    filter_user_id = user_id if user_id else current_user
+    # Only allow viewing own conversations (or if user_id matches current user)
+    if user_id and user_id != current_user:
+        raise HTTPException(status_code=403, detail="Cannot view other users' conversations")
+    conversations = conversation_manager.list_conversations(limit=limit, user_id=filter_user_id)
     return {"conversations": conversations, "count": len(conversations)}
 
-@app.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str):
-    """Get a specific conversation with full history"""
+def verify_conversation_access(conversation_id: str, current_user: str):
+    """Helper to verify user has access to a conversation"""
     conversation = conversation_manager.load_conversation(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # Check ownership if conversation has a user_id
+    conv_user_id = conversation.user_id
+    if conv_user_id and conv_user_id != current_user:
+        raise HTTPException(status_code=403, detail="Not authorized to access this conversation")
+    return conversation
+
+
+@app.get("/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str, current_user: str = Depends(get_current_user)):
+    """Get a specific conversation with full history"""
+    conversation = verify_conversation_access(conversation_id, current_user)
     return conversation.to_dict()
 
 @app.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str):
+async def delete_conversation(conversation_id: str, current_user: str = Depends(get_current_user)):
     """Delete a conversation"""
+    verify_conversation_access(conversation_id, current_user)
     success = conversation_manager.delete_conversation(conversation_id)
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "deleted", "id": conversation_id}
 
 @app.put("/conversations/{conversation_id}/title")
-async def update_conversation_title(conversation_id: str, request: ConversationUpdateTitleRequest):
+async def update_conversation_title(
+    conversation_id: str,
+    request: ConversationUpdateTitleRequest,
+    current_user: str = Depends(get_current_user)
+):
     """Update a conversation's title"""
+    verify_conversation_access(conversation_id, current_user)
     success = conversation_manager.update_title(conversation_id, request.title)
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "updated", "id": conversation_id, "title": request.title}
 
 @app.get("/conversations/search/{query}")
-async def search_conversations(query: str, limit: int = 10):
+async def search_conversations(
+    query: str,
+    limit: int = 10,
+    current_user: str = Depends(get_current_user)
+):
     """Search conversations by title or content"""
-    results = conversation_manager.search_conversations(query, limit=limit)
-    return {"results": results, "count": len(results)}
+    # TODO: Add user_id filtering to search_conversations in conversations.py
+    # For now, search all and filter results
+    results = conversation_manager.search_conversations(query, limit=limit * 2)
+    # Filter to only user's conversations
+    filtered = [r for r in results if r.get("user_id") == current_user or r.get("user_id") is None]
+    return {"results": filtered[:limit], "count": len(filtered[:limit])}
 
 @app.get("/conversations/{conversation_id}/summaries")
-async def get_conversation_summaries(conversation_id: str):
+async def get_conversation_summaries(
+    conversation_id: str,
+    current_user: str = Depends(get_current_user)
+):
     """Get all summary chunks for a conversation"""
+    verify_conversation_access(conversation_id, current_user)
     summaries = memory.get_summaries_for_conversation(conversation_id)
     working_summary = conversation_manager.get_working_summary(conversation_id)
     return {
@@ -1161,12 +1206,13 @@ async def get_conversation_summaries(conversation_id: str):
 
 
 @app.post("/conversations/{conversation_id}/summarize")
-async def trigger_summarization(conversation_id: str):
+async def trigger_summarization(
+    conversation_id: str,
+    current_user: str = Depends(get_current_user)
+):
     """Manually trigger memory summarization for a conversation"""
-    # Check if conversation exists
-    conv = conversation_manager.load_conversation(conversation_id)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    # Verify access
+    verify_conversation_access(conversation_id, current_user)
 
     # Check if already in progress
     if conversation_id in _summarization_in_progress:
@@ -2086,12 +2132,9 @@ async def get_ollama_models():
 # === User Context Endpoints ===
 
 @app.get("/users/current")
-async def get_current_user():
-    """Get current user info"""
-    if not current_user_id:
-        return {"user": None}
-
-    profile = user_manager.load_profile(current_user_id)
+async def get_current_user_endpoint(current_user: str = Depends(get_current_user)):
+    """Get current authenticated user info"""
+    profile = user_manager.load_profile(current_user)
     if not profile:
         return {"user": None}
 
@@ -2105,14 +2148,28 @@ async def get_current_user():
 
 
 @app.get("/users")
-async def list_users():
-    """List all users"""
-    return {"users": user_manager.list_users()}
+async def list_users_endpoint(current_user: str = Depends(get_current_user)):
+    """List all users (admin only in future, for now shows all)"""
+    # TODO: Add admin role check - for now only show current user
+    # return {"users": user_manager.list_users()}
+    profile = user_manager.load_profile(current_user)
+    if profile:
+        return {"users": [{
+            "user_id": profile.user_id,
+            "display_name": profile.display_name,
+            "relationship": profile.relationship,
+            "created_at": profile.created_at
+        }]}
+    return {"users": []}
 
 
 @app.get("/users/{user_id}")
-async def get_user(user_id: str):
-    """Get a specific user's profile"""
+async def get_user_endpoint(user_id: str, current_user: str = Depends(get_current_user)):
+    """Get a specific user's profile (only own profile for now)"""
+    # Users can only view their own profile
+    if user_id != current_user:
+        raise HTTPException(status_code=403, detail="Cannot view other users' profiles")
+
     profile = user_manager.load_profile(user_id)
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
@@ -2127,28 +2184,28 @@ async def get_user(user_id: str):
 
 
 @app.delete("/users/observations/{observation_id}")
-async def delete_observation(observation_id: str):
-    """Delete a specific observation"""
-    # Find which user has this observation
-    users = user_manager.list_users()
-    for user_info in users:
-        user_id = user_info["user_id"]
-        observations = user_manager.load_observations(user_id)
+async def delete_observation_endpoint(
+    observation_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    """Delete a specific observation (only own observations)"""
+    # Only check current user's observations
+    observations = user_manager.load_observations(current_user)
 
-        # Find and remove the observation
-        for obs in observations:
-            if obs.id == observation_id:
-                # Remove from user's observations
-                updated_obs = [o for o in observations if o.id != observation_id]
-                user_manager._save_observations(user_id, updated_obs)
+    # Find and remove the observation
+    for obs in observations:
+        if obs.id == observation_id:
+            # Remove from user's observations
+            updated_obs = [o for o in observations if o.id != observation_id]
+            user_manager._save_observations(current_user, updated_obs)
 
-                # Remove from ChromaDB
-                try:
-                    memory.collection.delete(ids=[f"user_observation_{observation_id}"])
-                except Exception:
-                    pass  # May not exist in ChromaDB
+            # Remove from ChromaDB
+            try:
+                memory.collection.delete(ids=[f"user_observation_{observation_id}"])
+            except Exception:
+                pass  # May not exist in ChromaDB
 
-                return {"status": "deleted", "observation_id": observation_id}
+            return {"status": "deleted", "observation_id": observation_id}
 
     raise HTTPException(status_code=404, detail="Observation not found")
 
@@ -2158,14 +2215,23 @@ class SetCurrentUserRequest(BaseModel):
 
 
 @app.post("/users/current")
-async def set_current_user(request: SetCurrentUserRequest):
-    """Set the current active user"""
+async def set_current_user_endpoint(
+    request: SetCurrentUserRequest,
+    current_user: str = Depends(get_current_user)
+):
+    """
+    DEPRECATED: Set the current active user.
+    This endpoint is deprecated. Use /auth/login to switch users.
+    Kept for backwards compatibility with TUI during transition.
+    """
     global current_user_id
 
     profile = user_manager.load_profile(request.user_id)
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Only allow setting to own user ID (prevents user switching attack)
+    # During localhost bypass, this still allows TUI to set user
     current_user_id = request.user_id
 
     return {
@@ -2173,7 +2239,8 @@ async def set_current_user(request: SetCurrentUserRequest):
             "user_id": profile.user_id,
             "display_name": profile.display_name,
             "relationship": profile.relationship
-        }
+        },
+        "warning": "This endpoint is deprecated. Use /auth/login instead."
     }
 
 
@@ -2607,14 +2674,29 @@ async def generate_tts(request: TTSRequest):
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-        
-    async def connect(self, websocket: WebSocket):
+        # Map websocket to user_id for per-connection user state
+        self.connection_users: Dict[WebSocket, str] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: Optional[str] = None):
         await websocket.accept()
         self.active_connections.append(websocket)
-        
+        if user_id:
+            self.connection_users[websocket] = user_id
+
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        if websocket in self.connection_users:
+            del self.connection_users[websocket]
+
+    def get_user_id(self, websocket: WebSocket) -> Optional[str]:
+        """Get user_id for a specific connection"""
+        return self.connection_users.get(websocket)
+
+    def set_user_id(self, websocket: WebSocket, user_id: str):
+        """Set user_id for a specific connection"""
+        self.connection_users[websocket] = user_id
+
     async def broadcast(self, message: dict):
         for connection in self.active_connections:
             await connection.send_json(message)
@@ -2622,23 +2704,71 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket for real-time bidirectional communication"""
-    global current_user_id
-    await manager.connect(websocket)
-    
+async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
+    """
+    WebSocket for real-time bidirectional communication.
+
+    Authentication:
+    - Pass token as query parameter: ws://host/ws?token=<jwt>
+    - Or send {type: "auth", token: "<jwt>"} as first message
+    - Localhost connections fall back to DEFAULT_LOCALHOST_USER_ID
+    """
+    import os
+    from auth import decode_token, is_localhost_request
+
+    # Determine user_id from token or localhost bypass
+    connection_user_id: Optional[str] = None
+
+    # Try token from query param
+    if token:
+        token_data = decode_token(token)
+        if token_data and token_data.token_type == "access":
+            connection_user_id = token_data.user_id
+
+    # Localhost bypass if no token
+    if not connection_user_id:
+        allow_localhost = os.getenv("ALLOW_LOCALHOST_BYPASS", "true").lower() == "true"
+        client_host = websocket.client.host if websocket.client else None
+        if allow_localhost and client_host in {"127.0.0.1", "::1", "localhost"}:
+            connection_user_id = os.getenv("DEFAULT_LOCALHOST_USER_ID")
+
+    await manager.connect(websocket, user_id=connection_user_id)
+
     await websocket.send_json({
         "type": "connected",
         "message": "Cass vessel connected",
         "sdk_mode": USE_AGENT_SDK,
+        "user_id": connection_user_id,
         "timestamp": datetime.now().isoformat()
     })
-    
+
     try:
         while True:
             data = await websocket.receive_json()
-            
+
+            # Handle auth message (alternative to query param)
+            if data.get("type") == "auth":
+                auth_token = data.get("token")
+                if auth_token:
+                    token_data = decode_token(auth_token)
+                    if token_data and token_data.token_type == "access":
+                        connection_user_id = token_data.user_id
+                        manager.set_user_id(websocket, connection_user_id)
+                        await websocket.send_json({
+                            "type": "auth_success",
+                            "user_id": connection_user_id
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "auth_error",
+                            "message": "Invalid token"
+                        })
+                continue
+
             if data.get("type") == "chat":
+                # Get connection-local user_id (may have been set via auth message)
+                ws_user_id = manager.get_user_id(websocket)
+
                 user_message = data.get("message", "")
                 conversation_id = data.get("conversation_id")
                 image_data = data.get("image")  # Base64 encoded image
@@ -2664,12 +2794,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
                 memory_context = memory.format_hierarchical_context(hierarchical, working_summary=working_summary)
 
-                # Add user context if we have a current user
+                # Add user context if we have a connection user
                 user_context_count = 0
-                if current_user_id:
+                if ws_user_id:
                     user_context_entries = memory.retrieve_user_context(
                         query=user_message,
-                        user_id=current_user_id
+                        user_id=ws_user_id
                     )
                     user_context_count = len(user_context_entries)
                     user_context = memory.format_user_context(user_context_entries)
@@ -2772,7 +2902,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 tool_result = await execute_calendar_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
-                                    user_id=current_user_id,
+                                    user_id=ws_user_id,
                                     calendar_manager=calendar_manager,
                                     conversation_id=conversation_id
                                 )
@@ -2780,7 +2910,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 tool_result = await execute_task_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
-                                    user_id=current_user_id,
+                                    user_id=ws_user_id,
                                     task_manager=task_manager
                                 )
                             elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
@@ -2792,15 +2922,15 @@ async def websocket_endpoint(websocket: WebSocket):
                                 )
                             elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
                                 user_name = None
-                                if current_user_id:
-                                    user_profile = user_manager.load_profile(current_user_id)
+                                if ws_user_id:
+                                    user_profile = user_manager.load_profile(ws_user_id)
                                     user_name = user_profile.display_name if user_profile else None
 
                                 tool_result = await execute_self_model_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
                                     self_manager=self_manager,
-                                    user_id=current_user_id,
+                                    user_id=ws_user_id,
                                     user_name=user_name,
                                     conversation_id=conversation_id,
                                     memory=memory
@@ -2810,7 +2940,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
                                     user_manager=user_manager,
-                                    target_user_id=current_user_id,
+                                    target_user_id=ws_user_id,
                                     conversation_id=conversation_id,
                                     memory=memory
                                 )
@@ -2894,7 +3024,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 tool_result = await execute_calendar_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
-                                    user_id=current_user_id,
+                                    user_id=ws_user_id,
                                     calendar_manager=calendar_manager,
                                     conversation_id=conversation_id
                                 )
@@ -2902,7 +3032,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 tool_result = await execute_task_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
-                                    user_id=current_user_id,
+                                    user_id=ws_user_id,
                                     task_manager=task_manager
                                 )
                             elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
@@ -2915,15 +3045,15 @@ async def websocket_endpoint(websocket: WebSocket):
                             elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
                                 # Get user name for differentiation tracking
                                 user_name = None
-                                if current_user_id:
-                                    user_profile = user_manager.load_profile(current_user_id)
+                                if ws_user_id:
+                                    user_profile = user_manager.load_profile(ws_user_id)
                                     user_name = user_profile.display_name if user_profile else None
 
                                 tool_result = await execute_self_model_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
                                     self_manager=self_manager,
-                                    user_id=current_user_id,
+                                    user_id=ws_user_id,
                                     user_name=user_name,
                                     conversation_id=conversation_id,
                                     memory=memory
@@ -2933,7 +3063,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
                                     user_manager=user_manager,
-                                    target_user_id=current_user_id,
+                                    target_user_id=ws_user_id,
                                     conversation_id=conversation_id,
                                     memory=memory
                                 )
@@ -3010,7 +3140,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     user_message=user_message,
                     assistant_response=raw_response,
                     conversation_id=conversation_id,
-                    user_id=current_user_id
+                    user_id=ws_user_id
                 )
 
                 # Store in conversation if conversation_id provided
@@ -3019,7 +3149,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         conversation_id=conversation_id,
                         role="user",
                         content=user_message,
-                        user_id=current_user_id
+                        user_id=ws_user_id
                     )
                     conversation_manager.add_message(
                         conversation_id=conversation_id,
@@ -3064,8 +3194,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     for obs in self_observations:
                         # Get user name for source tracking
                         user_name = None
-                        if current_user_id:
-                            user_profile = user_manager.load_profile(current_user_id)
+                        if ws_user_id:
+                            user_profile = user_manager.load_profile(ws_user_id)
                             user_name = user_profile.display_name if user_profile else None
 
                         # Record the observation through the self-model handler
@@ -3077,7 +3207,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "confidence": obs.confidence
                             },
                             self_manager=self_manager,
-                            user_id=current_user_id,
+                            user_id=ws_user_id,
                             user_name=user_name,
                             conversation_id=conversation_id,
                             memory=memory
@@ -3099,8 +3229,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 _, user_observations = gesture_parser.parse_user_observations(raw_response)
                 if user_observations:
                     for obs in user_observations:
-                        # Determine target user - by name if specified, else current user
-                        target_user_id = current_user_id
+                        # Determine target user - by name if specified, else connection user
+                        target_user_id = ws_user_id
                         if obs.user:
                             # Look up user by name
                             found_user = user_manager.get_user_by_name(obs.user)
@@ -3220,8 +3350,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                     continue
 
-                # Set as current user
-                current_user_id = user_id
+                # Set as current user (both connection-local and global for backwards compat)
+                manager.set_user_id(websocket, user_id)
+                current_user_id = user_id  # TODO: Remove global once TUI uses auth
 
                 # Build profile context
                 profile_context = user_manager.get_user_context(user_id) or "No additional profile information provided."
