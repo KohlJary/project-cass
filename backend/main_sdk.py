@@ -9,7 +9,21 @@ This version leverages Anthropic's official Agent SDK for:
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+import os
+import logging
 from pydantic import BaseModel
+
+# Configure logging
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+logging.basicConfig(
+    level=logging.DEBUG if DEBUG else logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("cass-vessel")
 from typing import Optional, List, Dict
 import json
 import asyncio
@@ -50,6 +64,22 @@ from handlers import (
 import base64
 
 
+# Rate limiting configuration
+def get_user_or_ip(request: Request) -> str:
+    """Get user ID from auth or fall back to IP address for rate limiting"""
+    # Try to get user from auth header (will be set by auth middleware)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        from auth import decode_token
+        token = auth_header[7:]
+        token_data = decode_token(token)
+        if token_data:
+            return f"user:{token_data.user_id}"
+    return get_remote_address(request)
+
+# Initialize rate limiter
+limiter = Limiter(key_func=get_user_or_ip)
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Cass Vessel API",
@@ -57,14 +87,54 @@ app = FastAPI(
     version="0.2.0"
 )
 
-# CORS for Unity/Godot and local development
+# Add rate limiter to app state and exception handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS configuration
+# In production, set ALLOWED_ORIGINS to comma-separated list of allowed origins
+# e.g., ALLOWED_ORIGINS=https://cass.example.com,https://app.example.com
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+if allowed_origins_env:
+    ALLOWED_ORIGINS = [origin.strip() for origin in allowed_origins_env.split(",")]
+else:
+    # Default: allow localhost for development
+    ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses"""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # CSP: allow self, inline styles (for some frontends), and WebSocket connections
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self' ws: wss:; "
+        "img-src 'self' data:; "
+        "frame-ancestors 'none';"
+    )
+    return response
+
 
 # Initialize components
 memory = CassMemory()
@@ -492,53 +562,53 @@ async def startup_event():
 
     # Initialize attractor basins if needed
     if memory.count() == 0:
-        print("Initializing attractor basins...")
+        logger.info("Initializing attractor basins...")
         initialize_attractor_basins(memory)
 
     # Load default user (Kohl for now, will support multi-user later)
     kohl = user_manager.get_user_by_name("Kohl")
     if kohl:
         current_user_id = kohl.user_id
-        print(f"👤 Loaded user: {kohl.display_name} ({kohl.relationship})")
+        logger.info(f"Loaded user: {kohl.display_name} ({kohl.relationship})")
     else:
-        print("⚠️  No default user found. Run init_kohl_profile.py to create.")
+        logger.warning("No default user found. Run init_kohl_profile.py to create.")
 
     # Initialize appropriate client
     if USE_AGENT_SDK:
-        print("🚀 Using Claude Agent SDK with Temple-Codex kernel")
+        logger.info("Using Claude Agent SDK with Temple-Codex kernel")
         agent_client = CassAgentClient(
             enable_tools=True,
             enable_memory_tools=True
         )
     else:
-        print("⚠️  Agent SDK not available, using raw API client")
+        logger.warning("Agent SDK not available, using raw API client")
         legacy_client = ClaudeClient()
 
     # Initialize Ollama client for local mode
     from config import OLLAMA_ENABLED
     if OLLAMA_ENABLED:
-        print("🖥️  Initializing Ollama client for local LLM...")
+        logger.info("Initializing Ollama client for local LLM...")
         ollama_client = OllamaClient()
-        print(f"   ✓ Ollama ready (model: {ollama_client.model})")
+        logger.info(f"Ollama ready (model: {ollama_client.model})")
 
     # Preload TTS voice for faster first response
-    print("🔊 Preloading TTS voice...")
+    logger.info("Preloading TTS voice...")
     try:
         preload_voice(tts_voice)
-        print(f"   ✓ Loaded voice: {tts_voice}")
+        logger.info(f"Loaded voice: {tts_voice}")
     except Exception as e:
-        print(f"   ✗ TTS preload failed: {e}")
+        logger.error(f"TTS preload failed: {e}")
 
     # Check for and generate any missing journals from recent days
-    print("📓 Checking for missing journal entries...")
+    logger.info("Checking for missing journal entries...")
     try:
         generated = await generate_missing_journals(days_to_check=7)
         if generated:
-            print(f"   ✓ Generated {len(generated)} missing journal(s): {', '.join(generated)}")
+            logger.info(f"Generated {len(generated)} missing journal(s): {', '.join(generated)}")
         else:
-            print("   ✓ All recent journals up to date")
+            logger.debug("All recent journals up to date")
     except Exception as e:
-        print(f"   ✗ Journal check failed: {e}")
+        logger.error(f"Journal check failed: {e}")
 
     # Start background task for daily journal generation
     asyncio.create_task(daily_journal_task())
@@ -1103,12 +1173,13 @@ async def get_history():
 # === Conversation Management Endpoints ===
 
 @app.post("/conversations/new")
-async def create_conversation(request: ConversationCreateRequest):
+@limiter.limit("30/minute")
+async def create_conversation(request: Request, body: ConversationCreateRequest):
     """Create a new conversation"""
     conversation = conversation_manager.create_conversation(
-        title=request.title,
-        project_id=request.project_id,
-        user_id=request.user_id
+        title=body.title,
+        project_id=body.project_id,
+        user_id=body.user_id
     )
     return {
         "id": conversation.id,
@@ -1120,7 +1191,9 @@ async def create_conversation(request: ConversationCreateRequest):
     }
 
 @app.get("/conversations")
+@limiter.limit("60/minute")
 async def list_conversations(
+    request: Request,
     limit: Optional[int] = None,
     user_id: Optional[str] = None,
     current_user: str = Depends(get_current_user)

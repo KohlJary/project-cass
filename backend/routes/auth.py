@@ -2,7 +2,9 @@
 Cass Vessel - Authentication Routes
 Endpoints for user registration, login, and token refresh.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from auth import (
     AuthService,
     RegisterRequest,
@@ -13,6 +15,9 @@ from auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+
+# Auth endpoints use IP-based rate limiting (no auth yet)
+limiter = Limiter(key_func=get_remote_address)
 
 # Will be initialized by main_sdk.py
 _auth_service: AuthService = None
@@ -25,16 +30,18 @@ def init_auth_routes(auth_service: AuthService):
 
 
 @router.post("/register", response_model=dict)
-async def register(request: RegisterRequest):
+@limiter.limit("5/minute")
+async def register(request: Request, body: RegisterRequest):
     """
     Register a new user account.
 
     Returns user_id and tokens on success.
+    Rate limited to 5 requests per minute per IP.
     """
     user_id, tokens = _auth_service.register(
-        email=request.email,
-        password=request.password,
-        display_name=request.display_name
+        email=body.email,
+        password=body.password,
+        display_name=body.display_name
     )
     return {
         "user_id": user_id,
@@ -45,15 +52,17 @@ async def register(request: RegisterRequest):
 
 
 @router.post("/login", response_model=dict)
-async def login(request: LoginRequest):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest):
     """
     Authenticate and get tokens.
 
     Returns user_id and tokens on success.
+    Rate limited to 10 requests per minute per IP.
     """
     user_id, tokens = _auth_service.login(
-        email=request.email,
-        password=request.password
+        email=body.email,
+        password=body.password
     )
     return {
         "user_id": user_id,
@@ -64,13 +73,15 @@ async def login(request: LoginRequest):
 
 
 @router.post("/refresh", response_model=dict)
-async def refresh(request: RefreshRequest):
+@limiter.limit("30/minute")
+async def refresh(request: Request, body: RefreshRequest):
     """
     Refresh access token using refresh token.
 
     Returns new access and refresh tokens.
+    Rate limited to 30 requests per minute per IP.
     """
-    tokens = _auth_service.refresh(request.refresh_token)
+    tokens = _auth_service.refresh(body.refresh_token)
     return {
         "access_token": tokens.access_token,
         "refresh_token": tokens.refresh_token,
