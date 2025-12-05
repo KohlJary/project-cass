@@ -265,8 +265,22 @@ CSS = """
         background: $primary-darken-2;
     }
 
-    #doc-viewer {
+    #doc-viewer-container {
         width: 2fr;
+        height: 1fr;
+    }
+
+    #doc-viewer-actions {
+        height: auto;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    #doc-viewer-actions.hidden {
+        display: none;
+    }
+
+    #doc-viewer {
         height: 1fr;
         padding: 1;
     }
