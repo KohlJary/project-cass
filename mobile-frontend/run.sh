@@ -48,7 +48,7 @@ echo "Tunnel URL: $TUNNEL_URL"
 
 # Update the source files with new URL
 sed -i "s|const API_BASE = '.*'|const API_BASE = '$TUNNEL_URL'|" src/api/client.ts
-sed -i "s|const WS_URL = '.*'|const WS_URL = 'wss://${TUNNEL_URL#https://}/ws'|" src/hooks/useWebSocket.ts
+sed -i "s|const WS_BASE_URL = '.*'|const WS_BASE_URL = 'wss://${TUNNEL_URL#https://}/ws'|" src/hooks/useWebSocket.ts
 
 echo "Updated source files with tunnel URL"
 echo ""

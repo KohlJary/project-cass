@@ -2,7 +2,7 @@
  * Conversation list drawer/modal component
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { useChatStore } from '../store/chatStore';
-import { useUserStore } from '../store/userStore';
+import { useAuthStore } from '../store/authStore';
 import { apiClient } from '../api/client';
 import { colors } from '../theme/colors';
 import { Conversation } from '../api/types';
@@ -51,7 +53,13 @@ export function ConversationList({ visible, onClose }: Props) {
     isLoadingConversations,
     setLoadingConversations,
   } = useChatStore();
-  const { userId } = useUserStore();
+  const user = useAuthStore((state) => state.user);
+  const userId = user?.user_id;
+
+  // Rename dialog state
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renamingConversation, setRenamingConversation] = useState<Conversation | null>(null);
+  const [newTitle, setNewTitle] = useState('');
 
   useEffect(() => {
     if (visible) {
@@ -111,6 +119,33 @@ export function ConversationList({ visible, onClose }: Props) {
     }
   };
 
+  const handleLongPress = (conv: Conversation) => {
+    setRenamingConversation(conv);
+    setNewTitle(conv.title);
+    setRenameModalVisible(true);
+  };
+
+  const handleRename = async () => {
+    if (!renamingConversation || !newTitle.trim()) return;
+
+    try {
+      await apiClient.renameConversation(renamingConversation.id, newTitle.trim());
+      await loadConversations();
+      setRenameModalVisible(false);
+      setRenamingConversation(null);
+      setNewTitle('');
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+      Alert.alert('Error', 'Failed to rename conversation');
+    }
+  };
+
+  const cancelRename = () => {
+    setRenameModalVisible(false);
+    setRenamingConversation(null);
+    setNewTitle('');
+  };
+
   const renderConversation = ({ item }: { item: Conversation }) => {
     const isSelected = item.id === currentConversationId;
 
@@ -118,6 +153,8 @@ export function ConversationList({ visible, onClose }: Props) {
       <TouchableOpacity
         style={[styles.conversationItem, isSelected && styles.selectedItem]}
         onPress={() => selectConversation(item)}
+        onLongPress={() => handleLongPress(item)}
+        delayLongPress={500}
       >
         <View style={styles.conversationContent}>
           <Text style={styles.conversationTitle} numberOfLines={1}>
@@ -164,6 +201,37 @@ export function ConversationList({ visible, onClose }: Props) {
           )}
         </View>
       </View>
+
+      {/* Rename Modal */}
+      <Modal
+        visible={renameModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelRename}
+      >
+        <View style={styles.renameOverlay}>
+          <View style={styles.renameContainer}>
+            <Text style={styles.renameTitle}>Rename Conversation</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={newTitle}
+              onChangeText={setNewTitle}
+              placeholder="Enter new title"
+              placeholderTextColor={colors.placeholder}
+              autoFocus
+              selectTextOnFocus
+            />
+            <View style={styles.renameButtons}>
+              <TouchableOpacity style={styles.renameCancelBtn} onPress={cancelRename}>
+                <Text style={styles.renameCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.renameConfirmBtn} onPress={handleRename}>
+                <Text style={styles.renameConfirmText}>Rename</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -240,5 +308,61 @@ const styles = StyleSheet.create({
   },
   loader: {
     marginTop: 40,
+  },
+  // Rename modal styles
+  renameOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  renameContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 340,
+  },
+  renameTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  renameInput: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 16,
+    color: colors.textPrimary,
+    marginBottom: 20,
+  },
+  renameButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  renameCancelBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+  },
+  renameCancelText: {
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  renameConfirmBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+  },
+  renameConfirmText: {
+    color: colors.textPrimary,
+    fontWeight: '600',
   },
 });

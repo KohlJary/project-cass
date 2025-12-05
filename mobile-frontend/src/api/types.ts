@@ -87,3 +87,97 @@ export interface WebSocketResponse {
     has_context: boolean;
   };
 }
+
+// === Auth Types ===
+
+export interface AuthTokens {
+  access_token: string;
+  refresh_token: string;
+}
+
+export interface AuthResponse extends AuthTokens {
+  user_id: string;
+  token_type: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  display_name: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthUser {
+  user_id: string;
+  display_name: string;
+  email: string;
+  relationship: string;
+  created_at: string;
+}
+
+// === Journal Types ===
+
+export interface JournalEntry {
+  date: string;
+  content: string;
+  metadata?: {
+    locked?: boolean;
+    summary_count?: number;
+    conversation_count?: number;
+    timestamp?: string;
+  };
+}
+
+export interface JournalListItem {
+  date: string;
+  content?: string;
+  created_at: string;
+  summaries_used?: number;
+  conversations_used?: number;
+}
+
+// === Observation Types ===
+
+export type ObservationCategory =
+  | 'interest'
+  | 'preference'
+  | 'communication_style'
+  | 'background'
+  | 'value'
+  | 'relationship_dynamic';
+
+export interface Observation {
+  id: string;
+  observation: string;
+  timestamp: string;
+  category: ObservationCategory;
+  confidence: number;
+  source_conversation_id?: string;
+  source_journal_date?: string;
+}
+
+// === Full User Profile (with observations) ===
+
+export interface FullUserProfile {
+  user_id: string;
+  display_name: string;
+  relationship: string;
+  created_at: string;
+  updated_at?: string;
+  background?: Record<string, string>;
+  communication?: {
+    style?: string;
+    preferences?: string[];
+  };
+  values?: string[];
+  notes?: string;
+}
+
+export interface UserWithObservations {
+  profile: FullUserProfile;
+  observations: Observation[];
+}

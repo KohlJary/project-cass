@@ -2,10 +2,34 @@
  * HTTP API client for Cass Vessel backend
  */
 
-import { Conversation, Message, UserProfileData } from './types';
+import {
+  Conversation,
+  Message,
+  UserProfileData,
+  AuthResponse,
+  AuthTokens,
+  AuthUser,
+  RegisterRequest,
+  LoginRequest,
+  JournalEntry,
+  JournalListItem,
+  UserWithObservations,
+} from './types';
 
 // Same base URL as WebSocket, just HTTP
-const API_BASE = 'https://pushing-instructions-weather-ron.trycloudflare.com';
+const API_BASE = 'https://serial-around-described-cut.trycloudflare.com';
+
+// Token getter function - will be set by auth store
+let getAccessToken: (() => string | null) | null = null;
+let onTokenRefreshNeeded: (() => Promise<boolean>) | null = null;
+
+export function setAuthTokenGetter(getter: () => string | null) {
+  getAccessToken = getter;
+}
+
+export function setTokenRefreshHandler(handler: () => Promise<boolean>) {
+  onTokenRefreshNeeded = handler;
+}
 
 class ApiClient {
   private baseUrl: string;
@@ -14,20 +38,80 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
+  private async fetch<T>(path: string, options?: RequestInit & { skipAuth?: boolean }): Promise<T> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options?.headers as Record<string, string>,
+    };
+
+    // Add Authorization header if we have a token and this isn't an auth endpoint
+    if (!options?.skipAuth && getAccessToken) {
+      const token = getAccessToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    }
+
+    let response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      headers,
     });
 
+    // Handle 401 - try to refresh token and retry
+    if (response.status === 401 && onTokenRefreshNeeded && !options?.skipAuth) {
+      const refreshed = await onTokenRefreshNeeded();
+      if (refreshed) {
+        // Retry with new token
+        const newToken = getAccessToken?.();
+        if (newToken) {
+          headers['Authorization'] = `Bearer ${newToken}`;
+        }
+        response = await fetch(`${this.baseUrl}${path}`, {
+          ...options,
+          headers,
+        });
+      }
+    }
+
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`API error: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`);
     }
 
     return response.json();
+  }
+
+  // === Auth Endpoints ===
+
+  async register(data: RegisterRequest): Promise<AuthResponse> {
+    return this.fetch('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      skipAuth: true,
+    });
+  }
+
+  async login(data: LoginRequest): Promise<AuthResponse> {
+    return this.fetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: data.email,
+        password: data.password,
+      }),
+      skipAuth: true,
+    });
+  }
+
+  async refreshToken(refreshToken: string): Promise<AuthTokens> {
+    return this.fetch('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      skipAuth: true,
+    });
+  }
+
+  async getMe(): Promise<AuthUser> {
+    return this.fetch('/auth/me');
   }
 
   // Conversations
@@ -45,6 +129,13 @@ class ApiClient {
     return this.fetch('/conversations/new', {
       method: 'POST',
       body: JSON.stringify({ title, user_id: userId }),
+    });
+  }
+
+  async renameConversation(id: string, title: string): Promise<{ id: string; title: string }> {
+    return this.fetch(`/conversations/${id}/title`, {
+      method: 'PUT',
+      body: JSON.stringify({ title }),
     });
   }
 
@@ -87,6 +178,21 @@ class ApiClient {
     await this.fetch(`/users/${userId}`, {
       method: 'DELETE',
     });
+  }
+
+  async getUserWithObservations(userId: string): Promise<UserWithObservations> {
+    return this.fetch(`/users/${userId}`);
+  }
+
+  // === Journal Endpoints ===
+
+  async listJournals(limit?: number): Promise<{ journals: JournalListItem[]; count: number }> {
+    const params = limit ? `?limit=${limit}` : '';
+    return this.fetch(`/journal${params}`);
+  }
+
+  async getJournal(date: string): Promise<JournalEntry> {
+    return this.fetch(`/journal/${date}`);
   }
 }
 
