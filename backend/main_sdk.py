@@ -3113,6 +3113,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     memory=memory
                                 )
                             elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
+                                print(f"[WebSocket/Ollama] Executing {tool_name} with ws_user_id={ws_user_id}")
                                 tool_result = await execute_user_model_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
@@ -3236,6 +3237,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     memory=memory
                                 )
                             elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
+                                print(f"[WebSocket/Claude] Executing {tool_name} with ws_user_id={ws_user_id}")
                                 tool_result = await execute_user_model_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],

@@ -15,6 +15,7 @@ import {
   JournalListItem,
   UserWithObservations,
   ConversationObservations,
+  UserJournalsResponse,
 } from './types';
 
 // Same base URL as WebSocket, just HTTP
@@ -204,6 +205,13 @@ class ApiClient {
 
   async getJournal(date: string): Promise<JournalEntry> {
     return this.fetch(`/journal/${date}`);
+  }
+
+  // === User Journal Endpoints (Cass's journals about specific users) ===
+
+  async getUserJournals(userId: string, limit?: number): Promise<UserJournalsResponse> {
+    const params = limit ? `?limit=${limit}` : '';
+    return this.fetch(`/users/${userId}/journals${params}`);
   }
 }
 

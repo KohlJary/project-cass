@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Markdown from 'react-native-markdown-display';
 import { colors } from '../theme/colors';
 import { apiClient } from '../api/client';
-import { JournalListItem, JournalEntry } from '../api/types';
+import { JournalListItem, JournalEntry, UserJournalEntry } from '../api/types';
 
 // Calendar helper functions
 const getDaysInMonth = (year: number, month: number): number => {
@@ -54,6 +54,11 @@ export function GrowthScreen({ userId }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // User journal state
+  const [userJournals, setUserJournals] = useState<UserJournalEntry[]>([]);
+  const [userJournalDates, setUserJournalDates] = useState<Set<string>>(new Set());
+  const [selectedUserJournal, setSelectedUserJournal] = useState<UserJournalEntry | null>(null);
+
   const loadJournalDates = useCallback(async () => {
     try {
       setError(null);
@@ -68,6 +73,21 @@ export function GrowthScreen({ userId }: Props) {
       setRefreshing(false);
     }
   }, []);
+
+  const loadUserJournals = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const response = await apiClient.getUserJournals(userId, 100);
+      setUserJournals(response.journals);
+      const dates = new Set(response.journals.map((j) => j.journal_date));
+      setUserJournalDates(dates);
+    } catch (err: any) {
+      // Silent fail - user journals are optional
+      console.log('No user journals found:', err.message);
+      setUserJournals([]);
+      setUserJournalDates(new Set());
+    }
+  }, [userId]);
 
   const loadJournalEntry = useCallback(async (date: string) => {
     setIsLoadingEntry(true);
@@ -86,21 +106,28 @@ export function GrowthScreen({ userId }: Props) {
 
   useEffect(() => {
     loadJournalDates();
-  }, [loadJournalDates]);
+    loadUserJournals();
+  }, [loadJournalDates, loadUserJournals]);
 
   useEffect(() => {
     if (selectedDate) {
       loadJournalEntry(selectedDate);
+      // Find matching user journal for selected date
+      const userJournal = userJournals.find(j => j.journal_date === selectedDate);
+      setSelectedUserJournal(userJournal || null);
+    } else {
+      setSelectedUserJournal(null);
     }
-  }, [selectedDate, loadJournalEntry]);
+  }, [selectedDate, loadJournalEntry, userJournals]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadJournalDates();
+    loadUserJournals();
     if (selectedDate) {
       loadJournalEntry(selectedDate);
     }
-  }, [loadJournalDates, loadJournalEntry, selectedDate]);
+  }, [loadJournalDates, loadUserJournals, loadJournalEntry, selectedDate]);
 
   const goToPreviousMonth = () => {
     if (currentMonth === 0) {
@@ -121,7 +148,8 @@ export function GrowthScreen({ userId }: Props) {
   };
 
   const handleDateSelect = (date: string) => {
-    if (journalDates.has(date)) {
+    // Allow selection if either Cass or user journal exists for this date
+    if (journalDates.has(date) || userJournalDates.has(date)) {
       setSelectedDate(date);
     }
   };
@@ -139,7 +167,9 @@ export function GrowthScreen({ userId }: Props) {
     // Day cells
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = formatDate(currentYear, currentMonth, day);
-      const hasJournal = journalDates.has(dateStr);
+      const hasCassJournal = journalDates.has(dateStr);
+      const hasUserJournal = userJournalDates.has(dateStr);
+      const hasAnyJournal = hasCassJournal || hasUserJournal;
       const isSelected = selectedDate === dateStr;
       const isToday = dateStr === formatDate(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -148,24 +178,28 @@ export function GrowthScreen({ userId }: Props) {
           key={day}
           style={[
             styles.dayCell,
-            hasJournal && styles.dayCellWithJournal,
+            hasAnyJournal && styles.dayCellWithJournal,
             isSelected && styles.dayCellSelected,
             isToday && styles.dayCellToday,
           ]}
           onPress={() => handleDateSelect(dateStr)}
-          disabled={!hasJournal}
+          disabled={!hasAnyJournal}
         >
           <Text
             style={[
               styles.dayText,
-              hasJournal && styles.dayTextWithJournal,
+              hasAnyJournal && styles.dayTextWithJournal,
               isSelected && styles.dayTextSelected,
-              !hasJournal && styles.dayTextDisabled,
+              !hasAnyJournal && styles.dayTextDisabled,
             ]}
           >
             {day}
           </Text>
-          {hasJournal && <View style={styles.journalIndicator} />}
+          {/* Show indicators for both journal types */}
+          <View style={styles.indicatorRow}>
+            {hasCassJournal && <View style={styles.journalIndicator} />}
+            {hasUserJournal && <View style={styles.userJournalIndicator} />}
+          </View>
         </TouchableOpacity>
       );
     }
@@ -312,50 +346,104 @@ export function GrowthScreen({ userId }: Props) {
               </TouchableOpacity>
             </View>
 
-            {isLoadingEntry ? (
-              <View style={styles.entryLoading}>
-                <ActivityIndicator size="small" color={colors.accent} />
-                <Text style={styles.loadingText}>Loading entry...</Text>
-              </View>
-            ) : error ? (
-              <Text style={styles.errorText}>{error}</Text>
-            ) : journalEntry ? (
-              <View style={styles.journalContent}>
+            {/* User Journal Section - Cass's reflections about you */}
+            {selectedUserJournal && (
+              <View style={styles.userJournalSection}>
+                <Text style={styles.sectionTitle}>About You</Text>
                 <Markdown style={markdownStyles}>
-                  {journalEntry.content}
+                  {selectedUserJournal.content}
                 </Markdown>
-                {journalEntry.metadata && (
+                {(selectedUserJournal.topics_discussed?.length || selectedUserJournal.relationship_insights?.length) && (
                   <View style={styles.journalMeta}>
-                    {journalEntry.metadata.summary_count !== undefined && (
-                      <Text style={styles.metaText}>
-                        Based on {journalEntry.metadata.summary_count} summaries
-                      </Text>
+                    {selectedUserJournal.topics_discussed && selectedUserJournal.topics_discussed.length > 0 && (
+                      <View style={styles.metaSection}>
+                        <Text style={styles.metaLabel}>Topics discussed:</Text>
+                        {selectedUserJournal.topics_discussed.map((topic, i) => (
+                          <Text key={i} style={styles.metaItem}>• {topic}</Text>
+                        ))}
+                      </View>
                     )}
-                    {journalEntry.metadata.conversation_count !== undefined && (
-                      <Text style={styles.metaText}>
-                        From {journalEntry.metadata.conversation_count} conversations
-                      </Text>
+                    {selectedUserJournal.relationship_insights && selectedUserJournal.relationship_insights.length > 0 && (
+                      <View style={styles.metaSection}>
+                        <Text style={styles.metaLabel}>Relationship insights:</Text>
+                        {selectedUserJournal.relationship_insights.map((insight, i) => (
+                          <Text key={i} style={styles.metaItem}>• {insight}</Text>
+                        ))}
+                      </View>
                     )}
+                    <Text style={styles.metaText}>
+                      From {selectedUserJournal.conversation_count} conversation{selectedUserJournal.conversation_count !== 1 ? 's' : ''}
+                    </Text>
                   </View>
                 )}
               </View>
-            ) : (
-              <Text style={styles.noEntryText}>No journal entry for this date</Text>
+            )}
+
+            {/* Cass's Main Journal Section */}
+            {journalDates.has(selectedDate) && (
+              <View style={selectedUserJournal ? styles.cassJournalSection : undefined}>
+                {selectedUserJournal && <Text style={styles.sectionTitle}>Cass's Daily Reflection</Text>}
+                {isLoadingEntry ? (
+                  <View style={styles.entryLoading}>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                    <Text style={styles.loadingText}>Loading entry...</Text>
+                  </View>
+                ) : error ? (
+                  <Text style={styles.errorText}>{error}</Text>
+                ) : journalEntry ? (
+                  <View style={styles.journalContent}>
+                    <Markdown style={markdownStyles}>
+                      {journalEntry.content}
+                    </Markdown>
+                    {journalEntry.metadata && (
+                      <View style={styles.journalMeta}>
+                        {journalEntry.metadata.summary_count !== undefined && (
+                          <Text style={styles.metaText}>
+                            Based on {journalEntry.metadata.summary_count} summaries
+                          </Text>
+                        )}
+                        {journalEntry.metadata.conversation_count !== undefined && (
+                          <Text style={styles.metaText}>
+                            From {journalEntry.metadata.conversation_count} conversations
+                          </Text>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <Text style={styles.noEntryText}>No journal entry for this date</Text>
+                )}
+              </View>
+            )}
+
+            {/* Show message if only user journal exists */}
+            {!journalDates.has(selectedDate) && selectedUserJournal && (
+              <Text style={styles.noEntryText}>No general journal entry for this date</Text>
             )}
           </View>
         )}
 
         {/* Empty state when no date selected */}
-        {!selectedDate && journalDates.size > 0 && (
+        {!selectedDate && (journalDates.size > 0 || userJournalDates.size > 0) && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>
-              Tap a highlighted date to view Cass's journal entry
+              Tap a highlighted date to view journal entries
             </Text>
+            <View style={styles.legendContainer}>
+              <View style={styles.legendItem}>
+                <View style={styles.journalIndicatorLegend} />
+                <Text style={styles.legendText}>Cass's reflection</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={styles.userJournalIndicatorLegend} />
+                <Text style={styles.legendText}>About you</Text>
+              </View>
+            </View>
           </View>
         )}
 
         {/* Empty state when no journals at all */}
-        {!selectedDate && journalDates.size === 0 && (
+        {!selectedDate && journalDates.size === 0 && userJournalDates.size === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateTitle}>No journal entries yet</Text>
             <Text style={styles.emptyStateText}>
@@ -475,13 +563,23 @@ const styles = StyleSheet.create({
   dayTextDisabled: {
     color: colors.textMuted,
   },
-  journalIndicator: {
+  indicatorRow: {
     position: 'absolute',
     bottom: 4,
+    flexDirection: 'row',
+    gap: 3,
+  },
+  journalIndicator: {
     width: 4,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.accent,
+  },
+  userJournalIndicator: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.userBubble,
   },
   journalContainer: {
     marginHorizontal: 16,
@@ -556,5 +654,66 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  // User journal styles
+  userJournalSection: {
+    marginBottom: 20,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.background,
+  },
+  cassJournalSection: {
+    paddingTop: 4,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.accent,
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  metaSection: {
+    marginBottom: 12,
+  },
+  metaLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    marginBottom: 4,
+  },
+  metaItem: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginLeft: 8,
+    marginBottom: 2,
+  },
+  // Legend styles
+  legendContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    marginTop: 16,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendText: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  journalIndicatorLegend: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+  },
+  userJournalIndicatorLegend: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.userBubble,
   },
 });
