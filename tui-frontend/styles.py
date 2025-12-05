@@ -1396,11 +1396,17 @@ CSS = """
     /* Milestone sections */
     .milestone-section {
         margin-bottom: 1;
+        height: auto;
     }
 
     .milestone-section Collapsible {
         border: solid $surface-darken-1;
         padding: 0;
+        height: auto;
+    }
+
+    .milestone-section Collapsible > Contents {
+        height: auto;
     }
 
     .milestone-section.completed Collapsible {
@@ -1427,25 +1433,33 @@ CSS = """
     .expandable-item {
         padding: 0;
         margin-bottom: 0;
+        height: auto;
     }
 
-    .expandable-item .parent-item {
+    .expandable-collapsible {
         padding: 0;
+        margin: 0;
+        height: auto;
     }
 
-    .expandable-item .children-container {
+    .expandable-collapsible > CollapsibleTitle {
+        padding: 0 1;
+    }
+
+    .expandable-collapsible > Contents {
         padding-left: 2;
-        border-left: solid $primary-darken-2;
-        margin-left: 1;
+        height: auto;
     }
 
-    .expandable-item .children-container.hidden {
-        display: none;
+    .expandable-item .parent-status {
+        color: $text-muted;
+        padding-left: 2;
     }
 
     .expandable-item .child-item {
         margin-bottom: 0;
         border-bottom: none;
+        padding-left: 2;
     }
 
     /* ─────────────────────────────────────────────────────────────────────────
