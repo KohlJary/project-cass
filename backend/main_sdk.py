@@ -50,7 +50,7 @@ from self_model import SelfManager
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from roadmap import RoadmapManager
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY
+from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
 from handlers import (
     execute_journal_tool,
@@ -90,6 +90,30 @@ app = FastAPI(
 # Add rate limiter to app state and exception handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# Global exception handler - sanitize error responses in production
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Catch unhandled exceptions and return sanitized error responses.
+    Full details logged server-side, generic message returned to client.
+    """
+    # Log full error details
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+
+    # In debug mode, return full error details
+    if DEBUG:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc), "type": type(exc).__name__}
+        )
+
+    # In production, return generic error
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal error occurred. Please try again later."}
+    )
 
 # CORS configuration
 # In production, set ALLOWED_ORIGINS to comma-separated list of allowed origins
@@ -136,22 +160,22 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
-# Initialize components
+# Initialize components with absolute data paths
 memory = CassMemory()
 response_processor = ResponseProcessor()
-user_manager = UserManager()
-self_manager = SelfManager()
+user_manager = UserManager(storage_dir=str(DATA_DIR / "users"))
+self_manager = SelfManager(storage_dir=str(DATA_DIR / "cass"))
 
 # Current user context (will support multi-user in future)
 current_user_id: Optional[str] = None
 
 # Track in-progress summarizations to prevent duplicates
 _summarization_in_progress: set = set()
-conversation_manager = ConversationManager()
-project_manager = ProjectManager()
-calendar_manager = CalendarManager()
-task_manager = TaskManager()
-roadmap_manager = RoadmapManager()
+conversation_manager = ConversationManager(storage_dir=str(DATA_DIR / "conversations"))
+project_manager = ProjectManager(storage_dir=str(DATA_DIR / "projects"))
+calendar_manager = CalendarManager(storage_dir=str(DATA_DIR / "calendar"))
+task_manager = TaskManager(storage_dir=str(DATA_DIR / "tasks"))
+roadmap_manager = RoadmapManager(storage_dir=str(DATA_DIR / "roadmap"))
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
@@ -170,8 +194,24 @@ agent_client = None
 legacy_client = None
 ollama_client = None
 
+
 # LLM Provider Configuration
 current_llm_provider = LLM_PROVIDER_ANTHROPIC  # Default to Anthropic
+
+
+# === Health Check Endpoint ===
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint for monitoring and load balancers.
+    Returns server status and version info.
+    """
+    return {
+        "status": "ok",
+        "version": "0.2.0",
+        "llm_provider": current_llm_provider,
+        "memory_entries": memory.count() if memory else 0
+    }
 
 # TTS Configuration
 tts_enabled = True  # Can be toggled via API
@@ -556,9 +596,43 @@ async def daily_journal_task():
             print(f"   ✗ Scheduled journal generation failed: {e}")
 
 
+def validate_startup_requirements():
+    """
+    Validate required configuration before starting.
+    Raises RuntimeError if critical requirements are not met.
+    """
+    errors = []
+
+    # Check for API key (required for Anthropic mode)
+    if not ANTHROPIC_API_KEY:
+        errors.append("ANTHROPIC_API_KEY not set - required for Claude API access")
+
+    # Check data directory is writable
+    try:
+        test_file = DATA_DIR / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+    except Exception as e:
+        errors.append(f"DATA_DIR ({DATA_DIR}) is not writable: {e}")
+
+    # Log warnings for optional but recommended settings
+    if os.getenv("JWT_SECRET_KEY", "").startswith("CHANGE_ME"):
+        logger.warning("JWT_SECRET_KEY is using default value - change this in production!")
+
+    if errors:
+        for error in errors:
+            logger.error(f"Startup validation failed: {error}")
+        raise RuntimeError(f"Startup validation failed: {'; '.join(errors)}")
+
+    logger.info("Startup validation passed")
+
+
 @app.on_event("startup")
 async def startup_event():
     global agent_client, legacy_client, ollama_client, current_user_id
+
+    # Validate requirements before proceeding
+    validate_startup_requirements()
 
     # Initialize attractor basins if needed
     if memory.count() == 0:
