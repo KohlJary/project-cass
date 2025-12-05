@@ -37,6 +37,8 @@ except ImportError:
 # Configuration
 from config import HTTP_BASE_URL, WS_URL, HTTP_TIMEOUT, WS_RECONNECT_DELAY, DEFAULT_PROJECT
 from styles import CSS
+from themes import get_custom_themes, get_theme_id_for_preference
+from vim_mode import vim_state
 
 # Import widgets
 from widgets import (
@@ -72,6 +74,8 @@ from screens import (
     UserSelectScreen,
     CreateUserScreen,
 )
+from screens.settings import SettingsScreen
+from screens.ollama_browser import OllamaModelBrowser
 
 # Audio playback for TTS
 try:
@@ -343,7 +347,7 @@ class CassVesselTUI(App):
     CSS = CSS  # Imported from styles.py
 
     BINDINGS = [
-        Binding("ctrl+c", "quit", "Quit", show=True),
+        Binding("ctrl+x", "quit", "Quit", show=True),
         Binding("ctrl+n", "new_conversation", "New Chat", show=True),
         Binding("ctrl+p", "new_project", "New Project", show=True),
         Binding("ctrl+r", "rename_conversation", "Rename", show=True),
@@ -358,6 +362,8 @@ class CassVesselTUI(App):
         # Main tab switching (Cass/Daedalus)
         Binding("ctrl+1", "show_cass_tab", "Cass", show=False),
         Binding("ctrl+2", "show_daedalus_tab", "Daedalus", show=False),
+        # Settings
+        Binding("ctrl+backslash", "open_settings", "Settings", show=False),
     ]
 
     current_conversation_id: reactive[Optional[str]] = reactive(None)
@@ -383,6 +389,41 @@ class CassVesselTUI(App):
         self.local_model_name: Optional[str] = None
         self.openai_available = False  # Set by checking backend on startup
         self.openai_model_name: Optional[str] = None
+
+    @property
+    def terminal_has_focus(self) -> bool:
+        """Check if the Daedalus terminal has focus - if so, we should pass keys through"""
+        if self.active_main_tab != "daedalus-tab":
+            return False
+        # Check if a Terminal widget has focus
+        focused = self.focused
+        if focused is None:
+            return False
+        # Check if the focused widget is a Terminal or TmuxTerminal
+        from widgets.terminal_fast import Terminal
+        from widgets.daedalus.tmux_terminal import TmuxTerminal
+        return isinstance(focused, (Terminal, TmuxTerminal))
+
+    # Actions that should be disabled when terminal has focus (let terminal handle these keys)
+    TERMINAL_PASSTHROUGH_ACTIONS = {
+        "new_conversation",  # ctrl+n
+        "new_project",       # ctrl+p
+        "rename_conversation",  # ctrl+r
+        "delete_conversation",  # ctrl+d
+        "clear_chat",        # ctrl+l
+        "toggle_growth",     # ctrl+g
+        "toggle_calendar",   # ctrl+k
+        "toggle_tts",        # ctrl+m
+        "toggle_llm",        # ctrl+o
+        "show_status",       # ctrl+s
+        "open_settings",     # ctrl+\
+    }
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Check if an action is enabled. Return False to disable the action."""
+        if self.terminal_has_focus and action in self.TERMINAL_PASSTHROUGH_ACTIONS:
+            return False
+        return True
 
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
@@ -450,6 +491,11 @@ class CassVesselTUI(App):
         # Initialize widget debug loggers
         _init_widget_debug_loggers()
 
+        # Register custom themes
+        for theme_name, theme in get_custom_themes().items():
+            self.register_theme(theme)
+        debug_log("Custom themes registered", "info")
+
         # Add welcome message
         chat = self.query_one("#chat-container", ChatContainer)
         await chat.add_message(
@@ -477,6 +523,9 @@ class CassVesselTUI(App):
         # Check LLM provider settings (for status bar)
         await self.fetch_llm_provider_status()
 
+        # Load user preferences and apply theme
+        await self._load_user_preferences()
+
         # Connect to backend
         self.connect_websocket()
 
@@ -493,6 +542,42 @@ class CassVesselTUI(App):
         if self.initial_project:
             await self.set_project_by_name(self.initial_project)
 
+    async def _load_user_preferences(self) -> None:
+        """Load user preferences and apply theme"""
+        try:
+            response = await self.http_client.get("/settings/preferences")
+            if response.status_code == 200:
+                prefs = response.json().get("preferences", {})
+
+                # Apply theme
+                theme_id = prefs.get("theme", "cass-default")
+                actual_theme = get_theme_id_for_preference(theme_id)
+                try:
+                    self.theme = actual_theme
+                    debug_log(f"Theme set to: {actual_theme}", "info")
+                except Exception as e:
+                    debug_log(f"Failed to set theme {actual_theme}: {e}", "error")
+
+                # Apply TTS preference
+                if "tts_enabled" in prefs:
+                    self.tts_enabled = prefs["tts_enabled"]
+
+                # Apply vim mode preference
+                if prefs.get("vim_mode", False):
+                    vim_state.enable()
+                    debug_log("Vim mode enabled", "info")
+                else:
+                    vim_state.disable()
+
+                debug_log(f"User preferences loaded", "info")
+        except Exception as e:
+            debug_log(f"Failed to load preferences: {e}", "error")
+            # Use default theme
+            try:
+                self.theme = "cass-default"
+            except Exception:
+                pass  # Fall back to Textual default
+
     def action_toggle_debug(self) -> None:
         """Toggle the debug panel visibility"""
         debug_panel = self.query_one("#debug-panel", DebugPanel)
@@ -502,11 +587,15 @@ class CassVesselTUI(App):
 
     def action_toggle_growth(self) -> None:
         """Toggle to Growth tab"""
+        if self.terminal_has_focus:
+            return
         tabs = self.query_one("#right-tabs", TabbedContent)
         tabs.active = "growth-tab"
 
     def action_toggle_calendar(self) -> None:
         """Toggle to Calendar tab"""
+        if self.terminal_has_focus:
+            return
         tabs = self.query_one("#right-tabs", TabbedContent)
         tabs.active = "calendar-tab"
 
@@ -816,6 +905,8 @@ class CassVesselTUI(App):
 
     async def action_toggle_tts(self) -> None:
         """Toggle TTS audio on/off"""
+        if self.terminal_has_focus:
+            return
         if not AUDIO_AVAILABLE:
             chat = self.query_one("#chat-container", ChatContainer)
             await chat.add_message("system", "Audio playback not available (pygame not installed)", None)
@@ -835,6 +926,8 @@ class CassVesselTUI(App):
 
     async def action_toggle_llm(self) -> None:
         """Cycle between available LLM providers (anthropic -> openai -> local -> anthropic)"""
+        if self.terminal_has_focus:
+            return
         chat = self.query_one("#chat-container", ChatContainer)
         status_bar = self.query_one("#status", StatusBar)
 
@@ -882,6 +975,153 @@ class CassVesselTUI(App):
                 await chat.add_message("system", f"✗ Failed to switch LLM: {error}", None)
         except Exception as e:
             await chat.add_message("system", f"✗ Failed to switch LLM: {str(e)}", None)
+
+    async def action_open_settings(self) -> None:
+        """Open the settings modal"""
+        if self.terminal_has_focus:
+            return  # Let terminal handle ctrl+\
+        try:
+            # Fetch current preferences
+            prefs_response = await self.http_client.get("/settings/preferences")
+            if prefs_response.status_code == 200:
+                preferences = prefs_response.json().get("preferences", {})
+            else:
+                preferences = {}
+
+            # Fetch available themes
+            themes_response = await self.http_client.get("/settings/themes")
+            if themes_response.status_code == 200:
+                themes = themes_response.json().get("themes", [])
+            else:
+                themes = [{"id": "default", "name": "Default Dark", "description": "Default theme"}]
+
+            # Fetch available models for all providers
+            models_response = await self.http_client.get("/settings/available-models")
+            if models_response.status_code == 200:
+                available_models = models_response.json()
+            else:
+                available_models = {}
+
+            def handle_settings_result(result):
+                if result:
+                    self.call_later(self._apply_settings, result)
+
+            self.push_screen(
+                SettingsScreen(
+                    preferences=preferences,
+                    themes=themes,
+                    available_models=available_models
+                ),
+                handle_settings_result
+            )
+        except Exception as e:
+            chat = self.query_one("#chat-container", ChatContainer)
+            await chat.add_message("system", f"✗ Failed to open settings: {str(e)}", None)
+
+    async def _apply_settings(self, result: dict) -> None:
+        """Apply settings changes from the settings modal"""
+        chat = self.query_one("#chat-container", ChatContainer)
+
+        if result.get("action") == "save":
+            changes = result.get("changes", {})
+            if changes:
+                try:
+                    response = await self.http_client.post(
+                        "/settings/preferences",
+                        json=changes
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        updated = data.get("updated_fields", [])
+                        await chat.add_message(
+                            "system",
+                            f"✓ Settings saved ({', '.join(updated)})",
+                            None
+                        )
+
+                        # Apply immediate changes
+                        prefs = data.get("preferences", {})
+                        if "tts_enabled" in changes:
+                            self.tts_enabled = prefs.get("tts_enabled", True)
+                        if "theme" in changes:
+                            # Apply theme immediately
+                            theme_id = prefs.get("theme", "cass-default")
+                            actual_theme = get_theme_id_for_preference(theme_id)
+                            try:
+                                self.theme = actual_theme
+                            except Exception as e:
+                                await chat.add_message(
+                                    "system",
+                                    f"Could not apply theme '{actual_theme}': {e}",
+                                    None
+                                )
+                        if "vim_mode" in changes:
+                            # Apply vim mode immediately
+                            if prefs.get("vim_mode", False):
+                                vim_state.enable()
+                                await chat.add_message(
+                                    "system",
+                                    "Vim mode enabled (hjkl navigation in lists)",
+                                    None
+                                )
+                            else:
+                                vim_state.disable()
+                                await chat.add_message(
+                                    "system",
+                                    "Vim mode disabled",
+                                    None
+                                )
+                    else:
+                        error = response.json().get("detail", "Unknown error")
+                        await chat.add_message("system", f"✗ Failed to save settings: {error}", None)
+                except Exception as e:
+                    await chat.add_message("system", f"✗ Failed to save settings: {str(e)}", None)
+            else:
+                await chat.add_message("system", "No changes to save", None)
+
+        elif result.get("action") == "reset":
+            try:
+                response = await self.http_client.post("/settings/preferences/reset")
+                if response.status_code == 200:
+                    await chat.add_message("system", "✓ Settings reset to defaults", None)
+                else:
+                    error = response.json().get("detail", "Unknown error")
+                    await chat.add_message("system", f"✗ Failed to reset settings: {error}", None)
+            except Exception as e:
+                await chat.add_message("system", f"✗ Failed to reset settings: {str(e)}", None)
+
+        elif result.get("action") == "open_ollama_browser":
+            # Open the Ollama model browser
+            await self._open_ollama_browser()
+
+    async def _open_ollama_browser(self) -> None:
+        """Open the Ollama model browser modal"""
+        self.push_screen(OllamaModelBrowser(
+            http_client=self.http_client,
+            pull_callback=self._pull_ollama_model
+        ))
+
+    def _pull_ollama_model(self, model_name: str) -> None:
+        """Pull an Ollama model (called from browser, runs on app)"""
+        self._do_ollama_pull(model_name)
+
+    @work(thread=True)
+    def _do_ollama_pull(self, model_name: str) -> None:
+        """Pull model in background thread (survives modal close)"""
+        from config import HTTP_BASE_URL
+        try:
+            with httpx.Client(base_url=HTTP_BASE_URL, timeout=600.0) as client:
+                response = client.post(
+                    "/settings/ollama-pull",
+                    json={"model": model_name}
+                )
+                result = response.json()
+                if result.get("status") == "success":
+                    self.notify(f"Pulled {model_name}", title="Ollama")
+                else:
+                    self.notify(f"Failed: {result.get('message', 'Unknown error')}", title="Ollama", severity="error")
+        except Exception as e:
+            self.notify(f"Pull failed: {e}", title="Ollama", severity="error")
 
     @work(exclusive=True)
     async def connect_websocket(self):
@@ -1301,6 +1541,8 @@ class CassVesselTUI(App):
                 await chat.add_message("system", f"🤖 Current LLM: {current}\nLocal LLM: {local_status}\nOpenAI: {openai_status}\n\nUse /llm local, /llm claude, or /llm openai to switch", None)
         elif cmd == "/guestbook":
             await self.send_guestbook()
+        elif cmd == "/settings":
+            await self.action_open_settings()
         elif cmd == "/help":
             help_text = (
                 "Available commands:\n"
@@ -1309,6 +1551,7 @@ class CassVesselTUI(App):
                 "  /projects        - List all projects\n"
                 "  /summarize       - Trigger memory summarization\n"
                 "  /llm [local|claude|openai] - Show or switch LLM provider\n"
+                "  /settings        - Open settings (or Ctrl+\\)\n"
                 "  /guestbook       - Share the guestbook with Cass\n"
                 "  /help            - Show this help"
             )
@@ -1545,8 +1788,16 @@ class CassVesselTUI(App):
         from textual.widgets import Button
         self.action_new_project()
 
+    @on(Button.Pressed, "#settings-btn")
+    async def on_settings_pressed(self) -> None:
+        """Handle settings button in sidebar"""
+        await self.action_open_settings()
+
     async def action_new_conversation(self) -> None:
         """Create a new conversation"""
+        # Don't intercept if terminal has focus
+        if self.terminal_has_focus:
+            return
         try:
             # Create in current project if one is selected
             request_data = {}
@@ -1580,6 +1831,9 @@ class CassVesselTUI(App):
 
     def action_new_project(self) -> None:
         """Show the new project dialog"""
+        # Don't intercept if terminal has focus
+        if self.terminal_has_focus:
+            return
         def handle_project_result(result: Optional[Dict]) -> None:
             if result:
                 self.call_later(self._do_create_project, result)
@@ -1767,6 +2021,8 @@ class CassVesselTUI(App):
 
     def action_rename_conversation(self) -> None:
         """Rename the current conversation"""
+        if self.terminal_has_focus:
+            return  # Let terminal handle ctrl+r
         if not self.current_conversation_id:
             # Can't use await in sync method, so we schedule it
             self.call_later(self._show_no_conversation_error)
@@ -1811,6 +2067,8 @@ class CassVesselTUI(App):
 
     def action_delete_conversation(self) -> None:
         """Delete the current conversation"""
+        if self.terminal_has_focus:
+            return  # Let terminal handle ctrl+d
         if not self.current_conversation_id:
             self.call_later(self._show_no_conversation_error)
             return
@@ -1898,12 +2156,16 @@ class CassVesselTUI(App):
 
     async def action_clear_chat(self) -> None:
         """Clear the chat history (UI only)"""
+        if self.terminal_has_focus:
+            return  # Let terminal handle ctrl+l
         chat = self.query_one("#chat-container", ChatContainer)
         await chat.remove_children()
         await chat.add_message("system", "Chat cleared (conversation preserved on backend)", None)
 
     async def action_show_status(self) -> None:
         """Show detailed status"""
+        if self.terminal_has_focus:
+            return  # Let terminal handle the key
         try:
             response = await self.http_client.get("/status")
             if response.status_code == 200:

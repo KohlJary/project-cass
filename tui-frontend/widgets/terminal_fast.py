@@ -31,9 +31,7 @@ from rich.color import ColorParseError
 
 from textual.widget import Widget
 from textual import events
-from textual.app import DEFAULT_COLORS
 from textual import log
-from textual.design import ColorSystem
 
 
 class TerminalPyteScreen(pyte.Screen):
@@ -109,6 +107,7 @@ class Terminal(Widget, can_focus=True):
 
         # OPTIMIZE: check a way to use textual.keys
         self.ctrl_keys = {
+            # Arrow keys
             "up": "\x1bOA",
             "down": "\x1bOB",
             "right": "\x1bOC",
@@ -119,6 +118,7 @@ class Terminal(Widget, can_focus=True):
             "pageup": "\x1b[5~",
             "pagedown": "\x1b[6~",
             "shift+tab": "\x1b[Z",
+            # Function keys
             "f1": "\x1bOP",
             "f2": "\x1bOQ",
             "f3": "\x1bOR",
@@ -139,6 +139,40 @@ class Terminal(Widget, can_focus=True):
             "f18": "\x1b[32~",
             "f19": "\x1b[33~",
             "f20": "\x1b[34~",
+            # Ctrl+letter combinations (ASCII control characters)
+            # Ctrl+A = 0x01, Ctrl+B = 0x02, etc.
+            "ctrl+a": "\x01",
+            "ctrl+b": "\x02",  # tmux prefix!
+            "ctrl+c": "\x03",
+            "ctrl+d": "\x04",
+            "ctrl+e": "\x05",
+            "ctrl+f": "\x06",
+            "ctrl+g": "\x07",
+            "ctrl+h": "\x08",
+            "ctrl+i": "\x09",  # Tab
+            "ctrl+j": "\x0a",  # Newline
+            "ctrl+k": "\x0b",
+            "ctrl+l": "\x0c",
+            "ctrl+m": "\x0d",  # Carriage return
+            "ctrl+n": "\x0e",
+            "ctrl+o": "\x0f",
+            "ctrl+p": "\x10",
+            "ctrl+q": "\x11",
+            "ctrl+r": "\x12",
+            "ctrl+s": "\x13",
+            "ctrl+t": "\x14",
+            "ctrl+u": "\x15",
+            "ctrl+v": "\x16",
+            "ctrl+w": "\x17",
+            "ctrl+x": "\x18",
+            "ctrl+y": "\x19",
+            "ctrl+z": "\x1a",
+            # Ctrl+special keys
+            "ctrl+[": "\x1b",  # Escape
+            "ctrl+\\": "\x1c",
+            "ctrl+]": "\x1d",
+            "ctrl+^": "\x1e",
+            "ctrl+_": "\x1f",
         }
         self._display = self.initial_display()
         self._screen = TerminalPyteScreen(self.ncol, self.nrow)
@@ -376,13 +410,17 @@ class Terminal(Widget, can_focus=True):
 
     def detect_textual_colors(self) -> dict:
         """Returns the currently used colors of textual depending on dark-mode."""
-
-        if self.app.dark:
-            color_system: ColorSystem = DEFAULT_COLORS["dark"]
-        else:
-            color_system: ColorSystem = DEFAULT_COLORS["light"]
-
-        return color_system.generate()
+        # In newer Textual versions, get colors from the current theme
+        try:
+            theme = self.app.current_theme
+            if theme:
+                return {
+                    "background": theme.background or "default",
+                    "foreground": theme.foreground or "default",
+                }
+        except Exception:
+            pass
+        return {"background": "default", "foreground": "default"}
 
     def initial_display(self) -> TerminalDisplay:
         """Returns the display when initially creating the terminal or clearing it."""

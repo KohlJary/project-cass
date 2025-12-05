@@ -280,6 +280,37 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
 
         return await self._call_openai(tools)
 
+    async def continue_with_tool_results(
+        self,
+        tool_results: List[Dict]
+    ) -> AgentResponse:
+        """
+        Continue conversation after providing multiple tool results at once.
+
+        For OpenAI, we add each tool result as a separate message, as OpenAI
+        expects individual tool response messages (not batched like Anthropic).
+
+        Args:
+            tool_results: List of dicts with keys: tool_use_id, result, is_error
+        """
+        # Add each tool result as a separate message
+        for tr in tool_results:
+            result_content = tr["result"]
+            if tr.get("is_error", False):
+                result_content = f"Error: {result_content}"
+
+            self._tool_chain_messages.append({
+                "role": "tool",
+                "tool_call_id": tr["tool_use_id"],
+                "content": result_content
+            })
+
+        # Get tools again for the continuation
+        anthropic_tools = self.get_tools()
+        tools = convert_tools_for_openai(anthropic_tools) if anthropic_tools else None
+
+        return await self._call_openai(tools)
+
     def _parse_gestures(self, text: str) -> List[Dict]:
         """Extract gesture/emote tags from response"""
         import re

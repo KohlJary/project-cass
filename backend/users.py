@@ -27,6 +27,55 @@ USER_OBSERVATION_CATEGORIES = {
 
 
 @dataclass
+class UserPreferences:
+    """User preferences for TUI and general settings"""
+    # Appearance
+    theme: str = "default"  # Theme name
+
+    # Keybindings
+    vim_mode: bool = False  # Enable vim-style navigation
+
+    # Audio
+    tts_enabled: bool = True
+    tts_voice: str = "default"
+
+    # LLM
+    default_llm_provider: str = "anthropic"  # anthropic, openai, local
+    default_model: Optional[str] = None  # Legacy field, kept for backwards compat
+    # Per-provider default models
+    default_anthropic_model: Optional[str] = None
+    default_openai_model: Optional[str] = None
+    default_local_model: Optional[str] = None
+
+    # Behavior
+    auto_scroll: bool = True
+    show_timestamps: bool = True
+    show_token_usage: bool = True
+    confirm_delete: bool = True
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'UserPreferences':
+        return cls(
+            theme=data.get("theme", "default"),
+            vim_mode=data.get("vim_mode", False),
+            tts_enabled=data.get("tts_enabled", True),
+            tts_voice=data.get("tts_voice", "default"),
+            default_llm_provider=data.get("default_llm_provider", "anthropic"),
+            default_model=data.get("default_model"),
+            default_anthropic_model=data.get("default_anthropic_model"),
+            default_openai_model=data.get("default_openai_model"),
+            default_local_model=data.get("default_local_model"),
+            auto_scroll=data.get("auto_scroll", True),
+            show_timestamps=data.get("show_timestamps", True),
+            show_token_usage=data.get("show_token_usage", True),
+            confirm_delete=data.get("confirm_delete", True),
+        )
+
+
+@dataclass
 class UserObservation:
     """An observation Cass has made about a user"""
     id: str
@@ -90,6 +139,9 @@ class UserProfile:
     is_admin: bool = False
     password_hash: Optional[str] = None  # For admin login
 
+    # User preferences (TUI settings, etc.)
+    preferences: UserPreferences = field(default_factory=UserPreferences)
+
     def to_dict(self) -> Dict:
         return {
             "user_id": self.user_id,
@@ -103,11 +155,16 @@ class UserProfile:
             "values": self.values,
             "notes": self.notes,
             "is_admin": self.is_admin,
+            "preferences": self.preferences.to_dict(),
             # Don't include password_hash in to_dict for security
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'UserProfile':
+        # Parse preferences if present
+        prefs_data = data.get("preferences", {})
+        preferences = UserPreferences.from_dict(prefs_data) if prefs_data else UserPreferences()
+
         return cls(
             user_id=data["user_id"],
             display_name=data["display_name"],
@@ -120,7 +177,8 @@ class UserProfile:
             values=data.get("values", []),
             notes=data.get("notes", ""),
             is_admin=data.get("is_admin", False),
-            password_hash=data.get("password_hash")
+            password_hash=data.get("password_hash"),
+            preferences=preferences
         )
 
     def to_yaml(self) -> str:
@@ -753,6 +811,62 @@ class UserManager:
             if profile and profile.is_admin:
                 admins.append(profile)
         return admins
+
+    # ============== User Preferences ==============
+
+    def get_preferences(self, user_id: str) -> Optional[UserPreferences]:
+        """Get user preferences"""
+        profile = self.load_profile(user_id)
+        if not profile:
+            return None
+        return profile.preferences
+
+    def update_preferences(
+        self,
+        user_id: str,
+        **kwargs
+    ) -> Optional[UserPreferences]:
+        """
+        Update user preferences. Pass only the fields you want to change.
+
+        Valid fields: theme, vim_mode, tts_enabled, tts_voice,
+                     default_llm_provider, default_model, auto_scroll,
+                     show_timestamps, show_token_usage, confirm_delete
+        """
+        profile = self.load_profile(user_id)
+        if not profile:
+            return None
+
+        prefs = profile.preferences
+
+        # Update only provided fields
+        valid_fields = {
+            'theme', 'vim_mode', 'tts_enabled', 'tts_voice',
+            'default_llm_provider', 'default_model', 'auto_scroll',
+            'show_timestamps', 'show_token_usage', 'confirm_delete'
+        }
+
+        for key, value in kwargs.items():
+            if key in valid_fields and value is not None:
+                setattr(prefs, key, value)
+
+        profile.preferences = prefs
+        profile.updated_at = datetime.now().isoformat()
+        self._save_profile(profile)
+
+        return prefs
+
+    def reset_preferences(self, user_id: str) -> Optional[UserPreferences]:
+        """Reset user preferences to defaults"""
+        profile = self.load_profile(user_id)
+        if not profile:
+            return None
+
+        profile.preferences = UserPreferences()
+        profile.updated_at = datetime.now().isoformat()
+        self._save_profile(profile)
+
+        return profile.preferences
 
 
 if __name__ == "__main__":
