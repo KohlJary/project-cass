@@ -14,6 +14,7 @@ import {
   JournalEntry,
   JournalListItem,
   UserWithObservations,
+  ConversationObservations,
 } from './types';
 
 // Same base URL as WebSocket, just HTTP
@@ -141,6 +142,16 @@ class ApiClient {
 
   async getConversationSummary(id: string): Promise<{ working_summary: string | null; summaries: any[]; count: number }> {
     return this.fetch(`/conversations/${id}/summaries`);
+  }
+
+  async getConversationObservations(id: string): Promise<ConversationObservations> {
+    return this.fetch(`/conversations/${id}/observations`);
+  }
+
+  async triggerSummarization(id: string): Promise<{ status: string; message: string }> {
+    return this.fetch(`/conversations/${id}/summarize`, {
+      method: 'POST',
+    });
   }
 
   // Status

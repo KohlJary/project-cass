@@ -5,20 +5,25 @@
 // IMPORTANT: gesture-handler must be imported at the very top for Android
 import 'react-native-gesture-handler';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthScreen } from './src/screens/AuthScreen';
+import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { TabNavigator } from './src/navigation/TabNavigator';
 import { useAuth } from './src/hooks/useAuth';
+import { useChatStore } from './src/store/chatStore';
+import { apiClient } from './src/api/client';
 import { colors } from './src/theme/colors';
 import { UserProfileData } from './src/api/types';
 
 export default function App() {
   const { user, isLoading, isAuthenticated, login, register, logout } = useAuth();
+  const { setCurrentConversationId } = useChatStore();
   const [pendingOnboarding, setPendingOnboarding] = useState(false);
+  const [onboardingProfile, setOnboardingProfile] = useState<Partial<UserProfileData>>({});
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
@@ -46,6 +51,8 @@ export default function App() {
         ...profile,
       };
       await register({ email, password, display_name: displayName, profile: fullProfile });
+      // Store initial profile for onboarding and show onboarding screen
+      setOnboardingProfile({ display_name: displayName });
       setPendingOnboarding(true);
     } catch (err: any) {
       console.error('Register error:', err);
@@ -55,13 +62,33 @@ export default function App() {
     }
   };
 
-  const handleOnboardingComplete = () => {
+  const handleOnboardingComplete = async (profile?: UserProfileData) => {
+    // Create first conversation for the new user
+    try {
+      const conversation = await apiClient.createConversation('First Conversation', user?.user_id);
+      setCurrentConversationId(conversation.id);
+    } catch (err) {
+      console.error('Failed to create first conversation:', err);
+    }
     setPendingOnboarding(false);
+    setOnboardingProfile({});
   };
 
-  const handleLogout = async () => {
-    await logout();
+  const handleOnboardingSkip = async () => {
+    // Create first conversation even if they skip
+    try {
+      const conversation = await apiClient.createConversation('First Conversation', user?.user_id);
+      setCurrentConversationId(conversation.id);
+    } catch (err) {
+      console.error('Failed to create first conversation:', err);
+    }
+    setPendingOnboarding(false);
+    setOnboardingProfile({});
   };
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+  }, [logout]);
 
   if (isLoading) {
     return (
@@ -87,6 +114,21 @@ export default function App() {
     );
   }
 
+  // Show onboarding for new users
+  if (pendingOnboarding) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <OnboardingScreen
+          displayName={user.display_name}
+          userId={user.user_id}
+          onComplete={handleOnboardingComplete}
+          onSkip={handleOnboardingSkip}
+        />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
@@ -95,8 +137,6 @@ export default function App() {
           userId={user.user_id}
           displayName={user.display_name}
           onLogout={handleLogout}
-          pendingOnboarding={pendingOnboarding}
-          onOnboardingComplete={handleOnboardingComplete}
         />
       </NavigationContainer>
     </SafeAreaProvider>

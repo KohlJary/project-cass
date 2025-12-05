@@ -21,16 +21,12 @@ interface Props {
   userId: string;
   displayName: string;
   onLogout: () => void;
-  pendingOnboarding: boolean;
-  onOnboardingComplete: () => void;
 }
 
 export function TabNavigator({
   userId,
   displayName,
   onLogout,
-  pendingOnboarding,
-  onOnboardingComplete,
 }: Props) {
   // Create wrapper components that capture the props
   const ChatTab = useCallback(
@@ -39,11 +35,9 @@ export function TabNavigator({
         userId={userId}
         displayName={displayName}
         onLogout={onLogout}
-        pendingOnboarding={pendingOnboarding}
-        onOnboardingComplete={onOnboardingComplete}
       />
     ),
-    [userId, displayName, onLogout, pendingOnboarding, onOnboardingComplete]
+    [userId, displayName, onLogout]
   );
 
   const GrowthTab = useCallback(

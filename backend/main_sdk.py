@@ -42,7 +42,7 @@ LLM_PROVIDER_LOCAL = "local"
 
 from claude_client import ClaudeClient
 from memory import CassMemory, initialize_attractor_basins
-from gestures import ResponseProcessor, GestureParser, SelfObservation, ParsedUserObservation
+from gestures import ResponseProcessor, GestureParser
 from conversations import ConversationManager
 from projects import ProjectManager
 from users import UserManager
@@ -1349,6 +1349,36 @@ async def get_conversation_summaries(
         "summaries": summaries,
         "count": len(summaries),
         "working_summary": working_summary
+    }
+
+
+@app.get("/conversations/{conversation_id}/observations")
+async def get_conversation_observations(
+    conversation_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    """Get all observations (user and self) made during a conversation"""
+    verify_conversation_access(conversation_id, current_user)
+
+    # Get user observations for this conversation
+    user_observations = []
+    all_user_obs = user_manager.load_observations(current_user)
+    for obs in all_user_obs:
+        if obs.source_conversation_id == conversation_id:
+            user_observations.append(obs.to_dict())
+
+    # Get self-observations for this conversation
+    self_observations = []
+    all_self_obs = self_manager.load_observations()
+    for obs in all_self_obs:
+        if obs.source_conversation_id == conversation_id:
+            self_observations.append(obs.to_dict())
+
+    return {
+        "user_observations": user_observations,
+        "self_observations": self_observations,
+        "user_count": len(user_observations),
+        "self_count": len(self_observations)
     }
 
 
@@ -3334,86 +3364,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         # Run summarization in background, pass websocket for status updates
                         asyncio.create_task(generate_and_store_summary(conversation_id, websocket=websocket))
 
-                # Process self-observation tags from response
-                gesture_parser = GestureParser()
-                _, self_observations = gesture_parser.parse_self_observations(raw_response)
-                if self_observations:
-                    for obs in self_observations:
-                        # Get user name for source tracking
-                        user_name = None
-                        if ws_user_id:
-                            user_profile = user_manager.load_profile(ws_user_id)
-                            user_name = user_profile.display_name if user_profile else None
-
-                        # Record the observation through the self-model handler
-                        tool_result = await execute_self_model_tool(
-                            tool_name="record_self_observation",
-                            tool_input={
-                                "observation": obs.observation,
-                                "category": obs.category,
-                                "confidence": obs.confidence
-                            },
-                            self_manager=self_manager,
-                            user_id=ws_user_id,
-                            user_name=user_name,
-                            conversation_id=conversation_id,
-                            memory=memory
-                        )
-
-                        # Send system notification about the self-observation
-                        if tool_result.get("success"):
-                            await websocket.send_json({
-                                "type": "system",
-                                "message": f"🪞 Self-observation recorded [{obs.category}]: {obs.observation[:100]}{'...' if len(obs.observation) > 100 else ''}",
-                                "status": "self_observation",
-                                "timestamp": datetime.now().isoformat()
-                            })
-
-                    # Also strip tags from clean_text if they weren't already removed
-                    clean_text, _ = gesture_parser.parse_self_observations(clean_text)
-
-                # Process user-observation tags from response
-                _, user_observations = gesture_parser.parse_user_observations(raw_response)
-                if user_observations:
-                    for obs in user_observations:
-                        # Determine target user - by name if specified, else connection user
-                        target_user_id = ws_user_id
-                        if obs.user:
-                            # Look up user by name
-                            found_user = user_manager.get_user_by_name(obs.user)
-                            if found_user:
-                                target_user_id = found_user.user_id
-
-                        if target_user_id:
-                            # Get user profile for display name
-                            target_profile = user_manager.load_profile(target_user_id)
-                            display_name = target_profile.display_name if target_profile else "Unknown"
-
-                            # Record the observation through the user-model handler
-                            tool_result = await execute_user_model_tool(
-                                tool_name="record_user_observation",
-                                tool_input={
-                                    "observation": obs.observation,
-                                    "category": obs.category,
-                                    "confidence": obs.confidence
-                                },
-                                user_manager=user_manager,
-                                target_user_id=target_user_id,
-                                conversation_id=conversation_id,
-                                memory=memory
-                            )
-
-                            # Send system notification about the user observation
-                            if tool_result.get("success"):
-                                await websocket.send_json({
-                                    "type": "system",
-                                    "message": f"👤 User observation recorded about {display_name} [{obs.category}]: {obs.observation[:100]}{'...' if len(obs.observation) > 100 else ''}",
-                                    "status": "user_observation",
-                                    "timestamp": datetime.now().isoformat()
-                                })
-
-                    # Also strip tags from clean_text if they weren't already removed
-                    clean_text, _ = gesture_parser.parse_user_observations(clean_text)
+                # NOTE: Tag-based observation parsing removed - tool calls work more reliably
+                # The model uses record_self_observation and record_user_observation tools instead
 
                 # Generate TTS audio if enabled
                 # Pass raw_response so emote tags can be extracted for tone adjustment
@@ -3567,6 +3519,97 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     await websocket.send_json({
                         "type": "error",
                         "message": f"Failed to generate introduction: {str(e)}"
+                    })
+
+            elif data.get("type") == "onboarding_demo":
+                # Handle onboarding demo - Cass proposes a collaborative exercise
+                user_id = data.get("user_id")
+                profile_data = data.get("profile", {})  # Partial profile from preferences phase
+                message = data.get("message")  # Optional: user's response during demo
+
+                if not user_id:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Missing user_id for onboarding demo"
+                    })
+                    continue
+
+                # Load user profile
+                profile = user_manager.load_profile(user_id)
+                if not profile:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "User not found"
+                    })
+                    continue
+
+                # Set as current user
+                manager.set_user_id(websocket, user_id)
+
+                # Build profile context from both stored profile and passed preferences
+                profile_parts = []
+                if profile_data.get("relationship"):
+                    profile_parts.append(f"- Relationship: {profile_data['relationship']}")
+                if profile_data.get("background", {}).get("context"):
+                    profile_parts.append(f"- What's on their mind: {profile_data['background']['context']}")
+                if profile_data.get("communication", {}).get("style"):
+                    profile_parts.append(f"- Communication style: {profile_data['communication']['style']}")
+                if profile_data.get("values"):
+                    profile_parts.append(f"- Values: {', '.join(profile_data['values'])}")
+
+                profile_context = "\n".join(profile_parts) if profile_parts else "No additional profile information provided."
+
+                # Send thinking status
+                await websocket.send_json({
+                    "type": "thinking",
+                    "status": "Cass is thinking...",
+                    "timestamp": datetime.now().isoformat()
+                })
+
+                try:
+                    if USE_AGENT_SDK and agent_client:
+                        if message:
+                            # User responded - continue the demo conversation
+                            response = await agent_client.send_message(
+                                message=message,
+                                memory_context=f"[Onboarding demo conversation with {profile.display_name}. Continue the collaborative exchange, showing genuine partnership.]",
+                                project_id=None,
+                                unsummarized_count=0
+                            )
+                        else:
+                            # Initial demo - Cass proposes a collaborative exercise
+                            from config import ONBOARDING_DEMO_PROMPT
+                            demo_context = ONBOARDING_DEMO_PROMPT.format(
+                                display_name=profile.display_name,
+                                relationship=profile_data.get("relationship", profile.relationship),
+                                profile_context=profile_context
+                            )
+                            response = await agent_client.send_message(
+                                message="[Start the onboarding demo by proposing a collaborative exercise based on what you know about this person.]",
+                                memory_context=demo_context,
+                                project_id=None,
+                                unsummarized_count=0
+                            )
+
+                        # Send response
+                        await websocket.send_json({
+                            "type": "response",
+                            "text": response.text,
+                            "animations": response.gestures,
+                            "input_tokens": response.input_tokens,
+                            "output_tokens": response.output_tokens,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Agent client not available for onboarding demo"
+                        })
+                except Exception as e:
+                    print(f"Onboarding demo error: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Failed to generate demo response: {str(e)}"
                     })
 
     except WebSocketDisconnect:

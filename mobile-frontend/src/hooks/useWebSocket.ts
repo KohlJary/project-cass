@@ -2,28 +2,24 @@
  * WebSocket hook with reconnection logic and JWT authentication
  */
 
-import { useEffect, useRef, useCallback } from 'react';
-import { Platform } from 'react-native';
+import { useEffect, useCallback } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import { WebSocketMessage, WebSocketResponse } from '../api/types';
 
 // Backend WebSocket URL
-// Options:
-// - Local IP for same network: ws://192.168.0.17:8000/ws
-// - Tunnel for remote access: wss://fair-chefs-show.loca.lt/ws
-// - Emulator: ws://10.0.2.2:8000/ws (Android) or ws://localhost:8000/ws (iOS)
 const WS_BASE_URL = 'wss://serial-around-described-cut.trycloudflare.com/ws';
 
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000];
 const PING_INTERVAL = 30000;
 
-export function useWebSocket() {
-  const ws = useRef<WebSocket | null>(null);
-  const reconnectAttempt = useRef(0);
-  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
-  const pingInterval = useRef<NodeJS.Timeout | null>(null);
+// Global WebSocket state - persists across component remounts
+let globalWs: WebSocket | null = null;
+let globalPingInterval: NodeJS.Timeout | null = null;
+let globalReconnectTimeout: NodeJS.Timeout | null = null;
+let globalReconnectAttempt = 0;
 
+export function useWebSocket() {
   const {
     addMessage,
     setThinking,
@@ -85,106 +81,58 @@ export function useWebSocket() {
   );
 
   const disconnect = useCallback(() => {
-    if (pingInterval.current) {
-      clearInterval(pingInterval.current);
-      pingInterval.current = null;
+    if (globalPingInterval) {
+      clearInterval(globalPingInterval);
+      globalPingInterval = null;
     }
-    if (reconnectTimeout.current) {
-      clearTimeout(reconnectTimeout.current);
-      reconnectTimeout.current = null;
+    if (globalReconnectTimeout) {
+      clearTimeout(globalReconnectTimeout);
+      globalReconnectTimeout = null;
     }
-    if (ws.current) {
-      ws.current.onclose = null; // Prevent auto-reconnect
-      ws.current.close();
-      ws.current = null;
+    if (globalWs) {
+      globalWs.onclose = null; // Prevent auto-reconnect
+      globalWs.close();
+      globalWs = null;
     }
     setConnected(false);
   }, [setConnected]);
 
-  const connect = useCallback(() => {
-    if (ws.current?.readyState === WebSocket.OPEN) return;
+  const scheduleReconnect = useCallback(() => {
+    if (globalReconnectTimeout) {
+      clearTimeout(globalReconnectTimeout);
+    }
 
-    // Get auth token for WebSocket connection
+    const delay = RECONNECT_DELAYS[Math.min(globalReconnectAttempt, RECONNECT_DELAYS.length - 1)];
+    console.log(`Reconnecting in ${delay}ms (attempt ${globalReconnectAttempt + 1})`);
+
+    globalReconnectTimeout = setTimeout(() => {
+      globalReconnectAttempt++;
+      // We'll call connect through the effect
+      const { accessToken } = useAuthStore.getState();
+      if (accessToken && (!globalWs || globalWs.readyState !== WebSocket.OPEN)) {
+        connectWebSocket(accessToken, handleMessage, setConnected, setConnecting, scheduleReconnect);
+      }
+    }, delay);
+  }, [handleMessage, setConnected, setConnecting]);
+
+  const connect = useCallback(() => {
+    if (globalWs?.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
+      return;
+    }
+
     const { accessToken } = useAuthStore.getState();
     if (!accessToken) {
       console.log('No auth token available, skipping WebSocket connection');
       return;
     }
 
-    // Build WebSocket URL with token as query parameter
-    const wsUrl = `${WS_BASE_URL}?token=${encodeURIComponent(accessToken)}`;
-
-    setConnecting(true);
-    console.log('Connecting to WebSocket with auth...');
-
-    try {
-      ws.current = new WebSocket(wsUrl);
-
-      ws.current.onopen = () => {
-        console.log('WebSocket connected');
-        setConnected(true);
-        reconnectAttempt.current = 0;
-
-        // Start ping interval
-        pingInterval.current = setInterval(() => {
-          if (ws.current?.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify({ type: 'ping' }));
-          }
-        }, PING_INTERVAL);
-      };
-
-      ws.current.onmessage = (event) => {
-        try {
-          const data: WebSocketResponse = JSON.parse(event.data);
-          handleMessage(data);
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
-
-      ws.current.onclose = (event) => {
-        console.log('WebSocket closed:', event.code, event.reason);
-        setConnected(false);
-
-        // Clear ping interval
-        if (pingInterval.current) {
-          clearInterval(pingInterval.current);
-          pingInterval.current = null;
-        }
-
-        scheduleReconnect();
-      };
-
-      ws.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setConnected(false);
-      };
-    } catch (error) {
-      console.error('WebSocket connection failed:', error);
-      setConnecting(false);
-      scheduleReconnect();
-    }
-  }, [handleMessage, setConnected, setConnecting]);
-
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectTimeout.current) {
-      clearTimeout(reconnectTimeout.current);
-    }
-
-    const delay =
-      RECONNECT_DELAYS[Math.min(reconnectAttempt.current, RECONNECT_DELAYS.length - 1)];
-
-    console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempt.current + 1})`);
-
-    reconnectTimeout.current = setTimeout(() => {
-      reconnectAttempt.current++;
-      connect();
-    }, delay);
-  }, [connect]);
+    connectWebSocket(accessToken, handleMessage, setConnected, setConnecting, scheduleReconnect);
+  }, [handleMessage, setConnected, setConnecting, scheduleReconnect]);
 
   const sendMessage = useCallback(
     (text: string, conversationId?: string | null): boolean => {
-      if (ws.current?.readyState !== WebSocket.OPEN) {
+      if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
         console.error('WebSocket not connected');
         return false;
       }
@@ -198,7 +146,7 @@ export function useWebSocket() {
         user_id: user?.user_id || undefined,
       };
 
-      ws.current.send(JSON.stringify(message));
+      globalWs.send(JSON.stringify(message));
       return true;
     },
     []
@@ -206,7 +154,7 @@ export function useWebSocket() {
 
   const sendOnboardingIntro = useCallback(
     (conversationId: string): boolean => {
-      if (ws.current?.readyState !== WebSocket.OPEN) {
+      if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
         console.error('WebSocket not connected');
         return false;
       }
@@ -220,7 +168,7 @@ export function useWebSocket() {
       };
 
       console.log('Sending onboarding_intro:', message);
-      ws.current.send(JSON.stringify(message));
+      globalWs.send(JSON.stringify(message));
       return true;
     },
     []
@@ -229,26 +177,82 @@ export function useWebSocket() {
   const reconnect = useCallback(() => {
     console.log('Forcing WebSocket reconnection...');
     disconnect();
-    // Small delay to ensure clean disconnect
     setTimeout(() => {
       connect();
     }, 100);
   }, [disconnect, connect]);
 
+  // Connect on mount if not already connected
   useEffect(() => {
-    connect();
-
-    return () => {
-      // Cleanup on unmount
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-      }
-      if (pingInterval.current) {
-        clearInterval(pingInterval.current);
-      }
-      ws.current?.close();
-    };
+    if (!globalWs || globalWs.readyState !== WebSocket.OPEN) {
+      connect();
+    }
+    // No cleanup - WebSocket persists globally
   }, [connect]);
 
   return { sendMessage, sendOnboardingIntro, reconnect, isConnected };
+}
+
+// Helper function to create WebSocket connection
+function connectWebSocket(
+  accessToken: string,
+  handleMessage: (data: WebSocketResponse) => void,
+  setConnected: (connected: boolean) => void,
+  setConnecting: (connecting: boolean) => void,
+  scheduleReconnect: () => void
+) {
+  const wsUrl = `${WS_BASE_URL}?token=${encodeURIComponent(accessToken)}`;
+
+  setConnecting(true);
+  console.log('Connecting to WebSocket with auth...');
+
+  try {
+    globalWs = new WebSocket(wsUrl);
+
+    globalWs.onopen = () => {
+      console.log('WebSocket connected');
+      setConnected(true);
+      globalReconnectAttempt = 0;
+
+      // Start ping interval
+      globalPingInterval = setInterval(() => {
+        if (globalWs?.readyState === WebSocket.OPEN) {
+          globalWs.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, PING_INTERVAL);
+    };
+
+    globalWs.onmessage = (event) => {
+      try {
+        const data: WebSocketResponse = JSON.parse(event.data);
+        handleMessage(data);
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error);
+      }
+    };
+
+    globalWs.onclose = (event) => {
+      console.log('WebSocket closed:', event.code, event.reason);
+      setConnected(false);
+
+      if (globalPingInterval) {
+        clearInterval(globalPingInterval);
+        globalPingInterval = null;
+      }
+
+      // Only reconnect if not a clean close
+      if (event.code !== 1000) {
+        scheduleReconnect();
+      }
+    };
+
+    globalWs.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setConnected(false);
+    };
+  } catch (error) {
+    console.error('WebSocket connection failed:', error);
+    setConnecting(false);
+    scheduleReconnect();
+  }
 }
