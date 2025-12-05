@@ -35,6 +35,7 @@ from users import UserManager
 from self_model import SelfManager
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
+from roadmap import RoadmapManager
 from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
 from handlers import (
@@ -43,7 +44,8 @@ from handlers import (
     execute_task_tool,
     execute_document_tool,
     execute_self_model_tool,
-    execute_user_model_tool
+    execute_user_model_tool,
+    execute_roadmap_tool
 )
 import base64
 
@@ -79,6 +81,12 @@ conversation_manager = ConversationManager()
 project_manager = ProjectManager()
 calendar_manager = CalendarManager()
 task_manager = TaskManager()
+roadmap_manager = RoadmapManager()
+
+# Register roadmap routes
+from routes.roadmap import router as roadmap_router, init_roadmap_routes
+init_roadmap_routes(roadmap_manager)
+app.include_router(roadmap_router)
 
 # Client will be initialized on startup
 agent_client = None
@@ -911,6 +919,13 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         user_id=current_user_id,
                         task_manager=task_manager
+                    )
+                elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
+                    tool_result = await execute_roadmap_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        roadmap_manager=roadmap_manager,
+                        conversation_id=request.conversation_id
                     )
                 elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
                     # Get user name for differentiation tracking
@@ -2768,6 +2783,13 @@ async def websocket_endpoint(websocket: WebSocket):
                                     user_id=current_user_id,
                                     task_manager=task_manager
                                 )
+                            elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
+                                tool_result = await execute_roadmap_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    roadmap_manager=roadmap_manager,
+                                    conversation_id=conversation_id
+                                )
                             elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
                                 user_name = None
                                 if current_user_id:
@@ -2882,6 +2904,13 @@ async def websocket_endpoint(websocket: WebSocket):
                                     tool_input=tool_use["input"],
                                     user_id=current_user_id,
                                     task_manager=task_manager
+                                )
+                            elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
+                                tool_result = await execute_roadmap_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    roadmap_manager=roadmap_manager,
+                                    conversation_id=conversation_id
                                 )
                             elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
                                 # Get user name for differentiation tracking

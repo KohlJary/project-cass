@@ -1300,4 +1300,86 @@ CSS = """
     #git-panel .control-btn {
         margin: 0 1;
     }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       Roadmap Panel
+       ───────────────────────────────────────────────────────────────────────── */
+
+    #roadmap-panel {
+        height: 1fr;
+        padding: 1;
+        background: $surface;
+    }
+
+    #roadmap-content {
+        height: 1fr;
+    }
+
+    #roadmap-header {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #roadmap-title {
+        text-style: bold;
+        color: $primary;
+    }
+
+    #refresh-roadmap-btn {
+        dock: right;
+    }
+
+    #roadmap-filters {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #roadmap-filters .filter-btn {
+        margin-right: 1;
+        min-width: 8;
+    }
+
+    #roadmap-list {
+        height: 40%;
+        min-height: 5;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    .roadmap-item {
+        padding: 0;
+        margin-bottom: 1;
+        border-bottom: dashed $surface-darken-2;
+    }
+
+    .roadmap-item:hover {
+        background: $surface-lighten-1;
+    }
+
+    #roadmap-detail {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 1;
+        margin-top: 1;
+    }
+
+    #detail-content {
+        height: 1fr;
+        overflow-y: auto;
+    }
+
+    #roadmap-actions {
+        height: auto;
+        margin-top: 1;
+        layout: horizontal;
+        align: center middle;
+    }
+
+    #roadmap-actions Button {
+        margin: 0 1;
+    }
+
+    #roadmap-actions.hidden {
+        display: none;
+    }
     """

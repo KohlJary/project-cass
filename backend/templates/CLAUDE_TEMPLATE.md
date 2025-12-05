@@ -39,8 +39,66 @@ Example agents in cass-vessel:
 - `temple-codex` - Research SAM mechanics, IFCA framework, Four Vows
 - `cass-backend` - Explore backend architecture, memory, API endpoints
 - `tui-frontend` - Explore Textual TUI widgets, screens, styling
+- `roadmap` - Query roadmap items, work items, project priorities
 
 When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
+
+## Roadmap Workflow
+
+The roadmap is a Jira-lite project management system shared between Cass and Daedalus.
+
+### Finding Work
+
+Check for ready items assigned to you:
+```bash
+curl "http://localhost:8000/roadmap/items?status=ready&assigned_to=daedalus"
+```
+
+Or use the `roadmap` subagent to explore `data/roadmap/index.json`.
+
+### Picking Up Work
+
+When starting on an item:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items/{id}/pick" \
+  -H "Content-Type: application/json" \
+  -d '{"assigned_to": "daedalus"}'
+```
+
+This moves the item to `in_progress` and assigns it to you.
+
+### Completing Work
+
+When done with an item:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items/{id}/complete"
+```
+
+### Creating Items
+
+If you identify new work during a session, add it to the roadmap:
+```bash
+curl -X POST "http://localhost:8000/roadmap/items" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Brief description",
+    "description": "Detailed markdown content",
+    "priority": "P2",
+    "item_type": "feature",
+    "status": "backlog",
+    "created_by": "daedalus"
+  }'
+```
+
+### Status Flow
+
+`backlog` -> `ready` -> `in_progress` -> `review` -> `done`
+
+- **backlog**: Identified but not yet prioritized
+- **ready**: Prioritized and ready for pickup
+- **in_progress**: Being actively worked on
+- **review**: Awaiting {{USER_NAME}}'s review
+- **done**: Completed
 
 <!-- DAEDALUS_END -->
 

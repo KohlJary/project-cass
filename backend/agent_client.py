@@ -705,6 +705,175 @@ TASK_TOOLS = [
     }
 ]
 
+# ============================================================================
+# ROADMAP TOOLS (Project planning for Cass and Daedalus)
+# ============================================================================
+
+ROADMAP_TOOLS = [
+    {
+        "name": "create_roadmap_item",
+        "description": "Add a work item to the roadmap. Use this when discussing features to build, bugs to fix, or work that needs to be done.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Brief title for the work item"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Detailed description in markdown"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["P0", "P1", "P2", "P3"],
+                    "description": "Priority: P0=critical, P1=high, P2=medium, P3=low"
+                },
+                "item_type": {
+                    "type": "string",
+                    "enum": ["feature", "bug", "enhancement", "chore", "research", "documentation"],
+                    "description": "Type of work item"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["backlog", "ready"],
+                    "description": "Initial status (default: backlog)"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags for categorization"
+                },
+                "assigned_to": {
+                    "type": "string",
+                    "description": "Who should work on this: 'cass', 'daedalus', or user name"
+                },
+                "project_id": {
+                    "type": "string",
+                    "description": "Associated project ID (optional)"
+                }
+            },
+            "required": ["title"]
+        }
+    },
+    {
+        "name": "list_roadmap_items",
+        "description": "List roadmap items with optional filtering. Use to see what work is available or in progress.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["backlog", "ready", "in_progress", "review", "done"],
+                    "description": "Filter by status"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["P0", "P1", "P2", "P3"],
+                    "description": "Filter by priority"
+                },
+                "item_type": {
+                    "type": "string",
+                    "enum": ["feature", "bug", "enhancement", "chore", "research", "documentation"],
+                    "description": "Filter by type"
+                },
+                "assigned_to": {
+                    "type": "string",
+                    "description": "Filter by assignee"
+                },
+                "include_done": {
+                    "type": "boolean",
+                    "description": "Include completed items (default: false)"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "update_roadmap_item",
+        "description": "Update a roadmap item's details, status, priority, or assignment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The item ID (e.g., 'abc12345')"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "New title"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "New description"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["backlog", "ready", "in_progress", "review", "done", "archived"],
+                    "description": "New status"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["P0", "P1", "P2", "P3"],
+                    "description": "New priority"
+                },
+                "assigned_to": {
+                    "type": "string",
+                    "description": "Assign to someone"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Replace tags"
+                }
+            },
+            "required": ["item_id"]
+        }
+    },
+    {
+        "name": "get_roadmap_item",
+        "description": "Get full details of a specific roadmap item.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The item ID"
+                }
+            },
+            "required": ["item_id"]
+        }
+    },
+    {
+        "name": "complete_roadmap_item",
+        "description": "Mark a roadmap item as completed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The item ID to complete"
+                }
+            },
+            "required": ["item_id"]
+        }
+    },
+    {
+        "name": "advance_roadmap_item",
+        "description": "Move a roadmap item to the next status in the workflow (backlog -> ready -> in_progress -> review -> done).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The item ID to advance"
+                }
+            },
+            "required": ["item_id"]
+        }
+    }
+]
+
 # Import self-model and user-model tools from handlers
 from handlers.self_model import SELF_MODEL_TOOLS
 from handlers.user_model import USER_MODEL_TOOLS
@@ -732,6 +901,15 @@ TASK_KEYWORDS = frozenset({
     "complete", "done", "finish", "finished"
 })
 
+ROADMAP_KEYWORDS = frozenset({
+    "roadmap", "backlog", "feature", "features",
+    "bug", "bugs", "enhancement", "enhancements",
+    "implement", "implementation", "build", "develop",
+    "work item", "work items", "project plan",
+    "sprint", "milestone", "milestones",
+    "daedalus", "queue", "pick up", "ready to"
+})
+
 SELF_MODEL_KEYWORDS = frozenset({
     "reflect", "reflection", "self-model", "self model",
     "my opinion", "my position", "i think", "i believe",
@@ -752,6 +930,12 @@ def should_include_task_tools(message: str) -> bool:
     """Check if message warrants task tools."""
     message_lower = message.lower()
     return any(kw in message_lower for kw in TASK_KEYWORDS)
+
+
+def should_include_roadmap_tools(message: str) -> bool:
+    """Check if message warrants roadmap tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in ROADMAP_KEYWORDS)
 
 
 def should_include_self_model_tools(message: str) -> bool:
@@ -830,6 +1014,10 @@ class CassAgentClient:
             # Task tools - only if message mentions tasks/todos
             if should_include_task_tools(message):
                 tools.extend(TASK_TOOLS)
+
+            # Roadmap tools - only if message mentions features/bugs/project planning
+            if should_include_roadmap_tools(message):
+                tools.extend(ROADMAP_TOOLS)
 
             # Self-model tools - always available (core to identity/continuity)
             tools.extend(SELF_MODEL_TOOLS)
@@ -1218,6 +1406,10 @@ class OllamaClient:
         # Task tools - only if message mentions tasks/todos
         if should_include_task_tools(message):
             tools.extend(TASK_TOOLS)
+
+        # Roadmap tools - only if message mentions features/bugs/project planning
+        if should_include_roadmap_tools(message):
+            tools.extend(ROADMAP_TOOLS)
 
         # Self-model tools - always available (core to identity/continuity)
         tools.extend(SELF_MODEL_TOOLS)
