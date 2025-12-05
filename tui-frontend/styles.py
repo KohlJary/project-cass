@@ -1382,4 +1382,102 @@ CSS = """
     #roadmap-actions.hidden {
         display: none;
     }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       Settings Screen
+       ───────────────────────────────────────────────────────────────────────── */
+
+    SettingsScreen {
+        align: center middle;
+    }
+
+    #settings-dialog {
+        width: 70;
+        height: auto;
+        max-height: 80%;
+        background: $panel;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #settings-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #settings-tabs {
+        height: auto;
+        max-height: 50;
+    }
+
+    #settings-tabs TabPane {
+        padding: 1;
+    }
+
+    #appearance-scroll, #keybindings-scroll, #audio-scroll, #llm-scroll, #behavior-scroll {
+        height: auto;
+        max-height: 40;
+    }
+
+    .setting-label {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    .setting-hint {
+        color: $text-muted;
+        text-style: italic;
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+
+    .setting-divider {
+        margin: 1 0;
+    }
+
+    .setting-row {
+        height: 3;
+        width: 100%;
+        align: left middle;
+        margin-bottom: 1;
+    }
+
+    .setting-name {
+        width: 1fr;
+    }
+
+    .setting-row Switch {
+        width: auto;
+    }
+
+    .shortcuts-list {
+        padding: 1;
+        background: $surface-darken-1;
+        margin-top: 1;
+    }
+
+    #settings-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #settings-buttons Button {
+        margin: 0 1;
+    }
+
+    #theme-select, #llm-provider-select {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    /* Settings button in sidebar */
+    #settings-btn {
+        width: 100%;
+        margin-top: 1;
+    }
     """

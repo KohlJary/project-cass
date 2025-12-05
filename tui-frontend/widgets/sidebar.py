@@ -191,30 +191,45 @@ class LLMSelector(Vertical):
         try:
             model_radio = self.query_one("#model-radio", RadioSet)
 
-            # Clear existing models
-            for child in list(model_radio.children):
-                child.remove()
-
-            # Add models for current provider
+            # Determine models for current provider
             if self.current_provider == "anthropic":
                 models = ANTHROPIC_MODELS
             elif self.current_provider == "openai":
                 models = OPENAI_MODELS
             elif self.current_provider == "local":
                 models = self.ollama_models if self.ollama_models else [("llama3.1:8b-instruct-q8_0", "llama3.1:8b")]
+            else:
+                models = ANTHROPIC_MODELS  # Fallback
 
+            debug_log(f"Updating model list for {self.current_provider}: {len(models)} models")
+
+            # Clear existing models - use remove() on each child
+            children_to_remove = list(model_radio.children)
+            for child in children_to_remove:
+                await child.remove()
+
+            # Add models for current provider
             for model_id, display_name in models:
-                btn = RadioButton(display_name, id=f"model-{model_id}")
+                # Sanitize model_id for use as widget ID (replace special chars)
+                safe_id = model_id.replace(":", "-").replace(".", "-")
+                btn = RadioButton(display_name, id=f"model-{safe_id}")
+                btn.model_id = model_id  # Store actual model ID as attribute
                 await model_radio.mount(btn)
+                debug_log(f"  Mounted model: {display_name} ({model_id})")
 
                 # Select current model if it matches
                 if self.current_model and model_id == self.current_model:
                     btn.value = True
 
             # If no model selected, select first one
-            if not self.current_model and models:
-                first_btn = model_radio.query_one(f"#model-{models[0][0]}", RadioButton)
-                first_btn.value = True
+            if models:
+                try:
+                    first_safe_id = models[0][0].replace(":", "-").replace(".", "-")
+                    first_btn = model_radio.query_one(f"#model-{first_safe_id}", RadioButton)
+                    if not self.current_model:
+                        first_btn.value = True
+                except Exception:
+                    pass  # First button might already be selected
 
         except Exception as e:
             debug_log(f"Error updating model list: {e}", "error")
@@ -235,7 +250,8 @@ class LLMSelector(Vertical):
             # Model changed
             pressed = event.pressed
             if pressed:
-                new_model = pressed.id.replace("model-", "")
+                # Get actual model ID from attribute (handles sanitized IDs)
+                new_model = getattr(pressed, 'model_id', pressed.id.replace("model-", ""))
                 if new_model != self.current_model:
                     await self._switch_model(new_model)
 
@@ -322,6 +338,9 @@ class Sidebar(Vertical):
 
         # LLM Provider selector at bottom
         yield LLMSelector(id="llm-selector")
+
+        # Settings button
+        yield Button("⚙ Settings", id="settings-btn", variant="default")
 
     async def load_projects(self, http_client: httpx.AsyncClient):
         """Load projects from backend"""

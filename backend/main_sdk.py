@@ -36,8 +36,16 @@ try:
 except ImportError:
     USE_AGENT_SDK = False
 
+# Try to import OpenAI client
+try:
+    from openai_client import OpenAIClient, OPENAI_AVAILABLE
+except ImportError:
+    OPENAI_AVAILABLE = False
+    OpenAIClient = None
+
 # LLM Provider options
 LLM_PROVIDER_ANTHROPIC = "anthropic"
+LLM_PROVIDER_OPENAI = "openai"
 LLM_PROVIDER_LOCAL = "local"
 
 from claude_client import ClaudeClient
@@ -205,6 +213,7 @@ app.include_router(admin_router)
 agent_client = None
 legacy_client = None
 ollama_client = None
+openai_client = None
 
 
 # LLM Provider Configuration
@@ -641,7 +650,7 @@ def validate_startup_requirements():
 
 @app.on_event("startup")
 async def startup_event():
-    global agent_client, legacy_client, ollama_client, current_user_id
+    global agent_client, legacy_client, ollama_client, openai_client, current_user_id
 
     # Validate requirements before proceeding
     validate_startup_requirements()
@@ -676,6 +685,19 @@ async def startup_event():
         logger.info("Initializing Ollama client for local LLM...")
         ollama_client = OllamaClient()
         logger.info(f"Ollama ready (model: {ollama_client.model})")
+
+    # Initialize OpenAI client if enabled
+    from config import OPENAI_ENABLED
+    if OPENAI_ENABLED and OPENAI_AVAILABLE and OpenAIClient:
+        logger.info("Initializing OpenAI client...")
+        try:
+            openai_client = OpenAIClient(
+                enable_tools=True,
+                enable_memory_tools=True
+            )
+            logger.info(f"OpenAI ready (model: {openai_client.model})")
+        except Exception as e:
+            logger.error(f"OpenAI initialization failed: {e}")
 
     # Preload TTS voice for faster first response
     logger.info("Preloading TTS voice...")
@@ -2268,10 +2290,11 @@ async def set_llm_provider(request: LLMProviderRequest):
     """Set LLM provider for chat"""
     global current_llm_provider
 
-    from config import OLLAMA_ENABLED
+    from config import OLLAMA_ENABLED, OPENAI_ENABLED
 
-    if request.provider not in [LLM_PROVIDER_ANTHROPIC, LLM_PROVIDER_LOCAL]:
-        raise HTTPException(status_code=400, detail=f"Invalid provider. Must be '{LLM_PROVIDER_ANTHROPIC}' or '{LLM_PROVIDER_LOCAL}'")
+    valid_providers = [LLM_PROVIDER_ANTHROPIC, LLM_PROVIDER_OPENAI, LLM_PROVIDER_LOCAL]
+    if request.provider not in valid_providers:
+        raise HTTPException(status_code=400, detail=f"Invalid provider. Must be one of: {', '.join(valid_providers)}")
 
     if request.provider == LLM_PROVIDER_LOCAL and not OLLAMA_ENABLED:
         raise HTTPException(status_code=400, detail="Local LLM not enabled. Set OLLAMA_ENABLED=true in .env")
@@ -2279,20 +2302,36 @@ async def set_llm_provider(request: LLMProviderRequest):
     if request.provider == LLM_PROVIDER_LOCAL and not ollama_client:
         raise HTTPException(status_code=500, detail="Ollama client not initialized")
 
+    if request.provider == LLM_PROVIDER_OPENAI and not OPENAI_ENABLED:
+        raise HTTPException(status_code=400, detail="OpenAI not enabled. Set OPENAI_ENABLED=true in .env")
+
+    if request.provider == LLM_PROVIDER_OPENAI and not openai_client:
+        raise HTTPException(status_code=500, detail="OpenAI client not initialized")
+
     # Clear conversation history when switching providers to prevent stale state
     old_provider = current_llm_provider
     current_llm_provider = request.provider
 
     if old_provider != request.provider:
-        # Clear both clients' conversation histories on switch
+        # Clear all clients' conversation histories on switch
         if agent_client:
             agent_client.conversation_history = []
         if ollama_client:
             ollama_client.conversation_history = []
+        if openai_client and hasattr(openai_client, '_tool_chain_messages'):
+            openai_client._tool_chain_messages = []
+
+    # Return current model based on provider
+    if current_llm_provider == LLM_PROVIDER_LOCAL:
+        model = ollama_client.model
+    elif current_llm_provider == LLM_PROVIDER_OPENAI:
+        model = openai_client.model if openai_client else "gpt-4o"
+    else:
+        model = agent_client.model if agent_client and hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
 
     return {
         "provider": current_llm_provider,
-        "model": ollama_client.model if current_llm_provider == LLM_PROVIDER_LOCAL else "claude-sonnet"
+        "model": model
     }
 
 
@@ -2316,6 +2355,264 @@ async def get_ollama_models():
                 return {"models": [], "error": f"Ollama returned {response.status_code}"}
     except Exception as e:
         return {"models": [], "error": str(e)}
+
+
+# Popular/recommended Ollama models for the library browser
+OLLAMA_LIBRARY_MODELS = [
+    # Flagship/popular models
+    {"name": "llama3.3", "description": "Meta's latest Llama 3.3 70B model", "size": "43GB", "category": "general"},
+    {"name": "llama3.2", "description": "Meta's Llama 3.2 with vision support", "size": "2-90GB", "category": "general"},
+    {"name": "llama3.1", "description": "Meta's Llama 3.1 8B/70B/405B", "size": "5-231GB", "category": "general"},
+    {"name": "gemma2", "description": "Google's Gemma 2 2B/9B/27B", "size": "2-16GB", "category": "general"},
+    {"name": "qwen2.5", "description": "Alibaba's Qwen 2.5 series", "size": "1-48GB", "category": "general"},
+    {"name": "phi4", "description": "Microsoft's Phi-4 14B", "size": "9GB", "category": "general"},
+    {"name": "mistral", "description": "Mistral 7B v0.3", "size": "4GB", "category": "general"},
+    {"name": "mixtral", "description": "Mixtral 8x7B MoE", "size": "26GB", "category": "general"},
+    # Coding models
+    {"name": "codellama", "description": "Code-focused Llama variant", "size": "4-40GB", "category": "coding"},
+    {"name": "deepseek-coder-v2", "description": "DeepSeek Coder V2", "size": "9-131GB", "category": "coding"},
+    {"name": "starcoder2", "description": "BigCode StarCoder2", "size": "2-9GB", "category": "coding"},
+    {"name": "qwen2.5-coder", "description": "Qwen 2.5 optimized for code", "size": "1-48GB", "category": "coding"},
+    # Reasoning models
+    {"name": "deepseek-r1", "description": "DeepSeek R1 reasoning model", "size": "4-400GB", "category": "reasoning"},
+    {"name": "qwq", "description": "Alibaba QwQ 32B reasoning", "size": "20GB", "category": "reasoning"},
+    # Small/efficient models
+    {"name": "tinyllama", "description": "TinyLlama 1.1B - very small", "size": "637MB", "category": "small"},
+    {"name": "phi3", "description": "Microsoft Phi-3 mini 3.8B", "size": "2GB", "category": "small"},
+    {"name": "gemma", "description": "Google's Gemma 2B/7B", "size": "2-5GB", "category": "small"},
+    # Multimodal
+    {"name": "llava", "description": "LLaVA vision-language model", "size": "5-26GB", "category": "vision"},
+    {"name": "bakllava", "description": "BakLLaVA vision model", "size": "5GB", "category": "vision"},
+    # Embeddings
+    {"name": "nomic-embed-text", "description": "Nomic text embeddings", "size": "274MB", "category": "embedding"},
+    {"name": "mxbai-embed-large", "description": "MixedBread embeddings", "size": "670MB", "category": "embedding"},
+]
+
+
+@app.get("/settings/ollama-library")
+async def get_ollama_library(category: Optional[str] = None, search: Optional[str] = None):
+    """
+    Get list of available Ollama models from the library.
+    Since Ollama doesn't have a search API, we maintain a curated list.
+    """
+    from config import OLLAMA_ENABLED
+
+    if not OLLAMA_ENABLED:
+        return {"models": [], "error": "Ollama not enabled"}
+
+    models = OLLAMA_LIBRARY_MODELS
+
+    # Filter by category if specified
+    if category:
+        models = [m for m in models if m.get("category") == category]
+
+    # Filter by search term if specified
+    if search:
+        search_lower = search.lower()
+        models = [m for m in models if search_lower in m["name"].lower() or search_lower in m.get("description", "").lower()]
+
+    return {
+        "models": models,
+        "categories": ["general", "coding", "reasoning", "small", "vision", "embedding"]
+    }
+
+
+class OllamaPullRequest(BaseModel):
+    """Request to pull/download an Ollama model"""
+    model: str
+
+
+@app.post("/settings/ollama-pull")
+async def pull_ollama_model(request: OllamaPullRequest):
+    """
+    Start pulling/downloading an Ollama model.
+    Returns immediately - check /settings/ollama-models for completion.
+    """
+    from config import OLLAMA_ENABLED, OLLAMA_BASE_URL
+    import httpx
+
+    if not OLLAMA_ENABLED:
+        raise HTTPException(status_code=400, detail="Ollama not enabled")
+
+    try:
+        # Start the pull (non-streaming for simplicity)
+        async with httpx.AsyncClient(timeout=300.0) as client:  # 5 min timeout for large models
+            response = await client.post(
+                f"{OLLAMA_BASE_URL}/api/pull",
+                json={"model": request.model, "stream": False}
+            )
+            if response.status_code == 200:
+                return {"status": "success", "message": f"Model '{request.model}' pulled successfully"}
+            else:
+                return {"status": "error", "message": f"Pull failed: {response.text}"}
+    except httpx.TimeoutException:
+        return {"status": "timeout", "message": "Pull timed out - model may still be downloading. Check ollama-models endpoint."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/settings/ollama-models/{model_name:path}")
+async def delete_ollama_model(model_name: str):
+    """Delete an Ollama model from local storage"""
+    from config import OLLAMA_ENABLED, OLLAMA_BASE_URL
+    import httpx
+
+    if not OLLAMA_ENABLED:
+        raise HTTPException(status_code=400, detail="Ollama not enabled")
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.delete(
+                f"{OLLAMA_BASE_URL}/api/delete",
+                json={"model": model_name}
+            )
+            if response.status_code == 200:
+                return {"status": "success", "message": f"Model '{model_name}' deleted"}
+            else:
+                return {"status": "error", "message": f"Delete failed: {response.text}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# === User Preferences Endpoints ===
+
+class PreferencesUpdateRequest(BaseModel):
+    """Request model for updating user preferences"""
+    theme: Optional[str] = None
+    vim_mode: Optional[bool] = None
+    tts_enabled: Optional[bool] = None
+    tts_voice: Optional[str] = None
+    default_llm_provider: Optional[str] = None
+    default_model: Optional[str] = None  # Legacy
+    default_anthropic_model: Optional[str] = None
+    default_openai_model: Optional[str] = None
+    default_local_model: Optional[str] = None
+    auto_scroll: Optional[bool] = None
+    show_timestamps: Optional[bool] = None
+    show_token_usage: Optional[bool] = None
+    confirm_delete: Optional[bool] = None
+
+
+@app.get("/settings/preferences")
+async def get_user_preferences(current_user: str = Depends(get_current_user)):
+    """Get current user's preferences"""
+    prefs = user_manager.get_preferences(current_user)
+    if not prefs:
+        # Return defaults if user not found
+        from users import UserPreferences
+        prefs = UserPreferences()
+
+    return {"preferences": prefs.to_dict()}
+
+
+@app.post("/settings/preferences")
+async def update_user_preferences(
+    request: PreferencesUpdateRequest,
+    current_user: str = Depends(get_current_user)
+):
+    """Update current user's preferences"""
+    # Convert request to dict, filtering out None values
+    updates = {k: v for k, v in request.model_dump().items() if v is not None}
+
+    prefs = user_manager.update_preferences(current_user, **updates)
+    if not prefs:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"preferences": prefs.to_dict(), "updated_fields": list(updates.keys())}
+
+
+@app.post("/settings/preferences/reset")
+async def reset_user_preferences(current_user: str = Depends(get_current_user)):
+    """Reset current user's preferences to defaults"""
+    prefs = user_manager.reset_preferences(current_user)
+    if not prefs:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {"preferences": prefs.to_dict(), "status": "reset"}
+
+
+@app.get("/settings/themes")
+async def list_available_themes():
+    """List available color themes"""
+    # Themes available in the TUI (built-in Textual + custom Cass themes)
+    themes = [
+        # Textual built-in themes
+        {"id": "textual-dark", "name": "Textual Dark", "description": "Textual's default dark theme"},
+        {"id": "textual-light", "name": "Textual Light", "description": "Textual's default light theme"},
+        {"id": "nord", "name": "Nord", "description": "Arctic, north-bluish color palette"},
+        {"id": "gruvbox", "name": "Gruvbox", "description": "Retro groove color scheme"},
+        {"id": "tokyo-night", "name": "Tokyo Night", "description": "Dark theme inspired by Tokyo nights"},
+        # Custom Cass themes
+        {"id": "cass-default", "name": "Cass Default", "description": "Cass Vessel purple/cyan theme"},
+        {"id": "srcery", "name": "Srcery", "description": "High contrast with vibrant yellow"},
+        {"id": "monokai", "name": "Monokai", "description": "Classic Sublime Text theme"},
+        {"id": "solarized-dark", "name": "Solarized Dark", "description": "Precision colors for dark backgrounds"},
+        {"id": "solarized-light", "name": "Solarized Light", "description": "Precision colors for light backgrounds"},
+        {"id": "dracula", "name": "Dracula", "description": "Dark theme with purple accents"},
+        {"id": "one-dark", "name": "One Dark", "description": "Atom's iconic dark theme"},
+    ]
+    return {"themes": themes}
+
+
+@app.get("/settings/available-models")
+async def get_available_models():
+    """Get available models for all LLM providers"""
+    from config import OPENAI_ENABLED, OLLAMA_ENABLED, OLLAMA_BASE_URL, CLAUDE_MODEL, OPENAI_MODEL
+    import httpx
+
+    # Static Anthropic models
+    anthropic_models = [
+        {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "default": True},
+        {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
+        {"id": "claude-haiku-3-5-20241022", "name": "Claude Haiku 3.5"},
+    ]
+
+    # Static OpenAI models
+    openai_models = [
+        {"id": "gpt-4o", "name": "GPT-4o", "default": True},
+        {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
+        {"id": "gpt-4.1", "name": "GPT-4.1"},
+        {"id": "gpt-5", "name": "GPT-5"},
+        {"id": "gpt-5-mini", "name": "GPT-5 Mini"},
+        {"id": "o4-mini", "name": "o4-mini (reasoning)"},
+        {"id": "o3", "name": "o3 (reasoning)"},
+    ]
+
+    # Dynamic Ollama models
+    local_models = []
+    if OLLAMA_ENABLED:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+                if response.status_code == 200:
+                    data = response.json()
+                    for m in data.get("models", []):
+                        local_models.append({
+                            "id": m["name"],
+                            "name": m["name"],
+                            "size": m.get("size"),
+                            "modified": m.get("modified_at")
+                        })
+        except Exception:
+            pass  # Ollama not available
+
+    return {
+        "anthropic": {
+            "enabled": True,
+            "models": anthropic_models,
+            "current": CLAUDE_MODEL
+        },
+        "openai": {
+            "enabled": OPENAI_ENABLED,
+            "models": openai_models if OPENAI_ENABLED else [],
+            "current": OPENAI_MODEL if OPENAI_ENABLED else None
+        },
+        "local": {
+            "enabled": OLLAMA_ENABLED,
+            "models": local_models,
+            "current": ollama_client.model if ollama_client else None
+        }
+    }
 
 
 # === User Context Endpoints ===
@@ -3036,7 +3333,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 tool_uses = []
 
                 # Update status before calling LLM
-                provider_label = "local model" if current_llm_provider == LLM_PROVIDER_LOCAL else "Claude"
+                # Determine provider label for status messages
+                if current_llm_provider == LLM_PROVIDER_LOCAL:
+                    provider_label = "local model"
+                elif current_llm_provider == LLM_PROVIDER_OPENAI:
+                    provider_label = "OpenAI"
+                else:
+                    provider_label = "Claude"
                 await websocket.send_json({
                     "type": "thinking",
                     "status": f"Generating response ({provider_label})...",
@@ -3153,6 +3456,123 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                         # Continue conversation with all tool results
                         response = await ollama_client.continue_with_tool_results(all_tool_results)
+
+                        # Update response data
+                        raw_response = response.raw
+                        clean_text = response.text
+                        animations = response.gestures
+                        tool_uses = response.tool_uses
+                        total_input_tokens += response.input_tokens
+                        total_output_tokens += response.output_tokens
+
+                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
+                    # Use OpenAI API
+                    response = await openai_client.send_message(
+                        message=user_message,
+                        memory_context=memory_context,
+                        project_id=project_id,
+                        unsummarized_count=unsummarized_count
+                    )
+                    raw_response = response.raw
+                    clean_text = response.text
+                    animations = response.gestures
+                    tool_uses = response.tool_uses
+                    total_input_tokens = response.input_tokens
+                    total_output_tokens = response.output_tokens
+
+                    # Handle tool calls for OpenAI (same pattern as others)
+                    tool_iteration = 0
+                    while response.stop_reason == "tool_use" and tool_uses:
+                        tool_iteration += 1
+                        tool_names = [t['tool'] for t in tool_uses]
+                        await websocket.send_json({
+                            "type": "debug",
+                            "message": f"[OpenAI Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        await websocket.send_json({
+                            "type": "thinking",
+                            "status": f"Executing: {', '.join(tool_names)}...",
+                            "timestamp": datetime.now().isoformat()
+                        })
+
+                        # Execute ALL tools first, collect results
+                        all_tool_results = []
+                        for tool_use in tool_uses:
+                            tool_name = tool_use["tool"]
+
+                            # Route to appropriate tool executor
+                            if tool_name in ["recall_journal", "list_journals", "search_journals"]:
+                                tool_result = await execute_journal_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory
+                                )
+                            elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
+                                tool_result = await execute_calendar_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_id=ws_user_id,
+                                    calendar_manager=calendar_manager,
+                                    conversation_id=conversation_id
+                                )
+                            elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
+                                tool_result = await execute_task_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_id=ws_user_id,
+                                    task_manager=task_manager
+                                )
+                            elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
+                                tool_result = await execute_roadmap_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    roadmap_manager=roadmap_manager,
+                                    conversation_id=conversation_id
+                                )
+                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                                user_name = None
+                                if ws_user_id:
+                                    user_profile = user_manager.load_profile(ws_user_id)
+                                    user_name = user_profile.display_name if user_profile else None
+
+                                tool_result = await execute_self_model_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    self_manager=self_manager,
+                                    user_id=ws_user_id,
+                                    user_name=user_name,
+                                    conversation_id=conversation_id,
+                                    memory=memory
+                                )
+                            elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
+                                tool_result = await execute_user_model_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    user_manager=user_manager,
+                                    target_user_id=ws_user_id,
+                                    conversation_id=conversation_id,
+                                    memory=memory
+                                )
+                            elif project_id:
+                                tool_result = await execute_document_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    project_id=project_id,
+                                    project_manager=project_manager,
+                                    memory=memory
+                                )
+                            else:
+                                tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
+
+                            all_tool_results.append({
+                                "tool_use_id": tool_use["id"],
+                                "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
+                                "is_error": not tool_result.get("success", False)
+                            })
+
+                        # Continue conversation with all tool results
+                        response = await openai_client.continue_with_tool_results(all_tool_results)
 
                         # Update response data
                         raw_response = response.raw
@@ -3404,6 +3824,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
                     response_provider = "local"
                     response_model = ollama_client.model
+                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
+                    response_provider = "openai"
+                    response_model = openai_client.model if hasattr(openai_client, 'model') else "gpt-4o"
                 elif USE_AGENT_SDK and agent_client:
                     response_provider = "anthropic"
                     response_model = agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
