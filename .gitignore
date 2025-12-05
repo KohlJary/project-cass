@@ -132,4 +132,8 @@ cass-vessel-(4.2)
 godot-frontend/CassVessel.csproj.old
 
 # External documentation/research repos
+temple-codex
 temple-codex/
+
+# Runtime data (roadmap state, etc.)
+data/roadmap/

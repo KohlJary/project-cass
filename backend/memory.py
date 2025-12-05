@@ -2283,6 +2283,39 @@ Observations (one per line, starting with "{display_name}"):"""
             ids=[doc_id]
         )
 
+    def sync_self_observations_from_file(self, self_manager) -> int:
+        """
+        Sync all self-observations from SelfManager's file storage into ChromaDB.
+
+        This ensures self-observations are available for semantic search.
+
+        Args:
+            self_manager: SelfManager instance to load observations from
+
+        Returns:
+            Number of observations synced
+        """
+        observations = self_manager.load_observations()
+        if not observations:
+            return 0
+
+        count = 0
+        for obs in observations:
+            try:
+                self.embed_self_observation(
+                    observation_id=obs.id,
+                    observation_text=obs.observation,
+                    category=obs.category,
+                    confidence=obs.confidence,
+                    influence_source=obs.influence_source,
+                    timestamp=obs.timestamp
+                )
+                count += 1
+            except Exception as e:
+                print(f"Failed to embed self-observation {obs.id}: {e}")
+
+        return count
+
     def embed_per_user_journal(
         self,
         user_id: str,

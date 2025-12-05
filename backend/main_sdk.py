@@ -125,8 +125,10 @@ else:
     # Default: allow localhost for development
     ALLOWED_ORIGINS = [
         "http://localhost:3000",
+        "http://localhost:5173",  # Vite dev server (admin-frontend)
         "http://localhost:8080",
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
         "http://127.0.0.1:8080",
     ]
 
@@ -166,6 +168,11 @@ response_processor = ResponseProcessor()
 user_manager = UserManager(storage_dir=str(DATA_DIR / "users"))
 self_manager = SelfManager(storage_dir=str(DATA_DIR / "cass"))
 
+# Sync self-observations from file storage to ChromaDB for semantic search
+_synced_count = memory.sync_self_observations_from_file(self_manager)
+if _synced_count > 0:
+    print(f"  Synced {_synced_count} self-observations to ChromaDB")
+
 # Current user context (will support multi-user in future)
 current_user_id: Optional[str] = None
 
@@ -188,6 +195,11 @@ from routes.auth import router as auth_router, init_auth_routes
 auth_service = AuthService(user_manager)
 init_auth_routes(auth_service)
 app.include_router(auth_router)
+
+# Register admin routes
+from admin_api import router as admin_router, init_managers as init_admin_managers
+init_admin_managers(memory, conversation_manager, user_manager, self_manager)
+app.include_router(admin_router)
 
 # Client will be initialized on startup
 agent_client = None
