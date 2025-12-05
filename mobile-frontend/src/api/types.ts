@@ -209,3 +209,22 @@ export interface UserWithObservations {
   profile: FullUserProfile;
   observations: Observation[];
 }
+
+// === User Journal Types (Cass's journals about specific users) ===
+
+export interface UserJournalEntry {
+  id: string;
+  user_id: string;
+  journal_date: string;
+  content: string;
+  conversation_count: number;
+  topics_discussed?: string[];
+  relationship_insights?: string[];
+  timestamp: string;
+}
+
+export interface UserJournalsResponse {
+  user_id: string;
+  display_name: string;
+  journals: UserJournalEntry[];
+}

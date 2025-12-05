@@ -37,6 +37,7 @@ async def execute_user_model_tool(
         if tool_name == "reflect_on_user":
             user_id = tool_input.get("user_id") or target_user_id
             focus = tool_input.get("focus", "general")
+            print(f"[reflect_on_user] tool_input.user_id={tool_input.get('user_id')}, target_user_id={target_user_id}, resolved user_id={user_id}")
 
             if not user_id:
                 return {
