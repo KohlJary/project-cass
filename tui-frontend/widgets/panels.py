@@ -233,14 +233,18 @@ class ProjectPanel(Container):
         super().__init__(**kwargs)
         self.documents: List[Dict] = []
         self._refresh_task: Optional[asyncio.Task] = None
+        self._current_doc_content: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="project-panel-content"):
             with Vertical(id="doc-list-container"):
                 yield Label("Documents", id="doc-list-header")
                 yield ListView(id="doc-list")
-            with VerticalScroll(id="doc-viewer"):
-                yield Static("Select a document to view", id="doc-content", classes="doc-placeholder")
+            with Vertical(id="doc-viewer-container"):
+                with Horizontal(id="doc-viewer-actions", classes="hidden"):
+                    yield Button("Copy Text", id="copy-doc-btn", variant="primary")
+                with VerticalScroll(id="doc-viewer"):
+                    yield Static("Select a document to view", id="doc-content", classes="doc-placeholder")
 
     async def load_documents(self, http_client: httpx.AsyncClient, project_id: str):
         """Load documents for a project"""
@@ -341,6 +345,16 @@ class ProjectPanel(Container):
         created_by = doc.get("created_by", "unknown")
         markdown_content = doc.get("content", "")
 
+        # Store content for copy button
+        self._current_doc_content = markdown_content
+
+        # Show the actions bar
+        try:
+            actions = self.query_one("#doc-viewer-actions", Horizontal)
+            actions.remove_class("hidden")
+        except Exception:
+            pass
+
         # Create header
         header = Text()
         header.append(f"📄 {title}\n", style="bold cyan")
@@ -379,6 +393,22 @@ class ProjectPanel(Container):
         if self._refresh_task:
             self._refresh_task.cancel()
             self._refresh_task = None
+
+    @on(Button.Pressed, "#copy-doc-btn")
+    def on_copy_doc(self) -> None:
+        """Copy document content to clipboard"""
+        if not self._current_doc_content:
+            return
+
+        try:
+            import pyperclip
+            pyperclip.copy(self._current_doc_content)
+            # Brief visual feedback - change button text temporarily
+            btn = self.query_one("#copy-doc-btn", Button)
+            btn.label = "Copied!"
+            self.set_timer(1.5, lambda: setattr(btn, 'label', 'Copy Text'))
+        except Exception as e:
+            debug_log(f"Failed to copy to clipboard: {e}", "error")
 
 
 class UserPanel(Container):
