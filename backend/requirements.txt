@@ -34,5 +34,8 @@ python-jose[cryptography]>=3.3.0
 bcrypt>=4.0.0
 email-validator>=2.0.0
 
+# Rate limiting
+slowapi>=0.1.9
+
 # For watch/sensor integration (later)
 # bleak==0.21.1  # Bluetooth LE
