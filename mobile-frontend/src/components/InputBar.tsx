@@ -8,8 +8,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { colors } from '../theme/colors';
 
@@ -30,35 +28,30 @@ export function InputBar({ onSend, disabled }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
-      <View style={styles.container}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={setText}
-          placeholder="Message Cass..."
-          placeholderTextColor={colors.placeholder}
-          multiline
-          maxLength={4000}
-          editable={!disabled}
-          onSubmitEditing={handleSend}
-          blurOnSubmit={false}
-        />
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            (!text.trim() || disabled) && styles.sendButtonDisabled,
-          ]}
-          onPress={handleSend}
-          disabled={!text.trim() || disabled}
-        >
-          <SendIcon color={text.trim() && !disabled ? colors.accent : colors.textMuted} />
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+    <View style={styles.container}>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        placeholder="Message Cass..."
+        placeholderTextColor={colors.placeholder}
+        multiline
+        maxLength={4000}
+        editable={!disabled}
+        onSubmitEditing={handleSend}
+        blurOnSubmit={false}
+      />
+      <TouchableOpacity
+        style={[
+          styles.sendButton,
+          (!text.trim() || disabled) && styles.sendButtonDisabled,
+        ]}
+        onPress={handleSend}
+        disabled={!text.trim() || disabled}
+      >
+        <SendIcon color={text.trim() && !disabled ? colors.accent : colors.textMuted} />
+      </TouchableOpacity>
+    </View>
   );
 }
 

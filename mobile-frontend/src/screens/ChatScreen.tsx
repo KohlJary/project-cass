@@ -30,67 +30,21 @@ interface Props {
   userId: string;
   displayName: string;
   onLogout: () => void;
-  pendingOnboarding: boolean;
-  onOnboardingComplete: () => void;
 }
 
 export function ChatScreen({
   userId,
   displayName,
   onLogout,
-  pendingOnboarding,
-  onOnboardingComplete,
 }: Props) {
-  const { sendMessage, sendOnboardingIntro, reconnect, isConnected } = useWebSocket();
-  const { messages, addMessage, conversations, currentConversationId, setCurrentConversationId } = useChatStore();
+  const { sendMessage, isConnected } = useWebSocket();
+  const { messages, addMessage, conversations, currentConversationId } = useChatStore();
 
   // Get current conversation title
   const currentConversation = conversations.find(c => c.id === currentConversationId);
   const conversationTitle = currentConversation?.title;
   const [showConversations, setShowConversations] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [onboardingTriggered, setOnboardingTriggered] = useState(false);
-  const [awaitingConnection, setAwaitingConnection] = useState(false);
-
-  // Step 1: When pendingOnboarding, force a fresh WebSocket connection
-  useEffect(() => {
-    if (pendingOnboarding && !onboardingTriggered && !awaitingConnection) {
-      console.log('New user onboarding: forcing WebSocket reconnection');
-      setAwaitingConnection(true);
-      reconnect();
-    }
-  }, [pendingOnboarding, onboardingTriggered, awaitingConnection, reconnect]);
-
-  // Step 2: When connected (after reconnect), trigger the onboarding
-  useEffect(() => {
-    const triggerOnboarding = async () => {
-      if (pendingOnboarding && isConnected && awaitingConnection && !onboardingTriggered) {
-        console.log('WebSocket connected, triggering onboarding intro');
-        setOnboardingTriggered(true);
-        try {
-          // Create a new conversation for the intro (with user_id)
-          const conversation = await apiClient.createConversation('First Conversation', userId || undefined);
-          setCurrentConversationId(conversation.id);
-
-          // Small delay before sending to ensure conversation is set in state
-          await new Promise(resolve => setTimeout(resolve, 100));
-
-          // Send onboarding intro message
-          const sent = sendOnboardingIntro(conversation.id);
-          console.log('Onboarding intro sent:', sent, 'conversation:', conversation.id);
-
-          // Mark onboarding as complete
-          onOnboardingComplete();
-          setAwaitingConnection(false);
-        } catch (err) {
-          console.error('Failed to trigger onboarding:', err);
-          setOnboardingTriggered(false);
-          setAwaitingConnection(false);
-        }
-      }
-    };
-    triggerOnboarding();
-  }, [pendingOnboarding, isConnected, awaitingConnection, onboardingTriggered]);
 
   const handleSend = useCallback(
     (text: string) => {

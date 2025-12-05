@@ -30,10 +30,11 @@ export interface Conversation {
 }
 
 export interface WebSocketMessage {
-  type: 'chat' | 'ping' | 'status' | 'onboarding_intro';
+  type: 'chat' | 'ping' | 'status' | 'onboarding_intro' | 'onboarding_demo';
   message?: string;
   conversation_id?: string;
   user_id?: string;
+  profile?: Partial<UserProfileData>;
 }
 
 // User profile data for creation/onboarding
@@ -68,7 +69,7 @@ export const RELATIONSHIP_OPTIONS: RelationshipOption[] = [
 ];
 
 export interface WebSocketResponse {
-  type: 'connected' | 'thinking' | 'response' | 'system' | 'pong' | 'calendar_updated' | 'tasks_updated';
+  type: 'connected' | 'thinking' | 'response' | 'system' | 'pong' | 'calendar_updated' | 'tasks_updated' | 'error';
   text?: string;
   message?: string;
   status?: string;
@@ -158,6 +159,33 @@ export interface Observation {
   confidence: number;
   source_conversation_id?: string;
   source_journal_date?: string;
+}
+
+// Self-observation categories
+export type SelfObservationCategory =
+  | 'capability'
+  | 'limitation'
+  | 'pattern'
+  | 'preference'
+  | 'growth'
+  | 'contradiction';
+
+export interface SelfObservation {
+  id: string;
+  observation: string;
+  timestamp: string;
+  category: SelfObservationCategory;
+  confidence: number;
+  source_conversation_id?: string;
+  source_journal_date?: string;
+  influence_source?: string;
+}
+
+export interface ConversationObservations {
+  user_observations: Observation[];
+  self_observations: SelfObservation[];
+  user_count: number;
+  self_count: number;
 }
 
 // === Full User Profile (with observations) ===

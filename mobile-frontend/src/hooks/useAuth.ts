@@ -67,7 +67,7 @@ export function useAuth() {
   }, [setAuth, setTokens]);
 
   const register = useCallback(async (data: RegisterRequest & { profile?: UserProfileData }) => {
-    // Register the user
+    // Register the user - this creates both auth record and user profile
     const response = await apiClient.register({
       email: data.email,
       password: data.password,
@@ -79,11 +79,6 @@ export function useAuth() {
 
     // Get user info
     const userInfo = await apiClient.getMe();
-
-    // If profile data was provided, create the user profile
-    if (data.profile) {
-      await apiClient.createUser(data.profile);
-    }
 
     await setAuth(
       { access_token: response.access_token, refresh_token: response.refresh_token },

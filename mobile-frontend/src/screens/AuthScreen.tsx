@@ -1,5 +1,8 @@
 /**
  * Authentication screen with login/register tabs
+ *
+ * Note: After registration, user goes through OnboardingScreen (4 phases)
+ * before reaching the main app. This screen only handles auth.
  */
 
 import React, { useState } from 'react';
@@ -16,10 +19,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
-import { OnboardingForm } from '../components/OnboardingForm';
 import { UserProfileData } from '../api/types';
 
-type AuthMode = 'login' | 'register' | 'onboarding';
+type AuthMode = 'login' | 'register';
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<void>;
@@ -42,42 +44,11 @@ export function AuthScreen({ onLogin, onRegister, isLoading, error }: Props) {
     await onLogin(email.trim(), password);
   };
 
-  const handleRegisterContinue = () => {
+  const handleRegister = async () => {
     if (!isRegisterValid) return;
-    // Move to onboarding form to collect profile data
-    setMode('onboarding');
+    // Register with minimal profile - detailed info collected in OnboardingScreen
+    await onRegister(email.trim(), password, displayName.trim());
   };
-
-  const handleOnboardingSubmit = async (profile: UserProfileData) => {
-    await onRegister(email.trim(), password, displayName.trim(), profile);
-  };
-
-  const handleOnboardingCancel = () => {
-    setMode('register');
-  };
-
-  // Show onboarding form after registration info is collected
-  if (mode === 'onboarding') {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <KeyboardAvoidingView
-          style={styles.keyboardView}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          {error && (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-          <OnboardingForm
-            onSubmit={handleOnboardingSubmit}
-            onCancel={handleOnboardingCancel}
-            isSubmitting={isLoading}
-          />
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -178,10 +149,14 @@ export function AuthScreen({ onLogin, onRegister, isLoading, error }: Props) {
             ) : (
               <TouchableOpacity
                 style={[styles.submitButton, (!isRegisterValid || isLoading) && styles.submitButtonDisabled]}
-                onPress={handleRegisterContinue}
+                onPress={handleRegister}
                 disabled={!isRegisterValid || isLoading}
               >
-                <Text style={styles.submitButtonText}>Continue</Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={colors.textPrimary} />
+                ) : (
+                  <Text style={styles.submitButtonText}>Create Account</Text>
+                )}
               </TouchableOpacity>
             )}
           </View>
