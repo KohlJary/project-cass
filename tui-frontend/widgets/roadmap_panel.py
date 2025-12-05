@@ -45,15 +45,7 @@ class MilestoneSection(Container):
             links = item.get("links", [])
             for link in links:
                 if link.get("link_type") == "child":
-                    # This item IS a child; the target is the parent
-                    parent_id = link.get("target_id")
-                    if parent_id:
-                        child_ids.add(item["id"])
-                        if parent_id not in parent_children:
-                            parent_children[parent_id] = []
-                        parent_children[parent_id].append(item)
-                elif link.get("link_type") == "parent":
-                    # This item IS a parent; the target is a child
+                    # This item HAS a child; the target is the child
                     child_id = link.get("target_id")
                     if child_id:
                         child_ids.add(child_id)
@@ -62,6 +54,15 @@ class MilestoneSection(Container):
                         if child_id in item_lookup:
                             if item_lookup[child_id] not in parent_children[item["id"]]:
                                 parent_children[item["id"]].append(item_lookup[child_id])
+                elif link.get("link_type") == "parent":
+                    # This item HAS a parent; the target is the parent
+                    parent_id = link.get("target_id")
+                    if parent_id:
+                        child_ids.add(item["id"])
+                        if parent_id not in parent_children:
+                            parent_children[parent_id] = []
+                        if item not in parent_children[parent_id]:
+                            parent_children[parent_id].append(item)
 
         # Count visible (top-level) items
         visible_count = sum(1 for item in self.items if item["id"] not in child_ids)
@@ -121,12 +122,14 @@ class RoadmapItem(Static):
     """A single roadmap work item display"""
 
     def __init__(self, item: Dict, indent: int = 0, **kwargs):
-        super().__init__(**kwargs)
         self.item_data = item
         self.item_id = item.get("id", "")
         self.indent = indent
+        # Build the renderable text for this Static
+        super().__init__(self._build_text(), **kwargs)
 
-    def compose(self) -> ComposeResult:
+    def _build_text(self) -> Text:
+        """Build the Rich Text for this item"""
         item = self.item_data
 
         # Priority styling
@@ -155,7 +158,7 @@ class RoadmapItem(Static):
 
         # Add indentation for child items
         if self.indent > 0:
-            text.append("  " * self.indent + "└─ ", style="dim")
+            text.append("  └─ ", style="dim")
 
         text.append(f"[{priority}] ", style=pri_style)
 
@@ -165,28 +168,28 @@ class RoadmapItem(Static):
         elif has_links:
             text.append("[~] ", style="dim cyan")
 
-        text.append(f"#{self.item_id} ", style="dim cyan")
+        text.append(f"#{self.item_id[:8]} ", style="dim cyan")
         text.append(f"{title}", style="bold" if status == "in_progress" else "")
         if assigned:
             text.append(f" -> {assigned}", style="dim italic")
-        text.append(f"\n" + "  " * (self.indent + 1) + f"      {status}", style="dim")
+        text.append(f"\n      {status}", style="dim")
 
-        yield Static(text)
+        return text
 
-    def on_click(self) -> None:
+    def on_click(self, event) -> None:
         """Emit selection event when clicked"""
+        event.stop()  # Prevent parent from also handling click
         self.post_message(RoadmapPanel.ItemSelected(self.item_id))
 
 
 class ExpandableRoadmapItem(Container):
-    """A roadmap item that can be expanded to show children"""
+    """A roadmap item that can be expanded to show children using Collapsible"""
 
     def __init__(self, item: Dict, child_items: List[Dict], **kwargs):
         super().__init__(**kwargs)
         self.item_data = item
         self.item_id = item.get("id", "")
         self.child_items = child_items
-        self.expanded = False
 
     def compose(self) -> ComposeResult:
         item = self.item_data
@@ -204,96 +207,34 @@ class ExpandableRoadmapItem(Container):
         # Status indicator
         status = item.get("status", "backlog")
 
-        # Build display text
+        # Build title text
         title = item.get("title", "Untitled")
         assigned = item.get("assigned_to", "")
 
         # Check for links/dependencies
         links = item.get("links", [])
         has_deps = any(l.get("link_type") == "depends_on" for l in links)
-        has_links = len(links) > 0
 
-        text = Text()
-
-        # Expand/collapse indicator
-        expand_icon = "▼ " if self.expanded else "▶ "
-        text.append(expand_icon, style="bold cyan")
-
-        text.append(f"[{priority}] ", style=pri_style)
-
-        # Show blocked indicator if has dependencies
+        # Build the collapsible title
+        title_parts = []
+        title_parts.append(f"[{priority}]")
         if has_deps:
-            text.append("[!] ", style="bold red")
-        elif has_links:
-            text.append("[~] ", style="dim cyan")
-
-        text.append(f"#{self.item_id} ", style="dim cyan")
-        text.append(f"{title}", style="bold" if status == "in_progress" else "")
-        text.append(f" ({len(self.child_items)})", style="dim magenta")
+            title_parts.append("[!]")
+        title_parts.append(f"#{self.item_id[:8]}")
+        title_parts.append(title)
+        title_parts.append(f"({len(self.child_items)})")
         if assigned:
-            text.append(f" -> {assigned}", style="dim italic")
-        text.append(f"\n        {status}", style="dim")
+            title_parts.append(f"-> {assigned}")
 
-        yield Static(text, id=f"parent-{self.item_id}", classes="parent-item")
+        collapsible_title = " ".join(title_parts)
 
-        # Children container (hidden by default)
-        with Container(id=f"children-{self.item_id}", classes="children-container hidden"):
+        with Collapsible(title=collapsible_title, collapsed=True, classes="expandable-collapsible"):
+            yield Static(f"        {status}", classes="parent-status")
             for child in self.child_items:
                 yield RoadmapItem(child, indent=1, classes="roadmap-item child-item")
 
     def on_click(self, event) -> None:
-        """Toggle expansion or select item"""
-        # Check if click was on the expand area (first part of the item)
-        self.expanded = not self.expanded
-
-        # Update expand icon
-        try:
-            parent_static = self.query_one(f"#parent-{self.item_id}", Static)
-            item = self.item_data
-            priority = item.get("priority", "P2")
-            priority_styles = {
-                "P0": "bold red",
-                "P1": "bold yellow",
-                "P2": "white",
-                "P3": "dim",
-            }
-            pri_style = priority_styles.get(priority, "white")
-            status = item.get("status", "backlog")
-            title = item.get("title", "Untitled")
-            assigned = item.get("assigned_to", "")
-            links = item.get("links", [])
-            has_deps = any(l.get("link_type") == "depends_on" for l in links)
-            has_links = len(links) > 0
-
-            text = Text()
-            expand_icon = "▼ " if self.expanded else "▶ "
-            text.append(expand_icon, style="bold cyan")
-            text.append(f"[{priority}] ", style=pri_style)
-            if has_deps:
-                text.append("[!] ", style="bold red")
-            elif has_links:
-                text.append("[~] ", style="dim cyan")
-            text.append(f"#{self.item_id} ", style="dim cyan")
-            text.append(f"{title}", style="bold" if status == "in_progress" else "")
-            text.append(f" ({len(self.child_items)})", style="dim magenta")
-            if assigned:
-                text.append(f" -> {assigned}", style="dim italic")
-            text.append(f"\n        {status}", style="dim")
-            parent_static.update(text)
-        except Exception:
-            pass
-
-        # Toggle children visibility
-        try:
-            children_container = self.query_one(f"#children-{self.item_id}", Container)
-            if self.expanded:
-                children_container.remove_class("hidden")
-            else:
-                children_container.add_class("hidden")
-        except Exception:
-            pass
-
-        # Also emit selection for the parent item
+        """Emit selection for the parent item"""
         self.post_message(RoadmapPanel.ItemSelected(self.item_id))
 
 
@@ -496,8 +437,8 @@ class RoadmapPanel(Container):
         item_lookup = {item["id"]: item for item in items}
 
         # Find parent-child relationships
-        # An item with "child" link to X means "I am a child of X"
-        # An item with "parent" link to X means "I am the parent of X" (X is my child)
+        # An item with "child" link to X means "I have X as a child"
+        # An item with "parent" link to X means "X is my parent"
         child_ids = set()
         parent_children: Dict[str, List[Dict]] = {}
 
@@ -505,15 +446,7 @@ class RoadmapPanel(Container):
             links = item.get("links", [])
             for link in links:
                 if link.get("link_type") == "child":
-                    # This item IS a child; the target is the parent
-                    parent_id = link.get("target_id")
-                    if parent_id:
-                        child_ids.add(item["id"])
-                        if parent_id not in parent_children:
-                            parent_children[parent_id] = []
-                        parent_children[parent_id].append(item)
-                elif link.get("link_type") == "parent":
-                    # This item IS a parent; the target is a child
+                    # This item HAS a child; the target is the child
                     child_id = link.get("target_id")
                     if child_id:
                         child_ids.add(child_id)
@@ -523,6 +456,15 @@ class RoadmapPanel(Container):
                             # Avoid duplicates
                             if item_lookup[child_id] not in parent_children[item["id"]]:
                                 parent_children[item["id"]].append(item_lookup[child_id])
+                elif link.get("link_type") == "parent":
+                    # This item HAS a parent; the target is the parent
+                    parent_id = link.get("target_id")
+                    if parent_id:
+                        child_ids.add(item["id"])
+                        if parent_id not in parent_children:
+                            parent_children[parent_id] = []
+                        if item not in parent_children[parent_id]:
+                            parent_children[parent_id].append(item)
 
         # Render items: parents with children as expandable, others as regular
         for item in items:
