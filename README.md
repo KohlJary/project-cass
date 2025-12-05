@@ -55,6 +55,22 @@ cp .env.template .env
 python tui.py
 ```
 
+### Admin Dashboard Setup
+
+```bash
+cd cass-vessel/admin-frontend
+npm install
+npm run build
+
+# Bootstrap first admin user
+cd ../backend
+source venv/bin/activate
+python bootstrap_admin.py
+# Follow prompts to select a user and set password
+```
+
+The admin dashboard is served at `http://localhost:8000/admin/` (requires the backend to be running with static file serving configured) or run in dev mode with `npm run dev`.
+
 ### Test the API
 
 ```bash
@@ -199,6 +215,7 @@ cass-vessel/
 │   ├── memory.py         # ChromaDB vector store, journaling
 │   ├── conversations.py  # Conversation persistence
 │   ├── users.py          # User profiles & observations
+│   ├── admin_api.py      # Admin dashboard API with JWT auth
 │   ├── tts.py            # Piper neural TTS
 │   ├── gestures.py       # Animation trigger parser
 │   ├── config.py         # Configuration
@@ -207,6 +224,9 @@ cass-vessel/
 │   ├── tui.py            # Textual TUI application
 │   ├── widgets/          # UI components
 │   └── screens/          # Modal screens
+├── admin-frontend/       # React admin dashboard
+│   ├── src/pages/        # Dashboard, Memory, Users, Journals, etc.
+│   └── src/context/      # Auth context
 ├── mobile-frontend/      # React Native app (in development)
 ├── godot-frontend/       # 3D avatar with hologram shader (in development)
 └── data/
