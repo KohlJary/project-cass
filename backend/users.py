@@ -5,6 +5,8 @@ Supports multi-user with UUID-based storage.
 """
 import json
 import os
+import hashlib
+import secrets
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict, field
@@ -84,6 +86,10 @@ class UserProfile:
     values: List[str] = field(default_factory=list)
     notes: str = ""  # Freeform notes
 
+    # Admin access
+    is_admin: bool = False
+    password_hash: Optional[str] = None  # For admin login
+
     def to_dict(self) -> Dict:
         return {
             "user_id": self.user_id,
@@ -95,7 +101,9 @@ class UserProfile:
             "communication": self.communication,
             "projects": self.projects,
             "values": self.values,
-            "notes": self.notes
+            "notes": self.notes,
+            "is_admin": self.is_admin,
+            # Don't include password_hash in to_dict for security
         }
 
     @classmethod
@@ -110,7 +118,9 @@ class UserProfile:
             communication=data.get("communication", {}),
             projects=data.get("projects", []),
             values=data.get("values", []),
-            notes=data.get("notes", "")
+            notes=data.get("notes", ""),
+            is_admin=data.get("is_admin", False),
+            password_hash=data.get("password_hash")
         )
 
     def to_yaml(self) -> str:
@@ -251,10 +261,13 @@ class UserManager:
         return profile
 
     def _save_profile(self, profile: UserProfile):
-        """Save user profile as YAML"""
+        """Save user profile as YAML (includes sensitive fields)"""
         path = self._get_profile_path(profile.user_id)
+        # Include all fields including password_hash for storage
+        data = profile.to_dict()
+        data["password_hash"] = profile.password_hash
         with open(path, 'w') as f:
-            f.write(profile.to_yaml())
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
     def _save_observations(self, user_id: str, observations: List[UserObservation]):
         """Save observations as JSON"""
@@ -677,6 +690,69 @@ class UserManager:
             })
 
         return documents
+
+    # ============== Admin Authentication ==============
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """Hash a password using SHA-256 with salt"""
+        salt = secrets.token_hex(16)
+        pw_hash = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+        return f"{salt}:{pw_hash}"
+
+    @staticmethod
+    def verify_password(password: str, password_hash: str) -> bool:
+        """Verify a password against its hash"""
+        if not password_hash or ":" not in password_hash:
+            return False
+        salt, stored_hash = password_hash.split(":", 1)
+        pw_hash = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+        return pw_hash == stored_hash
+
+    def set_admin_password(self, user_id: str, password: str) -> bool:
+        """Set admin password for a user"""
+        profile = self.load_profile(user_id)
+        if not profile:
+            return False
+
+        profile.password_hash = self.hash_password(password)
+        profile.updated_at = datetime.now().isoformat()
+        self._save_profile(profile)
+        return True
+
+    def set_admin_status(self, user_id: str, is_admin: bool) -> bool:
+        """Set admin status for a user"""
+        profile = self.load_profile(user_id)
+        if not profile:
+            return False
+
+        profile.is_admin = is_admin
+        profile.updated_at = datetime.now().isoformat()
+        self._save_profile(profile)
+        return True
+
+    def authenticate_admin(self, display_name: str, password: str) -> Optional[UserProfile]:
+        """Authenticate an admin user by display name and password"""
+        profile = self.get_user_by_name(display_name)
+        if not profile:
+            return None
+        if not profile.is_admin:
+            return None
+        if not profile.password_hash:
+            return None
+        if not self.verify_password(password, profile.password_hash):
+            return None
+        return profile
+
+    def get_admin_users(self) -> List[UserProfile]:
+        """Get all users with admin access"""
+        all_users = self.list_users()
+        admins = []
+        for user_info in all_users:
+            profile = self.load_profile(user_info["user_id"])
+            if profile and profile.is_admin:
+                admins.append(profile)
+        return admins
 
 
 if __name__ == "__main__":

@@ -1,0 +1,386 @@
+/* Shared page styles */
+.page {
+  max-width: 1200px;
+}
+
+.page-header {
+  margin-bottom: 1.5rem;
+}
+
+.page-header h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0 0 0.25rem;
+}
+
+.page-header .subtitle {
+  color: #666;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* Content card */
+.content-card {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.content-card h2 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+/* States */
+.loading-state,
+.error-state,
+.empty-state {
+  padding: 2rem;
+  text-align: center;
+  color: #666;
+  font-size: 0.875rem;
+}
+
+.error-state {
+  color: #f07178;
+}
+
+/* User list */
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border-radius: 6px;
+}
+
+.user-avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1f1f2e;
+  border-radius: 50%;
+  color: #c792ea;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.user-info {
+  flex: 1;
+}
+
+.user-name {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.user-meta {
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.view-btn {
+  padding: 0.375rem 0.75rem;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #888;
+  font-size: 0.75rem;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.view-btn:hover {
+  border-color: #c792ea40;
+  color: #c792ea;
+}
+
+/* Journals page */
+.journals-layout,
+.conversations-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 1rem;
+}
+
+.journal-entries,
+.conversation-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.journal-entry,
+.conversation-entry {
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.journal-entry:hover,
+.conversation-entry:hover {
+  background: #1f1f2e;
+}
+
+.journal-entry.selected,
+.conversation-entry.selected {
+  background: #1f1f2e;
+  border-left: 2px solid #c792ea;
+}
+
+.journal-date {
+  color: #89ddff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.journal-preview {
+  color: #666;
+  font-size: 0.75rem;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-title {
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.conv-meta {
+  display: flex;
+  gap: 1rem;
+  color: #666;
+  font-size: 0.75rem;
+}
+
+/* Journal reader */
+.journal-content {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.journal-header-detail {
+  margin-bottom: 1rem;
+}
+
+.date-badge {
+  background: #1f1f2e;
+  color: #c792ea;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+}
+
+.journal-text {
+  color: #ccc;
+  line-height: 1.7;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+/* Messages */
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.message {
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: #1a1a1a;
+}
+
+.message.assistant {
+  border-left: 2px solid #c792ea;
+}
+
+.message.user {
+  border-left: 2px solid #89ddff;
+}
+
+.message-role {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.message-content {
+  color: #ccc;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Retrieval page */
+.retrieval-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.retrieval-input textarea {
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.retrieval-input textarea:focus {
+  outline: none;
+  border-color: #c792ea40;
+}
+
+.retrieval-input button {
+  align-self: flex-start;
+  padding: 0.625rem 1.25rem;
+  background: #1f1f2e;
+  border: 1px solid #c792ea40;
+  border-radius: 6px;
+  color: #c792ea;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.retrieval-input button:hover:not(:disabled) {
+  background: #2a2a3e;
+}
+
+.retrieval-input button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.retrieval-results h3 {
+  color: #888;
+  font-size: 0.875rem;
+  margin: 0 0 1rem;
+}
+
+.retrieval-result {
+  background: #1a1a1a;
+  border-radius: 6px;
+  padding: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.result-type {
+  color: #89ddff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.result-score {
+  color: #c3e88d;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.result-content {
+  color: #ccc;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Self-model page */
+.self-model-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.self-model-grid .content-card:first-child {
+  grid-column: 1 / -1;
+}
+
+.self-model-content pre {
+  color: #888;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.growth-edges-list,
+.questions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.growth-edge,
+.open-question {
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border-radius: 6px;
+}
+
+.edge-title,
+.question-text {
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.edge-description {
+  color: #888;
+  font-size: 0.8125rem;
+}
+
+.edge-status {
+  color: #c3e88d;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.provisional-answer {
+  color: #666;
+  font-size: 0.8125rem;
+  margin-top: 0.5rem;
+  font-style: italic;
+}
