@@ -41,6 +41,15 @@ class ItemType(str, Enum):
     DOCUMENTATION = "documentation"
 
 
+class LinkType(str, Enum):
+    """Types of links between work items"""
+    RELATED = "related"        # Conceptually related items
+    DEPENDS_ON = "depends_on"  # This item cannot start until target is done
+    BLOCKS = "blocks"          # This item blocks target from starting
+    PARENT = "parent"          # This item is a parent/epic of target
+    CHILD = "child"            # This item is a child/subtask of target
+
+
 # Type icons for display
 ITEM_TYPE_ICONS = {
     ItemType.FEATURE: "sparkles",
@@ -50,6 +59,20 @@ ITEM_TYPE_ICONS = {
     ItemType.RESEARCH: "search",
     ItemType.DOCUMENTATION: "book",
 }
+
+
+@dataclass
+class ItemLink:
+    """A link between two work items"""
+    link_type: str  # LinkType value
+    target_id: str  # ID of the linked item
+
+    def to_dict(self) -> Dict:
+        return {"link_type": self.link_type, "target_id": self.target_id}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'ItemLink':
+        return cls(link_type=data["link_type"], target_id=data["target_id"])
 
 
 @dataclass
@@ -69,6 +92,7 @@ class WorkItem:
     milestone_id: Optional[str] = None  # Optional milestone grouping
     source_conversation_id: Optional[str] = None  # Conversation that created it
     created_by: str = "user"  # "cass", "daedalus", or "user"
+    links: List[Dict] = field(default_factory=list)  # List of ItemLink dicts
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -87,6 +111,7 @@ class WorkItem:
             "milestone_id": self.milestone_id,
             "source_conversation_id": self.source_conversation_id,
             "created_by": self.created_by,
+            "links": self.links,
         }
 
     @classmethod
@@ -107,7 +132,18 @@ class WorkItem:
             milestone_id=data.get("milestone_id"),
             source_conversation_id=data.get("source_conversation_id"),
             created_by=data.get("created_by", "user"),
+            links=data.get("links", []),
         )
+
+    def get_dependencies(self) -> List[str]:
+        """Get IDs of items this item depends on"""
+        return [link["target_id"] for link in self.links
+                if link.get("link_type") == LinkType.DEPENDS_ON.value]
+
+    def get_blockers(self) -> List[str]:
+        """Get IDs of items that block this item (reverse of blocks relationship)"""
+        return [link["target_id"] for link in self.links
+                if link.get("link_type") == LinkType.BLOCKS.value]
 
     def urgency_score(self) -> float:
         """
@@ -256,6 +292,7 @@ class RoadmapManager:
             "assigned_to": item.assigned_to,
             "project_id": item.project_id,
             "milestone_id": item.milestone_id,
+            "links": item.links,
             "created_at": item.created_at,
             "updated_at": item.updated_at,
             "urgency": item.urgency_score(),
@@ -339,6 +376,7 @@ class RoadmapManager:
                 entry["assigned_to"] = item.assigned_to
                 entry["project_id"] = item.project_id
                 entry["milestone_id"] = item.milestone_id
+                entry["links"] = item.links
                 entry["updated_at"] = item.updated_at
                 entry["urgency"] = item.urgency_score()
                 break
@@ -426,11 +464,14 @@ class RoadmapManager:
 
         return item
 
-    def advance_status(self, item_id: str) -> Optional[WorkItem]:
-        """Move item to next status in workflow"""
+    def advance_status(self, item_id: str, force: bool = False) -> Dict:
+        """
+        Move item to next status in workflow.
+        Returns dict with item data and optional dependency warning.
+        """
         item = self.load_item(item_id)
         if not item:
-            return None
+            return {"error": "Item not found"}
 
         status_order = [
             ItemStatus.BACKLOG.value,
@@ -440,17 +481,31 @@ class RoadmapManager:
             ItemStatus.DONE.value,
         ]
 
+        result = {"item": None, "warning": None}
+
         try:
             current_idx = status_order.index(item.status)
             if current_idx < len(status_order) - 1:
+                # Check dependencies when advancing past backlog
+                if current_idx >= 1:  # Moving to in_progress or beyond
+                    dep_check = self.check_dependencies(item_id)
+                    if dep_check.get("has_unmet_dependencies") and not force:
+                        unmet = dep_check["unmet_dependencies"]
+                        result["warning"] = {
+                            "message": "Item has unmet dependencies",
+                            "unmet_dependencies": unmet,
+                        }
+                        # Still advance but include warning
+
                 item.status = status_order[current_idx + 1]
                 item.updated_at = datetime.now().isoformat()
                 self._save_item(item)
                 self._update_index_entry(item)
+                result["item"] = item
         except ValueError:
-            pass
+            result["error"] = "Invalid status"
 
-        return item
+        return result
 
     # === Milestone Operations ===
 
@@ -545,6 +600,175 @@ class RoadmapManager:
             "done_items": done,
             "progress_pct": (done / total * 100) if total > 0 else 0,
             "status_breakdown": status_counts,
+        }
+
+    # === Link Operations ===
+
+    def add_link(
+        self,
+        source_id: str,
+        target_id: str,
+        link_type: str,
+    ) -> Optional[WorkItem]:
+        """
+        Add a link between two items.
+        For bidirectional relationships (parent/child, blocks/depends_on),
+        this also creates the inverse link on the target.
+        """
+        source = self.load_item(source_id)
+        target = self.load_item(target_id)
+
+        if not source or not target:
+            return None
+
+        # Check if link already exists
+        for link in source.links:
+            if link["target_id"] == target_id and link["link_type"] == link_type:
+                return source  # Already exists
+
+        # Add the link
+        source.links.append({"link_type": link_type, "target_id": target_id})
+        source.updated_at = datetime.now().isoformat()
+        self._save_item(source)
+        self._update_index_entry(source)
+
+        # Add inverse link for bidirectional relationships
+        inverse_type = None
+        if link_type == LinkType.DEPENDS_ON.value:
+            inverse_type = LinkType.BLOCKS.value
+        elif link_type == LinkType.BLOCKS.value:
+            inverse_type = LinkType.DEPENDS_ON.value
+        elif link_type == LinkType.PARENT.value:
+            inverse_type = LinkType.CHILD.value
+        elif link_type == LinkType.CHILD.value:
+            inverse_type = LinkType.PARENT.value
+
+        if inverse_type:
+            # Check if inverse already exists
+            exists = any(
+                link["target_id"] == source_id and link["link_type"] == inverse_type
+                for link in target.links
+            )
+            if not exists:
+                target.links.append({"link_type": inverse_type, "target_id": source_id})
+                target.updated_at = datetime.now().isoformat()
+                self._save_item(target)
+                self._update_index_entry(target)
+
+        return source
+
+    def remove_link(
+        self,
+        source_id: str,
+        target_id: str,
+        link_type: str,
+    ) -> Optional[WorkItem]:
+        """
+        Remove a link between two items.
+        Also removes the inverse link if applicable.
+        """
+        source = self.load_item(source_id)
+        if not source:
+            return None
+
+        # Remove the link
+        source.links = [
+            link for link in source.links
+            if not (link["target_id"] == target_id and link["link_type"] == link_type)
+        ]
+        source.updated_at = datetime.now().isoformat()
+        self._save_item(source)
+        self._update_index_entry(source)
+
+        # Remove inverse link
+        inverse_type = None
+        if link_type == LinkType.DEPENDS_ON.value:
+            inverse_type = LinkType.BLOCKS.value
+        elif link_type == LinkType.BLOCKS.value:
+            inverse_type = LinkType.DEPENDS_ON.value
+        elif link_type == LinkType.PARENT.value:
+            inverse_type = LinkType.CHILD.value
+        elif link_type == LinkType.CHILD.value:
+            inverse_type = LinkType.PARENT.value
+
+        if inverse_type:
+            target = self.load_item(target_id)
+            if target:
+                target.links = [
+                    link for link in target.links
+                    if not (link["target_id"] == source_id and link["link_type"] == inverse_type)
+                ]
+                target.updated_at = datetime.now().isoformat()
+                self._save_item(target)
+                self._update_index_entry(target)
+
+        return source
+
+    def get_item_links(self, item_id: str) -> Dict:
+        """
+        Get all links for an item, with resolved titles.
+        Returns both outgoing links and computed blocking status.
+        """
+        item = self.load_item(item_id)
+        if not item:
+            return {"error": "Item not found"}
+
+        # Resolve link targets
+        resolved_links = []
+        for link in item.links:
+            target = self.load_item(link["target_id"])
+            resolved_links.append({
+                "link_type": link["link_type"],
+                "target_id": link["target_id"],
+                "target_title": target.title if target else "Unknown",
+                "target_status": target.status if target else "unknown",
+            })
+
+        # Check if blocked by unmet dependencies
+        is_blocked = False
+        blocking_items = []
+        for link in item.links:
+            if link["link_type"] == LinkType.DEPENDS_ON.value:
+                dep = self.load_item(link["target_id"])
+                if dep and dep.status != ItemStatus.DONE.value:
+                    is_blocked = True
+                    blocking_items.append({
+                        "id": dep.id,
+                        "title": dep.title,
+                        "status": dep.status,
+                    })
+
+        return {
+            "item_id": item_id,
+            "links": resolved_links,
+            "is_blocked": is_blocked,
+            "blocking_items": blocking_items,
+        }
+
+    def check_dependencies(self, item_id: str) -> Dict:
+        """
+        Check if an item has unmet dependencies.
+        Returns blocking status and list of unmet dependencies.
+        """
+        item = self.load_item(item_id)
+        if not item:
+            return {"error": "Item not found"}
+
+        unmet = []
+        for link in item.links:
+            if link["link_type"] == LinkType.DEPENDS_ON.value:
+                dep = self.load_item(link["target_id"])
+                if dep and dep.status != ItemStatus.DONE.value:
+                    unmet.append({
+                        "id": dep.id,
+                        "title": dep.title,
+                        "status": dep.status,
+                    })
+
+        return {
+            "item_id": item_id,
+            "has_unmet_dependencies": len(unmet) > 0,
+            "unmet_dependencies": unmet,
         }
 
 

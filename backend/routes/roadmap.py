@@ -63,6 +63,16 @@ class UpdateMilestoneRequest(BaseModel):
     status: Optional[str] = None
 
 
+class AddLinkRequest(BaseModel):
+    target_id: str
+    link_type: str  # related, depends_on, blocks, parent, child
+
+
+class RemoveLinkRequest(BaseModel):
+    target_id: str
+    link_type: str
+
+
 # === Work Item Endpoints ===
 
 @router.get("/items")
@@ -162,12 +172,64 @@ async def complete_item(item_id: str):
 
 
 @router.post("/items/{item_id}/advance")
-async def advance_item(item_id: str):
+async def advance_item(item_id: str, force: bool = False):
     """Move item to next status in workflow"""
-    item = _roadmap_manager.advance_status(item_id)
+    result = _roadmap_manager.advance_status(item_id, force=force)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+
+    response = {}
+    if result.get("item"):
+        response["item"] = result["item"].to_dict()
+    if result.get("warning"):
+        response["warning"] = result["warning"]
+    return response
+
+
+# === Link Endpoints ===
+
+@router.post("/items/{item_id}/links")
+async def add_link(item_id: str, request: AddLinkRequest):
+    """Add a link to another item"""
+    item = _roadmap_manager.add_link(
+        source_id=item_id,
+        target_id=request.target_id,
+        link_type=request.link_type,
+    )
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"item": item.to_dict()}
+
+
+@router.delete("/items/{item_id}/links")
+async def remove_link(item_id: str, request: RemoveLinkRequest):
+    """Remove a link to another item"""
+    item = _roadmap_manager.remove_link(
+        source_id=item_id,
+        target_id=request.target_id,
+        link_type=request.link_type,
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"item": item.to_dict()}
+
+
+@router.get("/items/{item_id}/links")
+async def get_links(item_id: str):
+    """Get all links for an item with resolved details"""
+    result = _roadmap_manager.get_item_links(item_id)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.get("/items/{item_id}/dependencies")
+async def check_dependencies(item_id: str):
+    """Check if an item has unmet dependencies"""
+    result = _roadmap_manager.check_dependencies(item_id)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 
 # === Milestone Endpoints ===
