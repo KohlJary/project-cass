@@ -44,7 +44,7 @@ from textual.message import Message
 from rich.text import Text
 from rich.console import Group
 
-from config import API_BASE_URL
+from config import HTTP_BASE_URL
 
 
 # Forward declaration for debug_log - will be set by main module
@@ -545,6 +545,10 @@ class GitPanel(Container):
             super().__init__()
             self.message = message
 
+    class ViewDiffRequested(Message):
+        """Posted when diff viewer is requested"""
+        pass
+
     def compose(self) -> ComposeResult:
         yield Label("Git", classes="panel-title")
         yield VerticalScroll(
@@ -556,6 +560,7 @@ class GitPanel(Container):
         with Container(classes="git-controls"):
             yield Button("Stage All", id="stage-all-btn", classes="control-btn")
             yield Button("Unstage", id="unstage-all-btn", classes="control-btn")
+            yield Button("Diff", id="view-diff-btn", classes="control-btn")
             yield Button("Refresh", id="refresh-git-btn", classes="control-btn")
         # Commit section
         with Container(id="git-commit-section", classes="git-commit-section"):
@@ -585,7 +590,7 @@ class GitPanel(Container):
             return
 
         try:
-            async with httpx.AsyncClient(base_url=API_BASE_URL, timeout=10.0) as client:
+            async with httpx.AsyncClient(base_url=HTTP_BASE_URL, timeout=10.0) as client:
                 # Fetch status and log in parallel
                 status_task = client.get("/git/status", params={"repo_path": self.working_dir})
                 log_task = client.get("/git/log", params={"repo_path": self.working_dir, "count": 5})
@@ -842,3 +847,8 @@ class GitPanel(Container):
             self.post_message(self.CommitRequested(message))
             # Clear the input after sending
             commit_input.value = ""
+
+    @on(Button.Pressed, "#view-diff-btn")
+    def on_view_diff_pressed(self) -> None:
+        """Handle view diff button press"""
+        self.post_message(self.ViewDiffRequested())

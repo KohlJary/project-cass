@@ -73,6 +73,7 @@ from screens import (
     NewProjectScreen,
     UserSelectScreen,
     CreateUserScreen,
+    DiffViewerScreen,
 )
 from screens.settings import SettingsScreen
 from screens.ollama_browser import OllamaModelBrowser
@@ -933,6 +934,70 @@ class CassVesselTUI(App):
                 debug_log(f"Failed to commit: {error}", "error")
         except Exception as e:
             debug_log(f"Error committing: {e}", "error")
+
+    @on(GitPanel.ViewDiffRequested)
+    async def on_view_diff_requested(self, event: GitPanel.ViewDiffRequested) -> None:
+        """Handle view diff request - show diff viewer modal"""
+        git_panel = self.query_one("#git-panel", GitPanel)
+        if not git_panel.working_dir:
+            debug_log("No working directory set", "error")
+            return
+
+        try:
+            # Fetch current git status to get list of changed files
+            response = await self.http_client.get(
+                "/git/status",
+                params={"repo_path": git_panel.working_dir}
+            )
+            if response.status_code != 200:
+                debug_log("Failed to get git status", "error")
+                return
+
+            data = response.json()
+
+            # Build file list with status info
+            files = []
+
+            # Add staged files
+            for item in data.get("staged", []):
+                if isinstance(item, dict):
+                    files.append({
+                        "file": item.get("file", ""),
+                        "status": item.get("status", "M"),
+                        "staged": True
+                    })
+
+            # Add modified (unstaged) files
+            for filename in data.get("modified", []):
+                files.append({
+                    "file": filename,
+                    "status": "M",
+                    "staged": False
+                })
+
+            # Add untracked files
+            for filename in data.get("untracked", []):
+                files.append({
+                    "file": filename,
+                    "status": "?",
+                    "staged": False
+                })
+
+            if not files:
+                debug_log("No changed files to diff", "info")
+                return
+
+            # Show diff viewer
+            await self.push_screen(
+                DiffViewerScreen(
+                    repo_path=git_panel.working_dir,
+                    files=files,
+                    http_client=self.http_client
+                )
+            )
+
+        except Exception as e:
+            debug_log(f"Error opening diff viewer: {e}", "error")
 
     async def action_toggle_tts(self) -> None:
         """Toggle TTS audio on/off"""

@@ -9,6 +9,7 @@ from .modals import (
     UserSelectScreen,
     CreateUserScreen,
 )
+from .diff_viewer import DiffViewerScreen
 
 __all__ = [
     "RenameConversationScreen",
@@ -16,4 +17,5 @@ __all__ = [
     "NewProjectScreen",
     "UserSelectScreen",
     "CreateUserScreen",
+    "DiffViewerScreen",
 ]
