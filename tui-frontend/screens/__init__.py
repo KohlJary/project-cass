@@ -16,6 +16,9 @@ from .file_dialog import (
     RenameFileScreen,
     DeleteConfirmScreen,
 )
+from .session_switcher import SessionSwitcherScreen, NewSessionScreen
+from .project_switcher import ProjectSwitcherScreen
+from .command_palette import CommandPaletteScreen
 
 __all__ = [
     "RenameConversationScreen",
@@ -28,4 +31,8 @@ __all__ = [
     "NewFolderScreen",
     "RenameFileScreen",
     "DeleteConfirmScreen",
+    "SessionSwitcherScreen",
+    "NewSessionScreen",
+    "ProjectSwitcherScreen",
+    "CommandPaletteScreen",
 ]

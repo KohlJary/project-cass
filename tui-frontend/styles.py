@@ -1752,4 +1752,293 @@ CSS = """
         width: 100%;
         margin-top: 1;
     }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       Session Quick Switcher
+       ───────────────────────────────────────────────────────────────────────── */
+
+    SessionSwitcherScreen {
+        align: center middle;
+    }
+
+    #session-switcher {
+        width: 70;
+        height: 35;
+        background: $panel;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #switcher-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #session-search-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #session-list {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    .session-item-content {
+        height: auto;
+        padding: 0;
+    }
+
+    .session-name {
+        text-style: bold;
+        color: $text;
+    }
+
+    .session-path {
+        color: $text-muted;
+        text-style: italic;
+    }
+
+    .current-session {
+        background: $primary-darken-2;
+    }
+
+    .current-session .session-name {
+        color: $primary;
+    }
+
+    .no-sessions {
+        color: $text-muted;
+        text-style: italic;
+        text-align: center;
+        padding: 2;
+    }
+
+    #switcher-hints {
+        text-align: center;
+        color: $text-muted;
+        margin-top: 1;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       New Session Dialog
+       ───────────────────────────────────────────────────────────────────────── */
+
+    NewSessionScreen {
+        align: center middle;
+    }
+
+    #new-session-dialog {
+        width: 60;
+        height: auto;
+        background: $panel;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #new-session-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #new-session-dialog .dialog-path {
+        color: $text-muted;
+        text-style: italic;
+        margin-bottom: 1;
+    }
+
+    #new-session-dialog .input-label {
+        margin-bottom: 0;
+    }
+
+    #session-name-input {
+        width: 100%;
+        margin-bottom: 0;
+    }
+
+    #new-session-dialog .input-hint {
+        color: $text-muted;
+        text-style: italic;
+        margin-bottom: 1;
+    }
+
+    #new-session-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #new-session-buttons Button {
+        margin: 0 1;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       Project Quick Switcher
+       ───────────────────────────────────────────────────────────────────────── */
+
+    ProjectSwitcherScreen {
+        align: center middle;
+    }
+
+    #project-switcher {
+        width: 70;
+        height: 40;
+        background: $panel;
+        border: thick $secondary;
+        padding: 1 2;
+    }
+
+    #project-switcher-title {
+        text-align: center;
+        text-style: bold;
+        color: $secondary;
+        margin-bottom: 1;
+    }
+
+    #project-search-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #project-list {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    .project-item-content {
+        height: auto;
+        padding: 0;
+    }
+
+    .project-item-header {
+        height: auto;
+    }
+
+    .project-indicator {
+        width: 2;
+        color: $secondary;
+    }
+
+    .project-name {
+        text-style: bold;
+        color: $text;
+    }
+
+    .project-path {
+        color: $text-muted;
+        text-style: italic;
+        padding-left: 2;
+    }
+
+    .current-project {
+        background: $secondary-darken-2;
+    }
+
+    .current-project .project-name {
+        color: $secondary;
+    }
+
+    .no-projects {
+        color: $text-muted;
+        text-style: italic;
+        text-align: center;
+        padding: 2;
+    }
+
+    #project-switcher-options {
+        height: auto;
+        margin-top: 1;
+        align: center middle;
+    }
+
+    #spawn-session-checkbox {
+        margin-right: 1;
+    }
+
+    #project-switcher-hints {
+        text-align: center;
+        color: $text-muted;
+        margin-top: 1;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       Command Palette
+       ───────────────────────────────────────────────────────────────────────── */
+
+    CommandPaletteScreen {
+        align: center middle;
+    }
+
+    #command-palette {
+        width: 70;
+        height: 45;
+        background: $panel;
+        border: thick $warning;
+        padding: 1 2;
+    }
+
+    #palette-title {
+        text-align: center;
+        text-style: bold;
+        color: $warning;
+        margin-bottom: 1;
+    }
+
+    #command-search-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #command-list {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    .command-item-content {
+        height: auto;
+        padding: 0;
+    }
+
+    .command-item-header {
+        height: auto;
+        width: 100%;
+    }
+
+    .command-name {
+        text-style: bold;
+        color: $text;
+        width: 1fr;
+    }
+
+    .command-keybinding {
+        color: $warning;
+        text-style: italic;
+        width: auto;
+    }
+
+    .command-description {
+        color: $text-muted;
+        text-style: italic;
+    }
+
+    .no-commands {
+        color: $text-muted;
+        text-style: italic;
+        text-align: center;
+        padding: 2;
+    }
+
+    #palette-hints {
+        text-align: center;
+        color: $text-muted;
+        margin-top: 1;
+    }
     """
