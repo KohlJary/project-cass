@@ -78,6 +78,10 @@ from screens import (
     NewFolderScreen,
     RenameFileScreen,
     DeleteConfirmScreen,
+    SessionSwitcherScreen,
+    NewSessionScreen,
+    ProjectSwitcherScreen,
+    CommandPaletteScreen,
 )
 from screens.settings import SettingsScreen
 from screens.ollama_browser import OllamaModelBrowser
@@ -369,6 +373,10 @@ class CassVesselTUI(App):
         Binding("ctrl+2", "show_daedalus_tab", "Daedalus", show=False),
         # Settings
         Binding("ctrl+backslash", "open_settings", "Settings", show=False),
+        # Quick switchers
+        Binding("ctrl+grave_accent", "session_switcher", "Switch Session", show=False),
+        Binding("ctrl+shift+p", "project_switcher", "Switch Project", show=False),
+        Binding("ctrl+shift+k", "command_palette", "Command Palette", show=False),
     ]
 
     current_conversation_id: reactive[Optional[str]] = reactive(None)
@@ -779,21 +787,32 @@ class CassVesselTUI(App):
 
     @on(SessionsPanel.NewSessionRequested)
     async def on_new_session_requested(self, event: SessionsPanel.NewSessionRequested) -> None:
-        """Handle new session request - spawn a new Daedalus session"""
+        """Handle new session request - show modal for name input"""
+        # Get working directory from current project if available
+        working_dir = None
+        if self.current_project_id:
+            sidebar = self.query_one("#sidebar", Sidebar)
+            project = next((p for p in sidebar.projects if p["id"] == self.current_project_id), None)
+            if project:
+                working_dir = project.get("working_directory")
+
+        def handle_result(result) -> None:
+            if result and result.get("action") == "create":
+                asyncio.create_task(self._spawn_new_session(
+                    name=result.get("name"),
+                    working_dir=result.get("working_dir")
+                ))
+
+        self.push_screen(NewSessionScreen(working_dir=working_dir), handle_result)
+
+    async def _spawn_new_session(self, name: Optional[str], working_dir: Optional[str]) -> None:
+        """Spawn a new Daedalus session with the given name"""
         try:
             daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
             sessions_panel = self.query_one("#sessions-panel", SessionsPanel)
 
-            # Get working directory from current project if available
-            working_dir = None
-            if self.current_project_id:
-                sidebar = self.query_one("#sidebar", Sidebar)
-                project = next((p for p in sidebar.projects if p["id"] == self.current_project_id), None)
-                if project:
-                    working_dir = project.get("working_directory")
-
-            # Spawn new session
-            session = await daedalus.spawn_session(working_dir=working_dir)
+            # Spawn new session with name
+            session = await daedalus.spawn_session(name=name, working_dir=working_dir)
 
             if session:
                 sessions_panel.set_current_session(daedalus._current_tmux_session)
@@ -1252,6 +1271,161 @@ class CassVesselTUI(App):
         except Exception as e:
             chat = self.query_one("#chat-container", ChatContainer)
             await chat.add_message("system", f"✗ Failed to open settings: {str(e)}", None)
+
+    async def action_session_switcher(self) -> None:
+        """Open the session quick switcher"""
+        # Don't open if we're in the Cass tab
+        if self.active_main_tab != "daedalus-tab":
+            return
+
+        # Get current session name if any
+        daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+        current_session = daedalus.session_name
+
+        def handle_result(result) -> None:
+            if result and result.get("action") == "attach":
+                session_name = result.get("session")
+                if session_name:
+                    asyncio.create_task(self._attach_to_session(session_name))
+
+        self.push_screen(SessionSwitcherScreen(current_session=current_session), handle_result)
+
+    async def _attach_to_session(self, session_name: str) -> None:
+        """Attach to a tmux session"""
+        daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+        await daedalus.attach_session(session_name)
+
+        # Update sessions panel
+        try:
+            sessions_panel = self.query_one("#sessions-panel", SessionsPanel)
+            sessions_panel.refresh_sessions()
+        except Exception:
+            pass
+
+    async def action_project_switcher(self) -> None:
+        """Open the project quick switcher"""
+        # Get projects from sidebar
+        sidebar = self.query_one("#sidebar", Sidebar)
+        projects = sidebar.projects if hasattr(sidebar, 'projects') else []
+
+        if not projects:
+            debug_log("No projects available", "warning")
+            return
+
+        def handle_result(result) -> None:
+            if result and result.get("action") == "switch":
+                project = result.get("project", {})
+                spawn_session = result.get("spawn_session", False)
+                asyncio.create_task(self._switch_project(project, spawn_session))
+
+        self.push_screen(
+            ProjectSwitcherScreen(
+                projects=projects,
+                current_project_id=self.current_project_id
+            ),
+            handle_result
+        )
+
+    async def _switch_project(self, project: dict, spawn_session: bool) -> None:
+        """Switch to a project and optionally spawn a Daedalus session"""
+        project_id = project.get("id")
+        project_name = project.get("name", "Unknown")
+        working_dir = project.get("working_directory")
+
+        if not project_id:
+            return
+
+        # Set as current project
+        self.current_project_id = project_id
+
+        # Update sidebar selection
+        sidebar = self.query_one("#sidebar", Sidebar)
+        await sidebar.select_project(project_id, self.http_client)
+
+        debug_log(f"Switched to project: {project_name}", "success")
+
+        # Optionally spawn Daedalus session
+        if spawn_session and working_dir:
+            daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+            session_name = project_name.lower().replace(" ", "-")
+            await daedalus.spawn_session(name=session_name, working_dir=working_dir)
+
+            # Update sessions panel
+            try:
+                sessions_panel = self.query_one("#sessions-panel", SessionsPanel)
+                sessions_panel.refresh_sessions()
+            except Exception:
+                pass
+
+            # Switch to Daedalus tab
+            self.action_show_daedalus_tab()
+
+    async def action_command_palette(self) -> None:
+        """Open the command palette"""
+        # Determine current context
+        context = "daedalus" if self.active_main_tab == "daedalus-tab" else "cass"
+
+        def handle_result(result) -> None:
+            if result and result.get("action") == "execute":
+                command_id = result.get("command")
+                if command_id:
+                    asyncio.create_task(self._execute_command(command_id))
+
+        self.push_screen(CommandPaletteScreen(current_context=context), handle_result)
+
+    async def _execute_command(self, command_id: str) -> None:
+        """Execute a command from the palette"""
+        # Map command IDs to actions
+        command_actions = {
+            "show_cass": self.action_show_cass_tab,
+            "show_daedalus": self.action_show_daedalus_tab,
+            "toggle_growth": self.action_toggle_growth,
+            "toggle_calendar": self.action_toggle_calendar,
+            "new_conversation": self.action_new_conversation,
+            "rename_conversation": self.action_rename_conversation,
+            "delete_conversation": self.action_delete_conversation,
+            "clear_chat": self.action_clear_chat,
+            "new_project": self.action_new_project,
+            "project_switcher": self.action_project_switcher,
+            "session_switcher": self.action_session_switcher,
+            "toggle_llm": self.action_toggle_llm,
+            "toggle_tts": self.action_toggle_tts,
+            "open_settings": self.action_open_settings,
+            "show_status": self.action_show_status,
+            "toggle_debug": self.action_toggle_debug,
+        }
+
+        action = command_actions.get(command_id)
+        if action:
+            try:
+                result = action()
+                # If it's a coroutine, await it
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                debug_log(f"Error executing command {command_id}: {e}", "error")
+        else:
+            # Handle special commands
+            if command_id == "summarize":
+                await self._trigger_summarize()
+            elif command_id == "new_session":
+                # Trigger new session creation for Daedalus
+                sessions_panel = self.query_one("#sessions-panel", SessionsPanel)
+                sessions_panel.post_message(SessionsPanel.NewSessionRequested())
+            else:
+                debug_log(f"Unknown command: {command_id}", "warning")
+
+    async def _trigger_summarize(self) -> None:
+        """Trigger memory summarization"""
+        chat = self.query_one("#chat-container", ChatContainer)
+        try:
+            response = await self.http_client.post("/summarize")
+            if response.status_code == 200:
+                await chat.add_message("system", "✓ Memory summarization triggered", None)
+            else:
+                await chat.add_message("system", "✗ Failed to trigger summarization", None)
+        except Exception as e:
+            await chat.add_message("system", f"✗ Error: {str(e)}", None)
 
     async def _apply_settings(self, result: dict) -> None:
         """Apply settings changes from the settings modal"""
