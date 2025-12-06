@@ -1332,6 +1332,72 @@ CSS = """
     }
 
     /* ─────────────────────────────────────────────────────────────────────────
+       Diff Viewer Modal
+       ───────────────────────────────────────────────────────────────────────── */
+
+    #diff-viewer-dialog {
+        width: 90%;
+        height: 85%;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #diff-viewer-title {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #diff-viewer-content {
+        height: 1fr;
+        layout: horizontal;
+    }
+
+    #diff-file-list-container {
+        width: 25%;
+        height: 1fr;
+        border-right: solid $surface-darken-1;
+        padding-right: 1;
+    }
+
+    #diff-file-list-container .section-label {
+        text-style: bold;
+        color: $secondary;
+        margin-bottom: 1;
+    }
+
+    #diff-file-list {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    #diff-file-controls {
+        height: auto;
+        align: center middle;
+    }
+
+    #diff-file-controls Button {
+        margin: 0 1;
+    }
+
+    #diff-content-container {
+        width: 75%;
+        height: 1fr;
+        padding-left: 1;
+    }
+
+    #diff-content {
+        width: 100%;
+    }
+
+    #diff-viewer-buttons {
+        height: auto;
+        margin-top: 1;
+        align: center middle;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
        Roadmap Panel
        ───────────────────────────────────────────────────────────────────────── */
 

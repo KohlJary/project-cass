@@ -12,6 +12,7 @@ BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8000"))
 
 # Derived URLs
+# NOTE: Use HTTP_BASE_URL, not API_BASE_URL (common mistake)
 HTTP_BASE_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
 WS_URL = f"ws://{BACKEND_HOST}:{BACKEND_PORT}/ws"
 
