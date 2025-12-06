@@ -197,6 +197,10 @@ from routes.roadmap import router as roadmap_router, init_roadmap_routes
 init_roadmap_routes(roadmap_manager)
 app.include_router(roadmap_router)
 
+# Register git routes
+from routes.git import router as git_router
+app.include_router(git_router)
+
 # Register auth routes
 from auth import AuthService, get_current_user, get_current_user_optional, require_ownership
 from routes.auth import router as auth_router, init_auth_routes

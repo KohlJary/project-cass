@@ -33,15 +33,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Callable
 
+import httpx
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, VerticalScroll
-from textual.widgets import Button, Label, ListView, ListItem, Static, Tree
+from textual.widgets import Button, Label, ListView, ListItem, Static, Tree, TextArea, Input
 from textual.widgets.tree import TreeNode
 from textual.reactive import reactive
 from textual.message import Message
 from rich.text import Text
 from rich.console import Group
+
+from config import API_BASE_URL
 
 
 # Forward declaration for debug_log - will be set by main module
@@ -529,6 +532,19 @@ class GitPanel(Container):
         """Posted when unstage all is requested"""
         pass
 
+    class FileStageRequested(Message):
+        """Posted when a specific file staging is requested"""
+        def __init__(self, file_path: str, stage: bool = True):
+            super().__init__()
+            self.file_path = file_path
+            self.stage = stage  # True = stage, False = unstage
+
+    class CommitRequested(Message):
+        """Posted when a commit is requested"""
+        def __init__(self, message: str):
+            super().__init__()
+            self.message = message
+
     def compose(self) -> ComposeResult:
         yield Label("Git", classes="panel-title")
         yield VerticalScroll(
@@ -541,6 +557,10 @@ class GitPanel(Container):
             yield Button("Stage All", id="stage-all-btn", classes="control-btn")
             yield Button("Unstage", id="unstage-all-btn", classes="control-btn")
             yield Button("Refresh", id="refresh-git-btn", classes="control-btn")
+        # Commit section
+        with Container(id="git-commit-section", classes="git-commit-section"):
+            yield Input(placeholder="Commit message...", id="commit-message-input", classes="commit-input")
+            yield Button("Commit", id="commit-btn", variant="success", classes="control-btn", disabled=True)
 
     def watch_working_dir(self, new_dir: Optional[str]) -> None:
         """Refresh git status when working directory changes"""
@@ -548,7 +568,7 @@ class GitPanel(Container):
 
     @work(exclusive=True)
     async def refresh_status(self) -> None:
-        """Refresh git status display"""
+        """Refresh git status display using API"""
         status_display = self.query_one("#git-status-display", Static)
         commits_display = self.query_one("#git-commits-display", Static)
 
@@ -557,26 +577,127 @@ class GitPanel(Container):
             commits_display.update(Text(""))
             return
 
-        # Check if it's a git repo
+        # Check if it's a git repo (quick local check)
         git_dir = os.path.join(self.working_dir, ".git")
         if not os.path.isdir(git_dir):
             status_display.update(Text("Not a git repository", style="dim"))
             commits_display.update(Text(""))
             return
 
-        # Get git info in background
-        status, commits = await asyncio.to_thread(self._get_git_info, self.working_dir)
-        status_display.update(status)
-        commits_display.update(commits)
+        try:
+            async with httpx.AsyncClient(base_url=API_BASE_URL, timeout=10.0) as client:
+                # Fetch status and log in parallel
+                status_task = client.get("/git/status", params={"repo_path": self.working_dir})
+                log_task = client.get("/git/log", params={"repo_path": self.working_dir, "count": 5})
+
+                status_resp, log_resp = await asyncio.gather(status_task, log_task)
+
+                # Format status
+                status_text = self._format_status_from_api(status_resp.json() if status_resp.status_code == 200 else None)
+                status_display.update(status_text)
+
+                # Format commits
+                commits_text = self._format_commits_from_api(log_resp.json() if log_resp.status_code == 200 else None)
+                commits_display.update(commits_text)
+
+        except Exception as e:
+            debug_log(f"Error fetching git info: {e}", "error")
+            # Fallback to local subprocess calls
+            status, commits = await asyncio.to_thread(self._get_git_info, self.working_dir)
+            status_display.update(status)
+            commits_display.update(commits)
+
+    def _format_status_from_api(self, data: Optional[Dict]) -> Text:
+        """Format git status from API response"""
+        text = Text()
+
+        if not data:
+            text.append("Failed to get status", style="red")
+            return text
+
+        # Branch
+        branch = data.get("branch")
+        if branch:
+            text.append("Branch: ", style="bold")
+            text.append(f"{branch}\n", style="cyan bold")
+
+        # Ahead/behind
+        ahead = data.get("ahead", 0)
+        behind = data.get("behind", 0)
+        if ahead > 0:
+            text.append(f"↑{ahead} ", style="green")
+        if behind > 0:
+            text.append(f"↓{behind} ", style="yellow")
+        if ahead > 0 or behind > 0:
+            text.append("\n")
+
+        # Clean check
+        if data.get("clean"):
+            text.append("\n✓ Working tree clean", style="green dim")
+            return text
+
+        # Staged files
+        staged = data.get("staged", [])
+        if staged:
+            text.append("\nStaged:\n", style="bold green")
+            for item in staged[:5]:
+                file = item.get("file", "") if isinstance(item, dict) else item
+                status = item.get("status", "+") if isinstance(item, dict) else "+"
+                text.append(f"  {status} {file}\n", style="green")
+            if len(staged) > 5:
+                text.append(f"  ... and {len(staged) - 5} more\n", style="dim")
+
+        # Modified files
+        modified = data.get("modified", [])
+        if modified:
+            text.append("\nModified:\n", style="bold yellow")
+            for file in modified[:5]:
+                text.append(f"  M {file}\n", style="yellow")
+            if len(modified) > 5:
+                text.append(f"  ... and {len(modified) - 5} more\n", style="dim")
+
+        # Untracked files
+        untracked = data.get("untracked", [])
+        if untracked:
+            text.append("\nUntracked:\n", style="bold red")
+            for file in untracked[:5]:
+                text.append(f"  ? {file}\n", style="red")
+            if len(untracked) > 5:
+                text.append(f"  ... and {len(untracked) - 5} more\n", style="dim")
+
+        return text
+
+    def _format_commits_from_api(self, data: Optional[Dict]) -> Text:
+        """Format commits from API response"""
+        text = Text()
+
+        if not data:
+            return text
+
+        commits = data.get("commits", [])
+        if not commits:
+            return text
+
+        text.append("\nRecent Commits:\n", style="bold magenta")
+        for commit in commits:
+            hash_str = commit.get("hash", "")
+            message = commit.get("message", "")
+            text.append(f"  {hash_str} ", style="cyan dim")
+            # Truncate long messages
+            if len(message) > 40:
+                message = message[:37] + "..."
+            text.append(f"{message}\n", style="")
+
+        return text
 
     def _get_git_info(self, repo_path: str) -> tuple:
-        """Get formatted git status and recent commits"""
+        """Get formatted git status and recent commits (fallback)"""
         status = self._get_git_status(repo_path)
         commits = self._get_recent_commits(repo_path)
         return status, commits
 
     def _get_recent_commits(self, repo_path: str) -> Text:
-        """Get recent commits"""
+        """Get recent commits (fallback for when API unavailable)"""
         text = Text()
 
         # Get last 5 commits
@@ -605,7 +726,7 @@ class GitPanel(Container):
         return text
 
     def _get_git_status(self, repo_path: str) -> Text:
-        """Get formatted git status"""
+        """Get formatted git status (fallback for when API unavailable)"""
         text = Text()
 
         # Get current branch
@@ -705,3 +826,19 @@ class GitPanel(Container):
     @on(Button.Pressed, "#unstage-all-btn")
     def on_unstage_all_pressed(self) -> None:
         self.post_message(self.UnstageAllRequested())
+
+    @on(Input.Changed, "#commit-message-input")
+    def on_commit_message_changed(self, event: Input.Changed) -> None:
+        """Enable/disable commit button based on message content"""
+        commit_btn = self.query_one("#commit-btn", Button)
+        commit_btn.disabled = not event.value.strip()
+
+    @on(Button.Pressed, "#commit-btn")
+    def on_commit_pressed(self) -> None:
+        """Handle commit button press"""
+        commit_input = self.query_one("#commit-message-input", Input)
+        message = commit_input.value.strip()
+        if message:
+            self.post_message(self.CommitRequested(message))
+            # Clear the input after sending
+            commit_input.value = ""
