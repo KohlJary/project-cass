@@ -1054,3 +1054,283 @@ class GitPanel(Container):
     def on_view_diff_pressed(self) -> None:
         """Handle view diff button press"""
         self.post_message(self.ViewDiffRequested())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build Panel - Project build/test commands
+# ─────────────────────────────────────────────────────────────────────────────
+
+class BuildCommand:
+    """Represents a runnable build/test command"""
+    def __init__(self, name: str, command: str, category: str = "build"):
+        self.name = name
+        self.command = command
+        self.category = category  # "build", "test", "lint", "dev", "other"
+
+
+class BuildCommandItem(ListItem):
+    """A list item representing a build command"""
+
+    def __init__(self, command: BuildCommand, **kwargs):
+        super().__init__(**kwargs)
+        self.build_command = command
+
+    def compose(self) -> ComposeResult:
+        # Category icons
+        icons = {
+            "build": "🔨",
+            "test": "🧪",
+            "lint": "✨",
+            "dev": "🚀",
+            "other": "📋"
+        }
+        icon = icons.get(self.build_command.category, "📋")
+
+        text = Text()
+        text.append(f" {icon} ", style="")
+        text.append(self.build_command.name, style="bold")
+        text.append(f"  {self.build_command.command}", style="dim italic")
+
+        yield Label(text)
+
+
+class BuildPanel(Container):
+    """Panel for running build/test commands"""
+
+    working_directory: reactive[Optional[str]] = reactive(None)
+
+    class RunCommandRequested(Message):
+        """Posted when a command should be run in terminal"""
+        def __init__(self, command: str):
+            super().__init__()
+            self.command = command
+
+    def compose(self) -> ComposeResult:
+        yield Label("Build / Test", classes="panel-title")
+        yield Static("No project detected", id="build-project-type", classes="build-project-type")
+        yield ListView(id="build-commands-list", classes="build-commands-list")
+        with Container(classes="build-controls"):
+            yield Button("Run", id="run-build-btn", variant="primary", classes="control-btn")
+            yield Button("Refresh", id="refresh-build-btn", classes="control-btn")
+
+    def on_mount(self) -> None:
+        self.refresh_commands()
+
+    def watch_working_directory(self, new_dir: Optional[str]) -> None:
+        """React to working directory changes"""
+        self.refresh_commands()
+
+    def set_working_directory(self, directory: Optional[str]) -> None:
+        """Set the working directory for command detection"""
+        self.working_directory = directory
+
+    @work(exclusive=True)
+    async def refresh_commands(self) -> None:
+        """Refresh the list of available commands based on project type"""
+        directory = self.working_directory
+        commands = []
+        project_type = "No project detected"
+
+        if directory and os.path.isdir(directory):
+            # Detect project type and get commands
+            commands, project_type = await asyncio.to_thread(
+                self._detect_project_commands, directory
+            )
+
+        # Update project type label
+        type_label = self.query_one("#build-project-type", Static)
+        type_label.update(project_type)
+
+        # Update command list
+        list_view = self.query_one("#build-commands-list", ListView)
+        await list_view.clear()
+
+        if not commands:
+            await list_view.append(ListItem(
+                Label("No commands found", classes="no-commands")
+            ))
+            return
+
+        for cmd in commands:
+            await list_view.append(BuildCommandItem(cmd))
+
+    def _detect_project_commands(self, directory: str) -> tuple:
+        """Detect project type and available commands.
+
+        Returns:
+            (list of BuildCommand, project_type_string)
+        """
+        commands = []
+        project_type = "Unknown project"
+
+        # Check for package.json (Node.js/npm)
+        package_json = os.path.join(directory, "package.json")
+        if os.path.exists(package_json):
+            project_type = "Node.js (package.json)"
+            commands.extend(self._get_npm_scripts(package_json))
+
+        # Check for pyproject.toml (Python/Poetry/PDM)
+        pyproject = os.path.join(directory, "pyproject.toml")
+        if os.path.exists(pyproject):
+            project_type = "Python (pyproject.toml)"
+            commands.extend(self._get_python_commands(directory))
+
+        # Check for setup.py (Python/setuptools)
+        setup_py = os.path.join(directory, "setup.py")
+        if os.path.exists(setup_py) and not os.path.exists(pyproject):
+            project_type = "Python (setup.py)"
+            commands.extend(self._get_python_commands(directory))
+
+        # Check for Makefile
+        makefile = os.path.join(directory, "Makefile")
+        if os.path.exists(makefile):
+            if project_type == "Unknown project":
+                project_type = "Make project"
+            commands.extend(self._get_make_targets(makefile))
+
+        # Check for Cargo.toml (Rust)
+        cargo_toml = os.path.join(directory, "Cargo.toml")
+        if os.path.exists(cargo_toml):
+            project_type = "Rust (Cargo)"
+            commands.extend(self._get_cargo_commands())
+
+        # Check for go.mod (Go)
+        go_mod = os.path.join(directory, "go.mod")
+        if os.path.exists(go_mod):
+            project_type = "Go (go.mod)"
+            commands.extend(self._get_go_commands())
+
+        return commands, project_type
+
+    def _get_npm_scripts(self, package_json_path: str) -> List[BuildCommand]:
+        """Extract npm scripts from package.json"""
+        import json
+        commands = []
+        try:
+            with open(package_json_path, 'r') as f:
+                pkg = json.load(f)
+                scripts = pkg.get("scripts", {})
+
+                # Categorize known script names
+                categories = {
+                    "build": ["build", "compile", "bundle", "dist"],
+                    "test": ["test", "test:unit", "test:e2e", "test:integration", "coverage"],
+                    "lint": ["lint", "lint:fix", "format", "prettier", "eslint"],
+                    "dev": ["dev", "start", "serve", "watch"],
+                }
+
+                for name, cmd in scripts.items():
+                    category = "other"
+                    for cat, patterns in categories.items():
+                        if any(p in name.lower() for p in patterns):
+                            category = cat
+                            break
+
+                    commands.append(BuildCommand(
+                        name=name,
+                        command=f"npm run {name}",
+                        category=category
+                    ))
+        except (json.JSONDecodeError, IOError):
+            pass
+        return commands
+
+    def _get_python_commands(self, directory: str) -> List[BuildCommand]:
+        """Get common Python project commands"""
+        commands = []
+
+        # Check for pytest
+        if os.path.exists(os.path.join(directory, "pytest.ini")) or \
+           os.path.exists(os.path.join(directory, "tests")):
+            commands.append(BuildCommand("pytest", "pytest", "test"))
+            commands.append(BuildCommand("pytest -v", "pytest -v", "test"))
+
+        # Check for ruff/black/isort
+        commands.append(BuildCommand("ruff check", "ruff check .", "lint"))
+        commands.append(BuildCommand("ruff format", "ruff format .", "lint"))
+
+        # Check for pip install
+        if os.path.exists(os.path.join(directory, "requirements.txt")):
+            commands.append(BuildCommand("pip install", "pip install -r requirements.txt", "build"))
+
+        if os.path.exists(os.path.join(directory, "pyproject.toml")):
+            commands.append(BuildCommand("pip install -e", "pip install -e .", "build"))
+
+        return commands
+
+    def _get_make_targets(self, makefile_path: str) -> List[BuildCommand]:
+        """Extract make targets from Makefile"""
+        commands = []
+        try:
+            with open(makefile_path, 'r') as f:
+                content = f.read()
+
+                # Simple regex to find targets (lines starting with word followed by :)
+                import re
+                # Match targets like "build:", "test:", but not ".PHONY:" or variable assignments
+                for match in re.finditer(r'^([a-zA-Z_][a-zA-Z0-9_-]*):', content, re.MULTILINE):
+                    target = match.group(1)
+                    if target.startswith('.'):
+                        continue
+
+                    # Categorize
+                    category = "other"
+                    if "build" in target or "all" == target:
+                        category = "build"
+                    elif "test" in target:
+                        category = "test"
+                    elif "lint" in target or "check" in target or "fmt" in target:
+                        category = "lint"
+                    elif "dev" in target or "run" in target or "serve" in target:
+                        category = "dev"
+
+                    commands.append(BuildCommand(
+                        name=f"make {target}",
+                        command=f"make {target}",
+                        category=category
+                    ))
+        except IOError:
+            pass
+        return commands
+
+    def _get_cargo_commands(self) -> List[BuildCommand]:
+        """Get standard Cargo commands for Rust projects"""
+        return [
+            BuildCommand("cargo build", "cargo build", "build"),
+            BuildCommand("cargo build --release", "cargo build --release", "build"),
+            BuildCommand("cargo test", "cargo test", "test"),
+            BuildCommand("cargo check", "cargo check", "lint"),
+            BuildCommand("cargo clippy", "cargo clippy", "lint"),
+            BuildCommand("cargo fmt", "cargo fmt", "lint"),
+            BuildCommand("cargo run", "cargo run", "dev"),
+        ]
+
+    def _get_go_commands(self) -> List[BuildCommand]:
+        """Get standard Go commands"""
+        return [
+            BuildCommand("go build", "go build ./...", "build"),
+            BuildCommand("go test", "go test ./...", "test"),
+            BuildCommand("go test -v", "go test -v ./...", "test"),
+            BuildCommand("go vet", "go vet ./...", "lint"),
+            BuildCommand("go fmt", "go fmt ./...", "lint"),
+            BuildCommand("go run", "go run .", "dev"),
+        ]
+
+    @on(ListView.Selected, "#build-commands-list")
+    def on_command_selected(self, event: ListView.Selected) -> None:
+        """Run the selected command when clicked"""
+        if isinstance(event.item, BuildCommandItem):
+            self.post_message(self.RunCommandRequested(event.item.build_command.command))
+
+    @on(Button.Pressed, "#run-build-btn")
+    def on_run_pressed(self) -> None:
+        """Run the highlighted command"""
+        list_view = self.query_one("#build-commands-list", ListView)
+        if list_view.highlighted_child and isinstance(list_view.highlighted_child, BuildCommandItem):
+            self.post_message(self.RunCommandRequested(
+                list_view.highlighted_child.build_command.command
+            ))
+
+    @on(Button.Pressed, "#refresh-build-btn")
+    def on_refresh_pressed(self) -> None:
+        self.refresh_commands()

@@ -11,7 +11,7 @@ for better performance through batched output and debounced refresh.
 import os
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 
 from textual.widget import Widget
 from textual.reactive import reactive
@@ -536,3 +536,52 @@ class DaedalusWidget(Widget, can_focus=True):
             self._terminal.stop()
 
         self.pty_manager.cleanup()
+
+    def send_input(self, data: str) -> None:
+        """Send input to the terminal.
+
+        Args:
+            data: String to send (including newlines for command execution)
+        """
+        if self._terminal and self.is_connected:
+            self._terminal.send_data(data)
+
+    def get_output_lines(self, count: Optional[int] = None) -> List[str]:
+        """Get lines from the terminal output buffer.
+
+        Args:
+            count: Optional limit on number of lines (None = all)
+
+        Returns:
+            List of output lines (most recent last)
+        """
+        if self._terminal:
+            return self._terminal.get_output_lines(count)
+        return []
+
+    def get_output_raw(self, count: Optional[int] = None) -> str:
+        """Get raw output from the terminal buffer.
+
+        Args:
+            count: Optional limit on character count (None = all)
+
+        Returns:
+            Raw terminal output string
+        """
+        if self._terminal:
+            return self._terminal.get_output_raw(count)
+        return ""
+
+    def search_output(self, pattern: str, case_sensitive: bool = False) -> List[Dict]:
+        """Search the terminal output buffer.
+
+        Args:
+            pattern: Regex pattern to search for
+            case_sensitive: Whether search is case-sensitive
+
+        Returns:
+            List of matches with line text, index, and timestamp
+        """
+        if self._terminal:
+            return self._terminal.search_output(pattern, case_sensitive)
+        return []

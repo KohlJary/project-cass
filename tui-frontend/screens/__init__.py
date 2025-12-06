@@ -19,6 +19,7 @@ from .file_dialog import (
 from .session_switcher import SessionSwitcherScreen, NewSessionScreen
 from .project_switcher import ProjectSwitcherScreen
 from .command_palette import CommandPaletteScreen
+from .terminal_search import TerminalSearchScreen
 
 __all__ = [
     "RenameConversationScreen",
@@ -35,4 +36,5 @@ __all__ = [
     "NewSessionScreen",
     "ProjectSwitcherScreen",
     "CommandPaletteScreen",
+    "TerminalSearchScreen",
 ]

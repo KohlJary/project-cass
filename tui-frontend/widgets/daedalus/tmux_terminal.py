@@ -15,7 +15,9 @@ import fcntl
 import struct
 import termios
 import signal
-from typing import Optional, Callable
+from collections import deque
+from datetime import datetime
+from typing import Optional, Callable, List, Dict
 
 from textual import events
 
@@ -25,6 +27,102 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from widgets.terminal_fast import Terminal, TerminalEmulator as BaseTerminalEmulator
 
 from .pty_manager import PTYManager, Session, debug_log
+
+
+class TerminalOutputBuffer:
+    """
+    Circular buffer for storing terminal output history.
+    Stores both raw output and parsed lines for different use cases.
+    """
+
+    def __init__(self, max_lines: int = 1000, max_raw_chars: int = 100000):
+        """
+        Initialize the output buffer.
+
+        Args:
+            max_lines: Maximum number of lines to store
+            max_raw_chars: Maximum raw characters to store
+        """
+        self.max_lines = max_lines
+        self.max_raw_chars = max_raw_chars
+        self._lines: deque = deque(maxlen=max_lines)
+        self._raw_buffer: deque = deque(maxlen=max_raw_chars)
+        self._timestamps: deque = deque(maxlen=max_lines)
+
+    def append(self, data: str) -> None:
+        """Append raw data to the buffer."""
+        now = datetime.now()
+        # Store raw data
+        for char in data:
+            self._raw_buffer.append(char)
+
+        # Parse into lines (handle \r\n, \n, \r)
+        lines = data.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        for line in lines:
+            # Strip ANSI escape codes for clean line storage
+            clean_line = self._strip_ansi(line)
+            if clean_line.strip():  # Only store non-empty lines
+                self._lines.append(clean_line)
+                self._timestamps.append(now)
+
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        """Strip ANSI escape codes from text."""
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
+
+    def get_lines(self, count: Optional[int] = None) -> List[str]:
+        """Get recent lines from the buffer."""
+        if count is None:
+            return list(self._lines)
+        return list(self._lines)[-count:]
+
+    def get_raw(self, count: Optional[int] = None) -> str:
+        """Get raw output from the buffer."""
+        if count is None:
+            return ''.join(self._raw_buffer)
+        return ''.join(list(self._raw_buffer)[-count:])
+
+    def search(self, pattern: str, case_sensitive: bool = False) -> List[Dict]:
+        """
+        Search for a pattern in the buffer.
+
+        Returns list of {line, index, timestamp} dicts.
+        """
+        import re
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            regex = re.compile(pattern, flags)
+        except re.error:
+            # Treat as literal string if invalid regex
+            regex = re.compile(re.escape(pattern), flags)
+
+        results = []
+        for i, (line, ts) in enumerate(zip(self._lines, self._timestamps)):
+            if regex.search(line):
+                results.append({
+                    "line": line,
+                    "index": i,
+                    "timestamp": ts.isoformat()
+                })
+        return results
+
+    def clear(self) -> None:
+        """Clear the buffer."""
+        self._lines.clear()
+        self._raw_buffer.clear()
+        self._timestamps.clear()
+
+    @property
+    def line_count(self) -> int:
+        """Get number of lines in buffer."""
+        return len(self._lines)
+
+    @property
+    def char_count(self) -> int:
+        """Get number of characters in raw buffer."""
+        return len(self._raw_buffer)
 
 
 class TmuxTerminalEmulator(BaseTerminalEmulator):
@@ -57,6 +155,9 @@ class TmuxTerminalEmulator(BaseTerminalEmulator):
         self.recv_queue = asyncio.Queue()
         self.send_queue = asyncio.Queue()
         self.event = asyncio.Event()
+
+        # Output history buffer for capture
+        self.output_buffer = TerminalOutputBuffer()
 
         # Open PTY and attach to tmux
         self._attach_to_tmux()
@@ -193,6 +294,8 @@ class TmuxTerminalEmulator(BaseTerminalEmulator):
                 if self.data_buffer:
                     combined = "".join(self.data_buffer)
                     self.data_buffer.clear()
+                    # Store in output buffer for capture
+                    self.output_buffer.append(combined)
                     await self.send_queue.put(["stdout", combined])
 
         except asyncio.CancelledError:
@@ -384,6 +487,41 @@ class TmuxTerminal(Terminal):
         self.nrow = self.size.height
         await self.send_queue.put(["set_size", self.nrow, self.ncol])
         self._screen.resize(self.nrow, self.ncol)
+
+    # Output capture methods
+    def get_output_lines(self, count: Optional[int] = None) -> List[str]:
+        """Get recent output lines from the buffer."""
+        if self.emulator is None:
+            return []
+        return self.emulator.output_buffer.get_lines(count)
+
+    def get_output_raw(self, count: Optional[int] = None) -> str:
+        """Get raw output from the buffer."""
+        if self.emulator is None:
+            return ""
+        return self.emulator.output_buffer.get_raw(count)
+
+    def search_output(self, pattern: str, case_sensitive: bool = False) -> List[Dict]:
+        """Search output buffer for a pattern."""
+        if self.emulator is None:
+            return []
+        return self.emulator.output_buffer.search(pattern, case_sensitive)
+
+    def clear_output_buffer(self) -> None:
+        """Clear the output buffer."""
+        if self.emulator is not None:
+            self.emulator.output_buffer.clear()
+
+    def get_output_stats(self) -> Dict:
+        """Get output buffer statistics."""
+        if self.emulator is None:
+            return {"line_count": 0, "char_count": 0, "connected": False}
+        return {
+            "line_count": self.emulator.output_buffer.line_count,
+            "char_count": self.emulator.output_buffer.char_count,
+            "connected": True,
+            "session": self.tmux_session
+        }
 
 
 # Convenience function to check if tmux is available

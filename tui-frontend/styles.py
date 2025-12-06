@@ -1429,6 +1429,46 @@ CSS = """
     }
 
     /* ─────────────────────────────────────────────────────────────────────────
+       Build Panel - Build/Test Commands
+       ───────────────────────────────────────────────────────────────────────── */
+
+    #build-panel {
+        height: 1fr;
+        padding: 1;
+        background: $surface;
+    }
+
+    #build-panel .panel-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+        color: $primary;
+    }
+
+    #build-panel .build-project-type {
+        text-align: center;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #build-panel #build-commands-list {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    #build-panel .build-controls {
+        height: auto;
+        margin-top: 1;
+        layout: horizontal;
+        align: center middle;
+    }
+
+    #build-panel .control-btn {
+        margin: 0 1;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
        Diff Viewer Modal
        ───────────────────────────────────────────────────────────────────────── */
 
@@ -2037,6 +2077,55 @@ CSS = """
     }
 
     #palette-hints {
+        text-align: center;
+        color: $text-muted;
+        margin-top: 1;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       Terminal History Search
+       ───────────────────────────────────────────────────────────────────────── */
+
+    #terminal-search {
+        width: 90%;
+        height: 80%;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #terminal-search-title {
+        text-style: bold;
+        color: $primary;
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    #terminal-search-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #terminal-search-status {
+        text-align: center;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #terminal-search-list {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    #terminal-search-list .no-results {
+        color: $text-muted;
+        text-style: italic;
+        text-align: center;
+        padding: 2;
+    }
+
+    #terminal-search-hints {
         text-align: center;
         color: $text-muted;
         margin-top: 1;
