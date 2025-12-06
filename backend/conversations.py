@@ -260,8 +260,9 @@ class ConversationManager:
         index = self._load_index()
 
         # Filter by user_id if provided
+        # Include conversations belonging to the user OR with no user_id (shared/legacy)
         if user_id:
-            index = [c for c in index if c.get("user_id") == user_id]
+            index = [c for c in index if c.get("user_id") == user_id or c.get("user_id") is None]
 
         # Sort by updated_at descending
         index.sort(key=lambda x: x.get("updated_at", ""), reverse=True)

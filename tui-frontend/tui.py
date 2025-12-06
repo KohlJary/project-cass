@@ -1981,8 +1981,9 @@ class CassVesselTUI(App):
                 summary_panel = self.query_one("#summary-panel", SummaryPanel)
                 await summary_panel.display_summaries([])
 
-                # Reload sidebar
+                # Reload sidebar - ensure project filter is in sync
                 sidebar = self.query_one("#sidebar", Sidebar)
+                sidebar.selected_project_id = self.current_project_id
                 await sidebar.load_conversations(self.http_client)
         except Exception as e:
             chat = self.query_one("#chat-container", ChatContainer)
