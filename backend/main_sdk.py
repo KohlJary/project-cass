@@ -205,6 +205,10 @@ app.include_router(git_router)
 from routes.files import router as files_router
 app.include_router(files_router)
 
+# Register terminal routes
+from routes.terminal import router as terminal_router
+app.include_router(terminal_router)
+
 # Register auth routes
 from auth import AuthService, get_current_user, get_current_user_optional, require_ownership
 from routes.auth import router as auth_router, init_auth_routes

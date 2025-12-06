@@ -27,7 +27,7 @@ from .panels import (
 from .roadmap_panel import RoadmapPanel
 from .calendar import CalendarDay, CalendarWidget, EventCalendarDay, EventCalendarWidget
 from .daedalus import DaedalusWidget, PTYManager
-from .daedalus_panels import SessionsPanel, FilesPanel, GitPanel
+from .daedalus_panels import SessionsPanel, FilesPanel, GitPanel, BuildPanel
 
 __all__ = [
     # Items
@@ -70,4 +70,5 @@ __all__ = [
     "SessionsPanel",
     "FilesPanel",
     "GitPanel",
+    "BuildPanel",
 ]

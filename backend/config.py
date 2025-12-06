@@ -143,3 +143,8 @@ OLLAMA_ENABLED = os.getenv("OLLAMA_ENABLED", "false").lower() == "true"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")  # Model for summarization/journaling
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b-instruct-q8_0")  # Model for chat (can be different)
+
+# Tmux Configuration
+# Explicit socket path is needed when running as systemd service with PrivateTmp=yes
+# Use: TMUX_SOCKET=/tmp/tmux-1000/default (replace 1000 with your UID)
+TMUX_SOCKET = os.getenv("TMUX_SOCKET")

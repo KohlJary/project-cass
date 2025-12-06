@@ -63,6 +63,7 @@ from widgets import (
     SessionsPanel,
     FilesPanel,
     GitPanel,
+    BuildPanel,
 )
 from widgets.daedalus import DaedalusWidget
 
@@ -82,6 +83,7 @@ from screens import (
     NewSessionScreen,
     ProjectSwitcherScreen,
     CommandPaletteScreen,
+    TerminalSearchScreen,
 )
 from screens.settings import SettingsScreen
 from screens.ollama_browser import OllamaModelBrowser
@@ -377,6 +379,7 @@ class CassVesselTUI(App):
         Binding("ctrl+grave_accent", "session_switcher", "Switch Session", show=False),
         Binding("ctrl+shift+p", "project_switcher", "Switch Project", show=False),
         Binding("ctrl+shift+k", "command_palette", "Command Palette", show=False),
+        Binding("ctrl+shift+f", "terminal_search", "Search Terminal", show=False),
     ]
 
     current_conversation_id: reactive[Optional[str]] = reactive(None)
@@ -387,7 +390,7 @@ class CassVesselTUI(App):
 
     # Tab visibility configuration
     CASS_TABS = ["growth-tab", "self-model-tab", "user-tab", "summary-tab"]
-    DAEDALUS_TABS = ["sessions-tab", "files-tab", "git-tab"]
+    DAEDALUS_TABS = ["sessions-tab", "files-tab", "git-tab", "build-tab"]
     ALWAYS_VISIBLE_TABS = ["calendar-tab", "tasks-tab", "documents-tab", "roadmap-tab"]  # Visible in both contexts
 
     def __init__(self, initial_project: Optional[str] = None):
@@ -487,6 +490,8 @@ class CassVesselTUI(App):
                                 yield FilesPanel(id="files-panel")
                             with TabPane("Git", id="git-tab"):
                                 yield GitPanel(id="git-panel")
+                            with TabPane("Build", id="build-tab"):
+                                yield BuildPanel(id="build-panel")
 
         yield Footer()
 
@@ -734,6 +739,13 @@ class CassVesselTUI(App):
         try:
             git_panel = self.query_one("#git-panel", GitPanel)
             git_panel.working_dir = working_dir
+        except Exception:
+            pass
+
+        # Update Build panel
+        try:
+            build_panel = self.query_one("#build-panel", BuildPanel)
+            build_panel.set_working_directory(working_dir)
         except Exception:
             pass
 
@@ -1157,6 +1169,32 @@ class CassVesselTUI(App):
         except Exception as e:
             debug_log(f"Error opening diff viewer: {e}", "error")
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Build panel handlers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @on(BuildPanel.RunCommandRequested)
+    async def on_run_command_requested(self, event: BuildPanel.RunCommandRequested) -> None:
+        """Handle run command request - send command to Daedalus terminal"""
+        try:
+            daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+
+            # Make sure we have an active session
+            if not daedalus.session_name:
+                debug_log("No active Daedalus session to run command", "error")
+                return
+
+            # Send the command followed by Enter
+            daedalus.send_input(event.command + "\n")
+            debug_log(f"Running: {event.command}", "info")
+
+            # Switch to the Daedalus tab to see the output
+            main_tabs = self.query_one("#main-tabs", TabbedContent)
+            main_tabs.active = "daedalus-tab"
+
+        except Exception as e:
+            debug_log(f"Error running command: {e}", "error")
+
     async def action_toggle_tts(self) -> None:
         """Toggle TTS audio on/off"""
         if self.terminal_has_focus:
@@ -1426,6 +1464,34 @@ class CassVesselTUI(App):
                 await chat.add_message("system", "✗ Failed to trigger summarization", None)
         except Exception as e:
             await chat.add_message("system", f"✗ Error: {str(e)}", None)
+
+    async def action_terminal_search(self) -> None:
+        """Open terminal history search"""
+        # Only works when Daedalus tab is active
+        if self.active_main_tab != "daedalus-tab":
+            debug_log("Terminal search only works in Daedalus tab", "info")
+            return
+
+        try:
+            daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+
+            # Get output lines from the terminal buffer
+            output_lines = daedalus.get_output_lines()
+
+            if not output_lines:
+                debug_log("No terminal output to search", "info")
+                return
+
+            def handle_result(selected_line: Optional[str]) -> None:
+                if selected_line:
+                    # Insert the selected line into the terminal
+                    daedalus.send_input(selected_line)
+                    debug_log(f"Inserted: {selected_line[:40]}...", "info")
+
+            self.push_screen(TerminalSearchScreen(output_lines), handle_result)
+
+        except Exception as e:
+            debug_log(f"Error opening terminal search: {e}", "error")
 
     async def _apply_settings(self, result: dict) -> None:
         """Apply settings changes from the settings modal"""
