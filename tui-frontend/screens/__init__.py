@@ -10,6 +10,12 @@ from .modals import (
     CreateUserScreen,
 )
 from .diff_viewer import DiffViewerScreen
+from .file_dialog import (
+    NewFileScreen,
+    NewFolderScreen,
+    RenameFileScreen,
+    DeleteConfirmScreen,
+)
 
 __all__ = [
     "RenameConversationScreen",
@@ -18,4 +24,8 @@ __all__ = [
     "UserSelectScreen",
     "CreateUserScreen",
     "DiffViewerScreen",
+    "NewFileScreen",
+    "NewFolderScreen",
+    "RenameFileScreen",
+    "DeleteConfirmScreen",
 ]

@@ -201,6 +201,10 @@ app.include_router(roadmap_router)
 from routes.git import router as git_router
 app.include_router(git_router)
 
+# Register file operations routes
+from routes.files import router as files_router
+app.include_router(files_router)
+
 # Register auth routes
 from auth import AuthService, get_current_user, get_current_user_optional, require_ownership
 from routes.auth import router as auth_router, init_auth_routes
