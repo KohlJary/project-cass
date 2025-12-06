@@ -1315,6 +1315,22 @@ CSS = """
         margin: 0 1;
     }
 
+    #git-panel .git-commit-section {
+        height: auto;
+        margin-top: 1;
+        layout: horizontal;
+        align: center middle;
+    }
+
+    #git-panel .commit-input {
+        width: 1fr;
+        margin-right: 1;
+    }
+
+    #git-panel #commit-btn {
+        min-width: 10;
+    }
+
     /* ─────────────────────────────────────────────────────────────────────────
        Roadmap Panel
        ───────────────────────────────────────────────────────────────────────── */

@@ -865,49 +865,74 @@ class CassVesselTUI(App):
 
     @on(GitPanel.StageAllRequested)
     async def on_stage_all_requested(self, event: GitPanel.StageAllRequested) -> None:
-        """Handle stage all request"""
+        """Handle stage all request via API"""
         git_panel = self.query_one("#git-panel", GitPanel)
         if not git_panel.working_dir:
             return
 
         try:
-            import subprocess
-            result = subprocess.run(
-                ["git", "-C", git_panel.working_dir, "add", "-A"],
-                capture_output=True,
-                text=True,
-                timeout=10
+            response = await self.http_client.post(
+                "/git/stage",
+                json={"repo_path": git_panel.working_dir, "files": None}
             )
-            if result.returncode == 0:
-                debug_log("Staged all changes", "success")
+            if response.status_code == 200:
+                data = response.json()
+                count = data.get("count", 0)
+                debug_log(f"Staged {count} file(s)", "success")
                 git_panel.refresh_status()
             else:
-                debug_log(f"Failed to stage: {result.stderr}", "error")
+                error = response.json().get("detail", "Unknown error")
+                debug_log(f"Failed to stage: {error}", "error")
         except Exception as e:
             debug_log(f"Error staging changes: {e}", "error")
 
     @on(GitPanel.UnstageAllRequested)
     async def on_unstage_all_requested(self, event: GitPanel.UnstageAllRequested) -> None:
-        """Handle unstage all request"""
+        """Handle unstage all request via API"""
         git_panel = self.query_one("#git-panel", GitPanel)
         if not git_panel.working_dir:
             return
 
         try:
-            import subprocess
-            result = subprocess.run(
-                ["git", "-C", git_panel.working_dir, "reset", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=10
+            response = await self.http_client.post(
+                "/git/unstage",
+                json={"repo_path": git_panel.working_dir, "files": None}
             )
-            if result.returncode == 0:
+            if response.status_code == 200:
                 debug_log("Unstaged all changes", "success")
                 git_panel.refresh_status()
             else:
-                debug_log(f"Failed to unstage: {result.stderr}", "error")
+                error = response.json().get("detail", "Unknown error")
+                debug_log(f"Failed to unstage: {error}", "error")
         except Exception as e:
             debug_log(f"Error unstaging changes: {e}", "error")
+
+    @on(GitPanel.CommitRequested)
+    async def on_commit_requested(self, event: GitPanel.CommitRequested) -> None:
+        """Handle commit request via API"""
+        git_panel = self.query_one("#git-panel", GitPanel)
+        if not git_panel.working_dir:
+            return
+
+        try:
+            response = await self.http_client.post(
+                "/git/commit",
+                json={
+                    "repo_path": git_panel.working_dir,
+                    "message": event.message,
+                    "author": "Daedalus <daedalus@cass-vessel.local>"
+                }
+            )
+            if response.status_code == 200:
+                data = response.json()
+                commit_hash = data.get("hash", "")
+                debug_log(f"Committed: {commit_hash} - {event.message[:40]}", "success")
+                git_panel.refresh_status()
+            else:
+                error = response.json().get("detail", "Unknown error")
+                debug_log(f"Failed to commit: {error}", "error")
+        except Exception as e:
+            debug_log(f"Error committing: {e}", "error")
 
     async def action_toggle_tts(self) -> None:
         """Toggle TTS audio on/off"""
