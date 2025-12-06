@@ -210,6 +210,8 @@ class FilesPanel(Container):
 
     working_dir: reactive[Optional[str]] = reactive(None)
     selected_path: reactive[Optional[str]] = reactive(None)
+    search_mode: reactive[bool] = reactive(False)
+    _file_cache: List[str] = []  # Cache of all file paths for search
 
     # File type icons
     ICONS = {
@@ -248,6 +250,31 @@ class FilesPanel(Container):
             super().__init__()
             self.path = path
 
+    class NewFileRequested(Message):
+        """Posted when new file creation is requested"""
+        def __init__(self, parent_dir: str):
+            super().__init__()
+            self.parent_dir = parent_dir
+
+    class NewFolderRequested(Message):
+        """Posted when new folder creation is requested"""
+        def __init__(self, parent_dir: str):
+            super().__init__()
+            self.parent_dir = parent_dir
+
+    class RenameRequested(Message):
+        """Posted when rename is requested"""
+        def __init__(self, path: str):
+            super().__init__()
+            self.path = path
+
+    class DeleteRequested(Message):
+        """Posted when delete is requested"""
+        def __init__(self, path: str, is_directory: bool = False):
+            super().__init__()
+            self.path = path
+            self.is_directory = is_directory
+
     # Max file size to preview (100KB)
     MAX_PREVIEW_SIZE = 100 * 1024
 
@@ -264,6 +291,8 @@ class FilesPanel(Container):
 
     def compose(self) -> ComposeResult:
         yield Label("Files", classes="panel-title")
+        yield Input(placeholder="Search files... (Ctrl+F)", id="file-search-input", classes="file-search-input")
+        yield ListView(id="file-search-results", classes="file-search-results hidden")
         with Vertical(id="files-content"):
             yield Tree("Project", id="files-tree", classes="files-tree")
             yield Static("", id="file-info", classes="file-info")
@@ -274,17 +303,17 @@ class FilesPanel(Container):
             )
         with Container(classes="file-controls"):
             yield Button("Open", id="open-editor-btn", variant="primary", classes="control-btn")
-            yield Button("Copy Path", id="copy-path-btn", classes="control-btn")
+            yield Button("New", id="new-file-btn", classes="control-btn")
+            yield Button("Folder", id="new-folder-btn", classes="control-btn")
+        with Container(classes="file-controls"):
+            yield Button("Rename", id="rename-btn", classes="control-btn")
+            yield Button("Delete", id="delete-btn", variant="error", classes="control-btn")
             yield Button("Refresh", id="refresh-files-btn", classes="control-btn")
 
     def on_mount(self) -> None:
         tree = self.query_one("#files-tree", Tree)
         tree.show_root = True
         tree.guide_depth = 3
-
-    def watch_working_dir(self, new_dir: Optional[str]) -> None:
-        """Refresh tree when working directory changes"""
-        self.refresh_tree()
 
     @work(exclusive=True)
     async def refresh_tree(self) -> None:
@@ -512,6 +541,179 @@ class FilesPanel(Container):
 
     @on(Button.Pressed, "#refresh-files-btn")
     def on_refresh_pressed(self) -> None:
+        self.refresh_tree()
+
+    @on(Button.Pressed, "#new-file-btn")
+    def on_new_file_pressed(self) -> None:
+        """Request new file creation"""
+        # Use selected directory or working dir as parent
+        if self.selected_path and os.path.isdir(self.selected_path):
+            parent_dir = self.selected_path
+        elif self.selected_path:
+            parent_dir = os.path.dirname(self.selected_path)
+        elif self.working_dir:
+            parent_dir = self.working_dir
+        else:
+            return
+        self.post_message(self.NewFileRequested(parent_dir))
+
+    @on(Button.Pressed, "#new-folder-btn")
+    def on_new_folder_pressed(self) -> None:
+        """Request new folder creation"""
+        if self.selected_path and os.path.isdir(self.selected_path):
+            parent_dir = self.selected_path
+        elif self.selected_path:
+            parent_dir = os.path.dirname(self.selected_path)
+        elif self.working_dir:
+            parent_dir = self.working_dir
+        else:
+            return
+        self.post_message(self.NewFolderRequested(parent_dir))
+
+    @on(Button.Pressed, "#rename-btn")
+    def on_rename_pressed(self) -> None:
+        """Request rename of selected item"""
+        if self.selected_path:
+            self.post_message(self.RenameRequested(self.selected_path))
+
+    @on(Button.Pressed, "#delete-btn")
+    def on_delete_pressed(self) -> None:
+        """Request deletion of selected item"""
+        if self.selected_path:
+            is_dir = os.path.isdir(self.selected_path)
+            self.post_message(self.DeleteRequested(self.selected_path, is_directory=is_dir))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # File Search functionality
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _build_file_cache(self) -> None:
+        """Build a cache of all file paths for search"""
+        self._file_cache = []
+        if not self.working_dir or not os.path.isdir(self.working_dir):
+            return
+
+        for root, dirs, files in os.walk(self.working_dir):
+            # Filter out ignored directories
+            dirs[:] = [d for d in dirs if d not in self.IGNORE and not d.startswith('.')]
+
+            for f in files:
+                if not f.startswith('.'):
+                    full_path = os.path.join(root, f)
+                    self._file_cache.append(full_path)
+
+    def _fuzzy_match(self, pattern: str, text: str) -> tuple[bool, int]:
+        """
+        Simple fuzzy matching. Returns (matches, score).
+        Lower score = better match.
+        """
+        pattern = pattern.lower()
+        text = text.lower()
+
+        # Exact substring match is best
+        if pattern in text:
+            return True, text.index(pattern)
+
+        # Fuzzy: all chars must appear in order
+        pattern_idx = 0
+        score = 0
+        last_match_idx = -1
+
+        for i, char in enumerate(text):
+            if pattern_idx < len(pattern) and char == pattern[pattern_idx]:
+                # Penalize gaps between matched chars
+                if last_match_idx >= 0:
+                    score += (i - last_match_idx - 1) * 10
+                last_match_idx = i
+                pattern_idx += 1
+
+        if pattern_idx == len(pattern):
+            # Bonus for matching at word boundaries or start
+            if text.startswith(pattern[0]):
+                score -= 50
+            return True, score
+
+        return False, 999999
+
+    def _search_files(self, query: str) -> List[tuple[str, int]]:
+        """Search files matching query, return sorted by relevance"""
+        if not query:
+            return []
+
+        results = []
+        for path in self._file_cache:
+            # Match against filename (not full path)
+            filename = os.path.basename(path)
+            matches, score = self._fuzzy_match(query, filename)
+            if matches:
+                # Also consider relative path for scoring
+                rel_path = os.path.relpath(path, self.working_dir) if self.working_dir else path
+                results.append((path, score, rel_path))
+
+        # Sort by score, then by path length (shorter = better)
+        results.sort(key=lambda x: (x[1], len(x[2])))
+        return [(r[0], r[1]) for r in results[:20]]  # Return top 20
+
+    @on(Input.Changed, "#file-search-input")
+    async def on_search_changed(self, event: Input.Changed) -> None:
+        """Update search results as user types"""
+        query = event.value.strip()
+        results_list = self.query_one("#file-search-results", ListView)
+        files_content = self.query_one("#files-content", Vertical)
+
+        if not query:
+            # Hide results, show tree
+            results_list.add_class("hidden")
+            files_content.remove_class("hidden")
+            self.search_mode = False
+            return
+
+        # Build cache if needed
+        if not self._file_cache:
+            await asyncio.to_thread(self._build_file_cache)
+
+        # Search and display results
+        results = await asyncio.to_thread(self._search_files, query)
+
+        await results_list.clear()
+        if results:
+            for path, score in results:
+                rel_path = os.path.relpath(path, self.working_dir) if self.working_dir else path
+                icon = self._get_file_icon(os.path.basename(path))
+                item = ListItem(Label(f"{icon} {rel_path}"))
+                item.data = path  # Store full path in data attribute
+                await results_list.append(item)
+
+        # Show results, hide tree
+        results_list.remove_class("hidden")
+        files_content.add_class("hidden")
+        self.search_mode = True
+
+    @on(Input.Submitted, "#file-search-input")
+    async def on_search_submitted(self, event: Input.Submitted) -> None:
+        """Open first result when Enter pressed"""
+        results_list = self.query_one("#file-search-results", ListView)
+        if results_list.highlighted_child:
+            path = getattr(results_list.highlighted_child, 'data', None)
+            if path and os.path.isfile(path):
+                self.post_message(self.OpenInEditorRequested(path))
+                # Clear search
+                search_input = self.query_one("#file-search-input", Input)
+                search_input.value = ""
+
+    @on(ListView.Selected, "#file-search-results")
+    async def on_search_result_selected(self, event: ListView.Selected) -> None:
+        """Open file when search result clicked"""
+        path = getattr(event.item, 'data', None)
+        if path and os.path.isfile(path):
+            self.selected_path = path
+            self._update_file_info(path, is_dir=False)
+            self._update_file_preview(path, is_dir=False)
+            self.post_message(self.FileSelected(path, is_directory=False))
+
+    def watch_working_dir(self, new_dir: Optional[str]) -> None:
+        """Refresh tree and clear cache when working directory changes"""
+        self._file_cache = []  # Clear cache
         self.refresh_tree()
 
 

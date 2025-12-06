@@ -74,6 +74,10 @@ from screens import (
     UserSelectScreen,
     CreateUserScreen,
     DiffViewerScreen,
+    NewFileScreen,
+    NewFolderScreen,
+    RenameFileScreen,
+    DeleteConfirmScreen,
 )
 from screens.settings import SettingsScreen
 from screens.ollama_browser import OllamaModelBrowser
@@ -827,7 +831,7 @@ class CassVesselTUI(App):
 
     @on(FilesPanel.OpenInEditorRequested)
     async def on_open_in_editor_requested(self, event: FilesPanel.OpenInEditorRequested) -> None:
-        """Handle open in editor request"""
+        """Handle open in editor request - opens in tmux pane or spawns GUI editor"""
         import subprocess
         import shutil
 
@@ -844,21 +848,156 @@ class CassVesselTUI(App):
             return
 
         try:
-            # For terminal editors, we need to handle differently
-            # For now, just spawn detached for GUI editors
-            if editor in ('code', 'subl', 'gedit', 'kate'):
+            # GUI editors - spawn detached
+            if editor in ('code', 'subl', 'gedit', 'kate', 'atom'):
                 subprocess.Popen([editor, event.path], start_new_session=True)
                 debug_log(f"Opened {event.path} in {editor}", "success")
             else:
-                # Terminal editor - can't easily open in TUI context
-                # Copy path to clipboard instead and notify
-                if CLIPBOARD_TEXT_AVAILABLE:
-                    pyperclip.copy(event.path)
-                    debug_log(f"Path copied - open with: {editor} {event.path}", "info")
+                # Terminal editor - open in new tmux pane
+                # Get the current Daedalus session name
+                daedalus = self.query_one("#daedalus-widget", DaedalusWidget)
+                session_name = getattr(daedalus, 'current_session', None)
+
+                if session_name and shutil.which('tmux'):
+                    # Split current pane and run editor
+                    result = subprocess.run(
+                        ['tmux', 'split-window', '-t', session_name, '-h', editor, event.path],
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode == 0:
+                        debug_log(f"Opened {os.path.basename(event.path)} in {editor} (tmux pane)", "success")
+                    else:
+                        # Fallback: try without session target
+                        result = subprocess.run(
+                            ['tmux', 'split-window', '-h', editor, event.path],
+                            capture_output=True,
+                            text=True
+                        )
+                        if result.returncode == 0:
+                            debug_log(f"Opened {os.path.basename(event.path)} in {editor}", "success")
+                        else:
+                            debug_log(f"tmux error: {result.stderr}", "error")
                 else:
-                    debug_log(f"Open with: {editor} {event.path}", "info")
+                    # No tmux session or tmux not available - copy path as fallback
+                    if CLIPBOARD_TEXT_AVAILABLE:
+                        pyperclip.copy(event.path)
+                        debug_log(f"Path copied - run: {editor} {event.path}", "info")
+                    else:
+                        debug_log(f"Open with: {editor} {event.path}", "info")
         except Exception as e:
             debug_log(f"Error opening editor: {e}", "error")
+
+    @on(FilesPanel.NewFileRequested)
+    async def on_new_file_requested(self, event: FilesPanel.NewFileRequested) -> None:
+        """Handle new file request - show dialog"""
+        def handle_result(result) -> None:
+            if result and result.get("action") == "create_file":
+                asyncio.create_task(self._create_file(result["path"]))
+
+        self.push_screen(NewFileScreen(event.parent_dir), handle_result)
+
+    @on(FilesPanel.NewFolderRequested)
+    async def on_new_folder_requested(self, event: FilesPanel.NewFolderRequested) -> None:
+        """Handle new folder request - show dialog"""
+        def handle_result(result) -> None:
+            if result and result.get("action") == "create_folder":
+                asyncio.create_task(self._create_folder(result["path"]))
+
+        self.push_screen(NewFolderScreen(event.parent_dir), handle_result)
+
+    @on(FilesPanel.RenameRequested)
+    async def on_rename_requested(self, event: FilesPanel.RenameRequested) -> None:
+        """Handle rename request - show dialog"""
+        def handle_result(result) -> None:
+            if result and result.get("action") == "rename":
+                asyncio.create_task(self._rename_file(result["old_path"], result["new_path"]))
+
+        self.push_screen(RenameFileScreen(event.path), handle_result)
+
+    @on(FilesPanel.DeleteRequested)
+    async def on_delete_requested(self, event: FilesPanel.DeleteRequested) -> None:
+        """Handle delete request - show confirmation dialog"""
+        def handle_result(result) -> None:
+            if result and result.get("action") == "delete":
+                asyncio.create_task(self._delete_file(result["path"], result.get("recursive", False)))
+
+        self.push_screen(DeleteConfirmScreen(event.path, event.is_directory), handle_result)
+
+    async def _create_file(self, path: str) -> None:
+        """Create a new file via API"""
+        try:
+            response = await self.http_client.post(
+                "/files/create",
+                json={"path": path, "content": ""}
+            )
+            if response.status_code == 200:
+                debug_log(f"Created file: {os.path.basename(path)}", "success")
+                # Refresh file tree
+                files_panel = self.query_one("#files-panel", FilesPanel)
+                files_panel.refresh_tree()
+            else:
+                error = response.json().get("detail", "Unknown error")
+                debug_log(f"Failed to create file: {error}", "error")
+        except Exception as e:
+            debug_log(f"Error creating file: {e}", "error")
+
+    async def _create_folder(self, path: str) -> None:
+        """Create a new folder via API"""
+        try:
+            response = await self.http_client.post(
+                "/files/mkdir",
+                json={"path": path}
+            )
+            if response.status_code == 200:
+                debug_log(f"Created folder: {os.path.basename(path)}", "success")
+                # Refresh file tree
+                files_panel = self.query_one("#files-panel", FilesPanel)
+                files_panel.refresh_tree()
+            else:
+                error = response.json().get("detail", "Unknown error")
+                debug_log(f"Failed to create folder: {error}", "error")
+        except Exception as e:
+            debug_log(f"Error creating folder: {e}", "error")
+
+    async def _rename_file(self, old_path: str, new_path: str) -> None:
+        """Rename a file or folder via API"""
+        try:
+            response = await self.http_client.post(
+                "/files/rename",
+                json={"old_path": old_path, "new_path": new_path}
+            )
+            if response.status_code == 200:
+                debug_log(f"Renamed to: {os.path.basename(new_path)}", "success")
+                # Refresh file tree
+                files_panel = self.query_one("#files-panel", FilesPanel)
+                files_panel.refresh_tree()
+            else:
+                error = response.json().get("detail", "Unknown error")
+                debug_log(f"Failed to rename: {error}", "error")
+        except Exception as e:
+            debug_log(f"Error renaming: {e}", "error")
+
+    async def _delete_file(self, path: str, recursive: bool = False) -> None:
+        """Delete a file or folder via API"""
+        try:
+            response = await self.http_client.request(
+                "DELETE",
+                "/files/delete",
+                json={"path": path, "recursive": recursive}
+            )
+            if response.status_code == 200:
+                debug_log(f"Deleted: {os.path.basename(path)}", "success")
+                # Refresh file tree
+                files_panel = self.query_one("#files-panel", FilesPanel)
+                files_panel.refresh_tree()
+                # Clear selection
+                files_panel.selected_path = None
+            else:
+                error = response.json().get("detail", "Unknown error")
+                debug_log(f"Failed to delete: {error}", "error")
+        except Exception as e:
+            debug_log(f"Error deleting: {e}", "error")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Git panel handlers

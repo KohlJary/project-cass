@@ -545,6 +545,84 @@ CSS = """
         margin: 0 1;
     }
 
+    /* File dialog modals (NewFileScreen, NewFolderScreen, RenameFileScreen) */
+    NewFileScreen, NewFolderScreen, RenameFileScreen {
+        align: center middle;
+    }
+
+    #file-dialog {
+        width: 60;
+        height: auto;
+        background: $panel;
+        border: thick $primary;
+        padding: 1 2;
+    }
+
+    #file-dialog-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    .dialog-path {
+        color: $text-muted;
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    #file-name-input, #folder-name-input, #rename-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #file-dialog-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #file-dialog-buttons Button {
+        margin: 0 1;
+    }
+
+    /* Delete file/folder confirmation dialog */
+    DeleteConfirmScreen {
+        align: center middle;
+    }
+
+    #delete-file-dialog {
+        width: 60;
+        height: auto;
+        background: $panel;
+        border: thick $error;
+        padding: 1 2;
+    }
+
+    #delete-dialog-title {
+        text-align: center;
+        text-style: bold;
+        color: $error;
+        margin-bottom: 1;
+    }
+
+    #delete-message {
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    #delete-dialog-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #delete-dialog-buttons Button {
+        margin: 0 1;
+    }
+
     /* User selector in sidebar */
     #user-selector {
         height: auto;
@@ -1236,6 +1314,25 @@ CSS = """
         text-style: bold;
         margin-bottom: 1;
         color: $primary;
+    }
+
+    #files-panel .file-search-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #files-panel .file-search-results {
+        height: 1fr;
+        border: solid $surface-darken-1;
+        padding: 0 1;
+    }
+
+    #files-panel .file-search-results.hidden {
+        display: none;
+    }
+
+    #files-panel #files-content.hidden {
+        display: none;
     }
 
     #files-panel #files-tree {
