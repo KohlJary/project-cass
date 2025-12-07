@@ -1715,3 +1715,246 @@ async def preview_deepening_context(page_name: str) -> Dict:
             "summary": growth.summary,
         },
     }
+
+
+# === Autonomous Research Scheduling (ARS) Endpoints ===
+
+# Global scheduler instance (lazy initialized)
+_research_queue = None
+_research_scheduler = None
+
+
+def _get_scheduler():
+    """Get or create the research scheduler."""
+    global _research_queue, _research_scheduler
+    if _research_scheduler is None and _wiki_storage is not None:
+        from wiki import ResearchQueue, ResearchScheduler, SchedulerConfig
+        # Use data directory for queue persistence
+        queue_dir = _data_dir if _data_dir else "."
+        _research_queue = ResearchQueue(queue_dir)
+        _research_scheduler = ResearchScheduler(
+            _wiki_storage,
+            _research_queue,
+            SchedulerConfig(),
+            _memory,
+        )
+    return _research_scheduler
+
+
+@router.get("/research/queue")
+async def get_research_queue(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    task_type: Optional[str] = Query(None, description="Filter by type"),
+    limit: int = Query(50, ge=1, le=200),
+) -> Dict:
+    """
+    Get the research task queue.
+
+    Returns queued tasks sorted by priority.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    from wiki import TaskStatus, TaskType
+
+    tasks = []
+    if status:
+        try:
+            s = TaskStatus(status)
+            tasks = scheduler.queue.get_by_status(s)
+        except ValueError:
+            valid = [t.value for t in TaskStatus]
+            raise HTTPException(status_code=400, detail=f"Invalid status. Valid: {valid}")
+    elif task_type:
+        try:
+            t = TaskType(task_type)
+            tasks = scheduler.queue.get_by_type(t)
+        except ValueError:
+            valid = [t.value for t in TaskType]
+            raise HTTPException(status_code=400, detail=f"Invalid type. Valid: {valid}")
+    else:
+        tasks = scheduler.queue.get_queued()
+
+    tasks = tasks[:limit]
+
+    return {
+        "tasks": [t.to_dict() for t in tasks],
+        "total": len(tasks),
+        "stats": scheduler.queue.get_stats(),
+    }
+
+
+@router.post("/research/queue/refresh")
+async def refresh_research_queue() -> Dict:
+    """
+    Refresh the research queue with new tasks.
+
+    Harvests red links, deepening candidates, etc.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    added = scheduler.refresh_tasks()
+
+    return {
+        "added": added,
+        "stats": scheduler.queue.get_stats(),
+    }
+
+
+class AddTaskRequest(BaseModel):
+    """Request to manually add a research task."""
+    target: str
+    task_type: str = "red_link"
+    context: str = "Manually added"
+    priority: float = 0.5
+
+
+@router.post("/research/queue/add")
+async def add_research_task(request: AddTaskRequest) -> Dict:
+    """
+    Manually add a research task to the queue.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    from wiki import TaskType, ResearchTask, TaskRationale, create_task_id
+
+    try:
+        task_type = TaskType(request.task_type)
+    except ValueError:
+        valid = [t.value for t in TaskType]
+        raise HTTPException(status_code=400, detail=f"Invalid type. Valid: {valid}")
+
+    task = ResearchTask(
+        task_id=create_task_id(),
+        task_type=task_type,
+        target=request.target,
+        context=request.context,
+        priority=request.priority,
+        rationale=TaskRationale(),
+        source_type="manual",
+    )
+
+    scheduler.queue.add(task)
+
+    return {
+        "task": task.to_dict(),
+        "message": "Task added to queue",
+    }
+
+
+@router.delete("/research/queue/{task_id}")
+async def remove_research_task(task_id: str) -> Dict:
+    """
+    Remove a task from the queue.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    removed = scheduler.queue.remove(task_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
+    return {"removed": True, "task_id": task_id}
+
+
+@router.post("/research/run/single")
+async def run_single_research_task() -> Dict:
+    """
+    Execute the next queued research task.
+
+    Returns progress report for the executed task.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    report = await scheduler.run_single_task()
+
+    if not report:
+        return {
+            "executed": False,
+            "message": "No tasks in queue",
+            "stats": scheduler.queue.get_stats(),
+        }
+
+    return {
+        "executed": True,
+        "report": report.to_dict(),
+        "markdown": report.to_markdown(),
+        "stats": scheduler.queue.get_stats(),
+    }
+
+
+class RunBatchRequest(BaseModel):
+    """Request to run a batch of research tasks."""
+    max_tasks: int = 5
+
+
+@router.post("/research/run/batch")
+async def run_research_batch(request: RunBatchRequest) -> Dict:
+    """
+    Execute a batch of research tasks.
+
+    Args:
+        request: Batch configuration
+
+    Returns:
+        Combined progress report
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    report = await scheduler.run_batch(max_tasks=request.max_tasks)
+
+    return {
+        "report": report.to_dict(),
+        "markdown": report.to_markdown(),
+        "stats": scheduler.queue.get_stats(),
+    }
+
+
+@router.get("/research/stats")
+async def get_research_stats() -> Dict:
+    """
+    Get research scheduler statistics.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    return {
+        "queue_stats": scheduler.queue.get_stats(),
+        "last_refresh": scheduler._last_refresh.isoformat() if scheduler._last_refresh else None,
+        "mode": scheduler.config.mode.value,
+        "config": {
+            "max_tasks_per_cycle": scheduler.config.max_tasks_per_cycle,
+            "auto_queue_red_links": scheduler.config.auto_queue_red_links,
+            "auto_queue_deepening": scheduler.config.auto_queue_deepening,
+        },
+    }
+
+
+@router.post("/research/queue/clear-completed")
+async def clear_completed_tasks() -> Dict:
+    """
+    Clear completed/failed tasks from the queue.
+
+    They remain in history.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    removed = scheduler.queue.clear_completed()
+
+    return {
+        "cleared": removed,
+        "stats": scheduler.queue.get_stats(),
+    }
