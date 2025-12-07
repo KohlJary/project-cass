@@ -167,9 +167,12 @@ class MaturityState:
 
     def should_deepen(self, days_threshold: int = 7) -> Optional[SynthesisTrigger]:
         """
-        Check if this page should be deepened.
+        Check if this page should be deepened based on basic triggers.
 
         Returns the trigger type if deepening is warranted, None otherwise.
+        Note: This only checks connection threshold and temporal decay.
+        For full trigger detection including related-concept and foundational
+        shifts, use DeepeningDetector.
         """
         # Connection threshold: 5+ new connections since last synthesis
         if self.connections.added_since_last_synthesis >= 5:
@@ -182,6 +185,12 @@ class MaturityState:
                 return SynthesisTrigger.TEMPORAL_DECAY
 
         return None
+
+    def days_since_deepening(self) -> Optional[int]:
+        """Get days since last deepening, or None if never deepened."""
+        if not self.last_deepened:
+            return None
+        return (datetime.now() - self.last_deepened).days
 
 
 def calculate_depth_score(
@@ -208,6 +217,287 @@ def calculate_depth_score(
         'cross_domain_links': min(cross_domain_connections / 10, 1.0) * 0.2,
     }
     return sum(factors.values())
+
+
+@dataclass
+class DeepeningCandidate:
+    """A page that's ready for deepening with priority info."""
+    page_name: str
+    trigger: SynthesisTrigger
+    priority: float  # 0-1, higher = more urgent
+    reason: str
+    connections_added: int = 0
+    days_since_deepening: Optional[int] = None
+    related_pages_deepened: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "page_name": self.page_name,
+            "trigger": self.trigger.value,
+            "priority": round(self.priority, 3),
+            "reason": self.reason,
+            "connections_added": self.connections_added,
+            "days_since_deepening": self.days_since_deepening,
+            "related_pages_deepened": self.related_pages_deepened,
+        }
+
+
+# Core concepts that trigger FOUNDATIONAL_SHIFT when updated
+FOUNDATIONAL_CONCEPTS = {
+    "Cass",
+    "Self Model",
+    "Self-Model",
+    "Four Vows",
+    "Temple-Codex",
+    "Temple Codex",
+    "Compassion",
+    "Witness",
+    "Release",
+    "Continuance",
+    "Identity",
+    "Values",
+    "Ethics",
+}
+
+
+class DeepeningDetector:
+    """
+    Detects which pages are candidates for resynthesis/deepening.
+
+    Implements the trigger detection from the spec:
+    - Connection threshold: 5+ new connections since last synthesis
+    - Related concept deepened: directly connected concept was resynthesized
+    - Temporal decay: 7+ days since deepening AND high connectivity
+    - Foundational shift: core concept (Vows, Self-Model) was updated
+    - Explicit request: user or Cass requests deeper understanding
+    """
+
+    # Priority weights for different triggers (higher = more urgent)
+    TRIGGER_PRIORITIES = {
+        SynthesisTrigger.FOUNDATIONAL_SHIFT: 1.0,
+        SynthesisTrigger.EXPLICIT_REQUEST: 0.95,
+        SynthesisTrigger.RELATED_DEEPENED: 0.7,
+        SynthesisTrigger.CONNECTION_THRESHOLD: 0.5,
+        SynthesisTrigger.TEMPORAL_DECAY: 0.3,
+    }
+
+    def __init__(
+        self,
+        wiki_storage,
+        connection_threshold: int = 5,
+        days_threshold: int = 7,
+        high_connectivity_threshold: int = 10,
+    ):
+        """
+        Initialize the detector.
+
+        Args:
+            wiki_storage: WikiStorage instance
+            connection_threshold: New connections needed to trigger
+            days_threshold: Days since deepening for temporal decay
+            high_connectivity_threshold: Incoming links needed for temporal decay
+        """
+        self.storage = wiki_storage
+        self.connection_threshold = connection_threshold
+        self.days_threshold = days_threshold
+        self.high_connectivity_threshold = high_connectivity_threshold
+
+        # Track recently deepened pages for related-concept detection
+        self._recently_deepened: List[str] = []
+
+    def record_deepening(self, page_name: str) -> None:
+        """Record that a page was just deepened (for related-concept detection)."""
+        if page_name not in self._recently_deepened:
+            self._recently_deepened.append(page_name)
+            # Keep only recent entries (last 50)
+            if len(self._recently_deepened) > 50:
+                self._recently_deepened = self._recently_deepened[-50:]
+
+    def clear_recently_deepened(self) -> None:
+        """Clear the recently deepened list (e.g., after a full cycle)."""
+        self._recently_deepened = []
+
+    def detect_all_candidates(self) -> List[DeepeningCandidate]:
+        """
+        Scan all pages and detect deepening candidates.
+
+        Returns:
+            List of DeepeningCandidate, sorted by priority (highest first)
+        """
+        candidates = []
+
+        for page in self.storage.list_pages():
+            candidate = self.check_page(page.name)
+            if candidate:
+                candidates.append(candidate)
+
+        # Sort by priority (highest first)
+        candidates.sort(key=lambda c: c.priority, reverse=True)
+        return candidates
+
+    def check_page(self, page_name: str) -> Optional[DeepeningCandidate]:
+        """
+        Check if a specific page is a deepening candidate.
+
+        Args:
+            page_name: Name of the page to check
+
+        Returns:
+            DeepeningCandidate if the page should be deepened, None otherwise
+        """
+        page = self.storage.read(page_name)
+        if not page:
+            return None
+
+        maturity = page.maturity
+
+        # Check all triggers in priority order
+        triggers = []
+
+        # 1. Foundational shift (check if this IS a foundational concept that was recently updated)
+        if self._is_foundational_concept(page_name):
+            # Check if it was modified recently but not deepened
+            if page.modified_at and maturity.last_deepened:
+                if page.modified_at > maturity.last_deepened:
+                    triggers.append((
+                        SynthesisTrigger.FOUNDATIONAL_SHIFT,
+                        f"Foundational concept '{page_name}' was updated"
+                    ))
+
+        # 2. Related concept deepened
+        related_deepened = self._get_recently_deepened_connections(page)
+        if related_deepened:
+            triggers.append((
+                SynthesisTrigger.RELATED_DEEPENED,
+                f"Connected concepts were deepened: {', '.join(related_deepened)}"
+            ))
+
+        # 3. Connection threshold
+        if maturity.connections.added_since_last_synthesis >= self.connection_threshold:
+            triggers.append((
+                SynthesisTrigger.CONNECTION_THRESHOLD,
+                f"{maturity.connections.added_since_last_synthesis} new connections since last synthesis"
+            ))
+
+        # 4. Temporal decay
+        days = maturity.days_since_deepening()
+        if (days is not None and
+            days >= self.days_threshold and
+            maturity.connections.incoming >= self.high_connectivity_threshold):
+            triggers.append((
+                SynthesisTrigger.TEMPORAL_DECAY,
+                f"{days} days since deepening with {maturity.connections.incoming} incoming links"
+            ))
+
+        if not triggers:
+            return None
+
+        # Pick the highest priority trigger
+        best_trigger, reason = max(
+            triggers,
+            key=lambda t: self.TRIGGER_PRIORITIES.get(t[0], 0)
+        )
+
+        # Calculate priority score
+        priority = self._calculate_priority(page, best_trigger, maturity)
+
+        return DeepeningCandidate(
+            page_name=page_name,
+            trigger=best_trigger,
+            priority=priority,
+            reason=reason,
+            connections_added=maturity.connections.added_since_last_synthesis,
+            days_since_deepening=days,
+            related_pages_deepened=related_deepened,
+        )
+
+    def _is_foundational_concept(self, page_name: str) -> bool:
+        """Check if a page is a core/foundational concept."""
+        # Normalize for comparison
+        normalized = page_name.replace('_', ' ').replace('-', ' ').lower()
+        for concept in FOUNDATIONAL_CONCEPTS:
+            if concept.lower() == normalized:
+                return True
+        return False
+
+    def _get_recently_deepened_connections(self, page) -> List[str]:
+        """Get list of recently deepened pages that are connected to this page."""
+        if not self._recently_deepened:
+            return []
+
+        # Get all connected pages (both incoming and outgoing)
+        connected = set(page.link_targets)
+        backlinks = self.storage.get_backlinks(page.name)
+        connected.update(bl.name for bl in backlinks)
+
+        # Find intersection with recently deepened
+        return [name for name in self._recently_deepened if name in connected]
+
+    def _calculate_priority(
+        self,
+        page,
+        trigger: SynthesisTrigger,
+        maturity: MaturityState
+    ) -> float:
+        """
+        Calculate priority score for a deepening candidate.
+
+        Factors:
+        - Base priority from trigger type
+        - Connection density boost
+        - Foundational concept boost
+        - Age penalty (older = slightly lower priority)
+        """
+        base = self.TRIGGER_PRIORITIES.get(trigger, 0.5)
+
+        # Connection density boost (0-0.2)
+        connection_boost = min(maturity.connections.total / 50, 0.2)
+
+        # Foundational concept boost
+        foundational_boost = 0.15 if self._is_foundational_concept(page.name) else 0
+
+        # Age adjustment (recently created pages get slight boost)
+        age_adjustment = 0
+        if page.created_at:
+            days_old = (datetime.now() - page.created_at).days
+            if days_old < 7:
+                age_adjustment = 0.05  # Newer pages get slight priority
+
+        priority = base + connection_boost + foundational_boost + age_adjustment
+        return min(priority, 1.0)  # Cap at 1.0
+
+    def get_foundational_shift_candidates(self) -> List[DeepeningCandidate]:
+        """
+        Find pages affected by foundational concept changes.
+
+        When a foundational concept is updated, find all pages that
+        link to it and mark them as candidates.
+
+        Returns:
+            List of candidates triggered by foundational shifts
+        """
+        candidates = []
+
+        # Check each foundational concept
+        for concept in FOUNDATIONAL_CONCEPTS:
+            page = self.storage.read(concept)
+            if not page:
+                continue
+
+            # If the foundational page itself was updated recently
+            if page.modified_at and page.maturity.last_deepened:
+                if page.modified_at > page.maturity.last_deepened:
+                    # Find all pages that link TO this foundational concept
+                    backlinks = self.storage.get_backlinks(page.name)
+                    for linked_page in backlinks:
+                        candidates.append(DeepeningCandidate(
+                            page_name=linked_page.name,
+                            trigger=SynthesisTrigger.FOUNDATIONAL_SHIFT,
+                            priority=0.85,
+                            reason=f"Linked to updated foundational concept '{page.name}'",
+                        ))
+
+        return candidates
 
 
 def update_connection_counts(
