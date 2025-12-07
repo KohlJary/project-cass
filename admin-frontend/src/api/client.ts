@@ -95,4 +95,35 @@ export const wikiApi = {
     api.post('/wiki/research-page', { name, page_type: pageType || 'concept' }),
   researchBatch: (params?: { limit?: number; page_type?: string }) =>
     api.post('/wiki/research-batch', null, { params }),
+  // Maturity/PMD endpoints
+  getMaturityStats: () => api.get('/wiki/maturity/stats'),
+  getMaturityCandidates: (limit?: number) =>
+    api.get('/wiki/maturity/candidates', { params: { limit } }),
+  detectDeepeningCandidates: (limit?: number) =>
+    api.get('/wiki/maturity/detect', { params: { limit } }),
+  getPageMaturity: (name: string) =>
+    api.get(`/wiki/pages/${encodeURIComponent(name)}/maturity`),
+  refreshConnections: () => api.post('/wiki/maturity/refresh-connections'),
+  deepenPage: (name: string, trigger?: string, validate?: boolean) =>
+    api.post(`/wiki/deepen/${encodeURIComponent(name)}`, { trigger: trigger || 'explicit_request', validate: validate !== false }),
+  deepenCycle: (maxPages?: number) =>
+    api.post('/wiki/deepen/cycle', { max_pages: maxPages || 5 }),
+  previewDeepening: (name: string) =>
+    api.get(`/wiki/deepen/${encodeURIComponent(name)}/preview`),
+};
+
+// Research/ARS endpoints
+export const researchApi = {
+  getQueue: (params?: { status?: string; task_type?: string; limit?: number }) =>
+    api.get('/wiki/research/queue', { params }),
+  refreshQueue: () => api.post('/wiki/research/queue/refresh'),
+  addTask: (data: { target: string; task_type?: string; context?: string; priority?: number }) =>
+    api.post('/wiki/research/queue/add', data),
+  removeTask: (taskId: string) =>
+    api.delete(`/wiki/research/queue/${taskId}`),
+  runSingle: () => api.post('/wiki/research/run/single'),
+  runBatch: (maxTasks?: number) =>
+    api.post('/wiki/research/run/batch', { max_tasks: maxTasks || 5 }),
+  getStats: () => api.get('/wiki/research/stats'),
+  clearCompleted: () => api.post('/wiki/research/queue/clear-completed'),
 };
