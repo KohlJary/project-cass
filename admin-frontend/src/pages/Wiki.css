@@ -1398,10 +1398,13 @@
 /* Reader content area */
 .reader-content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   background: #0d0d0d;
   border-radius: 8px;
   border: 1px solid #222;
+  display: flex;
+  flex-direction: column;
 }
 
 .reader-empty {
@@ -1409,7 +1412,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  flex: 1;
   text-align: center;
   padding: 2rem;
   color: #666;
