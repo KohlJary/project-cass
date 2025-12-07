@@ -807,6 +807,68 @@
   color: #555;
 }
 
+/* Exploration Tasks Section */
+.exploration-tasks {
+  padding: 1rem;
+  background: rgba(96, 165, 250, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+.exploration-tasks h3 {
+  margin: 0 0 0.25rem;
+  color: #60a5fa;
+  font-size: 1rem;
+}
+
+.section-description {
+  margin: 0 0 1rem;
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.exploration-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.exploration-item {
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border-radius: 6px;
+  border-left: 3px solid #60a5fa;
+}
+
+.exploration-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.exploration-target {
+  color: #fff;
+  font-weight: 500;
+}
+
+.exploration-priority {
+  color: #60a5fa;
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.exploration-context {
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.exploration-item .btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 /* Graph Stats Card */
 .stat-card.graph-stats .most-connected {
   margin-top: 0.75rem;

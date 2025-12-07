@@ -209,6 +209,11 @@ export function Research() {
   const graphStats: GraphStats | null = graphStatsData || null;
   const weeklySummary: WeeklySummary | null = weeklySummaryData || null;
 
+  // Filter exploration tasks from queue
+  const explorationTasks = useMemo(() => {
+    return tasks.filter(t => t.task_type === 'exploration' && t.status === 'queued');
+  }, [tasks]);
+
   // Group history tasks by date for calendar (uses completed_at)
   const tasksByDate = useMemo(() => {
     const byDate: Record<string, ResearchTask[]> = {};
@@ -435,6 +440,31 @@ export function Research() {
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+
+          {explorationTasks.length > 0 && (
+            <div className="exploration-tasks">
+              <h3>Exploration Tasks ({explorationTasks.length})</h3>
+              <p className="section-description">Curiosity-driven tasks that would bridge disconnected areas of the knowledge graph</p>
+              <div className="exploration-list">
+                {explorationTasks.map((task) => (
+                  <div key={task.task_id} className="exploration-item">
+                    <div className="exploration-header">
+                      <span className="exploration-target">{task.target}</span>
+                      <span className="exploration-priority">{task.priority.toFixed(2)}</span>
+                    </div>
+                    <div className="exploration-context">{task.context}</div>
+                    <button
+                      className="btn btn-small btn-secondary"
+                      onClick={() => removeTaskMutation.mutate(task.task_id)}
+                      disabled={removeTaskMutation.isPending}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
