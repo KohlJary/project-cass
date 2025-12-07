@@ -59,10 +59,25 @@ interface ProgressReport {
   pages_created: string[];
   pages_updated: string[];
   key_insights: string[];
+  graph_stats?: GraphStats;
+}
+
+interface GraphStats {
+  node_count: number;
+  edge_count: number;
+  avg_connectivity: number;
+  most_connected: { page: string; connections: number }[];
+  orphan_count: number;
+  sparse_count: number;
+}
+
+interface WeeklySummary {
+  report: ProgressReport;
+  markdown: string;
 }
 
 export function Research() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'deepening' | 'history'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'deepening' | 'history' | 'summary'>('overview');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -70,6 +85,7 @@ export function Research() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [lastReport, setLastReport] = useState<ProgressReport | null>(null);
   const [batchSize, setBatchSize] = useState(3);
+  const [summaryDays, setSummaryDays] = useState(7);
   const queryClient = useQueryClient();
 
   // Queries
@@ -105,6 +121,18 @@ export function Research() {
     queryKey: ['research-history', historyYear, historyMonth],
     queryFn: () => researchApi.getHistory({ year: historyYear, month: historyMonth, limit: 200 }).then(r => r.data),
     enabled: activeTab === 'history', // Only fetch when calendar tab is active
+  });
+
+  const { data: graphStatsData } = useQuery({
+    queryKey: ['graph-stats'],
+    queryFn: () => researchApi.getGraphStats().then(r => r.data),
+    refetchInterval: 30000, // Refresh every 30s
+  });
+
+  const { data: weeklySummaryData } = useQuery({
+    queryKey: ['weekly-summary', summaryDays],
+    queryFn: () => researchApi.getWeeklySummary(summaryDays).then(r => r.data),
+    enabled: activeTab === 'summary',
   });
 
   // Mutations
@@ -165,11 +193,21 @@ export function Research() {
     },
   });
 
+  const explorationMutation = useMutation({
+    mutationFn: (maxTasks: number) => researchApi.generateExploration(maxTasks),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['research-stats'] });
+    },
+  });
+
   const stats: QueueStats = statsData?.queue_stats || { total: 0, by_status: {}, by_type: {}, queued_count: 0, in_progress_count: 0 };
   const tasks: ResearchTask[] = queueData?.tasks || [];
   const maturity: MaturityStats = maturityData || { total_pages: 0, avg_depth_score: 0, by_level: {}, deepening_candidates: 0 };
   const candidates: DeepeningCandidate[] = candidatesData?.candidates || [];
   const historyTasks: ResearchTask[] = historyData?.history || [];
+  const graphStats: GraphStats | null = graphStatsData || null;
+  const weeklySummary: WeeklySummary | null = weeklySummaryData || null;
 
   // Group history tasks by date for calendar (uses completed_at)
   const tasksByDate = useMemo(() => {
@@ -257,6 +295,9 @@ export function Research() {
         <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>
           Calendar
         </button>
+        <button className={activeTab === 'summary' ? 'active' : ''} onClick={() => setActiveTab('summary')}>
+          Summary
+        </button>
       </div>
 
       {activeTab === 'overview' && (
@@ -294,6 +335,25 @@ export function Research() {
                 <span className="stat-item">Completed: {stats.by_status.completed || 0}</span>
               </div>
             </div>
+
+            {graphStats && (
+              <div className="stat-card graph-stats">
+                <h3>Knowledge Graph</h3>
+                <div className="stat-value">{graphStats.node_count}</div>
+                <div className="stat-label">Nodes</div>
+                <div className="stat-breakdown">
+                  <span className="stat-item">{graphStats.edge_count} edges</span>
+                  <span className="stat-item">Avg: {graphStats.avg_connectivity}</span>
+                  <span className="stat-item">{graphStats.orphan_count} orphans</span>
+                </div>
+                {graphStats.most_connected.length > 0 && (
+                  <div className="most-connected">
+                    <span className="label">Most connected:</span>
+                    <span className="value">{graphStats.most_connected[0].page} ({graphStats.most_connected[0].connections})</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="controls-section">
@@ -335,6 +395,13 @@ export function Research() {
                 disabled={!stats.by_status.completed}
               >
                 Clear Completed
+              </button>
+              <button
+                className="btn btn-secondary explore-btn"
+                onClick={() => explorationMutation.mutate(5)}
+                disabled={explorationMutation.isPending}
+              >
+                {explorationMutation.isPending ? 'Finding...' : 'Find Exploration Tasks'}
               </button>
             </div>
           </div>
@@ -608,6 +675,118 @@ export function Research() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'summary' && (
+        <div className="summary-tab">
+          <div className="summary-header">
+            <h3>Research Summary</h3>
+            <div className="summary-controls">
+              <label>
+                Period:
+                <select value={summaryDays} onChange={(e) => setSummaryDays(parseInt(e.target.value))}>
+                  <option value={7}>Last 7 days</option>
+                  <option value={14}>Last 14 days</option>
+                  <option value={30}>Last 30 days</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          {weeklySummary ? (
+            <div className="summary-content">
+              <div className="summary-stats">
+                <div className="summary-stat">
+                  <span className="stat-number">{weeklySummary.report.tasks_completed}</span>
+                  <span className="stat-label">Tasks Completed</span>
+                </div>
+                <div className="summary-stat">
+                  <span className="stat-number">{weeklySummary.report.pages_created.length}</span>
+                  <span className="stat-label">Pages Created</span>
+                </div>
+                <div className="summary-stat">
+                  <span className="stat-number">{weeklySummary.report.pages_updated.length}</span>
+                  <span className="stat-label">Pages Deepened</span>
+                </div>
+                {weeklySummary.report.tasks_failed > 0 && (
+                  <div className="summary-stat failed">
+                    <span className="stat-number">{weeklySummary.report.tasks_failed}</span>
+                    <span className="stat-label">Failed</span>
+                  </div>
+                )}
+              </div>
+
+              {weeklySummary.report.graph_stats && (
+                <div className="summary-graph">
+                  <h4>Knowledge Graph</h4>
+                  <div className="graph-metrics">
+                    <div className="metric">
+                      <span className="value">{weeklySummary.report.graph_stats.node_count}</span>
+                      <span className="label">Pages</span>
+                    </div>
+                    <div className="metric">
+                      <span className="value">{weeklySummary.report.graph_stats.edge_count}</span>
+                      <span className="label">Connections</span>
+                    </div>
+                    <div className="metric">
+                      <span className="value">{weeklySummary.report.graph_stats.avg_connectivity}</span>
+                      <span className="label">Avg Links/Page</span>
+                    </div>
+                  </div>
+                  {weeklySummary.report.graph_stats.most_connected.length > 0 && (
+                    <div className="most-connected-list">
+                      <h5>Most Connected Pages</h5>
+                      {weeklySummary.report.graph_stats.most_connected.slice(0, 5).map((item, i) => (
+                        <div key={i} className="connected-item">
+                          <span className="rank">#{i + 1}</span>
+                          <span className="page-name">{item.page}</span>
+                          <span className="connection-count">{item.connections} links</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {weeklySummary.report.pages_created.length > 0 && (
+                <div className="summary-section">
+                  <h4>New Pages</h4>
+                  <div className="page-list">
+                    {weeklySummary.report.pages_created.map((page, i) => (
+                      <span key={i} className="page-tag">{page}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {weeklySummary.report.pages_updated.length > 0 && (
+                <div className="summary-section">
+                  <h4>Pages Deepened</h4>
+                  <div className="page-list">
+                    {weeklySummary.report.pages_updated.map((page, i) => (
+                      <span key={i} className="page-tag deepened">{page}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {weeklySummary.report.key_insights.length > 0 && (
+                <div className="summary-section">
+                  <h4>Key Insights</h4>
+                  <ul className="insights-list">
+                    {weeklySummary.report.key_insights.slice(0, 10).map((insight, i) => (
+                      <li key={i}>{insight}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="empty-state">
+              Loading summary...
+            </div>
+          )}
         </div>
       )}
     </div>
