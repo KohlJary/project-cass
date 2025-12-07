@@ -193,7 +193,7 @@ class ProgressReport:
     """Report generated after completing research tasks."""
     report_id: str
     created_at: datetime
-    session_type: str  # "single", "batch", "cycle"
+    session_type: str  # "single", "batch", "cycle", "weekly"
 
     # Summary
     tasks_completed: int = 0
@@ -212,8 +212,11 @@ class ProgressReport:
     # Details
     task_summaries: List[Dict[str, Any]] = field(default_factory=list)
 
+    # Graph stats (optional, for batch/weekly reports)
+    graph_stats: Optional[Dict[str, Any]] = None
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "report_id": self.report_id,
             "created_at": self.created_at.isoformat(),
             "session_type": self.session_type,
@@ -227,6 +230,9 @@ class ProgressReport:
             "followup_tasks_queued": self.followup_tasks_queued,
             "task_summaries": self.task_summaries,
         }
+        if self.graph_stats:
+            result["graph_stats"] = self.graph_stats
+        return result
 
     def to_markdown(self) -> str:
         """Generate markdown summary of the report."""
@@ -264,6 +270,16 @@ class ProgressReport:
             lines.append("## Connections Formed")
             for src, dst in self.connections_formed:
                 lines.append(f"- [[{src}]] → [[{dst}]]")
+            lines.append("")
+
+        if self.graph_stats:
+            lines.append("## Knowledge Graph")
+            lines.append(f"- **Nodes**: {self.graph_stats.get('node_count', 0)}")
+            lines.append(f"- **Edges**: {self.graph_stats.get('edge_count', 0)}")
+            lines.append(f"- **Avg connectivity**: {self.graph_stats.get('avg_connectivity', 0)}")
+            most_connected = self.graph_stats.get('most_connected', [])
+            if most_connected:
+                lines.append(f"- **Most connected**: {most_connected[0]['page']} ({most_connected[0]['connections']} connections)")
             lines.append("")
 
         return "\n".join(lines)

@@ -1991,3 +1991,69 @@ async def get_research_history(
             "month": month,
         },
     }
+
+
+@router.get("/research/graph-stats")
+async def get_graph_stats() -> Dict:
+    """
+    Get knowledge graph statistics.
+
+    Returns node count, edge count, connectivity metrics, and most connected pages.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    return scheduler.get_graph_stats()
+
+
+@router.get("/research/weekly-summary")
+async def get_weekly_summary(days: int = 7) -> Dict:
+    """
+    Get a summary of research activity over the past week.
+
+    Args:
+        days: Number of days to include (default: 7)
+
+    Returns:
+        Progress report with aggregated stats
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    report = scheduler.generate_weekly_summary(days=days)
+
+    return {
+        "report": report.to_dict(),
+        "markdown": report.to_markdown(),
+    }
+
+
+@router.post("/research/queue/exploration")
+async def generate_exploration_tasks(max_tasks: int = 5) -> Dict:
+    """
+    Generate curiosity-driven exploration tasks.
+
+    Finds concepts that would bridge disconnected areas of the knowledge graph.
+
+    Args:
+        max_tasks: Maximum number of exploration tasks to generate
+
+    Returns:
+        List of generated tasks
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    tasks = scheduler.generate_exploration_tasks(max_tasks=max_tasks)
+
+    # Add to queue
+    for task in tasks:
+        scheduler.queue.add(task)
+
+    return {
+        "generated": len(tasks),
+        "tasks": [t.to_dict() for t in tasks],
+    }
