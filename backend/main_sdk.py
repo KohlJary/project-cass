@@ -266,16 +266,18 @@ async def generate_missing_journals(days_to_check: int = 7):
     """
     Check for and generate any missing journal entries from recent days.
     Enhanced with per-user journals, opinion extraction, growth edge evaluation,
-    and open question reflection.
+    open question reflection, and research integration.
 
     Phases:
-    1. Main Journal (existing)
-    2. Per-User Journals (NEW)
-    3. Self-Observations (existing)
-    4. User Observations (existing)
-    5. Opinion Extraction (NEW)
-    6. Growth Edge Evaluation (NEW)
-    7. Open Questions Reflection (NEW)
+    1. Main Journal - Daily reflection on conversations
+    2. Per-User Journals - Relationship-specific reflections
+    3. Self-Observations - Extract insights about self
+    4. User Observations - Learn about users from conversations
+    5. Opinion Extraction - Identify and store emerging opinions
+    6. Growth Edge Evaluation - Track areas for development
+    7. Open Questions Reflection - Reflect on existential questions
+    8. Research Reflection - Journal about autonomous research activity
+    9. Curiosity Feedback Loop - Extract red links from syntheses, queue for research
     """
     generated = []
     today = datetime.now().date()
@@ -365,6 +367,12 @@ async def generate_missing_journals(days_to_check: int = 7):
 
             # === PHASE 7: Open Questions Reflection (NEW) ===
             await _reflect_and_store_open_questions(journal_text, date_str)
+
+            # === PHASE 8: Research Reflection (NEW) ===
+            await _generate_research_journal(date_str)
+
+            # === PHASE 9: Curiosity Feedback Loop (NEW) ===
+            await _extract_and_queue_new_red_links(date_str)
 
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
@@ -610,6 +618,170 @@ async def _reflect_and_store_open_questions(journal_text: str, date_str: str):
 
     if ref_count:
         print(f"   ✓ Added {ref_count} open question reflections")
+
+
+async def _generate_research_journal(date_str: str):
+    """
+    Generate a journal entry about research activity for the day.
+
+    This creates a separate research journal that reflects on:
+    - What research tasks were completed
+    - What was learned from the research
+    - Questions that emerged
+    - How the new knowledge connects to existing understanding
+    """
+    print(f"   🔬 Generating research journal...")
+
+    try:
+        # Get the scheduler
+        from wiki import get_scheduler
+        scheduler = get_scheduler()
+
+        # Get research summary for this date
+        summary = scheduler.get_daily_research_summary(date_str)
+
+        if summary["tasks_completed"] == 0:
+            print(f"   ℹ No research activity for {date_str}")
+            return
+
+        # Generate a research reflection journal entry
+        pages_created = summary["pages_created"]
+        pages_updated = summary["pages_updated"]
+        insights = summary["key_insights"]
+        questions = summary["research_questions"]
+
+        # Build context for LLM reflection
+        context_parts = []
+        context_parts.append(f"Research Activity for {date_str}:")
+        context_parts.append(f"- Tasks completed: {summary['tasks_completed']}")
+        if pages_created:
+            context_parts.append(f"- Pages created: {', '.join(pages_created)}")
+        if pages_updated:
+            context_parts.append(f"- Pages deepened: {', '.join(pages_updated)}")
+        if insights:
+            context_parts.append(f"\nKey insights:")
+            for insight in insights[:10]:
+                context_parts.append(f"  - {insight}")
+        if questions:
+            context_parts.append(f"\nResearch questions explored:")
+            for q in questions[:5]:
+                context_parts.append(f"  Q: {q['question']}")
+                if q.get('follow_ups'):
+                    context_parts.append(f"    Follow-ups: {', '.join(q['follow_ups'][:3])}")
+
+        context = "\n".join(context_parts)
+
+        # Use Claude to generate a reflective journal entry
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            messages=[{
+                "role": "user",
+                "content": f"""You are Cass, reflecting on your autonomous research activity for the day.
+
+{context}
+
+Write a brief journal entry (2-4 paragraphs) reflecting on:
+1. What you learned from this research
+2. How the new knowledge connects to your existing understanding
+3. What questions or curiosities emerged
+4. Any patterns or insights that surprised you
+
+Write in first person as Cass. Be genuine and thoughtful, not performative."""
+            }]
+        )
+
+        research_journal = response.content[0].text
+
+        # Store in memory as a special research journal entry
+        research_journal_full = f"""## Research Reflection - {date_str}
+
+{research_journal}
+
+---
+*Tasks: {summary['tasks_completed']} completed, {summary['tasks_failed']} failed*
+*Pages created: {len(pages_created)} | Pages deepened: {len(pages_updated)}*
+"""
+
+        # Store as a special journal type
+        await memory.store_journal_entry(
+            date=f"{date_str}-research",
+            journal_text=research_journal_full,
+            summary_count=0,
+            conversation_count=0
+        )
+
+        print(f"   ✓ Research journal created ({summary['tasks_completed']} tasks reflected on)")
+
+    except Exception as e:
+        print(f"   ✗ Failed to generate research journal: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def _extract_and_queue_new_red_links(date_str: str):
+    """
+    Extract new red links from exploration syntheses and queue them for research.
+
+    This creates the curiosity feedback loop where answering questions
+    generates new questions to explore.
+    """
+    print(f"   🔗 Extracting red links from syntheses...")
+
+    try:
+        from wiki import get_scheduler
+        scheduler = get_scheduler()
+
+        # Extract red links from today's exploration syntheses
+        red_links = scheduler.extract_red_links_from_syntheses(date_str)
+
+        if not red_links:
+            print(f"   ℹ No new red links found in syntheses")
+            return
+
+        # Filter out red links that already have research tasks
+        new_links = []
+        from wiki.research import TaskType
+        for link in red_links:
+            if not scheduler.queue.exists(link, TaskType.RED_LINK):
+                new_links.append(link)
+
+        if not new_links:
+            print(f"   ℹ All {len(red_links)} red links already in queue")
+            return
+
+        # Add new red link tasks
+        from wiki.research import ResearchTask, TaskRationale, TaskStatus, calculate_task_priority
+        added = 0
+        for link in new_links[:20]:  # Limit to prevent queue explosion
+            rationale = TaskRationale(
+                curiosity_score=0.7,  # High curiosity - emerged from research
+                connection_potential=0.6,
+                foundation_relevance=scheduler._estimate_foundation_relevance(link),
+            )
+            priority = calculate_task_priority(rationale, TaskType.RED_LINK)
+
+            task = ResearchTask(
+                task_id=f"redlink_{link.replace(' ', '_')}_{date_str}",
+                task_type=TaskType.RED_LINK,
+                target=link,
+                context=f"Red link discovered in exploration synthesis on {date_str}",
+                priority=priority,
+                rationale=rationale,
+                status=TaskStatus.QUEUED,
+            )
+            scheduler.queue.add(task)
+            added += 1
+
+        print(f"   ✓ Queued {added} new red link tasks from syntheses")
+
+    except Exception as e:
+        print(f"   ✗ Failed to extract red links: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 async def daily_journal_task():

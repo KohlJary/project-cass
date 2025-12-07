@@ -542,6 +542,36 @@ class ResearchQueue:
         # Return most recent first, limited
         return list(reversed(history[-limit:]))
 
+    def get_history_for_date(self, date_str: str) -> List[Dict[str, Any]]:
+        """
+        Get completed tasks for a specific date (YYYY-MM-DD format).
+
+        Returns:
+            List of completed task dicts for that date
+        """
+        if not self.history_file.exists():
+            return []
+
+        try:
+            with open(self.history_file, "r") as f:
+                history = json.load(f).get("history", [])
+        except Exception:
+            return []
+
+        # Filter to tasks completed on the specific date
+        result = []
+        for entry in history:
+            completed_at = entry.get("completed_at")
+            if completed_at:
+                try:
+                    dt = datetime.fromisoformat(completed_at)
+                    if dt.strftime("%Y-%m-%d") == date_str:
+                        result.append(entry)
+                except Exception:
+                    continue
+
+        return result
+
     def exists(self, target: str, task_type: TaskType) -> bool:
         """Check if a task already exists for this target."""
         for task in self._tasks.values():
