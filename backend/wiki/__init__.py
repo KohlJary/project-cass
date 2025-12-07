@@ -18,6 +18,13 @@ from .updater import (
     process_conversation_for_wiki,
     populate_wiki_from_conversations,
 )
+from .maturity import (
+    MaturityState,
+    SynthesisTrigger,
+    SynthesisEvent,
+    ConnectionStats,
+    calculate_depth_score,
+)
 
 __all__ = [
     "WikiStorage",
@@ -34,4 +41,10 @@ __all__ = [
     "ConversationAnalysis",
     "process_conversation_for_wiki",
     "populate_wiki_from_conversations",
+    # Maturity tracking (PMD)
+    "MaturityState",
+    "SynthesisTrigger",
+    "SynthesisEvent",
+    "ConnectionStats",
+    "calculate_depth_score",
 ]
