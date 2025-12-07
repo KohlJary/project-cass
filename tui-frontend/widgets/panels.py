@@ -19,6 +19,12 @@ from rich.console import Group
 from .items import DocumentItem, ObservationItem, EventItem, TaskItem
 from .calendar import CalendarWidget, EventCalendarWidget, EventCalendarDay
 
+# Import vim mode state
+try:
+    from vim_mode import vim_state
+except ImportError:
+    vim_state = None
+
 # Import long timeout for journal operations
 try:
     from config import HTTP_TIMEOUT_LONG
@@ -76,9 +82,18 @@ class StatusBar(Static):
         self.llm_provider: str = "anthropic"  # "anthropic", "local", or "openai"
         self.local_model: Optional[str] = None
         self.openai_model: Optional[str] = None
+        self._vim_mode_callback_registered = False
 
     def on_mount(self) -> None:
         debug_log("StatusBar mounted, calling update_display", "debug")
+        # Register for vim mode changes
+        if vim_state and not self._vim_mode_callback_registered:
+            vim_state.on_mode_change(self._on_vim_mode_change)
+            self._vim_mode_callback_registered = True
+        self.update_display()
+
+    def _on_vim_mode_change(self, mode: str, enabled: bool) -> None:
+        """Called when vim mode changes"""
         self.update_display()
 
     def update_status(self, connected: bool, sdk_mode: bool = False, memory_count: int = 0):
@@ -102,6 +117,17 @@ class StatusBar(Static):
 
     def update_display(self):
         status = Text()
+
+        # Vim mode indicator (at start for visibility)
+        if vim_state and vim_state.enabled:
+            vim_text = vim_state.get_status_text()
+            if vim_state.mode == "normal":
+                status.append(vim_text + " ", style="bold reverse cyan")
+            elif vim_state.mode == "insert":
+                status.append(vim_text + " ", style="bold reverse green")
+            else:
+                status.append(vim_text + " ", style="bold reverse yellow")
+            status.append("| ")
 
         # Connection status
         if self.connected:

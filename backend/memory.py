@@ -1902,6 +1902,163 @@ Observations (one per line, starting with "{display_name}"):"""
 
         return len(results["ids"])
 
+    # === Wiki Page Embeddings ===
+
+    def embed_wiki_page(
+        self,
+        page_name: str,
+        page_content: str,
+        page_type: str,
+        links: List[str] = None
+    ) -> int:
+        """
+        Chunk and embed a wiki page into ChromaDB.
+
+        Wiki pages are the core of Cass's identity memory - they represent
+        her understanding of herself, her relationships, and her world.
+
+        Args:
+            page_name: Name of the wiki page (e.g., "Kohl", "Temple-Codex")
+            page_content: Full markdown content of the page
+            page_type: Type of page (entity, concept, relationship, journal, meta)
+            links: Optional list of outgoing link targets
+
+        Returns:
+            Number of chunks embedded
+        """
+        if not page_content.strip():
+            return 0
+
+        # First remove any existing embeddings for this page
+        self.remove_wiki_page_embeddings(page_name)
+
+        # Extract title from content if possible
+        from wiki import WikiParser
+        title = WikiParser.extract_title(page_content) or page_name
+
+        # Chunk the content
+        chunks = self.chunk_text(page_content)
+
+        # Embed each chunk
+        timestamp = datetime.now().isoformat()
+
+        for i, chunk in enumerate(chunks):
+            # Build document with context
+            doc_content = f"[Wiki Page: {page_name}]\n"
+            doc_content += f"[Type: {page_type}]\n"
+            if links:
+                doc_content += f"[Links to: {', '.join(links[:5])}]\n"
+            doc_content += f"[Chunk {i+1}/{len(chunks)}]\n\n{chunk}"
+
+            # Metadata for retrieval filtering
+            metadata = {
+                "timestamp": timestamp,
+                "type": "wiki_page",
+                "wiki_page_name": page_name,
+                "wiki_page_type": page_type,
+                "wiki_page_title": title,
+                "chunk_index": i,
+                "total_chunks": len(chunks)
+            }
+            if links:
+                # Store first 10 links in metadata for filtering
+                metadata["wiki_links"] = ",".join(links[:10])
+
+            # Generate stable ID based on page name and chunk
+            entry_id = f"wiki:{page_name}:{i}"
+
+            # Add to collection
+            self.collection.add(
+                documents=[doc_content],
+                metadatas=[metadata],
+                ids=[entry_id]
+            )
+
+        return len(chunks)
+
+    def remove_wiki_page_embeddings(self, page_name: str) -> int:
+        """
+        Remove all embeddings for a specific wiki page.
+
+        Called before re-embedding to ensure clean updates.
+
+        Args:
+            page_name: Name of the wiki page
+
+        Returns:
+            Number of chunks removed
+        """
+        results = self.collection.get(
+            where={"wiki_page_name": page_name}
+        )
+
+        if not results["ids"]:
+            return 0
+
+        self.collection.delete(ids=results["ids"])
+
+        return len(results["ids"])
+
+    def retrieve_wiki_context(
+        self,
+        query: str,
+        n_results: int = 5,
+        page_type: str = None,
+        max_distance: float = 1.7
+    ) -> List[Dict]:
+        """
+        Retrieve relevant wiki pages for a query.
+
+        Used for identity-based retrieval - finding relevant self-knowledge
+        when Cass needs to understand something about herself or her world.
+
+        Args:
+            query: Search query
+            n_results: Maximum number of results
+            page_type: Optional filter by page type (entity, concept, etc.)
+            max_distance: Maximum distance threshold for relevance
+
+        Returns:
+            List of relevant wiki page chunks
+        """
+        # Build where clause
+        where = {"type": "wiki_page"}
+        if page_type:
+            where = {
+                "$and": [
+                    {"type": "wiki_page"},
+                    {"wiki_page_type": page_type}
+                ]
+            }
+
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=n_results,
+            where=where,
+            include=["documents", "metadatas", "distances"]
+        )
+
+        if not results["documents"] or not results["documents"][0]:
+            return []
+
+        # Filter by distance and format results
+        context = []
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0]
+        ):
+            if dist <= max_distance:
+                context.append({
+                    "content": doc,
+                    "page_name": meta.get("wiki_page_name"),
+                    "page_type": meta.get("wiki_page_type"),
+                    "page_title": meta.get("wiki_page_title"),
+                    "distance": dist
+                })
+
+        return context
+
     def retrieve_project_context(
         self,
         query: str,

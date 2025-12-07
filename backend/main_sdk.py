@@ -67,7 +67,8 @@ from handlers import (
     execute_document_tool,
     execute_self_model_tool,
     execute_user_model_tool,
-    execute_roadmap_tool
+    execute_roadmap_tool,
+    execute_wiki_tool
 )
 import base64
 
@@ -196,6 +197,16 @@ roadmap_manager = RoadmapManager(storage_dir=str(DATA_DIR / "roadmap"))
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
 init_roadmap_routes(roadmap_manager)
 app.include_router(roadmap_router)
+
+# Initialize wiki storage
+from wiki import WikiStorage
+wiki_storage = WikiStorage(wiki_root=str(DATA_DIR / "wiki"), git_enabled=True)
+
+# Register wiki routes (with memory for embeddings)
+from routes.wiki import router as wiki_router, init_wiki_routes, set_data_dir as set_wiki_data_dir
+init_wiki_routes(wiki_storage, memory)
+set_wiki_data_dir(DATA_DIR)
+app.include_router(wiki_router)
 
 # Register git routes
 from routes.git import router as git_router
@@ -1147,6 +1158,13 @@ async def chat(request: ChatRequest):
                         user_manager=user_manager,
                         target_user_id=current_user_id,
                         conversation_id=request.conversation_id,
+                        memory=memory
+                    )
+                elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
+                    tool_result = await execute_wiki_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        wiki_storage=wiki_storage,
                         memory=memory
                     )
                 elif project_id:
@@ -2463,6 +2481,65 @@ async def pull_ollama_model(request: OllamaPullRequest):
         return {"status": "error", "message": str(e)}
 
 
+@app.get("/settings/ollama-tags/{model_name}")
+async def get_ollama_model_tags(model_name: str):
+    """
+    Get available tags/variants for an Ollama model.
+    Fetches from ollama.com API to get available sizes.
+    """
+    from config import OLLAMA_ENABLED
+    import httpx
+
+    if not OLLAMA_ENABLED:
+        raise HTTPException(status_code=400, detail="Ollama not enabled")
+
+    # Common tags/variants for popular models
+    # This is a fallback since Ollama doesn't have a public tags API
+    COMMON_TAGS = {
+        "llama3.3": ["70b", "70b-q4_0", "70b-q4_K_M", "70b-q8_0"],
+        "llama3.2": ["1b", "3b", "11b", "90b", "1b-q4_0", "3b-q4_0", "11b-q4_0"],
+        "llama3.1": ["8b", "70b", "405b", "8b-q4_0", "8b-q4_K_M", "8b-q8_0", "70b-q4_0"],
+        "llama3": ["8b", "70b", "8b-instruct-q4_0", "8b-instruct-q8_0"],
+        "gemma2": ["2b", "9b", "27b", "2b-q4_0", "9b-q4_0", "27b-q4_0"],
+        "gemma": ["2b", "7b", "2b-instruct", "7b-instruct"],
+        "qwen2.5": ["0.5b", "1.5b", "3b", "7b", "14b", "32b", "72b"],
+        "qwen2.5-coder": ["0.5b", "1.5b", "3b", "7b", "14b", "32b"],
+        "codellama": ["7b", "13b", "34b", "70b", "7b-instruct", "13b-instruct"],
+        "deepseek-coder-v2": ["16b", "236b", "16b-q4_0"],
+        "phi3": ["3.8b", "14b", "3.8b-mini", "14b-medium"],
+        "mistral": ["7b", "7b-instruct", "7b-q4_0", "7b-q8_0"],
+        "mixtral": ["8x7b", "8x22b", "8x7b-instruct"],
+        "nomic-embed-text": ["latest", "v1.5"],
+        "mxbai-embed-large": ["latest", "335m"],
+    }
+
+    tags = COMMON_TAGS.get(model_name, ["latest"])
+
+    # Also check what's currently installed locally
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            from config import OLLAMA_BASE_URL
+            response = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+            if response.status_code == 200:
+                data = response.json()
+                installed_models = [m.get("name", "") for m in data.get("models", [])]
+                # Mark which tags are installed
+                installed_tags = [
+                    t for t in installed_models
+                    if t.startswith(model_name + ":") or t == model_name
+                ]
+            else:
+                installed_tags = []
+    except Exception:
+        installed_tags = []
+
+    return {
+        "model": model_name,
+        "tags": tags,
+        "installed": installed_tags
+    }
+
+
 @app.delete("/settings/ollama-models/{model_name:path}")
 async def delete_ollama_model(model_name: str):
     """Delete an Ollama model from local storage"""
@@ -3449,6 +3526,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_id=conversation_id,
                                     memory=memory
                                 )
+                            elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
+                                tool_result = await execute_wiki_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    wiki_storage=wiki_storage,
+                                    memory=memory
+                                )
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -3564,6 +3648,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     user_manager=user_manager,
                                     target_user_id=ws_user_id,
                                     conversation_id=conversation_id,
+                                    memory=memory
+                                )
+                            elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
+                                tool_result = await execute_wiki_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    wiki_storage=wiki_storage,
                                     memory=memory
                                 )
                             elif project_id:
@@ -3688,6 +3779,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     user_manager=user_manager,
                                     target_user_id=ws_user_id,
                                     conversation_id=conversation_id,
+                                    memory=memory
+                                )
+                            elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
+                                tool_result = await execute_wiki_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    wiki_storage=wiki_storage,
                                     memory=memory
                                 )
                             elif project_id:

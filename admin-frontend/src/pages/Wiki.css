@@ -1,0 +1,447 @@
+.wiki-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 1rem;
+}
+
+.wiki-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.view-toggle button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #888;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-toggle button.active {
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #444;
+}
+
+.view-toggle button:hover:not(.active) {
+  background: #222;
+  color: #aaa;
+}
+
+.wiki-controls .search-box {
+  flex: 1;
+  max-width: 300px;
+}
+
+.wiki-controls .search-box input {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.wiki-controls .search-box input:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+.wiki-layout {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.wiki-main {
+  flex: 1;
+  background: #0d0d0d;
+  border: 1px solid #222;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.wiki-sidebar {
+  width: 300px;
+  background: #0d0d0d;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+/* Graph */
+.graph-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.graph-container svg {
+  width: 100%;
+  height: 100%;
+}
+
+.graph-legend {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+/* List View */
+.wiki-list {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.wiki-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #1a1a1a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.wiki-list-item:hover {
+  background: #222;
+}
+
+.wiki-list-item.selected {
+  background: #2a2a3a;
+  border: 1px solid #444;
+}
+
+.wiki-list-item .page-name {
+  flex: 1;
+  color: #fff;
+}
+
+.wiki-list-item .link-count {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+/* Type badges */
+.type-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.type-badge.type-entity {
+  background: rgba(199, 146, 234, 0.2);
+  color: #c792ea;
+}
+
+.type-badge.type-concept {
+  background: rgba(137, 221, 255, 0.2);
+  color: #89ddff;
+}
+
+.type-badge.type-relationship {
+  background: rgba(195, 232, 141, 0.2);
+  color: #c3e88d;
+}
+
+.type-badge.type-journal {
+  background: rgba(255, 203, 107, 0.2);
+  color: #ffcb6b;
+}
+
+.type-badge.type-meta {
+  background: rgba(247, 140, 108, 0.2);
+  color: #f78c6c;
+}
+
+/* Sidebar */
+.stats-panel h3,
+.page-details h3 {
+  margin: 0 0 1rem;
+  color: #fff;
+  font-size: 1.1rem;
+}
+
+.stat-section {
+  margin-bottom: 1.5rem;
+}
+
+.stat-section h4 {
+  margin: 0 0 0.5rem;
+  color: #888;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.stat-row.clickable {
+  cursor: pointer;
+}
+
+.stat-row.clickable:hover {
+  background: #1a1a1a;
+}
+
+.stat-value {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.stat-section.orphaned .stat-row {
+  color: #f78c6c;
+}
+
+/* Page Details */
+.page-details .page-meta {
+  margin-bottom: 1rem;
+}
+
+.page-content {
+  margin-bottom: 1rem;
+}
+
+.page-content pre {
+  margin: 0;
+  padding: 1rem;
+  background: #1a1a1a;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #aaa;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.page-links h4 {
+  margin: 0 0 0.5rem;
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.link-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.link-chip {
+  padding: 0.3rem 0.6rem;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #89ddff;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.link-chip:hover {
+  background: #222;
+  border-color: #89ddff;
+}
+
+/* Loading/Error states */
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+}
+
+/* New Page Button */
+.new-page-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #89ddff;
+  background: transparent;
+  color: #89ddff;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.new-page-btn:hover {
+  background: rgba(137, 221, 255, 0.1);
+}
+
+/* Page Header Row */
+.page-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.page-header-row h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.page-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-icon {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #444;
+  background: #1a1a1a;
+  color: #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover {
+  background: #222;
+  color: #fff;
+  border-color: #555;
+}
+
+.btn-icon.btn-danger:hover {
+  background: rgba(247, 140, 108, 0.2);
+  color: #f78c6c;
+  border-color: #f78c6c;
+}
+
+/* Form Styles */
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.edit-form textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  margin-bottom: 0.75rem;
+}
+
+.edit-form textarea:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-primary {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: #89ddff;
+  color: #0a0a0a;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #6cc7e8;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  border: 1px solid #444;
+  background: transparent;
+  color: #aaa;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #1a1a1a;
+  color: #fff;
+}

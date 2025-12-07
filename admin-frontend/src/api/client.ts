@@ -63,3 +63,22 @@ export const selfModelApi = {
   getGrowthEdges: () => api.get('/admin/self-model/growth-edges'),
   getOpenQuestions: () => api.get('/admin/self-model/questions'),
 };
+
+// Wiki endpoints
+export const wikiApi = {
+  getPages: () => api.get('/wiki/pages'),
+  getPage: (name: string) => api.get(`/wiki/pages/${encodeURIComponent(name)}`),
+  getBacklinks: (name: string) => api.get(`/wiki/pages/${encodeURIComponent(name)}/backlinks`),
+  search: (query: string) => api.get('/wiki/search', { params: { q: query } }),
+  getStats: () => api.get('/wiki/stats'),
+  createPage: (data: { name: string; content: string; page_type?: string }) =>
+    api.post('/wiki/pages', data),
+  updatePage: (name: string, content: string) =>
+    api.put(`/wiki/pages/${encodeURIComponent(name)}`, { content }),
+  deletePage: (name: string) =>
+    api.delete(`/wiki/pages/${encodeURIComponent(name)}`),
+  analyzeConversation: (conversationId: string, autoApply?: boolean) =>
+    api.post(`/wiki/analyze-conversation/${conversationId}`, null, {
+      params: { auto_apply: autoApply }
+    }),
+};
