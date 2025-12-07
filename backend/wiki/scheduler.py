@@ -1337,6 +1337,132 @@ exploration: true
             graph_stats=graph_stats,
         )
 
+    def get_daily_research_summary(self, date_str: str) -> Dict[str, Any]:
+        """
+        Get a summary of research activity for a specific date.
+
+        Used by the daily journal generation to include research context.
+
+        Args:
+            date_str: Date in YYYY-MM-DD format
+
+        Returns:
+            Dict with:
+                - tasks_completed: number of tasks completed
+                - tasks_failed: number of tasks failed
+                - pages_created: list of page names created
+                - pages_updated: list of page names updated
+                - key_insights: list of insights from research
+                - task_details: list of task summaries
+                - research_questions: questions explored (for exploration tasks)
+        """
+        tasks = self.queue.get_history_for_date(date_str)
+
+        if not tasks:
+            return {
+                "tasks_completed": 0,
+                "tasks_failed": 0,
+                "pages_created": [],
+                "pages_updated": [],
+                "key_insights": [],
+                "task_details": [],
+                "research_questions": [],
+            }
+
+        completed = 0
+        failed = 0
+        pages_created = []
+        pages_updated = []
+        key_insights = []
+        task_details = []
+        research_questions = []
+
+        for task_dict in tasks:
+            result = task_dict.get("result", {})
+            task_type = task_dict.get("task_type", "unknown")
+            target = task_dict.get("target", "unknown")
+
+            if result.get("success"):
+                completed += 1
+                pages_created.extend(result.get("pages_created", []))
+                pages_updated.extend(result.get("pages_updated", []))
+                key_insights.extend(result.get("insights", []))
+            else:
+                failed += 1
+
+            # Extract research questions from exploration tasks
+            exploration = task_dict.get("exploration", {})
+            if exploration and exploration.get("question"):
+                research_questions.append({
+                    "question": exploration.get("question"),
+                    "rationale": exploration.get("rationale"),
+                    "synthesis": exploration.get("synthesis"),
+                    "follow_ups": exploration.get("follow_up_questions", []),
+                })
+
+            task_details.append({
+                "type": task_type,
+                "target": target,
+                "success": result.get("success", False),
+                "summary": result.get("summary"),
+            })
+
+        return {
+            "tasks_completed": completed,
+            "tasks_failed": failed,
+            "pages_created": list(set(pages_created)),
+            "pages_updated": list(set(pages_updated)),
+            "key_insights": key_insights,
+            "task_details": task_details,
+            "research_questions": research_questions,
+        }
+
+    def extract_red_links_from_syntheses(self, date_str: str) -> List[str]:
+        """
+        Extract new red links from exploration synthesis pages created on a date.
+
+        This enables the curiosity feedback loop where answering questions
+        generates new questions.
+
+        Args:
+            date_str: Date in YYYY-MM-DD format
+
+        Returns:
+            List of red link targets found in syntheses
+        """
+        import re
+
+        tasks = self.queue.get_history_for_date(date_str)
+        red_links = set()
+
+        for task_dict in tasks:
+            # Only look at exploration tasks
+            if task_dict.get("task_type") != "exploration":
+                continue
+
+            result = task_dict.get("result", {})
+            if not result.get("success"):
+                continue
+
+            # Check the synthesis page for red links
+            exploration = task_dict.get("exploration", {})
+            synthesis_page = exploration.get("synthesis_page")
+            if not synthesis_page:
+                continue
+
+            page = self.storage.read(synthesis_page)
+            if not page:
+                continue
+
+            # Extract wikilinks
+            links = re.findall(r'\[\[([^\]]+)\]\]', page.content)
+            for link in links:
+                # Check if this is a red link (page doesn't exist)
+                if not self.storage.read(link):
+                    red_links.add(link)
+
+        return list(red_links)
+
     # === Helper Methods ===
 
     def _estimate_connection_potential(self, target: str) -> float:
