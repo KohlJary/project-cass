@@ -28,6 +28,14 @@ from .maturity import (
     FOUNDATIONAL_CONCEPTS,
     calculate_depth_score,
 )
+from .resynthesis import (
+    ResynthesisPipeline,
+    ResynthesisResult,
+    GatheredContext,
+    GrowthAnalysis,
+    deepen_candidate,
+    run_deepening_cycle,
+)
 
 __all__ = [
     "WikiStorage",
@@ -53,4 +61,11 @@ __all__ = [
     "DeepeningDetector",
     "FOUNDATIONAL_CONCEPTS",
     "calculate_depth_score",
+    # Resynthesis pipeline
+    "ResynthesisPipeline",
+    "ResynthesisResult",
+    "GatheredContext",
+    "GrowthAnalysis",
+    "deepen_candidate",
+    "run_deepening_cycle",
 ]
