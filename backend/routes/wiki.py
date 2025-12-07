@@ -1562,3 +1562,156 @@ async def get_foundational_concepts() -> Dict:
         "concepts": list(FOUNDATIONAL_CONCEPTS),
         "description": "Updates to these concepts trigger FOUNDATIONAL_SHIFT for connected pages",
     }
+
+
+# === Resynthesis Pipeline Endpoints (PMD Phase 3) ===
+
+class DeepenPageRequest(BaseModel):
+    """Request to deepen a specific page."""
+    trigger: str = "explicit_request"
+    notes: Optional[str] = None
+    validate: bool = True
+
+
+@router.post("/deepen/{page_name}")
+async def deepen_page(page_name: str, request: DeepenPageRequest) -> Dict:
+    """
+    Deepen a wiki page through resynthesis.
+
+    Full pipeline:
+    1. Gathers context (connected pages, journals, conversations)
+    2. Analyzes growth since last synthesis
+    3. Generates new, deeper synthesis via LLM
+    4. Validates for alignment and quality
+    5. Updates page with new content and maturity metadata
+
+    Args:
+        page_name: Name of page to deepen
+        request: Deepening options
+
+    Returns:
+        ResynthesisResult with outcome details
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    from wiki import ResynthesisPipeline, SynthesisTrigger
+
+    # Parse trigger
+    try:
+        trigger = SynthesisTrigger(request.trigger)
+    except ValueError:
+        valid = [t.value for t in SynthesisTrigger]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid trigger '{request.trigger}'. Valid: {valid}"
+        )
+
+    pipeline = ResynthesisPipeline(_wiki_storage, _memory)
+    result = await pipeline.deepen_page(
+        page_name=page_name,
+        trigger=trigger,
+        notes=request.notes,
+        validate=request.validate,
+    )
+
+    return {
+        "success": result.success,
+        "page_name": result.page_name,
+        "new_level": result.new_level,
+        "trigger": result.trigger.value,
+        "depth_score_before": result.depth_score_before,
+        "depth_score_after": result.depth_score_after,
+        "context_pages_used": result.context_pages_used,
+        "synthesis_notes": result.synthesis_notes,
+        "error": result.error,
+    }
+
+
+class RunCycleRequest(BaseModel):
+    """Request to run a deepening cycle."""
+    max_pages: int = 5
+    validate: bool = True
+
+
+@router.post("/deepen/cycle")
+async def run_deepening_cycle_endpoint(request: RunCycleRequest) -> Dict:
+    """
+    Run a full deepening cycle on top candidates.
+
+    Detects pages ready for deepening and processes them.
+
+    Args:
+        request: Cycle options (max pages, validation)
+
+    Returns:
+        Results for each page processed
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    from wiki import run_deepening_cycle
+
+    results = await run_deepening_cycle(
+        wiki_storage=_wiki_storage,
+        memory=_memory,
+        max_pages=request.max_pages,
+        validate=request.validate,
+    )
+
+    return {
+        "pages_processed": len(results),
+        "successful": len([r for r in results if r.success]),
+        "failed": len([r for r in results if not r.success]),
+        "results": [
+            {
+                "page_name": r.page_name,
+                "success": r.success,
+                "new_level": r.new_level,
+                "trigger": r.trigger.value,
+                "depth_score_before": r.depth_score_before,
+                "depth_score_after": r.depth_score_after,
+                "error": r.error,
+            }
+            for r in results
+        ],
+    }
+
+
+@router.get("/deepen/{page_name}/preview")
+async def preview_deepening_context(page_name: str) -> Dict:
+    """
+    Preview the context that would be gathered for deepening.
+
+    Useful for debugging and understanding what goes into resynthesis.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    from wiki import ResynthesisPipeline
+
+    page = _wiki_storage.read(page_name)
+    if not page:
+        raise HTTPException(status_code=404, detail=f"Page '{page_name}' not found")
+
+    pipeline = ResynthesisPipeline(_wiki_storage, _memory)
+    context = await pipeline._gather_context(page)
+    growth = pipeline._analyze_growth(page, context)
+
+    return {
+        "page_name": page_name,
+        "current_level": page.maturity.level,
+        "context": {
+            "connected_pages": [p.name for p in context.connected_pages],
+            "two_hop_pages": [p.name for p in context.two_hop_pages],
+            "journal_entries_found": len(context.journal_entries),
+            "conversation_snippets_found": len(context.conversation_snippets),
+            "total_context_chars": context.total_context_size,
+        },
+        "growth_analysis": {
+            "new_connection_count": growth.new_connection_count,
+            "new_connection_names": growth.new_connection_names,
+            "deepened_connections": growth.deepened_connections,
+            "summary": growth.summary,
+        },
+    }
