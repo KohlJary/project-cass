@@ -218,6 +218,16 @@ class Terminal(Widget, can_focus=True):
         if char:
             await self.send_queue.put(["stdin", char])
 
+    async def on_paste(self, event: events.Paste) -> None:
+        """Handle paste events - send pasted text to terminal."""
+        if self.emulator is None:
+            return
+
+        event.stop()
+        if event.text:
+            # Send the pasted text to the terminal
+            await self.send_queue.put(["stdin", event.text])
+
     async def on_resize(self, _event: events.Resize) -> None:
         if self.emulator is None:
             return
