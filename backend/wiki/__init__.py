@@ -36,6 +36,22 @@ from .resynthesis import (
     deepen_candidate,
     run_deepening_cycle,
 )
+from .research import (
+    ResearchQueue,
+    ResearchTask,
+    TaskType,
+    TaskStatus,
+    TaskRationale,
+    TaskResult,
+    ProgressReport,
+    calculate_task_priority,
+    create_task_id,
+)
+from .scheduler import (
+    ResearchScheduler,
+    SchedulerMode,
+    SchedulerConfig,
+)
 
 __all__ = [
     "WikiStorage",
@@ -68,4 +84,17 @@ __all__ = [
     "GrowthAnalysis",
     "deepen_candidate",
     "run_deepening_cycle",
+    # Autonomous Research Scheduling (ARS)
+    "ResearchQueue",
+    "ResearchTask",
+    "TaskType",
+    "TaskStatus",
+    "TaskRationale",
+    "TaskResult",
+    "ProgressReport",
+    "calculate_task_priority",
+    "create_task_id",
+    "ResearchScheduler",
+    "SchedulerMode",
+    "SchedulerConfig",
 ]
