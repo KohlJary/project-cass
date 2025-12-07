@@ -874,9 +874,10 @@ ROADMAP_TOOLS = [
     }
 ]
 
-# Import self-model and user-model tools from handlers
+# Import self-model, user-model, and wiki tools from handlers
 from handlers.self_model import SELF_MODEL_TOOLS
 from handlers.user_model import USER_MODEL_TOOLS
+from handlers.wiki import WIKI_TOOLS
 
 
 # ============================================================================
@@ -992,6 +993,7 @@ class CassAgentClient:
         # Long-term context comes from the memory system (working summary + gists).
         self._tool_chain_messages: List[Dict] = []
         self._current_system_prompt: str = ""
+        self._current_tools: List[Dict] = []  # Tools for continuation calls
 
     def get_tools(self, project_id: Optional[str] = None, message: str = "") -> List[Dict]:
         """
@@ -1024,6 +1026,9 @@ class CassAgentClient:
 
             # User-model tools - always available (understanding users is core to relationships)
             tools.extend(USER_MODEL_TOOLS)
+
+            # Wiki tools - always available (wiki is core self-knowledge system)
+            tools.extend(WIKI_TOOLS)
 
         # Project tools only available in project context
         if project_id and self.enable_tools:
@@ -1106,6 +1111,7 @@ class CassAgentClient:
         # Context comes from memory system in system_prompt
         self._tool_chain_messages = [{"role": "user", "content": user_content}]
         self._current_system_prompt = system_prompt
+        self._current_tools = tools  # Store tools for continuation calls
 
         api_kwargs = {
             "model": self.model,
@@ -1261,13 +1267,20 @@ class CassAgentClient:
             "content": content
         })
 
-        # Call Claude API with the tool chain context
-        response = await self.client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            system=self._current_system_prompt,
-            messages=self._tool_chain_messages
-        )
+        # Build API kwargs with tool chain context
+        api_kwargs = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "system": self._current_system_prompt,
+            "messages": self._tool_chain_messages
+        }
+
+        # Include tools so Claude can make further tool calls if needed
+        if self._current_tools:
+            api_kwargs["tools"] = self._current_tools
+
+        # Call Claude API
+        response = await self.client.messages.create(**api_kwargs)
 
         # Extract text content and tool uses
         full_text = ""
@@ -1416,6 +1429,9 @@ class OllamaClient:
 
         # User-model tools - always available (understanding users is core to relationships)
         tools.extend(USER_MODEL_TOOLS)
+
+        # Wiki tools - always available (wiki is core self-knowledge system)
+        tools.extend(WIKI_TOOLS)
 
         # Project tools only available in project context
         if project_id:

@@ -9,6 +9,7 @@ from .tasks import execute_task_tool
 from .self_model import execute_self_model_tool, SELF_MODEL_TOOLS
 from .user_model import execute_user_model_tool, USER_MODEL_TOOLS
 from .roadmap import execute_roadmap_tool
+from .wiki import execute_wiki_tool, WIKI_TOOLS
 
 __all__ = [
     "execute_document_tool",
@@ -20,4 +21,6 @@ __all__ = [
     "execute_user_model_tool",
     "USER_MODEL_TOOLS",
     "execute_roadmap_tool",
+    "execute_wiki_tool",
+    "WIKI_TOOLS",
 ]

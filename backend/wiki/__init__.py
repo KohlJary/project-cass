@@ -1,0 +1,30 @@
+"""
+Wiki-as-Self Memory System
+
+A structured, interconnected, human-readable knowledge base representing
+Cass's understanding of herself and her world.
+
+Based on spec/memory/cass_memory_architecture_spec.md
+"""
+
+from .storage import WikiStorage, WikiPage, PageType
+from .parser import WikiParser, WikiLink
+from .bootstrap import WikiBootstrap
+from .retrieval import WikiRetrieval, WikiContext, RetrievalResult
+from .updater import WikiUpdater, WikiUpdateSuggestion, ConversationAnalysis, process_conversation_for_wiki
+
+__all__ = [
+    "WikiStorage",
+    "WikiPage",
+    "WikiLink",
+    "PageType",
+    "WikiParser",
+    "WikiBootstrap",
+    "WikiRetrieval",
+    "WikiContext",
+    "RetrievalResult",
+    "WikiUpdater",
+    "WikiUpdateSuggestion",
+    "ConversationAnalysis",
+    "process_conversation_for_wiki",
+]

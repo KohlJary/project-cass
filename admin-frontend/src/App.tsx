@@ -12,6 +12,7 @@ import { Retrieval } from './pages/Retrieval';
 import { SelfModel } from './pages/SelfModel';
 import { System } from './pages/System';
 import { Vectors } from './pages/Vectors';
+import { Wiki } from './pages/Wiki';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +71,7 @@ function AppRoutes() {
         <Route path="journals" element={<Journals />} />
         <Route path="conversations" element={<Conversations />} />
         <Route path="retrieval" element={<Retrieval />} />
+        <Route path="wiki" element={<Wiki />} />
         <Route path="system" element={<System />} />
         <Route path="vectors" element={<Vectors />} />
         <Route path="self-model" element={<SelfModel />} />

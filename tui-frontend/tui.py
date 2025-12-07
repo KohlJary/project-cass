@@ -441,6 +441,149 @@ class CassVesselTUI(App):
             return False
         return True
 
+    async def on_key(self, event) -> None:
+        """Handle vim navigation keys when in normal mode"""
+        # Skip if terminal has focus - let terminal handle all keys
+        if self.terminal_has_focus:
+            return
+
+        # Skip if vim mode disabled or in insert mode
+        if not vim_state.enabled or vim_state.mode != "normal":
+            return
+
+        key = event.key
+        focused = self.focused
+
+        # Check if focused widget is an Input - if so, let it handle keys normally
+        if isinstance(focused, Input):
+            # In vim normal mode, 'i' should switch to insert mode and focus input
+            if key == "i":
+                vim_state.set_mode("insert")
+                event.stop()
+                return
+            # Escape in input should switch to normal mode
+            elif key == "escape":
+                vim_state.set_mode("normal")
+                event.stop()
+                return
+
+        # Handle vim navigation keys
+        if key == "j":
+            # Move down in lists/trees
+            await self._vim_move_down(focused)
+            event.stop()
+        elif key == "k":
+            # Move up in lists/trees
+            await self._vim_move_up(focused)
+            event.stop()
+        elif key == "g":
+            # Start of gg sequence - wait for next g
+            # For simplicity, treat single 'g' as go to top
+            await self._vim_go_top(focused)
+            event.stop()
+        elif key == "G":
+            # Go to bottom
+            await self._vim_go_bottom(focused)
+            event.stop()
+        elif key == "i":
+            # Enter insert mode - focus the chat input
+            vim_state.set_mode("insert")
+            try:
+                self.query_one("#input", Input).focus()
+            except Exception:
+                pass
+            event.stop()
+        elif key == "escape":
+            # Already in normal mode, ensure we stay there
+            vim_state.set_mode("normal")
+            event.stop()
+        elif key == "colon" or key == ":":
+            # Command mode - focus input with / prefix
+            vim_state.set_mode("insert")
+            try:
+                input_widget = self.query_one("#input", Input)
+                input_widget.value = "/"
+                input_widget.focus()
+            except Exception:
+                pass
+            event.stop()
+
+    async def _vim_move_down(self, focused) -> None:
+        """Move selection down in the focused widget"""
+        from textual.widgets import ListView, Tree
+        if isinstance(focused, ListView):
+            # Move to next item
+            if focused.index is not None and focused.index < len(focused) - 1:
+                focused.index += 1
+        elif isinstance(focused, Tree):
+            # Move cursor down
+            focused.action_cursor_down()
+        else:
+            # Try to find a ListView or Tree in the current panel
+            parent = focused.parent if focused else None
+            while parent:
+                try:
+                    list_view = parent.query_one(ListView)
+                    if list_view.index is not None and list_view.index < len(list_view) - 1:
+                        list_view.index += 1
+                    return
+                except Exception:
+                    pass
+                try:
+                    tree = parent.query_one(Tree)
+                    tree.action_cursor_down()
+                    return
+                except Exception:
+                    pass
+                parent = parent.parent
+
+    async def _vim_move_up(self, focused) -> None:
+        """Move selection up in the focused widget"""
+        from textual.widgets import ListView, Tree
+        if isinstance(focused, ListView):
+            # Move to previous item
+            if focused.index is not None and focused.index > 0:
+                focused.index -= 1
+        elif isinstance(focused, Tree):
+            # Move cursor up
+            focused.action_cursor_up()
+        else:
+            # Try to find a ListView or Tree in the current panel
+            parent = focused.parent if focused else None
+            while parent:
+                try:
+                    list_view = parent.query_one(ListView)
+                    if list_view.index is not None and list_view.index > 0:
+                        list_view.index -= 1
+                    return
+                except Exception:
+                    pass
+                try:
+                    tree = parent.query_one(Tree)
+                    tree.action_cursor_up()
+                    return
+                except Exception:
+                    pass
+                parent = parent.parent
+
+    async def _vim_go_top(self, focused) -> None:
+        """Go to first item in the focused widget"""
+        from textual.widgets import ListView, Tree
+        if isinstance(focused, ListView):
+            if len(focused) > 0:
+                focused.index = 0
+        elif isinstance(focused, Tree):
+            focused.action_scroll_home()
+
+    async def _vim_go_bottom(self, focused) -> None:
+        """Go to last item in the focused widget"""
+        from textual.widgets import ListView, Tree
+        if isinstance(focused, ListView):
+            if len(focused) > 0:
+                focused.index = len(focused) - 1
+        elif isinstance(focused, Tree):
+            focused.action_scroll_end()
+
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
         yield StatusBar(id="status")
@@ -2165,6 +2308,92 @@ class CassVesselTUI(App):
                             await chat.add_message("system", f"Error: {response.text}", None)
             except Exception as e:
                 await chat.add_message("system", f"Error: {e}", None)
+        elif cmd == "/wiki":
+            # Wiki management commands
+            try:
+                args = arg.split() if arg else []
+                if not args:
+                    # List recent wiki pages
+                    response = await self.http_client.get("/wiki/pages")
+                    if response.status_code == 200:
+                        data = response.json()
+                        pages = data.get("pages", [])
+                        if pages:
+                            lines = ["📚 Wiki Pages:"]
+                            for p in pages[:15]:  # Show top 15
+                                ptype = p.get("type", "?")[:3]
+                                links = p.get("link_count", 0)
+                                lines.append(f"  [{ptype}] {p['name']} ({links} links)")
+                            lines.append(f"\nTotal: {len(pages)} pages")
+                            await chat.add_message("system", "\n".join(lines), None)
+                        else:
+                            await chat.add_message("system", "📚 Wiki is empty. Cass can create pages using wiki tools.", None)
+                    else:
+                        await chat.add_message("system", f"Error: {response.text}", None)
+                elif args[0].lower() == "graph":
+                    # Show wiki stats/graph info
+                    response = await self.http_client.get("/wiki/pages")
+                    if response.status_code == 200:
+                        data = response.json()
+                        pages = data.get("pages", [])
+                        total_links = sum(p.get("link_count", 0) for p in pages)
+                        types = {}
+                        for p in pages:
+                            ptype = p.get("type", "unknown")
+                            types[ptype] = types.get(ptype, 0) + 1
+
+                        lines = ["📊 Wiki Graph Stats:"]
+                        lines.append(f"  Total pages: {len(pages)}")
+                        lines.append(f"  Total links: {total_links}")
+                        lines.append(f"  Avg links/page: {total_links/len(pages):.1f}" if pages else "  Avg links/page: 0")
+                        lines.append("\n  By type:")
+                        for ptype, count in sorted(types.items()):
+                            lines.append(f"    {ptype}: {count}")
+                        await chat.add_message("system", "\n".join(lines), None)
+                    else:
+                        await chat.add_message("system", f"Error: {response.text}", None)
+                elif args[0].lower() == "search" and len(args) > 1:
+                    # Search wiki: /wiki search <query>
+                    query = " ".join(args[1:])
+                    response = await self.http_client.get(f"/wiki/search?q={query}")
+                    if response.status_code == 200:
+                        data = response.json()
+                        results = data.get("results", [])
+                        if results:
+                            lines = [f"🔍 Search results for '{query}':"]
+                            for r in results[:10]:
+                                relevance = r.get("relevance", "?")
+                                lines.append(f"  [{r.get('type', '?')[:3]}] {r['name']} - {relevance}")
+                            await chat.add_message("system", "\n".join(lines), None)
+                        else:
+                            await chat.add_message("system", f"No results for '{query}'", None)
+                    else:
+                        await chat.add_message("system", f"Error: {response.text}", None)
+                else:
+                    # /wiki <page_name> - Show specific page
+                    page_name = " ".join(args)
+                    response = await self.http_client.get(f"/wiki/pages/{page_name}")
+                    if response.status_code == 200:
+                        data = response.json()
+                        page = data.get("page", {})
+                        content = page.get("content", "")
+                        links = page.get("links", [])
+
+                        lines = [f"📄 {page.get('title', page_name)} [{page.get('page_type', '?')}]"]
+                        lines.append("-" * 40)
+                        # Truncate content for display
+                        if len(content) > 1000:
+                            content = content[:1000] + "\n...[truncated]"
+                        lines.append(content)
+                        if links:
+                            lines.append(f"\n🔗 Links: {', '.join(links[:10])}")
+                        await chat.add_message("system", "\n".join(lines), None)
+                    elif response.status_code == 404:
+                        await chat.add_message("system", f"Page '{page_name}' not found", None)
+                    else:
+                        await chat.add_message("system", f"Error: {response.text}", None)
+            except Exception as e:
+                await chat.add_message("system", f"Error: {e}", None)
         elif cmd == "/help":
             help_text = (
                 "Available commands:\n"
@@ -2177,6 +2406,10 @@ class CassVesselTUI(App):
                 "  /milestone assign <item> <milestone> - Assign item\n"
                 "  /link <src> <type> <tgt> - Link items (depends_on, blocks, related)\n"
                 "  /link show <item> - Show item links and dependencies\n"
+                "  /wiki            - List wiki pages\n"
+                "  /wiki <page>     - Show wiki page content\n"
+                "  /wiki graph      - Show wiki stats\n"
+                "  /wiki search <q> - Search wiki pages\n"
                 "  /summarize       - Trigger memory summarization\n"
                 "  /llm [local|claude|openai] - Show or switch LLM provider\n"
                 "  /settings        - Open settings (or Ctrl+\\)\n"

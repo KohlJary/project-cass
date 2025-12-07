@@ -4,9 +4,9 @@ Modal screen for browsing, searching, and pulling Ollama models
 """
 from textual import on, work
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import (
-    Button, Label, Select, Static, Input, Rule, DataTable
+    Button, Label, Select, Static, Input, Rule, DataTable, ListView, ListItem
 )
 from textual.screen import ModalScreen
 from textual.worker import Worker, WorkerState
@@ -14,6 +14,108 @@ from typing import Callable, Dict, Optional, List
 import httpx
 
 from config import HTTP_BASE_URL
+
+
+class TagSelectorScreen(ModalScreen):
+    """Modal for selecting a model tag/variant before pulling"""
+
+    CSS = """
+    TagSelectorScreen {
+        align: center middle;
+    }
+
+    #tag-selector-dialog {
+        width: 50;
+        max-height: 25;
+        background: $surface;
+        border: tall $primary;
+        padding: 1 2;
+    }
+
+    #tag-selector-title {
+        text-align: center;
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #tag-selector-model {
+        text-align: center;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #tag-list {
+        height: auto;
+        max-height: 12;
+        margin-bottom: 1;
+    }
+
+    .tag-item {
+        padding: 0 1;
+    }
+
+    .tag-installed {
+        color: $success;
+    }
+
+    #tag-buttons {
+        height: 3;
+        align: center middle;
+    }
+
+    #tag-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, model_name: str, tags: List[str], installed: List[str], **kwargs):
+        super().__init__(**kwargs)
+        self.model_name = model_name
+        self.tags = tags
+        self.installed = installed
+
+    def compose(self) -> ComposeResult:
+        with Container(id="tag-selector-dialog"):
+            yield Label("Select Tag/Size", id="tag-selector-title")
+            yield Static(f"Model: {self.model_name}", id="tag-selector-model")
+            yield Rule()
+            yield ListView(id="tag-list")
+            yield Rule()
+            with Horizontal(id="tag-buttons"):
+                yield Button("Pull", variant="primary", id="pull-tag-btn")
+                yield Button("Cancel", variant="default", id="cancel-tag-btn")
+
+    def on_mount(self) -> None:
+        list_view = self.query_one("#tag-list", ListView)
+        for tag in self.tags:
+            full_name = f"{self.model_name}:{tag}"
+            is_installed = any(full_name == inst or full_name.startswith(inst.rstrip(":")) for inst in self.installed)
+            label_text = f"{'[green]✓[/] ' if is_installed else '  '}{tag}"
+            item = ListItem(Label(label_text), id=f"tag-{tag}")
+            item.data = tag  # Store the tag value
+            list_view.append(item)
+        if len(self.tags) > 0:
+            list_view.index = 0
+
+    @on(Button.Pressed, "#pull-tag-btn")
+    def on_pull_pressed(self) -> None:
+        list_view = self.query_one("#tag-list", ListView)
+        if list_view.index is not None and list_view.index < len(self.tags):
+            tag = self.tags[list_view.index]
+            self.dismiss(f"{self.model_name}:{tag}")
+        else:
+            self.dismiss(None)
+
+    @on(ListView.Selected, "#tag-list")
+    def on_tag_selected(self, event: ListView.Selected) -> None:
+        """Double-click to pull"""
+        if event.item and hasattr(event.item, 'data'):
+            self.dismiss(f"{self.model_name}:{event.item.data}")
+
+    @on(Button.Pressed, "#cancel-tag-btn")
+    def on_cancel_pressed(self) -> None:
+        self.dismiss(None)
 
 
 class OllamaModelBrowser(ModalScreen):
@@ -253,7 +355,7 @@ class OllamaModelBrowser(ModalScreen):
 
     @on(Button.Pressed, "#pull-btn")
     def on_pull(self) -> None:
-        """Pull the selected model"""
+        """Pull the selected model - fetch tags first"""
         table = self.query_one("#models-table", DataTable)
         if table.cursor_row is None:
             self._set_status("No model selected")
@@ -266,12 +368,39 @@ class OllamaModelBrowser(ModalScreen):
 
         model_name = str(row_data[1])
 
-        if self.pull_callback:
-            # Use app-level callback (survives modal close)
-            self.pull_callback(model_name)
-            self._set_status(f"Started pulling {model_name} (safe to close)")
-        else:
+        if not self.pull_callback:
             self._set_status("Pull not available")
+            return
+
+        # Fetch available tags for this model
+        self._set_status(f"Loading tags for {model_name}...")
+        self._fetch_tags_for_model(model_name)
+
+    @work(thread=True)
+    def _fetch_tags_for_model(self, model_name: str) -> Dict:
+        """Fetch available tags for a model"""
+        try:
+            with httpx.Client(base_url=HTTP_BASE_URL, timeout=10.0) as client:
+                response = client.get(f"/settings/ollama-tags/{model_name}")
+                if response.status_code == 200:
+                    return {"type": "tags", "data": response.json()}
+        except Exception as e:
+            return {"type": "tags", "error": str(e)}
+        return {"type": "tags", "data": {"model": model_name, "tags": ["latest"], "installed": []}}
+
+    def _show_tag_selector(self, model_name: str, tags: List[str], installed: List[str]) -> None:
+        """Show the tag selector modal"""
+        def handle_result(result: Optional[str]) -> None:
+            if result and self.pull_callback:
+                self.pull_callback(result)
+                self._set_status(f"Started pulling {result} (safe to close)")
+            else:
+                self._set_status("Pull cancelled")
+
+        self.app.push_screen(
+            TagSelectorScreen(model_name, tags, installed),
+            handle_result
+        )
 
     @on(Button.Pressed, "#delete-btn")
     def on_delete(self) -> None:
@@ -333,6 +462,16 @@ class OllamaModelBrowser(ModalScreen):
                 self._load_data_in_thread()
             else:
                 self._set_status(f"Delete failed: {delete_result.get('message', 'Unknown error')}")
+
+        elif worker_name == "_fetch_tags_for_model":
+            if result.get("error"):
+                self._set_status(f"Error fetching tags: {result['error']}")
+                return
+            data = result.get("data", {})
+            model_name = data.get("model", "")
+            tags = data.get("tags", ["latest"])
+            installed = data.get("installed", [])
+            self._show_tag_selector(model_name, tags, installed)
 
     @on(Button.Pressed, "#close-btn")
     def on_close(self) -> None:
