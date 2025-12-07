@@ -128,4 +128,9 @@ export const researchApi = {
   clearCompleted: () => api.post('/wiki/research/queue/clear-completed'),
   getHistory: (params?: { year?: number; month?: number; limit?: number }) =>
     api.get('/wiki/research/history', { params }),
+  getGraphStats: () => api.get('/wiki/research/graph-stats'),
+  getWeeklySummary: (days?: number) =>
+    api.get('/wiki/research/weekly-summary', { params: { days: days || 7 } }),
+  generateExploration: (maxTasks?: number) =>
+    api.post('/wiki/research/queue/exploration', null, { params: { max_tasks: maxTasks || 5 } }),
 };
