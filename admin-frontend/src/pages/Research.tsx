@@ -11,6 +11,7 @@ interface ResearchTask {
   priority: number;
   status: string;
   created_at: string;
+  completed_at?: string;
   source_page?: string;
   rationale: {
     curiosity_score: number;
@@ -93,6 +94,18 @@ export function Research() {
     queryFn: () => wikiApi.detectDeepeningCandidates(20).then(r => r.data),
   });
 
+  // Parse year/month for history query
+  const [historyYear, historyMonth] = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    return [y, m];
+  }, [selectedMonth]);
+
+  const { data: historyData } = useQuery({
+    queryKey: ['research-history', historyYear, historyMonth],
+    queryFn: () => researchApi.getHistory({ year: historyYear, month: historyMonth, limit: 200 }).then(r => r.data),
+    enabled: activeTab === 'history', // Only fetch when calendar tab is active
+  });
+
   // Mutations
   const refreshMutation = useMutation({
     mutationFn: () => researchApi.refreshQueue(),
@@ -155,19 +168,21 @@ export function Research() {
   const tasks: ResearchTask[] = queueData?.tasks || [];
   const maturity: MaturityStats = maturityData || { total_pages: 0, avg_depth_score: 0, by_level: {}, deepening_candidates: 0 };
   const candidates: DeepeningCandidate[] = candidatesData?.candidates || [];
+  const historyTasks: ResearchTask[] = historyData?.history || [];
 
-  // Group tasks by date for calendar
+  // Group history tasks by date for calendar (uses completed_at)
   const tasksByDate = useMemo(() => {
     const byDate: Record<string, ResearchTask[]> = {};
-    for (const task of tasks) {
-      if (task.status === 'completed' && task.result) {
-        const date = task.created_at.split('T')[0];
+    for (const task of historyTasks) {
+      const completedAt = task.completed_at || task.created_at;
+      if (completedAt) {
+        const date = completedAt.split('T')[0];
         if (!byDate[date]) byDate[date] = [];
         byDate[date].push(task);
       }
     }
     return byDate;
-  }, [tasks]);
+  }, [historyTasks]);
 
   // Calendar generation
   const calendarDays = useMemo(() => {

@@ -126,4 +126,6 @@ export const researchApi = {
     api.post('/wiki/research/run/batch', { max_tasks: maxTasks || 5 }),
   getStats: () => api.get('/wiki/research/stats'),
   clearCompleted: () => api.post('/wiki/research/queue/clear-completed'),
+  getHistory: (params?: { year?: number; month?: number; limit?: number }) =>
+    api.get('/wiki/research/history', { params }),
 };

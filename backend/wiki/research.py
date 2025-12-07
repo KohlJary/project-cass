@@ -409,6 +409,50 @@ class ResearchQueue:
             "in_progress_count": by_status.get("in_progress", 0),
         }
 
+    def get_history(
+        self,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get completed task history, optionally filtered by date.
+
+        Args:
+            year: Filter to specific year
+            month: Filter to specific month (requires year)
+            limit: Maximum entries to return
+
+        Returns:
+            List of completed task dicts
+        """
+        if not self.history_file.exists():
+            return []
+
+        try:
+            with open(self.history_file, "r") as f:
+                history = json.load(f).get("history", [])
+        except Exception:
+            return []
+
+        # Filter by date if specified
+        if year is not None:
+            filtered = []
+            for entry in history:
+                completed_at = entry.get("completed_at")
+                if completed_at:
+                    try:
+                        dt = datetime.fromisoformat(completed_at)
+                        if dt.year == year:
+                            if month is None or dt.month == month:
+                                filtered.append(entry)
+                    except Exception:
+                        continue
+            history = filtered
+
+        # Return most recent first, limited
+        return list(reversed(history[-limit:]))
+
     def exists(self, target: str, task_type: TaskType) -> bool:
         """Check if a task already exists for this target."""
         for task in self._tasks.values():
