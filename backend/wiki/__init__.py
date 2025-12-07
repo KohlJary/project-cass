@@ -23,6 +23,9 @@ from .maturity import (
     SynthesisTrigger,
     SynthesisEvent,
     ConnectionStats,
+    DeepeningCandidate,
+    DeepeningDetector,
+    FOUNDATIONAL_CONCEPTS,
     calculate_depth_score,
 )
 
@@ -46,5 +49,8 @@ __all__ = [
     "SynthesisTrigger",
     "SynthesisEvent",
     "ConnectionStats",
+    "DeepeningCandidate",
+    "DeepeningDetector",
+    "FOUNDATIONAL_CONCEPTS",
     "calculate_depth_score",
 ]

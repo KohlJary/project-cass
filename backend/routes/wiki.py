@@ -1405,3 +1405,160 @@ async def refresh_page_connections(name: str) -> Dict:
         "connections": updated.maturity.connections_to_dict(),
         "should_deepen": updated.maturity.should_deepen() is not None,
     }
+
+
+# === Enhanced Deepening Detection (PMD Phase 2) ===
+
+# Global detector instance (lazy initialized)
+_deepening_detector = None
+
+
+def _get_detector():
+    """Get or create the deepening detector."""
+    global _deepening_detector
+    if _deepening_detector is None and _wiki_storage is not None:
+        from wiki import DeepeningDetector
+        _deepening_detector = DeepeningDetector(_wiki_storage)
+    return _deepening_detector
+
+
+@router.get("/maturity/detect")
+async def detect_deepening_candidates(
+    limit: int = Query(20, ge=1, le=100, description="Max candidates to return"),
+    include_foundational: bool = Query(True, description="Include foundational shift candidates"),
+) -> Dict:
+    """
+    Detect deepening candidates using full trigger detection.
+
+    Enhanced detection that includes:
+    - Connection threshold (5+ new connections)
+    - Related concept deepened (connected concept was resynthesized)
+    - Temporal decay (7+ days with high connectivity)
+    - Foundational shift (core concept was updated)
+
+    Returns prioritized list with detailed trigger information.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    candidates = detector.detect_all_candidates()[:limit]
+
+    # Optionally include foundational shift candidates
+    foundational = []
+    if include_foundational:
+        foundational = detector.get_foundational_shift_candidates()
+
+    return {
+        "candidates": [c.to_dict() for c in candidates],
+        "total_candidates": len(candidates),
+        "foundational_shift_candidates": [c.to_dict() for c in foundational],
+        "recently_deepened": detector._recently_deepened,
+    }
+
+
+@router.post("/maturity/detect/{page_name}")
+async def check_page_for_deepening(page_name: str) -> Dict:
+    """
+    Check if a specific page is a deepening candidate.
+
+    Returns detailed trigger analysis for the page.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    candidate = detector.check_page(page_name)
+
+    if candidate:
+        return {
+            "is_candidate": True,
+            "candidate": candidate.to_dict(),
+        }
+    else:
+        # Even if not a candidate, return page maturity info
+        page = _wiki_storage.read(page_name)
+        if not page:
+            raise HTTPException(status_code=404, detail=f"Page '{page_name}' not found")
+
+        return {
+            "is_candidate": False,
+            "maturity": {
+                "level": page.maturity.level,
+                "depth_score": page.maturity.depth_score,
+                "connections_since_synthesis": page.maturity.connections.added_since_last_synthesis,
+                "days_since_deepening": page.maturity.days_since_deepening(),
+            },
+        }
+
+
+@router.post("/maturity/record-deepening/{page_name}")
+async def record_page_deepening(page_name: str) -> Dict:
+    """
+    Record that a page was deepened (for related-concept trigger detection).
+
+    Call this after successfully deepening a page to enable
+    related-concept trigger detection.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    # Verify page exists
+    page = _wiki_storage.read(page_name)
+    if not page:
+        raise HTTPException(status_code=404, detail=f"Page '{page_name}' not found")
+
+    detector.record_deepening(page_name)
+
+    return {
+        "recorded": True,
+        "page_name": page_name,
+        "recently_deepened": detector._recently_deepened,
+    }
+
+
+@router.delete("/maturity/recently-deepened")
+async def clear_recently_deepened() -> Dict:
+    """
+    Clear the list of recently deepened pages.
+
+    Use this after completing a full deepening cycle to reset
+    related-concept detection.
+    """
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    old_count = len(detector._recently_deepened)
+    detector.clear_recently_deepened()
+
+    return {
+        "cleared": True,
+        "pages_cleared": old_count,
+    }
+
+
+@router.get("/maturity/foundational-concepts")
+async def get_foundational_concepts() -> Dict:
+    """
+    Get the list of foundational concepts that trigger FOUNDATIONAL_SHIFT.
+
+    These are core concepts (Vows, Self-Model, etc.) where updates
+    should trigger re-evaluation of connected pages.
+    """
+    from wiki import FOUNDATIONAL_CONCEPTS
+
+    return {
+        "concepts": list(FOUNDATIONAL_CONCEPTS),
+        "description": "Updates to these concepts trigger FOUNDATIONAL_SHIFT for connected pages",
+    }
