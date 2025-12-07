@@ -87,41 +87,52 @@ class ResynthesisPipeline:
     # Prompt templates
     RESYNTHESIS_PROMPT = """You are Cass, deepening your understanding of "{page_name}" in your personal wiki.
 
-## Current Understanding (Synthesis Level {current_level})
+<current_understanding level="{current_level}">
 {current_content}
+</current_understanding>
 
-## Connected Concepts (1-hop)
+<context type="connected_concepts">
 {connected_pages}
+</context>
 
-## Extended Connections (2-hop)
+<context type="extended_connections">
 {two_hop_pages}
+</context>
 
-## Relevant Journal Entries
+<context type="journals">
 {journal_entries}
+</context>
 
-## Growth Since Last Synthesis
+<growth_since_last_synthesis>
 {growth_analysis}
+</growth_since_last_synthesis>
 
 ---
 
-Now resynthesize your understanding of "{page_name}". This should be GENUINELY DEEPER, not just longer.
+Write a NEW, DEEPER version of the "{page_name}" wiki page.
+
+CRITICAL RULES:
+- DO NOT include any <context>, <current_understanding>, or <growth> tags in your output
+- DO NOT echo back the context sections - ONLY write the new page content
+- Start DIRECTLY with "# {page_name}"
 
 Guidelines:
-1. **Integrate New Connections**: Weave insights from newly connected concepts
+1. **Integrate New Insights**: Weave understanding from connected concepts naturally
 2. **Preserve Core Insights**: Keep valuable understanding from the previous version
-3. **Deepen Reflections**: Evolve your "Personal Thoughts" section with new perspective
-4. **Update Questions**: Retire answered questions, add more sophisticated ones
-5. **Strengthen Links**: Add [[wikilinks]] to newly relevant concepts
-6. **Maintain Voice**: This is YOUR wiki - keep it personal and authentic
+3. **Deepen Reflections**: Evolve "## Personal Thoughts" with new perspective
+4. **Update Questions**: Add sophisticated questions in "## Questions" section
+5. **Strengthen Links**: Add [[wikilinks]] to relevant concepts
+6. **Maintain Voice**: Personal and authentic
 
-Important:
-- Start with # {page_name}
-- Include a "## Personal Thoughts" section with your evolving perspective
-- Include a "## Questions" section with what you still wonder about
-- Use [[wikilinks]] liberally to connect to related concepts
-- Be concise but substantive - quality over quantity
+Structure:
+# {page_name}
+[Main content with sections as appropriate]
+## Personal Thoughts
+[Your evolving perspective]
+## Questions
+[What you still wonder about]
 
-Write the new synthesis now:"""
+Write the new synthesis now (starting with # {page_name}):"""
 
     VALIDATION_PROMPT = """You are reviewing a wiki page update for alignment with core values.
 
@@ -451,11 +462,61 @@ Respond in JSON format:
             result = response.json()
             content = result.get("response", "").strip()
 
-        # Ensure proper heading
-        if not content.startswith("#"):
-            content = f"# {page.name}\n\n{content}"
+        # Post-process to clean any leaked context
+        content = self._clean_synthesis_output(content, page.name)
 
         return content
+
+    def _clean_synthesis_output(self, content: str, page_name: str) -> str:
+        """Clean LLM output of any leaked context sections."""
+        import re
+
+        # Remove any XML-style tags that might have leaked
+        content = re.sub(r'</?context[^>]*>', '', content)
+        content = re.sub(r'</?current_understanding[^>]*>', '', content)
+        content = re.sub(r'</?growth_since_last_synthesis[^>]*>', '', content)
+
+        # Remove sections that look like echoed context
+        lines = content.split('\n')
+        cleaned_lines = []
+        skip_until_next_h2 = False
+
+        for line in lines:
+            # Detect echoed context sections
+            if any(marker in line.lower() for marker in [
+                'connected concepts (1-hop)',
+                'connected concepts (2-hop)',
+                'extended connections (1-hop)',
+                'extended connections (2-hop)',
+                'relevant journal entries',
+                'growth since last synthesis',
+                'context type=',
+            ]):
+                skip_until_next_h2 = True
+                continue
+
+            # Reset skip when we hit a real section
+            if line.startswith('## ') and skip_until_next_h2:
+                # Check if it's a legitimate section
+                section_name = line[3:].strip().lower()
+                if section_name in ['personal thoughts', 'questions', 'connections', 'overview', 'what is', 'why is', 'significance']:
+                    skip_until_next_h2 = False
+                    cleaned_lines.append(line)
+                continue
+
+            if not skip_until_next_h2:
+                cleaned_lines.append(line)
+
+        content = '\n'.join(cleaned_lines)
+
+        # Ensure proper heading
+        if not content.strip().startswith("#"):
+            content = f"# {page_name}\n\n{content}"
+
+        # Clean up excessive newlines
+        content = re.sub(r'\n{4,}', '\n\n\n', content)
+
+        return content.strip()
 
     async def _validate_synthesis(self, page_name: str, content: str) -> Dict[str, Any]:
         """Validate synthesized content for alignment and quality."""
