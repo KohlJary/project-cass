@@ -67,6 +67,7 @@ export function Research() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [lastReport, setLastReport] = useState<ProgressReport | null>(null);
   const [batchSize, setBatchSize] = useState(3);
   const queryClient = useQueryClient();
@@ -483,62 +484,129 @@ export function Research() {
 
       {activeTab === 'history' && (
         <div className="history-tab">
-          <div className="calendar-header">
-            <button onClick={() => {
-              const [y, m] = selectedMonth.split('-').map(Number);
-              const prev = new Date(y, m - 2, 1);
-              setSelectedMonth(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`);
-            }}>
-              &larr;
-            </button>
-            <h3>{new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
-            <button onClick={() => {
-              const [y, m] = selectedMonth.split('-').map(Number);
-              const next = new Date(y, m, 1);
-              setSelectedMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`);
-            }}>
-              &rarr;
-            </button>
-          </div>
+          <div className="calendar-layout">
+            <div className="calendar-section">
+              <div className="calendar-header">
+                <button onClick={() => {
+                  const [y, m] = selectedMonth.split('-').map(Number);
+                  const prev = new Date(y, m - 2, 1);
+                  setSelectedMonth(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`);
+                  setSelectedDate(null);
+                }}>
+                  &larr;
+                </button>
+                <h3>{new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
+                <button onClick={() => {
+                  const [y, m] = selectedMonth.split('-').map(Number);
+                  const next = new Date(y, m, 1);
+                  setSelectedMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`);
+                  setSelectedDate(null);
+                }}>
+                  &rarr;
+                </button>
+              </div>
 
-          <div className="calendar-grid">
-            <div className="calendar-weekdays">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="weekday">{day}</div>
-              ))}
-            </div>
-            <div className="calendar-days">
-              {calendarDays.map((day, i) => (
-                <div
-                  key={i}
-                  className={`calendar-day ${day.isCurrentMonth ? '' : 'other-month'} ${day.tasks.length > 0 ? 'has-tasks' : ''}`}
-                >
-                  <span className="day-number">{day.day}</span>
-                  {day.tasks.length > 0 && (
-                    <div className="day-tasks">
-                      {day.tasks.slice(0, 3).map((task, j) => (
-                        <div
-                          key={j}
-                          className="day-task-dot"
-                          style={{ background: getTaskTypeColor(task.task_type) }}
-                          title={`${task.task_type}: ${task.target}`}
-                        />
-                      ))}
-                      {day.tasks.length > 3 && (
-                        <span className="more-tasks">+{day.tasks.length - 3}</span>
+              <div className="calendar-grid">
+                <div className="calendar-weekdays">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                    <div key={day} className="weekday">{day}</div>
+                  ))}
+                </div>
+                <div className="calendar-days">
+                  {calendarDays.map((day, i) => (
+                    <div
+                      key={i}
+                      className={`calendar-day ${day.isCurrentMonth ? '' : 'other-month'} ${day.tasks.length > 0 ? 'has-tasks' : ''} ${selectedDate === day.date ? 'selected' : ''}`}
+                      onClick={() => day.tasks.length > 0 && setSelectedDate(day.date)}
+                    >
+                      <span className="day-number">{day.day}</span>
+                      {day.tasks.length > 0 && (
+                        <div className="day-tasks">
+                          {day.tasks.slice(0, 3).map((task, j) => (
+                            <div
+                              key={j}
+                              className="day-task-dot"
+                              style={{ background: getTaskTypeColor(task.task_type) }}
+                              title={`${task.task_type}: ${task.target}`}
+                            />
+                          ))}
+                          {day.tasks.length > 3 && (
+                            <span className="more-tasks">+{day.tasks.length - 3}</span>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
 
-          <div className="calendar-legend">
-            <span style={{ color: getTaskTypeColor('deepening') }}>Deepening</span>
-            <span style={{ color: getTaskTypeColor('red_link') }}>Red Link</span>
-            <span style={{ color: getTaskTypeColor('question') }}>Question</span>
-            <span style={{ color: getTaskTypeColor('exploration') }}>Exploration</span>
+              <div className="calendar-legend">
+                <span style={{ color: getTaskTypeColor('deepening') }}>Deepening</span>
+                <span style={{ color: getTaskTypeColor('red_link') }}>Red Link</span>
+                <span style={{ color: getTaskTypeColor('question') }}>Question</span>
+                <span style={{ color: getTaskTypeColor('exploration') }}>Exploration</span>
+              </div>
+            </div>
+
+            <div className="day-detail-panel">
+              {selectedDate && tasksByDate[selectedDate] ? (
+                <>
+                  <h3>
+                    {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </h3>
+                  <div className="day-detail-summary">
+                    {tasksByDate[selectedDate].length} task{tasksByDate[selectedDate].length !== 1 ? 's' : ''} completed
+                  </div>
+                  <div className="day-detail-tasks">
+                    {tasksByDate[selectedDate].map((task, i) => (
+                      <div key={i} className="day-detail-task">
+                        <div className="detail-task-header">
+                          <span
+                            className="detail-task-type"
+                            style={{ background: getTaskTypeColor(task.task_type) }}
+                          >
+                            {task.task_type.replace('_', ' ')}
+                          </span>
+                          <span className={`detail-task-status ${task.status}`}>
+                            {task.status}
+                          </span>
+                        </div>
+                        <div className="detail-task-target">{task.target}</div>
+                        {task.context && (
+                          <div className="detail-task-context">{task.context}</div>
+                        )}
+                        {task.result && (
+                          <div className="detail-task-result">
+                            {task.result.pages_created?.length > 0 && (
+                              <span className="result-item created">
+                                +{task.result.pages_created.length} page{task.result.pages_created.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                            {task.result.pages_updated?.length > 0 && (
+                              <span className="result-item updated">
+                                ~{task.result.pages_updated.length} updated
+                              </span>
+                            )}
+                            {task.result.summary && (
+                              <div className="result-summary">{task.result.summary}</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="day-detail-empty">
+                  <p>Select a day with tasks to see details</p>
+                  <p className="hint">Days with colored dots have completed research tasks</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
