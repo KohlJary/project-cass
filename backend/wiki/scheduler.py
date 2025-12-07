@@ -224,13 +224,139 @@ class ResearchScheduler:
 
         return tasks
 
-    def refresh_tasks(self) -> Dict[str, int]:
+    def generate_exploration_tasks(self, max_tasks: int = 5) -> List[ResearchTask]:
+        """
+        Generate curiosity-driven exploration tasks.
+
+        Finds underexplored regions of the knowledge graph and suggests
+        concepts that would bridge disconnected areas.
+
+        Returns list of exploration tasks.
+        """
+        tasks = []
+
+        # Build graph structure
+        graph = self._build_connection_graph()
+        if not graph:
+            return tasks
+
+        # Find sparse regions (pages with few connections)
+        sparse_pages = self._find_sparse_pages(graph)
+
+        # Find concepts mentioned but not linked (potential bridges)
+        bridge_concepts = self._find_bridge_concepts(graph)
+
+        # Generate tasks for bridge concepts
+        for concept, context in bridge_concepts[:max_tasks]:
+            if self.queue.exists(concept, TaskType.EXPLORATION):
+                continue
+            if self.storage.read(concept):
+                continue  # Page exists
+
+            rationale = TaskRationale(
+                curiosity_score=self.config.curiosity_threshold + 0.1,
+                connection_potential=0.8,  # Bridges have high connection potential
+                foundation_relevance=0.4,
+                graph_balance=0.9,  # Main point of exploration
+            )
+
+            priority = calculate_task_priority(rationale, TaskType.EXPLORATION)
+
+            task = ResearchTask(
+                task_id=create_task_id(),
+                task_type=TaskType.EXPLORATION,
+                target=concept,
+                context=context,
+                priority=priority,
+                rationale=rationale,
+                source_type="exploration",
+            )
+            tasks.append(task)
+
+        return tasks
+
+    def _build_connection_graph(self) -> Dict[str, set]:
+        """Build adjacency graph of wiki pages."""
+        graph = {}
+        for page in self.storage.list_pages():
+            full_page = self.storage.read(page.name)
+            if not full_page:
+                continue
+            graph[page.name] = set()
+            for link in full_page.links:
+                if self.storage.read(link.target):  # Only existing pages
+                    graph[page.name].add(link.target)
+        return graph
+
+    def _find_sparse_pages(self, graph: Dict[str, set]) -> List[str]:
+        """Find pages with few connections."""
+        sparse = []
+        for page, connections in graph.items():
+            if len(connections) < 3:
+                sparse.append(page)
+        return sparse
+
+    def _find_bridge_concepts(self, graph: Dict[str, set]) -> List[tuple]:
+        """
+        Find concepts that would bridge disconnected areas.
+
+        Returns list of (concept_name, context) tuples.
+        """
+        bridges = []
+
+        # Count how many pages mention each concept
+        concept_mentions = {}
+        for page_name in graph:
+            full_page = self.storage.read(page_name)
+            if not full_page:
+                continue
+
+            # Look for capitalized words/phrases that might be concepts
+            import re
+            # Match capitalized words/phrases not already wiki links
+            text = full_page.content
+            # Remove existing wikilinks for analysis
+            text = re.sub(r'\[\[([^\]]+)\]\]', r'\1', text)
+
+            # Find potential concepts (capitalized, 2+ words or single proper nouns)
+            matches = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b', text)
+            for match in matches:
+                if len(match) > 3 and match not in graph:  # Not an existing page
+                    if match not in concept_mentions:
+                        concept_mentions[match] = []
+                    concept_mentions[match].append(page_name)
+
+        # Concepts mentioned by multiple unconnected pages are good bridges
+        for concept, mentioning_pages in concept_mentions.items():
+            if len(mentioning_pages) >= 2:
+                # Check if mentioning pages are connected
+                connected = False
+                for p1 in mentioning_pages:
+                    for p2 in mentioning_pages:
+                        if p1 != p2 and (p2 in graph.get(p1, set()) or p1 in graph.get(p2, set())):
+                            connected = True
+                            break
+                    if connected:
+                        break
+
+                if not connected:
+                    context = f"Would bridge: {', '.join(mentioning_pages[:3])}"
+                    bridges.append((concept, context))
+
+        # Sort by number of mentions
+        bridges.sort(key=lambda x: len(concept_mentions.get(x[0], [])), reverse=True)
+        return bridges
+
+    def refresh_tasks(self, include_exploration: bool = False) -> Dict[str, int]:
         """
         Refresh the task queue with new tasks from all sources.
 
+        Args:
+            include_exploration: Whether to generate exploration tasks
+
         Returns count of tasks added by type.
         """
-        added = {"red_link": 0, "deepening": 0, "question": 0}
+        added = {"red_link": 0, "deepening": 0, "question": 0, "exploration": 0}
 
         # Harvest red links
         if self.config.auto_queue_red_links:
@@ -244,6 +370,12 @@ class ResearchScheduler:
                 self.queue.add(task)
                 added["deepening"] += 1
 
+        # Generate exploration tasks if requested
+        if include_exploration:
+            for task in self.generate_exploration_tasks():
+                self.queue.add(task)
+                added["exploration"] += 1
+
         # Extract questions (disabled by default, can be expensive)
         # for task in self.extract_questions():
         #     self.queue.add(task)
@@ -251,6 +383,41 @@ class ResearchScheduler:
 
         self._last_refresh = datetime.now()
         return added
+
+    def get_graph_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about the knowledge graph.
+
+        Returns dict with node count, edge count, connectivity metrics.
+        """
+        graph = self._build_connection_graph()
+
+        # Count nodes and edges
+        node_count = len(graph)
+        edge_count = sum(len(connections) for connections in graph.values())
+
+        # Average connectivity
+        avg_connectivity = edge_count / node_count if node_count > 0 else 0
+
+        # Find most connected pages
+        connection_counts = [(page, len(conns)) for page, conns in graph.items()]
+        connection_counts.sort(key=lambda x: x[1], reverse=True)
+        most_connected = connection_counts[:5] if connection_counts else []
+
+        # Count orphans (pages with no connections)
+        orphans = [page for page, conns in graph.items() if len(conns) == 0]
+
+        # Find sparse pages
+        sparse = self._find_sparse_pages(graph)
+
+        return {
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "avg_connectivity": round(avg_connectivity, 2),
+            "most_connected": [{"page": p, "connections": c} for p, c in most_connected],
+            "orphan_count": len(orphans),
+            "sparse_count": len(sparse),
+        }
 
     # === Task Execution ===
 
@@ -498,6 +665,9 @@ class ResearchScheduler:
             # Small delay between tasks
             await asyncio.sleep(self.config.min_delay_between_tasks)
 
+        # Get graph stats for batch reports
+        graph_stats = self.get_graph_stats()
+
         return ProgressReport(
             report_id=f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             created_at=datetime.now(),
@@ -511,6 +681,81 @@ class ResearchScheduler:
             connections_formed=connections_formed,
             followup_tasks_queued=followups,
             task_summaries=task_summaries,
+            graph_stats=graph_stats,
+        )
+
+    def generate_weekly_summary(self, days: int = 7) -> ProgressReport:
+        """
+        Generate a summary of research activity over the past week.
+
+        Args:
+            days: Number of days to include (default: 7)
+
+        Returns:
+            ProgressReport with aggregated stats
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.now() - timedelta(days=days)
+        history = self.queue.get_history(limit=500)
+
+        # Filter to recent tasks
+        recent_tasks = []
+        for task_dict in history:
+            completed_at = task_dict.get("completed_at")
+            if completed_at:
+                try:
+                    dt = datetime.fromisoformat(completed_at)
+                    if dt >= cutoff:
+                        recent_tasks.append(task_dict)
+                except Exception:
+                    continue
+
+        # Aggregate stats
+        pages_created = []
+        pages_updated = []
+        key_insights = []
+        task_summaries = []
+        completed = 0
+        failed = 0
+
+        for task_dict in recent_tasks:
+            result = task_dict.get("result", {})
+            if result.get("success"):
+                completed += 1
+                pages_created.extend(result.get("pages_created", []))
+                pages_updated.extend(result.get("pages_updated", []))
+                key_insights.extend(result.get("insights", []))
+            else:
+                failed += 1
+
+            task_summaries.append({
+                "task_id": task_dict.get("task_id"),
+                "type": task_dict.get("task_type"),
+                "target": task_dict.get("target"),
+                "success": result.get("success", False),
+                "summary": result.get("summary"),
+                "completed_at": task_dict.get("completed_at"),
+            })
+
+        # Deduplicate
+        pages_created = list(set(pages_created))
+        pages_updated = list(set(pages_updated))
+
+        # Get current graph stats
+        graph_stats = self.get_graph_stats()
+
+        return ProgressReport(
+            report_id=f"weekly_{datetime.now().strftime('%Y%m%d')}",
+            created_at=datetime.now(),
+            session_type="weekly",
+            tasks_completed=completed,
+            tasks_failed=failed,
+            pages_created=pages_created,
+            pages_updated=pages_updated,
+            key_insights=key_insights[:20],  # Limit insights
+            task_summaries=task_summaries,
+            graph_stats=graph_stats,
         )
 
     # === Helper Methods ===
