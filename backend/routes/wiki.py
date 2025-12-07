@@ -1958,3 +1958,36 @@ async def clear_completed_tasks() -> Dict:
         "cleared": removed,
         "stats": scheduler.queue.get_stats(),
     }
+
+
+@router.get("/research/history")
+async def get_research_history(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    limit: int = 100,
+) -> Dict:
+    """
+    Get completed task history for calendar display.
+
+    Args:
+        year: Filter to specific year (optional)
+        month: Filter to specific month (requires year)
+        limit: Maximum entries to return (default 100)
+
+    Returns:
+        List of completed tasks with dates
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    history = scheduler.queue.get_history(year=year, month=month, limit=limit)
+
+    return {
+        "history": history,
+        "count": len(history),
+        "filters": {
+            "year": year,
+            "month": month,
+        },
+    }
