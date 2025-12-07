@@ -81,4 +81,18 @@ export const wikiApi = {
     api.post(`/wiki/analyze-conversation/${conversationId}`, null, {
       params: { auto_apply: autoApply }
     }),
+  retrieveContext: (query: string, params?: { n_entry_points?: number; max_depth?: number; max_pages?: number }) =>
+    api.get('/wiki/retrieve/context', { params: { q: query, ...params } }),
+  populateFromConversations: (params?: { auto_apply?: boolean; min_confidence?: number; limit?: number }) =>
+    api.post('/wiki/populate-from-conversations', null, { params }),
+  createFromSuggestion: (name: string, pageType: string) =>
+    api.post('/wiki/generate-page', { name, page_type: pageType }),
+  enrichPages: (params?: { limit?: number; min_content_length?: number }) =>
+    api.post('/wiki/enrich-pages', null, { params }),
+  getResearchQueue: (limit?: number) =>
+    api.get('/wiki/research-queue', { params: { limit } }),
+  researchPage: (name: string, pageType?: string) =>
+    api.post('/wiki/research-page', { name, page_type: pageType || 'concept' }),
+  researchBatch: (params?: { limit?: number; page_type?: string }) =>
+    api.post('/wiki/research-batch', null, { params }),
 };

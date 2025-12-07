@@ -11,7 +11,13 @@ from .storage import WikiStorage, WikiPage, PageType
 from .parser import WikiParser, WikiLink
 from .bootstrap import WikiBootstrap
 from .retrieval import WikiRetrieval, WikiContext, RetrievalResult
-from .updater import WikiUpdater, WikiUpdateSuggestion, ConversationAnalysis, process_conversation_for_wiki
+from .updater import (
+    WikiUpdater,
+    WikiUpdateSuggestion,
+    ConversationAnalysis,
+    process_conversation_for_wiki,
+    populate_wiki_from_conversations,
+)
 
 __all__ = [
     "WikiStorage",
@@ -27,4 +33,5 @@ __all__ = [
     "WikiUpdateSuggestion",
     "ConversationAnalysis",
     "process_conversation_for_wiki",
+    "populate_wiki_from_conversations",
 ]

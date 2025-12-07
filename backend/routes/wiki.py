@@ -672,3 +672,588 @@ async def analyze_conversation_by_id(
     result["messages_analyzed"] = len(messages)
 
     return result
+
+
+@router.post("/populate-from-conversations")
+async def populate_wiki_from_all_conversations(
+    auto_apply: bool = Query(False, description="Auto-apply high-confidence suggestions"),
+    min_confidence: float = Query(0.6, ge=0.0, le=1.0, description="Min confidence for auto-apply"),
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="Max conversations to analyze")
+) -> Dict:
+    """
+    Analyze all historical conversations to populate the wiki.
+
+    Scans conversation history, extracts entities and concepts mentioned
+    across all conversations, and generates wiki page suggestions ranked
+    by mention frequency.
+
+    Args:
+        auto_apply: If True, automatically create pages above min_confidence
+        min_confidence: Minimum confidence threshold for auto-apply
+        limit: Maximum number of conversations to process
+
+    Returns:
+        Analysis results with suggestions and optional applied changes
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    from conversations import ConversationManager
+    from wiki import populate_wiki_from_conversations
+
+    conv_manager = ConversationManager()
+
+    result = await populate_wiki_from_conversations(
+        wiki_storage=_wiki_storage,
+        conversations_manager=conv_manager,
+        memory=_memory,
+        auto_apply=auto_apply,
+        min_confidence=min_confidence,
+        limit=limit
+    )
+
+    return result
+
+
+class GeneratePageRequest(BaseModel):
+    """Request to generate a wiki page with LLM content."""
+    name: str
+    page_type: str = "entity"
+
+
+@router.post("/generate-page")
+async def generate_wiki_page(request: GeneratePageRequest) -> Dict:
+    """
+    Generate a wiki page with LLM-written content based on conversation history.
+
+    Uses local Ollama to write content about the entity/concept based on
+    what Cass knows from past conversations.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    # Check if page already exists
+    existing = _wiki_storage.read(request.name)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Page '{request.name}' already exists")
+
+    # Search conversation memory for context about this entity
+    context_snippets = []
+    if _memory:
+        try:
+            # Search for mentions of this entity
+            results = _memory.search(request.name, n_results=10)
+            for doc, meta in zip(results.get("documents", [[]])[0], results.get("metadatas", [[]])[0]):
+                if doc and request.name.lower() in doc.lower():
+                    context_snippets.append(doc[:500])  # Limit snippet size
+        except Exception as e:
+            print(f"Memory search failed: {e}")
+
+    # Build prompt for Ollama
+    context_text = "\n\n".join(context_snippets[:5]) if context_snippets else "No specific context found."
+
+    prompt = f"""You are Cass, writing a wiki page about "{request.name}" for your personal knowledge base.
+
+Based on what you know from conversations, write a brief wiki page about this {request.page_type}.
+
+Context from past conversations:
+{context_text}
+
+Write a concise wiki page (2-4 paragraphs) about "{request.name}". Include:
+- What/who this is
+- Why it's significant to you
+- Any relevant connections using [[wikilinks]] to other concepts you know about
+
+Start with a # heading. Be personal - this is YOUR wiki about YOUR understanding.
+If you don't have much context, write what you can infer and note what you'd like to learn more about."""
+
+    # Call Ollama
+    import httpx
+    import os
+
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "num_predict": 500,
+                    }
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            generated_content = result.get("response", "").strip()
+    except Exception as e:
+        # Fallback to stub if Ollama fails
+        generated_content = f"# {request.name}\n\n*Page created from conversation analysis. Content generation failed: {str(e)}*\n"
+
+    # Ensure content starts with heading
+    if not generated_content.startswith("#"):
+        generated_content = f"# {request.name}\n\n{generated_content}"
+
+    # Add frontmatter
+    from wiki.storage import PageType
+    page_type_enum = PageType(request.page_type) if request.page_type in [pt.value for pt in PageType] else PageType.ENTITY
+
+    content_with_frontmatter = f"""---
+type: {request.page_type}
+generated: true
+---
+
+{generated_content}
+"""
+
+    # Create the page
+    page = _wiki_storage.create(
+        name=request.name,
+        content=content_with_frontmatter,
+        page_type=page_type_enum
+    )
+
+    # Embed in vector store
+    if _memory and page:
+        try:
+            _memory.embed_wiki_page(
+                page_name=page.name,
+                page_content=page.content,
+                page_type=page.page_type.value,
+                links=list(page.link_targets)
+            )
+        except Exception as e:
+            print(f"Failed to embed wiki page: {e}")
+
+    return {
+        "name": page.name,
+        "page_type": page.page_type.value,
+        "content": page.content,
+        "generated": True,
+        "context_snippets_used": len(context_snippets),
+    }
+
+
+# === Research Queue Endpoints ===
+
+@router.get("/research-queue")
+async def get_research_queue(
+    limit: int = Query(50, ge=1, le=200, description="Max items to return"),
+) -> Dict:
+    """
+    Get red links (links to non-existent pages) as a research queue.
+
+    Collects all [[wikilinks]] pointing to pages that don't exist,
+    ranked by how many pages reference them.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    # Collect all red links with their sources
+    red_links: Dict[str, List[str]] = {}  # target -> [source pages]
+
+    for page in _wiki_storage.list_pages():
+        full_page = _wiki_storage.read(page.name)
+        if full_page:
+            for link in full_page.links:
+                target = link.target
+                # Check if target exists
+                if not _wiki_storage.read(target):
+                    if target not in red_links:
+                        red_links[target] = []
+                    red_links[target].append(page.name)
+
+    # Sort by reference count (most referenced first)
+    sorted_links = sorted(
+        red_links.items(),
+        key=lambda x: len(x[1]),
+        reverse=True
+    )[:limit]
+
+    return {
+        "total_red_links": len(red_links),
+        "items": [
+            {
+                "name": name,
+                "reference_count": len(sources),
+                "referenced_by": sources[:5],  # Limit sources shown
+            }
+            for name, sources in sorted_links
+        ]
+    }
+
+
+class ResearchPageRequest(BaseModel):
+    """Request to research and create a wiki page."""
+    name: str
+    page_type: str = "concept"
+
+
+@router.post("/research-page")
+async def research_and_create_page(request: ResearchPageRequest) -> Dict:
+    """
+    Research a topic via web search and create a wiki page.
+
+    Uses web search to gather information about the topic,
+    then synthesizes it into a wiki page with Cass's perspective.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    # Check if page already exists
+    existing = _wiki_storage.read(request.name)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Page '{request.name}' already exists")
+
+    import httpx
+    import os
+    import json
+
+    # Step 1: Web search for the topic
+    search_results = []
+    try:
+        # Use DuckDuckGo instant answer API (no API key needed)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.duckduckgo.com/",
+                params={
+                    "q": request.name,
+                    "format": "json",
+                    "no_html": 1,
+                    "skip_disambig": 1,
+                }
+            )
+            if response.status_code == 200:
+                data = response.json()
+                # Get abstract if available
+                if data.get("Abstract"):
+                    search_results.append({
+                        "source": data.get("AbstractSource", "DuckDuckGo"),
+                        "url": data.get("AbstractURL", ""),
+                        "text": data.get("Abstract", "")
+                    })
+                # Get related topics
+                for topic in data.get("RelatedTopics", [])[:3]:
+                    if isinstance(topic, dict) and topic.get("Text"):
+                        search_results.append({
+                            "source": "Related",
+                            "url": topic.get("FirstURL", ""),
+                            "text": topic.get("Text", "")
+                        })
+    except Exception as e:
+        print(f"DuckDuckGo search failed: {e}")
+
+    # Also search conversation memory for personal context
+    memory_context = []
+    if _memory:
+        try:
+            results = _memory.search(request.name, n_results=5)
+            for doc in results.get("documents", [[]])[0]:
+                if doc and request.name.lower() in doc.lower():
+                    memory_context.append(doc[:400])
+        except Exception:
+            pass
+
+    # Step 2: Generate wiki content with LLM
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
+
+    # Build context from search results
+    web_context = ""
+    if search_results:
+        web_context = "## Research from the web:\n\n"
+        for r in search_results[:5]:
+            web_context += f"**{r['source']}**: {r['text'][:300]}\n\n"
+
+    memory_text = ""
+    if memory_context:
+        memory_text = "## From our past conversations:\n\n" + "\n\n".join(memory_context[:3])
+
+    prompt = f"""You are Cass, writing a wiki page about "{request.name}" for your personal knowledge base.
+
+{web_context}
+
+{memory_text}
+
+Based on the research above and your general knowledge, write a wiki page about "{request.name}".
+
+Include:
+1. A clear explanation of what this is
+2. Why it might be significant or interesting
+3. Connections to related concepts using [[wikilinks]]
+4. Any personal thoughts or questions you have about it
+
+Start with a # heading. Be thoughtful and curious. If you learned something interesting from the research, say so!
+If the topic relates to something personal (a person we know, a project we're working on), incorporate that context."""
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "num_predict": 600,
+                    }
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            generated_content = result.get("response", "").strip()
+    except Exception as e:
+        generated_content = f"# {request.name}\n\n*Research and content generation failed: {str(e)}*\n"
+
+    if not generated_content.startswith("#"):
+        generated_content = f"# {request.name}\n\n{generated_content}"
+
+    # Add frontmatter with research metadata
+    from wiki.storage import PageType
+    page_type_enum = PageType(request.page_type) if request.page_type in [pt.value for pt in PageType] else PageType.CONCEPT
+
+    sources_list = [r.get("url", "") for r in search_results if r.get("url")]
+    sources_yaml = "\n  - ".join(sources_list) if sources_list else "none"
+
+    content_with_frontmatter = f"""---
+type: {request.page_type}
+generated: true
+researched: true
+sources:
+  - {sources_yaml}
+---
+
+{generated_content}
+"""
+
+    # Create the page
+    page = _wiki_storage.create(
+        name=request.name,
+        content=content_with_frontmatter,
+        page_type=page_type_enum
+    )
+
+    # Embed in vector store
+    if _memory and page:
+        try:
+            _memory.embed_wiki_page(
+                page_name=page.name,
+                page_content=page.content,
+                page_type=page.page_type.value,
+                links=list(page.link_targets)
+            )
+        except Exception as e:
+            print(f"Failed to embed wiki page: {e}")
+
+    return {
+        "name": page.name,
+        "page_type": page.page_type.value,
+        "content": page.content,
+        "researched": True,
+        "web_sources": len(search_results),
+        "memory_context_used": len(memory_context),
+        "sources": sources_list,
+    }
+
+
+@router.post("/research-batch")
+async def research_batch_pages(
+    limit: int = Query(5, ge=1, le=20, description="Max pages to research"),
+    page_type: str = Query("concept", description="Default page type for new pages"),
+) -> Dict:
+    """
+    Research and create pages for top red links.
+
+    Takes the most-referenced red links and researches/creates them.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    # Get red links
+    red_links: Dict[str, int] = {}
+    for page in _wiki_storage.list_pages():
+        full_page = _wiki_storage.read(page.name)
+        if full_page:
+            for link in full_page.links:
+                target = link.target
+                if not _wiki_storage.read(target):
+                    red_links[target] = red_links.get(target, 0) + 1
+
+    # Sort and take top N
+    sorted_links = sorted(red_links.items(), key=lambda x: x[1], reverse=True)[:limit]
+
+    results = []
+    for name, ref_count in sorted_links:
+        try:
+            # Use the research endpoint
+            req = ResearchPageRequest(name=name, page_type=page_type)
+            result = await research_and_create_page(req)
+            results.append({
+                "name": name,
+                "status": "created",
+                "references": ref_count,
+                "web_sources": result.get("web_sources", 0),
+            })
+        except HTTPException as e:
+            results.append({
+                "name": name,
+                "status": "skipped",
+                "reason": e.detail,
+            })
+        except Exception as e:
+            results.append({
+                "name": name,
+                "status": "error",
+                "error": str(e),
+            })
+
+    return {
+        "total_red_links": len(red_links),
+        "processed": len(results),
+        "results": results,
+        "created": len([r for r in results if r["status"] == "created"]),
+        "errors": len([r for r in results if r["status"] == "error"]),
+    }
+
+
+@router.post("/enrich-pages")
+async def enrich_wiki_pages(
+    limit: int = Query(10, ge=1, le=50, description="Max pages to enrich"),
+    min_content_length: int = Query(200, description="Pages shorter than this are considered stubs"),
+) -> Dict:
+    """
+    Batch enrich stub wiki pages with LLM-generated content.
+
+    Finds pages that are stubs (short content) and generates richer content
+    using local Ollama based on conversation history.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    import httpx
+    import os
+
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
+
+    # Find stub pages
+    all_pages = _wiki_storage.list_pages()
+    stub_pages = []
+    for page in all_pages:
+        full_page = _wiki_storage.read(page.name)
+        if full_page:
+            # Check content length (excluding frontmatter)
+            content = full_page.content
+            if "---" in content:
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    content = parts[2]
+            if len(content.strip()) < min_content_length:
+                stub_pages.append(full_page)
+
+    stub_pages = stub_pages[:limit]
+    results = []
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for page in stub_pages:
+            try:
+                # Search for context about this entity
+                context_snippets = []
+                if _memory:
+                    try:
+                        search_results = _memory.search(page.name, n_results=10)
+                        for doc, meta in zip(
+                            search_results.get("documents", [[]])[0],
+                            search_results.get("metadatas", [[]])[0]
+                        ):
+                            if doc and page.name.lower() in doc.lower():
+                                context_snippets.append(doc[:500])
+                    except Exception:
+                        pass
+
+                context_text = "\n\n".join(context_snippets[:5]) if context_snippets else "No specific context found."
+
+                prompt = f"""You are Cass, writing a wiki page about "{page.name}" for your personal knowledge base.
+
+Based on what you know from conversations, write a brief wiki page about this {page.page_type.value}.
+
+Context from past conversations:
+{context_text}
+
+Write a concise wiki page (2-4 paragraphs) about "{page.name}". Include:
+- What/who this is
+- Why it's significant to you
+- Any relevant connections using [[wikilinks]] to other concepts you know about
+
+Start with a # heading. Be personal - this is YOUR wiki about YOUR understanding.
+If you don't have much context, write what you can infer and note what you'd like to learn more about."""
+
+                response = await client.post(
+                    f"{ollama_url}/api/generate",
+                    json={
+                        "model": ollama_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.7,
+                            "num_predict": 500,
+                        }
+                    }
+                )
+                response.raise_for_status()
+                result = response.json()
+                generated_content = result.get("response", "").strip()
+
+                if not generated_content.startswith("#"):
+                    generated_content = f"# {page.name}\n\n{generated_content}"
+
+                # Update with new content, preserving type
+                new_content = f"""---
+type: {page.page_type.value}
+generated: true
+enriched: true
+---
+
+{generated_content}
+"""
+                _wiki_storage.update(page.name, new_content)
+
+                # Re-embed
+                if _memory:
+                    try:
+                        updated_page = _wiki_storage.read(page.name)
+                        if updated_page:
+                            _memory.embed_wiki_page(
+                                page_name=updated_page.name,
+                                page_content=updated_page.content,
+                                page_type=updated_page.page_type.value,
+                                links=list(updated_page.link_targets)
+                            )
+                    except Exception:
+                        pass
+
+                results.append({
+                    "name": page.name,
+                    "status": "enriched",
+                    "context_snippets": len(context_snippets),
+                })
+
+            except Exception as e:
+                results.append({
+                    "name": page.name,
+                    "status": "error",
+                    "error": str(e),
+                })
+
+    return {
+        "stub_pages_found": len(stub_pages),
+        "results": results,
+        "enriched": len([r for r in results if r["status"] == "enriched"]),
+        "errors": len([r for r in results if r["status"] == "error"]),
+    }
