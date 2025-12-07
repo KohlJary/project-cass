@@ -885,8 +885,7 @@ function TraversalReplay({
           <div className="replay-section">
             <h4>Synthesized Context</h4>
             <div className="synthesis-preview">
-              {result.synthesis.slice(0, 500)}
-              {result.synthesis.length > 500 && '...'}
+              {result.synthesis}
             </div>
           </div>
         </div>

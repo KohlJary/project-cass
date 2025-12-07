@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from enum import Enum
 
 from .parser import WikiParser, WikiLink
+from .maturity import MaturityState, SynthesisTrigger, calculate_depth_score
 
 # Find git executable - needed for systemd services that have limited PATH
 GIT_PATH = shutil.which("git") or "/usr/bin/git"
@@ -42,6 +43,9 @@ class WikiPage:
     page_type: PageType = PageType.CONCEPT
     created_at: Optional[datetime] = None
     modified_at: Optional[datetime] = None
+
+    # Maturity tracking for Progressive Memory Deepening
+    maturity: MaturityState = field(default_factory=MaturityState)
 
     # Cached parsed data
     _frontmatter: Optional[dict] = field(default=None, repr=False)
@@ -205,7 +209,8 @@ class WikiStorage:
         name: str,
         content: str,
         page_type: PageType = PageType.CONCEPT,
-        commit: bool = True
+        commit: bool = True,
+        synthesis_trigger: Optional[SynthesisTrigger] = None,
     ) -> WikiPage:
         """
         Create a new wiki page.
@@ -215,6 +220,7 @@ class WikiStorage:
             content: Markdown content (may include frontmatter)
             page_type: Type of page
             commit: Whether to commit the change
+            synthesis_trigger: What triggered creation (for maturity tracking)
 
         Returns:
             Created WikiPage
@@ -238,6 +244,20 @@ class WikiStorage:
         # Add to existing frontmatter or create new
         existing_fm, body = WikiParser.extract_frontmatter(content)
         merged = {**metadata, **existing_fm}  # User metadata takes precedence
+
+        # Initialize maturity tracking
+        trigger = synthesis_trigger or SynthesisTrigger.INITIAL_CREATION
+        initial_maturity = MaturityState()
+        initial_maturity.record_synthesis(
+            trigger=trigger,
+            connection_count=0,
+            notes="Initial page creation",
+        )
+
+        # Add maturity to frontmatter
+        merged["maturity"] = initial_maturity.to_dict()
+        merged["synthesis_history"] = initial_maturity.history_to_list()
+
         final_content = WikiParser.add_frontmatter(body, merged)
 
         # Write file
@@ -253,7 +273,8 @@ class WikiStorage:
             content=final_content,
             page_type=page_type,
             created_at=now,
-            modified_at=now
+            modified_at=now,
+            maturity=initial_maturity,
         )
 
     def read(self, name: str, page_type: Optional[PageType] = None) -> Optional[WikiPage]:
@@ -304,12 +325,16 @@ class WikiStorage:
             except (ValueError, TypeError):
                 pass
 
+        # Parse maturity tracking from frontmatter
+        maturity = MaturityState.from_frontmatter(fm)
+
         return WikiPage(
             name=name,
             content=content,
             page_type=page_type,
             created_at=created_at,
-            modified_at=modified_at
+            modified_at=modified_at,
+            maturity=maturity,
         )
 
     def update(
@@ -317,7 +342,8 @@ class WikiStorage:
         name: str,
         content: str,
         page_type: Optional[PageType] = None,
-        commit: bool = True
+        commit: bool = True,
+        preserve_maturity: bool = True,
     ) -> Optional[WikiPage]:
         """
         Update an existing wiki page.
@@ -327,6 +353,7 @@ class WikiStorage:
             content: New markdown content
             page_type: Type hint (finds automatically if None)
             commit: Whether to commit the change
+            preserve_maturity: Whether to preserve existing maturity data
 
         Returns:
             Updated WikiPage if found, None if page doesn't exist
@@ -346,6 +373,12 @@ class WikiStorage:
             fm['created'] = existing.created_at.isoformat()
         fm['type'] = existing.page_type.value
 
+        # Preserve maturity tracking if not explicitly provided
+        if preserve_maturity and 'maturity' not in fm:
+            fm['maturity'] = existing.maturity.to_dict()
+            fm['connections'] = existing.maturity.connections_to_dict()
+            fm['synthesis_history'] = existing.maturity.history_to_list()
+
         final_content = WikiParser.add_frontmatter(body, fm)
 
         # Write file
@@ -361,7 +394,8 @@ class WikiStorage:
             content=final_content,
             page_type=existing.page_type,
             created_at=existing.created_at,
-            modified_at=now
+            modified_at=now,
+            maturity=existing.maturity if preserve_maturity else MaturityState.from_frontmatter(fm),
         )
 
     def delete(self, name: str, page_type: Optional[PageType] = None, commit: bool = True) -> bool:
@@ -544,3 +578,216 @@ class WikiStorage:
                     })
 
         return history
+
+    # === Maturity Tracking Methods ===
+
+    def update_connection_counts(self, name: str) -> Optional[WikiPage]:
+        """
+        Update connection counts for a page by scanning the wiki.
+
+        Args:
+            name: Page name to update
+
+        Returns:
+            Updated WikiPage with new connection counts, or None if not found
+        """
+        page = self.read(name)
+        if not page:
+            return None
+
+        # Count outgoing links
+        page.maturity.connections.outgoing = len(page.link_targets)
+
+        # Count incoming links (backlinks)
+        backlinks = self.get_backlinks(name)
+        new_incoming = len(backlinks)
+
+        # Track new connections since last synthesis
+        if new_incoming > page.maturity.connections.incoming:
+            added = new_incoming - page.maturity.connections.incoming
+            page.maturity.connections.added_since_last_synthesis += added
+
+        page.maturity.connections.incoming = new_incoming
+
+        # Update the page with new connection counts
+        return self._save_maturity(page)
+
+    def refresh_all_connections(self) -> Dict[str, int]:
+        """
+        Refresh connection counts for all pages.
+
+        Returns:
+            Dict mapping page name to total connections
+        """
+        results = {}
+        for page in self.list_pages():
+            updated = self.update_connection_counts(page.name)
+            if updated:
+                results[page.name] = updated.maturity.connections.total
+        return results
+
+    def record_deepening(
+        self,
+        name: str,
+        new_content: str,
+        trigger: SynthesisTrigger,
+        notes: Optional[str] = None,
+    ) -> Optional[WikiPage]:
+        """
+        Record a deepening/resynthesis event for a page.
+
+        Updates the page content and records the synthesis in history.
+
+        Args:
+            name: Page name
+            new_content: New synthesized content
+            trigger: What triggered the deepening
+            notes: Optional notes about this synthesis
+
+        Returns:
+            Updated WikiPage with new maturity data
+        """
+        page = self.read(name)
+        if not page:
+            return None
+
+        # Update connection counts first
+        page.maturity.connections.outgoing = len(page.link_targets)
+        backlinks = self.get_backlinks(name)
+        page.maturity.connections.incoming = len(backlinks)
+
+        # Record the synthesis event
+        page.maturity.record_synthesis(
+            trigger=trigger,
+            connection_count=page.maturity.connections.total,
+            notes=notes,
+        )
+
+        # Recalculate depth score
+        page.maturity.depth_score = calculate_depth_score(page.maturity)
+
+        # Update the page with new content and maturity
+        file_path = self._get_page_path(name, page.page_type)
+        now = datetime.now()
+
+        fm, _ = WikiParser.extract_frontmatter(new_content)
+        fm['modified'] = now.isoformat()
+        fm['created'] = page.created_at.isoformat() if page.created_at else now.isoformat()
+        fm['type'] = page.page_type.value
+        fm['maturity'] = page.maturity.to_dict()
+        fm['connections'] = page.maturity.connections_to_dict()
+        fm['synthesis_history'] = page.maturity.history_to_list()
+
+        _, body = WikiParser.extract_frontmatter(new_content)
+        final_content = WikiParser.add_frontmatter(body, fm)
+
+        file_path.write_text(final_content, encoding='utf-8')
+
+        self._git_add(file_path)
+        self._git_commit(f"Deepen {page.page_type.value}: {name} (level {page.maturity.level})")
+
+        return WikiPage(
+            name=name,
+            content=final_content,
+            page_type=page.page_type,
+            created_at=page.created_at,
+            modified_at=now,
+            maturity=page.maturity,
+        )
+
+    def _save_maturity(self, page: WikiPage, commit: bool = True) -> WikiPage:
+        """
+        Save maturity data for a page without changing content.
+
+        Args:
+            page: WikiPage with updated maturity
+            commit: Whether to commit the change
+
+        Returns:
+            Updated WikiPage
+        """
+        file_path = self._get_page_path(page.name, page.page_type)
+        now = datetime.now()
+
+        # Parse existing frontmatter
+        fm, body = WikiParser.extract_frontmatter(page.content)
+        fm['modified'] = now.isoformat()
+        fm['maturity'] = page.maturity.to_dict()
+        fm['connections'] = page.maturity.connections_to_dict()
+        fm['synthesis_history'] = page.maturity.history_to_list()
+
+        final_content = WikiParser.add_frontmatter(body, fm)
+        file_path.write_text(final_content, encoding='utf-8')
+
+        if commit:
+            self._git_add(file_path)
+            self._git_commit(f"Update maturity: {page.name}")
+
+        page.content = final_content
+        page.modified_at = now
+        page.invalidate_cache()
+
+        return page
+
+    def get_deepening_candidates(
+        self,
+        min_connections: int = 5,
+        max_days_since_deepening: int = 7,
+    ) -> List[Tuple[WikiPage, SynthesisTrigger]]:
+        """
+        Find pages that are candidates for deepening.
+
+        Returns:
+            List of (page, trigger_type) tuples for pages ready to deepen
+        """
+        candidates = []
+
+        for page in self.list_pages():
+            trigger = page.maturity.should_deepen(days_threshold=max_days_since_deepening)
+            if trigger:
+                candidates.append((page, trigger))
+
+        # Sort by priority: connection_threshold > temporal_decay
+        priority = {
+            SynthesisTrigger.CONNECTION_THRESHOLD: 1,
+            SynthesisTrigger.TEMPORAL_DECAY: 2,
+        }
+        candidates.sort(key=lambda x: priority.get(x[1], 99))
+
+        return candidates
+
+    def get_maturity_stats(self) -> Dict:
+        """
+        Get aggregate maturity statistics for the wiki.
+
+        Returns:
+            Dict with stats about overall wiki maturity
+        """
+        pages = self.list_pages()
+        if not pages:
+            return {
+                "total_pages": 0,
+                "avg_depth_score": 0,
+                "avg_maturity_level": 0,
+                "deepening_candidates": 0,
+            }
+
+        total_depth = sum(p.maturity.depth_score for p in pages)
+        total_level = sum(p.maturity.level for p in pages)
+        candidates = len(self.get_deepening_candidates())
+
+        return {
+            "total_pages": len(pages),
+            "avg_depth_score": round(total_depth / len(pages), 3),
+            "avg_maturity_level": round(total_level / len(pages), 2),
+            "deepening_candidates": candidates,
+            "by_level": self._count_by_level(pages),
+        }
+
+    def _count_by_level(self, pages: List[WikiPage]) -> Dict[int, int]:
+        """Count pages by maturity level."""
+        counts: Dict[int, int] = {}
+        for page in pages:
+            level = page.maturity.level
+            counts[level] = counts.get(level, 0) + 1
+        return counts

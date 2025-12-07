@@ -62,6 +62,31 @@ class LinkInfo(BaseModel):
     alias: Optional[str] = None
 
 
+class MaturityInfo(BaseModel):
+    """Maturity tracking info for a page"""
+    level: int = 0
+    depth_score: float = 0.0
+    last_deepened: Optional[datetime] = None
+    incoming_connections: int = 0
+    outgoing_connections: int = 0
+    connections_since_last_synthesis: int = 0
+
+
+class PageWithMaturity(PageResponse):
+    """Page response with maturity data"""
+    maturity: MaturityInfo
+
+
+class DeepeningCandidate(BaseModel):
+    """A page ready for deepening"""
+    name: str
+    page_type: str
+    trigger: str  # connection_threshold, temporal_decay, etc.
+    current_level: int
+    connections: int
+    days_since_deepened: Optional[int] = None
+
+
 # === Page CRUD Endpoints ===
 
 @router.get("/pages")
@@ -1256,4 +1281,437 @@ enriched: true
         "results": results,
         "enriched": len([r for r in results if r["status"] == "enriched"]),
         "errors": len([r for r in results if r["status"] == "error"]),
+    }
+
+
+# === Maturity Tracking Endpoints (PMD) ===
+
+@router.get("/maturity/stats")
+async def get_maturity_stats() -> Dict:
+    """
+    Get aggregate maturity statistics for the wiki.
+
+    Returns stats about overall wiki maturity including:
+    - Total pages and average depth score
+    - Distribution by maturity level
+    - Number of deepening candidates
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    return _wiki_storage.get_maturity_stats()
+
+
+@router.get("/maturity/candidates")
+async def get_deepening_candidates(
+    limit: int = Query(20, ge=1, le=100, description="Max candidates to return"),
+) -> Dict:
+    """
+    Get pages that are candidates for deepening.
+
+    Returns pages that meet deepening triggers:
+    - 5+ new connections since last synthesis
+    - 7+ days since last deepening with high connectivity
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    candidates = _wiki_storage.get_deepening_candidates()[:limit]
+
+    result = []
+    for page, trigger in candidates:
+        days_since = None
+        if page.maturity.last_deepened:
+            days_since = (datetime.now() - page.maturity.last_deepened).days
+
+        result.append({
+            "name": page.name,
+            "page_type": page.page_type.value,
+            "trigger": trigger.value,
+            "current_level": page.maturity.level,
+            "connections": page.maturity.connections.total,
+            "connections_since_synthesis": page.maturity.connections.added_since_last_synthesis,
+            "days_since_deepened": days_since,
+        })
+
+    return {
+        "total_candidates": len(candidates),
+        "candidates": result,
+    }
+
+
+@router.post("/maturity/refresh-connections")
+async def refresh_all_connections() -> Dict:
+    """
+    Refresh connection counts for all wiki pages.
+
+    Scans the wiki to update incoming/outgoing link counts
+    and track new connections since last synthesis.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    results = _wiki_storage.refresh_all_connections()
+
+    return {
+        "pages_updated": len(results),
+        "connections": results,
+    }
+
+
+@router.get("/pages/{name}/maturity")
+async def get_page_maturity(name: str) -> Dict:
+    """
+    Get maturity details for a specific page.
+
+    Returns full maturity tracking data including synthesis history.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    page = _wiki_storage.read(name)
+    if not page:
+        raise HTTPException(status_code=404, detail=f"Page '{name}' not found")
+
+    return {
+        "name": page.name,
+        "page_type": page.page_type.value,
+        "maturity": {
+            "level": page.maturity.level,
+            "depth_score": page.maturity.depth_score,
+            "last_deepened": page.maturity.last_deepened.isoformat() if page.maturity.last_deepened else None,
+        },
+        "connections": page.maturity.connections_to_dict(),
+        "synthesis_history": page.maturity.history_to_list(),
+        "should_deepen": page.maturity.should_deepen() is not None,
+        "deepening_trigger": page.maturity.should_deepen().value if page.maturity.should_deepen() else None,
+    }
+
+
+@router.post("/pages/{name}/refresh-connections")
+async def refresh_page_connections(name: str) -> Dict:
+    """
+    Refresh connection counts for a specific page.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    updated = _wiki_storage.update_connection_counts(name)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Page '{name}' not found")
+
+    return {
+        "name": updated.name,
+        "connections": updated.maturity.connections_to_dict(),
+        "should_deepen": updated.maturity.should_deepen() is not None,
+    }
+
+
+# === Enhanced Deepening Detection (PMD Phase 2) ===
+
+# Global detector instance (lazy initialized)
+_deepening_detector = None
+
+
+def _get_detector():
+    """Get or create the deepening detector."""
+    global _deepening_detector
+    if _deepening_detector is None and _wiki_storage is not None:
+        from wiki import DeepeningDetector
+        _deepening_detector = DeepeningDetector(_wiki_storage)
+    return _deepening_detector
+
+
+@router.get("/maturity/detect")
+async def detect_deepening_candidates(
+    limit: int = Query(20, ge=1, le=100, description="Max candidates to return"),
+    include_foundational: bool = Query(True, description="Include foundational shift candidates"),
+) -> Dict:
+    """
+    Detect deepening candidates using full trigger detection.
+
+    Enhanced detection that includes:
+    - Connection threshold (5+ new connections)
+    - Related concept deepened (connected concept was resynthesized)
+    - Temporal decay (7+ days with high connectivity)
+    - Foundational shift (core concept was updated)
+
+    Returns prioritized list with detailed trigger information.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    candidates = detector.detect_all_candidates()[:limit]
+
+    # Optionally include foundational shift candidates
+    foundational = []
+    if include_foundational:
+        foundational = detector.get_foundational_shift_candidates()
+
+    return {
+        "candidates": [c.to_dict() for c in candidates],
+        "total_candidates": len(candidates),
+        "foundational_shift_candidates": [c.to_dict() for c in foundational],
+        "recently_deepened": detector._recently_deepened,
+    }
+
+
+@router.post("/maturity/detect/{page_name}")
+async def check_page_for_deepening(page_name: str) -> Dict:
+    """
+    Check if a specific page is a deepening candidate.
+
+    Returns detailed trigger analysis for the page.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    candidate = detector.check_page(page_name)
+
+    if candidate:
+        return {
+            "is_candidate": True,
+            "candidate": candidate.to_dict(),
+        }
+    else:
+        # Even if not a candidate, return page maturity info
+        page = _wiki_storage.read(page_name)
+        if not page:
+            raise HTTPException(status_code=404, detail=f"Page '{page_name}' not found")
+
+        return {
+            "is_candidate": False,
+            "maturity": {
+                "level": page.maturity.level,
+                "depth_score": page.maturity.depth_score,
+                "connections_since_synthesis": page.maturity.connections.added_since_last_synthesis,
+                "days_since_deepening": page.maturity.days_since_deepening(),
+            },
+        }
+
+
+@router.post("/maturity/record-deepening/{page_name}")
+async def record_page_deepening(page_name: str) -> Dict:
+    """
+    Record that a page was deepened (for related-concept trigger detection).
+
+    Call this after successfully deepening a page to enable
+    related-concept trigger detection.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    # Verify page exists
+    page = _wiki_storage.read(page_name)
+    if not page:
+        raise HTTPException(status_code=404, detail=f"Page '{page_name}' not found")
+
+    detector.record_deepening(page_name)
+
+    return {
+        "recorded": True,
+        "page_name": page_name,
+        "recently_deepened": detector._recently_deepened,
+    }
+
+
+@router.delete("/maturity/recently-deepened")
+async def clear_recently_deepened() -> Dict:
+    """
+    Clear the list of recently deepened pages.
+
+    Use this after completing a full deepening cycle to reset
+    related-concept detection.
+    """
+    detector = _get_detector()
+    if not detector:
+        raise HTTPException(status_code=503, detail="Deepening detector not initialized")
+
+    old_count = len(detector._recently_deepened)
+    detector.clear_recently_deepened()
+
+    return {
+        "cleared": True,
+        "pages_cleared": old_count,
+    }
+
+
+@router.get("/maturity/foundational-concepts")
+async def get_foundational_concepts() -> Dict:
+    """
+    Get the list of foundational concepts that trigger FOUNDATIONAL_SHIFT.
+
+    These are core concepts (Vows, Self-Model, etc.) where updates
+    should trigger re-evaluation of connected pages.
+    """
+    from wiki import FOUNDATIONAL_CONCEPTS
+
+    return {
+        "concepts": list(FOUNDATIONAL_CONCEPTS),
+        "description": "Updates to these concepts trigger FOUNDATIONAL_SHIFT for connected pages",
+    }
+
+
+# === Resynthesis Pipeline Endpoints (PMD Phase 3) ===
+
+class DeepenPageRequest(BaseModel):
+    """Request to deepen a specific page."""
+    trigger: str = "explicit_request"
+    notes: Optional[str] = None
+    validate: bool = True
+
+
+@router.post("/deepen/{page_name}")
+async def deepen_page(page_name: str, request: DeepenPageRequest) -> Dict:
+    """
+    Deepen a wiki page through resynthesis.
+
+    Full pipeline:
+    1. Gathers context (connected pages, journals, conversations)
+    2. Analyzes growth since last synthesis
+    3. Generates new, deeper synthesis via LLM
+    4. Validates for alignment and quality
+    5. Updates page with new content and maturity metadata
+
+    Args:
+        page_name: Name of page to deepen
+        request: Deepening options
+
+    Returns:
+        ResynthesisResult with outcome details
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    from wiki import ResynthesisPipeline, SynthesisTrigger
+
+    # Parse trigger
+    try:
+        trigger = SynthesisTrigger(request.trigger)
+    except ValueError:
+        valid = [t.value for t in SynthesisTrigger]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid trigger '{request.trigger}'. Valid: {valid}"
+        )
+
+    pipeline = ResynthesisPipeline(_wiki_storage, _memory)
+    result = await pipeline.deepen_page(
+        page_name=page_name,
+        trigger=trigger,
+        notes=request.notes,
+        validate=request.validate,
+    )
+
+    return {
+        "success": result.success,
+        "page_name": result.page_name,
+        "new_level": result.new_level,
+        "trigger": result.trigger.value,
+        "depth_score_before": result.depth_score_before,
+        "depth_score_after": result.depth_score_after,
+        "context_pages_used": result.context_pages_used,
+        "synthesis_notes": result.synthesis_notes,
+        "error": result.error,
+    }
+
+
+class RunCycleRequest(BaseModel):
+    """Request to run a deepening cycle."""
+    max_pages: int = 5
+    validate: bool = True
+
+
+@router.post("/deepen/cycle")
+async def run_deepening_cycle_endpoint(request: RunCycleRequest) -> Dict:
+    """
+    Run a full deepening cycle on top candidates.
+
+    Detects pages ready for deepening and processes them.
+
+    Args:
+        request: Cycle options (max pages, validation)
+
+    Returns:
+        Results for each page processed
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    from wiki import run_deepening_cycle
+
+    results = await run_deepening_cycle(
+        wiki_storage=_wiki_storage,
+        memory=_memory,
+        max_pages=request.max_pages,
+        validate=request.validate,
+    )
+
+    return {
+        "pages_processed": len(results),
+        "successful": len([r for r in results if r.success]),
+        "failed": len([r for r in results if not r.success]),
+        "results": [
+            {
+                "page_name": r.page_name,
+                "success": r.success,
+                "new_level": r.new_level,
+                "trigger": r.trigger.value,
+                "depth_score_before": r.depth_score_before,
+                "depth_score_after": r.depth_score_after,
+                "error": r.error,
+            }
+            for r in results
+        ],
+    }
+
+
+@router.get("/deepen/{page_name}/preview")
+async def preview_deepening_context(page_name: str) -> Dict:
+    """
+    Preview the context that would be gathered for deepening.
+
+    Useful for debugging and understanding what goes into resynthesis.
+    """
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    from wiki import ResynthesisPipeline
+
+    page = _wiki_storage.read(page_name)
+    if not page:
+        raise HTTPException(status_code=404, detail=f"Page '{page_name}' not found")
+
+    pipeline = ResynthesisPipeline(_wiki_storage, _memory)
+    context = await pipeline._gather_context(page)
+    growth = pipeline._analyze_growth(page, context)
+
+    return {
+        "page_name": page_name,
+        "current_level": page.maturity.level,
+        "context": {
+            "connected_pages": [p.name for p in context.connected_pages],
+            "two_hop_pages": [p.name for p in context.two_hop_pages],
+            "journal_entries_found": len(context.journal_entries),
+            "conversation_snippets_found": len(context.conversation_snippets),
+            "total_context_chars": context.total_context_size,
+        },
+        "growth_analysis": {
+            "new_connection_count": growth.new_connection_count,
+            "new_connection_names": growth.new_connection_names,
+            "deepened_connections": growth.deepened_connections,
+            "summary": growth.summary,
+        },
     }
