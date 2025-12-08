@@ -1,12 +1,20 @@
 .journals-page {
-  max-width: 1100px;
+  max-width: 1400px;
 }
 
-.journals-layout {
+/* Horizontal layout - calendar on left, details on right */
+.journals-layout-horizontal {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 340px 1fr;
   gap: 1.5rem;
-  min-height: 600px;
+  min-height: 700px;
+}
+
+/* Left column: calendar and recent entries stacked */
+.calendar-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 /* Calendar panel */
@@ -104,6 +112,15 @@
   background: #1f1f2e;
 }
 
+.day-cell.has-research {
+  cursor: pointer;
+  color: #e0e0e0;
+}
+
+.day-cell.has-research:hover {
+  background: #1f1f2e;
+}
+
 .day-cell.selected {
   background: #1f1f2e;
   border: 1px solid #c792ea;
@@ -113,22 +130,66 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
-.journal-dot {
+/* Day indicators container */
+.day-indicators {
   position: absolute;
-  bottom: 4px;
+  bottom: 3px;
+  display: flex;
+  gap: 3px;
+}
+
+.journal-dot {
   width: 4px;
   height: 4px;
   background: #c792ea;
   border-radius: 50%;
+  display: inline-block;
 }
 
-/* Journal list */
-.journal-list {
+.research-dot {
+  width: 4px;
+  height: 4px;
+  background: #82aaff;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Calendar legend */
+.calendar-legend {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  padding-top: 0.75rem;
   border-top: 1px solid #2a2a2a;
-  padding-top: 1rem;
 }
 
-.journal-list h3 {
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #666;
+  font-size: 0.75rem;
+}
+
+/* Recent entries panel - stacked below calendar */
+.recent-entries-panel {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.entries-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.entries-section h3 {
   color: #888;
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -162,10 +223,28 @@
   border-left: 2px solid #c792ea;
 }
 
+.entry.research.selected {
+  border-left-color: #82aaff;
+}
+
 .entry-date {
   color: #89ddff;
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.8125rem;
+}
+
+.entry-title {
+  color: #82aaff;
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-meta {
+  color: #666;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
 }
 
 .lock-icon {
@@ -173,38 +252,58 @@
   font-size: 0.75rem;
 }
 
-/* Reader panel */
-.reader-panel {
+/* Detail column (right side) */
+.detail-column {
   background: #141414;
   border: 1px solid #2a2a2a;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
-.reader-panel .empty-state {
-  height: 100%;
+.detail-header {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2a2a2a;
 }
 
-.empty-icon {
-  font-size: 3rem;
-  color: #2a2a2a;
-  margin-bottom: 1rem;
+.detail-header h2 {
+  margin: 0;
+  color: #89ddff;
+  font-size: 1rem;
   font-family: 'JetBrains Mono', monospace;
 }
 
-.hint {
-  color: #555;
+.view-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.toggle-btn {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  color: #888;
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
   font-size: 0.8125rem;
-  margin-top: 0.5rem;
+  transition: all 0.15s ease;
+}
+
+.toggle-btn:hover {
+  background: #1f1f2e;
+  color: #e0e0e0;
+}
+
+.toggle-btn.active {
+  background: #1f1f2e;
+  color: #c792ea;
+  border-color: #c792ea40;
 }
 
 /* Journal content */
 .journal-content {
-  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -214,28 +313,14 @@
   border-bottom: 1px solid #2a2a2a;
 }
 
-.date-display {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.date-badge {
-  background: #1f1f2e;
-  color: #c792ea;
-  padding: 0.375rem 0.75rem;
-  border-radius: 4px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.875rem;
-}
-
 .locked-badge {
   background: #2a2a1a;
   color: #ffcb6b;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   font-size: 0.75rem;
+  display: inline-block;
+  margin-bottom: 0.75rem;
 }
 
 .journal-summary {
@@ -247,14 +332,13 @@
 }
 
 .journal-body {
-  flex: 1;
   padding: 1.25rem;
-  overflow-y: auto;
   color: #ccc;
   font-size: 0.9375rem;
   line-height: 1.8;
   white-space: pre-wrap;
   max-height: 450px;
+  overflow-y: auto;
 }
 
 .journal-metadata {
@@ -283,6 +367,149 @@
   overflow-x: auto;
 }
 
+/* Research content */
+.research-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.research-header {
+  padding: 1.25rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.research-title {
+  color: #e0e0e0;
+  font-size: 1.125rem;
+  margin: 0 0 0.25rem;
+  font-weight: 500;
+}
+
+.research-theme {
+  color: #82aaff;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.research-stats {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2a2a2a;
+  background: #0d0d0d;
+}
+
+.research-stats .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.research-stats .stat-value {
+  color: #82aaff;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.research-stats .stat-label {
+  color: #666;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.research-stats .stat.failed .stat-value {
+  color: #f07178;
+}
+
+/* Research summary */
+.research-summary {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.research-summary h4 {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+}
+
+.summary-text {
+  color: #ccc;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Research pages section with WikiReader */
+.research-pages-section {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.research-pages-section h4 {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+}
+
+.wiki-reader-container {
+  background: #0d0d0d;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Other research on same day */
+.other-research {
+  padding: 1rem 1.25rem;
+}
+
+.other-research h4 {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+}
+
+.research-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.research-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: #1a1a1a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.research-item:hover {
+  background: #1f1f2e;
+}
+
+.item-title {
+  color: #82aaff;
+  font-size: 0.875rem;
+}
+
+.item-meta {
+  color: #666;
+  font-size: 0.75rem;
+}
+
 /* States */
 .loading-state,
 .error-state,
@@ -302,4 +529,19 @@
 
 .error-state {
   color: #f07178;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  color: #2a2a2a;
+  margin-bottom: 1rem;
+  font-family: 'JetBrains Mono', monospace;
 }

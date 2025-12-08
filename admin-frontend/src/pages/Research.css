@@ -1331,7 +1331,7 @@
 
 /* Proposals List */
 .proposals-list {
-  width: 300px;
+  width: 380px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1339,6 +1339,36 @@
   border-radius: 8px;
   border: 1px solid #222;
   overflow: hidden;
+}
+
+.proposals-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #222;
+  background: #0d0d0d;
+}
+
+.proposals-list-header h4 {
+  margin: 0;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.proposals-list-header .status-filter {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #aaa;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.proposals-list-header .status-filter:focus {
+  outline: none;
+  border-color: #89ddff;
 }
 
 .proposals-list h4 {
@@ -1537,6 +1567,131 @@
   color: #666;
 }
 
+/* Proposal Results Section */
+.proposal-results {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(52, 211, 153, 0.05);
+  border-radius: 6px;
+  border: 1px solid rgba(52, 211, 153, 0.2);
+}
+
+.proposal-results h5 {
+  margin: 0 0 1rem;
+  color: #34d399;
+  font-size: 0.9rem;
+}
+
+.results-stats {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.result-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 70px;
+}
+
+.result-stat .stat-number {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.result-stat .stat-label {
+  font-size: 0.75rem;
+  color: #888;
+  text-align: center;
+}
+
+.result-stat.success .stat-number {
+  color: #34d399;
+}
+
+.result-stat.failed .stat-number {
+  color: #f87171;
+}
+
+.result-pages-viewer,
+.result-pages,
+.result-insights {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(52, 211, 153, 0.1);
+}
+
+.result-pages-viewer h6,
+.result-pages h6,
+.result-insights h6 {
+  margin: 0 0 0.5rem;
+  color: #888;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Embedded Wiki Reader in Results */
+.wiki-reader-embed {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #333;
+  background: #0d0d0d;
+  margin-top: 0.5rem;
+}
+
+.wiki-reader-embed .wiki-reader {
+  height: 400px;
+}
+
+.wiki-reader-embed .reader-sidebar {
+  width: 180px;
+  border-radius: 0;
+  border: none;
+  border-right: 1px solid #222;
+}
+
+.wiki-reader-embed .reader-content {
+  border-radius: 0;
+  border: none;
+}
+
+.page-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.page-tags .page-tag {
+  padding: 0.25rem 0.5rem;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  border-radius: 4px;
+  color: #34d399;
+  font-size: 0.8rem;
+}
+
+.page-tags .page-tag.created {
+  background: rgba(96, 165, 250, 0.1);
+  border-color: rgba(96, 165, 250, 0.2);
+  color: #60a5fa;
+}
+
+.result-insights ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.result-insights li {
+  color: #aaa;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin-bottom: 0.25rem;
+}
+
 .proposal-summary {
   margin-bottom: 1.5rem;
   padding: 1rem;
@@ -1545,8 +1700,15 @@
   border: 1px solid rgba(195, 232, 141, 0.2);
 }
 
+.proposal-summary .summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
 .proposal-summary h5 {
-  margin: 0 0 0.75rem;
+  margin: 0;
   color: #c3e88d;
   font-size: 0.9rem;
 }
@@ -1564,4 +1726,43 @@
   margin-top: auto;
   padding-top: 1rem;
   border-top: 1px solid #333;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.proposal-actions .btn-danger-outline {
+  background: transparent;
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.proposal-actions .btn-danger-outline:hover {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.execution-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(167, 139, 250, 0.1);
+  border-radius: 4px;
+  color: #a78bfa;
+  font-size: 0.9rem;
+}
+
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #a78bfa;
+}
+
+.status-indicator.running {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
 }

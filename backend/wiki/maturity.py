@@ -357,8 +357,12 @@ class DeepeningDetector:
         # 1. Foundational shift (check if this IS a foundational concept that was recently updated)
         if self._is_foundational_concept(page_name):
             # Check if it was modified recently but not deepened
+            # Use a 5-minute buffer to avoid re-triggering immediately after deepening
+            # (deepening updates both last_deepened and modified_at, but order can vary)
             if page.modified_at and maturity.last_deepened:
-                if page.modified_at > maturity.last_deepened:
+                from datetime import timedelta
+                buffer = timedelta(minutes=5)
+                if page.modified_at > (maturity.last_deepened + buffer):
                     triggers.append((
                         SynthesisTrigger.FOUNDATIONAL_SHIFT,
                         f"Foundational concept '{page_name}' was updated"
@@ -485,8 +489,11 @@ class DeepeningDetector:
                 continue
 
             # If the foundational page itself was updated recently
+            # Use a 5-minute buffer to avoid false triggers from deepening itself
             if page.modified_at and page.maturity.last_deepened:
-                if page.modified_at > page.maturity.last_deepened:
+                from datetime import timedelta
+                buffer = timedelta(minutes=5)
+                if page.modified_at > (page.maturity.last_deepened + buffer):
                     # Find all pages that link TO this foundational concept
                     backlinks = self.storage.get_backlinks(page.name)
                     for linked_page in backlinks:

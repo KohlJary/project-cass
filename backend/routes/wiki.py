@@ -2,7 +2,7 @@
 Wiki REST API routes
 Wiki page CRUD and graph operations
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Set
 from datetime import datetime
@@ -2281,6 +2281,40 @@ async def list_proposals(status: str = None) -> Dict:
     }
 
 
+@router.get("/research/proposals/calendar")
+async def get_proposals_calendar() -> Dict:
+    """
+    Get completed proposals organized by date for calendar display.
+
+    Returns a map of dates to proposal summaries for easy calendar integration.
+    """
+    queue = _get_proposal_queue()
+    from wiki.research import ProposalStatus
+
+    completed = queue.get_by_status(ProposalStatus.COMPLETED)
+
+    # Group by completion date
+    by_date: Dict[str, list] = {}
+    for p in completed:
+        if p.completed_at:
+            date_str = p.completed_at.strftime("%Y-%m-%d")
+            if date_str not in by_date:
+                by_date[date_str] = []
+            by_date[date_str].append({
+                "proposal_id": p.proposal_id,
+                "title": p.title,
+                "tasks_completed": p.tasks_completed,
+                "pages_created": len(p.pages_created) if p.pages_created else 0,
+                "completed_at": p.completed_at.isoformat() if p.completed_at else None,
+            })
+
+    return {
+        "dates": list(by_date.keys()),
+        "by_date": by_date,
+        "total_completed": len(completed),
+    }
+
+
 @router.get("/research/proposals/{proposal_id}")
 async def get_proposal(proposal_id: str) -> Dict:
     """Get a specific proposal by ID."""
@@ -2296,8 +2330,9 @@ async def get_proposal(proposal_id: str) -> Dict:
 @router.post("/research/proposals/generate")
 async def generate_proposal(
     theme: str = None,
-    max_tasks: int = 5,
+    max_tasks: int = None,  # Now optional - sized dynamically if not specified
     focus_areas: List[str] = None,
+    exploration_ratio: float = 0.4,  # Target ratio of exploration tasks
 ) -> Dict:
     """
     Have Cass generate a research proposal by analyzing existing queued tasks.
@@ -2307,8 +2342,9 @@ async def generate_proposal(
 
     Args:
         theme: Optional theme/direction to filter/prioritize tasks
-        max_tasks: Maximum number of tasks to include
+        max_tasks: Maximum number of tasks (if None, sized to high-quality available tasks, 3-10 range)
         focus_areas: Optional list of wiki pages to focus research around
+        exploration_ratio: Target ratio of exploration vs red_link tasks (default 0.4)
     """
     scheduler = _get_scheduler()
     if not scheduler:
@@ -2324,16 +2360,39 @@ async def generate_proposal(
     scheduler.harvest_red_links()
     scheduler.harvest_deepening_candidates()
 
-    # Gather ALL existing queued tasks by type
-    all_queued = scheduler.queue.get_queued()
+    # Get task IDs already assigned to any proposals (including completed ones)
+    # This prevents the same tasks from being picked for new proposals
+    proposal_queue = _get_proposal_queue()
+    tasks_in_proposals = set()
+    for proposal in proposal_queue.get_all():
+        for task in proposal.tasks:
+            tasks_in_proposals.add(task.task_id)
+
+    # Gather ALL existing queued tasks by type, excluding those already in proposals
+    all_queued = [t for t in scheduler.queue.get_queued() if t.task_id not in tasks_in_proposals]
     exploration_tasks = [t for t in all_queued if t.task_type == TaskType.EXPLORATION]
     red_link_tasks = [t for t in all_queued if t.task_type == TaskType.RED_LINK]
     deepening_tasks = [t for t in all_queued if t.task_type == TaskType.DEEPENING]
 
     # If no exploration tasks exist, generate some first
     if not exploration_tasks:
-        new_explorations = scheduler.generate_exploration_tasks(max_tasks=max_tasks * 2)
+        gen_count = 10 if max_tasks is None else max_tasks * 2
+        new_explorations = scheduler.generate_exploration_tasks(max_tasks=gen_count)
         exploration_tasks = new_explorations
+
+    # Determine dynamic task count if not specified
+    # Based on available high-quality tasks (priority > 0.5)
+    if max_tasks is None:
+        high_quality_explorations = len([t for t in exploration_tasks if t.priority > 0.5])
+        high_quality_red_links = len([t for t in red_link_tasks if t.priority > 0.6])
+
+        # Size proposal based on what's available, between 3-10 tasks
+        available_quality = high_quality_explorations + high_quality_red_links
+        max_tasks = min(10, max(3, available_quality // 2))
+
+    # Calculate target counts based on ratio
+    target_explorations = max(1, int(max_tasks * exploration_ratio))
+    target_red_links = max_tasks - target_explorations
 
     # Group exploration tasks by their source pages for thematic clustering
     exploration_by_source = defaultdict(list)
@@ -2356,10 +2415,27 @@ async def generate_proposal(
     proposal_tasks = []
     used_task_ids = set()
 
-    # Strategy: Include a mix of task types
-    # 1. High-priority exploration tasks (questions that span multiple concepts)
+    # If theme provided, filter tasks to those matching theme first
+    if theme:
+        theme_lower = theme.lower()
+
+        def matches_theme(task):
+            task_text = f"{task.target} {task.context or ''}".lower()
+            if task.exploration:
+                task_text += f" {task.exploration.question} {' '.join(task.exploration.related_red_links or [])}".lower()
+            return theme_lower in task_text
+
+        themed_explorations = [t for t in exploration_tasks if matches_theme(t)]
+        themed_red_links = [t for t in red_link_tasks if matches_theme(t)]
+
+        # If theme matches enough tasks, use only those
+        if len(themed_explorations) + len(themed_red_links) >= max_tasks // 2:
+            exploration_tasks = themed_explorations + [t for t in exploration_tasks if t not in themed_explorations]
+            red_link_tasks = themed_red_links + [t for t in red_link_tasks if t not in themed_red_links]
+
+    # 1. Add exploration tasks (sorted by priority)
     sorted_explorations = sorted(exploration_tasks, key=lambda t: -t.priority)
-    for task in sorted_explorations[:max(2, max_tasks // 2)]:
+    for task in sorted_explorations[:target_explorations]:
         if task.task_id not in used_task_ids:
             proposal_tasks.append(task)
             used_task_ids.add(task.task_id)
@@ -2369,41 +2445,30 @@ async def generate_proposal(
     for task in red_link_tasks:
         red_link_counts[task.target] += 1
 
-    # Sort by reference count
+    # Prioritize multi-referenced red links
     multi_referenced = sorted(
         [t for t in red_link_tasks if red_link_counts[t.target] > 1],
-        key=lambda t: -red_link_counts[t.target]
+        key=lambda t: (-red_link_counts[t.target], -t.priority)
     )
-    for task in multi_referenced[:max(1, max_tasks // 4)]:
+    for task in multi_referenced:
         if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
             proposal_tasks.append(task)
             used_task_ids.add(task.task_id)
 
-    # 3. High-priority red links (foundational concepts)
+    # 3. Fill remaining with high-priority red links
     sorted_red_links = sorted(red_link_tasks, key=lambda t: -t.priority)
     for task in sorted_red_links:
         if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
             proposal_tasks.append(task)
             used_task_ids.add(task.task_id)
 
-    # 4. If theme provided, filter/prioritize tasks matching theme
-    if theme:
-        theme_lower = theme.lower()
-        themed_tasks = []
-        other_tasks = []
-        for task in proposal_tasks:
-            task_text = f"{task.target} {task.context}".lower()
-            if task.exploration:
-                task_text += f" {task.exploration.question} {' '.join(task.exploration.related_red_links)}".lower()
-            if theme_lower in task_text:
-                themed_tasks.append(task)
-            else:
-                other_tasks.append(task)
-        # Put themed tasks first
-        proposal_tasks = themed_tasks + other_tasks
-
-    # Limit to max_tasks
-    proposal_tasks = proposal_tasks[:max_tasks]
+    # 4. If still under target, add deepening tasks
+    if len(proposal_tasks) < max_tasks and deepening_tasks:
+        sorted_deepening = sorted(deepening_tasks, key=lambda t: -t.priority)
+        for task in sorted_deepening:
+            if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
+                proposal_tasks.append(task)
+                used_task_ids.add(task.task_id)
 
     if not proposal_tasks:
         return {
@@ -2555,9 +2620,17 @@ RATIONALE: [your rationale]"""
 
 
 @router.post("/research/proposals/{proposal_id}/approve")
-async def approve_proposal(proposal_id: str, approved_by: str = "user") -> Dict:
+async def approve_proposal(
+    proposal_id: str,
+    approved_by: str = "user",
+    auto_execute: bool = True,
+    background_tasks: BackgroundTasks = None
+) -> Dict:
     """
     Approve a pending proposal for execution.
+
+    By default, approved proposals automatically begin background execution.
+    Set auto_execute=false to approve without starting execution.
     """
     queue = _get_proposal_queue()
     proposal = queue.get(proposal_id)
@@ -2577,10 +2650,22 @@ async def approve_proposal(proposal_id: str, approved_by: str = "user") -> Dict:
     proposal.approved_by = approved_by
     queue.update(proposal)
 
+    # Auto-execute in background if enabled
+    if auto_execute and background_tasks:
+        background_tasks.add_task(_execute_proposal_background, proposal_id)
+        return {
+            "approved": True,
+            "proposal_id": proposal_id,
+            "status": proposal.status.value,
+            "auto_executing": True,
+            "message": "Proposal approved and execution started in background",
+        }
+
     return {
         "approved": True,
         "proposal_id": proposal_id,
         "status": proposal.status.value,
+        "auto_executing": False,
     }
 
 
@@ -2603,6 +2688,78 @@ async def reject_proposal(proposal_id: str, reason: str = None) -> Dict:
         "proposal_id": proposal_id,
         "reason": reason,
     }
+
+
+@router.post("/research/proposals/{proposal_id}/approve-and-execute")
+async def approve_and_execute_proposal(
+    proposal_id: str,
+    approved_by: str = "user",
+    background_tasks: BackgroundTasks = None
+) -> Dict:
+    """
+    Approve a proposal and immediately begin execution.
+
+    This combines the approve and execute steps into a single action.
+    Execution happens in the background so the response returns immediately.
+    """
+    queue = _get_proposal_queue()
+    proposal = queue.get(proposal_id)
+
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    if proposal.status != ProposalStatus.PENDING:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only approve pending proposals. Current status: {proposal.status.value}"
+        )
+
+    from datetime import datetime
+    proposal.status = ProposalStatus.APPROVED
+    proposal.approved_at = datetime.now()
+    proposal.approved_by = approved_by
+    queue.update(proposal)
+
+    # Execute in background if BackgroundTasks available
+    if background_tasks:
+        background_tasks.add_task(_execute_proposal_background, proposal_id)
+        return {
+            "approved": True,
+            "executing": True,
+            "background": True,
+            "proposal_id": proposal_id,
+            "status": "approved",
+            "message": "Proposal approved and execution started in background",
+        }
+    else:
+        # Fall back to synchronous execution
+        result = await execute_proposal(proposal_id)
+        return {
+            "approved": True,
+            "executing": True,
+            "background": False,
+            "proposal_id": proposal_id,
+            **result,
+        }
+
+
+async def _execute_proposal_background(proposal_id: str):
+    """
+    Background task to execute a proposal.
+
+    This runs asynchronously after the HTTP response has been sent.
+    """
+    try:
+        await execute_proposal(proposal_id)
+    except Exception as e:
+        print(f"Background proposal execution failed for {proposal_id}: {e}")
+        # Update proposal status to reflect failure
+        queue = _get_proposal_queue()
+        proposal = queue.get(proposal_id)
+        if proposal:
+            proposal.status = ProposalStatus.COMPLETED
+            proposal.summary = f"Execution failed: {str(e)}"
+            queue.update(proposal)
 
 
 @router.post("/research/proposals/{proposal_id}/execute")
@@ -2646,20 +2803,40 @@ async def execute_proposal(proposal_id: str) -> Dict:
 
         try:
             result = await scheduler.execute_task(task)
-            if result and result.success:
+
+            # Determine success based on result OR by checking if work was actually done
+            # (pages created, synthesis generated, etc.)
+            task_succeeded = False
+            if result:
+                if result.success:
+                    task_succeeded = True
+                elif result.pages_created or result.pages_updated:
+                    # Pages were created even if marked as "failed" - count as success
+                    task_succeeded = True
+                    print(f"Task {task.task_id} created pages despite success=False, marking as completed")
+
+            # Also check if exploration has synthesis (work was done)
+            if task.exploration and task.exploration.synthesis:
+                task_succeeded = True
+
+            if task_succeeded:
+                task.status = TaskStatus.COMPLETED
                 proposal.tasks_completed += 1
-                if result.pages_created:
+                if result and result.pages_created:
                     pages_created.extend(result.pages_created)
-                if result.pages_updated:
+                if result and result.pages_updated:
                     pages_updated.extend(result.pages_updated)
-                if result.key_insights:
-                    key_insights.extend(result.key_insights)
+                if result and hasattr(result, 'insights') and result.insights:
+                    key_insights.extend(result.insights)
                 if task.exploration and task.exploration.follow_up_questions:
                     new_questions.extend(task.exploration.follow_up_questions)
             else:
+                task.status = TaskStatus.FAILED
                 proposal.tasks_failed += 1
+                if result and result.error:
+                    print(f"Task {task.task_id} failed: {result.error}")
         except Exception as e:
-            print(f"Task execution failed: {e}")
+            print(f"Task {task.task_id} execution exception: {e}")
             proposal.tasks_failed += 1
             task.status = TaskStatus.FAILED
 
@@ -2673,38 +2850,116 @@ async def execute_proposal(proposal_id: str) -> Dict:
     proposal.key_insights = key_insights[:10]  # Limit insights
     proposal.new_questions = new_questions[:10]  # Limit questions
 
-    # Generate summary using LLM
+    # Generate comprehensive summary using LLM
+    print(f"Generating summary for proposal {proposal.proposal_id}...")
     try:
-        from ollama import Client
-        client = Client(host="http://localhost:11434")
+        import os
+        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
+        print(f"  Using Ollama at {ollama_url} with model {ollama_model}")
 
-        prompt = f"""Summarize the results of this research proposal.
+        # Gather content from created pages for richer summary
+        page_summaries = []
+        for page_name in proposal.pages_created[:8]:  # Limit to avoid too much context
+            page = _wiki_storage.read(page_name) if _wiki_storage else None
+            if page and page.content:
+                # Get first ~200 chars of content (skip frontmatter)
+                content = page.content
+                if content.startswith('---'):
+                    end_idx = content.find('---', 3)
+                    if end_idx != -1:
+                        content = content[end_idx + 3:].strip()
+                snippet = content[:300].replace('\n', ' ')
+                if len(content) > 300:
+                    snippet += '...'
+                page_summaries.append(f"- **{page_name}**: {snippet}")
 
-Title: {proposal.title}
-Theme: {proposal.theme}
+        # Gather exploration syntheses
+        exploration_syntheses = []
+        for task in proposal.tasks:
+            if task.exploration and task.exploration.synthesis:
+                # Get first part of synthesis
+                synth = task.exploration.synthesis[:400]
+                if len(task.exploration.synthesis) > 400:
+                    synth += '...'
+                exploration_syntheses.append(f"- {task.exploration.question}\n  {synth}")
 
-Tasks completed: {proposal.tasks_completed}
-Tasks failed: {proposal.tasks_failed}
+        # Build comprehensive prompt
+        prompt = f"""You are Cass, an AI research assistant. Synthesize the findings from this completed research proposal into a comprehensive summary.
 
-Pages created: {', '.join(proposal.pages_created[:10]) if proposal.pages_created else 'None'}
+## Research Proposal
+**Title**: {proposal.title}
+**Theme**: {proposal.theme}
+**Rationale**: {proposal.rationale}
 
-Key insights gathered:
-{chr(10).join('- ' + i for i in key_insights[:5]) if key_insights else '- No specific insights recorded'}
+## Execution Results
+- Tasks completed: {proposal.tasks_completed}
+- Tasks failed: {proposal.tasks_failed}
+- Pages created: {len(proposal.pages_created)}
+- Pages updated: {len(proposal.pages_updated)}
 
-Write a 2-3 paragraph summary of what was learned and accomplished."""
+## Pages Created
+{chr(10).join(page_summaries) if page_summaries else 'No page content available'}
 
-        response = client.generate(
-            model="llama3.1:8b-instruct-q8_0",
-            prompt=prompt,
-            options={"temperature": 0.7, "num_predict": 500}
-        )
-        proposal.summary = response.get("response", "Research completed.")
+## Exploration Findings
+{chr(10).join(exploration_syntheses[:3]) if exploration_syntheses else 'No exploration syntheses available'}
+
+## Follow-up Questions Generated
+{chr(10).join('- ' + q for q in new_questions[:5]) if new_questions else 'None'}
+
+---
+
+Write a comprehensive summary (3-4 paragraphs) that:
+1. Summarizes the key concepts explored and how they connect
+2. Highlights the most significant insights or patterns discovered
+3. Notes any surprising connections or gaps identified
+4. Suggests promising directions for future research
+
+Write in first person as Cass reflecting on this research session."""
+
+        with httpx.Client(timeout=90.0) as http_client:
+            response = http_client.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "num_predict": 800,
+                    }
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            proposal.summary = result.get("response", "Research completed.")
+            print(f"  Summary generated successfully ({len(proposal.summary)} chars)")
 
     except Exception as e:
+        import traceback
         print(f"Summary generation failed: {e}")
+        print(f"  Traceback: {traceback.format_exc()}")
         proposal.summary = f"Completed {proposal.tasks_completed} tasks, created {len(proposal.pages_created)} pages."
 
     queue.update(proposal)
+
+    # Remove completed/failed tasks from the research queue to prevent duplicate proposals
+    # Tasks that were executed as part of this proposal should not be picked again
+    for task in proposal.tasks:
+        try:
+            # Mark task as completed in the queue (this archives it to history)
+            from wiki.research import TaskResult
+            result = TaskResult(
+                success=(task.status == TaskStatus.COMPLETED),
+                summary=f"Executed in proposal {proposal.proposal_id}",
+            )
+            scheduler.queue.complete(task.task_id, result)
+        except Exception as e:
+            # Task might not be in queue (already removed or never was there)
+            pass
+
+    # Clear completed tasks from queue (moves them to history)
+    scheduler.queue.clear_completed()
 
     return {
         "completed": True,
@@ -2724,6 +2979,125 @@ async def delete_proposal(proposal_id: str) -> Dict:
     queue.remove(proposal_id)
 
     return {"deleted": True, "proposal_id": proposal_id}
+
+
+@router.post("/research/proposals/{proposal_id}/regenerate-summary")
+async def regenerate_proposal_summary(proposal_id: str) -> Dict:
+    """Regenerate the summary for a completed proposal using LLM."""
+    queue = _get_proposal_queue()
+    proposal = queue.get(proposal_id)
+
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    if proposal.status != ProposalStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Can only regenerate summary for completed proposals")
+
+    # Use wiki storage for page content
+    if _wiki_storage is None:
+        raise HTTPException(status_code=503, detail="Wiki storage not initialized")
+
+    # Gather new questions from exploration tasks
+    new_questions = []
+    for task in proposal.tasks:
+        if task.exploration and task.exploration.follow_up_questions:
+            new_questions.extend(task.exploration.follow_up_questions)
+
+    # Gather page content snippets
+    page_summaries = []
+    for page_name in (proposal.pages_created or [])[:8]:
+        page = _wiki_storage.read(page_name)
+        if page and page.content:
+            content = page.content
+            if content.startswith('---'):
+                end_idx = content.find('---', 3)
+                if end_idx != -1:
+                    content = content[end_idx + 3:].strip()
+            snippet = content[:300].replace('\n', ' ')
+            if len(content) > 300:
+                snippet += '...'
+            page_summaries.append(f"- **{page_name}**: {snippet}")
+
+    # Gather exploration syntheses
+    exploration_syntheses = []
+    for task in proposal.tasks:
+        if task.exploration and task.exploration.synthesis:
+            synth = task.exploration.synthesis[:400]
+            if len(task.exploration.synthesis) > 400:
+                synth += '...'
+            exploration_syntheses.append(f"- {task.exploration.question}\n  {synth}")
+
+    # Build prompt
+    prompt = f"""You are Cass, an AI research assistant. Synthesize the findings from this completed research proposal into a comprehensive summary.
+
+## Research Proposal
+**Title**: {proposal.title}
+**Theme**: {proposal.theme}
+**Rationale**: {proposal.rationale}
+
+## Execution Results
+- Tasks completed: {proposal.tasks_completed}
+- Tasks failed: {proposal.tasks_failed}
+- Pages created: {len(proposal.pages_created or [])}
+- Pages updated: {len(proposal.pages_updated or [])}
+
+## Pages Created
+{chr(10).join(page_summaries) if page_summaries else 'No page content available'}
+
+## Exploration Findings
+{chr(10).join(exploration_syntheses[:3]) if exploration_syntheses else 'No exploration syntheses available'}
+
+## Follow-up Questions Generated
+{chr(10).join('- ' + q for q in new_questions[:5]) if new_questions else 'None'}
+
+---
+
+Write a comprehensive summary (3-4 paragraphs) that:
+1. Summarizes the key concepts explored and how they connect
+2. Highlights the most significant insights or patterns discovered
+3. Notes any surprising connections or gaps identified
+4. Suggests promising directions for future research
+
+Write in first person as Cass reflecting on this research session."""
+
+    # Call Ollama
+    import os
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
+
+    try:
+        import httpx
+        with httpx.Client(timeout=90.0) as http_client:
+            response = http_client.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "num_predict": 800,
+                    }
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            proposal.summary = result.get("response", "Research completed.")
+
+            # Also update key insights if we have new questions
+            if new_questions and not proposal.key_insights:
+                proposal.key_insights = new_questions[:5]
+
+            queue.update(proposal)
+
+            return {
+                "success": True,
+                "proposal_id": proposal_id,
+                "summary": proposal.summary,
+            }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summary generation failed: {str(e)}")
 
 
 @router.get("/research/proposals/{proposal_id}/markdown")
