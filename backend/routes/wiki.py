@@ -2300,10 +2300,13 @@ async def generate_proposal(
     focus_areas: List[str] = None,
 ) -> Dict:
     """
-    Have Cass generate a research proposal.
+    Have Cass generate a research proposal by analyzing existing queued tasks.
+
+    This gathers existing exploration and red_link tasks, groups similar ones,
+    and creates a cohesive research proposal rather than generating new tasks.
 
     Args:
-        theme: Optional theme/direction for the proposal
+        theme: Optional theme/direction to filter/prioritize tasks
         max_tasks: Maximum number of tasks to include
         focus_areas: Optional list of wiki pages to focus research around
     """
@@ -2315,88 +2318,228 @@ async def generate_proposal(
         ResearchProposal, ProposalStatus, create_proposal_id,
         ResearchTask, TaskType, TaskStatus, TaskRationale, ExplorationContext, create_task_id
     )
+    from collections import defaultdict
 
-    # Generate exploration tasks as the basis for the proposal
-    tasks = scheduler.generate_exploration_tasks(max_tasks=max_tasks)
+    # First, ensure we have fresh tasks in the queue
+    scheduler.harvest_red_links()
+    scheduler.harvest_deepening_candidates()
 
-    if not tasks:
-        # If no exploration tasks, try to get other interesting tasks
-        scheduler.harvest_red_links()
-        scheduler.detect_deepening_candidates()
-        queued = scheduler.queue.get_queued()[:max_tasks]
-        tasks = queued
+    # Gather ALL existing queued tasks by type
+    all_queued = scheduler.queue.get_queued()
+    exploration_tasks = [t for t in all_queued if t.task_type == TaskType.EXPLORATION]
+    red_link_tasks = [t for t in all_queued if t.task_type == TaskType.RED_LINK]
+    deepening_tasks = [t for t in all_queued if t.task_type == TaskType.DEEPENING]
 
-    if not tasks:
+    # If no exploration tasks exist, generate some first
+    if not exploration_tasks:
+        new_explorations = scheduler.generate_exploration_tasks(max_tasks=max_tasks * 2)
+        exploration_tasks = new_explorations
+
+    # Group exploration tasks by their source pages for thematic clustering
+    exploration_by_source = defaultdict(list)
+    for task in exploration_tasks:
+        if task.exploration and task.exploration.source_pages:
+            for source in task.exploration.source_pages[:2]:  # First 2 sources
+                exploration_by_source[source].append(task)
+        else:
+            exploration_by_source["_general"].append(task)
+
+    # Group red links by their source pages
+    red_link_by_source = defaultdict(list)
+    for task in red_link_tasks:
+        if task.source_page:
+            red_link_by_source[task.source_page].append(task)
+        else:
+            red_link_by_source["_general"].append(task)
+
+    # Build proposal tasks with diversity
+    proposal_tasks = []
+    used_task_ids = set()
+
+    # Strategy: Include a mix of task types
+    # 1. High-priority exploration tasks (questions that span multiple concepts)
+    sorted_explorations = sorted(exploration_tasks, key=lambda t: -t.priority)
+    for task in sorted_explorations[:max(2, max_tasks // 2)]:
+        if task.task_id not in used_task_ids:
+            proposal_tasks.append(task)
+            used_task_ids.add(task.task_id)
+
+    # 2. Red links that appear in multiple sources (high connection potential)
+    red_link_counts = defaultdict(int)
+    for task in red_link_tasks:
+        red_link_counts[task.target] += 1
+
+    # Sort by reference count
+    multi_referenced = sorted(
+        [t for t in red_link_tasks if red_link_counts[t.target] > 1],
+        key=lambda t: -red_link_counts[t.target]
+    )
+    for task in multi_referenced[:max(1, max_tasks // 4)]:
+        if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
+            proposal_tasks.append(task)
+            used_task_ids.add(task.task_id)
+
+    # 3. High-priority red links (foundational concepts)
+    sorted_red_links = sorted(red_link_tasks, key=lambda t: -t.priority)
+    for task in sorted_red_links:
+        if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
+            proposal_tasks.append(task)
+            used_task_ids.add(task.task_id)
+
+    # 4. If theme provided, filter/prioritize tasks matching theme
+    if theme:
+        theme_lower = theme.lower()
+        themed_tasks = []
+        other_tasks = []
+        for task in proposal_tasks:
+            task_text = f"{task.target} {task.context}".lower()
+            if task.exploration:
+                task_text += f" {task.exploration.question} {' '.join(task.exploration.related_red_links)}".lower()
+            if theme_lower in task_text:
+                themed_tasks.append(task)
+            else:
+                other_tasks.append(task)
+        # Put themed tasks first
+        proposal_tasks = themed_tasks + other_tasks
+
+    # Limit to max_tasks
+    proposal_tasks = proposal_tasks[:max_tasks]
+
+    if not proposal_tasks:
         return {
             "generated": False,
-            "message": "No research opportunities identified at this time.",
+            "message": "No research opportunities identified. The queue may be empty.",
+            "queue_stats": {
+                "exploration": len(exploration_tasks),
+                "red_link": len(red_link_tasks),
+                "deepening": len(deepening_tasks),
+            }
         }
 
-    # Use LLM to generate proposal metadata
+    # Count task types for summary (outside try block so available in except)
+    type_counts = defaultdict(int)
+    for t in proposal_tasks:
+        type_counts[t.task_type.value] += 1
+
+    # Build task descriptions and collect red links mentioned
+    task_descriptions = []
+    red_links_mentioned = set()
+    for t in proposal_tasks:
+        if t.task_type == TaskType.EXPLORATION and t.exploration:
+            task_descriptions.append(f"- QUESTION: {t.exploration.question}")
+            task_descriptions.append(f"  Related concepts: {', '.join(t.exploration.related_red_links[:5])}")
+            red_links_mentioned.update(t.exploration.related_red_links[:5])
+        elif t.task_type == TaskType.RED_LINK:
+            task_descriptions.append(f"- FILL GAP: Create page for '{t.target}' (referenced {red_link_counts.get(t.target, 1)} times)")
+            red_links_mentioned.add(t.target)
+        elif t.task_type == TaskType.DEEPENING:
+            task_descriptions.append(f"- DEEPEN: Expand understanding of '{t.target}'")
+        else:
+            task_descriptions.append(f"- RESEARCH: {t.target}")
+
+    # Use LLM to generate proposal metadata based on actual task content
     try:
-        from ollama import Client
-        client = Client(host="http://localhost:11434")
+        import httpx
+        import os
 
-        # Describe the tasks
-        task_descriptions = []
-        for t in tasks:
-            if t.exploration:
-                task_descriptions.append(f"- {t.exploration.question}")
-            else:
-                task_descriptions.append(f"- Research: {t.target} ({t.task_type.value})")
+        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
 
-        prompt = f"""Based on these planned research tasks, generate a research proposal.
+        prompt = f"""You are Cass, creating a research proposal for your autonomous knowledge expansion.
 
-Tasks:
+Planned research tasks:
 {chr(10).join(task_descriptions)}
 
-{"Theme hint: " + theme if theme else ""}
+Task breakdown: {dict(type_counts)}
+Total red links to investigate: {len(red_links_mentioned)}
 
-Generate:
-1. A short title (5-10 words)
-2. A unifying theme/question that connects these tasks (1-2 sentences)
-3. A rationale explaining why this research direction is valuable (2-3 sentences)
+{"Research direction hint: " + theme if theme else ""}
 
-Format your response as:
-TITLE: [title]
-THEME: [theme]
-RATIONALE: [rationale]"""
+Generate a compelling research proposal:
+1. A specific, descriptive title (5-12 words) that captures the research direction
+2. A unifying theme that connects these tasks conceptually (1-2 sentences)
+3. A rationale explaining why pursuing this research will deepen understanding (2-3 sentences)
 
-        response = client.generate(
-            model="llama3.1:8b-instruct-q8_0",
-            prompt=prompt,
-            options={"temperature": 0.7, "num_predict": 300}
-        )
+Be specific - reference actual concepts from the tasks. Avoid generic phrases.
+
+Format your response EXACTLY as:
+TITLE: [your title]
+THEME: [your theme]
+RATIONALE: [your rationale]"""
+
+        # Use httpx to call Ollama (synchronously in async context - quick call)
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "num_predict": 400,
+                    }
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
 
         # Parse response
-        text = response.get("response", "")
+        text = result.get("response", "")
+        print(f"LLM proposal response (first 500 chars): {text[:500]}")
         lines = text.strip().split("\n")
 
-        title = "Untitled Research Proposal"
-        proposal_theme = theme or "General knowledge expansion"
-        rationale = "Expanding understanding through systematic research."
+        title = "Research Proposal"
+        proposal_theme = theme or "Knowledge expansion"
+        rationale = f"Investigating {len(proposal_tasks)} topics across {len(type_counts)} research types."
 
         for line in lines:
-            if line.startswith("TITLE:"):
-                title = line.replace("TITLE:", "").strip()
-            elif line.startswith("THEME:"):
-                proposal_theme = line.replace("THEME:", "").strip()
-            elif line.startswith("RATIONALE:"):
-                rationale = line.replace("RATIONALE:", "").strip()
+            line = line.strip()
+            # Handle both plain and markdown formatted responses
+            # e.g., "TITLE:" or "**TITLE:**" or "1. TITLE:"
+            clean_line = line.lstrip('*#0123456789. ')
+            if clean_line.upper().startswith("TITLE:"):
+                title = clean_line[6:].strip().strip('"\'*').strip()
+            elif clean_line.upper().startswith("THEME:"):
+                proposal_theme = clean_line[6:].strip().strip('"\'*').strip()
+            elif clean_line.upper().startswith("RATIONALE:"):
+                rationale = clean_line[10:].strip().strip('"\'*').strip()
+
+        print(f"Parsed proposal: title='{title}', theme='{proposal_theme}'")
+
+        # Validate we got meaningful content
+        if title == "Research Proposal" or len(title) < 10:
+            # Try to generate from task content
+            if proposal_tasks[0].task_type == TaskType.EXPLORATION and proposal_tasks[0].exploration:
+                title = f"Exploring: {proposal_tasks[0].exploration.question[:50]}"
+            else:
+                title = f"Research into {', '.join(list(red_links_mentioned)[:3])}"
 
     except Exception as e:
         print(f"LLM proposal generation failed: {e}")
-        title = theme or "Research Proposal"
-        proposal_theme = theme or "Systematic knowledge expansion"
-        rationale = f"Investigating {len(tasks)} topics to deepen understanding."
+        # Generate meaningful fallback
+        if proposal_tasks:
+            first_task = proposal_tasks[0]
+            if first_task.task_type == TaskType.EXPLORATION and first_task.exploration:
+                title = f"Exploring: {first_task.exploration.question[:40]}..."
+                proposal_theme = f"Investigating questions around {', '.join(first_task.exploration.related_red_links[:3])}"
+            else:
+                title = f"Research: {first_task.target}"
+                proposal_theme = f"Filling knowledge gaps in {first_task.target}"
+        else:
+            title = theme or "Research Proposal"
+            proposal_theme = theme or "Systematic knowledge expansion"
 
-    # Create the proposal
+        type_summary = ", ".join(f"{v} {k}" for k, v in type_counts.items())
+        rationale = f"This proposal includes {type_summary} tasks to deepen understanding of interconnected concepts."
+
+    # Create the proposal with the selected tasks
     proposal = ResearchProposal(
         proposal_id=create_proposal_id(),
         title=title,
         theme=proposal_theme,
         rationale=rationale,
-        tasks=tasks,
+        tasks=proposal_tasks,
         status=ProposalStatus.PENDING,
     )
 
@@ -2406,6 +2549,8 @@ RATIONALE: [rationale]"""
     return {
         "generated": True,
         "proposal": proposal.to_dict(),
+        "task_breakdown": dict(type_counts),
+        "total_queued": len(all_queued),
     }
 
 
