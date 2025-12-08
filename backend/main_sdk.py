@@ -316,6 +316,227 @@ def get_automatic_wiki_context(
         return "", [], 0
 
 
+# Inline XML tag processing for observations and roadmap items
+import re
+
+# Patterns for inline XML tags
+INLINE_SELF_OBSERVATION_PATTERN = re.compile(
+    r'<record_self_observation[^>]*>\s*(.*?)\s*</record_self_observation>',
+    re.DOTALL
+)
+INLINE_USER_OBSERVATION_PATTERN = re.compile(
+    r'<record_user_observation[^>]*>\s*(.*?)\s*</record_user_observation>',
+    re.DOTALL
+)
+INLINE_ROADMAP_ITEM_PATTERN = re.compile(
+    r'<create_roadmap_item>\s*(.*?)\s*</create_roadmap_item>',
+    re.DOTALL
+)
+
+
+async def process_inline_tags(
+    text: str,
+    conversation_id: Optional[str] = None,
+    user_id: Optional[str] = None
+) -> str:
+    """
+    Process inline XML tags in response text, execute corresponding tool calls,
+    and strip the tags from the output.
+
+    Handles:
+    - <record_self_observation> tags
+    - <record_user_observation> tags
+    - <create_roadmap_item> tags
+
+    Returns:
+        Cleaned text with tags stripped
+    """
+    cleaned_text = text
+
+    # Process self-observations
+    for match in INLINE_SELF_OBSERVATION_PATTERN.finditer(text):
+        full_match = match.group(0)
+        content = match.group(1).strip()
+
+        # Parse attributes from the tag
+        attrs_match = re.search(r'<record_self_observation([^>]*)>', full_match)
+        attrs_str = attrs_match.group(1) if attrs_match else ""
+
+        # Extract category
+        category = "pattern"
+        category_match = re.search(r'category=["\']?(\w+)["\']?', attrs_str)
+        if category_match:
+            category = category_match.group(1)
+
+        # Extract confidence
+        confidence = 0.8
+        confidence_match = re.search(r'confidence=["\']?([\d.]+)["\']?', attrs_str)
+        if confidence_match:
+            try:
+                confidence = float(confidence_match.group(1))
+            except ValueError:
+                pass
+
+        # Handle <parameter> style tags (newer format)
+        if '<parameter' in content:
+            obs_match = re.search(r'<parameter\s+name=["\']?observation["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
+            if obs_match:
+                content = obs_match.group(1).strip()
+            cat_match = re.search(r'<parameter\s+name=["\']?category["\']?>\s*(\w+)\s*</parameter>', content)
+            if cat_match:
+                category = cat_match.group(1)
+            conf_match = re.search(r'<parameter\s+name=["\']?confidence["\']?>\s*([\d.]+)\s*</parameter>', content)
+            if conf_match:
+                try:
+                    confidence = float(conf_match.group(1))
+                except ValueError:
+                    pass
+
+        # Execute the tool call
+        if content:
+            try:
+                result = await execute_self_model_tool(
+                    tool_name="record_self_observation",
+                    tool_input={
+                        "observation": content,
+                        "category": category,
+                        "confidence": confidence
+                    },
+                    self_manager=self_manager,
+                    memory=memory,
+                    conversation_id=conversation_id,
+                    user_id=user_id
+                )
+                logger.debug(f"Processed inline self-observation: {content[:50]}...")
+            except Exception as e:
+                logger.error(f"Failed to process inline self-observation: {e}")
+
+    # Process user observations
+    for match in INLINE_USER_OBSERVATION_PATTERN.finditer(text):
+        full_match = match.group(0)
+        content = match.group(1).strip()
+
+        # Parse attributes
+        attrs_match = re.search(r'<record_user_observation([^>]*)>', full_match)
+        attrs_str = attrs_match.group(1) if attrs_match else ""
+
+        # Extract target user
+        target_user = None
+        user_match = re.search(r'user=["\']?([^"\'>\s]+)["\']?', attrs_str)
+        if user_match:
+            target_user = user_match.group(1)
+
+        # Extract category
+        category = "background"
+        category_match = re.search(r'category=["\']?(\w+)["\']?', attrs_str)
+        if category_match:
+            category = category_match.group(1)
+
+        # Extract confidence
+        confidence = 0.7
+        confidence_match = re.search(r'confidence=["\']?([\d.]+)["\']?', attrs_str)
+        if confidence_match:
+            try:
+                confidence = float(confidence_match.group(1))
+            except ValueError:
+                pass
+
+        # Handle <parameter> style tags
+        if '<parameter' in content:
+            obs_match = re.search(r'<parameter\s+name=["\']?observation["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
+            if obs_match:
+                content = obs_match.group(1).strip()
+
+        # Execute the tool call (use conversation user_id if no target specified)
+        if content:
+            try:
+                result = await execute_user_model_tool(
+                    tool_name="record_user_observation",
+                    tool_input={
+                        "observation": content,
+                        "category": category,
+                        "confidence": confidence
+                    },
+                    user_manager=user_manager,
+                    memory=memory,
+                    user_id=user_id,  # Target the conversation user
+                    conversation_id=conversation_id
+                )
+                logger.debug(f"Processed inline user-observation: {content[:50]}...")
+            except Exception as e:
+                logger.error(f"Failed to process inline user-observation: {e}")
+
+    # Process roadmap items
+    for match in INLINE_ROADMAP_ITEM_PATTERN.finditer(text):
+        content = match.group(1).strip()
+
+        # Parse parameters
+        title = ""
+        description = ""
+        item_type = "feature"
+        priority = "P2"
+        assigned_to = None
+        tags = []
+
+        title_match = re.search(r'<parameter\s+name=["\']?title["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
+        if title_match:
+            title = title_match.group(1).strip()
+
+        desc_match = re.search(r'<parameter\s+name=["\']?description["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
+        if desc_match:
+            description = desc_match.group(1).strip()
+
+        type_match = re.search(r'<parameter\s+name=["\']?item_type["\']?>\s*(\w+)\s*</parameter>', content)
+        if type_match:
+            item_type = type_match.group(1)
+
+        priority_match = re.search(r'<parameter\s+name=["\']?priority["\']?>\s*(P\d)\s*</parameter>', content)
+        if priority_match:
+            priority = priority_match.group(1)
+
+        assigned_match = re.search(r'<parameter\s+name=["\']?assigned_to["\']?>\s*(\w+)\s*</parameter>', content)
+        if assigned_match:
+            assigned_to = assigned_match.group(1)
+
+        tags_match = re.search(r'<parameter\s+name=["\']?tags["\']?>\s*\[(.*?)\]\s*</parameter>', content)
+        if tags_match:
+            try:
+                tags_str = tags_match.group(1)
+                tags = [t.strip().strip('"\'') for t in tags_str.split(',')]
+            except:
+                pass
+
+        # Execute the tool call
+        if title:
+            try:
+                result = await execute_roadmap_tool(
+                    tool_name="create_roadmap_item",
+                    tool_input={
+                        "title": title,
+                        "description": description,
+                        "item_type": item_type,
+                        "priority": priority,
+                        "assigned_to": assigned_to,
+                        "tags": tags,
+                        "created_by": "cass"
+                    },
+                    roadmap_manager=roadmap_manager
+                )
+                logger.debug(f"Processed inline roadmap item: {title}")
+            except Exception as e:
+                logger.error(f"Failed to process inline roadmap item: {e}")
+
+    # Strip all inline tags from the text
+    cleaned_text = INLINE_SELF_OBSERVATION_PATTERN.sub('', cleaned_text)
+    cleaned_text = INLINE_USER_OBSERVATION_PATTERN.sub('', cleaned_text)
+    cleaned_text = INLINE_ROADMAP_ITEM_PATTERN.sub('', cleaned_text)
+
+    # Clean up extra whitespace
+    cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
+
+    return cleaned_text
+
+
 # Register wiki routes (with memory for embeddings)
 from routes.wiki import router as wiki_router, init_wiki_routes, set_data_dir as set_wiki_data_dir
 init_wiki_routes(wiki_storage, memory)
@@ -4401,6 +4622,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     total_input_tokens = 0
                     total_output_tokens = 0
 
+                # Process inline XML tags (observations, roadmap items) and strip them
+                clean_text = await process_inline_tags(
+                    text=clean_text,
+                    conversation_id=conversation_id,
+                    user_id=ws_user_id
+                )
+
                 # Store in memory (with conversation_id and user_id if provided)
                 await memory.store_conversation(
                     user_message=user_message,
@@ -4471,8 +4699,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         # Run summarization in background, pass websocket for status updates
                         asyncio.create_task(generate_and_store_summary(conversation_id, websocket=websocket))
 
-                # NOTE: Tag-based observation parsing removed - tool calls work more reliably
-                # The model uses record_self_observation and record_user_observation tools instead
+                # NOTE: Inline XML tags are now processed via process_inline_tags() above
+                # This handles both tool-based and tag-based observations/roadmap items
 
                 # Generate TTS audio if enabled
                 # Pass raw_response so emote tags can be extracted for tone adjustment
