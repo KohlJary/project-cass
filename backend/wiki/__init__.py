@@ -46,6 +46,11 @@ from .research import (
     ProgressReport,
     calculate_task_priority,
     create_task_id,
+    # Proposal system
+    ResearchProposal,
+    ProposalStatus,
+    ProposalQueue,
+    create_proposal_id,
 )
 from .scheduler import (
     ResearchScheduler,
@@ -116,6 +121,11 @@ __all__ = [
     "ProgressReport",
     "calculate_task_priority",
     "create_task_id",
+    # Proposal system
+    "ResearchProposal",
+    "ProposalStatus",
+    "ProposalQueue",
+    "create_proposal_id",
     "ResearchScheduler",
     "SchedulerMode",
     "SchedulerConfig",

@@ -1209,3 +1209,359 @@
 .insights-list li {
   margin-bottom: 0.25rem;
 }
+
+/* Tab Badge */
+.tabs button .badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  background: #f472b6;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 9px;
+}
+
+/* Scheduler Card Mode Selector */
+.scheduler-card .mode-selector {
+  margin: 0.5rem 0;
+}
+
+.scheduler-card .mode-selector select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #444;
+  background: #0d0d0d;
+  color: #89ddff;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.scheduler-card .mode-selector select:hover {
+  border-color: #666;
+}
+
+.scheduler-card .mode-selector select:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+.scheduler-card .mode-description {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #333;
+  font-size: 0.8rem;
+  color: #666;
+  font-style: italic;
+}
+
+/* Proposals Tab */
+.proposals-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.proposals-header h3 {
+  margin: 0 0 0.5rem;
+  color: #fff;
+}
+
+.proposals-header .tab-description {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Proposal Generator */
+.proposal-generator {
+  padding: 1rem;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border: 1px solid #222;
+}
+
+.proposal-generator h4 {
+  margin: 0 0 0.75rem;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.generator-form {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.generator-form input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #333;
+  background: #0d0d0d;
+  color: #fff;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.generator-form input::placeholder {
+  color: #555;
+}
+
+.generator-form input:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+/* Proposals Layout */
+.proposals-layout {
+  flex: 1;
+  display: flex;
+  gap: 1rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Proposals List */
+.proposals-list {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border: 1px solid #222;
+  overflow: hidden;
+}
+
+.proposals-list h4 {
+  margin: 0;
+  padding: 1rem;
+  color: #fff;
+  font-size: 0.95rem;
+  border-bottom: 1px solid #222;
+  background: #0d0d0d;
+}
+
+.proposals-list .empty-state {
+  padding: 2rem 1rem;
+  font-size: 0.85rem;
+}
+
+.proposals-list > div:not(:first-child) {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Proposal Item */
+.proposal-item {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #222;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.proposal-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.proposal-item.selected {
+  background: rgba(137, 221, 255, 0.1);
+  border-left: 3px solid #89ddff;
+  padding-left: calc(1rem - 3px);
+}
+
+.proposal-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.proposal-title {
+  color: #fff;
+  font-weight: 500;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  margin-right: 0.5rem;
+}
+
+.proposal-status {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.proposal-status.draft { background: #333; color: #888; }
+.proposal-status.pending { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+.proposal-status.approved { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
+.proposal-status.in_progress { background: rgba(167, 139, 250, 0.2); color: #a78bfa; }
+.proposal-status.completed { background: rgba(52, 211, 153, 0.2); color: #34d399; }
+.proposal-status.rejected { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+
+.proposal-theme {
+  color: #888;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proposal-meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: #555;
+}
+
+.proposal-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.proposal-progress .progress-bar {
+  flex: 1;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.proposal-progress .progress-fill {
+  height: 100%;
+  background: #a78bfa;
+  transition: width 0.3s;
+}
+
+.proposal-progress .progress-text {
+  font-size: 0.7rem;
+  color: #888;
+  min-width: 40px;
+  text-align: right;
+}
+
+/* Proposal Detail */
+.proposal-detail {
+  flex: 1;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border: 1px solid #222;
+  padding: 1.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.proposal-detail .empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.proposal-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.proposal-detail-header h4 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.25rem;
+  flex: 1;
+}
+
+.proposal-theme-detail {
+  color: #89ddff;
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+}
+
+.proposal-rationale {
+  margin-bottom: 1.5rem;
+}
+
+.proposal-rationale h5 {
+  margin: 0 0 0.5rem;
+  color: #888;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.proposal-rationale p {
+  margin: 0;
+  color: #aaa;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.proposal-tasks {
+  margin-bottom: 1.5rem;
+}
+
+.proposal-tasks h5 {
+  margin: 0 0 0.75rem;
+  color: #888;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.proposal-tasks .task-list.compact .task-item {
+  flex-wrap: wrap;
+}
+
+.proposal-tasks .task-list.compact .task-context {
+  width: 100%;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.proposal-summary {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: rgba(195, 232, 141, 0.1);
+  border-radius: 6px;
+  border: 1px solid rgba(195, 232, 141, 0.2);
+}
+
+.proposal-summary h5 {
+  margin: 0 0 0.75rem;
+  color: #c3e88d;
+  font-size: 0.9rem;
+}
+
+.proposal-summary .summary-content {
+  color: #aaa;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.proposal-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid #333;
+}

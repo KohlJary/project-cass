@@ -641,3 +641,226 @@ def calculate_task_priority(
 def create_task_id() -> str:
     """Generate a unique task ID."""
     return f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+
+class ProposalStatus(Enum):
+    """Status of a research proposal."""
+    DRAFT = "draft"           # Being formulated
+    PENDING = "pending"       # Awaiting approval
+    APPROVED = "approved"     # Approved, ready to execute
+    IN_PROGRESS = "in_progress"  # Currently being executed
+    COMPLETED = "completed"   # All tasks finished
+    REJECTED = "rejected"     # Rejected by user
+
+
+@dataclass
+class ResearchProposal:
+    """
+    A research proposal is a curated set of exploration tasks with a unifying theme.
+
+    Cass formulates proposals based on knowledge gaps, curiosity, and recent context.
+    The user can review, modify, approve, or reject proposals before execution.
+    After completion, a summary document is generated.
+    """
+    proposal_id: str
+    title: str                              # Short title for the proposal
+    theme: str                              # Unifying research theme/question
+    rationale: str                          # Why this research direction is valuable
+    tasks: List[ResearchTask]               # The exploration tasks in this proposal
+    status: ProposalStatus = ProposalStatus.DRAFT
+
+    # Metadata
+    created_at: datetime = field(default_factory=datetime.now)
+    created_by: str = "cass"                # "cass" or user who created it
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    completed_at: Optional[datetime] = None
+
+    # Execution tracking
+    tasks_completed: int = 0
+    tasks_failed: int = 0
+
+    # Summary (populated after completion)
+    summary: Optional[str] = None           # Overview of what was learned
+    key_insights: List[str] = field(default_factory=list)
+    new_questions: List[str] = field(default_factory=list)
+    pages_created: List[str] = field(default_factory=list)
+    pages_updated: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "proposal_id": self.proposal_id,
+            "title": self.title,
+            "theme": self.theme,
+            "rationale": self.rationale,
+            "tasks": [t.to_dict() for t in self.tasks],
+            "status": self.status.value,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_by": self.created_by,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "approved_by": self.approved_by,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "tasks_completed": self.tasks_completed,
+            "tasks_failed": self.tasks_failed,
+            "summary": self.summary,
+            "key_insights": self.key_insights,
+            "new_questions": self.new_questions,
+            "pages_created": self.pages_created,
+            "pages_updated": self.pages_updated,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ResearchProposal":
+        tasks = [ResearchTask.from_dict(t) for t in data.get("tasks", [])]
+        return cls(
+            proposal_id=data["proposal_id"],
+            title=data["title"],
+            theme=data["theme"],
+            rationale=data["rationale"],
+            tasks=tasks,
+            status=ProposalStatus(data.get("status", "draft")),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(),
+            created_by=data.get("created_by", "cass"),
+            approved_at=datetime.fromisoformat(data["approved_at"]) if data.get("approved_at") else None,
+            approved_by=data.get("approved_by"),
+            completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
+            tasks_completed=data.get("tasks_completed", 0),
+            tasks_failed=data.get("tasks_failed", 0),
+            summary=data.get("summary"),
+            key_insights=data.get("key_insights", []),
+            new_questions=data.get("new_questions", []),
+            pages_created=data.get("pages_created", []),
+            pages_updated=data.get("pages_updated", []),
+        )
+
+    def to_markdown(self) -> str:
+        """Generate a markdown summary of the proposal."""
+        lines = [
+            f"# Research Proposal: {self.title}",
+            "",
+            f"**Status**: {self.status.value}",
+            f"**Created**: {self.created_at.strftime('%Y-%m-%d %H:%M')}",
+            "",
+            "## Theme",
+            "",
+            self.theme,
+            "",
+            "## Rationale",
+            "",
+            self.rationale,
+            "",
+            f"## Research Tasks ({len(self.tasks)})",
+            "",
+        ]
+
+        for i, task in enumerate(self.tasks, 1):
+            status_icon = "✓" if task.status == TaskStatus.COMPLETED else "○"
+            lines.append(f"{i}. {status_icon} **{task.target}** ({task.task_type.value})")
+            if task.exploration:
+                lines.append(f"   - Question: {task.exploration.question}")
+
+        if self.status == ProposalStatus.COMPLETED and self.summary:
+            lines.extend([
+                "",
+                "## Summary",
+                "",
+                self.summary,
+                "",
+            ])
+
+            if self.key_insights:
+                lines.append("## Key Insights")
+                lines.append("")
+                for insight in self.key_insights:
+                    lines.append(f"- {insight}")
+                lines.append("")
+
+            if self.new_questions:
+                lines.append("## New Questions")
+                lines.append("")
+                for question in self.new_questions:
+                    lines.append(f"- {question}")
+                lines.append("")
+
+            if self.pages_created:
+                lines.append(f"## Pages Created ({len(self.pages_created)})")
+                lines.append("")
+                for page in self.pages_created:
+                    lines.append(f"- [[{page}]]")
+                lines.append("")
+
+        return "\n".join(lines)
+
+
+def create_proposal_id() -> str:
+    """Generate a unique proposal ID."""
+    return f"proposal_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+
+
+class ProposalQueue:
+    """
+    Persistent storage for research proposals.
+    """
+
+    def __init__(self, data_dir: str):
+        self.data_dir = Path(data_dir)
+        self.proposals_file = self.data_dir / "research_proposals.json"
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._proposals: Dict[str, ResearchProposal] = {}
+        self._load()
+
+    def _load(self) -> None:
+        """Load proposals from disk."""
+        if self.proposals_file.exists():
+            try:
+                with open(self.proposals_file, "r") as f:
+                    data = json.load(f)
+                    for proposal_data in data.get("proposals", []):
+                        proposal = ResearchProposal.from_dict(proposal_data)
+                        self._proposals[proposal.proposal_id] = proposal
+            except Exception as e:
+                print(f"Error loading proposals: {e}")
+
+    def _save(self) -> None:
+        """Save proposals to disk."""
+        data = {
+            "proposals": [p.to_dict() for p in self._proposals.values()],
+            "updated_at": datetime.now().isoformat(),
+        }
+        with open(self.proposals_file, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def add(self, proposal: ResearchProposal) -> None:
+        """Add a proposal."""
+        self._proposals[proposal.proposal_id] = proposal
+        self._save()
+
+    def get(self, proposal_id: str) -> Optional[ResearchProposal]:
+        """Get a proposal by ID."""
+        return self._proposals.get(proposal_id)
+
+    def update(self, proposal: ResearchProposal) -> None:
+        """Update an existing proposal."""
+        if proposal.proposal_id in self._proposals:
+            self._proposals[proposal.proposal_id] = proposal
+            self._save()
+
+    def remove(self, proposal_id: str) -> bool:
+        """Remove a proposal."""
+        if proposal_id in self._proposals:
+            del self._proposals[proposal_id]
+            self._save()
+            return True
+        return False
+
+    def get_by_status(self, status: ProposalStatus) -> List[ResearchProposal]:
+        """Get proposals by status."""
+        return [p for p in self._proposals.values() if p.status == status]
+
+    def get_all(self) -> List[ResearchProposal]:
+        """Get all proposals, sorted by creation date descending."""
+        return sorted(self._proposals.values(), key=lambda p: p.created_at, reverse=True)
+
+    def get_pending(self) -> List[ResearchProposal]:
+        """Get proposals awaiting approval."""
+        return self.get_by_status(ProposalStatus.PENDING)
