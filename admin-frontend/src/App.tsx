@@ -14,6 +14,7 @@ import { System } from './pages/System';
 import { Vectors } from './pages/Vectors';
 import { Wiki } from './pages/Wiki';
 import { Research } from './pages/Research';
+import { DataManagement } from './pages/DataManagement';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,6 +78,7 @@ function AppRoutes() {
         <Route path="system" element={<System />} />
         <Route path="vectors" element={<Vectors />} />
         <Route path="self-model" element={<SelfModel />} />
+        <Route path="data" element={<DataManagement />} />
       </Route>
     </Routes>
   );
