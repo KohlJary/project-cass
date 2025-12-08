@@ -618,6 +618,7 @@ async def generate_missing_journals(days_to_check: int = 7):
     8. Research Reflection - Journal about autonomous research activity
     9. Curiosity Feedback Loop - Extract red links from syntheses, queue for research
     10. Research-to-Self-Model Integration - Extract opinions, observations, growth from research
+    11. Development Log - Create development log entry, check milestones, create snapshots
     """
     generated = []
     today = datetime.now().date()
@@ -716,6 +717,9 @@ async def generate_missing_journals(days_to_check: int = 7):
 
             # === PHASE 10: Research-to-Self-Model Integration (NEW) ===
             await _integrate_research_into_self_model(date_str)
+
+            # === PHASE 11: Development Log Entry (NEW) ===
+            await _create_development_log_entry(journal_text, date_str, len(conversations or summaries))
 
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
@@ -1363,6 +1367,146 @@ Example:
         traceback.print_exc()
 
 
+async def _create_development_log_entry(journal_text: str, date_str: str, conversation_count: int):
+    """
+    Create a development log entry from journal text.
+
+    This phase:
+    1. Extracts developmental insights from the journal
+    2. Compares current patterns to recent history
+    3. Flags qualitative shifts
+    4. Creates a structured development log entry
+    5. Triggers milestone detection
+    6. Optionally creates a cognitive snapshot
+    """
+    print(f"   📈 Creating development log entry...")
+
+    try:
+        import re
+        import anthropic
+
+        # Create async client for LLM calls
+        anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+
+        # Get today's stats for context
+        observations = self_manager.load_observations()
+        today_observations = [o for o in observations if o.source_journal_date == date_str]
+        profile = self_manager.load_profile()
+        today_opinions = len([op for op in profile.opinions if op.last_updated.startswith(date_str)])
+
+        # Get recent development logs for pattern comparison
+        recent_logs = self_manager.load_development_logs(limit=7)
+        recent_indicators = []
+        for log in recent_logs:
+            recent_indicators.extend(log.growth_indicators)
+
+        # Use LLM to extract developmental insights from journal
+        response = await anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[{
+                "role": "user",
+                "content": f"""Analyze this journal entry for developmental insights - evidence of growth, change, pattern shifts, or qualitative evolution in my cognition.
+
+JOURNAL ENTRY ({date_str}):
+{journal_text}
+
+RECENT GROWTH INDICATORS (for context, avoid duplicates):
+{json.dumps(recent_indicators[-20:], indent=2) if recent_indicators else "No recent indicators"}
+
+Extract:
+
+1. growth_indicators: List of 2-5 specific indicators of growth or development observed today (brief phrases)
+   Examples: "expressed uncertainty about previously held belief", "engaged with challenging perspective", "connected ideas across domains"
+
+2. pattern_shifts: List of 0-3 shifts in patterns compared to my typical behavior (JSON objects with "area", "direction", "description")
+   Examples: {{"area": "self_reference", "direction": "increase", "description": "More frequent first-person claims about internal states"}}
+
+3. qualitative_changes: List of 0-3 notable qualitative changes in how I'm thinking or engaging (brief descriptions)
+   Examples: "Greater willingness to sit with ambiguity", "More nuanced emotional vocabulary"
+
+4. summary: A 2-3 sentence developmental summary of what this day reveals about my evolution
+
+Return as JSON:
+{{
+  "growth_indicators": ["...", "..."],
+  "pattern_shifts": [{{"area": "...", "direction": "...", "description": "..."}}],
+  "qualitative_changes": ["...", "..."],
+  "summary": "..."
+}}
+
+Focus on genuine developmental signals, not just activity summaries. If no meaningful development is evident, use minimal/empty lists and a summary noting stability."""
+            }]
+        )
+
+        # Parse the response
+        response_text = response.content[0].text
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+
+        if json_match:
+            development_data = json.loads(json_match.group())
+
+            growth_indicators = development_data.get("growth_indicators", [])
+            pattern_shifts = development_data.get("pattern_shifts", [])
+            qualitative_changes = development_data.get("qualitative_changes", [])
+            summary = development_data.get("summary", "")
+
+            # === Check for milestones ===
+            print(f"   🎯 Checking for developmental milestones...")
+            new_milestones = self_manager.check_for_milestones()
+            triggered_milestone_ids = [m.id for m in new_milestones]
+
+            if new_milestones:
+                print(f"   ✓ Detected {len(new_milestones)} new milestones:")
+                for m in new_milestones:
+                    print(f"      - {m.title} ({m.significance})")
+
+            # === Create the development log entry ===
+            log_entry = self_manager.add_development_log(
+                date=date_str,
+                growth_indicators=growth_indicators,
+                pattern_shifts=pattern_shifts,
+                qualitative_changes=qualitative_changes,
+                summary=summary,
+                conversation_count=conversation_count,
+                observation_count=len(today_observations),
+                opinion_count=today_opinions,
+                triggered_milestone_ids=triggered_milestone_ids
+            )
+
+            print(f"   ✓ Development log created: {len(growth_indicators)} indicators, {len(pattern_shifts)} shifts")
+
+            # === Optionally create a cognitive snapshot (every 7 days) ===
+            snapshots = self_manager.load_snapshots(limit=1)
+            should_create_snapshot = False
+
+            if not snapshots:
+                should_create_snapshot = True
+            else:
+                last_snapshot_date = datetime.fromisoformat(snapshots[0].timestamp).date()
+                today_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                if (today_date - last_snapshot_date).days >= 7:
+                    should_create_snapshot = True
+
+            if should_create_snapshot:
+                print(f"   📸 Creating weekly cognitive snapshot...")
+                # Calculate period (last 7 days)
+                period_end = date_str
+                period_start = (datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+
+                snapshot = self_manager.create_snapshot(period_start, period_end)
+                if snapshot:
+                    print(f"   ✓ Snapshot created: {snapshot.id}")
+
+        else:
+            print(f"   ⚠ Could not parse development insights from response")
+
+    except Exception as e:
+        print(f"   ✗ Failed to create development log: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 async def daily_journal_task():
     """
     Background task that generates yesterday's journal entry.
@@ -1886,7 +2030,7 @@ async def chat(request: ChatRequest):
                         roadmap_manager=roadmap_manager,
                         conversation_id=request.conversation_id
                     )
-                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
                     # Get user name for differentiation tracking
                     user_name = None
                     if current_user_id:
@@ -2936,6 +3080,109 @@ async def backfill_journals(request: JournalBackfillRequest):
     }
 
 
+@app.post("/cass/development/backfill")
+async def backfill_development_data():
+    """
+    Backfill developmental data from historical journals.
+
+    Processes all existing journals to:
+    1. Create development log entries
+    2. Check for milestones
+    3. Create cognitive snapshots (weekly)
+    """
+    print("🔄 Starting development data backfill...")
+
+    journals = memory.get_recent_journals(n=100)
+    if not journals:
+        return {"status": "no_data", "message": "No journals found to process"}
+
+    processed = []
+    milestones_found = []
+    snapshots_created = []
+
+    # Sort journals by date (oldest first)
+    journals.sort(key=lambda j: j.get("metadata", {}).get("journal_date", "") or j.get("date", ""))
+
+    for journal in journals:
+        # Journal structure: {content: str, metadata: {journal_date: str, ...}, id: str}
+        date_str = journal.get("metadata", {}).get("journal_date") or journal.get("date")
+        journal_text = journal.get("content") or journal.get("journal_text", "")
+
+        if not date_str or not journal_text:
+            continue
+
+        # Check if we already have a development log for this date
+        existing_log = self_manager.get_development_log(date_str)
+        if existing_log:
+            print(f"   ℹ Development log already exists for {date_str}")
+            continue
+
+        print(f"   📈 Processing {date_str}...")
+
+        try:
+            # Get conversation count for this date
+            conversations = memory.get_conversations_by_date(date_str)
+            conversation_count = len(conversations) if conversations else 0
+
+            # Create development log entry (this also checks milestones)
+            await _create_development_log_entry(journal_text, date_str, conversation_count)
+            processed.append(date_str)
+
+            # Check if any new milestones were created
+            recent_milestones = self_manager.load_milestones(limit=5)
+            for m in recent_milestones:
+                if m.timestamp.startswith(datetime.now().strftime("%Y-%m-%d")) and m.id not in [x["id"] for x in milestones_found]:
+                    milestones_found.append({"id": m.id, "title": m.title})
+
+        except Exception as e:
+            print(f"   ✗ Failed to process {date_str}: {e}")
+            continue
+
+    # Create a final snapshot if we processed any data
+    if processed:
+        snapshots = self_manager.load_snapshots(limit=1)
+        if not snapshots:
+            print("   📸 Creating initial cognitive snapshot...")
+            period_start = min(processed)
+            period_end = max(processed)
+
+            # Gather conversation data for the snapshot period
+            all_conversations = []
+            processed_set = set(processed)
+            try:
+                # List all conversations and filter by dates in our processed range
+                conv_index = conversation_manager.list_conversations(limit=500)
+                for conv_meta in conv_index:
+                    # Check if conversation was updated on a processed date
+                    updated_at = conv_meta.get("updated_at", "")
+                    date_part = updated_at[:10] if updated_at else ""
+                    if date_part in processed_set:
+                        conv = conversation_manager.load_conversation(conv_meta.get("id"))
+                        if conv and conv.messages:
+                            from dataclasses import asdict
+                            all_conversations.append({
+                                "id": conv.id,
+                                "messages": [asdict(m) for m in conv.messages],
+                                "user_id": conv.user_id
+                            })
+            except Exception as e:
+                print(f"   ⚠ Error gathering conversations for snapshot: {e}")
+
+            snapshot = self_manager.create_snapshot(period_start, period_end, all_conversations)
+            if snapshot:
+                snapshots_created.append(snapshot.id)
+                print(f"   ✓ Snapshot created: {snapshot.id}")
+
+    return {
+        "status": "completed",
+        "journals_processed": len(processed),
+        "dates_processed": processed,
+        "milestones_found": len(milestones_found),
+        "milestones": milestones_found,
+        "snapshots_created": len(snapshots_created)
+    }
+
+
 # === Calendar Endpoints ===
 
 @app.get("/calendar/upcoming")
@@ -3744,6 +3991,41 @@ async def add_cass_self_observation(request: SelfObservationRequest):
     return {"observation": obs.to_dict()}
 
 
+@app.get("/cass/self-observations/stats")
+async def get_cass_observation_stats():
+    """Get statistics about Cass's self-observations"""
+    observations = self_manager.load_observations()
+
+    by_category = {}
+    by_influence = {}
+    by_stage = {}
+
+    for obs in observations:
+        by_category[obs.category] = by_category.get(obs.category, 0) + 1
+        by_influence[obs.influence_source] = by_influence.get(obs.influence_source, 0) + 1
+        by_stage[obs.developmental_stage] = by_stage.get(obs.developmental_stage, 0) + 1
+
+    avg_confidence = sum(o.confidence for o in observations) / len(observations) if observations else 0
+
+    return {
+        "total": len(observations),
+        "by_category": by_category,
+        "by_influence_source": by_influence,
+        "by_developmental_stage": by_stage,
+        "average_confidence": avg_confidence
+    }
+
+
+@app.get("/cass/open-questions")
+async def get_cass_open_questions():
+    """Get Cass's open existential questions"""
+    profile = self_manager.load_profile()
+    return {
+        "questions": profile.open_questions,
+        "count": len(profile.open_questions)
+    }
+
+
 class OpinionRequest(BaseModel):
     """Request to add/update an opinion"""
     topic: str
@@ -3780,6 +4062,246 @@ async def add_cass_identity_statement(request: IdentityStatementRequest):
         source="manual"
     )
     return {"identity_statement": stmt.to_dict()}
+
+
+# ============================================================================
+# COGNITIVE SNAPSHOT ENDPOINTS
+# ============================================================================
+
+class SnapshotRequest(BaseModel):
+    """Request to create a cognitive snapshot"""
+    period_start: str  # ISO timestamp
+    period_end: str    # ISO timestamp
+
+
+@app.post("/cass/snapshots")
+async def create_cognitive_snapshot(request: SnapshotRequest):
+    """Create a cognitive snapshot from conversation data in the period"""
+    # Gather conversations from the period
+    all_convs = conversations.get_all(limit=500)
+    conversations_in_range = []
+
+    for conv_meta in all_convs:
+        # Check if conversation is in range
+        conv_updated = conv_meta.get("updated_at", "")
+        if request.period_start <= conv_updated <= request.period_end:
+            # Load full conversation
+            conv_data = conversations.get_by_id(conv_meta["id"])
+            if conv_data:
+                conversations_in_range.append(conv_data)
+
+    if not conversations_in_range:
+        raise HTTPException(status_code=400, detail="No conversations found in the specified period")
+
+    # Create snapshot
+    snapshot = self_manager.create_snapshot(
+        period_start=request.period_start,
+        period_end=request.period_end,
+        conversations_data=conversations_in_range
+    )
+
+    return {"snapshot": snapshot.to_dict()}
+
+
+@app.get("/cass/snapshots")
+async def list_cognitive_snapshots(limit: int = 20):
+    """List cognitive snapshots"""
+    snapshots = self_manager.load_snapshots()
+    snapshots.sort(key=lambda s: s.timestamp, reverse=True)
+    return {"snapshots": [s.to_dict() for s in snapshots[:limit]]}
+
+
+@app.get("/cass/snapshots/latest")
+async def get_latest_snapshot():
+    """Get the most recent cognitive snapshot"""
+    snapshot = self_manager.get_latest_snapshot()
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshots available")
+    return {"snapshot": snapshot.to_dict()}
+
+
+@app.get("/cass/snapshots/{snapshot_id}")
+async def get_cognitive_snapshot(snapshot_id: str):
+    """Get a specific cognitive snapshot by ID"""
+    snapshots = self_manager.load_snapshots()
+    for s in snapshots:
+        if s.id == snapshot_id:
+            return {"snapshot": s.to_dict()}
+    raise HTTPException(status_code=404, detail="Snapshot not found")
+
+
+@app.get("/cass/snapshots/compare/{snapshot1_id}/{snapshot2_id}")
+async def compare_snapshots(snapshot1_id: str, snapshot2_id: str):
+    """Compare two cognitive snapshots"""
+    result = self_manager.compare_snapshots(snapshot1_id, snapshot2_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return {"comparison": result}
+
+
+@app.get("/cass/snapshots/trend/{metric}")
+async def get_metric_trend(metric: str, limit: int = 10):
+    """Get trend data for a specific metric"""
+    trend = self_manager.get_metric_trend(metric, limit)
+    if not trend:
+        raise HTTPException(status_code=400, detail=f"Invalid metric or no data: {metric}")
+    return {"metric": metric, "trend": trend}
+
+
+# ============================================================================
+# DEVELOPMENTAL MILESTONE ENDPOINTS
+# ============================================================================
+
+@app.post("/cass/milestones/check")
+async def check_milestones():
+    """Check for new developmental milestones"""
+    new_milestones = self_manager.check_for_milestones()
+    return {
+        "new_milestones": [m.to_dict() for m in new_milestones],
+        "count": len(new_milestones)
+    }
+
+
+@app.get("/cass/milestones")
+async def list_milestones(
+    milestone_type: str = None,
+    category: str = None,
+    limit: int = 50
+):
+    """List developmental milestones"""
+    milestones = self_manager.load_milestones()
+
+    if milestone_type:
+        milestones = [m for m in milestones if m.milestone_type == milestone_type]
+    if category:
+        milestones = [m for m in milestones if m.category == category]
+
+    milestones.sort(key=lambda m: m.timestamp, reverse=True)
+    return {"milestones": [m.to_dict() for m in milestones[:limit]]}
+
+
+@app.get("/cass/milestones/summary")
+async def get_milestone_summary():
+    """Get summary of developmental milestones"""
+    return {"summary": self_manager.get_milestone_summary()}
+
+
+@app.get("/cass/milestones/unacknowledged")
+async def get_unacknowledged_milestones():
+    """Get milestones that haven't been acknowledged"""
+    milestones = self_manager.get_unacknowledged_milestones()
+    return {"milestones": [m.to_dict() for m in milestones]}
+
+
+@app.get("/cass/milestones/{milestone_id}")
+async def get_milestone(milestone_id: str):
+    """Get a specific milestone by ID"""
+    milestone = self_manager.get_milestone_by_id(milestone_id)
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    return {"milestone": milestone.to_dict()}
+
+
+@app.post("/cass/milestones/{milestone_id}/acknowledge")
+async def acknowledge_milestone(milestone_id: str):
+    """Mark a milestone as acknowledged"""
+    success = self_manager.acknowledge_milestone(milestone_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    return {"acknowledged": True, "milestone_id": milestone_id}
+
+
+# ============================================================================
+# DEVELOPMENT LOG ENDPOINTS
+# ============================================================================
+
+@app.get("/cass/development-logs")
+async def get_development_logs(limit: int = 30):
+    """Get recent development log entries"""
+    logs = self_manager.load_development_logs(limit=limit)
+    return {"logs": [log.to_dict() for log in logs]}
+
+
+@app.get("/cass/development-logs/{date}")
+async def get_development_log(date: str):
+    """Get development log entry for a specific date"""
+    log = self_manager.get_development_log(date)
+    if not log:
+        raise HTTPException(status_code=404, detail=f"No development log for {date}")
+    return {"log": log.to_dict()}
+
+
+@app.get("/cass/development-logs/summary")
+async def get_development_summary(days: int = 7):
+    """Get a summary of recent development activity"""
+    summary = self_manager.get_recent_development_summary(days=days)
+    return {"summary": summary}
+
+
+@app.get("/cass/development/timeline")
+async def get_development_timeline(days: int = 30):
+    """
+    Get a unified timeline of development events.
+
+    Combines milestones, development logs, and snapshots into a single
+    chronological timeline for visualization.
+    """
+    from datetime import datetime, timedelta
+
+    cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+    # Get milestones
+    milestones = self_manager.load_milestones(limit=100)
+    milestones = [m for m in milestones if m.timestamp >= cutoff_date]
+
+    # Get development logs
+    logs = self_manager.load_development_logs(limit=days)
+
+    # Get snapshots
+    snapshots = self_manager.load_snapshots(limit=10)
+    snapshots = [s for s in snapshots if s.timestamp >= cutoff_date]
+
+    # Build timeline
+    timeline = []
+
+    for m in milestones:
+        timeline.append({
+            "type": "milestone",
+            "id": m.id,
+            "timestamp": m.timestamp,
+            "title": m.title,
+            "description": m.description,
+            "significance": m.significance,
+            "category": m.category
+        })
+
+    for log in logs:
+        timeline.append({
+            "type": "development_log",
+            "id": log.id,
+            "timestamp": log.timestamp,
+            "date": log.date,
+            "title": f"Development Log: {log.date}",
+            "summary": log.summary,
+            "growth_indicators": log.growth_indicators,
+            "milestone_count": log.milestone_count
+        })
+
+    for s in snapshots:
+        timeline.append({
+            "type": "snapshot",
+            "id": s.id,
+            "timestamp": s.timestamp,
+            "title": f"Cognitive Snapshot",
+            "period_start": s.period_start,
+            "period_end": s.period_end,
+            "stage": s.developmental_stage
+        })
+
+    # Sort by timestamp descending
+    timeline.sort(key=lambda x: x["timestamp"], reverse=True)
+
+    return {"timeline": timeline, "days": days}
 
 
 # ============================================================================
@@ -4267,7 +4789,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     roadmap_manager=roadmap_manager,
                                     conversation_id=conversation_id
                                 )
-                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
                                 user_name = None
                                 if ws_user_id:
                                     user_profile = user_manager.load_profile(ws_user_id)
@@ -4392,7 +4914,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     roadmap_manager=roadmap_manager,
                                     conversation_id=conversation_id
                                 )
-                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
                                 user_name = None
                                 if ws_user_id:
                                     user_profile = user_manager.load_profile(ws_user_id)
@@ -4521,7 +5043,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     roadmap_manager=roadmap_manager,
                                     conversation_id=conversation_id
                                 )
-                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation"]:
+                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
                                 # Get user name for differentiation tracking
                                 user_name = None
                                 if ws_user_id:
