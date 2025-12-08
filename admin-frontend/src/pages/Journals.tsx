@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { journalsApi } from '../api/client';
+import { journalsApi, researchApi } from '../api/client';
+import { StandaloneWikiReader } from '../components/WikiReader';
 import './Journals.css';
 
 interface JournalEntry {
@@ -9,8 +10,40 @@ interface JournalEntry {
   locked: boolean;
 }
 
+interface ResearchCompletion {
+  proposal_id: string;
+  title: string;
+  tasks_completed: number;
+  pages_created: number;
+  completed_at: string;
+}
+
+interface ProposalDetail {
+  proposal_id: string;
+  title: string;
+  theme: string;
+  rationale: string;
+  status: string;
+  tasks_completed: number;
+  tasks_failed: number;
+  summary: string;
+  pages_created: string[];
+  pages_updated: string[];
+  completed_at: string;
+  tasks: Array<{
+    task_id: string;
+    target: string;
+    task_type: string;
+    status: string;
+  }>;
+}
+
+type ViewMode = 'none' | 'journal' | 'research';
+
 export function Journals() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('none');
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
@@ -26,7 +59,25 @@ export function Journals() {
     queryKey: ['journal', selectedDate],
     queryFn: () =>
       selectedDate ? journalsApi.getByDate(selectedDate).then((r) => r.data) : null,
-    enabled: !!selectedDate,
+    enabled: !!selectedDate && viewMode === 'journal',
+    retry: false,
+  });
+
+  // Fetch research completions for calendar
+  const { data: researchCalendarData } = useQuery({
+    queryKey: ['research-calendar'],
+    queryFn: () => researchApi.getProposalsCalendar().then((r) => r.data),
+    retry: false,
+  });
+
+  // Fetch selected proposal detail
+  const { data: proposalDetail, isLoading: proposalLoading } = useQuery({
+    queryKey: ['proposal', selectedProposalId],
+    queryFn: async (): Promise<ProposalDetail> => {
+      const response = await researchApi.getProposal(selectedProposalId!);
+      return response.data;
+    },
+    enabled: !!selectedProposalId && viewMode === 'research',
     retry: false,
   });
 
@@ -37,6 +88,18 @@ export function Journals() {
     return dates;
   }, [journalsData]);
 
+  // Build a set of dates with research completions
+  const researchDates = useMemo(() => {
+    const dates = new Set<string>();
+    researchCalendarData?.dates?.forEach((d: string) => dates.add(d));
+    return dates;
+  }, [researchCalendarData]);
+
+  // Get research completions for a specific date
+  const getResearchForDate = (date: string): ResearchCompletion[] => {
+    return researchCalendarData?.by_date?.[date] || [];
+  };
+
   // Generate calendar days
   const calendarDays = useMemo(() => {
     const { year, month } = currentMonth;
@@ -45,11 +108,11 @@ export function Journals() {
     const startPadding = firstDay.getDay(); // 0 = Sunday
     const totalDays = lastDay.getDate();
 
-    const days: Array<{ date: string | null; day: number | null; hasJournal: boolean }> = [];
+    const days: Array<{ date: string | null; day: number | null; hasJournal: boolean; hasResearch: boolean }> = [];
 
     // Add padding for days before the 1st
     for (let i = 0; i < startPadding; i++) {
-      days.push({ date: null, day: null, hasJournal: false });
+      days.push({ date: null, day: null, hasJournal: false, hasResearch: false });
     }
 
     // Add actual days
@@ -59,11 +122,12 @@ export function Journals() {
         date,
         day,
         hasJournal: journalDates.has(date),
+        hasResearch: researchDates.has(date),
       });
     }
 
     return days;
-  }, [currentMonth, journalDates]);
+  }, [currentMonth, journalDates, researchDates]);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -88,88 +152,191 @@ export function Journals() {
     });
   };
 
+  // Get selected date's research completions for the detail section
+  const selectedDateResearch = selectedDate ? getResearchForDate(selectedDate) : [];
+
   return (
     <div className="journals-page">
       <header className="page-header">
-        <h1>Journals</h1>
-        <p className="subtitle">Cass's daily reflections</p>
+        <h1>Journals & Research</h1>
+        <p className="subtitle">Cass's daily reflections and research completions</p>
       </header>
 
-      <div className="journals-layout">
-        {/* Calendar panel */}
-        <div className="calendar-panel">
-          <div className="calendar-header">
-            <button className="nav-btn" onClick={goToPrevMonth}>&lt;</button>
-            <span className="month-label">
-              {monthNames[currentMonth.month]} {currentMonth.year}
-            </span>
-            <button className="nav-btn" onClick={goToNextMonth}>&gt;</button>
-          </div>
-
-          <div className="calendar-grid">
-            <div className="weekday-header">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-                <div key={d} className="weekday">{d}</div>
-              ))}
+      <div className="journals-layout-horizontal">
+        {/* Left section: Calendar and recent entries */}
+        <div className="calendar-column">
+          <div className="calendar-panel">
+            <div className="calendar-header">
+              <button className="nav-btn" onClick={goToPrevMonth}>&lt;</button>
+              <span className="month-label">
+                {monthNames[currentMonth.month]} {currentMonth.year}
+              </span>
+              <button className="nav-btn" onClick={goToNextMonth}>&gt;</button>
             </div>
-            <div className="days-grid">
-              {calendarDays.map((d, i) => (
-                <div
-                  key={i}
-                  className={`day-cell ${d.date ? 'valid' : 'empty'} ${d.hasJournal ? 'has-journal' : ''} ${d.date === selectedDate ? 'selected' : ''}`}
-                  onClick={() => d.date && d.hasJournal && setSelectedDate(d.date)}
-                >
-                  {d.day && (
-                    <>
-                      <span className="day-number">{d.day}</span>
-                      {d.hasJournal && <span className="journal-dot" />}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Journal list below calendar */}
-          <div className="journal-list">
-            <h3>Recent Entries</h3>
-            {isLoading ? (
-              <div className="loading-state small">Loading...</div>
-            ) : error ? (
-              <div className="error-state small">Failed to load</div>
-            ) : journalsData?.journals?.length > 0 ? (
-              <div className="entries">
-                {journalsData.journals.slice(0, 10).map((journal: JournalEntry) => (
-                  <div
-                    key={journal.date}
-                    className={`entry ${selectedDate === journal.date ? 'selected' : ''}`}
-                    onClick={() => setSelectedDate(journal.date)}
-                  >
-                    <span className="entry-date">{journal.date}</span>
-                    {journal.locked && <span className="lock-icon">*</span>}
-                  </div>
+            <div className="calendar-grid">
+              <div className="weekday-header">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                  <div key={d} className="weekday">{d}</div>
                 ))}
               </div>
-            ) : (
-              <div className="empty-state small">No journals yet</div>
-            )}
+              <div className="days-grid">
+                {calendarDays.map((d, i) => {
+                  const isSelected = d.date === selectedDate;
+                  const hasActivity = d.hasJournal || d.hasResearch;
+
+                  return (
+                    <div
+                      key={i}
+                      className={`day-cell ${d.date ? 'valid' : 'empty'} ${d.hasJournal ? 'has-journal' : ''} ${d.hasResearch ? 'has-research' : ''} ${isSelected ? 'selected' : ''}`}
+                      onClick={() => {
+                        if (!d.date) return;
+                        setSelectedDate(d.date);
+                        // Set view mode based on what's available
+                        if (d.hasJournal) {
+                          setViewMode('journal');
+                          setSelectedProposalId(null);
+                        } else if (d.hasResearch) {
+                          const completions = getResearchForDate(d.date);
+                          if (completions.length > 0) {
+                            setViewMode('research');
+                            setSelectedProposalId(completions[0].proposal_id);
+                          }
+                        } else {
+                          setViewMode('none');
+                          setSelectedProposalId(null);
+                        }
+                      }}
+                    >
+                      {d.day && (
+                        <>
+                          <span className="day-number">{d.day}</span>
+                          {hasActivity && (
+                            <div className="day-indicators">
+                              {d.hasJournal && <span className="journal-dot" title="Journal entry" />}
+                              {d.hasResearch && <span className="research-dot" title="Research completed" />}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="calendar-legend">
+              <span className="legend-item"><span className="journal-dot" /> Journal</span>
+              <span className="legend-item"><span className="research-dot" /> Research</span>
+            </div>
+          </div>
+
+          {/* Recent entries sidebar */}
+          <div className="recent-entries-panel">
+            <div className="entries-section">
+              <h3>Recent Journals</h3>
+              {isLoading ? (
+                <div className="loading-state small">Loading...</div>
+              ) : error ? (
+                <div className="error-state small">Failed to load</div>
+              ) : journalsData?.journals?.length > 0 ? (
+                <div className="entries">
+                  {journalsData.journals.slice(0, 8).map((journal: JournalEntry) => (
+                    <div
+                      key={journal.date}
+                      className={`entry ${selectedDate === journal.date && viewMode === 'journal' ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedDate(journal.date);
+                        setViewMode('journal');
+                        setSelectedProposalId(null);
+                      }}
+                    >
+                      <span className="entry-date">{journal.date}</span>
+                      {journal.locked && <span className="lock-icon">*</span>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state small">No journals yet</div>
+              )}
+            </div>
+
+            <div className="entries-section">
+              <h3>Recent Research</h3>
+              {researchCalendarData?.total_completed > 0 ? (
+                <div className="entries">
+                  {Object.entries(researchCalendarData.by_date || {})
+                    .flatMap(([date, completions]) =>
+                      (completions as ResearchCompletion[]).map((c) => ({ ...c, date }))
+                    )
+                    .slice(0, 8)
+                    .map((completion) => (
+                      <div
+                        key={completion.proposal_id}
+                        className={`entry research ${selectedProposalId === completion.proposal_id ? 'selected' : ''}`}
+                        onClick={() => {
+                          setSelectedDate(completion.date);
+                          setViewMode('research');
+                          setSelectedProposalId(completion.proposal_id);
+                        }}
+                      >
+                        <span className="entry-title">{completion.title.substring(0, 30)}...</span>
+                        <span className="entry-meta">{completion.pages_created} pages</span>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="empty-state small">No research yet</div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Journal reader */}
-        <div className="reader-panel">
-          {selectedDate ? (
+        {/* Detail section to the right */}
+        <div className="detail-column">
+          {/* Date header showing what's selected */}
+          {selectedDate && (
+            <div className="detail-header">
+              <h2>{selectedDate}</h2>
+              {/* Toggle buttons if date has both */}
+              {journalDates.has(selectedDate) && researchDates.has(selectedDate) && (
+                <div className="view-toggle">
+                  <button
+                    className={`toggle-btn ${viewMode === 'journal' ? 'active' : ''}`}
+                    onClick={() => {
+                      setViewMode('journal');
+                      setSelectedProposalId(null);
+                    }}
+                  >
+                    Journal
+                  </button>
+                  <button
+                    className={`toggle-btn ${viewMode === 'research' ? 'active' : ''}`}
+                    onClick={() => {
+                      setViewMode('research');
+                      const completions = getResearchForDate(selectedDate);
+                      if (completions.length > 0) {
+                        setSelectedProposalId(completions[0].proposal_id);
+                      }
+                    }}
+                  >
+                    Research ({selectedDateResearch.length})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Journal view */}
+          {viewMode === 'journal' && selectedDate && (
             detailLoading ? (
               <div className="loading-state">Loading journal...</div>
             ) : journalDetail ? (
               <div className="journal-content">
                 <div className="journal-header">
-                  <div className="date-display">
-                    <span className="date-badge">{selectedDate}</span>
-                    {journalDetail.metadata?.locked && (
-                      <span className="locked-badge">Locked</span>
-                    )}
-                  </div>
+                  {journalDetail.metadata?.locked && (
+                    <span className="locked-badge">Locked</span>
+                  )}
                   {journalDetail.metadata?.summary && (
                     <p className="journal-summary">{journalDetail.metadata.summary}</p>
                   )}
@@ -187,11 +354,95 @@ export function Journals() {
             ) : (
               <div className="error-state">Failed to load journal</div>
             )
-          ) : (
+          )}
+
+          {/* Research view */}
+          {viewMode === 'research' && selectedProposalId && (
+            proposalLoading ? (
+              <div className="loading-state">Loading research...</div>
+            ) : proposalDetail ? (
+              <div className="research-content">
+                <div className="research-header">
+                  <h3 className="research-title">{proposalDetail.title}</h3>
+                  <p className="research-theme">{proposalDetail.theme}</p>
+                </div>
+
+                <div className="research-stats">
+                  <div className="stat">
+                    <span className="stat-value">{proposalDetail.tasks_completed || 0}</span>
+                    <span className="stat-label">Tasks</span>
+                  </div>
+                  <div className="stat">
+                    <span className="stat-value">{proposalDetail.pages_created?.length || 0}</span>
+                    <span className="stat-label">Pages</span>
+                  </div>
+                  {proposalDetail.tasks_failed > 0 && (
+                    <div className="stat failed">
+                      <span className="stat-value">{proposalDetail.tasks_failed}</span>
+                      <span className="stat-label">Failed</span>
+                    </div>
+                  )}
+                </div>
+
+                {proposalDetail.summary && (
+                  <div className="research-summary">
+                    <h4>Summary</h4>
+                    <div className="summary-text">{proposalDetail.summary}</div>
+                  </div>
+                )}
+
+                {proposalDetail.pages_created && proposalDetail.pages_created.length > 0 && (
+                  <div className="research-pages-section">
+                    <h4>Pages Created</h4>
+                    <div className="wiki-reader-container">
+                      <StandaloneWikiReader
+                        pageNames={proposalDetail.pages_created}
+                        options={{
+                          showSidebar: true,
+                          showSearch: true,
+                          editable: false,
+                          showMaturity: false,
+                          showBacklinks: true,
+                          showOutgoingLinks: true,
+                          compact: true,
+                          maxHeight: '400px',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Multiple research completions on same day */}
+                {selectedDateResearch.length > 1 && (
+                  <div className="other-research">
+                    <h4>Other Research on This Day</h4>
+                    <div className="research-list">
+                      {selectedDateResearch
+                        .filter((r) => r.proposal_id !== selectedProposalId)
+                        .map((r) => (
+                          <div
+                            key={r.proposal_id}
+                            className="research-item"
+                            onClick={() => setSelectedProposalId(r.proposal_id)}
+                          >
+                            <span className="item-title">{r.title}</span>
+                            <span className="item-meta">{r.pages_created} pages</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="error-state">Failed to load research</div>
+            )
+          )}
+
+          {/* Empty state */}
+          {viewMode === 'none' && (
             <div className="empty-state">
               <div className="empty-icon">#</div>
-              <p>Select a date with a journal entry</p>
-              <p className="hint">Dates with journals are marked with a purple dot</p>
+              <p>Select a date to view journals or research</p>
             </div>
           )}
         </div>

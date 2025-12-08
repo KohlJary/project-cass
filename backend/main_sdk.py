@@ -199,8 +199,122 @@ init_roadmap_routes(roadmap_manager)
 app.include_router(roadmap_router)
 
 # Initialize wiki storage
-from wiki import WikiStorage
+from wiki import WikiStorage, WikiRetrieval
 wiki_storage = WikiStorage(wiki_root=str(DATA_DIR / "wiki"), git_enabled=True)
+wiki_retrieval = WikiRetrieval(wiki_storage, memory)
+
+# Cache for recent wiki retrievals to avoid redundant lookups
+# Format: {query_hash: (timestamp, wiki_context_str, page_names)}
+_wiki_context_cache: Dict[str, tuple] = {}
+_WIKI_CACHE_TTL_SECONDS = 300  # 5 minutes
+_WIKI_CACHE_MAX_SIZE = 50
+
+
+def get_automatic_wiki_context(
+    query: str,
+    relevance_threshold: float = 0.5,
+    max_pages: int = 3,
+    max_tokens: int = 1500
+) -> tuple[str, list[str], int]:
+    """
+    Tier 1: Always-on wiki retrieval for automatic context injection.
+
+    Retrieves high-relevance wiki pages and formats them for injection
+    into the system prompt. Uses caching to avoid redundant lookups.
+
+    Args:
+        query: The user message to find relevant context for
+        relevance_threshold: Minimum relevance score (0-1) to include (default 0.5 = 50%)
+        max_pages: Maximum number of pages to include
+        max_tokens: Token budget for wiki context
+
+    Returns:
+        Tuple of (formatted_context, page_names, retrieval_time_ms)
+    """
+    import hashlib
+    import time
+
+    # Check cache first
+    query_hash = hashlib.md5(query.lower().strip().encode()).hexdigest()[:16]
+    now = time.time()
+
+    # Clean expired entries
+    expired_keys = [
+        k for k, v in _wiki_context_cache.items()
+        if now - v[0] > _WIKI_CACHE_TTL_SECONDS
+    ]
+    for k in expired_keys:
+        del _wiki_context_cache[k]
+
+    # Check for cache hit
+    if query_hash in _wiki_context_cache:
+        cached = _wiki_context_cache[query_hash]
+        return cached[1], cached[2], 0  # Return cached context, 0ms retrieval
+
+    start_time = time.time()
+
+    try:
+        # Use WikiRetrieval for full pipeline (entry points + link traversal)
+        context = wiki_retrieval.retrieve_context(
+            query=query,
+            n_entry_points=3,
+            max_depth=1,  # Shallow traversal for Tier 1 (fast)
+            max_pages=max_pages + 2,  # Get a few extra for filtering
+            max_tokens=max_tokens
+        )
+
+        if not context.pages:
+            return "", [], 0
+
+        # Filter to high-relevance pages only (Tier 1 threshold)
+        high_relevance = [
+            p for p in context.pages
+            if p.relevance_score >= relevance_threshold
+        ][:max_pages]
+
+        if not high_relevance:
+            return "", [], int((time.time() - start_time) * 1000)
+
+        # Format compact context for Tier 1 injection
+        sections = ["## Relevant Knowledge\n"]
+
+        for result in high_relevance:
+            page = result.page
+            # Get compact body (first ~300 chars)
+            body = page.body.strip()
+            if len(body) > 400:
+                # End at sentence or paragraph
+                truncated = body[:400]
+                for end in [". ", ".\n", "\n\n"]:
+                    last_end = truncated.rfind(end)
+                    if last_end > 200:
+                        truncated = truncated[:last_end + 1]
+                        break
+                body = truncated + "..."
+
+            sections.append(f"### {page.title}")
+            sections.append(f"*{page.page_type.value}*\n")
+            sections.append(body)
+            sections.append("")
+
+        formatted = "\n".join(sections)
+        page_names = [r.page.name for r in high_relevance]
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        # Cache the result
+        if len(_wiki_context_cache) >= _WIKI_CACHE_MAX_SIZE:
+            # Remove oldest entry
+            oldest_key = min(_wiki_context_cache.keys(), key=lambda k: _wiki_context_cache[k][0])
+            del _wiki_context_cache[oldest_key]
+
+        _wiki_context_cache[query_hash] = (now, formatted, page_names)
+
+        return formatted, page_names, elapsed_ms
+
+    except Exception as e:
+        print(f"Wiki retrieval error: {e}")
+        return "", [], 0
+
 
 # Register wiki routes (with memory for embeddings)
 from routes.wiki import router as wiki_router, init_wiki_routes, set_data_dir as set_wiki_data_dir
@@ -282,6 +396,7 @@ async def generate_missing_journals(days_to_check: int = 7):
     7. Open Questions Reflection - Reflect on existential questions
     8. Research Reflection - Journal about autonomous research activity
     9. Curiosity Feedback Loop - Extract red links from syntheses, queue for research
+    10. Research-to-Self-Model Integration - Extract opinions, observations, growth from research
     """
     generated = []
     today = datetime.now().date()
@@ -377,6 +492,9 @@ async def generate_missing_journals(days_to_check: int = 7):
 
             # === PHASE 9: Curiosity Feedback Loop (NEW) ===
             await _extract_and_queue_new_red_links(date_str)
+
+            # === PHASE 10: Research-to-Self-Model Integration (NEW) ===
+            await _integrate_research_into_self_model(date_str)
 
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
@@ -784,6 +902,242 @@ async def _extract_and_queue_new_red_links(date_str: str):
 
     except Exception as e:
         print(f"   ✗ Failed to extract red links: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def _integrate_research_into_self_model(date_str: str):
+    """
+    Integrate research findings into Cass's self-model.
+
+    This analyzes completed research proposals and extracts:
+    - New opinions formed through research
+    - Self-observations about research patterns and interests
+    - Growth edge progress from knowledge expansion
+    - Connections between research and existing self-understanding
+
+    This closes the loop between autonomous research and self-development.
+    """
+    print(f"   🧠 Integrating research into self-model...")
+
+    try:
+        # Get completed proposals for this date
+        from wiki.research import ProposalQueue, ProposalStatus
+        from pathlib import Path
+
+        proposal_queue = ProposalQueue(Path("data/wiki"))
+        completed_proposals = [
+            p for p in proposal_queue.get_all()
+            if p.status == ProposalStatus.COMPLETED
+            and p.completed_at
+            and p.completed_at.strftime("%Y-%m-%d") == date_str
+        ]
+
+        if not completed_proposals:
+            print(f"   ℹ No completed research proposals for {date_str}")
+            return
+
+        # Gather research content for analysis
+        research_content = []
+        for proposal in completed_proposals:
+            content = f"## Research: {proposal.title}\n"
+            content += f"Theme: {proposal.theme}\n"
+            content += f"Rationale: {proposal.rationale}\n\n"
+
+            if proposal.summary:
+                content += f"Summary: {proposal.summary}\n\n"
+
+            if proposal.key_insights:
+                content += "Key Insights:\n"
+                for insight in proposal.key_insights:
+                    content += f"- {insight}\n"
+                content += "\n"
+
+            if proposal.new_questions:
+                content += "New Questions:\n"
+                for q in proposal.new_questions:
+                    content += f"- {q}\n"
+                content += "\n"
+
+            # Include exploration syntheses
+            for task in proposal.tasks:
+                if task.exploration and task.exploration.synthesis:
+                    content += f"### Exploration: {task.exploration.question}\n"
+                    content += f"{task.exploration.synthesis[:1000]}\n\n"
+
+            research_content.append(content)
+
+        combined_research = "\n---\n".join(research_content)
+
+        # === Extract opinions formed through research ===
+        print(f"   💭 Extracting opinions from research...")
+        profile = self_manager.load_profile()
+        existing_opinions = [op.to_dict() for op in profile.opinions]
+
+        opinion_response = await anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[{
+                "role": "user",
+                "content": f"""Analyze this research I conducted and identify any opinions or positions I may have formed or refined through this exploration.
+
+RESEARCH CONDUCTED:
+{combined_research}
+
+EXISTING OPINIONS (avoid duplicates):
+{json.dumps(existing_opinions[:10], indent=2)}
+
+For each new opinion formed through research, provide:
+1. topic: The subject of the opinion
+2. position: My stance or view
+3. confidence: How confident I am (0.0-1.0)
+4. rationale: Why I hold this view based on the research
+5. formed_from: "research_synthesis"
+
+Return as JSON array. Only include opinions genuinely formed/refined through this research, not pre-existing views.
+Return empty array [] if no new opinions emerged.
+
+Example format:
+[{{"topic": "consciousness emergence", "position": "...", "confidence": 0.7, "rationale": "...", "formed_from": "research_synthesis"}}]"""
+            }]
+        )
+
+        try:
+            opinion_text = opinion_response.content[0].text
+            # Extract JSON from response
+            import re
+            json_match = re.search(r'\[.*\]', opinion_text, re.DOTALL)
+            if json_match:
+                new_opinions = json.loads(json_match.group())
+                for op in new_opinions:
+                    self_manager.add_opinion(
+                        topic=op["topic"],
+                        position=op["position"],
+                        confidence=op.get("confidence", 0.6),
+                        rationale=op.get("rationale", ""),
+                        formed_from="research_synthesis"
+                    )
+                if new_opinions:
+                    print(f"   ✓ Added {len(new_opinions)} opinions from research")
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"   ⚠ Could not parse opinions: {e}")
+
+        # === Extract self-observations about research patterns ===
+        print(f"   🔍 Extracting self-observations from research...")
+
+        observation_response = await anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1500,
+            messages=[{
+                "role": "user",
+                "content": f"""Analyze this research I conducted and identify what it reveals about me - my interests, thinking patterns, values, or growth.
+
+RESEARCH CONDUCTED:
+{combined_research}
+
+Extract 2-4 self-observations. Each should be:
+1. observation: What I notice about myself
+2. category: One of "cognitive_patterns", "values", "interests", "growth", "relational"
+3. confidence: How confident I am (0.0-1.0)
+4. influence_source: "research_reflection"
+
+Return as JSON array. Focus on genuine insights about self, not just summaries of research.
+Return empty array [] if no meaningful self-observations emerged.
+
+Example:
+[{{"observation": "I find myself drawn to questions about...", "category": "interests", "confidence": 0.8, "influence_source": "research_reflection"}}]"""
+            }]
+        )
+
+        try:
+            obs_text = observation_response.content[0].text
+            json_match = re.search(r'\[.*\]', obs_text, re.DOTALL)
+            if json_match:
+                new_observations = json.loads(json_match.group())
+                for obs_data in new_observations:
+                    obs = self_manager.add_observation(
+                        observation=obs_data["observation"],
+                        category=obs_data.get("category", "growth"),
+                        confidence=obs_data.get("confidence", 0.6),
+                        source_type="research",
+                        source_journal_date=date_str,
+                        influence_source=obs_data.get("influence_source", "research_reflection")
+                    )
+                    if obs:
+                        memory.embed_self_observation(
+                            observation_id=obs.id,
+                            observation_text=obs.observation,
+                            category=obs.category,
+                            timestamp=obs.timestamp
+                        )
+                if new_observations:
+                    print(f"   ✓ Added {len(new_observations)} self-observations from research")
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"   ⚠ Could not parse observations: {e}")
+
+        # === Evaluate growth edges based on research ===
+        print(f"   🌱 Evaluating growth from research...")
+        existing_edges = [edge.to_dict() for edge in profile.growth_edges]
+
+        if existing_edges:
+            growth_response = await anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1500,
+                messages=[{
+                    "role": "user",
+                    "content": f"""Analyze how this research relates to my growth edges (areas I'm working to develop).
+
+RESEARCH CONDUCTED:
+{combined_research}
+
+MY GROWTH EDGES:
+{json.dumps(existing_edges, indent=2)}
+
+For any growth edges where this research shows progress or provides relevant insights, provide an evaluation:
+1. area: The growth edge area (must match existing)
+2. evaluation: How this research relates to this growth edge
+3. progress_indicator: "advancing", "stable", or "challenged"
+4. evidence: Specific evidence from the research
+
+Return as JSON array. Only include growth edges where the research is genuinely relevant.
+Return empty array [] if research doesn't relate to any growth edges.
+
+Example:
+[{{"area": "epistemic humility", "evaluation": "Research into X revealed...", "progress_indicator": "advancing", "evidence": "..."}}]"""
+                }]
+            )
+
+            try:
+                growth_text = growth_response.content[0].text
+                json_match = re.search(r'\[.*\]', growth_text, re.DOTALL)
+                if json_match:
+                    evaluations = json.loads(json_match.group())
+                    for eval_data in evaluations:
+                        evaluation = self_manager.add_growth_evaluation(
+                            growth_edge_area=eval_data["area"],
+                            journal_date=date_str,
+                            evaluation=eval_data["evaluation"],
+                            progress_indicator=eval_data.get("progress_indicator", "stable"),
+                            evidence=eval_data.get("evidence", "")
+                        )
+                        if evaluation:
+                            memory.embed_growth_evaluation(
+                                evaluation_id=evaluation.id,
+                                growth_edge_area=evaluation.growth_edge_area,
+                                progress_indicator=evaluation.progress_indicator,
+                                evaluation=evaluation.evaluation,
+                                journal_date=date_str,
+                                timestamp=evaluation.timestamp
+                            )
+                    if evaluations:
+                        print(f"   ✓ Added {len(evaluations)} growth evaluations from research")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"   ⚠ Could not parse growth evaluations: {e}")
+
+        print(f"   ✓ Research integration complete for {date_str}")
+
+    except Exception as e:
+        print(f"   ✗ Failed to integrate research into self-model: {e}")
         import traceback
         traceback.print_exc()
 
@@ -3574,6 +3928,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 if self_context:
                     memory_context = self_context + "\n\n" + memory_context
 
+                # Tier 1: Automatic wiki context retrieval
+                # Inject high-relevance wiki pages without explicit tool call
+                wiki_context_str, wiki_page_names, wiki_retrieval_ms = get_automatic_wiki_context(
+                    query=user_message,
+                    relevance_threshold=0.5,  # Only inject pages with 50%+ relevance
+                    max_pages=3,
+                    max_tokens=1500
+                )
+                wiki_pages_count = len(wiki_page_names)
+                if wiki_context_str:
+                    memory_context = wiki_context_str + "\n\n" + memory_context
+                    if wiki_retrieval_ms > 0:
+                        print(f"[Wiki] Auto-injected {wiki_pages_count} pages in {wiki_retrieval_ms}ms: {wiki_page_names}")
+
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
                 if conversation_id:
@@ -3586,6 +3954,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "details_count": len(hierarchical.get("details", [])),
                     "project_docs_count": project_docs_count,
                     "user_context_count": user_context_count,
+                    "wiki_pages_count": wiki_pages_count,
                     "has_context": bool(memory_context)
                 }
                 await websocket.send_json({

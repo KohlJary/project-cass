@@ -175,13 +175,18 @@ export const researchApi = {
     api.patch('/wiki/research/config', null, { params: config }),
   // Proposals
   listProposals: (status?: string) => api.get('/wiki/research/proposals', { params: { status } }),
+  getProposalsCalendar: () => api.get('/wiki/research/proposals/calendar'),
   getProposal: (id: string) => api.get(`/wiki/research/proposals/${id}`),
   generateProposal: (params?: { theme?: string; max_tasks?: number }) =>
     api.post('/wiki/research/proposals/generate', null, { params }),
-  approveProposal: (id: string) => api.post(`/wiki/research/proposals/${id}/approve`),
+  approveProposal: (id: string, autoExecute: boolean = true) =>
+    api.post(`/wiki/research/proposals/${id}/approve`, null, { params: { auto_execute: autoExecute } }),
+  approveAndExecuteProposal: (id: string) =>
+    api.post(`/wiki/research/proposals/${id}/approve-and-execute`),
   rejectProposal: (id: string, reason?: string) =>
     api.post(`/wiki/research/proposals/${id}/reject`, null, { params: { reason } }),
   executeProposal: (id: string) => api.post(`/wiki/research/proposals/${id}/execute`),
   deleteProposal: (id: string) => api.delete(`/wiki/research/proposals/${id}`),
   getProposalMarkdown: (id: string) => api.get(`/wiki/research/proposals/${id}/markdown`),
+  regenerateSummary: (id: string) => api.post(`/wiki/research/proposals/${id}/regenerate-summary`),
 };
