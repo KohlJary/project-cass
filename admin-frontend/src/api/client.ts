@@ -112,6 +112,37 @@ export const wikiApi = {
     api.get(`/wiki/deepen/${encodeURIComponent(name)}/preview`),
 };
 
+// Data Export/Import endpoints
+export const exportApi = {
+  getWikiJson: () => api.get('/export/wiki/json'),
+  getWikiMarkdown: () => api.get('/export/wiki/markdown', { responseType: 'blob' }),
+  getResearchJson: () => api.get('/export/research/json'),
+  getSelfModelJson: () => api.get('/export/self-model/json'),
+  getConversationsJson: (anonymize?: boolean) =>
+    api.get('/export/conversations/json', { params: { anonymize: anonymize ?? true } }),
+  getDataset: () => api.get('/export/dataset', { responseType: 'blob' }),
+  createBackup: () => api.post('/export/backup'),
+  listBackups: () => api.get('/export/backups'),
+  // Import endpoints (will need backend support)
+  previewImport: (file: File, type: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post(`/import/${type}/preview`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  applyImport: (file: File, type: string, options?: Record<string, unknown>) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options) {
+      formData.append('options', JSON.stringify(options));
+    }
+    return api.post(`/import/${type}/apply`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+};
+
 // Research/ARS endpoints
 export const researchApi = {
   getQueue: (params?: { status?: string; task_type?: string; limit?: number }) =>
