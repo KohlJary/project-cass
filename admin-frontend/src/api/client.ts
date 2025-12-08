@@ -168,4 +168,20 @@ export const researchApi = {
     api.get('/wiki/research/weekly-summary', { params: { days: days || 7 } }),
   generateExploration: (maxTasks?: number) =>
     api.post('/wiki/research/queue/exploration', null, { params: { max_tasks: maxTasks || 5 } }),
+  // Configuration
+  getConfig: () => api.get('/wiki/research/config'),
+  setMode: (mode: string) => api.post('/wiki/research/config/mode', null, { params: { mode } }),
+  updateConfig: (config: { max_tasks_per_cycle?: number; auto_queue_red_links?: boolean; auto_queue_deepening?: boolean; curiosity_threshold?: number }) =>
+    api.patch('/wiki/research/config', null, { params: config }),
+  // Proposals
+  listProposals: (status?: string) => api.get('/wiki/research/proposals', { params: { status } }),
+  getProposal: (id: string) => api.get(`/wiki/research/proposals/${id}`),
+  generateProposal: (params?: { theme?: string; max_tasks?: number }) =>
+    api.post('/wiki/research/proposals/generate', null, { params }),
+  approveProposal: (id: string) => api.post(`/wiki/research/proposals/${id}/approve`),
+  rejectProposal: (id: string, reason?: string) =>
+    api.post(`/wiki/research/proposals/${id}/reject`, null, { params: { reason } }),
+  executeProposal: (id: string) => api.post(`/wiki/research/proposals/${id}/execute`),
+  deleteProposal: (id: string) => api.delete(`/wiki/research/proposals/${id}`),
+  getProposalMarkdown: (id: string) => api.get(`/wiki/research/proposals/${id}/markdown`),
 };

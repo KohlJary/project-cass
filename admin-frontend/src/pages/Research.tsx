@@ -88,8 +88,36 @@ interface WeeklySummary {
   markdown: string;
 }
 
+interface SchedulerConfig {
+  mode: string;
+  max_tasks_per_cycle: number;
+  auto_queue_red_links: boolean;
+  auto_queue_deepening: boolean;
+  curiosity_threshold: number;
+  available_modes: string[];
+}
+
+interface ResearchProposal {
+  proposal_id: string;
+  title: string;
+  theme: string;
+  rationale: string;
+  tasks: ResearchTask[];
+  status: string;
+  created_at: string;
+  approved_at?: string;
+  completed_at?: string;
+  execution_started_at?: string;
+  tasks_completed: number;
+  tasks_total: number;
+  summary?: string;
+  rejection_reason?: string;
+}
+
 export function Research() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'deepening' | 'history' | 'summary'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'deepening' | 'history' | 'summary' | 'proposals'>('overview');
+  const [proposalTheme, setProposalTheme] = useState('');
+  const [selectedProposal, setSelectedProposal] = useState<ResearchProposal | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -152,6 +180,18 @@ export function Research() {
     queryKey: ['weekly-summary', summaryDays],
     queryFn: () => researchApi.getWeeklySummary(summaryDays).then(r => r.data),
     enabled: activeTab === 'summary',
+  });
+
+  // Config and proposals queries
+  const { data: configData } = useQuery<SchedulerConfig>({
+    queryKey: ['research-config'],
+    queryFn: () => researchApi.getConfig().then(r => r.data),
+  });
+
+  const { data: proposalsData } = useQuery({
+    queryKey: ['research-proposals'],
+    queryFn: () => researchApi.listProposals().then(r => r.data),
+    enabled: activeTab === 'proposals' || activeTab === 'overview',
   });
 
   // Mutations
@@ -252,6 +292,54 @@ export function Research() {
     },
   });
 
+  // Mode and proposal mutations
+  const setModeMutation = useMutation({
+    mutationFn: (mode: string) => researchApi.setMode(mode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research-config'] });
+      queryClient.invalidateQueries({ queryKey: ['research-stats'] });
+    },
+  });
+
+  const generateProposalMutation = useMutation({
+    mutationFn: (params: { theme?: string; max_tasks?: number }) => researchApi.generateProposal(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research-proposals'] });
+      setProposalTheme('');
+    },
+  });
+
+  const approveProposalMutation = useMutation({
+    mutationFn: (id: string) => researchApi.approveProposal(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research-proposals'] });
+    },
+  });
+
+  const rejectProposalMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => researchApi.rejectProposal(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research-proposals'] });
+    },
+  });
+
+  const executeProposalMutation = useMutation({
+    mutationFn: (id: string) => researchApi.executeProposal(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research-proposals'] });
+      queryClient.invalidateQueries({ queryKey: ['research-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['research-stats'] });
+    },
+  });
+
+  const deleteProposalMutation = useMutation({
+    mutationFn: (id: string) => researchApi.deleteProposal(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research-proposals'] });
+      setSelectedProposal(null);
+    },
+  });
+
   const stats: QueueStats = statsData?.queue_stats || { total: 0, by_status: {}, by_type: {}, queued_count: 0, in_progress_count: 0 };
   const tasks: ResearchTask[] = queueData?.tasks || [];
   const maturity: MaturityStats = maturityData || { total_pages: 0, avg_depth_score: 0, by_level: {}, deepening_candidates: 0 };
@@ -259,6 +347,9 @@ export function Research() {
   const historyTasks: ResearchTask[] = historyData?.history || [];
   const graphStats: GraphStats | null = graphStatsData || null;
   const weeklySummary: WeeklySummary | null = weeklySummaryData || null;
+  const proposals: ResearchProposal[] = proposalsData?.proposals || [];
+  const pendingProposals = proposals.filter(p => p.status === 'pending');
+  const config = configData || { mode: 'supervised', available_modes: ['supervised', 'batched', 'continuous', 'triggered'] };
 
   // Get exploration tasks from dedicated query
   // Separate new-style (with exploration context) from old-style (just a target)
@@ -347,6 +438,9 @@ export function Research() {
         <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>
           Overview
         </button>
+        <button className={activeTab === 'proposals' ? 'active' : ''} onClick={() => setActiveTab('proposals')}>
+          Proposals {pendingProposals.length > 0 && <span className="badge">{pendingProposals.length}</span>}
+        </button>
         <button className={activeTab === 'queue' ? 'active' : ''} onClick={() => setActiveTab('queue')}>
           Task Queue ({stats.queued_count})
         </button>
@@ -387,13 +481,28 @@ export function Research() {
               </div>
             </div>
 
-            <div className="stat-card">
+            <div className="stat-card scheduler-card">
               <h3>Scheduler</h3>
-              <div className="stat-value">{statsData?.mode || 'supervised'}</div>
-              <div className="stat-label">Mode</div>
+              <div className="mode-selector">
+                <select
+                  value={config.mode}
+                  onChange={(e) => setModeMutation.mutate(e.target.value)}
+                  disabled={setModeMutation.isPending}
+                >
+                  {(config.available_modes || ['supervised', 'batched', 'continuous', 'triggered']).map((mode: string) => (
+                    <option key={mode} value={mode}>{mode}</option>
+                  ))}
+                </select>
+              </div>
               <div className="stat-breakdown">
                 <span className="stat-item">In Progress: {stats.in_progress_count}</span>
                 <span className="stat-item">Completed: {stats.by_status.completed || 0}</span>
+              </div>
+              <div className="mode-description">
+                {config.mode === 'supervised' && 'Manual approval required for all tasks'}
+                {config.mode === 'batched' && 'Runs tasks in scheduled batches'}
+                {config.mode === 'continuous' && 'Automatically runs queued tasks'}
+                {config.mode === 'triggered' && 'Runs when triggered by events'}
               </div>
             </div>
 
@@ -941,6 +1050,155 @@ export function Research() {
               Loading summary...
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'proposals' && (
+        <div className="proposals-tab">
+          <div className="proposals-header">
+            <h3>Research Proposals</h3>
+            <p className="tab-description">
+              Cass can formulate research proposals with sets of exploration tasks. Review and approve proposals to queue them for automated execution.
+            </p>
+          </div>
+
+          <div className="proposal-generator">
+            <h4>Generate New Proposal</h4>
+            <div className="generator-form">
+              <input
+                type="text"
+                placeholder="Optional theme (e.g., 'consciousness', 'ethics')..."
+                value={proposalTheme}
+                onChange={(e) => setProposalTheme(e.target.value)}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={() => generateProposalMutation.mutate({ theme: proposalTheme || undefined, max_tasks: 5 })}
+                disabled={generateProposalMutation.isPending}
+              >
+                {generateProposalMutation.isPending ? 'Generating...' : 'Generate Proposal'}
+              </button>
+            </div>
+          </div>
+
+          <div className="proposals-layout">
+            <div className="proposals-list">
+              <h4>All Proposals ({proposals.length})</h4>
+              {proposals.length === 0 ? (
+                <div className="empty-state">No proposals yet. Generate one to get started.</div>
+              ) : (
+                proposals.map((proposal) => (
+                  <div
+                    key={proposal.proposal_id}
+                    className={`proposal-item ${proposal.status} ${selectedProposal?.proposal_id === proposal.proposal_id ? 'selected' : ''}`}
+                    onClick={() => setSelectedProposal(proposal)}
+                  >
+                    <div className="proposal-item-header">
+                      <span className="proposal-title">{proposal.title}</span>
+                      <span className={`proposal-status ${proposal.status}`}>{proposal.status}</span>
+                    </div>
+                    <div className="proposal-theme">{proposal.theme}</div>
+                    <div className="proposal-meta">
+                      <span>{proposal.tasks.length} tasks</span>
+                      <span>{new Date(proposal.created_at).toLocaleDateString()}</span>
+                    </div>
+                    {proposal.status === 'in_progress' && (
+                      <div className="proposal-progress">
+                        <div className="progress-bar">
+                          <div
+                            className="progress-fill"
+                            style={{ width: `${(proposal.tasks_completed / proposal.tasks_total) * 100}%` }}
+                          />
+                        </div>
+                        <span className="progress-text">{proposal.tasks_completed}/{proposal.tasks_total}</span>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="proposal-detail">
+              {selectedProposal ? (
+                <>
+                  <div className="proposal-detail-header">
+                    <h4>{selectedProposal.title}</h4>
+                    <span className={`proposal-status ${selectedProposal.status}`}>{selectedProposal.status}</span>
+                  </div>
+                  <div className="proposal-theme-detail">{selectedProposal.theme}</div>
+                  <div className="proposal-rationale">
+                    <h5>Rationale</h5>
+                    <p>{selectedProposal.rationale}</p>
+                  </div>
+
+                  <div className="proposal-tasks">
+                    <h5>Research Tasks ({selectedProposal.tasks.length})</h5>
+                    <div className="task-list compact">
+                      {selectedProposal.tasks.map((task) => (
+                        <div key={task.task_id} className="task-item">
+                          <span className="task-type" style={{ color: getTaskTypeColor(task.task_type) }}>
+                            {task.task_type}
+                          </span>
+                          <span className="task-target">{task.target}</span>
+                          {task.context && <span className="task-context">{task.context}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedProposal.summary && (
+                    <div className="proposal-summary">
+                      <h5>Summary of Findings</h5>
+                      <div className="summary-content markdown">{selectedProposal.summary}</div>
+                    </div>
+                  )}
+
+                  <div className="proposal-actions">
+                    {selectedProposal.status === 'pending' && (
+                      <>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => approveProposalMutation.mutate(selectedProposal.proposal_id)}
+                          disabled={approveProposalMutation.isPending}
+                        >
+                          {approveProposalMutation.isPending ? 'Approving...' : 'Approve'}
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => rejectProposalMutation.mutate({ id: selectedProposal.proposal_id })}
+                          disabled={rejectProposalMutation.isPending}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {selectedProposal.status === 'approved' && (
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => executeProposalMutation.mutate(selectedProposal.proposal_id)}
+                        disabled={executeProposalMutation.isPending}
+                      >
+                        {executeProposalMutation.isPending ? 'Executing...' : 'Execute Proposal'}
+                      </button>
+                    )}
+                    {(selectedProposal.status === 'completed' || selectedProposal.status === 'rejected') && (
+                      <button
+                        className="btn btn-danger"
+                        onClick={() => deleteProposalMutation.mutate(selectedProposal.proposal_id)}
+                        disabled={deleteProposalMutation.isPending}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  Select a proposal to view details
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

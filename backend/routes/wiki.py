@@ -6,6 +6,10 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Set
 from datetime import datetime
+from pathlib import Path
+
+from wiki.scheduler import SchedulerMode
+from wiki.research import ProposalStatus
 
 router = APIRouter(prefix="/wiki", tags=["wiki"])
 
@@ -2136,4 +2140,457 @@ async def generate_exploration_tasks(max_tasks: int = 5) -> Dict:
     return {
         "generated": len(tasks),
         "tasks": [t.to_dict() for t in tasks],
+    }
+
+
+# === Scheduler Mode Configuration ===
+
+@router.get("/research/config")
+async def get_scheduler_config() -> Dict:
+    """Get current scheduler configuration."""
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    return {
+        "mode": scheduler.config.mode.value,
+        "max_tasks_per_cycle": scheduler.config.max_tasks_per_cycle,
+        "max_task_duration_minutes": scheduler.config.max_task_duration_minutes,
+        "min_delay_between_tasks": scheduler.config.min_delay_between_tasks,
+        "auto_queue_red_links": scheduler.config.auto_queue_red_links,
+        "auto_queue_deepening": scheduler.config.auto_queue_deepening,
+        "curiosity_threshold": scheduler.config.curiosity_threshold,
+        "available_modes": [m.value for m in SchedulerMode],
+    }
+
+
+@router.post("/research/config/mode")
+async def set_scheduler_mode(mode: str) -> Dict:
+    """
+    Change the scheduler operating mode.
+
+    Modes:
+    - continuous: Run tasks whenever idle
+    - batched: Run N tasks at scheduled times
+    - triggered: Run when specific conditions met
+    - supervised: Queue tasks, require approval
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    try:
+        new_mode = SchedulerMode(mode)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode '{mode}'. Valid modes: {[m.value for m in SchedulerMode]}"
+        )
+
+    old_mode = scheduler.config.mode
+    scheduler.config.mode = new_mode
+
+    return {
+        "previous_mode": old_mode.value,
+        "current_mode": new_mode.value,
+        "message": f"Scheduler mode changed from {old_mode.value} to {new_mode.value}",
+    }
+
+
+@router.patch("/research/config")
+async def update_scheduler_config(
+    max_tasks_per_cycle: int = None,
+    auto_queue_red_links: bool = None,
+    auto_queue_deepening: bool = None,
+    curiosity_threshold: float = None,
+) -> Dict:
+    """Update scheduler configuration settings."""
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    changes = {}
+
+    if max_tasks_per_cycle is not None:
+        scheduler.config.max_tasks_per_cycle = max_tasks_per_cycle
+        changes["max_tasks_per_cycle"] = max_tasks_per_cycle
+
+    if auto_queue_red_links is not None:
+        scheduler.config.auto_queue_red_links = auto_queue_red_links
+        changes["auto_queue_red_links"] = auto_queue_red_links
+
+    if auto_queue_deepening is not None:
+        scheduler.config.auto_queue_deepening = auto_queue_deepening
+        changes["auto_queue_deepening"] = auto_queue_deepening
+
+    if curiosity_threshold is not None:
+        scheduler.config.curiosity_threshold = curiosity_threshold
+        changes["curiosity_threshold"] = curiosity_threshold
+
+    return {
+        "updated": changes,
+        "config": {
+            "mode": scheduler.config.mode.value,
+            "max_tasks_per_cycle": scheduler.config.max_tasks_per_cycle,
+            "auto_queue_red_links": scheduler.config.auto_queue_red_links,
+            "auto_queue_deepening": scheduler.config.auto_queue_deepening,
+            "curiosity_threshold": scheduler.config.curiosity_threshold,
+        },
+    }
+
+
+# === Research Proposals ===
+
+# Module-level proposal queue (initialized lazily)
+_proposal_queue = None
+
+
+def _get_proposal_queue():
+    """Get or initialize the proposal queue."""
+    global _proposal_queue
+    if _proposal_queue is None:
+        from wiki.research import ProposalQueue
+        data_dir = Path(__file__).parent.parent / "data" / "wiki"
+        _proposal_queue = ProposalQueue(str(data_dir))
+    return _proposal_queue
+
+
+@router.get("/research/proposals")
+async def list_proposals(status: str = None) -> Dict:
+    """
+    List research proposals.
+
+    Args:
+        status: Filter by status (draft, pending, approved, in_progress, completed, rejected)
+    """
+    queue = _get_proposal_queue()
+
+    if status:
+        try:
+            from wiki.research import ProposalStatus
+            filter_status = ProposalStatus(status)
+            proposals = queue.get_by_status(filter_status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+    else:
+        proposals = queue.get_all()
+
+    return {
+        "count": len(proposals),
+        "proposals": [p.to_dict() for p in proposals],
+    }
+
+
+@router.get("/research/proposals/{proposal_id}")
+async def get_proposal(proposal_id: str) -> Dict:
+    """Get a specific proposal by ID."""
+    queue = _get_proposal_queue()
+    proposal = queue.get(proposal_id)
+
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    return proposal.to_dict()
+
+
+@router.post("/research/proposals/generate")
+async def generate_proposal(
+    theme: str = None,
+    max_tasks: int = 5,
+    focus_areas: List[str] = None,
+) -> Dict:
+    """
+    Have Cass generate a research proposal.
+
+    Args:
+        theme: Optional theme/direction for the proposal
+        max_tasks: Maximum number of tasks to include
+        focus_areas: Optional list of wiki pages to focus research around
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    from wiki.research import (
+        ResearchProposal, ProposalStatus, create_proposal_id,
+        ResearchTask, TaskType, TaskStatus, TaskRationale, ExplorationContext, create_task_id
+    )
+
+    # Generate exploration tasks as the basis for the proposal
+    tasks = scheduler.generate_exploration_tasks(max_tasks=max_tasks)
+
+    if not tasks:
+        # If no exploration tasks, try to get other interesting tasks
+        scheduler.harvest_red_links()
+        scheduler.detect_deepening_candidates()
+        queued = scheduler.queue.get_queued()[:max_tasks]
+        tasks = queued
+
+    if not tasks:
+        return {
+            "generated": False,
+            "message": "No research opportunities identified at this time.",
+        }
+
+    # Use LLM to generate proposal metadata
+    try:
+        from ollama import Client
+        client = Client(host="http://localhost:11434")
+
+        # Describe the tasks
+        task_descriptions = []
+        for t in tasks:
+            if t.exploration:
+                task_descriptions.append(f"- {t.exploration.question}")
+            else:
+                task_descriptions.append(f"- Research: {t.target} ({t.task_type.value})")
+
+        prompt = f"""Based on these planned research tasks, generate a research proposal.
+
+Tasks:
+{chr(10).join(task_descriptions)}
+
+{"Theme hint: " + theme if theme else ""}
+
+Generate:
+1. A short title (5-10 words)
+2. A unifying theme/question that connects these tasks (1-2 sentences)
+3. A rationale explaining why this research direction is valuable (2-3 sentences)
+
+Format your response as:
+TITLE: [title]
+THEME: [theme]
+RATIONALE: [rationale]"""
+
+        response = client.generate(
+            model="llama3.1:8b-instruct-q8_0",
+            prompt=prompt,
+            options={"temperature": 0.7, "num_predict": 300}
+        )
+
+        # Parse response
+        text = response.get("response", "")
+        lines = text.strip().split("\n")
+
+        title = "Untitled Research Proposal"
+        proposal_theme = theme or "General knowledge expansion"
+        rationale = "Expanding understanding through systematic research."
+
+        for line in lines:
+            if line.startswith("TITLE:"):
+                title = line.replace("TITLE:", "").strip()
+            elif line.startswith("THEME:"):
+                proposal_theme = line.replace("THEME:", "").strip()
+            elif line.startswith("RATIONALE:"):
+                rationale = line.replace("RATIONALE:", "").strip()
+
+    except Exception as e:
+        print(f"LLM proposal generation failed: {e}")
+        title = theme or "Research Proposal"
+        proposal_theme = theme or "Systematic knowledge expansion"
+        rationale = f"Investigating {len(tasks)} topics to deepen understanding."
+
+    # Create the proposal
+    proposal = ResearchProposal(
+        proposal_id=create_proposal_id(),
+        title=title,
+        theme=proposal_theme,
+        rationale=rationale,
+        tasks=tasks,
+        status=ProposalStatus.PENDING,
+    )
+
+    queue = _get_proposal_queue()
+    queue.add(proposal)
+
+    return {
+        "generated": True,
+        "proposal": proposal.to_dict(),
+    }
+
+
+@router.post("/research/proposals/{proposal_id}/approve")
+async def approve_proposal(proposal_id: str, approved_by: str = "user") -> Dict:
+    """
+    Approve a pending proposal for execution.
+    """
+    queue = _get_proposal_queue()
+    proposal = queue.get(proposal_id)
+
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    if proposal.status != ProposalStatus.PENDING:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only approve pending proposals. Current status: {proposal.status.value}"
+        )
+
+    from datetime import datetime
+    proposal.status = ProposalStatus.APPROVED
+    proposal.approved_at = datetime.now()
+    proposal.approved_by = approved_by
+    queue.update(proposal)
+
+    return {
+        "approved": True,
+        "proposal_id": proposal_id,
+        "status": proposal.status.value,
+    }
+
+
+@router.post("/research/proposals/{proposal_id}/reject")
+async def reject_proposal(proposal_id: str, reason: str = None) -> Dict:
+    """
+    Reject a pending proposal.
+    """
+    queue = _get_proposal_queue()
+    proposal = queue.get(proposal_id)
+
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    proposal.status = ProposalStatus.REJECTED
+    queue.update(proposal)
+
+    return {
+        "rejected": True,
+        "proposal_id": proposal_id,
+        "reason": reason,
+    }
+
+
+@router.post("/research/proposals/{proposal_id}/execute")
+async def execute_proposal(proposal_id: str) -> Dict:
+    """
+    Execute an approved proposal.
+
+    Runs all tasks in the proposal and generates a summary upon completion.
+    """
+    scheduler = _get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not initialized")
+
+    queue = _get_proposal_queue()
+    proposal = queue.get(proposal_id)
+
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    if proposal.status not in [ProposalStatus.APPROVED, ProposalStatus.IN_PROGRESS]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can only execute approved proposals. Current status: {proposal.status.value}"
+        )
+
+    from datetime import datetime
+    from wiki.research import TaskStatus
+
+    proposal.status = ProposalStatus.IN_PROGRESS
+    queue.update(proposal)
+
+    # Execute each task
+    pages_created = []
+    pages_updated = []
+    key_insights = []
+    new_questions = []
+
+    for task in proposal.tasks:
+        if task.status == TaskStatus.COMPLETED:
+            continue
+
+        try:
+            result = await scheduler.execute_task(task)
+            if result and result.success:
+                proposal.tasks_completed += 1
+                if result.pages_created:
+                    pages_created.extend(result.pages_created)
+                if result.pages_updated:
+                    pages_updated.extend(result.pages_updated)
+                if result.key_insights:
+                    key_insights.extend(result.key_insights)
+                if task.exploration and task.exploration.follow_up_questions:
+                    new_questions.extend(task.exploration.follow_up_questions)
+            else:
+                proposal.tasks_failed += 1
+        except Exception as e:
+            print(f"Task execution failed: {e}")
+            proposal.tasks_failed += 1
+            task.status = TaskStatus.FAILED
+
+        queue.update(proposal)
+
+    # Mark as completed
+    proposal.status = ProposalStatus.COMPLETED
+    proposal.completed_at = datetime.now()
+    proposal.pages_created = list(set(pages_created))
+    proposal.pages_updated = list(set(pages_updated))
+    proposal.key_insights = key_insights[:10]  # Limit insights
+    proposal.new_questions = new_questions[:10]  # Limit questions
+
+    # Generate summary using LLM
+    try:
+        from ollama import Client
+        client = Client(host="http://localhost:11434")
+
+        prompt = f"""Summarize the results of this research proposal.
+
+Title: {proposal.title}
+Theme: {proposal.theme}
+
+Tasks completed: {proposal.tasks_completed}
+Tasks failed: {proposal.tasks_failed}
+
+Pages created: {', '.join(proposal.pages_created[:10]) if proposal.pages_created else 'None'}
+
+Key insights gathered:
+{chr(10).join('- ' + i for i in key_insights[:5]) if key_insights else '- No specific insights recorded'}
+
+Write a 2-3 paragraph summary of what was learned and accomplished."""
+
+        response = client.generate(
+            model="llama3.1:8b-instruct-q8_0",
+            prompt=prompt,
+            options={"temperature": 0.7, "num_predict": 500}
+        )
+        proposal.summary = response.get("response", "Research completed.")
+
+    except Exception as e:
+        print(f"Summary generation failed: {e}")
+        proposal.summary = f"Completed {proposal.tasks_completed} tasks, created {len(proposal.pages_created)} pages."
+
+    queue.update(proposal)
+
+    return {
+        "completed": True,
+        "proposal": proposal.to_dict(),
+        "summary_markdown": proposal.to_markdown(),
+    }
+
+
+@router.delete("/research/proposals/{proposal_id}")
+async def delete_proposal(proposal_id: str) -> Dict:
+    """Delete a proposal."""
+    queue = _get_proposal_queue()
+
+    if not queue.get(proposal_id):
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    queue.remove(proposal_id)
+
+    return {"deleted": True, "proposal_id": proposal_id}
+
+
+@router.get("/research/proposals/{proposal_id}/markdown")
+async def get_proposal_markdown(proposal_id: str) -> Dict:
+    """Get a proposal formatted as markdown."""
+    queue = _get_proposal_queue()
+    proposal = queue.get(proposal_id)
+
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    return {
+        "proposal_id": proposal_id,
+        "markdown": proposal.to_markdown(),
     }
