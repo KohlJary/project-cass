@@ -4409,6 +4409,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     user_id=ws_user_id
                 )
 
+                # Determine provider and model for this response (needed for conversation storage)
+                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
+                    response_provider = "local"
+                    response_model = ollama_client.model
+                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
+                    response_provider = "openai"
+                    response_model = openai_client.model if hasattr(openai_client, 'model') else "gpt-4o"
+                elif USE_AGENT_SDK and agent_client:
+                    response_provider = "anthropic"
+                    response_model = agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
+                else:
+                    response_provider = "anthropic"
+                    response_model = "claude-sonnet-4-20250514"
+
                 # Store in conversation if conversation_id provided
                 if conversation_id:
                     conversation_manager.add_message(
@@ -4421,7 +4435,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         conversation_id=conversation_id,
                         role="assistant",
                         content=clean_text,
-                        animations=animations
+                        animations=animations,
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        provider=response_provider,
+                        model=response_model
                     )
 
                     # Auto-generate title on first exchange
@@ -4475,21 +4493,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         import traceback
                         traceback.print_exc()
 
-                # Determine provider and model for this response
-                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-                    response_provider = "local"
-                    response_model = ollama_client.model
-                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
-                    response_provider = "openai"
-                    response_model = openai_client.model if hasattr(openai_client, 'model') else "gpt-4o"
-                elif USE_AGENT_SDK and agent_client:
-                    response_provider = "anthropic"
-                    response_model = agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
-                else:
-                    response_provider = "anthropic"
-                    response_model = "claude-sonnet-4-20250514"
-
                 # Send combined response with text and audio
+                # (response_provider and response_model already determined above for conversation storage)
                 await websocket.send_json({
                     "type": "response",
                     "text": clean_text,
