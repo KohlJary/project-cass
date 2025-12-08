@@ -48,6 +48,7 @@ export const conversationsApi = {
   getById: (id: string) => api.get(`/admin/conversations/${id}`),
   getMessages: (id: string) => api.get(`/admin/conversations/${id}/messages`),
   getSummaries: (id: string) => api.get(`/admin/conversations/${id}/summaries`),
+  getObservations: (id: string) => api.get(`/conversations/${id}/observations`),
 };
 
 // System endpoints

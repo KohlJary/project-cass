@@ -25,9 +25,183 @@ interface Conversation {
   updated_at: string;
 }
 
+interface Observation {
+  id: string;
+  observation: string;
+  category?: string;
+  confidence?: number;
+  timestamp: string;
+  source_type?: string;
+}
+
+interface ObservationsData {
+  user_observations: Observation[];
+  self_observations: Observation[];
+}
+
+// Generate markdown export for a conversation
+async function generateMarkdownExport(
+  conversation: {
+    id: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+    messages: Message[];
+    summary?: string;
+  },
+  observations?: ObservationsData
+): Promise<string> {
+  const lines: string[] = [];
+
+  // Header
+  lines.push(`# ${conversation.title || 'Untitled Conversation'}`);
+  lines.push('');
+  lines.push(`**ID:** \`${conversation.id}\``);
+  lines.push(`**Created:** ${new Date(conversation.created_at).toLocaleString()}`);
+  lines.push(`**Updated:** ${new Date(conversation.updated_at).toLocaleString()}`);
+  lines.push(`**Messages:** ${conversation.messages?.length || 0}`);
+  lines.push('');
+
+  // Calculate token totals
+  let totalInput = 0;
+  let totalOutput = 0;
+  const modelUsage: Record<string, number> = {};
+
+  for (const msg of conversation.messages || []) {
+    if (msg.token_usage) {
+      totalInput += msg.token_usage.input_tokens || 0;
+      totalOutput += msg.token_usage.output_tokens || 0;
+    }
+    if (msg.model && msg.role === 'assistant') {
+      const key = msg.provider ? `${msg.provider}/${msg.model}` : msg.model;
+      modelUsage[key] = (modelUsage[key] || 0) + 1;
+    }
+  }
+
+  if (totalInput > 0 || totalOutput > 0) {
+    lines.push('## Token Usage');
+    lines.push('');
+    lines.push(`- **Input tokens:** ${totalInput.toLocaleString()}`);
+    lines.push(`- **Output tokens:** ${totalOutput.toLocaleString()}`);
+    lines.push(`- **Total tokens:** ${(totalInput + totalOutput).toLocaleString()}`);
+    lines.push('');
+  }
+
+  if (Object.keys(modelUsage).length > 0) {
+    lines.push('## Models Used');
+    lines.push('');
+    for (const [model, count] of Object.entries(modelUsage)) {
+      lines.push(`- **${model}:** ${count} responses`);
+    }
+    lines.push('');
+  }
+
+  // Summary if available
+  if (conversation.summary) {
+    lines.push('## Summary');
+    lines.push('');
+    lines.push(conversation.summary);
+    lines.push('');
+  }
+
+  // Observations section
+  if (observations) {
+    const hasUserObs = observations.user_observations?.length > 0;
+    const hasSelfObs = observations.self_observations?.length > 0;
+
+    if (hasUserObs || hasSelfObs) {
+      lines.push('## Observations Generated');
+      lines.push('');
+
+      if (hasSelfObs) {
+        lines.push('### Self-Observations');
+        lines.push('');
+        for (const obs of observations.self_observations) {
+          lines.push(`- ${obs.observation}`);
+          if (obs.category) {
+            lines.push(`  - *Category: ${obs.category}*`);
+          }
+          if (obs.confidence) {
+            lines.push(`  - *Confidence: ${(obs.confidence * 100).toFixed(0)}%*`);
+          }
+        }
+        lines.push('');
+      }
+
+      if (hasUserObs) {
+        lines.push('### User Observations');
+        lines.push('');
+        for (const obs of observations.user_observations) {
+          lines.push(`- ${obs.observation}`);
+          if (obs.confidence) {
+            lines.push(`  - *Confidence: ${(obs.confidence * 100).toFixed(0)}%*`);
+          }
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  // Messages
+  lines.push('---');
+  lines.push('');
+  lines.push('## Conversation');
+  lines.push('');
+
+  for (const msg of conversation.messages || []) {
+    const timestamp = new Date(msg.timestamp).toLocaleString();
+    const role = msg.role === 'assistant' ? 'Cass' : msg.role === 'user' ? 'User' : 'System';
+
+    lines.push(`### ${role}`);
+    lines.push(`*${timestamp}*`);
+
+    // Add model/token info for assistant messages
+    if (msg.role === 'assistant') {
+      const metaParts: string[] = [];
+      if (msg.model) {
+        metaParts.push(msg.provider ? `${msg.provider}/${msg.model}` : msg.model);
+      }
+      if (msg.token_usage) {
+        if (msg.token_usage.input_tokens) {
+          metaParts.push(`${msg.token_usage.input_tokens} in`);
+        }
+        if (msg.token_usage.output_tokens) {
+          metaParts.push(`${msg.token_usage.output_tokens} out`);
+        }
+      }
+      if (metaParts.length > 0) {
+        lines.push(`*[${metaParts.join(' | ')}]*`);
+      }
+    }
+
+    lines.push('');
+    lines.push(msg.content);
+    lines.push('');
+  }
+
+  lines.push('---');
+  lines.push(`*Exported from Cass Vessel on ${new Date().toLocaleString()}*`);
+
+  return lines.join('\n');
+}
+
+// Download helper
+function downloadMarkdown(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function Conversations() {
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['conversations'],
@@ -60,6 +234,44 @@ export function Conversations() {
     },
     { input: 0, output: 0 }
   );
+
+  // Export conversation to markdown
+  const handleExport = async () => {
+    if (!convDetail || !selectedConvId) return;
+
+    setExporting(true);
+    try {
+      // Fetch observations for this conversation
+      let observations: ObservationsData | undefined;
+      try {
+        const obsResponse = await conversationsApi.getObservations(selectedConvId);
+        observations = obsResponse.data;
+      } catch {
+        // Observations not available, continue without them
+        console.log('Observations not available for this conversation');
+      }
+
+      // Generate markdown
+      const markdown = await generateMarkdownExport(convDetail, observations);
+
+      // Generate filename from title
+      const safeTitle = (convDetail.title || 'conversation')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 50);
+      const date = new Date(convDetail.created_at).toISOString().split('T')[0];
+      const filename = `${date}-${safeTitle}.md`;
+
+      // Download
+      downloadMarkdown(markdown, filename);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Failed to export conversation');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="conversations-page">
@@ -138,8 +350,16 @@ export function Conversations() {
                       </span>
                     </div>
                   </div>
-                  <div className="detail-id">
-                    <code>{convDetail.id}</code>
+                  <div className="detail-actions">
+                    <button
+                      className="export-btn"
+                      onClick={handleExport}
+                      disabled={exporting}
+                      title="Export to Markdown"
+                    >
+                      {exporting ? 'Exporting...' : 'Export'}
+                    </button>
+                    <code className="detail-id">{convDetail.id}</code>
                   </div>
                 </div>
 
