@@ -216,6 +216,10 @@ app.include_router(git_router)
 from routes.files import router as files_router
 app.include_router(files_router)
 
+# Register export routes
+from routes.export import router as export_router
+app.include_router(export_router)
+
 # Register terminal routes
 from routes.terminal import router as terminal_router
 app.include_router(terminal_router)

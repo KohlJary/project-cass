@@ -20,6 +20,10 @@ def init_wiki_routes(wiki_storage, memory=None):
     _wiki_storage = wiki_storage
     _memory = memory  # CassMemory instance for embeddings
 
+    # Also set module-level instances for other modules to access
+    import wiki as wiki_module
+    wiki_module.set_storage(wiki_storage)
+
 
 # === Request/Response Models ===
 
@@ -1729,6 +1733,7 @@ def _get_scheduler():
     global _research_queue, _research_scheduler
     if _research_scheduler is None and _wiki_storage is not None:
         from wiki import ResearchQueue, ResearchScheduler, SchedulerConfig
+        import wiki as wiki_module
         # Use data directory for queue persistence
         queue_dir = _data_dir if _data_dir else "."
         _research_queue = ResearchQueue(queue_dir)
@@ -1738,6 +1743,8 @@ def _get_scheduler():
             SchedulerConfig(),
             _memory,
         )
+        # Set module-level instance for other modules to access
+        wiki_module.set_scheduler(_research_scheduler)
     return _research_scheduler
 
 

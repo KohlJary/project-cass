@@ -8,6 +8,7 @@ from .roadmap import router as roadmap_router
 from .git import router as git_router
 from .files import router as files_router
 from .wiki import router as wiki_router
+from .export import router as export_router
 
 __all__ = [
     "tasks_router",
@@ -16,4 +17,5 @@ __all__ = [
     "git_router",
     "files_router",
     "wiki_router",
+    "export_router",
 ]

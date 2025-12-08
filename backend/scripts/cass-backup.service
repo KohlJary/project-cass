@@ -1,0 +1,11 @@
+[Unit]
+Description=Cass Data Backup
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/jaryk/cass/cass-vessel/backend/scripts/backup.sh
+User=jaryk
+Environment=BACKUP_DIR=/home/jaryk/cass/cass-vessel/data/backups
+Environment=DATA_DIR=/home/jaryk/cass/cass-vessel/data
+Environment=RETENTION_DAYS=30

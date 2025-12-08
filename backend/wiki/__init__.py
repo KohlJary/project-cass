@@ -53,6 +53,28 @@ from .scheduler import (
     SchedulerConfig,
 )
 
+# Module-level instances (initialized by routes/wiki.py)
+_storage_instance = None
+_scheduler_instance = None
+
+def set_storage(storage: WikiStorage):
+    """Set the module-level storage instance."""
+    global _storage_instance
+    _storage_instance = storage
+
+def get_storage() -> WikiStorage:
+    """Get the module-level storage instance."""
+    return _storage_instance
+
+def set_scheduler(scheduler: ResearchScheduler):
+    """Set the module-level scheduler instance."""
+    global _scheduler_instance
+    _scheduler_instance = scheduler
+
+def get_scheduler() -> ResearchScheduler:
+    """Get the module-level scheduler instance."""
+    return _scheduler_instance
+
 __all__ = [
     "WikiStorage",
     "WikiPage",
@@ -97,4 +119,9 @@ __all__ = [
     "ResearchScheduler",
     "SchedulerMode",
     "SchedulerConfig",
+    # Module-level accessors
+    "set_storage",
+    "get_storage",
+    "set_scheduler",
+    "get_scheduler",
 ]
