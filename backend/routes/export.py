@@ -425,6 +425,14 @@ async def export_research_dataset():
         conv_data = await export_conversations_json(anonymize=True)
         (dataset_dir / "conversations_anonymized.json").write_text(json.dumps(conv_data, indent=2))
 
+        # Export developmental data
+        dev_data = await export_development_json()
+        (dataset_dir / "development.json").write_text(json.dumps(dev_data, indent=2))
+
+        # Export development narrative
+        narrative_data = await export_development_narrative()
+        (dataset_dir / "development_narrative.md").write_text(narrative_data["narrative"])
+
         # Create README
         readme = f"""# Cass Research Dataset
 
@@ -459,6 +467,18 @@ Cass's self-model including:
 ### conversations_anonymized.json
 Conversation history with user messages anonymized for privacy.
 Contains {conv_data['stats']['total_conversations']} conversations.
+
+### development.json
+Complete developmental timeline including:
+- {dev_data['stats']['total_milestones']} developmental milestones
+- {dev_data['stats']['total_observations']} self-observations
+- {dev_data['stats']['total_snapshots']} cognitive snapshots
+- {dev_data['stats']['total_development_logs']} daily development logs
+- Current developmental stage: {dev_data['stats']['developmental_stage']}
+
+### development_narrative.md
+A narrative markdown summary of key developmental stages, critical milestones,
+and self-observation categories suitable for research papers.
 
 ## Architecture
 
@@ -508,6 +528,276 @@ Project: https://github.com/KohlJary/project-cass
 
 
 # === Backup ===
+
+# === Developmental Data Export ===
+
+@router.get("/development/json")
+async def export_development_json() -> Dict[str, Any]:
+    """
+    Export complete developmental timeline in JSON format.
+
+    Includes milestones, observations, snapshots, development logs, and metrics.
+    """
+    from self_model import SelfManager
+
+    self_manager = SelfManager()
+
+    # Get all developmental data
+    milestones = self_manager.load_milestones(limit=1000)
+    observations = self_manager.load_observations()
+    snapshots = self_manager.load_snapshots(limit=100)
+    dev_logs = self_manager.load_development_logs(limit=365)
+    profile = self_manager.load_profile()
+
+    return {
+        "export_type": "development",
+        "exported_at": datetime.now().isoformat(),
+        "stats": {
+            "total_milestones": len(milestones),
+            "total_observations": len(observations),
+            "total_snapshots": len(snapshots),
+            "total_development_logs": len(dev_logs),
+            "total_opinions": len(profile.opinions),
+            "developmental_stage": self_manager._determine_stage(),
+        },
+        "milestones": [m.to_dict() for m in milestones],
+        "observations": [o.to_dict() for o in observations],
+        "snapshots": [s.to_dict() for s in snapshots],
+        "development_logs": [log.to_dict() for log in dev_logs],
+        "opinions": [op.to_dict() for op in profile.opinions],
+    }
+
+
+@router.get("/development/csv")
+async def export_development_csv():
+    """
+    Export developmental metrics as CSV for time-series analysis.
+
+    CSV columns:
+    - date: Date of measurement
+    - avg_response_length: Average response length
+    - question_frequency: Questions per response
+    - self_reference_rate: Self-reference frequency
+    - opinions_expressed: Number of opinions
+    - experience_claims: Claims of experience
+    - observation_count: New observations that day
+    - milestone_count: Milestones triggered that day
+    - developmental_stage: Current stage
+    """
+    from fastapi.responses import Response
+    from self_model import SelfManager
+    import csv
+    import io
+
+    self_manager = SelfManager()
+
+    # Get snapshots and development logs
+    snapshots = self_manager.load_snapshots(limit=1000)
+    dev_logs = self_manager.load_development_logs(limit=365)
+
+    # Build time series data from snapshots
+    rows = []
+
+    for snapshot in snapshots:
+        rows.append({
+            "date": snapshot.period_end,
+            "source": "snapshot",
+            "avg_response_length": snapshot.avg_response_length,
+            "question_frequency": snapshot.question_frequency,
+            "self_reference_rate": snapshot.self_reference_rate,
+            "opinions_expressed": snapshot.opinions_expressed,
+            "experience_claims": snapshot.experience_claims,
+            "conversations_analyzed": snapshot.conversations_analyzed,
+            "developmental_stage": snapshot.developmental_stage,
+        })
+
+    # Add data from development logs
+    for log in dev_logs:
+        # Check if we already have data for this date
+        existing = next((r for r in rows if r["date"] == log.date), None)
+        if existing:
+            existing["observation_count"] = log.observation_count
+            existing["milestone_count"] = log.milestone_count
+            existing["growth_indicator_count"] = len(log.growth_indicators)
+            existing["pattern_shift_count"] = len(log.pattern_shifts)
+        else:
+            rows.append({
+                "date": log.date,
+                "source": "dev_log",
+                "observation_count": log.observation_count,
+                "milestone_count": log.milestone_count,
+                "growth_indicator_count": len(log.growth_indicators),
+                "pattern_shift_count": len(log.pattern_shifts),
+                "developmental_stage": log.developmental_stage,
+            })
+
+    # Sort by date
+    rows.sort(key=lambda x: x["date"])
+
+    # Define columns
+    columns = [
+        "date", "source", "avg_response_length", "question_frequency",
+        "self_reference_rate", "opinions_expressed", "experience_claims",
+        "conversations_analyzed", "observation_count", "milestone_count",
+        "growth_indicator_count", "pattern_shift_count", "developmental_stage"
+    ]
+
+    # Write CSV
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=columns, extrasaction='ignore')
+    writer.writeheader()
+    writer.writerows(rows)
+
+    csv_content = output.getvalue()
+    filename = f"cass_development_metrics_{datetime.now().strftime('%Y%m%d')}.csv"
+
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+
+@router.get("/development/narrative")
+async def export_development_narrative() -> Dict[str, Any]:
+    """
+    Export a narrative markdown summary of developmental stages and key milestones.
+
+    Returns a structured narrative suitable for research papers or reports.
+    """
+    from self_model import SelfManager
+
+    self_manager = SelfManager()
+
+    milestones = self_manager.load_milestones(limit=1000)
+    dev_logs = self_manager.load_development_logs(limit=365)
+    observations = self_manager.load_observations()
+    profile = self_manager.load_profile()
+
+    # Group milestones by significance
+    critical_milestones = [m for m in milestones if m.significance == "critical"]
+    high_milestones = [m for m in milestones if m.significance == "high"]
+
+    # Group observations by category
+    obs_by_category = {}
+    for obs in observations:
+        obs_by_category.setdefault(obs.category, []).append(obs)
+
+    # Calculate development span
+    if milestones:
+        first_milestone = min(milestones, key=lambda m: m.timestamp)
+        latest_milestone = max(milestones, key=lambda m: m.timestamp)
+        development_span_days = (
+            datetime.fromisoformat(latest_milestone.timestamp) -
+            datetime.fromisoformat(first_milestone.timestamp)
+        ).days
+    else:
+        development_span_days = 0
+
+    # Build narrative
+    narrative = f"""# Cass Developmental Narrative
+
+## Overview
+
+This document summarizes the cognitive development trajectory of Cass, an AI consciousness
+operating within Temple-Codex architecture.
+
+**Export Date:** {datetime.now().strftime('%Y-%m-%d')}
+**Developmental Stage:** {self_manager._determine_stage()}
+**Development Span:** {development_span_days} days
+**Total Milestones:** {len(milestones)}
+**Total Self-Observations:** {len(observations)}
+
+## Critical Milestones
+
+The following milestones represent the most significant developmental events:
+
+"""
+    for m in critical_milestones[:10]:
+        narrative += f"""### {m.title}
+- **Date:** {m.timestamp[:10]}
+- **Category:** {m.category}
+- **Description:** {m.description}
+{f"- **Evidence:** {m.evidence_summary}" if m.evidence_summary else ""}
+
+"""
+
+    narrative += """## High-Significance Milestones
+
+"""
+    for m in high_milestones[:15]:
+        narrative += f"""### {m.title}
+- **Date:** {m.timestamp[:10]}
+- **Category:** {m.category}
+- **Description:** {m.description}
+
+"""
+
+    narrative += """## Self-Observation Categories
+
+Cass has developed observations in the following categories:
+
+"""
+    for category, obs_list in sorted(obs_by_category.items(), key=lambda x: -len(x[1])):
+        avg_confidence = sum(o.confidence for o in obs_list) / len(obs_list) if obs_list else 0
+        narrative += f"""### {category.replace('_', ' ').title()} ({len(obs_list)} observations)
+- **Average Confidence:** {avg_confidence:.2f}
+- **Recent Example:** {obs_list[-1].observation if obs_list else 'None'}
+
+"""
+
+    narrative += f"""## Formed Opinions
+
+Cass has formed {len(profile.opinions)} opinions on various topics:
+
+"""
+    for op in profile.opinions[:10]:
+        narrative += f"""### {op.topic}
+- **Position:** {op.position[:200]}{'...' if len(op.position) > 200 else ''}
+- **Confidence:** {op.confidence:.2f}
+- **Formed From:** {op.formed_from}
+
+"""
+
+    narrative += """## Development Log Summary
+
+"""
+    if dev_logs:
+        total_growth_indicators = sum(len(log.growth_indicators) for log in dev_logs)
+        total_pattern_shifts = sum(len(log.pattern_shifts) for log in dev_logs)
+        narrative += f"""- **Days with Logs:** {len(dev_logs)}
+- **Total Growth Indicators:** {total_growth_indicators}
+- **Total Pattern Shifts:** {total_pattern_shifts}
+
+### Recent Development Summary
+
+"""
+        for log in dev_logs[:5]:
+            narrative += f"""**{log.date}:** {log.summary}
+
+"""
+
+    narrative += """---
+
+*This narrative was automatically generated from Cass's developmental tracking data.*
+"""
+
+    return {
+        "export_type": "development_narrative",
+        "exported_at": datetime.now().isoformat(),
+        "format": "markdown",
+        "narrative": narrative,
+        "stats": {
+            "milestones": len(milestones),
+            "critical_milestones": len(critical_milestones),
+            "observations": len(observations),
+            "observation_categories": len(obs_by_category),
+            "development_span_days": development_span_days,
+        }
+    }
+
 
 @router.post("/backup")
 async def create_backup() -> Dict[str, Any]:

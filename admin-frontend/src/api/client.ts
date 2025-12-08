@@ -60,9 +60,51 @@ export const systemApi = {
 
 // Self-model endpoints
 export const selfModelApi = {
-  get: () => api.get('/admin/self-model'),
-  getGrowthEdges: () => api.get('/admin/self-model/growth-edges'),
-  getOpenQuestions: () => api.get('/admin/self-model/questions'),
+  get: () => api.get('/cass/self-model'),
+  getSummary: () => api.get('/cass/self-model/summary'),
+  getGrowthEdges: () => api.get('/cass/growth-edges'),
+  getOpinions: () => api.get('/cass/opinions'),
+  getOpenQuestions: () => api.get('/cass/open-questions'),
+};
+
+// Development tracking endpoints
+export const developmentApi = {
+  // Observations
+  getObservations: (params?: { category?: string; limit?: number }) =>
+    api.get('/cass/self-observations', { params }),
+  getObservationStats: () => api.get('/cass/self-observations/stats'),
+
+  // Cognitive snapshots
+  getSnapshots: (limit?: number) =>
+    api.get('/cass/snapshots', { params: { limit } }),
+  getLatestSnapshot: () => api.get('/cass/snapshots/latest'),
+  getSnapshot: (id: string) => api.get(`/cass/snapshots/${id}`),
+  compareSnapshots: (id1: string, id2: string) =>
+    api.get(`/cass/snapshots/compare/${id1}/${id2}`),
+  getSnapshotTrend: (metric: string, limit?: number) =>
+    api.get(`/cass/snapshots/trend/${metric}`, { params: { limit } }),
+  createSnapshot: (periodStart: string, periodEnd: string) =>
+    api.post('/cass/snapshots', { period_start: periodStart, period_end: periodEnd }),
+
+  // Milestones
+  getMilestones: (params?: { milestone_type?: string; category?: string; limit?: number }) =>
+    api.get('/cass/milestones', { params }),
+  getMilestoneSummary: () => api.get('/cass/milestones/summary'),
+  getUnacknowledgedMilestones: () => api.get('/cass/milestones/unacknowledged'),
+  getMilestone: (id: string) => api.get(`/cass/milestones/${id}`),
+  acknowledgeMilestone: (id: string) => api.post(`/cass/milestones/${id}/acknowledge`),
+  checkMilestones: () => api.post('/cass/milestones/check'),
+
+  // Development logs
+  getDevelopmentLogs: (limit?: number) =>
+    api.get('/cass/development-logs', { params: { limit } }),
+  getDevelopmentLog: (date: string) => api.get(`/cass/development-logs/${date}`),
+  getDevelopmentSummary: (days?: number) =>
+    api.get('/cass/development-logs/summary', { params: { days } }),
+
+  // Timeline data (aggregated)
+  getTimelineData: (days?: number) =>
+    api.get('/cass/development/timeline', { params: { days } }),
 };
 
 // Wiki endpoints
@@ -122,6 +164,10 @@ export const exportApi = {
   getConversationsJson: (anonymize?: boolean) =>
     api.get('/export/conversations/json', { params: { anonymize: anonymize ?? true } }),
   getDataset: () => api.get('/export/dataset', { responseType: 'blob' }),
+  // Development exports
+  getDevelopmentJson: () => api.get('/export/development/json'),
+  getDevelopmentCsv: () => api.get('/export/development/csv', { responseType: 'blob' }),
+  getDevelopmentNarrative: () => api.get('/export/development/narrative'),
   createBackup: () => api.post('/export/backup'),
   listBackups: () => api.get('/export/backups'),
   // Import endpoints (will need backend support)
