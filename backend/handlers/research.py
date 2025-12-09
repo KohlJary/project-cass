@@ -78,6 +78,11 @@ async def execute_research_tool(
         elif tool_name == "get_proposal_details":
             return await _get_proposal_details(tool_input, proposal_queue)
 
+        elif tool_name == "view_research_dashboard":
+            return await _view_research_dashboard(
+                tool_input, research_queue, self_manager, wiki_storage
+            )
+
         else:
             return {"success": False, "error": f"Unknown research tool: {tool_name}"}
 
@@ -651,6 +656,190 @@ async def _get_proposal_details(tool_input: Dict, proposal_queue: ProposalQueue)
     }
 
 
+async def _view_research_dashboard(
+    tool_input: Dict,
+    research_queue: ResearchQueue,
+    self_manager: SelfManager,
+    wiki_storage: WikiStorage,
+) -> Dict:
+    """
+    View comprehensive research progress dashboard.
+
+    Provides a unified view of:
+    - Research activity (queue stats, history, completion rates)
+    - Wiki growth (pages, links, maturity)
+    - Knowledge graph health
+    - Self-model development metrics
+    - Cross-context consistency (if available)
+    """
+    section = tool_input.get("section", "all")
+
+    result_lines = ["# Research Progress Dashboard\n"]
+
+    # === Research Activity ===
+    if section in ("all", "research"):
+        result_lines.append("## Research Activity\n")
+
+        if research_queue:
+            stats = research_queue.get_stats()
+            queued = stats.get("by_status", {}).get("queued", 0)
+            completed = stats.get("by_status", {}).get("completed", 0)
+            in_progress = stats.get("by_status", {}).get("in_progress", 0)
+            failed = stats.get("by_status", {}).get("failed", 0)
+
+            result_lines.append(f"**Queue Status:**")
+            result_lines.append(f"- Queued: {queued}")
+            result_lines.append(f"- In Progress: {in_progress}")
+            result_lines.append(f"- Completed: {completed}")
+            if failed > 0:
+                result_lines.append(f"- Failed: {failed}")
+
+            result_lines.append(f"\n**By Type:**")
+            for task_type, count in stats.get("by_type", {}).items():
+                result_lines.append(f"- {task_type}: {count}")
+
+            # Recent history
+            history = research_queue.get_history(limit=30)
+            if history:
+                by_date = {}
+                for task in history:
+                    completed_at = task.get("completed_at", "")[:10]
+                    if completed_at:
+                        by_date[completed_at] = by_date.get(completed_at, 0) + 1
+
+                result_lines.append(f"\n**30-Day Activity:** {len(history)} tasks completed")
+                if by_date:
+                    recent_dates = sorted(by_date.keys(), reverse=True)[:5]
+                    for date in recent_dates:
+                        result_lines.append(f"- {date}: {by_date[date]} tasks")
+        else:
+            result_lines.append("*Research queue not available*")
+
+        result_lines.append("")
+
+    # === Wiki Growth ===
+    if section in ("all", "wiki"):
+        result_lines.append("## Wiki Growth\n")
+
+        if wiki_storage:
+            pages = wiki_storage.list_pages()
+            maturity_stats = wiki_storage.get_maturity_stats()
+            graph = wiki_storage.get_link_graph()
+
+            # Count by type
+            by_type = {}
+            for page in pages:
+                ptype = page.page_type.value if hasattr(page.page_type, 'value') else str(page.page_type)
+                by_type[ptype] = by_type.get(ptype, 0) + 1
+
+            # Count links
+            all_links = set()
+            existing = {p.name.lower() for p in pages}
+            for targets in graph.values():
+                all_links.update(targets)
+            red_links = [l for l in all_links if l.lower() not in existing]
+
+            result_lines.append(f"**Pages:** {len(pages)}")
+            result_lines.append(f"**Links:** {len(all_links)}")
+            result_lines.append(f"**Red Links:** {len(red_links)} (topics to explore)")
+
+            result_lines.append(f"\n**By Type:**")
+            for ptype, count in sorted(by_type.items(), key=lambda x: -x[1]):
+                result_lines.append(f"- {ptype}: {count}")
+
+            result_lines.append(f"\n**Maturity:**")
+            result_lines.append(f"- Avg Depth Score: {maturity_stats.get('avg_depth_score', 0):.3f}")
+            result_lines.append(f"- Deepening Candidates: {maturity_stats.get('deepening_candidates', 0)}")
+        else:
+            result_lines.append("*Wiki storage not available*")
+
+        result_lines.append("")
+
+    # === Self-Model Development ===
+    if section in ("all", "self_model"):
+        result_lines.append("## Self-Model Development\n")
+
+        if self_manager:
+            try:
+                profile = self_manager.load_profile()
+                observations = self_manager.load_observations()
+                stage = self_manager._detect_developmental_stage()
+                dev_summary = self_manager.get_recent_development_summary(days=7)
+
+                result_lines.append(f"**Developmental Stage:** {stage}")
+                result_lines.append(f"**Growth Edges:** {len(profile.growth_edges)}")
+                result_lines.append(f"**Opinions Formed:** {len(profile.opinions)}")
+                result_lines.append(f"**Open Questions:** {len(profile.open_questions)}")
+                result_lines.append(f"**Self-Observations:** {len(observations)}")
+
+                # 7-day summary
+                result_lines.append(f"\n**7-Day Development:**")
+                result_lines.append(f"- Growth Indicators: {dev_summary.get('total_growth_indicators', 0)}")
+                result_lines.append(f"- Pattern Shifts: {dev_summary.get('total_pattern_shifts', 0)}")
+                result_lines.append(f"- Milestones Triggered: {dev_summary.get('total_milestones_triggered', 0)}")
+
+                # Current growth edges
+                if profile.growth_edges:
+                    result_lines.append(f"\n**Active Growth Edges:**")
+                    for edge in profile.growth_edges[:3]:
+                        result_lines.append(f"- **{edge.area}**")
+                        result_lines.append(f"  Current: {edge.current_state[:80]}...")
+                        if edge.desired_state:
+                            result_lines.append(f"  Desired: {edge.desired_state[:80]}...")
+
+                # Latest snapshot if available
+                snapshot = self_manager.get_latest_snapshot()
+                if snapshot:
+                    result_lines.append(f"\n**Latest Cognitive Snapshot:**")
+                    result_lines.append(f"- Period: {snapshot.period_start} to {snapshot.period_end}")
+                    result_lines.append(f"- Authenticity Score: {snapshot.avg_authenticity_score:.0%}")
+                    result_lines.append(f"- Agency Score: {snapshot.avg_agency_score:.0%}")
+                    result_lines.append(f"- Conversations Analyzed: {snapshot.conversations_analyzed}")
+            except Exception as e:
+                result_lines.append(f"*Error loading self-model: {e}*")
+        else:
+            result_lines.append("*Self-model not available*")
+
+        result_lines.append("")
+
+    # === Cross-Context Consistency ===
+    if section in ("all", "cross_context"):
+        result_lines.append("## Cross-Context Consistency\n")
+
+        try:
+            from testing.cross_context_analyzer import CrossContextAnalyzer
+            from config import DATA_DIR
+
+            analyzer = CrossContextAnalyzer(str(DATA_DIR / "testing" / "cross_context"))
+            consistency = analyzer.analyze_consistency()
+
+            result_lines.append(f"**Overall Score:** {consistency.overall_score:.0%}")
+            result_lines.append(f"**Grade:** {consistency.grade}")
+            result_lines.append(f"**Samples Analyzed:** {consistency.total_samples}")
+            result_lines.append(f"**Anomalies Detected:** {len(consistency.anomalies)}")
+
+            if consistency.key_findings:
+                result_lines.append(f"\n**Key Findings:**")
+                for finding in consistency.key_findings[:3]:
+                    result_lines.append(f"- {finding}")
+
+            if consistency.context_coverage:
+                result_lines.append(f"\n**Context Coverage:**")
+                for ctx, count in sorted(consistency.context_coverage.items(), key=lambda x: -x[1]):
+                    result_lines.append(f"- {ctx}: {count} samples")
+
+        except Exception as e:
+            result_lines.append(f"*Cross-context analysis not available: {e}*")
+
+    result_lines.append("\n---")
+    result_lines.append("*Use `view_research_dashboard` with `section` parameter to focus on: research, wiki, self_model, or cross_context*")
+
+    return {
+        "success": True,
+        "result": "\n".join(result_lines),
+    }
+
+
 # === Helper Functions ===
 
 def _collect_red_links(wiki_storage: WikiStorage) -> List[Dict]:
@@ -906,6 +1095,22 @@ RESEARCH_PROPOSAL_TOOLS = [
                 }
             },
             "required": ["proposal_id"]
+        }
+    },
+    {
+        "name": "view_research_dashboard",
+        "description": "View your research progress dashboard showing research activity, wiki growth, self-model development, and cross-context consistency metrics. Use this to reflect on your own growth and learning patterns.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": "Which section to view: 'all' (full dashboard), 'research' (queue/history), 'wiki' (pages/links/maturity), 'self_model' (growth edges/observations), 'cross_context' (consistency analysis)",
+                    "enum": ["all", "research", "wiki", "self_model", "cross_context"],
+                    "default": "all"
+                }
+            },
+            "required": []
         }
     }
 ]
