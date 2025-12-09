@@ -72,6 +72,7 @@ from handlers import (
     execute_testing_tool,
     execute_research_tool,
     execute_solo_reflection_tool,
+    execute_insight_tool,
 )
 import base64
 
@@ -2298,6 +2299,19 @@ async def chat(request: ChatRequest):
         if self_context:
             memory_context = self_context + "\n\n" + memory_context
 
+        # Add cross-session insights relevant to this message
+        cross_session_insights = memory.retrieve_cross_session_insights(
+            query=request.message,
+            n_results=5,
+            max_distance=1.2,
+            min_importance=0.5,
+            exclude_conversation_id=request.conversation_id
+        )
+        if cross_session_insights:
+            insights_context = memory.format_cross_session_context(cross_session_insights)
+            if insights_context:
+                memory_context = insights_context + "\n\n" + memory_context
+
     # Get unsummarized message count to determine if summarization is available
     unsummarized_count = 0
     if request.conversation_id:
@@ -2416,6 +2430,13 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         reflection_manager=reflection_manager,
                         reflection_runner=get_reflection_runner(),
+                    )
+                elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
+                    tool_result = await execute_insight_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        memory=memory,
+                        conversation_id=request.conversation_id
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(
@@ -5227,6 +5248,21 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     if wiki_retrieval_ms > 0:
                         print(f"[Wiki] Auto-injected {wiki_pages_count} pages in {wiki_retrieval_ms}ms: {wiki_page_names}")
 
+                # Add cross-session insights relevant to this message
+                cross_session_insights = memory.retrieve_cross_session_insights(
+                    query=user_message,
+                    n_results=5,
+                    max_distance=1.2,
+                    min_importance=0.5,
+                    exclude_conversation_id=conversation_id
+                )
+                cross_session_insights_count = len(cross_session_insights)
+                if cross_session_insights:
+                    insights_context = memory.format_cross_session_context(cross_session_insights)
+                    if insights_context:
+                        memory_context = insights_context + "\n\n" + memory_context
+                        print(f"[CrossSession] Surfaced {cross_session_insights_count} insights for query")
+
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
                 if conversation_id:
@@ -5240,6 +5276,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "project_docs_count": project_docs_count,
                     "user_context_count": user_context_count,
                     "wiki_pages_count": wiki_pages_count,
+                    "cross_session_insights_count": cross_session_insights_count,
                     "has_context": bool(memory_context)
                 }
                 await websocket.send_json({
@@ -5407,6 +5444,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     reflection_manager=reflection_manager,
                                     reflection_runner=get_reflection_runner(),
                                 )
+                            elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
+                                tool_result = await execute_insight_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory,
+                                    conversation_id=conversation_id
+                                )
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -5564,6 +5608,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     reflection_manager=reflection_manager,
                                     reflection_runner=get_reflection_runner(),
+                                )
+                            elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
+                                tool_result = await execute_insight_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory,
+                                    conversation_id=conversation_id
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
@@ -5729,6 +5780,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     reflection_manager=reflection_manager,
                                     reflection_runner=get_reflection_runner(),
+                                )
+                            elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
+                                tool_result = await execute_insight_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory,
+                                    conversation_id=conversation_id
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
