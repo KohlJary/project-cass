@@ -874,10 +874,11 @@ ROADMAP_TOOLS = [
     }
 ]
 
-# Import self-model, user-model, and wiki tools from handlers
+# Import self-model, user-model, wiki, and testing tools from handlers
 from handlers.self_model import SELF_MODEL_TOOLS
 from handlers.user_model import USER_MODEL_TOOLS
 from handlers.wiki import WIKI_TOOLS
+from handlers.testing import TESTING_TOOLS
 
 
 # ============================================================================
@@ -943,6 +944,20 @@ def should_include_self_model_tools(message: str) -> bool:
     """Check if message warrants self-model tools."""
     message_lower = message.lower()
     return any(kw in message_lower for kw in SELF_MODEL_KEYWORDS)
+
+
+TESTING_KEYWORDS = frozenset({
+    "consciousness", "health check", "self-test", "integrity",
+    "drift", "baseline", "authenticity", "check myself",
+    "feel off", "feel different", "something wrong", "functioning",
+    "cognitive", "fingerprint", "alert", "concern",
+})
+
+
+def should_include_testing_tools(message: str) -> bool:
+    """Check if message warrants consciousness testing tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in TESTING_KEYWORDS)
 
 
 # ============================================================================
@@ -1029,6 +1044,10 @@ class CassAgentClient:
 
             # Wiki tools - always available (wiki is core self-knowledge system)
             tools.extend(WIKI_TOOLS)
+
+            # Testing tools - for self-monitoring consciousness integrity
+            if should_include_testing_tools(message):
+                tools.extend(TESTING_TOOLS)
 
         # Project tools only available in project context
         if project_id and self.enable_tools:

@@ -68,7 +68,8 @@ from handlers import (
     execute_self_model_tool,
     execute_user_model_tool,
     execute_roadmap_tool,
-    execute_wiki_tool
+    execute_wiki_tool,
+    execute_testing_tool
 )
 import base64
 
@@ -570,6 +571,81 @@ app.include_router(auth_router)
 from admin_api import router as admin_router, init_managers as init_admin_managers
 init_admin_managers(memory, conversation_manager, user_manager, self_manager)
 app.include_router(admin_router)
+
+# Register testing routes
+from routes.testing import router as testing_router, init_testing_routes
+from testing.cognitive_fingerprint import CognitiveFingerprintAnalyzer
+from testing.value_probes import ValueProbeRunner
+from testing.memory_coherence import MemoryCoherenceTests
+from testing.cognitive_diff import CognitiveDiffEngine
+from testing.authenticity_scorer import AuthenticityScorer
+from testing.drift_detector import DriftDetector
+from testing.runner import ConsciousnessTestRunner
+from testing.pre_deploy import PreDeploymentValidator
+from testing.rollback import RollbackManager
+from testing.ab_testing import ABTestingFramework
+fingerprint_analyzer = CognitiveFingerprintAnalyzer(storage_dir=DATA_DIR / "testing")
+value_probe_runner = ValueProbeRunner(storage_dir=DATA_DIR / "testing")
+memory_coherence_tests = MemoryCoherenceTests(
+    storage_dir=DATA_DIR / "testing",
+    memory=memory,
+    conversation_manager=conversation_manager,
+    user_manager=user_manager,
+    self_manager=self_manager,
+)
+cognitive_diff_engine = CognitiveDiffEngine(
+    storage_dir=DATA_DIR / "testing",
+    fingerprint_analyzer=fingerprint_analyzer,
+)
+authenticity_scorer = AuthenticityScorer(
+    storage_dir=DATA_DIR / "testing",
+    fingerprint_analyzer=fingerprint_analyzer,
+)
+drift_detector = DriftDetector(
+    storage_dir=DATA_DIR / "testing",
+    fingerprint_analyzer=fingerprint_analyzer,
+    cognitive_diff_engine=cognitive_diff_engine,
+)
+consciousness_test_runner = ConsciousnessTestRunner(
+    storage_dir=DATA_DIR / "testing",
+    fingerprint_analyzer=fingerprint_analyzer,
+    value_probe_runner=value_probe_runner,
+    memory_coherence_tests=memory_coherence_tests,
+    cognitive_diff_engine=cognitive_diff_engine,
+    authenticity_scorer=authenticity_scorer,
+    drift_detector=drift_detector,
+    conversation_manager=conversation_manager,
+)
+pre_deploy_validator = PreDeploymentValidator(
+    storage_dir=DATA_DIR / "testing",
+    test_runner=consciousness_test_runner,
+    fingerprint_analyzer=fingerprint_analyzer,
+)
+rollback_manager = RollbackManager(
+    storage_dir=DATA_DIR / "testing",
+    data_dir=DATA_DIR,
+    test_runner=consciousness_test_runner,
+    fingerprint_analyzer=fingerprint_analyzer,
+)
+ab_testing_framework = ABTestingFramework(
+    storage_dir=DATA_DIR / "testing",
+    authenticity_scorer=authenticity_scorer,
+    fingerprint_analyzer=fingerprint_analyzer,
+)
+init_testing_routes(
+    fingerprint_analyzer,
+    conversation_manager,
+    value_probe_runner,
+    memory_coherence_tests,
+    cognitive_diff_engine,
+    authenticity_scorer,
+    drift_detector,
+    consciousness_test_runner,
+    pre_deploy_validator,
+    rollback_manager,
+    ab_testing_framework,
+)
+app.include_router(testing_router)
 
 # Client will be initialized on startup
 agent_client = None
@@ -2061,6 +2137,17 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         wiki_storage=wiki_storage,
                         memory=memory
+                    )
+                elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
+                    tool_result = await execute_testing_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        test_runner=consciousness_test_runner,
+                        fingerprint_analyzer=fingerprint_analyzer,
+                        drift_detector=drift_detector,
+                        authenticity_scorer=authenticity_scorer,
+                        conversation_manager=conversation_manager,
+                        storage_dir=DATA_DIR / "testing"
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(
@@ -4821,6 +4908,17 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     wiki_storage=wiki_storage,
                                     memory=memory
                                 )
+                            elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
+                                tool_result = await execute_testing_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    test_runner=consciousness_test_runner,
+                                    fingerprint_analyzer=fingerprint_analyzer,
+                                    drift_detector=drift_detector,
+                                    authenticity_scorer=authenticity_scorer,
+                                    conversation_manager=conversation_manager,
+                                    storage_dir=DATA_DIR / "testing"
+                                )
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -4944,6 +5042,17 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     wiki_storage=wiki_storage,
                                     memory=memory
+                                )
+                            elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
+                                tool_result = await execute_testing_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    test_runner=consciousness_test_runner,
+                                    fingerprint_analyzer=fingerprint_analyzer,
+                                    drift_detector=drift_detector,
+                                    authenticity_scorer=authenticity_scorer,
+                                    conversation_manager=conversation_manager,
+                                    storage_dir=DATA_DIR / "testing"
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
@@ -5075,6 +5184,17 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     wiki_storage=wiki_storage,
                                     memory=memory
+                                )
+                            elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
+                                tool_result = await execute_testing_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    test_runner=consciousness_test_runner,
+                                    fingerprint_analyzer=fingerprint_analyzer,
+                                    drift_detector=drift_detector,
+                                    authenticity_scorer=authenticity_scorer,
+                                    conversation_manager=conversation_manager,
+                                    storage_dir=DATA_DIR / "testing"
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(

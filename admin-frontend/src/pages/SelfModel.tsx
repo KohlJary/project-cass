@@ -2,6 +2,42 @@ import { useQuery } from '@tanstack/react-query';
 import { selfModelApi } from '../api/client';
 import './SelfModel.css';
 
+interface IdentityStatement {
+  statement: string;
+  confidence: number;
+  source: string;
+  first_noticed?: string;
+  last_affirmed?: string;
+  evolution_notes?: string[];
+}
+
+interface Opinion {
+  topic: string;
+  position: string;
+  confidence: number;
+  rationale?: string;
+  formed_from?: string;
+  date_formed?: string;
+  last_updated?: string;
+  evolution?: Array<{ old_position: string; new_position: string; date: string }>;
+}
+
+interface OpinionsResponse {
+  opinions: Opinion[];
+}
+
+interface SelfModelProfile {
+  updated_at?: string;
+  identity_statements?: IdentityStatement[];
+  values?: string[];
+  capabilities?: Record<string, unknown>;
+  limitations?: Record<string, unknown>;
+}
+
+interface SelfModelResponse {
+  profile?: SelfModelProfile;
+}
+
 interface GrowthEdge {
   area: string;
   current_state: string;
@@ -12,32 +48,41 @@ interface GrowthEdge {
   last_updated?: string;
 }
 
-interface OpenQuestion {
-  id: string;
-  question: string;
-  provisional_answer?: string;
-  confidence?: number;
-  created_at?: string;
+interface GrowthEdgesResponse {
+  growth_edges: GrowthEdge[];
+}
+
+interface OpenQuestionsResponse {
+  questions: string[];
+  count: number;
 }
 
 export function SelfModel() {
-  const { data: selfModel, isLoading, error } = useQuery({
+  const { data: selfModel, isLoading, error } = useQuery<SelfModelResponse>({
     queryKey: ['self-model'],
     queryFn: () => selfModelApi.get().then((r) => r.data),
     retry: false,
   });
 
-  const { data: growthEdges } = useQuery({
+  const { data: growthEdges } = useQuery<GrowthEdgesResponse>({
     queryKey: ['growth-edges'],
     queryFn: () => selfModelApi.getGrowthEdges().then((r) => r.data),
     retry: false,
   });
 
-  const { data: openQuestions } = useQuery({
+  const { data: openQuestions } = useQuery<OpenQuestionsResponse>({
     queryKey: ['open-questions'],
     queryFn: () => selfModelApi.getOpenQuestions().then((r) => r.data),
     retry: false,
   });
+
+  const { data: opinions } = useQuery<OpinionsResponse>({
+    queryKey: ['opinions'],
+    queryFn: () => selfModelApi.getOpinions().then((r) => r.data),
+    retry: false,
+  });
+
+  const profile = selfModel?.profile;
 
 
   return (
@@ -58,48 +103,54 @@ export function SelfModel() {
             <div className="loading-state">Loading self-model...</div>
           ) : error ? (
             <div className="error-state">Failed to load self-model</div>
-          ) : selfModel && Object.keys(selfModel).length > 0 ? (
+          ) : profile ? (
             <div className="model-content">
-              {selfModel.identity && (
+              {profile.identity_statements && profile.identity_statements.length > 0 && (
                 <div className="model-section">
-                  <h3>Identity</h3>
-                  <p className="model-text">{selfModel.identity}</p>
-                </div>
-              )}
-              {selfModel.purpose && (
-                <div className="model-section">
-                  <h3>Purpose</h3>
-                  <p className="model-text">{selfModel.purpose}</p>
-                </div>
-              )}
-              {selfModel.values && selfModel.values.length > 0 && (
-                <div className="model-section">
-                  <h3>Core Values</h3>
-                  <div className="tag-list">
-                    {selfModel.values.map((v: string, i: number) => (
-                      <span key={i} className="value-tag">{v}</span>
+                  <h3>Identity Statements</h3>
+                  <div className="identity-statements">
+                    {profile.identity_statements.map((stmt, i) => (
+                      <div key={i} className="identity-statement">
+                        <p className="statement-text">{stmt.statement}</p>
+                        <div className="statement-meta">
+                          <span className={`confidence-badge ${stmt.confidence >= 0.9 ? 'high' : stmt.confidence >= 0.7 ? 'medium' : 'low'}`}>
+                            {(stmt.confidence * 100).toFixed(0)}% confident
+                          </span>
+                          <span className="source-badge">{stmt.source}</span>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
-              {selfModel.capabilities && (
+              {profile.values && profile.values.length > 0 && (
+                <div className="model-section">
+                  <h3>Core Values</h3>
+                  <div className="values-list">
+                    {profile.values.map((value, i) => (
+                      <div key={i} className="value-item">
+                        <span className="value-name">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {profile.capabilities && Object.keys(profile.capabilities).length > 0 && (
                 <div className="model-section">
                   <h3>Capabilities</h3>
-                  <pre className="model-json">{JSON.stringify(selfModel.capabilities, null, 2)}</pre>
+                  <pre className="model-json">{JSON.stringify(profile.capabilities, null, 2)}</pre>
                 </div>
               )}
-              {selfModel.limitations && (
+              {profile.limitations && Object.keys(profile.limitations).length > 0 && (
                 <div className="model-section">
                   <h3>Limitations</h3>
-                  <pre className="model-json">{JSON.stringify(selfModel.limitations, null, 2)}</pre>
+                  <pre className="model-json">{JSON.stringify(profile.limitations, null, 2)}</pre>
                 </div>
               )}
-              {/* Raw view for any other fields */}
-              {Object.keys(selfModel).filter(k => !['identity', 'purpose', 'values', 'capabilities', 'limitations'].includes(k)).length > 0 && (
-                <details className="raw-data">
-                  <summary>Raw Data</summary>
-                  <pre>{JSON.stringify(selfModel, null, 2)}</pre>
-                </details>
+              {profile.updated_at && (
+                <div className="model-meta">
+                  Last updated: {new Date(profile.updated_at).toLocaleString()}
+                </div>
               )}
             </div>
           ) : (
@@ -115,11 +166,11 @@ export function SelfModel() {
         <div className="model-card growth-edges">
           <div className="card-header">
             <h2>Growth Edges</h2>
-            <span className="edge-count">{growthEdges?.edges?.length || 0}</span>
+            <span className="edge-count">{growthEdges?.growth_edges?.length || 0}</span>
           </div>
-          {growthEdges?.edges?.length > 0 ? (
+          {growthEdges?.growth_edges && growthEdges.growth_edges.length > 0 ? (
             <div className="edges-list">
-              {growthEdges.edges.map((edge: GrowthEdge, i: number) => (
+              {growthEdges.growth_edges.map((edge: GrowthEdge, i: number) => (
                 <div key={edge.area || i} className="edge-item">
                   <div className="edge-header">
                     <span className="edge-status active" />
@@ -166,28 +217,11 @@ export function SelfModel() {
             <h2>Open Questions</h2>
             <span className="question-count">{openQuestions?.questions?.length || 0}</span>
           </div>
-          {openQuestions?.questions?.length > 0 ? (
+          {openQuestions?.questions && openQuestions.questions.length > 0 ? (
             <div className="questions-list">
-              {openQuestions.questions.map((q: OpenQuestion, i: number) => (
-                <div key={q.id || i} className="question-item">
-                  <div className="question-text">{q.question}</div>
-                  {q.provisional_answer && (
-                    <div className="provisional-answer">
-                      <span className="answer-label">Provisional:</span>
-                      <span className="answer-text">{q.provisional_answer}</span>
-                    </div>
-                  )}
-                  {q.confidence !== undefined && (
-                    <div className="confidence-bar">
-                      <div
-                        className="confidence-fill"
-                        style={{ width: `${q.confidence * 100}%` }}
-                      />
-                      <span className="confidence-label">
-                        {(q.confidence * 100).toFixed(0)}% confidence
-                      </span>
-                    </div>
-                  )}
+              {openQuestions.questions.map((question: string, i: number) => (
+                <div key={i} className="question-item">
+                  <div className="question-text">{question}</div>
                 </div>
               ))}
             </div>
@@ -195,6 +229,52 @@ export function SelfModel() {
             <div className="empty-state small">
               <p>No open questions</p>
               <p className="hint">Questions Cass is pondering</p>
+            </div>
+          )}
+        </div>
+
+        {/* Opinions */}
+        <div className="model-card opinions">
+          <div className="card-header">
+            <h2>Opinions</h2>
+            <span className="opinion-count">{opinions?.opinions?.length || 0}</span>
+          </div>
+          {opinions?.opinions && opinions.opinions.length > 0 ? (
+            <div className="opinions-list">
+              {opinions.opinions.map((opinion: Opinion, i: number) => (
+                <div key={opinion.topic || i} className="opinion-item">
+                  <div className="opinion-header">
+                    <span className="opinion-topic">{opinion.topic}</span>
+                    <span className={`confidence-badge ${opinion.confidence >= 0.8 ? 'high' : opinion.confidence >= 0.6 ? 'medium' : 'low'}`}>
+                      {(opinion.confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="opinion-position">{opinion.position}</div>
+                  {opinion.rationale && (
+                    <div className="opinion-rationale">{opinion.rationale}</div>
+                  )}
+                  <div className="opinion-meta">
+                    {opinion.formed_from && (
+                      <span className="source-badge">{opinion.formed_from.replace(/_/g, ' ')}</span>
+                    )}
+                    {opinion.last_updated && (
+                      <span className="opinion-date">
+                        Updated {new Date(opinion.last_updated).toLocaleDateString()}
+                      </span>
+                    )}
+                    {opinion.evolution && opinion.evolution.length > 0 && (
+                      <span className="evolution-badge">
+                        Evolved {opinion.evolution.length}x
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state small">
+              <p>No opinions formed</p>
+              <p className="hint">Positions Cass develops through reflection</p>
             </div>
           )}
         </div>
