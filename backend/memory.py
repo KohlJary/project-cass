@@ -3387,7 +3387,7 @@ Only include questions where you have something genuine to add. If nothing, resp
             "insight_type": insight_type,
             "tags": json.dumps(tags) if tags else "[]",
             "retrieval_count": 0,  # Track how often this insight surfaces
-            "last_retrieved": None,
+            "last_retrieved": "",
         }
 
         self.collection.add(
