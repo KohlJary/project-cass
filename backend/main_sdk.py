@@ -583,7 +583,7 @@ init_admin_managers(memory, conversation_manager, user_manager, self_manager)
 app.include_router(admin_router)
 
 # Register testing routes
-from routes.testing import router as testing_router, init_testing_routes
+from routes.testing import router as testing_router, init_testing_routes, init_cross_context_analyzer
 from testing.cognitive_fingerprint import CognitiveFingerprintAnalyzer
 from testing.value_probes import ValueProbeRunner
 from testing.memory_coherence import MemoryCoherenceTests
@@ -595,7 +595,9 @@ from testing.runner import ConsciousnessTestRunner
 from testing.pre_deploy import PreDeploymentValidator
 from testing.rollback import RollbackManager
 from testing.ab_testing import ABTestingFramework
+from testing.cross_context_analyzer import CrossContextAnalyzer
 fingerprint_analyzer = CognitiveFingerprintAnalyzer(storage_dir=DATA_DIR / "testing")
+cross_context_analyzer = CrossContextAnalyzer(storage_dir=DATA_DIR / "testing" / "cross_context")
 value_probe_runner = ValueProbeRunner(storage_dir=DATA_DIR / "testing")
 memory_coherence_tests = MemoryCoherenceTests(
     storage_dir=DATA_DIR / "testing",
@@ -657,6 +659,7 @@ init_testing_routes(
     rollback_manager,
     ab_testing_framework,
 )
+init_cross_context_analyzer(cross_context_analyzer)
 app.include_router(testing_router)
 
 # Client will be initialized on startup
@@ -2475,6 +2478,25 @@ async def chat(request: ChatRequest):
             content=clean_text,
             animations=animations
         )
+
+        # Record cross-context behavioral sample for pattern analysis
+        try:
+            classification = cross_context_analyzer.classify_context(
+                text=clean_text,
+                user_message=request.message,
+            )
+            markers = cross_context_analyzer.extract_behavioral_markers(
+                response=clean_text,
+                tool_usage=[t["tool"] for t in tool_uses] if tool_uses else None,
+            )
+            cross_context_analyzer.record_sample(
+                context=classification.primary_context,
+                markers=markers,
+                conversation_id=request.conversation_id,
+            )
+        except Exception as e:
+            # Don't fail the response if cross-context analysis fails
+            logger.warning(f"Cross-context sample recording failed: {e}")
 
         # Check if summarization is needed
         should_summarize = False
