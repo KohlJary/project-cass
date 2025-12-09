@@ -195,7 +195,7 @@ export function Development() {
 
             {/* Timeline */}
             <div className="timeline">
-              {milestones.slice(0, 20).map((m, i) => (
+              {milestones.slice(0, 20).map((m) => (
                 <div key={m.id} className={`timeline-item ${m.significance}`}>
                   <div className="timeline-marker">
                     <span className="timeline-icon">{significanceIcon(m.significance)}</span>
