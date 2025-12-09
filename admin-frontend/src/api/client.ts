@@ -333,6 +333,9 @@ export const soloReflectionApi = {
 
 // Research/ARS endpoints
 export const researchApi = {
+  // Dashboard - consolidated view
+  getDashboard: () => api.get('/wiki/research/dashboard'),
+
   getQueue: (params?: { status?: string; task_type?: string; limit?: number }) =>
     api.get('/wiki/research/queue', { params }),
   refreshQueue: () => api.post('/wiki/research/queue/refresh'),
