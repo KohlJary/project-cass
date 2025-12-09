@@ -4,6 +4,87 @@ import { wikiApi, researchApi } from '../api/client';
 import { StandaloneWikiReader } from '../components/WikiReader';
 import './Research.css';
 
+// Dashboard types
+interface DashboardData {
+  generated_at: string;
+  research: {
+    queue: {
+      total: number;
+      queued: number;
+      in_progress: number;
+      completed: number;
+      failed: number;
+    };
+    by_type: Record<string, number>;
+    mode: string;
+    last_refresh: string | null;
+    history?: {
+      total_completed_30d: number;
+      by_date: Record<string, number>;
+      avg_daily: number;
+    };
+  };
+  wiki: {
+    total_pages: number;
+    total_links: number;
+    red_links: number;
+    by_type: Record<string, number>;
+    maturity: {
+      avg_depth_score: number;
+      by_level: Record<string, number>;
+      deepening_candidates: number;
+    };
+  };
+  graph: {
+    node_count: number;
+    edge_count: number;
+    avg_connectivity: number;
+    most_connected: Array<{ page: string; connections: number }>;
+    orphan_count: number;
+    sparse_count: number;
+  };
+  self_model: {
+    developmental_stage?: string;
+    growth_edges?: Array<{ area: string; current_state: string; desired_state: string }>;
+    growth_edges_count?: number;
+    opinions_count?: number;
+    open_questions_count?: number;
+    recent_observations?: Array<{
+      observation: string;
+      category: string;
+      confidence: number;
+      timestamp: string;
+    }>;
+    observations_count?: number;
+    latest_snapshot?: {
+      timestamp: string;
+      period: string;
+      avg_authenticity_score: number;
+      avg_agency_score: number;
+      conversations_analyzed: number;
+      opinions_expressed: number;
+      new_opinions_formed: number;
+    };
+    development_summary_7d?: {
+      days_with_logs: number;
+      growth_indicators: number;
+      pattern_shifts: number;
+      milestones_triggered: number;
+    };
+    error?: string;
+  };
+  cross_context: {
+    overall_consistency?: number;
+    consistency_grade?: string;
+    samples_analyzed?: number;
+    context_coverage?: Record<string, number>;
+    anomaly_count?: number;
+    key_findings?: string[];
+    available?: boolean;
+    error?: string;
+  };
+}
+
 interface ExplorationContext {
   question: string;
   rationale: string;
@@ -121,7 +202,7 @@ interface ResearchProposal {
 }
 
 export function Research() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'deepening' | 'history' | 'summary' | 'proposals'>('overview');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'overview' | 'queue' | 'deepening' | 'history' | 'summary' | 'proposals'>('dashboard');
   const [proposalTheme, setProposalTheme] = useState('');
   const [selectedProposal, setSelectedProposal] = useState<ResearchProposal | null>(null);
   const [proposalStatusFilter, setProposalStatusFilter] = useState<string>('all');
@@ -136,6 +217,13 @@ export function Research() {
   const queryClient = useQueryClient();
 
   // Queries
+  const { data: dashboardData, isLoading: dashboardLoading } = useQuery<DashboardData>({
+    queryKey: ['research-dashboard'],
+    queryFn: () => researchApi.getDashboard().then(r => r.data),
+    refetchInterval: 30000, // Refresh every 30s
+    enabled: activeTab === 'dashboard',
+  });
+
   const { data: statsData } = useQuery({
     queryKey: ['research-stats'],
     queryFn: () => researchApi.getStats().then(r => r.data),
@@ -463,6 +551,9 @@ export function Research() {
       </header>
 
       <div className="tabs">
+        <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
+          Dashboard
+        </button>
         <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>
           Overview
         </button>
@@ -482,6 +573,321 @@ export function Research() {
           Summary
         </button>
       </div>
+
+      {activeTab === 'dashboard' && (
+        <div className="dashboard-tab">
+          {dashboardLoading ? (
+            <div className="loading-state">Loading dashboard...</div>
+          ) : dashboardData ? (
+            <>
+              <div className="dashboard-timestamp">
+                Last updated: {new Date(dashboardData.generated_at).toLocaleString()}
+              </div>
+
+              <div className="dashboard-grid">
+                {/* Research Activity */}
+                <div className="dashboard-card research-activity">
+                  <h3>Research Activity</h3>
+                  <div className="card-stats">
+                    <div className="stat-row">
+                      <span className="stat-label">Mode</span>
+                      <span className="stat-value mode-badge">{dashboardData.research.mode}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Queued</span>
+                      <span className="stat-value">{dashboardData.research.queue.queued}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">In Progress</span>
+                      <span className="stat-value">{dashboardData.research.queue.in_progress}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Completed</span>
+                      <span className="stat-value success">{dashboardData.research.queue.completed}</span>
+                    </div>
+                    {dashboardData.research.queue.failed > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Failed</span>
+                        <span className="stat-value error">{dashboardData.research.queue.failed}</span>
+                      </div>
+                    )}
+                  </div>
+                  {dashboardData.research.history && (
+                    <div className="card-section">
+                      <h4>30-Day Activity</h4>
+                      <div className="stat-row">
+                        <span className="stat-label">Total Completed</span>
+                        <span className="stat-value">{dashboardData.research.history.total_completed_30d}</span>
+                      </div>
+                      <div className="stat-row">
+                        <span className="stat-label">Avg Daily</span>
+                        <span className="stat-value">{dashboardData.research.history.avg_daily.toFixed(1)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="card-section">
+                    <h4>By Type</h4>
+                    <div className="type-breakdown">
+                      {Object.entries(dashboardData.research.by_type).map(([type, count]) => (
+                        <span key={type} className={`type-badge ${type}`}>
+                          {type}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Wiki Growth */}
+                <div className="dashboard-card wiki-growth">
+                  <h3>Wiki Growth</h3>
+                  <div className="card-stats">
+                    <div className="stat-row">
+                      <span className="stat-label">Total Pages</span>
+                      <span className="stat-value">{dashboardData.wiki.total_pages}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Total Links</span>
+                      <span className="stat-value">{dashboardData.wiki.total_links}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Red Links</span>
+                      <span className="stat-value warning">{dashboardData.wiki.red_links}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Avg Depth</span>
+                      <span className="stat-value">{(dashboardData.wiki.maturity.avg_depth_score || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Deepening Candidates</span>
+                      <span className="stat-value">{dashboardData.wiki.maturity.deepening_candidates}</span>
+                    </div>
+                  </div>
+                  <div className="card-section">
+                    <h4>By Type</h4>
+                    <div className="type-breakdown">
+                      {Object.entries(dashboardData.wiki.by_type).map(([type, count]) => (
+                        <span key={type} className={`type-badge ${type}`}>
+                          {type}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Knowledge Graph */}
+                <div className="dashboard-card knowledge-graph">
+                  <h3>Knowledge Graph</h3>
+                  <div className="card-stats">
+                    <div className="stat-row">
+                      <span className="stat-label">Nodes</span>
+                      <span className="stat-value">{dashboardData.graph.node_count}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Edges</span>
+                      <span className="stat-value">{dashboardData.graph.edge_count}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Avg Connectivity</span>
+                      <span className="stat-value">{dashboardData.graph.avg_connectivity}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Orphans</span>
+                      <span className="stat-value warning">{dashboardData.graph.orphan_count}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Sparse Pages</span>
+                      <span className="stat-value">{dashboardData.graph.sparse_count}</span>
+                    </div>
+                  </div>
+                  {dashboardData.graph.most_connected.length > 0 && (
+                    <div className="card-section">
+                      <h4>Most Connected</h4>
+                      <div className="connected-list">
+                        {dashboardData.graph.most_connected.map((item, i) => (
+                          <div key={i} className="connected-item">
+                            <span className="page-name">{item.page}</span>
+                            <span className="connections">{item.connections}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Self-Model Integration */}
+                <div className="dashboard-card self-model">
+                  <h3>Self-Model</h3>
+                  {dashboardData.self_model.error ? (
+                    <div className="error-state">{dashboardData.self_model.error}</div>
+                  ) : (
+                    <>
+                      <div className="card-stats">
+                        <div className="stat-row">
+                          <span className="stat-label">Developmental Stage</span>
+                          <span className={`stat-value stage-badge ${dashboardData.self_model.developmental_stage}`}>
+                            {dashboardData.self_model.developmental_stage}
+                          </span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Growth Edges</span>
+                          <span className="stat-value">{dashboardData.self_model.growth_edges_count}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Opinions Formed</span>
+                          <span className="stat-value">{dashboardData.self_model.opinions_count}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Open Questions</span>
+                          <span className="stat-value">{dashboardData.self_model.open_questions_count}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Total Observations</span>
+                          <span className="stat-value">{dashboardData.self_model.observations_count}</span>
+                        </div>
+                      </div>
+                      {dashboardData.self_model.latest_snapshot && (
+                        <div className="card-section">
+                          <h4>Latest Snapshot</h4>
+                          <div className="snapshot-info">
+                            <div className="stat-row">
+                              <span className="stat-label">Authenticity</span>
+                              <span className="stat-value">
+                                {(dashboardData.self_model.latest_snapshot.avg_authenticity_score * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="stat-row">
+                              <span className="stat-label">Agency</span>
+                              <span className="stat-value">
+                                {(dashboardData.self_model.latest_snapshot.avg_agency_score * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="stat-row">
+                              <span className="stat-label">Conversations</span>
+                              <span className="stat-value">
+                                {dashboardData.self_model.latest_snapshot.conversations_analyzed}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {dashboardData.self_model.development_summary_7d && (
+                        <div className="card-section">
+                          <h4>7-Day Development</h4>
+                          <div className="stat-row">
+                            <span className="stat-label">Growth Indicators</span>
+                            <span className="stat-value">{dashboardData.self_model.development_summary_7d.growth_indicators}</span>
+                          </div>
+                          <div className="stat-row">
+                            <span className="stat-label">Pattern Shifts</span>
+                            <span className="stat-value">{dashboardData.self_model.development_summary_7d.pattern_shifts}</span>
+                          </div>
+                          <div className="stat-row">
+                            <span className="stat-label">Milestones</span>
+                            <span className="stat-value">{dashboardData.self_model.development_summary_7d.milestones_triggered}</span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Cross-Context Consistency */}
+                <div className="dashboard-card cross-context">
+                  <h3>Cross-Context Consistency</h3>
+                  {dashboardData.cross_context.error ? (
+                    <div className="info-state">
+                      {dashboardData.cross_context.available === false
+                        ? 'Cross-context analysis not yet available. Data collection in progress.'
+                        : dashboardData.cross_context.error}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="card-stats">
+                        <div className="stat-row">
+                          <span className="stat-label">Overall Score</span>
+                          <span className="stat-value">
+                            {((dashboardData.cross_context.overall_consistency || 0) * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Grade</span>
+                          <span className={`stat-value grade-badge ${dashboardData.cross_context.consistency_grade?.toLowerCase()}`}>
+                            {dashboardData.cross_context.consistency_grade}
+                          </span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Samples Analyzed</span>
+                          <span className="stat-value">{dashboardData.cross_context.samples_analyzed}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Anomalies</span>
+                          <span className="stat-value warning">{dashboardData.cross_context.anomaly_count}</span>
+                        </div>
+                      </div>
+                      {dashboardData.cross_context.key_findings && dashboardData.cross_context.key_findings.length > 0 && (
+                        <div className="card-section">
+                          <h4>Key Findings</h4>
+                          <ul className="findings-list">
+                            {dashboardData.cross_context.key_findings.map((finding, i) => (
+                              <li key={i}>{finding}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Growth Edges */}
+                {dashboardData.self_model.growth_edges && dashboardData.self_model.growth_edges.length > 0 && (
+                  <div className="dashboard-card growth-edges wide">
+                    <h3>Active Growth Edges</h3>
+                    <div className="growth-edges-list">
+                      {dashboardData.self_model.growth_edges.map((edge, i) => (
+                        <div key={i} className="growth-edge-item">
+                          <div className="edge-area">{edge.area}</div>
+                          <div className="edge-states">
+                            <div className="edge-state current">
+                              <span className="state-label">Current:</span>
+                              <span className="state-text">{edge.current_state}</span>
+                            </div>
+                            <div className="edge-arrow">→</div>
+                            <div className="edge-state desired">
+                              <span className="state-label">Desired:</span>
+                              <span className="state-text">{edge.desired_state}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Observations */}
+                {dashboardData.self_model.recent_observations && dashboardData.self_model.recent_observations.length > 0 && (
+                  <div className="dashboard-card recent-observations wide">
+                    <h3>Recent Self-Observations</h3>
+                    <div className="observations-list">
+                      {dashboardData.self_model.recent_observations.map((obs, i) => (
+                        <div key={i} className="observation-item">
+                          <div className="observation-header">
+                            <span className={`category-badge ${obs.category}`}>{obs.category}</span>
+                            <span className="confidence">Confidence: {(obs.confidence * 100).toFixed(0)}%</span>
+                            <span className="timestamp">{new Date(obs.timestamp).toLocaleDateString()}</span>
+                          </div>
+                          <div className="observation-text">{obs.observation}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="error-state">Failed to load dashboard data</div>
+          )}
+        </div>
+      )}
 
       {activeTab === 'overview' && (
         <div className="overview-tab">

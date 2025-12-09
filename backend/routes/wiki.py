@@ -2114,6 +2114,197 @@ async def get_weekly_summary(days: int = 7) -> Dict:
     }
 
 
+@router.get("/research/dashboard")
+async def get_research_dashboard() -> Dict:
+    """
+    Consolidated Research Progress Dashboard.
+
+    Aggregates data from multiple sources into a unified view:
+    - Research activity (queue stats, history, completion rates)
+    - Wiki growth metrics (pages, links, coverage)
+    - Knowledge graph health (connectivity, orphans, clusters)
+    - Self-model integration (developmental stage, growth edges, recent observations)
+    - Cross-context consistency (if available)
+
+    Returns a comprehensive dashboard suitable for visualization.
+    """
+    scheduler = _get_scheduler()
+
+    # Initialize response structure
+    dashboard = {
+        "generated_at": datetime.now().isoformat(),
+        "research": {},
+        "wiki": {},
+        "graph": {},
+        "self_model": {},
+        "cross_context": {},
+    }
+
+    # === Research Activity ===
+    if scheduler:
+        queue_stats = scheduler.queue.get_stats()
+        dashboard["research"] = {
+            "queue": {
+                "total": queue_stats.get("total", 0),
+                "queued": queue_stats.get("by_status", {}).get("queued", 0),
+                "in_progress": queue_stats.get("by_status", {}).get("in_progress", 0),
+                "completed": queue_stats.get("by_status", {}).get("completed", 0),
+                "failed": queue_stats.get("by_status", {}).get("failed", 0),
+            },
+            "by_type": queue_stats.get("by_type", {}),
+            "mode": scheduler.config.mode.value,
+            "last_refresh": scheduler._last_refresh.isoformat() if scheduler._last_refresh else None,
+        }
+
+        # Recent history - last 30 days completion
+        history = scheduler.queue.get_history(limit=100)
+        if history:
+            # Group by date
+            by_date = {}
+            for task in history:
+                completed_at = task.get("completed_at", "")[:10]  # YYYY-MM-DD
+                if completed_at:
+                    by_date[completed_at] = by_date.get(completed_at, 0) + 1
+
+            dashboard["research"]["history"] = {
+                "total_completed_30d": len(history),
+                "by_date": by_date,
+                "avg_daily": len(history) / 30 if len(by_date) > 0 else 0,
+            }
+
+        # Graph stats
+        graph_stats = scheduler.get_graph_stats()
+        dashboard["graph"] = {
+            "node_count": graph_stats.get("node_count", 0),
+            "edge_count": graph_stats.get("edge_count", 0),
+            "avg_connectivity": graph_stats.get("avg_connectivity", 0),
+            "most_connected": graph_stats.get("most_connected", [])[:5],
+            "orphan_count": graph_stats.get("orphan_count", 0),
+            "sparse_count": graph_stats.get("sparse_count", 0),
+        }
+
+    # === Wiki Growth Metrics ===
+    if _wiki_storage:
+        maturity_stats = _wiki_storage.get_maturity_stats()
+        pages = _wiki_storage.list_pages()
+        graph = _wiki_storage.get_link_graph()
+
+        # Count pages by type
+        by_type = {}
+        for page in pages:
+            ptype = page.page_type.value if hasattr(page.page_type, 'value') else str(page.page_type)
+            by_type[ptype] = by_type.get(ptype, 0) + 1
+
+        # Count total links and red links
+        all_links = set()
+        existing_pages = {p.name.lower() for p in pages}
+        for targets in graph.values():
+            all_links.update(targets)
+        red_links = [link for link in all_links if link.lower() not in existing_pages]
+
+        dashboard["wiki"] = {
+            "total_pages": len(pages),
+            "total_links": len(all_links),
+            "red_links": len(red_links),
+            "by_type": by_type,
+            "maturity": {
+                "avg_depth_score": maturity_stats.get("avg_depth_score", 0),
+                "by_level": maturity_stats.get("by_level", {}),
+                "deepening_candidates": maturity_stats.get("deepening_candidates", 0),
+            },
+        }
+
+    # === Self-Model Integration ===
+    try:
+        from self_model import SelfManager
+        from config import DATA_DIR
+
+        self_manager = SelfManager(str(DATA_DIR / "cass"))
+        profile = self_manager.load_profile()
+
+        # Growth edges
+        growth_edges = [
+            {
+                "area": edge.area,
+                "current_state": edge.current_state,
+                "desired_state": edge.desired_state,
+            }
+            for edge in profile.growth_edges[:5]
+        ]
+
+        # Recent observations (last 10)
+        observations = self_manager.get_recent_observations(limit=10)
+        recent_observations = [
+            {
+                "observation": obs.observation[:200] + "..." if len(obs.observation) > 200 else obs.observation,
+                "category": obs.category,
+                "confidence": obs.confidence,
+                "timestamp": obs.timestamp,
+            }
+            for obs in observations
+        ]
+
+        # Developmental stage
+        stage = self_manager._detect_developmental_stage()
+
+        # Latest cognitive snapshot
+        latest_snapshot = self_manager.get_latest_snapshot()
+        snapshot_summary = None
+        if latest_snapshot:
+            snapshot_summary = {
+                "timestamp": latest_snapshot.timestamp,
+                "period": f"{latest_snapshot.period_start} to {latest_snapshot.period_end}",
+                "avg_authenticity_score": latest_snapshot.avg_authenticity_score,
+                "avg_agency_score": latest_snapshot.avg_agency_score,
+                "conversations_analyzed": latest_snapshot.conversations_analyzed,
+                "opinions_expressed": latest_snapshot.opinions_expressed,
+                "new_opinions_formed": latest_snapshot.new_opinions_formed,
+            }
+
+        # Development summary
+        dev_summary = self_manager.get_recent_development_summary(days=7)
+
+        dashboard["self_model"] = {
+            "developmental_stage": stage,
+            "growth_edges": growth_edges,
+            "growth_edges_count": len(profile.growth_edges),
+            "opinions_count": len(profile.opinions),
+            "open_questions_count": len(profile.open_questions),
+            "recent_observations": recent_observations,
+            "observations_count": len(self_manager.load_observations()),
+            "latest_snapshot": snapshot_summary,
+            "development_summary_7d": {
+                "days_with_logs": dev_summary.get("days_with_logs", 0),
+                "growth_indicators": dev_summary.get("total_growth_indicators", 0),
+                "pattern_shifts": dev_summary.get("total_pattern_shifts", 0),
+                "milestones_triggered": dev_summary.get("total_milestones_triggered", 0),
+            },
+        }
+    except Exception as e:
+        dashboard["self_model"] = {"error": str(e)}
+
+    # === Cross-Context Consistency ===
+    try:
+        from testing.cross_context_analyzer import CrossContextAnalyzer
+        from config import DATA_DIR
+
+        analyzer = CrossContextAnalyzer(str(DATA_DIR / "testing" / "cross_context"))
+        consistency = analyzer.analyze_consistency()
+
+        dashboard["cross_context"] = {
+            "overall_consistency": consistency.overall_score,
+            "consistency_grade": consistency.grade,
+            "samples_analyzed": consistency.total_samples,
+            "context_coverage": consistency.context_coverage,
+            "anomaly_count": len(consistency.anomalies),
+            "key_findings": consistency.key_findings[:3] if consistency.key_findings else [],
+        }
+    except Exception as e:
+        dashboard["cross_context"] = {"error": str(e), "available": False}
+
+    return dashboard
+
+
 @router.post("/research/queue/exploration")
 async def generate_exploration_tasks(max_tasks: int = 5) -> Dict:
     """
