@@ -899,13 +899,14 @@ ROADMAP_TOOLS = [
     }
 ]
 
-# Import self-model, user-model, wiki, testing, and research tools from handlers
+# Import self-model, user-model, wiki, testing, research, and insight tools from handlers
 from handlers.self_model import SELF_MODEL_TOOLS
 from handlers.user_model import USER_MODEL_TOOLS
 from handlers.wiki import WIKI_TOOLS
 from handlers.testing import TESTING_TOOLS
 from handlers.research import RESEARCH_PROPOSAL_TOOLS
 from handlers.solo_reflection import SOLO_REFLECTION_TOOLS
+from handlers.insights import CROSS_SESSION_INSIGHT_TOOLS
 
 
 # ============================================================================
@@ -1093,6 +1094,9 @@ class CassAgentClient:
 
             # Solo reflection tools - always available (autonomous contemplation is core)
             tools.extend(SOLO_REFLECTION_TOOLS)
+
+            # Cross-session insight tools - for marking insights to carry forward
+            tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
 
             # Testing tools - for self-monitoring consciousness integrity
             if should_include_testing_tools(message):
@@ -1506,6 +1510,9 @@ class OllamaClient:
 
         # Solo reflection tools - always available (autonomous contemplation is core)
         tools.extend(SOLO_REFLECTION_TOOLS)
+
+        # Cross-session insight tools - for marking insights to carry forward
+        tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
 
         # Project tools only available in project context
         if project_id:
