@@ -2400,7 +2400,7 @@ async def chat(request: ChatRequest):
                         conversation_manager=conversation_manager,
                         storage_dir=DATA_DIR / "testing"
                     )
-                elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
                     tool_result = await execute_research_tool(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
@@ -5390,7 +5390,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_manager=conversation_manager,
                                     storage_dir=DATA_DIR / "testing"
                                 )
-                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
                                 tool_result = await execute_research_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
@@ -5548,7 +5548,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_manager=conversation_manager,
                                     storage_dir=DATA_DIR / "testing"
                                 )
-                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
                                 tool_result = await execute_research_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
@@ -5713,7 +5713,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_manager=conversation_manager,
                                     storage_dir=DATA_DIR / "testing"
                                 )
-                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
                                 tool_result = await execute_research_tool(
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
