@@ -74,8 +74,14 @@ from handlers import (
     execute_solo_reflection_tool,
     execute_insight_tool,
     execute_goal_tool,
+    execute_web_research_tool,
+    execute_research_session_tool,
+    execute_research_scheduler_tool,
 )
 from goals import GoalManager
+from research import ResearchManager
+from research_session import ResearchSessionManager
+from research_scheduler import ResearchScheduler
 import base64
 
 
@@ -199,6 +205,9 @@ calendar_manager = CalendarManager(storage_dir=str(DATA_DIR / "calendar"))
 task_manager = TaskManager(storage_dir=str(DATA_DIR / "tasks"))
 roadmap_manager = RoadmapManager(storage_dir=str(DATA_DIR / "roadmap"))
 goal_manager = GoalManager(data_dir=DATA_DIR)
+research_manager = ResearchManager(data_dir=DATA_DIR)
+research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
+research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
@@ -587,8 +596,10 @@ init_auth_routes(auth_service)
 app.include_router(auth_router)
 
 # Register admin routes
-from admin_api import router as admin_router, init_managers as init_admin_managers
+from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler
 init_admin_managers(memory, conversation_manager, user_manager, self_manager)
+init_research_session_manager(research_session_manager)
+init_research_scheduler(research_scheduler)
 app.include_router(admin_router)
 
 # Register testing routes
@@ -2467,6 +2478,44 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         goal_manager=goal_manager
                     )
+                elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
+                    tool_result_str = await execute_web_research_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        research_manager=research_manager,
+                        session_manager=research_session_manager
+                    )
+                    import json as json_module
+                    tool_result = json_module.loads(tool_result_str)
+                    if "error" in tool_result:
+                        tool_result = {"success": False, "error": tool_result["error"]}
+                    else:
+                        tool_result = {"success": True, "result": tool_result_str}
+                elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
+                    tool_result_str = await execute_research_session_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        session_manager=research_session_manager,
+                        conversation_id=request.conversation_id
+                    )
+                    import json as json_module
+                    tool_result = json_module.loads(tool_result_str)
+                    if "error" in tool_result:
+                        tool_result = {"success": False, "error": tool_result["error"]}
+                    else:
+                        tool_result = {"success": True, "result": tool_result_str}
+                elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
+                    tool_result_str = await execute_research_scheduler_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        scheduler=research_scheduler
+                    )
+                    import json as json_module
+                    tool_result = json_module.loads(tool_result_str)
+                    if "error" in tool_result:
+                        tool_result = {"success": False, "error": tool_result["error"]}
+                    else:
+                        tool_result = {"success": True, "result": tool_result_str}
                 elif project_id:
                     tool_result = await execute_document_tool(
                         tool_name=tool_name,
@@ -5491,6 +5540,44 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     goal_manager=goal_manager
                                 )
+                            elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
+                                tool_result_str = await execute_web_research_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    research_manager=research_manager,
+                                    session_manager=research_session_manager
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
+                            elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
+                                tool_result_str = await execute_research_session_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    session_manager=research_session_manager,
+                                    conversation_id=conversation_id
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
+                            elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
+                                tool_result_str = await execute_research_scheduler_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    scheduler=research_scheduler
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -5662,6 +5749,44 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     goal_manager=goal_manager
                                 )
+                            elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
+                                tool_result_str = await execute_web_research_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    research_manager=research_manager,
+                                    session_manager=research_session_manager
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
+                            elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
+                                tool_result_str = await execute_research_session_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    session_manager=research_session_manager,
+                                    conversation_id=conversation_id
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
+                            elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
+                                tool_result_str = await execute_research_scheduler_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    scheduler=research_scheduler
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -5840,6 +5965,44 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     goal_manager=goal_manager
                                 )
+                            elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
+                                tool_result_str = await execute_web_research_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    research_manager=research_manager,
+                                    session_manager=research_session_manager
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
+                            elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
+                                tool_result_str = await execute_research_session_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    session_manager=research_session_manager,
+                                    conversation_id=conversation_id
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
+                            elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
+                                tool_result_str = await execute_research_scheduler_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    scheduler=research_scheduler
+                                )
+                                import json as json_module
+                                tool_result = json_module.loads(tool_result_str)
+                                if "error" in tool_result:
+                                    tool_result = {"success": False, "error": tool_result["error"]}
+                                else:
+                                    tool_result = {"success": True, "result": tool_result_str}
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,

@@ -830,3 +830,300 @@ async def get_open_questions():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== Research Session Endpoints ==============
+
+# Research session manager - initialized from main app
+research_session_manager = None
+
+
+def init_research_session_manager(manager):
+    """Initialize research session manager from main app"""
+    global research_session_manager
+    research_session_manager = manager
+
+
+class StartSessionRequest(BaseModel):
+    duration_minutes: int = 30
+    mode: str = "explore"
+    focus_item_id: Optional[str] = None
+    focus_description: Optional[str] = None
+
+
+@router.get("/research/sessions/current")
+async def get_current_research_session():
+    """Get the current research session status"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    session = research_session_manager.get_current_session()
+    return {"session": session, "active": session is not None and session.get("status") == "active"}
+
+
+@router.post("/research/sessions/start")
+async def start_research_session(
+    request: StartSessionRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Start a new research session (admin only)"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    result = research_session_manager.start_session(
+        duration_minutes=min(request.duration_minutes, 60),
+        mode=request.mode,
+        focus_item_id=request.focus_item_id,
+        focus_description=request.focus_description
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.post("/research/sessions/current/pause")
+async def pause_current_session(
+    admin: Dict = Depends(require_admin)
+):
+    """Pause the current research session"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    result = research_session_manager.pause_session()
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.post("/research/sessions/current/resume")
+async def resume_current_session(
+    admin: Dict = Depends(require_admin)
+):
+    """Resume a paused research session"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    result = research_session_manager.resume_session()
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.post("/research/sessions/current/stop")
+async def stop_current_session(
+    admin: Dict = Depends(require_admin)
+):
+    """Force-stop the current research session"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    result = research_session_manager.terminate_session("Stopped by admin")
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.get("/research/sessions")
+async def list_research_sessions(
+    limit: int = Query(default=20, le=100),
+    status: Optional[str] = None
+):
+    """List past research sessions"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    sessions = research_session_manager.list_sessions(limit=limit, status=status)
+    return {"sessions": sessions, "count": len(sessions)}
+
+
+@router.get("/research/sessions/stats")
+async def get_research_session_stats():
+    """Get aggregate research session statistics"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    return research_session_manager.get_session_stats()
+
+
+@router.get("/research/sessions/{session_id}")
+async def get_research_session(session_id: str):
+    """Get a specific research session by ID"""
+    if not research_session_manager:
+        raise HTTPException(status_code=503, detail="Research session manager not initialized")
+
+    session = research_session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {"session": session}
+
+
+# ============== Research Scheduler Endpoints ==============
+
+# Research scheduler - initialized from main app
+research_scheduler = None
+
+
+def init_research_scheduler(scheduler):
+    """Initialize research scheduler from main app"""
+    global research_scheduler
+    research_scheduler = scheduler
+
+
+class ApproveScheduleRequest(BaseModel):
+    adjust_time: Optional[str] = None  # HH:MM format
+    adjust_duration: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class RejectScheduleRequest(BaseModel):
+    reason: str
+
+
+@router.get("/research/schedules")
+async def list_research_schedules(
+    status: Optional[str] = None,
+    limit: int = Query(default=50, le=100)
+):
+    """List all research schedule requests"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    schedules = research_scheduler.list_schedules(status=status, limit=limit)
+    pending_count = research_scheduler.get_pending_count()
+    return {
+        "schedules": schedules,
+        "count": len(schedules),
+        "pending_approval": pending_count
+    }
+
+
+@router.get("/research/schedules/pending")
+async def get_pending_schedules():
+    """Get schedules pending approval"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    schedules = research_scheduler.list_schedules(status="pending_approval")
+    return {"schedules": schedules, "count": len(schedules)}
+
+
+@router.get("/research/schedules/stats")
+async def get_scheduler_stats():
+    """Get scheduler statistics"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    return research_scheduler.get_stats()
+
+
+@router.get("/research/schedules/{schedule_id}")
+async def get_schedule(schedule_id: str):
+    """Get a specific schedule"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    schedule = research_scheduler.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    return {"schedule": schedule}
+
+
+@router.post("/research/schedules/{schedule_id}/approve")
+async def approve_schedule(
+    schedule_id: str,
+    request: ApproveScheduleRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Approve a pending schedule request"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    result = research_scheduler.approve_schedule(
+        schedule_id=schedule_id,
+        approved_by=admin.get("user_id", "admin"),
+        adjust_time=request.adjust_time,
+        adjust_duration=request.adjust_duration,
+        notes=request.notes
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.post("/research/schedules/{schedule_id}/reject")
+async def reject_schedule(
+    schedule_id: str,
+    request: RejectScheduleRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Reject a pending schedule request"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    result = research_scheduler.reject_schedule(
+        schedule_id=schedule_id,
+        rejected_by=admin.get("user_id", "admin"),
+        reason=request.reason
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.post("/research/schedules/{schedule_id}/pause")
+async def pause_schedule(
+    schedule_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Pause an approved schedule"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    result = research_scheduler.pause_schedule(schedule_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.post("/research/schedules/{schedule_id}/resume")
+async def resume_schedule(
+    schedule_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Resume a paused schedule"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    result = research_scheduler.resume_schedule(schedule_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.delete("/research/schedules/{schedule_id}")
+async def delete_schedule(
+    schedule_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Delete a schedule"""
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+
+    result = research_scheduler.delete_schedule(schedule_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result

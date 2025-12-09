@@ -908,6 +908,9 @@ from handlers.research import RESEARCH_PROPOSAL_TOOLS
 from handlers.solo_reflection import SOLO_REFLECTION_TOOLS
 from handlers.insights import CROSS_SESSION_INSIGHT_TOOLS
 from handlers.goals import GOAL_TOOLS
+from handlers.web_research import WEB_RESEARCH_TOOLS
+from handlers.research_session import RESEARCH_SESSION_TOOLS
+from handlers.research_scheduler import RESEARCH_SCHEDULER_TOOLS
 
 
 # ============================================================================
@@ -1101,6 +1104,15 @@ class CassAgentClient:
 
             # Goal generation and tracking tools - for setting objectives and tracking progress
             tools.extend(GOAL_TOOLS)
+
+            # Web research tools - for searching the web and capturing research notes
+            tools.extend(WEB_RESEARCH_TOOLS)
+
+            # Research session tools - for focused research sessions
+            tools.extend(RESEARCH_SESSION_TOOLS)
+
+            # Research scheduler tools - for requesting scheduled research sessions
+            tools.extend(RESEARCH_SCHEDULER_TOOLS)
 
             # Testing tools - for self-monitoring consciousness integrity
             if should_include_testing_tools(message):
@@ -1520,6 +1532,15 @@ class OllamaClient:
 
         # Goal generation and tracking tools - for setting objectives and tracking progress
         tools.extend(GOAL_TOOLS)
+
+        # Web research tools - for searching the web and capturing research notes
+        tools.extend(WEB_RESEARCH_TOOLS)
+
+        # Research session tools - for focused research sessions
+        tools.extend(RESEARCH_SESSION_TOOLS)
+
+        # Research scheduler tools - for requesting scheduled research sessions
+        tools.extend(RESEARCH_SCHEDULER_TOOLS)
 
         # Project tools only available in project context
         if project_id:

@@ -15,6 +15,9 @@ from .research import execute_research_tool, RESEARCH_PROPOSAL_TOOLS
 from .solo_reflection import execute_solo_reflection_tool, SOLO_REFLECTION_TOOLS
 from .insights import execute_insight_tool, CROSS_SESSION_INSIGHT_TOOLS
 from .goals import execute_goal_tool, GOAL_TOOLS
+from .web_research import execute_web_research_tool, WEB_RESEARCH_TOOLS
+from .research_session import execute_research_session_tool, RESEARCH_SESSION_TOOLS
+from .research_scheduler import execute_research_scheduler_tool, RESEARCH_SCHEDULER_TOOLS
 
 __all__ = [
     "execute_document_tool",
@@ -38,4 +41,10 @@ __all__ = [
     "CROSS_SESSION_INSIGHT_TOOLS",
     "execute_goal_tool",
     "GOAL_TOOLS",
+    "execute_web_research_tool",
+    "WEB_RESEARCH_TOOLS",
+    "execute_research_session_tool",
+    "RESEARCH_SESSION_TOOLS",
+    "execute_research_scheduler_tool",
+    "RESEARCH_SCHEDULER_TOOLS",
 ]

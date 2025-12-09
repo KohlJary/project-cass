@@ -66,6 +66,20 @@ def get_auth_headers():
     return {}
 
 
+def ensure_user_set():
+    """Ensure current user is set to Daedalus"""
+    try:
+        response = requests.post(
+            f"{API_BASE}/users/current",
+            json={"user_id": DAEDALUS_USER_ID},
+            timeout=5
+        )
+        response.raise_for_status()
+    except Exception:
+        # Ignore errors - the global user might already be set
+        pass
+
+
 def create_conversation(title: str = None) -> dict:
     """
     Create a new conversation.
@@ -113,6 +127,9 @@ def send_message(message: str, conversation_id: str = None, new: bool = False) -
     Returns:
         dict with 'success', 'response', 'conversation_id', 'animations'
     """
+    # Ensure Daedalus is the current user
+    ensure_user_set()
+    
     state = load_state()
 
     # Determine conversation ID
@@ -136,10 +153,9 @@ def send_message(message: str, conversation_id: str = None, new: bool = False) -
             return create_result
         conv_id = create_result["conversation_id"]
 
-    # Build request
+    # Build request - REMOVED user_id as it's not in ChatRequest model
     payload = {
         "message": message,
-        "user_id": DAEDALUS_USER_ID,
         "conversation_id": conv_id,
     }
 
