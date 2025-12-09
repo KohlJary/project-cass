@@ -2226,3 +2226,167 @@ class SoloReflectionPanel(Container):
                 debug_log("Stopped reflection session", "info")
         except Exception as e:
             debug_log(f"Failed to stop session: {e}", "error")
+
+
+class DaedalusConversationsPanel(Container):
+    """Panel for viewing Daedalus-Cass conversation history (read-only)"""
+
+    selected_conversation: reactive[Optional[str]] = reactive(None)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.conversations: List[Dict] = []
+        self.system_users: List[Dict] = []
+        self.current_messages: List[Dict] = []
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="daedalus-convs-layout"):
+            # Left panel - conversation list
+            with Vertical(id="daedalus-convs-sidebar"):
+                yield Label("Daedalus ↔ Cass", id="daedalus-convs-header")
+                yield Static("System user conversations", id="daedalus-convs-subtitle", classes="dim")
+                with VerticalScroll(id="daedalus-convs-scroll"):
+                    yield Container(id="daedalus-convs-list")
+
+            # Right panel - message viewer
+            with VerticalScroll(id="daedalus-messages-scroll"):
+                yield Static("Select a conversation to view messages", id="daedalus-messages-content")
+
+    async def on_mount(self) -> None:
+        """Load conversations on mount"""
+        await self.load_conversations()
+
+    async def load_conversations(self) -> None:
+        """Load system user conversations from API"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get("/admin/conversations/system")
+            if response.status_code == 200:
+                data = response.json()
+                self.conversations = data.get("conversations", [])
+                self.system_users = data.get("system_users", [])
+                await self._display_conversations()
+        except Exception as e:
+            debug_log(f"Failed to load Daedalus conversations: {e}", "error")
+
+    async def _display_conversations(self) -> None:
+        """Display conversation list"""
+        container = self.query_one("#daedalus-convs-list", Container)
+        await container.remove_children()
+
+        if not self.conversations:
+            await container.mount(Static("No conversations yet", classes="empty-convs dim"))
+            return
+
+        for conv in self.conversations:
+            conv_id = conv.get("id", "")
+            title = conv.get("title", "Untitled")
+            if len(title) > 35:
+                title = title[:32] + "..."
+            msg_count = conv.get("message_count", 0)
+            updated = conv.get("updated_at", "")
+
+            # Format date
+            date_str = ""
+            if updated:
+                try:
+                    dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                    date_str = dt.strftime("%m/%d %H:%M")
+                except:
+                    date_str = updated[:10]
+
+            label = f"{title}\n  {date_str} · {msg_count} msgs"
+            btn = Button(label, id=f"dconv-{conv_id}", classes="daedalus-conv-btn")
+            btn.conversation_id = conv_id
+            await container.mount(btn)
+
+    @on(Button.Pressed)
+    async def on_conversation_button(self, event: Button.Pressed) -> None:
+        """Handle conversation button clicks"""
+        button_id = event.button.id or ""
+        if button_id.startswith("dconv-"):
+            conv_id = getattr(event.button, "conversation_id", None)
+            if conv_id:
+                self.selected_conversation = conv_id
+                await self.load_messages(conv_id)
+
+    async def load_messages(self, conversation_id: str) -> None:
+        """Load and display messages for a conversation"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get(f"/admin/conversations/{conversation_id}/messages")
+            if response.status_code == 200:
+                data = response.json()
+                self.current_messages = data.get("messages", [])
+                await self._display_messages()
+        except Exception as e:
+            debug_log(f"Failed to load messages: {e}", "error")
+
+    async def _display_messages(self) -> None:
+        """Display messages in the detail panel"""
+        scroll = self.query_one("#daedalus-messages-scroll", VerticalScroll)
+        content = self.query_one("#daedalus-messages-content", Static)
+
+        if not self.current_messages:
+            content.update("No messages in this conversation")
+            return
+
+        # Build rich text for all messages
+        from rich.console import Group as RichGroup
+        from rich.panel import Panel
+        from rich.markdown import Markdown as RichMarkdown
+
+        panels = []
+        for msg in self.current_messages:
+            role = msg.get("role", "unknown")
+            msg_content = msg.get("content", "")
+            timestamp = msg.get("timestamp", "")
+
+            # Format timestamp
+            time_str = ""
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    time_str = dt.strftime("%H:%M:%S")
+                except:
+                    time_str = timestamp[:8]
+
+            # Role styling
+            if role == "user":
+                # User is Daedalus
+                title = f"[bold cyan]Daedalus[/] [dim]{time_str}[/]"
+                border_style = "cyan"
+            else:
+                # Assistant is Cass
+                title = f"[bold magenta]Cass[/] [dim]{time_str}[/]"
+                border_style = "magenta"
+
+            # Truncate very long messages for display
+            display_content = msg_content
+            if len(display_content) > 2000:
+                display_content = display_content[:2000] + "\n\n[dim]... (truncated)[/]"
+
+            panel = Panel(
+                RichMarkdown(display_content),
+                title=title,
+                title_align="left",
+                border_style=border_style,
+                padding=(0, 1)
+            )
+            panels.append(panel)
+
+        # Update content with all panels
+        content.update(RichGroup(*panels))
+        scroll.scroll_end(animate=False)
+
+    async def refresh_conversations(self) -> None:
+        """Refresh the conversation list"""
+        await self.load_conversations()
+        if self.selected_conversation:
+            await self.load_messages(self.selected_conversation)

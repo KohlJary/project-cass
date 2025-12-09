@@ -381,3 +381,33 @@ export const researchApi = {
   getProposalMarkdown: (id: string) => api.get(`/wiki/research/proposals/${id}/markdown`),
   regenerateSummary: (id: string) => api.post(`/wiki/research/proposals/${id}/regenerate-summary`),
 };
+
+// Goals endpoints (Cass's goal generation and tracking)
+export const goalsApi = {
+  // Working Questions
+  getQuestions: (status?: string) =>
+    api.get('/goals/questions', { params: { status } }),
+  getQuestion: (id: string) => api.get(`/goals/questions/${id}`),
+
+  // Research Agenda
+  getAgenda: (params?: { status?: string; priority?: string }) =>
+    api.get('/goals/agenda', { params }),
+  getAgendaItem: (id: string) => api.get(`/goals/agenda/${id}`),
+
+  // Synthesis Artifacts
+  getArtifacts: () => api.get('/goals/artifacts'),
+  getArtifact: (slug: string) => api.get(`/goals/artifacts/${slug}`),
+
+  // Initiatives
+  getInitiatives: (status?: string) =>
+    api.get('/goals/initiatives', { params: { status } }),
+  respondToInitiative: (id: string, status: string, response: string) =>
+    api.post(`/goals/initiatives/${id}/respond`, null, { params: { status, response } }),
+
+  // Progress & Review
+  getProgress: (params?: { limit?: number; entry_type?: string }) =>
+    api.get('/goals/progress', { params }),
+  getReview: (includeProgress?: boolean) =>
+    api.get('/goals/review', { params: { include_progress: includeProgress ?? true } }),
+  getNextActions: () => api.get('/goals/next-actions'),
+};

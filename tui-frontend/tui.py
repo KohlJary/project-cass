@@ -60,6 +60,7 @@ from widgets import (
     SelfModelPanel,
     SoloReflectionPanel,
     RoadmapPanel,
+    DaedalusConversationsPanel,
     # Daedalus panels
     SessionsPanel,
     FilesPanel,
@@ -629,6 +630,8 @@ class CassVesselTUI(App):
                                 yield UserPanel(id="user-panel")
                             with TabPane("Summary", id="summary-tab"):
                                 yield SummaryPanel(id="summary-panel")
+                            with TabPane("D↔C", id="daedalus-convs-tab"):
+                                yield DaedalusConversationsPanel(id="daedalus-convs-panel")
                             # Daedalus-specific tabs
                             with TabPane("Sessions", id="sessions-tab"):
                                 yield SessionsPanel(id="sessions-panel")

@@ -14,6 +14,7 @@ from .testing import execute_testing_tool, TESTING_TOOLS
 from .research import execute_research_tool, RESEARCH_PROPOSAL_TOOLS
 from .solo_reflection import execute_solo_reflection_tool, SOLO_REFLECTION_TOOLS
 from .insights import execute_insight_tool, CROSS_SESSION_INSIGHT_TOOLS
+from .goals import execute_goal_tool, GOAL_TOOLS
 
 __all__ = [
     "execute_document_tool",
@@ -35,4 +36,6 @@ __all__ = [
     "SOLO_REFLECTION_TOOLS",
     "execute_insight_tool",
     "CROSS_SESSION_INSIGHT_TOOLS",
+    "execute_goal_tool",
+    "GOAL_TOOLS",
 ]
