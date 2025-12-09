@@ -17,6 +17,7 @@ const navItems = [
   { path: '/self-model', label: 'Self-Model', icon: '%' },
   { path: '/development', label: 'Development', icon: '↑' },
   { path: '/data', label: 'Data', icon: '↓' },
+  { path: '/reflection', label: 'Reflection', icon: '~' },
 ];
 
 export function Layout() {

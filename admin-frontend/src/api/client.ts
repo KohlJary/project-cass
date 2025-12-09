@@ -318,6 +318,19 @@ export const testingApi = {
   getExperimentStatuses: () => api.get('/testing/ab/statuses'),
 };
 
+// Solo Reflection endpoints
+export const soloReflectionApi = {
+  getStats: () => api.get('/solo-reflection/stats'),
+  listSessions: (params?: { limit?: number; status?: string }) =>
+    api.get('/solo-reflection/sessions', { params }),
+  getSession: (id: string) => api.get(`/solo-reflection/sessions/${id}`),
+  getThoughtStream: (id: string) => api.get(`/solo-reflection/sessions/${id}/stream`),
+  startSession: (data: { duration_minutes?: number; theme?: string }) =>
+    api.post('/solo-reflection/sessions', data),
+  stopSession: () => api.post('/solo-reflection/stop'),
+  deleteSession: (id: string) => api.delete(`/solo-reflection/sessions/${id}`),
+};
+
 // Research/ARS endpoints
 export const researchApi = {
   getQueue: (params?: { status?: string; task_type?: string; limit?: number }) =>

@@ -58,6 +58,7 @@ from widgets import (
     CalendarEventsPanel,
     TasksPanel,
     SelfModelPanel,
+    SoloReflectionPanel,
     RoadmapPanel,
     # Daedalus panels
     SessionsPanel,
@@ -622,6 +623,8 @@ class CassVesselTUI(App):
                                 yield GrowthPanel(id="growth-panel")
                             with TabPane("Self", id="self-model-tab"):
                                 yield SelfModelPanel(id="self-model-panel")
+                            with TabPane("Reflect", id="reflection-tab"):
+                                yield SoloReflectionPanel(id="reflection-panel")
                             with TabPane("User", id="user-tab"):
                                 yield UserPanel(id="user-panel")
                             with TabPane("Summary", id="summary-tab"):

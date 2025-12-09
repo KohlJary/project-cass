@@ -1800,3 +1800,429 @@ class SelfModelPanel(Container):
     async def on_refresh(self) -> None:
         """Refresh self-model data"""
         await self.load_self_model()
+
+
+class SoloReflectionPanel(Container):
+    """Panel for viewing and managing Cass's solo reflection sessions"""
+
+    selected_session: reactive[Optional[str]] = reactive(None)
+    is_polling: reactive[bool] = reactive(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.sessions: List[Dict] = []
+        self.stats: Dict = {}
+        self.current_session: Optional[Dict] = None
+        self._poll_task: Optional[asyncio.Task] = None
+        self._background_refresh_task: Optional[asyncio.Task] = None
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="reflection-layout"):
+            # Left panel - stats and controls
+            with Vertical(id="reflection-sidebar"):
+                # Stats section
+                with Container(id="reflection-stats"):
+                    yield Label("Solo Reflection", id="reflection-header")
+                    yield Static("Loading stats...", id="stats-display")
+
+                # Start new session controls
+                with Container(id="new-session-form"):
+                    yield Label("Start New Session", classes="section-label")
+                    with Horizontal(id="duration-row"):
+                        yield Label("Duration:", classes="form-label")
+                        yield Input(value="15", id="duration-input", type="integer")
+                        yield Label("min", classes="form-suffix")
+                    yield Input(placeholder="Theme (optional)", id="theme-input")
+                    yield Button("Start Reflection", id="start-session-btn", variant="primary")
+                    yield Button("Stop Session", id="stop-session-btn", variant="error", classes="hidden")
+
+                # Sessions list
+                with Container(id="sessions-list-container"):
+                    yield Label("Sessions", classes="section-label")
+                    with VerticalScroll(id="sessions-scroll"):
+                        yield Container(id="sessions-list")
+
+            # Right panel - session detail
+            with VerticalScroll(id="reflection-detail"):
+                yield Static("Select a session to view its thought stream", id="session-detail-content")
+
+    async def on_mount(self) -> None:
+        """Load data on mount and start background refresh"""
+        await self.load_stats()
+        await self.load_sessions()
+        # Start background refresh to detect sessions started from chat
+        self._start_background_refresh()
+
+    def _start_background_refresh(self) -> None:
+        """Start periodic background refresh (slower than active polling)"""
+        if self._background_refresh_task and not self._background_refresh_task.done():
+            return
+
+        async def refresh_loop():
+            while True:
+                try:
+                    await asyncio.sleep(10)  # Check every 10 seconds
+                    if not self.is_polling:  # Only if not already actively polling
+                        old_active = self.stats.get("active_session")
+                        await self.load_stats()
+                        await self.load_sessions()
+                        # Auto-enable polling if session became active
+                        new_active = self.stats.get("active_session")
+                        if new_active and not old_active:
+                            self.selected_session = new_active
+                            self.is_polling = True
+                            await self._update_session_buttons(active=True)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    debug_log(f"Background refresh error: {e}", "error")
+
+        self._background_refresh_task = asyncio.create_task(refresh_loop())
+
+    async def load_stats(self) -> None:
+        """Load reflection statistics"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get("/solo-reflection/stats")
+            if response.status_code == 200:
+                self.stats = response.json()
+                await self._display_stats()
+
+                # Check for active session
+                if self.stats.get("active_session"):
+                    self.selected_session = self.stats["active_session"]
+                    self.is_polling = True
+                    await self._update_session_buttons(active=True)
+        except Exception as e:
+            debug_log(f"Failed to load reflection stats: {e}", "error")
+
+    async def _display_stats(self) -> None:
+        """Display reflection statistics"""
+        display = self.query_one("#stats-display", Static)
+
+        text = Text()
+        text.append(f"Sessions: ", style="dim")
+        text.append(f"{self.stats.get('total_sessions', 0)}\n", style="cyan")
+        text.append(f"Completed: ", style="dim")
+        text.append(f"{self.stats.get('completed_sessions', 0)}\n", style="green")
+        text.append(f"Thoughts: ", style="dim")
+        text.append(f"{self.stats.get('total_thoughts_recorded', 0)}\n", style="magenta")
+        text.append(f"Minutes: ", style="dim")
+        text.append(f"{self.stats.get('total_reflection_minutes', 0)}", style="yellow")
+
+        if self.stats.get("active_session"):
+            text.append("\n\n", style="")
+            text.append("● ", style="bold green")
+            text.append("Session Active", style="green")
+
+        display.update(text)
+
+    async def load_sessions(self) -> None:
+        """Load list of reflection sessions"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get("/solo-reflection/sessions", params={"limit": 20})
+            if response.status_code == 200:
+                data = response.json()
+                self.sessions = data.get("sessions", [])
+                await self._display_sessions()
+        except Exception as e:
+            debug_log(f"Failed to load reflection sessions: {e}", "error")
+
+    async def _display_sessions(self) -> None:
+        """Display sessions list with clickable buttons"""
+        container = self.query_one("#sessions-list", Container)
+
+        # Clear existing children
+        await container.remove_children()
+
+        if not self.sessions:
+            await container.mount(Static("No sessions yet", classes="empty-sessions"))
+            return
+
+        for session in self.sessions:
+            session_id = session.get("session_id", "")
+
+            # Build label
+            status = session.get("status", "unknown")
+            status_icon = {"completed": "✓", "active": "●", "interrupted": "✗"}.get(status, "?")
+
+            started = session.get("started_at", "")
+            date_str = ""
+            if started:
+                try:
+                    dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                    date_str = dt.strftime("%m/%d %H:%M")
+                except:
+                    date_str = started[:10]
+
+            thought_count = session.get("thought_count", len(session.get("thought_stream", [])))
+            theme = session.get("theme", "")
+            theme_short = (theme[:25] + "...") if len(theme) > 25 else theme
+
+            label = f"{status_icon} {date_str} ({thought_count})"
+            if theme_short:
+                label += f"\n  {theme_short}"
+
+            btn = Button(label, id=f"session-{session_id}", classes="session-btn")
+            btn.session_id = session_id  # Store session_id on the button
+            await container.mount(btn)
+
+    @on(Button.Pressed)
+    async def on_session_button(self, event: Button.Pressed) -> None:
+        """Handle session button clicks"""
+        button_id = event.button.id or ""
+        if button_id.startswith("session-"):
+            session_id = getattr(event.button, "session_id", None)
+            if session_id:
+                self.selected_session = session_id
+                await self.load_session_detail(session_id)
+
+    async def load_session_detail(self, session_id: str) -> None:
+        """Load and display a session's details"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.get(f"/solo-reflection/sessions/{session_id}")
+            if response.status_code == 200:
+                self.current_session = response.json()
+                await self._display_session_detail()
+        except Exception as e:
+            debug_log(f"Failed to load session detail: {e}", "error")
+
+    async def _display_session_detail(self) -> None:
+        """Display the current session's details"""
+        display = self.query_one("#session-detail-content", Static)
+
+        if not self.current_session:
+            display.update(Text("No session selected", style="dim"))
+            return
+
+        session = self.current_session
+        parts = []
+
+        # Header
+        header = Text()
+        theme = session.get("theme") or "Open Reflection"
+        header.append(f"{theme}\n", style="bold white")
+        header.append("─" * 40 + "\n", style="dim")
+
+        status = session.get("status", "unknown")
+        status_style = {"completed": "green", "active": "cyan", "interrupted": "red"}.get(status, "dim")
+        header.append(f"Status: ", style="dim")
+        if status == "active":
+            header.append("● ", style="bold green blink")
+        header.append(f"{status}\n", style=status_style)
+
+        header.append(f"Duration: ", style="dim")
+        actual = session.get("actual_duration_minutes")
+        if actual is not None:
+            header.append(f"{actual:.1f} min\n", style="yellow")
+        else:
+            header.append(f"{session.get('duration_minutes', 0)} min (target)\n", style="yellow")
+
+        header.append(f"Model: ", style="dim")
+        header.append(f"{session.get('model_used', 'unknown')}\n", style="dim italic")
+        parts.append(header)
+
+        # Summary if completed
+        summary = session.get("summary")
+        if summary:
+            sum_text = Text()
+            sum_text.append("\nSummary\n", style="bold cyan")
+            sum_text.append(summary + "\n", style="")
+            parts.append(sum_text)
+
+        # Insights
+        insights = session.get("insights", [])
+        if insights:
+            ins_text = Text()
+            ins_text.append("\nKey Insights\n", style="bold green")
+            for ins in insights:
+                ins_text.append(f"• {ins}\n", style="green")
+            parts.append(ins_text)
+
+        # Questions
+        questions = session.get("questions_raised", [])
+        if questions:
+            q_text = Text()
+            q_text.append("\nQuestions Raised\n", style="bold blue")
+            for q in questions:
+                q_text.append(f"? {q}\n", style="blue")
+            parts.append(q_text)
+
+        # Thought stream
+        thoughts = session.get("thought_stream", [])
+        if thoughts:
+            t_header = Text()
+            t_header.append(f"\nThought Stream ({len(thoughts)})\n", style="bold magenta")
+            t_header.append("─" * 40 + "\n", style="dim")
+            parts.append(t_header)
+
+            type_colors = {
+                "observation": "cyan",
+                "question": "blue",
+                "connection": "magenta",
+                "uncertainty": "yellow",
+                "realization": "green",
+            }
+
+            for i, thought in enumerate(thoughts, 1):
+                t_text = Text()
+                t_type = thought.get("thought_type", "unknown")
+                color = type_colors.get(t_type, "dim")
+
+                # Timestamp
+                ts = thought.get("timestamp", "")
+                if ts:
+                    try:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        t_text.append(f"{dt.strftime('%H:%M:%S')} ", style="dim")
+                    except:
+                        pass
+
+                t_text.append(f"[{t_type}] ", style=f"bold {color}")
+
+                # Confidence
+                conf = thought.get("confidence", 0)
+                try:
+                    conf_pct = int(float(conf) * 100)
+                    t_text.append(f"({conf_pct}%) ", style="dim")
+                except:
+                    pass
+
+                t_text.append("\n", style="")
+                t_text.append(f"  {thought.get('content', '')}\n", style="")
+
+                # Related concepts
+                concepts = thought.get("related_concepts", [])
+                if concepts:
+                    t_text.append(f"  [{', '.join(concepts)}]\n", style="dim italic")
+
+                parts.append(t_text)
+
+        display.update(Group(*parts))
+
+        # Auto-scroll to bottom if session is active (to show new thoughts)
+        if session.get("status") == "active":
+            try:
+                scroll_container = self.query_one("#reflection-detail", VerticalScroll)
+                scroll_container.scroll_end(animate=False)
+            except Exception:
+                pass
+
+    async def _update_session_buttons(self, active: bool) -> None:
+        """Update button visibility based on session state"""
+        try:
+            start_btn = self.query_one("#start-session-btn", Button)
+            stop_btn = self.query_one("#stop-session-btn", Button)
+
+            if active:
+                start_btn.add_class("hidden")
+                stop_btn.remove_class("hidden")
+            else:
+                start_btn.remove_class("hidden")
+                stop_btn.add_class("hidden")
+        except Exception:
+            pass
+
+    def watch_is_polling(self, polling: bool) -> None:
+        """Start/stop polling when state changes"""
+        if polling:
+            self._start_polling()
+        else:
+            self._stop_polling()
+
+    def _start_polling(self) -> None:
+        """Start polling for session updates"""
+        if self._poll_task and not self._poll_task.done():
+            return
+
+        async def poll_loop():
+            while self.is_polling:
+                try:
+                    await self.load_stats()
+                    await self.load_sessions()  # Refresh sessions list too
+                    if self.selected_session:
+                        await self.load_session_detail(self.selected_session)
+
+                    # Check if session completed
+                    if not self.stats.get("active_session"):
+                        self.is_polling = False
+                        await self._update_session_buttons(active=False)
+                        debug_log("Reflection session completed", "success")
+                        break
+
+                    await asyncio.sleep(2)  # Poll every 2s for real-time feel
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    debug_log(f"Polling error: {e}", "error")
+                    await asyncio.sleep(5)
+
+        self._poll_task = asyncio.create_task(poll_loop())
+
+    def _stop_polling(self) -> None:
+        """Stop the polling task"""
+        if self._poll_task:
+            self._poll_task.cancel()
+            self._poll_task = None
+
+    @on(Button.Pressed, "#start-session-btn")
+    async def on_start_session(self) -> None:
+        """Start a new reflection session"""
+        try:
+            duration_input = self.query_one("#duration-input", Input)
+            theme_input = self.query_one("#theme-input", Input)
+
+            duration = int(duration_input.value) if duration_input.value else 15
+            theme = theme_input.value.strip() if theme_input.value else None
+
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            data = {"duration_minutes": duration}
+            if theme:
+                data["theme"] = theme
+
+            response = await app.http_client.post("/solo-reflection/sessions", json=data)
+            if response.status_code == 200:
+                result = response.json()
+                self.selected_session = result.get("session_id")
+                self.is_polling = True
+                await self._update_session_buttons(active=True)
+                theme_input.value = ""
+                await self.load_stats()
+                await self.load_sessions()
+                debug_log(f"Started reflection session: {self.selected_session}", "success")
+        except Exception as e:
+            debug_log(f"Failed to start session: {e}", "error")
+
+    @on(Button.Pressed, "#stop-session-btn")
+    async def on_stop_session(self) -> None:
+        """Stop the active reflection session"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            response = await app.http_client.post("/solo-reflection/stop")
+            if response.status_code == 200:
+                self.is_polling = False
+                await self._update_session_buttons(active=False)
+                await self.load_stats()
+                await self.load_sessions()
+                if self.selected_session:
+                    await self.load_session_detail(self.selected_session)
+                debug_log("Stopped reflection session", "info")
+        except Exception as e:
+            debug_log(f"Failed to stop session: {e}", "error")

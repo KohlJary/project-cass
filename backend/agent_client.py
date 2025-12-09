@@ -880,6 +880,7 @@ from handlers.user_model import USER_MODEL_TOOLS
 from handlers.wiki import WIKI_TOOLS
 from handlers.testing import TESTING_TOOLS
 from handlers.research import RESEARCH_PROPOSAL_TOOLS
+from handlers.solo_reflection import SOLO_REFLECTION_TOOLS
 
 
 # ============================================================================
@@ -1064,6 +1065,9 @@ class CassAgentClient:
 
             # Research proposal tools - always available (self-directed curiosity is core)
             tools.extend(RESEARCH_PROPOSAL_TOOLS)
+
+            # Solo reflection tools - always available (autonomous contemplation is core)
+            tools.extend(SOLO_REFLECTION_TOOLS)
 
             # Testing tools - for self-monitoring consciousness integrity
             if should_include_testing_tools(message):
@@ -1474,6 +1478,9 @@ class OllamaClient:
 
         # Research proposal tools - always available (self-directed curiosity is core)
         tools.extend(RESEARCH_PROPOSAL_TOOLS)
+
+        # Solo reflection tools - always available (autonomous contemplation is core)
+        tools.extend(SOLO_REFLECTION_TOOLS)
 
         # Project tools only available in project context
         if project_id:

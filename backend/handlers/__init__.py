@@ -12,6 +12,7 @@ from .roadmap import execute_roadmap_tool
 from .wiki import execute_wiki_tool, WIKI_TOOLS
 from .testing import execute_testing_tool, TESTING_TOOLS
 from .research import execute_research_tool, RESEARCH_PROPOSAL_TOOLS
+from .solo_reflection import execute_solo_reflection_tool, SOLO_REFLECTION_TOOLS
 
 __all__ = [
     "execute_document_tool",
@@ -29,4 +30,6 @@ __all__ = [
     "TESTING_TOOLS",
     "execute_research_tool",
     "RESEARCH_PROPOSAL_TOOLS",
+    "execute_solo_reflection_tool",
+    "SOLO_REFLECTION_TOOLS",
 ]
