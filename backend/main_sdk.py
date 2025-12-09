@@ -69,7 +69,8 @@ from handlers import (
     execute_user_model_tool,
     execute_roadmap_tool,
     execute_wiki_tool,
-    execute_testing_tool
+    execute_testing_tool,
+    execute_research_tool
 )
 import base64
 
@@ -200,9 +201,13 @@ init_roadmap_routes(roadmap_manager)
 app.include_router(roadmap_router)
 
 # Initialize wiki storage
-from wiki import WikiStorage, WikiRetrieval
+from wiki import WikiStorage, WikiRetrieval, ResearchQueue, ProposalQueue
 wiki_storage = WikiStorage(wiki_root=str(DATA_DIR / "wiki"), git_enabled=True)
 wiki_retrieval = WikiRetrieval(wiki_storage, memory)
+
+# Initialize research queues
+research_queue = ResearchQueue(str(DATA_DIR / "wiki"))
+proposal_queue = ProposalQueue(str(DATA_DIR / "wiki"))
 
 # Cache for recent wiki retrievals to avoid redundant lookups
 # Format: {query_hash: (timestamp, wiki_context_str, page_names)}
@@ -2148,6 +2153,16 @@ async def chat(request: ChatRequest):
                         authenticity_scorer=authenticity_scorer,
                         conversation_manager=conversation_manager,
                         storage_dir=DATA_DIR / "testing"
+                    )
+                elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                    tool_result = await execute_research_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        research_queue=research_queue,
+                        proposal_queue=proposal_queue,
+                        self_manager=self_manager,
+                        wiki_storage=wiki_storage,
+                        conversation_id=request.conversation_id
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(
@@ -4919,6 +4934,16 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_manager=conversation_manager,
                                     storage_dir=DATA_DIR / "testing"
                                 )
+                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                                tool_result = await execute_research_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    research_queue=research_queue,
+                                    proposal_queue=proposal_queue,
+                                    self_manager=self_manager,
+                                    wiki_storage=wiki_storage,
+                                    conversation_id=conversation_id
+                                )
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -5053,6 +5078,16 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     authenticity_scorer=authenticity_scorer,
                                     conversation_manager=conversation_manager,
                                     storage_dir=DATA_DIR / "testing"
+                                )
+                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                                tool_result = await execute_research_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    research_queue=research_queue,
+                                    proposal_queue=proposal_queue,
+                                    self_manager=self_manager,
+                                    wiki_storage=wiki_storage,
+                                    conversation_id=conversation_id
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
@@ -5195,6 +5230,16 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     authenticity_scorer=authenticity_scorer,
                                     conversation_manager=conversation_manager,
                                     storage_dir=DATA_DIR / "testing"
+                                )
+                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details"]:
+                                tool_result = await execute_research_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    research_queue=research_queue,
+                                    proposal_queue=proposal_queue,
+                                    self_manager=self_manager,
+                                    wiki_storage=wiki_storage,
+                                    conversation_id=conversation_id
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(

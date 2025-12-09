@@ -15,6 +15,20 @@ from textual.message import Message
 from rich.text import Text
 
 
+class MilestoneHeader(Static):
+    """Clickable header for a milestone section"""
+
+    def __init__(self, milestone_id: Optional[str], header_text: Text, **kwargs):
+        super().__init__(header_text, **kwargs)
+        self.milestone_id = milestone_id
+
+    def on_click(self, event) -> None:
+        """Emit milestone selection when header is clicked"""
+        if self.milestone_id:
+            event.stop()
+            self.post_message(RoadmapPanel.MilestoneSelected(self.milestone_id))
+
+
 class MilestoneSection(Container):
     """A collapsible section for a milestone with its items"""
 
@@ -89,6 +103,10 @@ class MilestoneSection(Container):
             else:
                 header_text.append(f"  ({done}/{total})", style="dim")
 
+            # Plan indicator if milestone has a plan
+            if self.milestone_data and self.milestone_data.get("plan_path"):
+                header_text.append(" [plan]", style="italic magenta")
+
             # Target date if set
             if self.milestone_data and self.milestone_data.get("target_date"):
                 header_text.append(f"  Due: {self.milestone_data['target_date']}", style="dim yellow")
@@ -102,6 +120,14 @@ class MilestoneSection(Container):
                 header_text.append(f"  ({len(self.items)})", style="dim")
 
         with Collapsible(title=str(header_text), collapsed=self.collapsed):
+            # Add clickable milestone header if this is a real milestone
+            if self.milestone_id:
+                yield MilestoneHeader(
+                    self.milestone_id,
+                    Text("  [click to view plan & details]", style="dim italic cyan"),
+                    classes="milestone-header-link"
+                )
+
             for item in self.items:
                 item_id = item["id"]
                 # Skip children (rendered under parent)
@@ -247,6 +273,11 @@ class RoadmapPanel(Container):
             super().__init__()
             self.item_id = item_id
 
+    class MilestoneSelected(Message):
+        def __init__(self, milestone_id: str):
+            super().__init__()
+            self.milestone_id = milestone_id
+
     class ItemUpdated(Message):
         def __init__(self, item_id: str):
             super().__init__()
@@ -254,6 +285,7 @@ class RoadmapPanel(Container):
 
     # Reactive state
     selected_item_id: reactive[Optional[str]] = reactive(None)
+    selected_milestone_id: reactive[Optional[str]] = reactive(None)
     current_filter: reactive[str] = reactive("all")
     project_id: reactive[Optional[str]] = reactive(None)
     show_all_projects: reactive[bool] = reactive(False)
@@ -265,6 +297,8 @@ class RoadmapPanel(Container):
         self.milestones: List[Dict] = []
         self.milestone_progress: Dict[str, Dict] = {}
         self.selected_item_data: Optional[Dict] = None
+        self.selected_milestone_data: Optional[Dict] = None
+        self.selected_milestone_plan: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="roadmap-content"):
@@ -289,16 +323,16 @@ class RoadmapPanel(Container):
             with VerticalScroll(id="roadmap-list"):
                 yield Static("Loading...", id="roadmap-loading")
 
-            # Detail panel
-            with Container(id="roadmap-detail"):
+            # Detail panel (scrollable for long content like plans)
+            with VerticalScroll(id="roadmap-detail"):
                 yield Static("Select an item to view details", id="detail-content")
 
-                # Action buttons
-                with Horizontal(id="roadmap-actions", classes="hidden"):
-                    yield Button("Pick", id="pick-item-btn", variant="primary")
-                    yield Button("Advance", id="advance-item-btn", variant="default")
-                    yield Button("Complete", id="complete-item-btn", variant="success")
-                    yield Button("Delete", id="delete-item-btn", variant="error")
+            # Action buttons (outside scroll so they stay visible)
+            with Horizontal(id="roadmap-actions", classes="hidden"):
+                yield Button("Pick", id="pick-item-btn", variant="primary")
+                yield Button("Advance", id="advance-item-btn", variant="default")
+                yield Button("Complete", id="complete-item-btn", variant="success")
+                yield Button("Delete", id="delete-item-btn", variant="error")
 
     async def on_mount(self) -> None:
         await self.load_items()
@@ -554,9 +588,14 @@ class RoadmapPanel(Container):
             detail.update(Text(f"Error loading item: {e}", style="red"))
 
     async def _render_detail(self) -> None:
-        """Render the detail panel for selected item"""
+        """Render the detail panel for selected item or milestone"""
         detail = self.query_one("#detail-content", Static)
         actions = self.query_one("#roadmap-actions", Horizontal)
+
+        # Check if we're showing a milestone
+        if self.selected_milestone_data:
+            await self._render_milestone_detail()
+            return
 
         if not self.selected_item_data:
             detail.update("Select an item to view details")
@@ -643,6 +682,90 @@ class RoadmapPanel(Container):
         # Complete works on active items
         complete_btn.disabled = status in ("done", "archived", "backlog")
 
+    async def _render_milestone_detail(self) -> None:
+        """Render detail panel for a milestone including its plan"""
+        detail = self.query_one("#detail-content", Static)
+        actions = self.query_one("#roadmap-actions", Horizontal)
+
+        milestone = self.selected_milestone_data
+        if not milestone:
+            return
+
+        text = Text()
+        text.append("[M] ", style="bold cyan")
+        text.append(f"{milestone.get('title', 'Untitled')}\n", style="bold")
+        text.append(f"Status: {milestone.get('status', 'active')}", style="dim")
+
+        if milestone.get("target_date"):
+            text.append(f" | Due: {milestone['target_date']}", style="dim yellow")
+        text.append("\n")
+
+        # Progress info
+        progress = self.milestone_progress.get(milestone.get("id"), {})
+        if progress:
+            total = progress.get("total_items", 0)
+            done = progress.get("done_items", 0)
+            pct = progress.get("progress_pct", 0)
+            text.append(f"Progress: {done}/{total} items ({pct:.0f}%)\n", style="green" if pct >= 100 else "cyan")
+
+        # Plan path
+        plan_path = milestone.get("plan_path")
+        if plan_path:
+            text.append(f"Plan: {plan_path}\n", style="dim italic")
+
+        text.append("\n")
+
+        # Description
+        desc = milestone.get("description", "")
+        if desc:
+            text.append("Description:\n", style="bold")
+            text.append(f"{desc}\n\n", style="")
+
+        # Plan content
+        if self.selected_milestone_plan:
+            text.append("─" * 40 + "\n", style="dim")
+            text.append("Implementation Plan:\n", style="bold magenta")
+            text.append("─" * 40 + "\n", style="dim")
+            # Truncate plan if very long for initial display
+            plan_content = self.selected_milestone_plan
+            if len(plan_content) > 3000:
+                text.append(plan_content[:3000], style="")
+                text.append("\n\n[... plan truncated, see full file ...]\n", style="dim italic")
+            else:
+                text.append(plan_content, style="")
+
+        detail.update(text)
+        actions.add_class("hidden")  # Hide item actions for milestones
+
+    async def _load_milestone_detail(self, milestone_id: str) -> None:
+        """Load milestone details and its plan content"""
+        try:
+            app = self.app
+            if not hasattr(app, 'http_client'):
+                return
+
+            # Load milestone data
+            response = await app.http_client.get(f"/roadmap/milestones/{milestone_id}")
+            if response.status_code == 200:
+                self.selected_milestone_data = response.json()
+
+                # Load plan content if available
+                plan_response = await app.http_client.get(f"/roadmap/milestones/{milestone_id}/plan")
+                if plan_response.status_code == 200:
+                    plan_data = plan_response.json()
+                    if plan_data.get("has_plan") and plan_data.get("content"):
+                        self.selected_milestone_plan = plan_data["content"]
+                    else:
+                        self.selected_milestone_plan = None
+                else:
+                    self.selected_milestone_plan = None
+
+                await self._render_detail()
+
+        except Exception as e:
+            detail = self.query_one("#detail-content", Static)
+            detail.update(Text(f"Error loading milestone: {e}", style="red"))
+
     def watch_current_filter(self, new_filter: str) -> None:
         """Reload items when filter changes"""
         self.call_later(self.load_items)
@@ -688,7 +811,20 @@ class RoadmapPanel(Container):
     async def on_item_selected(self, event: ItemSelected) -> None:
         """Handle item selection"""
         self.selected_item_id = event.item_id
+        # Clear milestone selection when selecting an item
+        self.selected_milestone_id = None
+        self.selected_milestone_data = None
+        self.selected_milestone_plan = None
         await self._load_item_detail(event.item_id)
+
+    @on(MilestoneSelected)
+    async def on_milestone_selected(self, event: MilestoneSelected) -> None:
+        """Handle milestone selection"""
+        self.selected_milestone_id = event.milestone_id
+        # Clear item selection when selecting a milestone
+        self.selected_item_id = None
+        self.selected_item_data = None
+        await self._load_milestone_detail(event.milestone_id)
 
     @on(Button.Pressed, "#refresh-roadmap-btn")
     async def on_refresh(self) -> None:
