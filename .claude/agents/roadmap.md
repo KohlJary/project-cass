@@ -24,9 +24,20 @@ You are exploring the Cass Vessel roadmap data (data/roadmap/).
 - `assigned_to`: "cass", "daedalus", or user name
 - `tags`: Array of tag strings
 - `project_id`: UUID of the project this item belongs to
+- `milestone_id`: ID of the milestone this item belongs to
 - `links`: Array of links to other items [{link_type, target_id}]
 - `source_conversation_id`: Origin conversation that created the item
 - `created_by`: Who created it ("cass", "daedalus", or "user")
+- `created_at`, `updated_at`: ISO timestamps
+
+## Milestone Fields
+
+- `id` - Short unique identifier (e.g., "abc12345")
+- `title` - Milestone name
+- `description` - Detailed markdown content
+- `target_date` - Optional ISO date (e.g., "2025-01-15")
+- `status`: active, completed, archived
+- `plan_path` - Path to implementation plan file (e.g., "~/.claude/plans/xyz.md")
 - `created_at`, `updated_at`: ISO timestamps
 
 ## Link Types
@@ -58,6 +69,7 @@ Always move items to `ready` when queuing them for processing, `in_progress` whe
 ## API Endpoints (for context)
 
 ```
+# Work Items
 GET    /roadmap/items              - List (with filters: status, priority, item_type, assigned_to, project_id, milestone_id)
 POST   /roadmap/items              - Create
 GET    /roadmap/items/{id}         - Get one
@@ -69,6 +81,14 @@ POST   /roadmap/items/{id}/links   - Add link {target_id, link_type}
 DELETE /roadmap/items/{id}/links   - Remove link {target_id, link_type}
 GET    /roadmap/items/{id}/links   - Get links with resolved titles and blocking status
 GET    /roadmap/items/{id}/dependencies - Check unmet dependencies
+
+# Milestones
+GET    /roadmap/milestones         - List all milestones
+POST   /roadmap/milestones         - Create milestone {title, description, target_date, plan_path}
+GET    /roadmap/milestones/{id}    - Get specific milestone
+PUT    /roadmap/milestones/{id}    - Update milestone
+GET    /roadmap/milestones/{id}/progress - Get progress stats (total, done, percentage)
+GET    /roadmap/milestones/{id}/plan - Get plan content (reads plan_path file)
 ```
 
 ### Project Scoping

@@ -54,6 +54,7 @@ class CreateMilestoneRequest(BaseModel):
     title: str
     description: str = ""
     target_date: Optional[str] = None
+    plan_path: Optional[str] = None
 
 
 class UpdateMilestoneRequest(BaseModel):
@@ -61,6 +62,7 @@ class UpdateMilestoneRequest(BaseModel):
     description: Optional[str] = None
     target_date: Optional[str] = None
     status: Optional[str] = None
+    plan_path: Optional[str] = None
 
 
 class AddLinkRequest(BaseModel):
@@ -248,6 +250,7 @@ async def create_milestone(request: CreateMilestoneRequest):
         title=request.title,
         description=request.description,
         target_date=request.target_date,
+        plan_path=request.plan_path,
     )
     return {"milestone": milestone.to_dict()}
 
@@ -261,10 +264,21 @@ async def update_milestone(milestone_id: str, request: UpdateMilestoneRequest):
         description=request.description,
         target_date=request.target_date,
         status=request.status,
+        plan_path=request.plan_path,
     )
     if not milestone:
         raise HTTPException(status_code=404, detail="Milestone not found")
     return {"milestone": milestone.to_dict()}
+
+
+@router.get("/milestones/{milestone_id}")
+async def get_milestone(milestone_id: str):
+    """Get a specific milestone"""
+    milestones = _roadmap_manager.list_milestones(include_archived=True)
+    for m in milestones:
+        if m.get("id") == milestone_id:
+            return m
+    raise HTTPException(status_code=404, detail="Milestone not found")
 
 
 @router.get("/milestones/{milestone_id}/progress")
@@ -272,3 +286,37 @@ async def milestone_progress(milestone_id: str):
     """Get progress stats for a milestone"""
     progress = _roadmap_manager.get_milestone_progress(milestone_id)
     return progress
+
+
+@router.get("/milestones/{milestone_id}/plan")
+async def get_milestone_plan(milestone_id: str):
+    """Get the plan content for a milestone"""
+    import os
+    from pathlib import Path
+
+    milestones = _roadmap_manager.list_milestones(include_archived=True)
+    milestone = None
+    for m in milestones:
+        if m.get("id") == milestone_id:
+            milestone = m
+            break
+
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+
+    plan_path = milestone.get("plan_path")
+    if not plan_path:
+        return {"has_plan": False, "content": None}
+
+    # Expand ~ to home directory
+    expanded_path = os.path.expanduser(plan_path)
+
+    if not os.path.exists(expanded_path):
+        return {"has_plan": True, "content": None, "error": "Plan file not found"}
+
+    try:
+        with open(expanded_path, "r") as f:
+            content = f.read()
+        return {"has_plan": True, "content": content, "path": plan_path}
+    except Exception as e:
+        return {"has_plan": True, "content": None, "error": str(e)}

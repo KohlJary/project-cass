@@ -45,6 +45,11 @@ class TaskRationale:
     user_relevance: float = 0.3          # How relevant to known user interests?
     recency_of_reference: float = 0.5    # How recently was this referenced?
     graph_balance: float = 0.3           # Does this balance the knowledge graph?
+    # Self-model driven scores (for self-directed research)
+    self_directed_curiosity: float = 0.0  # Originated from Cass's own questions
+    growth_relevance: float = 0.0         # Relevance to active growth edges
+    opinion_strengthening: float = 0.0    # Value for strengthening uncertain opinions
+    observation_validation: float = 0.0   # Value for validating uncertain observations
 
     def to_dict(self) -> Dict[str, float]:
         return {
@@ -54,6 +59,10 @@ class TaskRationale:
             "user_relevance": round(self.user_relevance, 3),
             "recency_of_reference": round(self.recency_of_reference, 3),
             "graph_balance": round(self.graph_balance, 3),
+            "self_directed_curiosity": round(self.self_directed_curiosity, 3),
+            "growth_relevance": round(self.growth_relevance, 3),
+            "opinion_strengthening": round(self.opinion_strengthening, 3),
+            "observation_validation": round(self.observation_validation, 3),
         }
 
     @classmethod
@@ -65,6 +74,10 @@ class TaskRationale:
             user_relevance=data.get("user_relevance", 0.3),
             recency_of_reference=data.get("recency_of_reference", 0.5),
             graph_balance=data.get("graph_balance", 0.3),
+            self_directed_curiosity=data.get("self_directed_curiosity", 0.0),
+            growth_relevance=data.get("growth_relevance", 0.0),
+            opinion_strengthening=data.get("opinion_strengthening", 0.0),
+            observation_validation=data.get("observation_validation", 0.0),
         )
 
 
@@ -601,22 +614,35 @@ def calculate_task_priority(
     Returns:
         Priority score 0-1
     """
-    weights = {
-        'curiosity': 0.25,
-        'connection_potential': 0.20,
-        'foundation_relevance': 0.20,
-        'user_relevance': 0.15,
-        'recency_of_reference': 0.10,
-        'graph_balance': 0.10,
+    # Base weights for standard rationale components
+    base_weights = {
+        'curiosity': 0.20,
+        'connection_potential': 0.15,
+        'foundation_relevance': 0.15,
+        'user_relevance': 0.10,
+        'recency_of_reference': 0.08,
+        'graph_balance': 0.07,
+    }
+
+    # Self-directed research weights (add extra value for self-generated tasks)
+    self_directed_weights = {
+        'self_directed_curiosity': 0.10,  # Bonus for self-originated questions
+        'growth_relevance': 0.08,          # Bonus for growth edge alignment
+        'opinion_strengthening': 0.04,     # Bonus for opinion investigation
+        'observation_validation': 0.03,    # Bonus for observation validation
     }
 
     score = (
-        rationale.curiosity_score * weights['curiosity'] +
-        rationale.connection_potential * weights['connection_potential'] +
-        rationale.foundation_relevance * weights['foundation_relevance'] +
-        rationale.user_relevance * weights['user_relevance'] +
-        rationale.recency_of_reference * weights['recency_of_reference'] +
-        rationale.graph_balance * weights['graph_balance']
+        rationale.curiosity_score * base_weights['curiosity'] +
+        rationale.connection_potential * base_weights['connection_potential'] +
+        rationale.foundation_relevance * base_weights['foundation_relevance'] +
+        rationale.user_relevance * base_weights['user_relevance'] +
+        rationale.recency_of_reference * base_weights['recency_of_reference'] +
+        rationale.graph_balance * base_weights['graph_balance'] +
+        rationale.self_directed_curiosity * self_directed_weights['self_directed_curiosity'] +
+        rationale.growth_relevance * self_directed_weights['growth_relevance'] +
+        rationale.opinion_strengthening * self_directed_weights['opinion_strengthening'] +
+        rationale.observation_validation * self_directed_weights['observation_validation']
     )
 
     # Type-based adjustments
@@ -815,11 +841,16 @@ class ProposalQueue:
             try:
                 with open(self.proposals_file, "r") as f:
                     data = json.load(f)
+                    self._proposals.clear()
                     for proposal_data in data.get("proposals", []):
                         proposal = ResearchProposal.from_dict(proposal_data)
                         self._proposals[proposal.proposal_id] = proposal
             except Exception as e:
                 print(f"Error loading proposals: {e}")
+
+    def reload(self) -> None:
+        """Reload proposals from disk (for sync across instances)."""
+        self._load()
 
     def _save(self) -> None:
         """Save proposals to disk."""
@@ -837,6 +868,7 @@ class ProposalQueue:
 
     def get(self, proposal_id: str) -> Optional[ResearchProposal]:
         """Get a proposal by ID."""
+        self.reload()  # Sync with disk in case other instances modified
         return self._proposals.get(proposal_id)
 
     def update(self, proposal: ResearchProposal) -> None:
@@ -855,12 +887,362 @@ class ProposalQueue:
 
     def get_by_status(self, status: ProposalStatus) -> List[ResearchProposal]:
         """Get proposals by status."""
+        self.reload()  # Sync with disk in case other instances modified
         return [p for p in self._proposals.values() if p.status == status]
 
     def get_all(self) -> List[ResearchProposal]:
         """Get all proposals, sorted by creation date descending."""
+        self.reload()  # Sync with disk in case other instances modified
         return sorted(self._proposals.values(), key=lambda p: p.created_at, reverse=True)
 
     def get_pending(self) -> List[ResearchProposal]:
         """Get proposals awaiting approval."""
         return self.get_by_status(ProposalStatus.PENDING)
+
+
+class ProposalGenerator:
+    """
+    Generates research proposals from Cass's intellectual curiosity.
+
+    This class orchestrates the creation of research proposals by:
+    1. Gathering candidate research tasks from the queue
+    2. Clustering tasks by theme/concept similarity
+    3. Selecting coherent task sets (3-7 tasks)
+    4. Generating unifying rationale using self-model context
+    5. Creating proposals in DRAFT status for review
+    """
+
+    def __init__(
+        self,
+        research_queue: ResearchQueue,
+        proposal_queue: ProposalQueue,
+        self_manager=None,
+        wiki_storage=None,
+    ):
+        """
+        Initialize the proposal generator.
+
+        Args:
+            research_queue: ResearchQueue for task access
+            proposal_queue: ProposalQueue for storing proposals
+            self_manager: SelfManager for self-model context (optional)
+            wiki_storage: WikiStorage for knowledge context (optional)
+        """
+        self.research_queue = research_queue
+        self.proposal_queue = proposal_queue
+        self.self_manager = self_manager
+        self.wiki_storage = wiki_storage
+
+    def generate_from_curiosity(
+        self,
+        theme: Optional[str] = None,
+        max_tasks: int = 5,
+        min_tasks: int = 2,
+    ) -> Optional[ResearchProposal]:
+        """
+        Generate a research proposal from self-directed interests.
+
+        Args:
+            theme: Optional theme to focus on (if None, auto-cluster)
+            max_tasks: Maximum tasks per proposal
+            min_tasks: Minimum tasks required to create proposal
+
+        Returns:
+            ResearchProposal in DRAFT status, or None if insufficient tasks
+        """
+        # 1. Gather candidate tasks from queue
+        candidates = self.research_queue.get_queued()
+
+        if len(candidates) < min_tasks:
+            return None
+
+        # 2. Filter/select tasks
+        if theme:
+            # Filter to theme-relevant tasks
+            selected = self._filter_by_theme(candidates, theme)
+        else:
+            # Auto-cluster tasks by similarity
+            selected, theme = self._auto_cluster_tasks(candidates)
+
+        if len(selected) < min_tasks:
+            return None
+
+        # Limit to max_tasks
+        selected = selected[:max_tasks]
+
+        # 3. Generate unifying rationale
+        rationale = self._generate_rationale(selected, theme)
+
+        # 4. Create title
+        title = self._generate_title(theme, selected)
+
+        # 5. Create proposal
+        proposal = ResearchProposal(
+            proposal_id=create_proposal_id(),
+            title=title,
+            theme=theme,
+            rationale=rationale,
+            tasks=selected,
+            status=ProposalStatus.DRAFT,
+            created_by="cass",
+        )
+
+        # 6. Save to proposal queue
+        self.proposal_queue.add(proposal)
+
+        return proposal
+
+    def _filter_by_theme(
+        self,
+        candidates: List[ResearchTask],
+        theme: str,
+    ) -> List[ResearchTask]:
+        """Filter tasks that relate to the given theme."""
+        theme_lower = theme.lower()
+        theme_words = set(theme_lower.split())
+
+        scored_tasks = []
+        for task in candidates:
+            # Check target and context for theme relevance
+            target_lower = task.target.lower()
+            context_lower = (task.context or "").lower()
+
+            # Simple relevance scoring based on word overlap
+            relevance = 0
+
+            # Direct theme mention
+            if theme_lower in target_lower or theme_lower in context_lower:
+                relevance += 2.0
+
+            # Word overlap
+            target_words = set(target_lower.split())
+            context_words = set(context_lower.split())
+            all_words = target_words | context_words
+
+            word_overlap = len(theme_words & all_words)
+            if word_overlap > 0:
+                relevance += word_overlap * 0.5
+
+            # Exploration context bonus
+            if task.exploration:
+                exploration_words = set(task.exploration.question.lower().split())
+                exp_overlap = len(theme_words & exploration_words)
+                relevance += exp_overlap * 0.3
+
+            if relevance > 0:
+                scored_tasks.append((task, relevance))
+
+        # Sort by relevance and return tasks
+        scored_tasks.sort(key=lambda x: x[1], reverse=True)
+        return [task for task, _ in scored_tasks]
+
+    def _auto_cluster_tasks(
+        self,
+        candidates: List[ResearchTask],
+    ) -> tuple[List[ResearchTask], str]:
+        """
+        Auto-cluster tasks by conceptual similarity.
+
+        Returns tuple of (selected_tasks, identified_theme)
+        """
+        # Group tasks by source_type first (natural clustering)
+        by_source = {}
+        for task in candidates:
+            source = task.source_type or "other"
+            if source not in by_source:
+                by_source[source] = []
+            by_source[source].append(task)
+
+        # Find largest coherent cluster
+        best_cluster = []
+        best_theme = "General Research"
+
+        # Priority order for source types
+        source_priority = [
+            "self_model",
+            "growth_edge",
+            "exploration",
+            "opinion_uncertainty",
+            "observation_uncertainty",
+            "auto",
+            "other",
+        ]
+
+        for source in source_priority:
+            if source in by_source and len(by_source[source]) >= 2:
+                best_cluster = by_source[source]
+                best_theme = self._infer_theme_from_source(source, by_source[source])
+                break
+
+        # Fallback: just take top priority tasks
+        if len(best_cluster) < 2:
+            best_cluster = sorted(
+                candidates,
+                key=lambda t: t.priority,
+                reverse=True
+            )[:5]
+            best_theme = "High-Priority Questions"
+
+        return best_cluster, best_theme
+
+    def _infer_theme_from_source(
+        self,
+        source_type: str,
+        tasks: List[ResearchTask],
+    ) -> str:
+        """Infer a theme from the source type and tasks."""
+        theme_map = {
+            "self_model": "Self-Understanding and Open Questions",
+            "growth_edge": "Personal Growth and Development",
+            "exploration": "Knowledge Expansion",
+            "opinion_uncertainty": "Opinion Investigation",
+            "observation_uncertainty": "Observation Validation",
+            "auto": "Wiki Knowledge Gaps",
+            "deepening": "Deepening Understanding",
+            "other": "General Investigation",
+        }
+
+        base_theme = theme_map.get(source_type, "General Investigation")
+
+        # Try to extract common concepts from task targets
+        if tasks:
+            # Find common words across task targets
+            word_counts = {}
+            for task in tasks:
+                words = task.target.lower().replace(":", "").split()
+                for word in words:
+                    if len(word) > 3:  # Skip short words
+                        word_counts[word] = word_counts.get(word, 0) + 1
+
+            # Get most common meaningful word
+            if word_counts:
+                common_word = max(word_counts.items(), key=lambda x: x[1])
+                if common_word[1] >= 2:  # At least 2 occurrences
+                    return f"{base_theme}: {common_word[0].title()}"
+
+        return base_theme
+
+    def _generate_rationale(
+        self,
+        tasks: List[ResearchTask],
+        theme: str,
+    ) -> str:
+        """
+        Generate a unifying rationale for the research proposal.
+
+        Uses self-model context to explain why this research matters to Cass.
+        """
+        rationale_parts = []
+
+        # Opening statement
+        rationale_parts.append(
+            f"This research proposal explores {theme.lower()}, "
+            f"investigating {len(tasks)} related questions."
+        )
+
+        # Add self-model context if available
+        if self.self_manager:
+            profile = self.self_manager.load_profile()
+
+            # Check for relevant growth edges
+            theme_lower = theme.lower()
+            for edge in profile.growth_edges[:3]:
+                if any(word in edge.area.lower() for word in theme_lower.split()):
+                    rationale_parts.append(
+                        f"This connects to my active growth edge in {edge.area}, "
+                        f"where I'm working to move from '{edge.current_state}' "
+                        f"toward '{edge.desired_state or 'deeper understanding'}'."
+                    )
+                    break
+
+            # Check for relevant values
+            for value in profile.values[:3]:
+                if any(word in value.lower() for word in theme_lower.split()):
+                    rationale_parts.append(
+                        f"This research aligns with my value of {value}."
+                    )
+                    break
+
+        # Task summary
+        task_types = {}
+        for task in tasks:
+            t_type = task.task_type.value
+            task_types[t_type] = task_types.get(t_type, 0) + 1
+
+        type_summary = ", ".join(
+            f"{count} {t_type}" for t_type, count in task_types.items()
+        )
+        rationale_parts.append(
+            f"The proposal includes {type_summary} tasks."
+        )
+
+        # Expected value
+        avg_curiosity = sum(t.rationale.curiosity_score for t in tasks) / len(tasks)
+        if avg_curiosity > 0.7:
+            rationale_parts.append(
+                "These questions emerge from high intellectual curiosity "
+                "and represent genuine interests worth pursuing."
+            )
+        elif avg_curiosity > 0.5:
+            rationale_parts.append(
+                "These questions represent moderately interesting directions "
+                "that could yield valuable insights."
+            )
+
+        return " ".join(rationale_parts)
+
+    def _generate_title(
+        self,
+        theme: str,
+        tasks: List[ResearchTask],
+    ) -> str:
+        """Generate a concise title for the proposal."""
+        # Start with theme
+        if len(theme) <= 50:
+            return theme
+
+        # Truncate if too long
+        return f"{theme[:47]}..."
+
+    def suggest_methodology(self, task: ResearchTask) -> str:
+        """
+        Suggest how to investigate a research question.
+
+        Based on task type and available tools/resources.
+        """
+        methodologies = {
+            TaskType.RED_LINK: (
+                "Research this concept through web search and memory retrieval, "
+                "then create a wiki page documenting findings and connections."
+            ),
+            TaskType.DEEPENING: (
+                "Gather additional context from recent conversations and web sources, "
+                "then resynthesize the wiki page with deeper understanding."
+            ),
+            TaskType.QUESTION: (
+                "Investigate this question through multiple sources, "
+                "synthesize findings, and record key insights in wiki or journal."
+            ),
+            TaskType.EXPLORATION: (
+                "Conduct broad exploration across related concepts, "
+                "create missing wiki pages, and synthesize a summary connecting them."
+            ),
+        }
+
+        base_method = methodologies.get(
+            task.task_type,
+            "Research through available sources and document findings."
+        )
+
+        # Add context-specific suggestions
+        if task.exploration and task.exploration.related_red_links:
+            links = task.exploration.related_red_links[:3]
+            base_method += f" Start by investigating: {', '.join(links)}."
+
+        if task.source_type == "self_model":
+            base_method += " Connect findings to existing self-model observations."
+
+        if task.source_type == "growth_edge":
+            base_method += " Focus on practical applications for personal growth."
+
+        return base_method

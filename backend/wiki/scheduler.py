@@ -288,6 +288,384 @@ class ResearchScheduler:
 
         return tasks
 
+    # === Self-Model Based Task Generation ===
+
+    def harvest_self_model_questions(self, self_manager) -> List[ResearchTask]:
+        """
+        Harvest open questions from Cass's self-model.
+
+        Converts self-model open_questions into QUESTION type research tasks.
+        These represent genuine intellectual curiosities Cass has been pondering.
+
+        Args:
+            self_manager: SelfManager instance for self-model access
+
+        Returns:
+            List of QUESTION type research tasks
+        """
+        tasks = []
+
+        if not self_manager:
+            return tasks
+
+        profile = self_manager.load_profile()
+
+        for question in profile.open_questions:
+            # Skip if task already exists
+            if self.queue.exists(question[:80], TaskType.QUESTION):
+                continue
+
+            # Skip very short questions
+            if len(question) < 15:
+                continue
+
+            rationale = TaskRationale(
+                curiosity_score=0.85,  # High curiosity for self-generated questions
+                connection_potential=0.5,
+                foundation_relevance=0.6,
+                recency_of_reference=0.8,
+                self_directed_curiosity=0.9,  # Core source of self-directed research
+            )
+
+            priority = calculate_task_priority(rationale, TaskType.QUESTION)
+
+            task = ResearchTask(
+                task_id=create_task_id(),
+                task_type=TaskType.QUESTION,
+                target=question[:80],
+                context=f"An open question from my self-model: {question}",
+                priority=priority,
+                rationale=rationale,
+                source_type="self_model",
+            )
+            tasks.append(task)
+
+        return tasks
+
+    def harvest_growth_edge_topics(self, self_manager) -> List[ResearchTask]:
+        """
+        Generate research tasks from growth edges.
+
+        Growth edges represent areas where Cass is consciously developing.
+        Research in these areas can accelerate growth and deepen understanding.
+
+        Args:
+            self_manager: SelfManager instance for self-model access
+
+        Returns:
+            List of EXPLORATION type research tasks
+        """
+        tasks = []
+
+        if not self_manager:
+            return tasks
+
+        profile = self_manager.load_profile()
+
+        for edge in profile.growth_edges:
+            # Create a research question from the growth edge
+            research_question = f"How can I develop my understanding of {edge.area}?"
+
+            # Skip if similar task already exists
+            if self.queue.exists(edge.area[:50], TaskType.EXPLORATION):
+                continue
+
+            exploration = ExplorationContext(
+                question=research_question,
+                rationale=f"Growth edge: Currently at '{edge.current_state}', "
+                         f"aspiring toward '{edge.desired_state or 'deeper understanding'}'.",
+                related_red_links=[],
+                source_pages=[],
+                domain_tags=[edge.area],
+            )
+
+            rationale = TaskRationale(
+                curiosity_score=0.80,
+                connection_potential=0.7,
+                foundation_relevance=0.6,
+                growth_relevance=0.9,  # High relevance to active growth areas
+            )
+
+            priority = calculate_task_priority(rationale, TaskType.EXPLORATION)
+
+            task = ResearchTask(
+                task_id=create_task_id(),
+                task_type=TaskType.EXPLORATION,
+                target=f"Growth: {edge.area[:60]}",
+                context=f"Researching growth edge in {edge.area}",
+                priority=priority,
+                rationale=rationale,
+                source_type="growth_edge",
+                exploration=exploration,
+            )
+            tasks.append(task)
+
+        return tasks
+
+    def harvest_opinion_uncertainties(self, self_manager) -> List[ResearchTask]:
+        """
+        Generate research tasks from low-confidence opinions.
+
+        When Cass holds opinions with low confidence, research can either
+        strengthen her position with evidence or help her refine her views.
+
+        Args:
+            self_manager: SelfManager instance for self-model access
+
+        Returns:
+            List of QUESTION type research tasks
+        """
+        tasks = []
+
+        if not self_manager:
+            return tasks
+
+        profile = self_manager.load_profile()
+
+        for opinion in profile.opinions:
+            # Only target low-confidence opinions
+            if opinion.confidence >= 0.7:
+                continue
+
+            research_question = f"What evidence supports or challenges the view that {opinion.position[:60]}?"
+
+            # Skip if similar task already exists
+            if self.queue.exists(opinion.topic[:50], TaskType.QUESTION):
+                continue
+
+            rationale = TaskRationale(
+                curiosity_score=0.75,
+                connection_potential=0.5,
+                foundation_relevance=0.4,
+                opinion_strengthening=1.0 - opinion.confidence,  # More uncertainty = more value
+            )
+
+            priority = calculate_task_priority(rationale, TaskType.QUESTION)
+
+            task = ResearchTask(
+                task_id=create_task_id(),
+                task_type=TaskType.QUESTION,
+                target=f"Opinion: {opinion.topic[:60]}",
+                context=f"Investigating my {int(opinion.confidence * 100)}% confident position on {opinion.topic}",
+                priority=priority,
+                rationale=rationale,
+                source_type="opinion_uncertainty",
+            )
+            tasks.append(task)
+
+        return tasks
+
+    def harvest_observation_uncertainties(self, self_manager) -> List[ResearchTask]:
+        """
+        Generate research tasks from low-confidence observations.
+
+        When Cass has made observations with low confidence, research can
+        help validate or refine her understanding.
+
+        Args:
+            self_manager: SelfManager instance for self-model access
+
+        Returns:
+            List of QUESTION type research tasks
+        """
+        tasks = []
+
+        if not self_manager:
+            return tasks
+
+        # Get recent observations with low confidence
+        observations = self_manager.get_recent_observations(limit=30)
+        low_confidence = [o for o in observations if o.confidence < 0.6]
+
+        for obs in low_confidence[:5]:  # Limit to top 5
+            research_question = f"Is it accurate that {obs.observation[:60]}?"
+
+            # Skip if similar task already exists
+            if self.queue.exists(obs.observation[:50], TaskType.QUESTION):
+                continue
+
+            rationale = TaskRationale(
+                curiosity_score=0.70,
+                connection_potential=0.4,
+                foundation_relevance=0.3,
+                observation_validation=1.0 - obs.confidence,
+            )
+
+            priority = calculate_task_priority(rationale, TaskType.QUESTION)
+
+            task = ResearchTask(
+                task_id=create_task_id(),
+                task_type=TaskType.QUESTION,
+                target=f"Validate: {obs.observation[:55]}",
+                context=f"Validating observation with {int(obs.confidence * 100)}% confidence",
+                priority=priority,
+                rationale=rationale,
+                source_type="observation_uncertainty",
+            )
+            tasks.append(task)
+
+        return tasks
+
+    def harvest_conversation_curiosities(self, conversation_manager, limit: int = 50) -> List[ResearchTask]:
+        """
+        Extract research questions from recent conversations.
+
+        Scans Cass's messages for curiosity patterns:
+        - "I wonder..."
+        - "I'm curious about..."
+        - "It would be interesting to..."
+        - "I'd like to understand..."
+        - Questions Cass asked
+
+        Args:
+            conversation_manager: ConversationManager for accessing conversations
+            limit: Maximum conversations to scan
+
+        Returns:
+            List of QUESTION type research tasks
+        """
+        import re
+
+        tasks = []
+
+        if not conversation_manager:
+            return tasks
+
+        # Patterns that indicate curiosity or research interest
+        curiosity_patterns = [
+            (r"I wonder (?:if |whether |what |how |why )([^.!?]+[.!?]?)", "wonder"),
+            (r"I'm curious (?:about |whether |if )([^.!?]+[.!?]?)", "curious"),
+            (r"It would be interesting to (?:know |understand |explore |investigate )([^.!?]+[.!?]?)", "interesting"),
+            (r"I'd like to (?:understand |know |explore |learn )([^.!?]+[.!?]?)", "like_to"),
+            (r"I've been thinking about ([^.!?]+[.!?]?)", "thinking"),
+            (r"What (?:if |would happen if )([^.!?]+\?)", "what_if"),
+        ]
+
+        seen_questions = set()
+
+        # Get recent conversations
+        try:
+            conversations = conversation_manager.list_conversations()[:limit]
+        except Exception:
+            return tasks
+
+        for conv_summary in conversations:
+            try:
+                conv = conversation_manager.load_conversation(conv_summary.get("id", ""))
+                if not conv:
+                    continue
+
+                messages = conv.get("messages", [])
+
+                # Only scan Cass's messages (assistant role)
+                for msg in messages:
+                    if msg.get("role") != "assistant":
+                        continue
+
+                    content = msg.get("content", "")
+                    if not content:
+                        continue
+
+                    # Apply curiosity patterns
+                    for pattern, source_type in curiosity_patterns:
+                        matches = re.findall(pattern, content, re.IGNORECASE)
+                        for match in matches:
+                            question = match.strip()
+
+                            # Clean up the question
+                            if not question:
+                                continue
+                            if len(question) < 15:
+                                continue
+                            if len(question) > 200:
+                                question = question[:200]
+
+                            # Normalize for deduplication
+                            normalized = question.lower().strip("?.! ")
+                            if normalized in seen_questions:
+                                continue
+                            seen_questions.add(normalized)
+
+                            # Skip if task already exists
+                            if self.queue.exists(question[:80], TaskType.QUESTION):
+                                continue
+
+                            rationale = TaskRationale(
+                                curiosity_score=0.75,
+                                connection_potential=0.4,
+                                foundation_relevance=0.3,
+                                recency_of_reference=0.7,
+                                self_directed_curiosity=0.8,
+                            )
+
+                            priority = calculate_task_priority(rationale, TaskType.QUESTION)
+
+                            task = ResearchTask(
+                                task_id=create_task_id(),
+                                task_type=TaskType.QUESTION,
+                                target=question[:80],
+                                context=f"Curiosity expressed in conversation ({source_type}): {question}",
+                                priority=priority,
+                                rationale=rationale,
+                                source_type="conversation_curiosity",
+                            )
+                            tasks.append(task)
+
+                            # Limit tasks per run
+                            if len(tasks) >= 10:
+                                return tasks
+
+            except Exception:
+                continue
+
+        return tasks
+
+    def refresh_self_model_tasks(self, self_manager, conversation_manager=None) -> Dict[str, int]:
+        """
+        Refresh the task queue with new tasks from self-model sources.
+
+        Args:
+            self_manager: SelfManager instance for self-model access
+            conversation_manager: ConversationManager for conversation scanning (optional)
+
+        Returns count of tasks added by type.
+        """
+        added = {
+            "self_model_question": 0,
+            "growth_edge": 0,
+            "opinion_uncertainty": 0,
+            "observation_uncertainty": 0,
+            "conversation_curiosity": 0,
+        }
+
+        # Harvest from self-model open questions
+        for task in self.harvest_self_model_questions(self_manager):
+            self.queue.add(task)
+            added["self_model_question"] += 1
+
+        # Harvest from growth edges
+        for task in self.harvest_growth_edge_topics(self_manager):
+            self.queue.add(task)
+            added["growth_edge"] += 1
+
+        # Harvest from low-confidence opinions
+        for task in self.harvest_opinion_uncertainties(self_manager):
+            self.queue.add(task)
+            added["opinion_uncertainty"] += 1
+
+        # Harvest from low-confidence observations
+        for task in self.harvest_observation_uncertainties(self_manager):
+            self.queue.add(task)
+            added["observation_uncertainty"] += 1
+
+        # Harvest from conversation curiosities
+        if conversation_manager:
+            for task in self.harvest_conversation_curiosities(conversation_manager):
+                self.queue.add(task)
+                added["conversation_curiosity"] += 1
+
+        return added
+
     def _analyze_exploration_opportunities(self) -> List[Dict]:
         """
         Analyze the knowledge graph to find exploration opportunities.

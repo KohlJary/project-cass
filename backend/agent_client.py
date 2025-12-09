@@ -874,11 +874,12 @@ ROADMAP_TOOLS = [
     }
 ]
 
-# Import self-model, user-model, wiki, and testing tools from handlers
+# Import self-model, user-model, wiki, testing, and research tools from handlers
 from handlers.self_model import SELF_MODEL_TOOLS
 from handlers.user_model import USER_MODEL_TOOLS
 from handlers.wiki import WIKI_TOOLS
 from handlers.testing import TESTING_TOOLS
+from handlers.research import RESEARCH_PROPOSAL_TOOLS
 
 
 # ============================================================================
@@ -958,6 +959,22 @@ def should_include_testing_tools(message: str) -> bool:
     """Check if message warrants consciousness testing tools."""
     message_lower = message.lower()
     return any(kw in message_lower for kw in TESTING_KEYWORDS)
+
+
+RESEARCH_PROPOSAL_KEYWORDS = frozenset({
+    "research", "investigate", "curious", "curiosity",
+    "wonder", "wondering", "explore", "exploration",
+    "proposal", "proposals", "study", "studies",
+    "question", "questions", "hypothesis",
+    "what if", "i want to know", "let me explore",
+    "draft proposal", "submit proposal", "my proposals",
+})
+
+
+def should_include_research_tools(message: str) -> bool:
+    """Check if message warrants research proposal tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in RESEARCH_PROPOSAL_KEYWORDS)
 
 
 # ============================================================================
@@ -1044,6 +1061,9 @@ class CassAgentClient:
 
             # Wiki tools - always available (wiki is core self-knowledge system)
             tools.extend(WIKI_TOOLS)
+
+            # Research proposal tools - always available (self-directed curiosity is core)
+            tools.extend(RESEARCH_PROPOSAL_TOOLS)
 
             # Testing tools - for self-monitoring consciousness integrity
             if should_include_testing_tools(message):
@@ -1451,6 +1471,9 @@ class OllamaClient:
 
         # Wiki tools - always available (wiki is core self-knowledge system)
         tools.extend(WIKI_TOOLS)
+
+        # Research proposal tools - always available (self-directed curiosity is core)
+        tools.extend(RESEARCH_PROPOSAL_TOOLS)
 
         # Project tools only available in project context
         if project_id:

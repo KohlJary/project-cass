@@ -189,13 +189,24 @@ class Milestone:
     status: str  # "active", "completed", "archived"
     created_at: str
     updated_at: str
+    plan_path: Optional[str] = None  # Path to implementation plan file (e.g., ~/.claude/plans/xyz.md)
 
     def to_dict(self) -> Dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'Milestone':
-        return cls(**data)
+        # Handle plan_path which may not exist in older data
+        return cls(
+            id=data["id"],
+            title=data["title"],
+            description=data.get("description", ""),
+            target_date=data.get("target_date"),
+            status=data.get("status", "active"),
+            created_at=data["created_at"],
+            updated_at=data["updated_at"],
+            plan_path=data.get("plan_path"),
+        )
 
 
 class RoadmapManager:
@@ -527,6 +538,7 @@ class RoadmapManager:
         title: str,
         description: str = "",
         target_date: Optional[str] = None,
+        plan_path: Optional[str] = None,
     ) -> Milestone:
         """Create a new milestone"""
         milestone_id = str(uuid.uuid4())[:8]
@@ -540,6 +552,7 @@ class RoadmapManager:
             status="active",
             created_at=now,
             updated_at=now,
+            plan_path=plan_path,
         )
 
         milestones = self._load_milestones()
@@ -562,6 +575,7 @@ class RoadmapManager:
         description: Optional[str] = None,
         target_date: Optional[str] = None,
         status: Optional[str] = None,
+        plan_path: Optional[str] = None,
     ) -> Optional[Milestone]:
         """Update a milestone"""
         milestones = self._load_milestones()
@@ -576,6 +590,8 @@ class RoadmapManager:
                     m["target_date"] = target_date
                 if status is not None:
                     m["status"] = status
+                if plan_path is not None:
+                    m["plan_path"] = plan_path
                 m["updated_at"] = datetime.now().isoformat()
                 self._save_milestones(milestones)
                 return Milestone.from_dict(m)

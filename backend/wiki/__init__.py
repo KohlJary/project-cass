@@ -50,6 +50,7 @@ from .research import (
     ResearchProposal,
     ProposalStatus,
     ProposalQueue,
+    ProposalGenerator,
     create_proposal_id,
 )
 from .scheduler import (
@@ -125,6 +126,7 @@ __all__ = [
     "ResearchProposal",
     "ProposalStatus",
     "ProposalQueue",
+    "ProposalGenerator",
     "create_proposal_id",
     "ResearchScheduler",
     "SchedulerMode",
