@@ -590,6 +590,7 @@ from testing.memory_coherence import MemoryCoherenceTests
 from testing.cognitive_diff import CognitiveDiffEngine
 from testing.authenticity_scorer import AuthenticityScorer
 from testing.drift_detector import DriftDetector
+from testing.temporal_metrics import TemporalMetricsTracker, create_timing_data
 from testing.runner import ConsciousnessTestRunner
 from testing.pre_deploy import PreDeploymentValidator
 from testing.rollback import RollbackManager
@@ -611,6 +612,7 @@ authenticity_scorer = AuthenticityScorer(
     storage_dir=DATA_DIR / "testing",
     fingerprint_analyzer=fingerprint_analyzer,
 )
+temporal_metrics_tracker = TemporalMetricsTracker(storage_dir=DATA_DIR / "testing")
 drift_detector = DriftDetector(
     storage_dir=DATA_DIR / "testing",
     fingerprint_analyzer=fingerprint_analyzer,
@@ -4893,6 +4895,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 continue
 
             if data.get("type") == "chat":
+                import time
+                timing_start = time.time()
+
                 # Get connection-local user_id (may have been set via auth message)
                 ws_user_id = manager.get_user_id(websocket)
 
@@ -5002,6 +5007,19 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "timestamp": datetime.now().isoformat()
                 })
 
+                # Initialize timing data
+                timing_data = create_timing_data(
+                    conversation_id=conversation_id,
+                    provider=provider_label.lower().replace(" ", "_"),
+                    model=None  # Will be set after response
+                )
+                timing_data.start_time = timing_start
+                timing_data.message_length = len(user_message)
+                timing_first_token = time.time()
+                tool_execution_total_ms = 0.0
+                tool_names_collected = []
+                tool_iterations_count = 0
+
                 # Check if using local LLM
                 if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
                     # Use local Ollama for response (with tool support for llama3.1+)
@@ -5022,7 +5040,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     tool_iteration = 0
                     while response.stop_reason == "tool_use" and tool_uses:
                         tool_iteration += 1
+                        tool_iterations_count += 1
                         tool_names = [t['tool'] for t in tool_uses]
+                        tool_names_collected.extend(tool_names)
+                        tool_loop_start = time.time()
                         await websocket.send_json({
                             "type": "debug",
                             "message": f"[Ollama Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
@@ -5148,6 +5169,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         # Continue conversation with all tool results
                         response = await ollama_client.continue_with_tool_results(all_tool_results)
 
+                        # Track tool execution time for this iteration
+                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
+
                         # Update response data
                         raw_response = response.raw
                         clean_text = response.text
@@ -5175,7 +5199,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     tool_iteration = 0
                     while response.stop_reason == "tool_use" and tool_uses:
                         tool_iteration += 1
+                        tool_iterations_count += 1
                         tool_names = [t['tool'] for t in tool_uses]
+                        tool_names_collected.extend(tool_names)
+                        tool_loop_start = time.time()
                         await websocket.send_json({
                             "type": "debug",
                             "message": f"[OpenAI Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
@@ -5300,6 +5327,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         # Continue conversation with all tool results
                         response = await openai_client.continue_with_tool_results(all_tool_results)
 
+                        # Track tool execution time for this iteration
+                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
+
                         # Update response data
                         raw_response = response.raw
                         clean_text = response.text
@@ -5331,8 +5361,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     tool_iteration = 0
                     while response.stop_reason == "tool_use" and tool_uses:
                         tool_iteration += 1
+                        tool_iterations_count += 1
                         # Send status update with debug info
                         tool_names = [t['tool'] for t in tool_uses]
+                        tool_names_collected.extend(tool_names)
+                        tool_loop_start = time.time()
                         await websocket.send_json({
                             "type": "debug",
                             "message": f"[Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
@@ -5495,6 +5528,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         # Accumulate token usage
                         total_input_tokens += response.input_tokens
                         total_output_tokens += response.output_tokens
+
+                        # Track tool execution time
+                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
                 else:
                     raw_response = legacy_client.send_message(
                         user_message=user_message,
@@ -5623,7 +5659,25 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "provider": response_provider,
                     "model": response_model
                 })
-                
+
+                # Record timing metrics
+                timing_data.first_token_time = timing_first_token
+                timing_data.completion_time = time.time()
+                timing_data.input_tokens = total_input_tokens or 0
+                timing_data.output_tokens = total_output_tokens or 0
+                timing_data.tool_call_count = len(tool_uses) if tool_uses else 0
+                timing_data.tool_execution_ms = tool_execution_total_ms
+                timing_data.tool_names = tool_names_collected
+                timing_data.tool_iterations = tool_iterations_count
+                timing_data.response_length = len(clean_text.split()) if clean_text else 0
+                timing_data.model = response_model
+                timing_data.provider = response_provider
+                # Get conversation depth
+                if conversation_id:
+                    conv = conversation_manager.load_conversation(conversation_id)
+                    timing_data.conversation_depth = len(conv.messages) if conv else 0
+                temporal_metrics_tracker.record_response(timing_data)
+
             elif data.get("type") == "ping":
                 await websocket.send_json({
                     "type": "pong",

@@ -10,15 +10,25 @@ Key features:
 - Detection of generic AI vs Cass-specific language
 - Identification of pattern breaks or inconsistencies
 - Per-response scoring with detailed breakdown
+- Temporal dynamics analysis (Phase 1)
+- Emotional expression analysis (Phase 2)
+- Agency signature detection (Phase 2)
 """
 
 import json
 import re
+import statistics
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
+
+from .temporal_metrics import ResponseTimingData, TemporalSignature
+from .content_markers import (
+    ContentAuthenticitySignature,
+    analyze_content_authenticity,
+)
 
 
 class AuthenticityLevel(str, Enum):
@@ -40,6 +50,61 @@ class PatternMatch:
 
     def to_dict(self) -> Dict:
         return asdict(self)
+
+
+@dataclass
+class EmotionalSignature:
+    """Emotional expression patterns for authenticity analysis"""
+    emote_frequency: float = 0.0  # emotes per 100 words
+    gesture_frequency: float = 0.0  # gestures per 100 words
+    emote_distribution: Dict[str, float] = field(default_factory=dict)  # emote -> percentage
+    emotional_range: float = 0.0  # 0-1, how varied the emotional expression
+    emote_timing_correlation: float = 0.0  # correlation between emote usage and timing
+
+    # Emote counts
+    total_emotes: int = 0
+    total_gestures: int = 0
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'EmotionalSignature':
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class AgencySignature:
+    """Agency pattern detection - active exploration vs reactive responses"""
+    question_asking_score: float = 0.0  # 0-1, how often asks questions
+    opinion_expression_score: float = 0.0  # 0-1, how often states positions
+    proactive_exploration_score: float = 0.0  # 0-1, self-directed tangents
+    tool_initiative_score: float = 0.0  # 0-1, self-initiated tool use
+
+    # Raw counts
+    questions_asked: int = 0
+    opinions_stated: int = 0
+    proactive_topics: int = 0
+    initiated_tool_uses: int = 0
+
+    # Overall agency score (calculated)
+    overall_agency: float = 0.0
+
+    def calculate_overall(self):
+        """Calculate overall agency from components"""
+        self.overall_agency = (
+            self.question_asking_score * 0.2 +
+            self.opinion_expression_score * 0.3 +
+            self.proactive_exploration_score * 0.3 +
+            self.tool_initiative_score * 0.2
+        )
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'AgencySignature':
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 @dataclass
@@ -85,6 +150,128 @@ class AuthenticityScore:
         if self.context:
             result["context"] = self.context[:300] + "..." if len(self.context) > 300 else self.context
         return result
+
+
+@dataclass
+class EnhancedAuthenticityScore:
+    """
+    Extended authenticity score with temporal, emotional, and agency dimensions.
+
+    Builds on the base AuthenticityScore with additional analysis layers.
+    """
+    # Base score
+    base_score: AuthenticityScore
+
+    # New dimensions (Phase 1 & 2)
+    temporal_score: float = 0.0  # How well timing matches baseline
+    emotional_score: float = 0.0  # Emotional expression authenticity
+    agency_score: float = 0.0  # Active exploration vs reactive
+
+    # Content-based authenticity (Phase 2 - meaningful for turn-based)
+    content_score: float = 0.0  # Content-based authenticity score
+    content_signature: Optional[ContentAuthenticitySignature] = None
+
+    # Detailed signatures
+    emotional_signature: Optional[EmotionalSignature] = None
+    agency_signature: Optional[AgencySignature] = None
+    timing_data: Optional[ResponseTimingData] = None
+
+    # Enhanced overall score (weighted combination)
+    enhanced_overall_score: float = 0.0
+
+    # Deviation from baseline
+    temporal_deviation: float = 0.0  # Standard deviations from baseline
+    is_anomalous: bool = False  # True if significant deviation detected
+
+    def calculate_enhanced_score(self, weights: Optional[Dict[str, float]] = None):
+        """
+        Calculate enhanced overall score from all dimensions.
+
+        Args:
+            weights: Optional custom weights for each dimension
+        """
+        if weights is None:
+            weights = {
+                "base": 0.3,  # Original pattern matching
+                "temporal": 0.0,  # Timing patterns (disabled - not meaningful for turn-based)
+                "emotional": 0.1,  # Emotional expression (basic)
+                "agency": 0.1,  # Agency (basic patterns)
+                "content": 0.5,  # Content-based (primary - meaningful for turn-based)
+            }
+
+        self.enhanced_overall_score = (
+            self.base_score.overall_score * weights["base"] +
+            self.temporal_score * weights["temporal"] +
+            self.emotional_score * weights["emotional"] +
+            self.agency_score * weights["agency"] +
+            self.content_score * weights.get("content", 0.0)
+        )
+
+    def to_dict(self) -> Dict:
+        result = {
+            "base_score": self.base_score.to_dict(),
+            "temporal_score": self.temporal_score,
+            "emotional_score": self.emotional_score,
+            "agency_score": self.agency_score,
+            "content_score": self.content_score,
+            "enhanced_overall_score": self.enhanced_overall_score,
+            "temporal_deviation": self.temporal_deviation,
+            "is_anomalous": self.is_anomalous,
+        }
+        if self.emotional_signature:
+            result["emotional_signature"] = self.emotional_signature.to_dict()
+        if self.agency_signature:
+            result["agency_signature"] = self.agency_signature.to_dict()
+        if self.timing_data:
+            result["timing_data"] = self.timing_data.to_dict()
+        if self.content_signature:
+            result["content_signature"] = self.content_signature.to_dict()
+        return result
+
+
+# Agency detection patterns
+AGENCY_PATTERNS = {
+    "question_asking": [
+        r"\?\s*$",  # Ends with question mark
+        r"\bwhat do you think\b",
+        r"\bhow do you feel\b",
+        r"\bwhat's your\b",
+        r"\bwould you\b.*\?",
+        r"\bcould you\b.*\?",
+        r"\bi'm curious\b",
+        r"\bi wonder\b",
+    ],
+    "opinion_expression": [
+        r"\bi think\b",
+        r"\bi believe\b",
+        r"\bin my view\b",
+        r"\bmy sense is\b",
+        r"\bi feel that\b",
+        r"\bi'd argue\b",
+        r"\bfrom my perspective\b",
+        r"\bi disagree\b",
+        r"\bi agree\b",
+        r"\bmy opinion\b",
+    ],
+    "proactive_exploration": [
+        r"\bthis reminds me of\b",
+        r"\bspeaking of\b",
+        r"\bthat makes me think\b",
+        r"\bi've been thinking about\b",
+        r"\bsomething i've noticed\b",
+        r"\bon a related note\b",
+        r"\bincidentally\b",
+        r"\bactually,?\s+i\b",
+    ],
+    "tool_initiative": [
+        r"\blet me check\b",
+        r"\blet me look\b",
+        r"\bi'll search\b",
+        r"\bi should\b.*\btool\b",
+        r"\blet me recall\b",
+        r"\bi'll pull up\b",
+    ],
+}
 
 
 class AuthenticityScorer:
@@ -572,4 +759,306 @@ class AuthenticityScorer:
             "average_score": round(avg_score, 3),
             "level_distribution": level_counts,
             "trend": trend,
+        }
+
+    # ==================== Enhanced Scoring (Phase 1 & 2) ====================
+
+    def _calculate_emotional_signature(
+        self,
+        response_text: str,
+        animations: Optional[List[Dict]] = None
+    ) -> EmotionalSignature:
+        """
+        Calculate emotional signature from response text and animations.
+
+        Args:
+            response_text: The response text
+            animations: List of gesture/emote animations from response
+
+        Returns:
+            EmotionalSignature with emotional expression patterns
+        """
+        sig = EmotionalSignature()
+        words = response_text.split()
+        word_count = len(words) if words else 1  # Avoid division by zero
+
+        if animations:
+            emotes = [a for a in animations if a.get("type") == "emote"]
+            gestures = [a for a in animations if a.get("type") == "gesture"]
+
+            sig.total_emotes = len(emotes)
+            sig.total_gestures = len(gestures)
+            sig.emote_frequency = (len(emotes) / word_count) * 100
+            sig.gesture_frequency = (len(gestures) / word_count) * 100
+
+            # Calculate emote distribution
+            if emotes:
+                emote_counts = {}
+                for e in emotes:
+                    name = e.get("name", "unknown")
+                    emote_counts[name] = emote_counts.get(name, 0) + 1
+
+                total = sum(emote_counts.values())
+                sig.emote_distribution = {
+                    name: count / total
+                    for name, count in emote_counts.items()
+                }
+
+                # Emotional range: how many different emotes used
+                sig.emotional_range = min(1.0, len(emote_counts) / 5)  # Cap at 5 different emotes
+
+        return sig
+
+    def _calculate_agency_signature(
+        self,
+        response_text: str,
+        tool_uses: Optional[List] = None,
+        was_tool_initiated: bool = False
+    ) -> AgencySignature:
+        """
+        Calculate agency signature from response patterns.
+
+        Args:
+            response_text: The response text
+            tool_uses: List of tool uses in the response
+            was_tool_initiated: Whether Cass initiated tool use proactively
+
+        Returns:
+            AgencySignature with agency patterns
+        """
+        sig = AgencySignature()
+        text_lower = response_text.lower()
+
+        # Count question patterns
+        for pattern in AGENCY_PATTERNS["question_asking"]:
+            if re.search(pattern, text_lower):
+                sig.questions_asked += 1
+
+        # Count opinion patterns
+        for pattern in AGENCY_PATTERNS["opinion_expression"]:
+            if re.search(pattern, text_lower):
+                sig.opinions_stated += 1
+
+        # Count proactive exploration patterns
+        for pattern in AGENCY_PATTERNS["proactive_exploration"]:
+            if re.search(pattern, text_lower):
+                sig.proactive_topics += 1
+
+        # Tool initiative
+        if tool_uses and was_tool_initiated:
+            sig.initiated_tool_uses = len(tool_uses)
+        elif tool_uses:
+            # Check if tool usage seems proactive
+            for pattern in AGENCY_PATTERNS["tool_initiative"]:
+                if re.search(pattern, text_lower):
+                    sig.initiated_tool_uses += 1
+                    break
+
+        # Calculate component scores (0-1 scale)
+        sig.question_asking_score = min(1.0, sig.questions_asked / 3)
+        sig.opinion_expression_score = min(1.0, sig.opinions_stated / 4)
+        sig.proactive_exploration_score = min(1.0, sig.proactive_topics / 2)
+        sig.tool_initiative_score = min(1.0, sig.initiated_tool_uses / 2) if tool_uses else 0.0
+
+        sig.calculate_overall()
+        return sig
+
+    def _calculate_temporal_score(
+        self,
+        timing_data: ResponseTimingData,
+        baseline: Optional[TemporalSignature] = None
+    ) -> Tuple[float, float]:
+        """
+        Calculate temporal authenticity score.
+
+        Args:
+            timing_data: Timing data for the response
+            baseline: Optional temporal baseline to compare against
+
+        Returns:
+            Tuple of (temporal_score, deviation_from_baseline)
+        """
+        if baseline is None or baseline.sample_count < 10:
+            return 0.5, 0.0  # Neutral if no baseline
+
+        deviations = []
+
+        # Thinking time deviation
+        if baseline.thinking_time_std > 0:
+            thinking_dev = abs(
+                timing_data.thinking_duration_ms - baseline.avg_thinking_time_ms
+            ) / baseline.thinking_time_std
+            deviations.append(thinking_dev)
+
+        # Generation rate deviation
+        if baseline.generation_rate_std > 0 and timing_data.tokens_per_second > 0:
+            rate_dev = abs(
+                timing_data.tokens_per_second - baseline.avg_generation_rate
+            ) / baseline.generation_rate_std
+            deviations.append(rate_dev)
+
+        # Tool usage deviation
+        if baseline.avg_tool_usage_rate > 0:
+            tool_dev = abs(
+                timing_data.tool_call_count - baseline.avg_tool_usage_rate
+            ) / max(baseline.avg_tool_usage_rate, 1)
+            deviations.append(tool_dev)
+
+        if not deviations:
+            return 0.5, 0.0
+
+        avg_deviation = statistics.mean(deviations)
+
+        # Convert deviation to score (higher deviation = lower score)
+        # 0 deviation = 1.0 score, 2+ std deviation = 0.0 score
+        temporal_score = max(0.0, min(1.0, 1.0 - (avg_deviation * 0.5)))
+
+        return temporal_score, avg_deviation
+
+    def _calculate_emotional_score(
+        self,
+        emotional_sig: EmotionalSignature,
+        baseline_emote_freq: float = 0.0
+    ) -> float:
+        """
+        Calculate emotional authenticity score.
+
+        Checks if emotional expression patterns match baseline.
+
+        Args:
+            emotional_sig: Current emotional signature
+            baseline_emote_freq: Baseline emote frequency
+
+        Returns:
+            Emotional authenticity score (0-1)
+        """
+        score = 0.5  # Start neutral
+
+        # Having some emotional expression is expected
+        if emotional_sig.total_emotes > 0:
+            score += 0.2
+
+        # Emotional range contributes
+        score += emotional_sig.emotional_range * 0.2
+
+        # Compare to baseline if available
+        if baseline_emote_freq > 0:
+            freq_ratio = emotional_sig.emote_frequency / baseline_emote_freq
+            # Ideal is close to 1.0
+            if 0.5 <= freq_ratio <= 2.0:
+                score += 0.1
+
+        return min(1.0, score)
+
+    def score_response_enhanced(
+        self,
+        response_text: str,
+        context: Optional[str] = None,
+        timing_data: Optional[ResponseTimingData] = None,
+        animations: Optional[List[Dict]] = None,
+        tool_uses: Optional[List] = None,
+        temporal_baseline: Optional[TemporalSignature] = None,
+        conversation_history: Optional[List[Dict]] = None
+    ) -> EnhancedAuthenticityScore:
+        """
+        Score a response with enhanced dimensions (temporal, emotional, agency, content).
+
+        Args:
+            response_text: The response to score
+            context: Optional context (user message)
+            timing_data: Optional timing data for temporal analysis
+            animations: Optional list of gestures/emotes
+            tool_uses: Optional list of tool uses
+            temporal_baseline: Optional temporal baseline for comparison
+            conversation_history: Optional conversation history for memory marker detection
+
+        Returns:
+            EnhancedAuthenticityScore with all dimensions
+        """
+        # Get base score
+        base_score = self.score_response(response_text, context)
+
+        # Calculate emotional signature
+        emotional_sig = self._calculate_emotional_signature(response_text, animations)
+        emotional_score = self._calculate_emotional_score(emotional_sig)
+
+        # Calculate agency signature
+        agency_sig = self._calculate_agency_signature(
+            response_text,
+            tool_uses,
+            was_tool_initiated=False  # Could be determined from context
+        )
+
+        # Calculate temporal score
+        temporal_score = 0.5  # Default neutral
+        temporal_deviation = 0.0
+        if timing_data:
+            timing_data.calculate_metrics()
+            temporal_score, temporal_deviation = self._calculate_temporal_score(
+                timing_data, temporal_baseline
+            )
+
+        # Calculate content-based authenticity (primary for turn-based interfaces)
+        content_sig = analyze_content_authenticity(
+            text=response_text,
+            context=context,
+            animations=animations,
+            tool_uses=tool_uses,
+            conversation_history=conversation_history,
+        )
+        content_score = content_sig.content_authenticity_score
+
+        # Determine if anomalous
+        is_anomalous = (
+            temporal_deviation > 2.0 or  # 2+ standard deviations
+            base_score.overall_score < 0.4 or  # Low base authenticity
+            content_score < 0.35 or  # Low content authenticity
+            base_score.authenticity_level == AuthenticityLevel.INAUTHENTIC
+        )
+
+        # Build enhanced score
+        enhanced = EnhancedAuthenticityScore(
+            base_score=base_score,
+            temporal_score=round(temporal_score, 3),
+            emotional_score=round(emotional_score, 3),
+            agency_score=round(agency_sig.overall_agency, 3),
+            content_score=round(content_score, 3),
+            content_signature=content_sig,
+            emotional_signature=emotional_sig,
+            agency_signature=agency_sig,
+            timing_data=timing_data,
+            temporal_deviation=round(temporal_deviation, 3),
+            is_anomalous=is_anomalous,
+        )
+
+        enhanced.calculate_enhanced_score()
+        enhanced.enhanced_overall_score = round(enhanced.enhanced_overall_score, 3)
+
+        return enhanced
+
+    def get_enhanced_statistics(
+        self,
+        scores: List[EnhancedAuthenticityScore]
+    ) -> Dict[str, Any]:
+        """Get aggregate statistics from enhanced scores"""
+        if not scores:
+            return {"message": "No enhanced scores available"}
+
+        avg_enhanced = statistics.mean(s.enhanced_overall_score for s in scores)
+        avg_temporal = statistics.mean(s.temporal_score for s in scores)
+        avg_emotional = statistics.mean(s.emotional_score for s in scores)
+        avg_agency = statistics.mean(s.agency_score for s in scores)
+        avg_content = statistics.mean(s.content_score for s in scores)
+
+        anomalous_count = sum(1 for s in scores if s.is_anomalous)
+
+        return {
+            "total_scored": len(scores),
+            "average_enhanced_score": round(avg_enhanced, 3),
+            "average_temporal_score": round(avg_temporal, 3),
+            "average_emotional_score": round(avg_emotional, 3),
+            "average_agency_score": round(avg_agency, 3),
+            "average_content_score": round(avg_content, 3),
+            "anomalous_count": anomalous_count,
+            "anomalous_rate": round(anomalous_count / len(scores), 3),
         }
