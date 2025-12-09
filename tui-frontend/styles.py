@@ -1093,6 +1093,140 @@ CSS = """
         height: auto;
     }
 
+    /* Solo Reflection Panel styling */
+    #reflection-panel {
+        height: 1fr;
+        background: $surface;
+    }
+
+    #reflection-layout {
+        height: 1fr;
+        width: 100%;
+    }
+
+    #reflection-sidebar {
+        width: 30%;
+        min-width: 25;
+        max-width: 40;
+        height: 1fr;
+        border-right: solid $surface-darken-1;
+        padding: 1;
+    }
+
+    #reflection-stats {
+        height: auto;
+        margin-bottom: 1;
+        padding-bottom: 1;
+        border-bottom: solid $surface-darken-1;
+    }
+
+    #reflection-header {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #stats-display {
+        height: auto;
+    }
+
+    #new-session-form {
+        height: auto;
+        margin-bottom: 1;
+        padding-bottom: 1;
+        border-bottom: solid $surface-darken-1;
+    }
+
+    .section-label {
+        text-style: bold;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #duration-row {
+        height: 3;
+        align: left middle;
+        margin-bottom: 1;
+    }
+
+    .form-label {
+        width: auto;
+        margin-right: 1;
+        color: $text-muted;
+    }
+
+    .form-suffix {
+        width: auto;
+        margin-left: 1;
+        color: $text-muted;
+    }
+
+    #duration-input {
+        width: 6;
+    }
+
+    #theme-input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #start-session-btn {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #stop-session-btn {
+        width: 100%;
+    }
+
+    #sessions-list-container {
+        height: 1fr;
+    }
+
+    #sessions-scroll {
+        height: 1fr;
+    }
+
+    #sessions-list {
+        height: auto;
+        width: 100%;
+    }
+
+    .session-btn {
+        width: 100%;
+        min-width: 20;
+        height: auto;
+        min-height: 2;
+        margin-bottom: 1;
+        text-align: left;
+        background: $surface-darken-1;
+        border: none;
+    }
+
+    .session-btn:hover {
+        background: $primary-darken-2;
+    }
+
+    .session-btn:focus {
+        background: $primary-darken-1;
+    }
+
+    .empty-sessions {
+        color: $text-muted;
+        text-style: italic;
+    }
+
+    #reflection-detail {
+        width: 1fr;
+        height: 1fr;
+        padding: 1;
+    }
+
+    #session-detail-content {
+        width: 100%;
+        height: auto;
+    }
+
     /* Calendar Events Panel styling */
     #calendar-events-panel {
         height: 1fr;

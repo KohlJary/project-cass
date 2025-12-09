@@ -17,6 +17,7 @@ import { Research } from './pages/Research';
 import { DataManagement } from './pages/DataManagement';
 import { Development } from './pages/Development';
 import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
+import { SoloReflection } from './pages/SoloReflection';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -83,6 +84,7 @@ function AppRoutes() {
         <Route path="development" element={<Development />} />
         <Route path="data" element={<DataManagement />} />
         <Route path="consciousness" element={<ConsciousnessHealth />} />
+        <Route path="reflection" element={<SoloReflection />} />
       </Route>
     </Routes>
   );

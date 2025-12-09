@@ -7,7 +7,7 @@ This version leverages Anthropic's official Agent SDK for:
 - Tool ecosystem
 - The "initializer agent" pattern with our cognitive architecture
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -70,7 +70,8 @@ from handlers import (
     execute_roadmap_tool,
     execute_wiki_tool,
     execute_testing_tool,
-    execute_research_tool
+    execute_research_tool,
+    execute_solo_reflection_tool,
 )
 import base64
 
@@ -208,6 +209,10 @@ wiki_retrieval = WikiRetrieval(wiki_storage, memory)
 # Initialize research queues
 research_queue = ResearchQueue(str(DATA_DIR / "wiki"))
 proposal_queue = ProposalQueue(str(DATA_DIR / "wiki"))
+
+# Initialize solo reflection manager
+from solo_reflection import SoloReflectionManager
+reflection_manager = SoloReflectionManager(str(DATA_DIR / "solo_reflections"))
 
 # Cache for recent wiki retrievals to avoid redundant lookups
 # Format: {query_hash: (timestamp, wiki_context_str, page_names)}
@@ -2164,6 +2169,13 @@ async def chat(request: ChatRequest):
                         wiki_storage=wiki_storage,
                         conversation_id=request.conversation_id
                     )
+                elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
+                    tool_result = await execute_solo_reflection_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        reflection_manager=reflection_manager,
+                        reflection_runner=get_reflection_runner(),
+                    )
                 elif project_id:
                     tool_result = await execute_document_tool(
                         tool_name=tool_name,
@@ -3377,6 +3389,171 @@ async def get_tasks(
         "tasks": [t.to_dict() for t in tasks],
         "user_id": current_user_id,
         "filter": filter
+    }
+
+
+# === Solo Reflection Endpoints ===
+
+from solo_reflection_runner import SoloReflectionRunner
+
+# Initialize the runner (lazy - created when needed)
+_reflection_runner: Optional[SoloReflectionRunner] = None
+
+def get_reflection_runner() -> SoloReflectionRunner:
+    """Get or create the solo reflection runner."""
+    global _reflection_runner
+    if _reflection_runner is None:
+        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
+        _reflection_runner = SoloReflectionRunner(
+            reflection_manager=reflection_manager,
+            anthropic_api_key=ANTHROPIC_API_KEY,
+            use_haiku=True,  # Use Haiku for better quality reflections
+            ollama_base_url=OLLAMA_BASE_URL,
+            ollama_model=OLLAMA_CHAT_MODEL,
+            self_manager=self_manager,
+        )
+    return _reflection_runner
+
+
+class SoloReflectionStartRequest(BaseModel):
+    duration_minutes: int = 15
+    theme: Optional[str] = None
+
+
+@app.post("/solo-reflection/sessions")
+async def start_solo_reflection(request: SoloReflectionStartRequest, background_tasks: BackgroundTasks):
+    """
+    Start a solo reflection session.
+
+    This runs on local Ollama to avoid API token costs.
+    The session runs in the background and can be monitored.
+    """
+    runner = get_reflection_runner()
+
+    if runner.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail="A reflection session is already running"
+        )
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            theme=request.theme,
+            trigger="admin",
+        )
+
+        return {
+            "status": "started",
+            "session_id": session.session_id,
+            "duration_minutes": session.duration_minutes,
+            "theme": session.theme,
+            "message": f"Solo reflection session started. Running on local Ollama for {session.duration_minutes} minutes."
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/solo-reflection/sessions")
+async def list_solo_reflection_sessions(
+    limit: int = 20,
+    status: Optional[str] = None
+):
+    """List solo reflection sessions."""
+    sessions = reflection_manager.list_sessions(limit=limit, status_filter=status)
+    stats = reflection_manager.get_stats()
+
+    return {
+        "sessions": sessions,
+        "stats": stats,
+        "active_session": stats.get("active_session"),
+    }
+
+
+@app.get("/solo-reflection/sessions/{session_id}")
+async def get_solo_reflection_session(session_id: str):
+    """Get details of a specific solo reflection session."""
+    session = reflection_manager.get_session(session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return session.to_dict()
+
+
+@app.get("/solo-reflection/sessions/{session_id}/stream")
+async def get_solo_reflection_thought_stream(session_id: str):
+    """Get just the thought stream from a session."""
+    session = reflection_manager.get_session(session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {
+        "session_id": session_id,
+        "thought_count": session.thought_count,
+        "thought_stream": [t.to_dict() for t in session.thought_stream],
+        "thought_types": session.thought_type_distribution,
+    }
+
+
+@app.delete("/solo-reflection/sessions/{session_id}")
+async def delete_solo_reflection_session(session_id: str):
+    """Delete a solo reflection session."""
+    success = reflection_manager.delete_session(session_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete session (may be active or not found)"
+        )
+
+    return {"status": "deleted", "session_id": session_id}
+
+
+@app.post("/solo-reflection/stop")
+async def stop_solo_reflection():
+    """Stop the currently running solo reflection session."""
+    runner = get_reflection_runner()
+
+    if not runner.is_running:
+        raise HTTPException(status_code=400, detail="No reflection session is running")
+
+    runner.stop()
+    session = reflection_manager.interrupt_session("Stopped by admin")
+
+    return {
+        "status": "stopped",
+        "session_id": session.session_id if session else None,
+    }
+
+
+@app.get("/solo-reflection/stats")
+async def get_solo_reflection_stats():
+    """Get overall solo reflection statistics."""
+    return reflection_manager.get_stats()
+
+
+@app.post("/solo-reflection/sessions/{session_id}/integrate")
+async def integrate_reflection_session(session_id: str):
+    """Manually trigger self-model integration for a completed reflection session."""
+    session = reflection_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    if session.status != "completed":
+        raise HTTPException(status_code=400, detail=f"Session not completed (status: {session.status})")
+
+    runner = get_reflection_runner()
+    result = await runner.integrate_session_into_self_model(session)
+
+    return {
+        "status": "integrated",
+        "session_id": session_id,
+        "observations_created": len(result.get("observations_created", [])),
+        "growth_edge_updates": len(result.get("growth_edge_updates", [])),
+        "questions_added": len(result.get("questions_added", [])),
+        "details": result,
     }
 
 
@@ -4944,6 +5121,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     wiki_storage=wiki_storage,
                                     conversation_id=conversation_id
                                 )
+                            elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
+                                tool_result = await execute_solo_reflection_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    reflection_manager=reflection_manager,
+                                    reflection_runner=get_reflection_runner(),
+                                )
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -5088,6 +5272,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     self_manager=self_manager,
                                     wiki_storage=wiki_storage,
                                     conversation_id=conversation_id
+                                )
+                            elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
+                                tool_result = await execute_solo_reflection_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    reflection_manager=reflection_manager,
+                                    reflection_runner=get_reflection_runner(),
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
@@ -5240,6 +5431,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     self_manager=self_manager,
                                     wiki_storage=wiki_storage,
                                     conversation_id=conversation_id
+                                )
+                            elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
+                                tool_result = await execute_solo_reflection_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    reflection_manager=reflection_manager,
+                                    reflection_runner=get_reflection_runner(),
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
