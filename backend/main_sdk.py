@@ -2299,6 +2299,16 @@ async def chat(request: ChatRequest):
         if self_context:
             memory_context = self_context + "\n\n" + memory_context
 
+        # Automatic wiki context retrieval
+        wiki_context_str, wiki_page_names, wiki_retrieval_ms = get_automatic_wiki_context(
+            query=request.message,
+            relevance_threshold=0.5,
+            max_pages=3,
+            max_tokens=1500
+        )
+        if wiki_context_str:
+            memory_context = wiki_context_str + "\n\n" + memory_context
+
         # Add cross-session insights relevant to this message
         cross_session_insights = memory.retrieve_cross_session_insights(
             query=request.message,
