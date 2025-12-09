@@ -7,6 +7,7 @@ const navItems = [
   { path: '/memory', label: 'Memory', icon: '*' },
   { path: '/wiki', label: 'Wiki', icon: 'W' },
   { path: '/research', label: 'Research', icon: 'R' },
+  { path: '/goals', label: 'Goals', icon: '◎' },
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
   { path: '/users', label: 'Users', icon: '@' },
   { path: '/journals', label: 'Journals', icon: '#' },

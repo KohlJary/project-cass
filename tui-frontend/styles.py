@@ -2264,4 +2264,69 @@ CSS = """
         color: $text-muted;
         margin-top: 1;
     }
+
+    /* Daedalus Conversations Panel styling */
+    #daedalus-convs-panel {
+        height: 1fr;
+        background: $surface;
+    }
+
+    #daedalus-convs-layout {
+        height: 1fr;
+        width: 100%;
+    }
+
+    #daedalus-convs-sidebar {
+        width: 30%;
+        min-width: 25;
+        max-width: 40;
+        height: 1fr;
+        border-right: solid $surface-darken-1;
+        padding: 1;
+    }
+
+    #daedalus-convs-header {
+        text-style: bold;
+        color: $secondary;
+        margin-bottom: 0;
+    }
+
+    #daedalus-convs-subtitle {
+        margin-bottom: 1;
+    }
+
+    #daedalus-convs-scroll {
+        height: 1fr;
+    }
+
+    #daedalus-convs-list {
+        height: auto;
+    }
+
+    .daedalus-conv-btn {
+        width: 100%;
+        height: auto;
+        min-height: 3;
+        margin-bottom: 1;
+        text-align: left;
+        padding: 0 1;
+    }
+
+    .daedalus-conv-btn:hover {
+        background: $surface-lighten-1;
+    }
+
+    #daedalus-messages-scroll {
+        height: 1fr;
+        padding: 1;
+    }
+
+    #daedalus-messages-content {
+        width: 100%;
+    }
+
+    .empty-convs {
+        text-style: italic;
+        padding: 2;
+    }
     """

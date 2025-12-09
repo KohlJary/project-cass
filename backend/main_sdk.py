@@ -73,7 +73,9 @@ from handlers import (
     execute_research_tool,
     execute_solo_reflection_tool,
     execute_insight_tool,
+    execute_goal_tool,
 )
+from goals import GoalManager
 import base64
 
 
@@ -196,11 +198,17 @@ project_manager = ProjectManager(storage_dir=str(DATA_DIR / "projects"))
 calendar_manager = CalendarManager(storage_dir=str(DATA_DIR / "calendar"))
 task_manager = TaskManager(storage_dir=str(DATA_DIR / "tasks"))
 roadmap_manager = RoadmapManager(storage_dir=str(DATA_DIR / "roadmap"))
+goal_manager = GoalManager(data_dir=DATA_DIR)
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
 init_roadmap_routes(roadmap_manager)
 app.include_router(roadmap_router)
+
+# Register goal routes
+from routes.goals import router as goals_router, init_goal_routes
+init_goal_routes(goal_manager)
+app.include_router(goals_router)
 
 # Initialize wiki storage
 from wiki import WikiStorage, WikiRetrieval, ResearchQueue, ProposalQueue
@@ -2322,6 +2330,11 @@ async def chat(request: ChatRequest):
             if insights_context:
                 memory_context = insights_context + "\n\n" + memory_context
 
+        # Add active goals context
+        active_goals_context = goal_manager.get_active_summary()
+        if active_goals_context:
+            memory_context = active_goals_context + "\n\n" + memory_context
+
     # Get unsummarized message count to determine if summarization is available
     unsummarized_count = 0
     if request.conversation_id:
@@ -2447,6 +2460,12 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         memory=memory,
                         conversation_id=request.conversation_id
+                    )
+                elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
+                    tool_result = await execute_goal_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        goal_manager=goal_manager
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(
@@ -5273,6 +5292,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         memory_context = insights_context + "\n\n" + memory_context
                         print(f"[CrossSession] Surfaced {cross_session_insights_count} insights for query")
 
+                # Add active goals context
+                active_goals_context = goal_manager.get_active_summary()
+                if active_goals_context:
+                    memory_context = active_goals_context + "\n\n" + memory_context
+
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
                 if conversation_id:
@@ -5461,6 +5485,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     memory=memory,
                                     conversation_id=conversation_id
                                 )
+                            elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
+                                tool_result = await execute_goal_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    goal_manager=goal_manager
+                                )
                             elif project_id:
                                 tool_result = await execute_document_tool(
                                     tool_name=tool_name,
@@ -5625,6 +5655,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     memory=memory,
                                     conversation_id=conversation_id
+                                )
+                            elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
+                                tool_result = await execute_goal_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    goal_manager=goal_manager
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(
@@ -5797,6 +5833,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     memory=memory,
                                     conversation_id=conversation_id
+                                )
+                            elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
+                                tool_result = await execute_goal_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    goal_manager=goal_manager
                                 )
                             elif project_id:
                                 tool_result = await execute_document_tool(

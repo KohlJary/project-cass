@@ -24,6 +24,7 @@ from .panels import (
     TasksPanel,
     SelfModelPanel,
     SoloReflectionPanel,
+    DaedalusConversationsPanel,
 )
 from .roadmap_panel import RoadmapPanel
 from .calendar import CalendarDay, CalendarWidget, EventCalendarDay, EventCalendarWidget
@@ -58,6 +59,7 @@ __all__ = [
     "TasksPanel",
     "SelfModelPanel",
     "SoloReflectionPanel",
+    "DaedalusConversationsPanel",
     # Roadmap
     "RoadmapPanel",
     # Calendar

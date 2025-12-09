@@ -907,6 +907,7 @@ from handlers.testing import TESTING_TOOLS
 from handlers.research import RESEARCH_PROPOSAL_TOOLS
 from handlers.solo_reflection import SOLO_REFLECTION_TOOLS
 from handlers.insights import CROSS_SESSION_INSIGHT_TOOLS
+from handlers.goals import GOAL_TOOLS
 
 
 # ============================================================================
@@ -1097,6 +1098,9 @@ class CassAgentClient:
 
             # Cross-session insight tools - for marking insights to carry forward
             tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
+
+            # Goal generation and tracking tools - for setting objectives and tracking progress
+            tools.extend(GOAL_TOOLS)
 
             # Testing tools - for self-monitoring consciousness integrity
             if should_include_testing_tools(message):
@@ -1513,6 +1517,9 @@ class OllamaClient:
 
         # Cross-session insight tools - for marking insights to carry forward
         tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
+
+        # Goal generation and tracking tools - for setting objectives and tracking progress
+        tools.extend(GOAL_TOOLS)
 
         # Project tools only available in project context
         if project_id:

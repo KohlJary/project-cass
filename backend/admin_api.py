@@ -11,6 +11,7 @@ import os
 import jwt
 import secrets
 
+from dataclasses import asdict
 from memory import CassMemory
 from conversations import ConversationManager
 from users import UserManager
@@ -593,6 +594,64 @@ async def get_all_conversations(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/conversations/system")
+async def get_system_conversations(limit: int = Query(default=50, le=200)):
+    """Get conversations from system users (like Daedalus).
+
+    Returns conversations where user_id belongs to a user with relationship='system'.
+    This allows admins to view Daedalus-Cass communication history.
+    """
+    if not conversations or not users:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+
+    try:
+        # Get system user IDs
+        all_users = users.list_users()
+        system_user_ids = set()
+        for user in all_users:
+            profile = users.load_profile(user.get("user_id"))
+            if profile and profile.relationship == "system":
+                system_user_ids.add(user.get("user_id"))
+
+        if not system_user_ids:
+            return {"conversations": [], "system_users": []}
+
+        # Get conversations for system users
+        all_convs = conversations.list_conversations()
+        conv_list = []
+        for conv in all_convs:
+            if conv.get("user_id") in system_user_ids:
+                conv_list.append({
+                    "id": conv.get("id"),
+                    "title": conv.get("title"),
+                    "message_count": conv.get("message_count", 0),
+                    "created_at": conv.get("created_at"),
+                    "updated_at": conv.get("updated_at"),
+                    "user_id": conv.get("user_id")
+                })
+
+        # Sort by updated_at descending
+        conv_list.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
+
+        # Get system user info
+        system_users_info = []
+        for uid in system_user_ids:
+            profile = users.load_profile(uid)
+            if profile:
+                system_users_info.append({
+                    "user_id": uid,
+                    "display_name": profile.display_name
+                })
+
+        return {
+            "conversations": conv_list[:limit],
+            "system_users": system_users_info
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/conversations/{conversation_id}")
 async def get_conversation_detail(conversation_id: str):
     """Get conversation details"""
@@ -623,7 +682,7 @@ async def get_conversation_messages(conversation_id: str):
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-        messages = [m.to_dict() for m in conv.messages]
+        messages = [asdict(m) for m in conv.messages]
 
         return {"messages": messages}
 
