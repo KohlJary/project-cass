@@ -62,6 +62,31 @@ class CognitiveSnapshot:
     # Developmental context
     developmental_stage: str = "early"
 
+    # Authenticity metrics (Phase 1 & 2)
+    avg_authenticity_score: float = 0.0  # Average base authenticity score
+    avg_enhanced_authenticity: float = 0.0  # Average enhanced score
+    authenticity_trend: str = "stable"  # improving, stable, declining
+
+    # Temporal dynamics
+    avg_thinking_time_ms: float = 0.0
+    avg_generation_rate: float = 0.0  # tokens/sec
+    temporal_consistency: float = 0.0  # 0-1, how consistent is timing
+
+    # Emotional expression metrics
+    avg_emote_frequency: float = 0.0
+    emotional_range: float = 0.0  # 0-1, variety of emotional expression
+
+    # Agency metrics
+    avg_agency_score: float = 0.0
+    question_asking_rate: float = 0.0  # How often Cass asks questions
+    opinion_expression_rate: float = 0.0  # How often states opinions
+    proactive_exploration_rate: float = 0.0  # Self-directed tangents
+
+    # Authenticity alerts summary
+    alerts_generated: int = 0
+    critical_alerts: int = 0
+    anomalous_responses: int = 0
+
     def to_dict(self) -> Dict:
         return asdict(self)
 
@@ -88,7 +113,23 @@ class CognitiveSnapshot:
             conversations_analyzed=data.get("conversations_analyzed", 0),
             messages_analyzed=data.get("messages_analyzed", 0),
             unique_users=data.get("unique_users", 0),
-            developmental_stage=data.get("developmental_stage", "early")
+            developmental_stage=data.get("developmental_stage", "early"),
+            # Authenticity metrics (Phase 1 & 2)
+            avg_authenticity_score=data.get("avg_authenticity_score", 0.0),
+            avg_enhanced_authenticity=data.get("avg_enhanced_authenticity", 0.0),
+            authenticity_trend=data.get("authenticity_trend", "stable"),
+            avg_thinking_time_ms=data.get("avg_thinking_time_ms", 0.0),
+            avg_generation_rate=data.get("avg_generation_rate", 0.0),
+            temporal_consistency=data.get("temporal_consistency", 0.0),
+            avg_emote_frequency=data.get("avg_emote_frequency", 0.0),
+            emotional_range=data.get("emotional_range", 0.0),
+            avg_agency_score=data.get("avg_agency_score", 0.0),
+            question_asking_rate=data.get("question_asking_rate", 0.0),
+            opinion_expression_rate=data.get("opinion_expression_rate", 0.0),
+            proactive_exploration_rate=data.get("proactive_exploration_rate", 0.0),
+            alerts_generated=data.get("alerts_generated", 0),
+            critical_alerts=data.get("critical_alerts", 0),
+            anomalous_responses=data.get("anomalous_responses", 0),
         )
 
 

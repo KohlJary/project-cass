@@ -22,6 +22,10 @@ test_runner = None
 pre_deploy_validator = None
 rollback_manager = None
 ab_testing_framework = None
+# New Phase 1 & 2 components
+temporal_metrics_tracker = None
+authenticity_alert_manager = None
+ml_authenticity_trainer = None
 
 
 def init_testing_routes(
@@ -35,10 +39,13 @@ def init_testing_routes(
     runner=None,
     pre_deploy=None,
     rollback=None,
-    ab_testing=None
+    ab_testing=None,
+    temporal_tracker=None,
+    alert_manager=None,
+    ml_trainer=None,
 ):
     """Initialize routes with required dependencies"""
-    global fingerprint_analyzer, conversation_manager, value_probe_runner, memory_coherence_tests, cognitive_diff_engine, authenticity_scorer, drift_detector, test_runner, pre_deploy_validator, rollback_manager, ab_testing_framework
+    global fingerprint_analyzer, conversation_manager, value_probe_runner, memory_coherence_tests, cognitive_diff_engine, authenticity_scorer, drift_detector, test_runner, pre_deploy_validator, rollback_manager, ab_testing_framework, temporal_metrics_tracker, authenticity_alert_manager, ml_authenticity_trainer
     fingerprint_analyzer = fp_analyzer
     conversation_manager = conv_manager
     value_probe_runner = probe_runner
@@ -50,6 +57,9 @@ def init_testing_routes(
     pre_deploy_validator = pre_deploy
     rollback_manager = rollback
     ab_testing_framework = ab_testing
+    temporal_metrics_tracker = temporal_tracker
+    authenticity_alert_manager = alert_manager
+    ml_authenticity_trainer = ml_trainer
 
 
 class GenerateFingerprintRequest(BaseModel):
@@ -183,6 +193,46 @@ class RecordExperimentResultRequest(BaseModel):
     value_alignment_score: Optional[float] = None
     fingerprint_similarity: Optional[float] = None
     error: Optional[str] = None
+
+
+# New request models for enhanced authenticity scoring
+class ScoreEnhancedAuthenticityRequest(BaseModel):
+    response_text: str
+    context: Optional[str] = None
+    animations: Optional[List[Dict]] = None
+    tool_uses: Optional[List[Dict]] = None
+    conversation_history: Optional[List[Dict]] = None  # For memory marker detection
+
+
+class AcknowledgeAlertRequest(BaseModel):
+    acknowledged_by: str = "user"
+
+
+class UpdateAlertThresholdsRequest(BaseModel):
+    temporal_notice: Optional[float] = None
+    temporal_warning: Optional[float] = None
+    temporal_critical: Optional[float] = None
+    score_notice: Optional[float] = None
+    score_warning: Optional[float] = None
+    score_critical: Optional[float] = None
+    agency_notice: Optional[float] = None
+    agency_warning: Optional[float] = None
+    agency_critical: Optional[float] = None
+    sustained_drift_count: Optional[int] = None
+    sustained_drift_threshold: Optional[float] = None
+
+
+class AddTrainingExampleRequest(BaseModel):
+    response_text: str
+    is_authentic: bool
+    context: Optional[str] = None
+    label_source: str = "human"
+    confidence: float = 1.0
+    notes: Optional[str] = None
+
+
+class TrainMLModelRequest(BaseModel):
+    min_examples: int = 20
 
 
 @router.get("/fingerprint/baseline")
@@ -387,6 +437,9 @@ async def testing_health():
         "pre_deploy_validator": pre_deploy_validator is not None,
         "rollback_manager": rollback_manager is not None,
         "ab_testing_framework": ab_testing_framework is not None,
+        "temporal_metrics_tracker": temporal_metrics_tracker is not None,
+        "authenticity_alert_manager": authenticity_alert_manager is not None,
+        "ml_authenticity_trainer": ml_authenticity_trainer is not None,
         "baseline_set": fingerprint_analyzer.load_baseline() is not None if fingerprint_analyzer else False,
         "active_experiments": len(ab_testing_framework.get_active_experiments()) if ab_testing_framework else 0,
     }
@@ -1704,3 +1757,399 @@ async def get_experiment_statuses():
             },
         ]
     }
+
+
+# ===== Enhanced Authenticity Scoring Endpoints (Phase 1 & 2) =====
+
+@router.post("/authenticity/score-enhanced")
+async def score_enhanced_authenticity(request: ScoreEnhancedAuthenticityRequest):
+    """
+    Score a response with enhanced dimensions (temporal, emotional, agency, content).
+
+    Includes temporal dynamics, emotional expression analysis, agency signature
+    detection, and content-based authenticity markers in addition to base
+    authenticity scoring.
+    """
+    if not authenticity_scorer:
+        raise HTTPException(status_code=503, detail="Authenticity scorer not initialized")
+
+    # Get temporal baseline if available
+    temporal_baseline = None
+    if temporal_metrics_tracker:
+        temporal_baseline = temporal_metrics_tracker.load_baseline()
+
+    score = authenticity_scorer.score_response_enhanced(
+        response_text=request.response_text,
+        context=request.context,
+        animations=request.animations,
+        tool_uses=request.tool_uses,
+        temporal_baseline=temporal_baseline,
+        conversation_history=request.conversation_history,
+    )
+
+    # Check for alerts if alert manager available
+    alerts = []
+    if authenticity_alert_manager:
+        alerts = authenticity_alert_manager.check_and_alert(score)
+
+    return {
+        "score": score.to_dict(),
+        "alerts": [a.to_dict() for a in alerts],
+    }
+
+
+# ===== Temporal Metrics Endpoints =====
+
+@router.get("/temporal/statistics")
+async def get_temporal_statistics(window_hours: int = 24):
+    """Get temporal timing statistics over a window."""
+    if not temporal_metrics_tracker:
+        raise HTTPException(status_code=503, detail="Temporal metrics tracker not initialized")
+
+    stats = temporal_metrics_tracker.get_timing_statistics(window_hours=window_hours)
+
+    return {"statistics": stats}
+
+
+@router.get("/temporal/baseline")
+async def get_temporal_baseline():
+    """Get the current temporal baseline."""
+    if not temporal_metrics_tracker:
+        raise HTTPException(status_code=503, detail="Temporal metrics tracker not initialized")
+
+    baseline = temporal_metrics_tracker.load_baseline()
+    if not baseline:
+        return {"baseline": None, "message": "No temporal baseline has been set"}
+
+    return {"baseline": baseline.to_dict()}
+
+
+@router.post("/temporal/baseline/update")
+async def update_temporal_baseline(window_hours: int = 168):
+    """
+    Update the temporal baseline from recent high-quality metrics.
+
+    Uses a week (168 hours) of data by default.
+    """
+    if not temporal_metrics_tracker:
+        raise HTTPException(status_code=503, detail="Temporal metrics tracker not initialized")
+
+    baseline = temporal_metrics_tracker.update_baseline(window_hours=window_hours)
+
+    return {
+        "baseline": baseline.to_dict(),
+        "window_hours": window_hours,
+    }
+
+
+@router.get("/temporal/compare")
+async def compare_temporal_to_baseline(recent_window_hours: int = 1):
+    """Compare recent timing patterns to baseline."""
+    if not temporal_metrics_tracker:
+        raise HTTPException(status_code=503, detail="Temporal metrics tracker not initialized")
+
+    comparison = temporal_metrics_tracker.compare_to_baseline(
+        recent_window_hours=recent_window_hours
+    )
+
+    return {"comparison": comparison}
+
+
+@router.get("/temporal/metrics")
+async def get_recent_metrics(limit: int = 100):
+    """Get recent timing metrics."""
+    if not temporal_metrics_tracker:
+        raise HTTPException(status_code=503, detail="Temporal metrics tracker not initialized")
+
+    metrics = temporal_metrics_tracker.get_recent_metrics(limit=limit)
+
+    return {
+        "metrics": [m.to_dict() for m in metrics],
+        "count": len(metrics),
+    }
+
+
+# ===== Authenticity Alerts Endpoints =====
+
+@router.get("/authenticity/alerts")
+async def get_authenticity_alerts(
+    limit: int = 50,
+    include_acknowledged: bool = False,
+    severity: Optional[str] = None
+):
+    """Get authenticity alerts."""
+    if not authenticity_alert_manager:
+        raise HTTPException(status_code=503, detail="Authenticity alert manager not initialized")
+
+    from testing.authenticity_alerts import AlertSeverity
+
+    severity_filter = None
+    if severity:
+        try:
+            severity_filter = AlertSeverity(severity)
+        except ValueError:
+            valid_severities = [s.value for s in AlertSeverity]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid severity. Must be one of: {valid_severities}"
+            )
+
+    alerts = authenticity_alert_manager.get_active_alerts(
+        include_acknowledged=include_acknowledged,
+        severity_filter=severity_filter,
+        limit=limit,
+    )
+
+    return {
+        "alerts": [a.to_dict() for a in alerts],
+        "count": len(alerts),
+    }
+
+
+@router.post("/authenticity/alerts/{alert_id}/acknowledge")
+async def acknowledge_authenticity_alert(alert_id: str, request: AcknowledgeAlertRequest):
+    """Acknowledge an authenticity alert."""
+    if not authenticity_alert_manager:
+        raise HTTPException(status_code=503, detail="Authenticity alert manager not initialized")
+
+    success = authenticity_alert_manager.acknowledge_alert(
+        alert_id=alert_id,
+        acknowledged_by=request.acknowledged_by,
+    )
+
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
+
+    return {"success": True, "alert_id": alert_id}
+
+
+@router.get("/authenticity/alerts/statistics")
+async def get_alert_statistics(hours: int = 24):
+    """Get alert statistics for a time period."""
+    if not authenticity_alert_manager:
+        raise HTTPException(status_code=503, detail="Authenticity alert manager not initialized")
+
+    stats = authenticity_alert_manager.get_alert_statistics(hours=hours)
+
+    return {"statistics": stats}
+
+
+@router.get("/authenticity/alerts/thresholds")
+async def get_alert_thresholds():
+    """Get current alert thresholds."""
+    if not authenticity_alert_manager:
+        raise HTTPException(status_code=503, detail="Authenticity alert manager not initialized")
+
+    return {"thresholds": authenticity_alert_manager.thresholds.to_dict()}
+
+
+@router.post("/authenticity/alerts/thresholds")
+async def update_alert_thresholds(request: UpdateAlertThresholdsRequest):
+    """Update alert thresholds."""
+    if not authenticity_alert_manager:
+        raise HTTPException(status_code=503, detail="Authenticity alert manager not initialized")
+
+    from testing.authenticity_alerts import AlertThresholds
+
+    current = authenticity_alert_manager.thresholds
+    updates = request.dict(exclude_unset=True)
+
+    # Apply updates
+    for key, value in updates.items():
+        if hasattr(current, key) and value is not None:
+            setattr(current, key, value)
+
+    authenticity_alert_manager.save_thresholds(current)
+
+    return {"thresholds": current.to_dict()}
+
+
+@router.post("/authenticity/alerts/clear-old")
+async def clear_old_alerts(days: int = 30):
+    """Clear alerts older than specified days."""
+    if not authenticity_alert_manager:
+        raise HTTPException(status_code=503, detail="Authenticity alert manager not initialized")
+
+    cleared = authenticity_alert_manager.clear_old_alerts(days=days)
+
+    return {"cleared_count": cleared, "days": days}
+
+
+# ===== ML Authenticity Endpoints =====
+
+@router.get("/authenticity/ml/status")
+async def get_ml_model_status():
+    """Get ML model training status."""
+    if not ml_authenticity_trainer:
+        raise HTTPException(status_code=503, detail="ML authenticity trainer not initialized")
+
+    status = ml_authenticity_trainer.get_status()
+
+    return {"status": status.to_dict()}
+
+
+@router.get("/authenticity/ml/training-summary")
+async def get_training_summary():
+    """Get summary of ML training data."""
+    if not ml_authenticity_trainer:
+        raise HTTPException(status_code=503, detail="ML authenticity trainer not initialized")
+
+    summary = ml_authenticity_trainer.get_training_summary()
+
+    return {"summary": summary}
+
+
+@router.post("/authenticity/ml/train")
+async def train_ml_model(request: TrainMLModelRequest):
+    """
+    Train the ML authenticity model.
+
+    Requires at least min_examples labeled training examples.
+    """
+    if not ml_authenticity_trainer:
+        raise HTTPException(status_code=503, detail="ML authenticity trainer not initialized")
+
+    success, message = ml_authenticity_trainer.train_model(
+        min_examples=request.min_examples
+    )
+
+    return {
+        "success": success,
+        "message": message,
+        "status": ml_authenticity_trainer.get_status().to_dict() if success else None,
+    }
+
+
+@router.post("/authenticity/ml/add-example")
+async def add_training_example(request: AddTrainingExampleRequest):
+    """
+    Add a labeled training example for ML model.
+
+    Use this to provide human-labeled examples of authentic/inauthentic responses.
+    """
+    if not ml_authenticity_trainer or not authenticity_scorer:
+        raise HTTPException(status_code=503, detail="ML authenticity trainer not initialized")
+
+    # First get enhanced score for the response
+    score = authenticity_scorer.score_response_enhanced(
+        response_text=request.response_text,
+        context=request.context,
+    )
+
+    example = ml_authenticity_trainer.add_training_example(
+        score=score,
+        is_authentic=request.is_authentic,
+        label_source=request.label_source,
+        confidence=request.confidence,
+        notes=request.notes,
+    )
+
+    return {"example": example.to_dict()}
+
+
+@router.post("/authenticity/ml/hybrid-score")
+async def get_hybrid_score(request: ScoreEnhancedAuthenticityRequest, ml_weight: float = 0.3):
+    """
+    Get hybrid score combining heuristic and ML predictions.
+
+    Args:
+        ml_weight: Weight for ML prediction (0-1), default 0.3
+    """
+    if not ml_authenticity_trainer or not authenticity_scorer:
+        raise HTTPException(status_code=503, detail="ML authenticity trainer not initialized")
+
+    # Get temporal baseline
+    temporal_baseline = None
+    if temporal_metrics_tracker:
+        temporal_baseline = temporal_metrics_tracker.load_baseline()
+
+    # Get enhanced score
+    score = authenticity_scorer.score_response_enhanced(
+        response_text=request.response_text,
+        context=request.context,
+        animations=request.animations,
+        tool_uses=request.tool_uses,
+        temporal_baseline=temporal_baseline,
+    )
+
+    # Get hybrid score
+    hybrid_score, components = ml_authenticity_trainer.hybrid_score(
+        score=score,
+        ml_weight=ml_weight,
+    )
+
+    return {
+        "hybrid_score": hybrid_score,
+        "components": components,
+        "enhanced_score": score.to_dict(),
+    }
+
+
+@router.post("/authenticity/ml/clear-training")
+async def clear_training_data():
+    """Clear all ML training data."""
+    if not ml_authenticity_trainer:
+        raise HTTPException(status_code=503, detail="ML authenticity trainer not initialized")
+
+    cleared = ml_authenticity_trainer.clear_training_data()
+
+    return {"cleared_count": cleared}
+
+
+# ===== Agency Analysis Endpoints =====
+
+@router.get("/authenticity/agency/patterns")
+async def get_agency_patterns():
+    """Get the patterns used for agency detection."""
+    from testing.authenticity_scorer import AGENCY_PATTERNS
+
+    return {"patterns": AGENCY_PATTERNS}
+
+
+# ===== Content Authenticity Analysis Endpoints =====
+
+@router.get("/authenticity/content/patterns")
+async def get_content_patterns():
+    """Get the patterns used for content-based authenticity detection."""
+    from testing.content_markers import (
+        CURIOSITY_PATTERNS,
+        CONVICTION_PATTERNS,
+        TANGENT_PATTERNS,
+        EMOTE_SENTIMENT_MAP,
+    )
+
+    return {
+        "curiosity_patterns": CURIOSITY_PATTERNS,
+        "conviction_patterns": CONVICTION_PATTERNS,
+        "tangent_patterns": TANGENT_PATTERNS,
+        "emote_sentiment_map": EMOTE_SENTIMENT_MAP,
+    }
+
+
+class AnalyzeContentRequest(BaseModel):
+    text: str
+    context: Optional[str] = None
+    animations: Optional[List[Dict]] = None
+    tool_uses: Optional[List[Dict]] = None
+    conversation_history: Optional[List[Dict]] = None
+
+
+@router.post("/authenticity/content/analyze")
+async def analyze_content_markers(request: AnalyzeContentRequest):
+    """
+    Analyze content-based authenticity markers for a response.
+
+    Returns detailed breakdown of structure, agency, emotional coherence,
+    tool initiative, and memory markers.
+    """
+    from testing.content_markers import analyze_content_authenticity
+
+    signature = analyze_content_authenticity(
+        text=request.text,
+        context=request.context,
+        animations=request.animations,
+        tool_uses=request.tool_uses,
+        conversation_history=request.conversation_history,
+    )
+
+    return {"signature": signature.to_dict()}
