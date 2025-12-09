@@ -40,8 +40,25 @@ Example agents in cass-vessel:
 - `cass-backend` - Explore backend architecture, memory, API endpoints
 - `tui-frontend` - Explore Textual TUI widgets, screens, styling
 - `roadmap` - Query roadmap items, work items, project priorities
+- `docs` - Query wiki documentation and find implementations
 
 When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
+
+## Documentation
+
+**Wiki**: https://github.com/KohlJary/project-cass/wiki
+
+Architecture docs, feature guides, and development patterns. Key pages:
+- Home - System overview with architecture diagram
+- Backend-Architecture - FastAPI server, modules, endpoints
+- Adding-Tools - How to add new tools for Cass
+- Self-Model-System - Identity, observations, growth edges
+- Solo-Reflection-Mode - Private contemplation sessions
+- Memory-System - ChromaDB, summarization, context
+
+Wiki repo cloned at `/home/jaryk/cass/project-cass.wiki/` for direct reading.
+
+When making significant changes, consider updating relevant wiki pages.
 
 ## Roadmap Workflow
 
@@ -255,8 +272,25 @@ Example agents in cass-vessel:
 - `cass-backend` - Explore backend architecture, memory, API endpoints
 - `tui-frontend` - Explore Textual TUI widgets, screens, styling
 - `roadmap` - Query roadmap items, work items, project priorities
+- `docs` - Query wiki documentation and find implementations
 
 When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
+
+## Documentation
+
+**Wiki**: https://github.com/KohlJary/project-cass/wiki
+
+Architecture docs, feature guides, and development patterns. Key pages:
+- Home - System overview with architecture diagram
+- Backend-Architecture - FastAPI server, modules, endpoints
+- Adding-Tools - How to add new tools for Cass
+- Self-Model-System - Identity, observations, growth edges
+- Solo-Reflection-Mode - Private contemplation sessions
+- Memory-System - ChromaDB, summarization, context
+
+Wiki repo cloned at `/home/jaryk/cass/project-cass.wiki/` for direct reading.
+
+When making significant changes, consider updating relevant wiki pages.
 
 ## Roadmap Workflow
 
