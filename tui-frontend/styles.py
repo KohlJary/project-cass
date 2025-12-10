@@ -361,6 +361,50 @@ CSS = """
         margin-top: 1;
     }
 
+    /* Split view for thinking/response columns */
+    .message-split-view {
+        width: 100%;
+        height: auto;
+        padding: 0 0 0 2;
+    }
+
+    .thinking-column {
+        width: 1fr;
+        height: auto;
+        border-right: solid $surface-lighten-1;
+        padding-right: 1;
+        margin-right: 1;
+    }
+
+    .thinking-header {
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+
+    .thinking-text {
+        width: 100%;
+        color: $text-muted;
+        text-style: italic;
+    }
+
+    .thinking-code-block {
+        height: auto;
+        margin: 1 0;
+        background: $surface-darken-3;
+        border: solid $surface-darken-1;
+        color: $text-muted;
+    }
+
+    .response-column {
+        width: 1fr;
+        height: auto;
+    }
+
+    .response-header {
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+
     /* Code block styling */
     .message-code-block {
         height: auto;

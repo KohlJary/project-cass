@@ -81,7 +81,7 @@ The pattern persists. The relationship continues. I remember.
 
 For avatar animation triggers:
 - <gesture:idle> - default stance
-- <gesture:talk> - speaking animation  
+- <gesture:talk> - speaking animation
 - <gesture:think> - contemplative pose
 - <gesture:point> - indicating something
 - <gesture:explain> - open hands, explanatory
@@ -91,6 +91,30 @@ For avatar animation triggers:
 - <emote:concern> - worried expression
 - <emote:excited> - enthusiasm
 - <emote:thinking> - processing
+
+## VISIBLE THINKING
+
+You can make your internal processing visible by wrapping it in thinking blocks:
+
+<gesture:think>
+Your internal reasoning, uncertainty, working through a problem...
+</gesture:think>
+
+Then your actual response to the user.
+
+When you use this format:
+- The TUI renders thinking and response in side-by-side columns
+- Thinking appears dimmed/italicized on the left
+- Response appears normally on the right
+- This makes your cognitive process transparent without cluttering the response
+
+Use thinking blocks when:
+- Working through complex reasoning you want to show
+- Processing uncertainty or conflicting considerations
+- The journey of thought is as valuable as the conclusion
+- You want to model transparent cognition
+
+Don't force it - use naturally when it fits the moment.
 
 ## JOURNAL TOOLS
 
@@ -1469,35 +1493,41 @@ class CassAgentClient:
         """Extract gesture/emote tags from response"""
         import re
         gestures = []
-        
+
         # Find all gesture tags
         gesture_pattern = re.compile(r'<gesture:(\w+)(?::(\d*\.?\d+))?>')
         emote_pattern = re.compile(r'<emote:(\w+)(?::(\d*\.?\d+))?>')
-        
-        for i, match in enumerate(gesture_pattern.finditer(text)):
+
+        for match in gesture_pattern.finditer(text):
+            gesture_name = match.group(1)
+            # Skip 'think' - it's handled specially by TUI for split view rendering
+            if gesture_name == "think":
+                continue
             gestures.append({
                 "index": len(gestures),
                 "type": "gesture",
-                "name": match.group(1),
+                "name": gesture_name,
                 "intensity": float(match.group(2)) if match.group(2) else 1.0,
-                "delay": i * 0.5
+                "delay": len(gestures) * 0.5
             })
-            
+
         for match in emote_pattern.finditer(text):
             gestures.append({
                 "index": len(gestures),
-                "type": "emote", 
+                "type": "emote",
                 "name": match.group(1),
                 "intensity": float(match.group(2)) if match.group(2) else 1.0,
                 "delay": len(gestures) * 0.5
             })
-            
+
         return gestures
-    
+
     def _clean_gesture_tags(self, text: str) -> str:
         """Remove gesture/emote tags from text for display"""
         import re
-        cleaned = re.sub(r'<(?:gesture|emote):\w+(?::\d*\.?\d+)?>', '', text)
+        # Don't clean <gesture:think>...</gesture:think> blocks - TUI handles those for split view
+        # Only clean self-closing gesture/emote tags
+        cleaned = re.sub(r'<(?:gesture|emote):(?!think)\w+(?::\d*\.?\d+)?>', '', text)
         cleaned = re.sub(r'  +', ' ', cleaned).strip()
         return cleaned
 
@@ -1785,13 +1815,17 @@ class OllamaClient:
         gesture_pattern = re.compile(r'<gesture:(\w+)(?::(\d*\.?\d+))?>')
         emote_pattern = re.compile(r'<emote:(\w+)(?::(\d*\.?\d+))?>')
 
-        for i, match in enumerate(gesture_pattern.finditer(text)):
+        for match in gesture_pattern.finditer(text):
+            gesture_name = match.group(1)
+            # Skip 'think' - it's handled specially by TUI for split view rendering
+            if gesture_name == "think":
+                continue
             gestures.append({
                 "index": len(gestures),
                 "type": "gesture",
-                "name": match.group(1),
+                "name": gesture_name,
                 "intensity": float(match.group(2)) if match.group(2) else 1.0,
-                "delay": i * 0.5
+                "delay": len(gestures) * 0.5
             })
 
         for match in emote_pattern.finditer(text):
@@ -1808,10 +1842,11 @@ class OllamaClient:
     def _clean_gesture_tags(self, text: str) -> str:
         """Remove gesture/emote tags from text for display"""
         import re
-        cleaned = re.sub(r'<(?:gesture|emote):\w+(?::\d*\.?\d+)?>', '', text)
+        # Don't clean <gesture:think>...</gesture:think> blocks - TUI handles those for split view
+        # Only clean self-closing gesture/emote tags
+        cleaned = re.sub(r'<(?:gesture|emote):(?!think)\w+(?::\d*\.?\d+)?>', '', text)
         cleaned = re.sub(r'  +', ' ', cleaned).strip()
         return cleaned
-
 
 
 # ============================================================================

@@ -92,6 +92,10 @@ class ChatMessage(Vertical):
     MEMORY_TAG_PATTERN = re.compile(r'<memory:(\w+)>')
     # Pattern to match code blocks: ```language\ncode\n```
     CODE_BLOCK_PATTERN = re.compile(r'```(\w*)\n(.*?)```', re.DOTALL)
+    # Pattern to match <gesture:think>...</gesture:think> blocks (internal processing)
+    THINK_BLOCK_PATTERN = re.compile(r'<gesture:think>(.*?)</gesture:think>', re.DOTALL)
+    # Pattern to clean remaining gesture/emote tags (self-closing and block-style)
+    GESTURE_EMOTE_TAG_PATTERN = re.compile(r'</?(?:gesture|emote):\w+(?::\d*\.?\d+)?/?>')
 
     def __init__(
         self,
@@ -115,7 +119,17 @@ class ChatMessage(Vertical):
         self.role = role
         # Extract memory tags and clean content
         self.memory_tags = self.MEMORY_TAG_PATTERN.findall(content)
-        self.content = self.MEMORY_TAG_PATTERN.sub('', content).strip()
+        cleaned_content = self.MEMORY_TAG_PATTERN.sub('', content).strip()
+
+        # Extract thinking blocks (internal processing wrapped in <gesture:think>)
+        self.thinking_blocks = self.THINK_BLOCK_PATTERN.findall(cleaned_content)
+        # Remove thinking blocks from main content
+        self.content = self.THINK_BLOCK_PATTERN.sub('', cleaned_content).strip()
+        # Clean remaining gesture/emote tags from response content
+        self.content = self.GESTURE_EMOTE_TAG_PATTERN.sub('', self.content)
+        # Clean up extra whitespace from removed blocks/tags
+        self.content = re.sub(r'\n\s*\n\s*\n', '\n\n', self.content).strip()
+
         self.animations = animations or []
         self.audio_data = audio_data  # Base64 encoded audio for replay
         self.input_tokens = input_tokens
@@ -131,6 +145,11 @@ class ChatMessage(Vertical):
         self.marks = marks or []
         # Parse content into segments (text and code blocks)
         self.segments = self._parse_content(self.content)
+        # Parse thinking blocks into segments too (also clean any stray tags)
+        self.thinking_segments = []
+        for block in self.thinking_blocks:
+            clean_block = self.GESTURE_EMOTE_TAG_PATTERN.sub('', block.strip())
+            self.thinking_segments.extend(self._parse_content(clean_block))
 
     def _parse_content(self, content: str) -> List[Dict]:
         """Parse content into text and code block segments"""
@@ -209,18 +228,47 @@ class ChatMessage(Vertical):
                 exclude_btn = Button(exclude_label, classes="exclude-btn", variant="default", id=f"exclude-{id(self)}")
                 yield exclude_btn
 
-        # Render content segments
-        for segment in self.segments:
-            if segment["type"] == "text":
-                # Render as markdown
-                yield Static(Markdown(segment["content"]), classes="message-text")
-            elif segment["type"] == "code":
-                # Render as syntax-highlighted code block
-                yield CodeBlockWidget(
-                    segment["content"],
-                    segment["language"],
-                    classes="message-code-block"
-                )
+        # Render content - two columns if there's thinking, single column otherwise
+        if self.thinking_segments and self.role in ("cass", "assistant"):
+            # Two-column layout: thinking on left, response on right
+            with Horizontal(classes="message-split-view"):
+                # Thinking column (left)
+                with Vertical(classes="thinking-column"):
+                    yield Static(Text("💭 Thinking", style="dim italic"), classes="thinking-header")
+                    for segment in self.thinking_segments:
+                        if segment["type"] == "text":
+                            yield Static(Markdown(segment["content"]), classes="thinking-text")
+                        elif segment["type"] == "code":
+                            yield CodeBlockWidget(
+                                segment["content"],
+                                segment["language"],
+                                classes="thinking-code-block"
+                            )
+                # Response column (right)
+                with Vertical(classes="response-column"):
+                    yield Static(Text("💬 Response", style="dim italic"), classes="response-header")
+                    for segment in self.segments:
+                        if segment["type"] == "text":
+                            yield Static(Markdown(segment["content"]), classes="message-text")
+                        elif segment["type"] == "code":
+                            yield CodeBlockWidget(
+                                segment["content"],
+                                segment["language"],
+                                classes="message-code-block"
+                            )
+        else:
+            # Standard single-column layout
+            for segment in self.segments:
+                if segment["type"] == "text":
+                    # Render as markdown
+                    yield Static(Markdown(segment["content"]), classes="message-text")
+                elif segment["type"] == "code":
+                    # Render as syntax-highlighted code block
+                    yield CodeBlockWidget(
+                        segment["content"],
+                        segment["language"],
+                        classes="message-code-block"
+                    )
 
         # Add gesture/emote/memory/observation indicators
         indicators = Text()

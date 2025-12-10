@@ -408,6 +408,39 @@ class ConversationManager:
 
         return results[:limit]
 
+    def get_recent_messages(
+        self,
+        conversation_id: str,
+        count: int = 10
+    ) -> List[Dict]:
+        """
+        Get the most recent messages from a conversation (chronological order).
+
+        Args:
+            conversation_id: Conversation ID
+            count: Number of recent messages to return
+
+        Returns:
+            List of message dicts, most recent last
+        """
+        conversation = self.load_conversation(conversation_id)
+
+        if not conversation or not conversation.messages:
+            return []
+
+        # Get last N messages, excluding system/excluded messages
+        recent = [
+            {
+                "role": m.role,
+                "content": m.content,
+                "timestamp": m.timestamp,
+            }
+            for m in conversation.messages[-count:]
+            if not m.excluded
+        ]
+
+        return recent
+
     def get_unsummarized_messages(
         self,
         conversation_id: str,

@@ -1802,7 +1802,8 @@ Observations (one per line, starting with "{display_name}"):"""
     def format_hierarchical_context(
         self,
         hierarchical: Dict,
-        working_summary: Optional[str] = None
+        working_summary: Optional[str] = None,
+        recent_messages: Optional[List[Dict]] = None
     ) -> str:
         """
         Format hierarchical retrieval results for context.
@@ -1811,12 +1812,17 @@ Observations (one per line, starting with "{display_name}"):"""
             hierarchical: Result from retrieve_hierarchical
             working_summary: Optional token-optimized working summary to use
                             instead of individual summary chunks
+            recent_messages: Optional list of actual recent messages from conversation
+                            (chronological order). If provided, uses these instead of
+                            semantic search results for "Recent Exchanges" to preserve
+                            conversation flow.
 
         Returns:
             Formatted context string
         """
         has_summaries = hierarchical["summaries"] or working_summary
-        if not has_summaries and not hierarchical["details"]:
+        has_details = recent_messages or hierarchical["details"]
+        if not has_summaries and not has_details:
             return ""
 
         context_parts = []
@@ -1830,11 +1836,21 @@ Observations (one per line, starting with "{display_name}"):"""
             for summary in hierarchical["summaries"]:
                 context_parts.append(f"\n{summary['content']}")
 
-        # Add recent unsummarized memories (full content for conversational continuity)
-        if hierarchical["details"]:
+        # Add recent exchanges - prefer actual chronological messages over semantic search
+        if recent_messages:
+            # Use actual conversation messages (chronological order)
+            context_parts.append("\n=== Recent Exchanges (since last summary) ===")
+            for msg in recent_messages:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                if role == "user":
+                    context_parts.append(f"\nUser: {content}")
+                elif role == "assistant":
+                    context_parts.append(f"\nCass: {content}")
+        elif hierarchical["details"]:
+            # Fall back to semantic search results (may be out of order)
             context_parts.append("\n=== Recent Exchanges (since last summary) ===")
             for detail in hierarchical["details"]:
-                # Use full content to preserve conversational nuance
                 content = detail['content']
                 context_parts.append(f"\n{content}")
 
