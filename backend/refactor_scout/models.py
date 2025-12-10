@@ -182,6 +182,18 @@ class ScoutReport:
                 opportunities.append((result.metrics.path, opp))
         return opportunities
 
+    def get_summary_stats(self) -> dict:
+        """Get summary statistics compatible with database recording."""
+        return {
+            'total_files': self.total_files,
+            'healthy_files': self.healthy_files,
+            'needs_attention': self.warning_files,
+            'critical_files': self.critical_files,
+            'total_lines': self.total_lines,
+            'avg_lines': self.total_lines / self.total_files if self.total_files else 0,
+            'health_score': self.health_score,
+        }
+
     def to_dict(self) -> dict:
         return {
             'summary': {

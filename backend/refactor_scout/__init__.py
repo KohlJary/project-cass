@@ -31,6 +31,8 @@ from .opportunities import OpportunityIdentifier
 from .reporter import Reporter
 from .cli import analyze_file, scan_directory
 from .extractor import CodeExtractor, GitIntegration, ExtractionResult
+from .database import ScoutDatabase, FileRecord, ExtractionRecord, ScoutSnapshot
+from .config import ScoutConfig, ThresholdConfig, load_config, save_config
 
 
 def run_scout(
@@ -72,6 +74,9 @@ __all__ = [
     'AnalysisResult',
     'ScoutReport',
     'ExtractionResult',
+    'FileRecord',
+    'ExtractionRecord',
+    'ScoutSnapshot',
     # Core classes
     'FileAnalyzer',
     'ThresholdChecker',
@@ -79,10 +84,15 @@ __all__ = [
     'Reporter',
     'CodeExtractor',
     'GitIntegration',
+    'ScoutDatabase',
+    'ScoutConfig',
+    'ThresholdConfig',
     # Constants
     'DEFAULT_THRESHOLDS',
     # Functions
     'analyze_file',
     'scan_directory',
     'run_scout',
+    'load_config',
+    'save_config',
 ]
