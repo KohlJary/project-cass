@@ -162,6 +162,7 @@ Respond in JSON format:
         ollama_url: str = None,
         ollama_model: str = None,
         max_context_chars: int = 8000,
+        token_tracker=None,
     ):
         """
         Initialize the resynthesis pipeline.
@@ -172,12 +173,14 @@ Respond in JSON format:
             ollama_url: Ollama API URL
             ollama_model: Model to use for synthesis
             max_context_chars: Maximum context size to gather
+            token_tracker: TokenUsageTracker for tracking LLM usage
         """
         self.storage = wiki_storage
         self.memory = memory
         self.ollama_url = ollama_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.ollama_model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
         self.max_context_chars = max_context_chars
+        self.token_tracker = token_tracker
 
         # Detector for tracking deepened pages
         self.detector = DeepeningDetector(wiki_storage)
@@ -462,6 +465,17 @@ Respond in JSON format:
             result = response.json()
             content = result.get("response", "").strip()
 
+            # Track token usage for wiki synthesis
+            if self.token_tracker:
+                self.token_tracker.record(
+                    category="internal",
+                    operation="wiki_synthesis",
+                    provider="ollama",
+                    model=self.ollama_model,
+                    input_tokens=result.get("prompt_eval_count", 0),
+                    output_tokens=result.get("eval_count", 0),
+                )
+
         # Post-process to clean any leaked context
         content = self._clean_synthesis_output(content, page.name)
 
@@ -543,6 +557,17 @@ Respond in JSON format:
                 result = response.json()
                 response_text = result.get("response", "").strip()
 
+                # Track token usage for wiki validation
+                if self.token_tracker:
+                    self.token_tracker.record(
+                        category="internal",
+                        operation="wiki_validation",
+                        provider="ollama",
+                        model=self.ollama_model,
+                        input_tokens=result.get("prompt_eval_count", 0),
+                        output_tokens=result.get("eval_count", 0),
+                    )
+
             # Try to parse JSON from response
             import json
             # Find JSON in response
@@ -570,6 +595,7 @@ async def deepen_candidate(
     candidate: DeepeningCandidate,
     memory=None,
     validate: bool = True,
+    token_tracker=None,
 ) -> ResynthesisResult:
     """
     Convenience function to deepen a candidate page.
@@ -579,11 +605,12 @@ async def deepen_candidate(
         candidate: DeepeningCandidate to process
         memory: Optional CassMemory for context search
         validate: Whether to run validation
+        token_tracker: Optional token tracker for usage tracking
 
     Returns:
         ResynthesisResult
     """
-    pipeline = ResynthesisPipeline(wiki_storage, memory)
+    pipeline = ResynthesisPipeline(wiki_storage, memory, token_tracker=token_tracker)
     return await pipeline.deepen_page(
         page_name=candidate.page_name,
         trigger=candidate.trigger,
@@ -597,6 +624,7 @@ async def run_deepening_cycle(
     memory=None,
     max_pages: int = 5,
     validate: bool = True,
+    token_tracker=None,
 ) -> List[ResynthesisResult]:
     """
     Run a full deepening cycle on top candidates.
@@ -606,11 +634,12 @@ async def run_deepening_cycle(
         memory: Optional CassMemory
         max_pages: Maximum pages to deepen in one cycle
         validate: Whether to validate each synthesis
+        token_tracker: Optional token tracker for usage tracking
 
     Returns:
         List of ResynthesisResult for each page attempted
     """
-    pipeline = ResynthesisPipeline(wiki_storage, memory)
+    pipeline = ResynthesisPipeline(wiki_storage, memory, token_tracker=token_tracker)
     detector = DeepeningDetector(wiki_storage)
 
     # Get candidates

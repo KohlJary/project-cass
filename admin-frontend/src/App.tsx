@@ -19,6 +19,7 @@ import { Development } from './pages/Development';
 import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
 import { SoloReflection } from './pages/SoloReflection';
 import Goals from './pages/Goals';
+import { Metrics } from './pages/Metrics';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -87,6 +88,7 @@ function AppRoutes() {
         <Route path="consciousness" element={<ConsciousnessHealth />} />
         <Route path="reflection" element={<SoloReflection />} />
         <Route path="goals" element={<Goals />} />
+        <Route path="metrics" element={<Metrics />} />
       </Route>
     </Routes>
   );

@@ -1,0 +1,484 @@
+.github-metrics-page {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+.header-content h1 {
+  margin: 0 0 0.25rem 0;
+  color: #e0e0e0;
+}
+
+.subtitle {
+  color: #666;
+  margin: 0;
+}
+
+.refresh-button {
+  padding: 0.5rem 1rem;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #89ddff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background: #252540;
+  border-color: #89ddff;
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Repo selector */
+.repo-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: #141414;
+  border: 1px solid #222;
+  border-radius: 4px;
+}
+
+.repo-selector label {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.repo-select {
+  flex: 1;
+  max-width: 400px;
+  padding: 0.5rem 0.75rem;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.repo-select:hover {
+  border-color: #555;
+}
+
+.repo-select:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+.repo-select option {
+  background: #0f0f1a;
+  color: #e0e0e0;
+}
+
+/* Status banner */
+.status-banner {
+  display: flex;
+  gap: 2rem;
+  padding: 0.75rem 1rem;
+  background: #0f0f1a;
+  border: 1px solid #222;
+  border-radius: 4px;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.status-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.status-label {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.status-value {
+  color: #e0e0e0;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.status-value.ok {
+  color: #89ddff;
+}
+
+.status-value.warning {
+  color: #ffcb6b;
+}
+
+/* Loading / Error states */
+.loading-state,
+.error-state {
+  padding: 3rem;
+  text-align: center;
+  color: #666;
+}
+
+.error-state {
+  color: #f07178;
+}
+
+/* Totals grid */
+.totals-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.total-card {
+  background: #141414;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 1.25rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.total-number {
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  line-height: 1;
+}
+
+.total-label {
+  color: #888;
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.total-sublabel {
+  color: #555;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.total-icon {
+  position: absolute;
+  top: 0.75rem;
+  right: 1rem;
+  font-size: 1.5rem;
+  opacity: 0.3;
+}
+
+.total-card.clones {
+  border-color: #89ddff33;
+}
+
+.total-card.clones .total-number {
+  color: #89ddff;
+}
+
+.total-card.stars {
+  border-color: #ffcb6b33;
+}
+
+.total-card.stars .total-number {
+  color: #ffcb6b;
+}
+
+.total-card.stars .total-icon {
+  color: #ffcb6b;
+}
+
+.total-card.forks {
+  border-color: #c3e88d33;
+}
+
+.total-card.forks .total-number {
+  color: #c3e88d;
+}
+
+.total-card.forks .total-icon {
+  color: #c3e88d;
+}
+
+.total-card.views {
+  border-color: #c792ea33;
+}
+
+.total-card.views .total-number {
+  color: #c792ea;
+}
+
+/* Mini charts */
+.mini-chart {
+  width: 100%;
+  height: 40px;
+  margin-top: 0.75rem;
+}
+
+.mini-chart-empty {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #444;
+  font-size: 0.75rem;
+}
+
+/* Chart section */
+.chart-section {
+  background: #141414;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.chart-header h2 {
+  margin: 0;
+  color: #e0e0e0;
+  font-size: 1.1rem;
+}
+
+.chart-controls {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.time-range-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chart-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Custom date range */
+.custom-date-range {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: #0f0f1a;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.date-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.date-input-group label {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.date-input {
+  padding: 0.4rem 0.6rem;
+  background: #141414;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.date-input:hover {
+  border-color: #555;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+/* Style the date picker icon */
+.date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+  cursor: pointer;
+}
+
+.toggle-btn {
+  padding: 0.4rem 1rem;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+  border-color: #555;
+  color: #aaa;
+}
+
+.toggle-btn.active {
+  background: #1a1a2e;
+  border-color: #89ddff;
+  color: #89ddff;
+}
+
+.chart-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.full-chart {
+  width: 100%;
+  min-width: 600px;
+  height: auto;
+}
+
+.chart-empty {
+  padding: 3rem;
+  text-align: center;
+  color: #666;
+}
+
+/* Repos section */
+.repos-section {
+  margin-bottom: 2rem;
+}
+
+.repos-section h2 {
+  color: #e0e0e0;
+  font-size: 1.1rem;
+  margin: 0 0 1rem 0;
+}
+
+.repos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1rem;
+}
+
+.repo-card {
+  background: #141414;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.repo-name {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+}
+
+.repo-name a {
+  color: #89ddff;
+  text-decoration: none;
+}
+
+.repo-name a:hover {
+  text-decoration: underline;
+}
+
+.repo-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.repo-stat {
+  text-align: center;
+  padding: 0.5rem;
+  background: #0f0f1a;
+  border-radius: 4px;
+}
+
+.repo-stat .stat-value {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.repo-stat .stat-label {
+  display: block;
+  font-size: 0.7rem;
+  color: #666;
+  margin-top: 0.25rem;
+}
+
+.repo-stat.highlight {
+  background: #1a1a2e;
+}
+
+.repo-stat.highlight .stat-value {
+  color: #ffcb6b;
+}
+
+/* Info notice */
+.info-notice {
+  padding: 1rem;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #888;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.info-notice strong {
+  color: #c792ea;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .totals-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .repos-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .repo-stats {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .page-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .status-banner {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .totals-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .repo-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

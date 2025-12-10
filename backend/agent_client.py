@@ -1022,6 +1022,8 @@ class AgentResponse:
     stop_reason: str = "end_turn"
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 class CassAgentClient:
@@ -1238,9 +1240,15 @@ class CassAgentClient:
         gestures = self._parse_gestures(full_text)
         clean_text = self._clean_gesture_tags(full_text)
 
-        # Extract usage info
+        # Extract usage info - include cache tokens in total
         input_tokens = response.usage.input_tokens if response.usage else 0
         output_tokens = response.usage.output_tokens if response.usage else 0
+        cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+        cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0) or 0
+
+
+        # Total input is: input_tokens + cache_read_tokens (cache_creation is already included in input_tokens)
+        total_input = input_tokens + cache_read_tokens
 
         return AgentResponse(
             text=clean_text,
@@ -1248,8 +1256,10 @@ class CassAgentClient:
             tool_uses=tool_uses,
             gestures=gestures,
             stop_reason=response.stop_reason,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens
+            input_tokens=total_input,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens
         )
 
     async def continue_with_tool_result(
@@ -1313,9 +1323,12 @@ class CassAgentClient:
         gestures = self._parse_gestures(full_text)
         clean_text = self._clean_gesture_tags(full_text)
 
-        # Extract usage info
+        # Extract usage info - include cache tokens in total
         input_tokens = response.usage.input_tokens if response.usage else 0
         output_tokens = response.usage.output_tokens if response.usage else 0
+        cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+        cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0) or 0
+        total_input = input_tokens + cache_read_tokens
 
         return AgentResponse(
             text=clean_text,
@@ -1323,8 +1336,10 @@ class CassAgentClient:
             tool_uses=tool_uses,
             gestures=gestures,
             stop_reason=response.stop_reason,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens
+            input_tokens=total_input,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens
         )
 
     async def continue_with_tool_results(
@@ -1394,9 +1409,12 @@ class CassAgentClient:
         gestures = self._parse_gestures(full_text)
         clean_text = self._clean_gesture_tags(full_text)
 
-        # Extract usage info
+        # Extract usage info - include cache tokens in total
         input_tokens = response.usage.input_tokens if response.usage else 0
         output_tokens = response.usage.output_tokens if response.usage else 0
+        cache_read_tokens = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+        cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0) or 0
+        total_input = input_tokens + cache_read_tokens
 
         return AgentResponse(
             text=clean_text,
@@ -1404,8 +1422,10 @@ class CassAgentClient:
             tool_uses=tool_uses,
             gestures=gestures,
             stop_reason=response.stop_reason,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens
+            input_tokens=total_input,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens
         )
 
     def _parse_gestures(self, text: str) -> List[Dict]:

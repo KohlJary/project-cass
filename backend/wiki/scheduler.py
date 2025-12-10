@@ -63,6 +63,7 @@ class ResearchScheduler:
         queue: ResearchQueue,
         config: SchedulerConfig = None,
         memory=None,
+        token_tracker=None,
     ):
         """
         Initialize the scheduler.
@@ -72,11 +73,13 @@ class ResearchScheduler:
             queue: ResearchQueue for task persistence
             config: Scheduler configuration
             memory: CassMemory for context search (optional)
+            token_tracker: TokenUsageTracker for tracking LLM usage
         """
         self.storage = wiki_storage
         self.queue = queue
         self.config = config or SchedulerConfig()
         self.memory = memory
+        self.token_tracker = token_tracker
 
         # Detector for deepening candidates
         self.detector = DeepeningDetector(wiki_storage)
@@ -1063,7 +1066,7 @@ class ResearchScheduler:
         from .resynthesis import ResynthesisPipeline
         from .maturity import SynthesisTrigger
 
-        pipeline = ResynthesisPipeline(self.storage, self.memory)
+        pipeline = ResynthesisPipeline(self.storage, self.memory, token_tracker=self.token_tracker)
 
         result = await pipeline.deepen_page(
             page_name=task.target,

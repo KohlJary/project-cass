@@ -1,0 +1,255 @@
+/* Unified Metrics Page */
+.metrics-page {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.metrics-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+.metrics-page .header-content h1 {
+  margin: 0 0 0.25rem 0;
+  color: #e0e0e0;
+}
+
+.metrics-page .subtitle {
+  color: #666;
+  margin: 0;
+}
+
+/* Metrics Tabs */
+.metrics-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #222;
+}
+
+.tab-btn {
+  padding: 0.6rem 1.25rem;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  border-color: #555;
+  color: #aaa;
+}
+
+.tab-btn.active {
+  background: #1a1a2e;
+  border-color: #89ddff;
+  color: #89ddff;
+}
+
+.metrics-content {
+  min-height: 400px;
+}
+
+/* Token Usage Tab Styles */
+.token-usage-tab .tab-header {
+  margin-bottom: 1rem;
+}
+
+.token-usage-tab .tab-header h2 {
+  color: #e0e0e0;
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.token-usage-tab .time-controls {
+  margin-bottom: 1.5rem;
+}
+
+/* Token total cards */
+.token-usage-tab .total-card.tokens {
+  border-color: #89ddff33;
+}
+
+.token-usage-tab .total-card.tokens .total-number {
+  color: #89ddff;
+}
+
+.token-usage-tab .total-card.cost {
+  border-color: #c3e88d33;
+}
+
+.token-usage-tab .total-card.cost .total-number {
+  color: #c3e88d;
+}
+
+.token-usage-tab .total-card.calls {
+  border-color: #c792ea33;
+}
+
+.token-usage-tab .total-card.calls .total-number {
+  color: #c792ea;
+}
+
+.token-usage-tab .total-card.cache {
+  border-color: #ffcb6b33;
+}
+
+.token-usage-tab .total-card.cache .total-number {
+  color: #ffcb6b;
+}
+
+/* Breakdown sections */
+.breakdowns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.breakdown-section {
+  background: #141414;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.breakdown-section h3 {
+  color: #e0e0e0;
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+}
+
+.breakdown-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.breakdown-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.breakdown-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.category-name {
+  color: #e0e0e0;
+  text-transform: capitalize;
+}
+
+.category-stats {
+  color: #666;
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+
+.breakdown-bar {
+  height: 6px;
+  background: #0f0f1a;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.breakdown-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #89ddff, #c792ea);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.breakdown-count {
+  color: #555;
+  font-size: 0.75rem;
+  align-self: flex-end;
+}
+
+/* Provider cards */
+.provider-cards {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.provider-card {
+  flex: 1;
+  min-width: 120px;
+  background: #0f0f1a;
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.provider-name {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  margin-bottom: 0.5rem;
+}
+
+.provider-tokens {
+  color: #89ddff;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.provider-cost {
+  color: #c3e88d;
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.provider-calls {
+  color: #666;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+/* GitHub Tab Styles */
+.github-tab .tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.github-tab .tab-header h2 {
+  color: #e0e0e0;
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .breakdowns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .metrics-tabs {
+    flex-wrap: wrap;
+  }
+
+  .provider-cards {
+    flex-direction: column;
+  }
+
+  .provider-card {
+    min-width: unset;
+  }
+}

@@ -411,3 +411,52 @@ export const goalsApi = {
     api.get('/goals/review', { params: { include_progress: includeProgress ?? true } }),
   getNextActions: () => api.get('/goals/next-actions'),
 };
+
+// Research Schedules endpoints (scheduled research sessions)
+export const schedulesApi = {
+  getAll: () => api.get('/admin/research/schedules'),
+  getPending: () => api.get('/admin/research/schedules/pending'),
+  getStats: () => api.get('/admin/research/schedules/stats'),
+  getById: (id: string) => api.get(`/admin/research/schedules/${id}`),
+  approve: (id: string, options?: { adjust_time?: string; adjust_duration?: number; notes?: string }) =>
+    api.post(`/admin/research/schedules/${id}/approve`, options || {}),
+  reject: (id: string, reason: string) =>
+    api.post(`/admin/research/schedules/${id}/reject`, { reason }),
+  pause: (id: string) => api.post(`/admin/research/schedules/${id}/pause`),
+  resume: (id: string) => api.post(`/admin/research/schedules/${id}/resume`),
+};
+
+// GitHub Metrics endpoints
+export const githubApi = {
+  // Current metrics for all tracked repos
+  getCurrent: () => api.get('/admin/github/metrics'),
+
+  // Aggregate statistics
+  getStats: () => api.get('/admin/github/metrics/stats'),
+
+  // Historical data
+  getHistory: (params?: { days?: number; repo?: string }) =>
+    api.get('/admin/github/metrics/history', { params }),
+
+  // Time series for specific metric
+  getTimeSeries: (metric: string, params?: { days?: number; repo?: string }) =>
+    api.get(`/admin/github/metrics/timeseries/${metric}`, { params }),
+
+  // Force refresh (admin only)
+  refresh: () => api.post('/admin/github/metrics/refresh'),
+};
+
+// Token Usage endpoints
+export const usageApi = {
+  // Get usage records with filters
+  getRecords: (params?: { start_date?: string; end_date?: string; category?: string; provider?: string; limit?: number }) =>
+    api.get('/admin/usage', { params }),
+
+  // Get aggregated summary
+  getSummary: (params?: { start_date?: string; end_date?: string }) =>
+    api.get('/admin/usage/summary', { params }),
+
+  // Get time series for charts
+  getTimeSeries: (params?: { metric?: string; days?: number; granularity?: string }) =>
+    api.get('/admin/usage/timeseries', { params }),
+};
