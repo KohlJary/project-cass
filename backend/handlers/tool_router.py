@@ -52,6 +52,9 @@ class ToolContext:
     # Storage
     storage_dir: Any = None
 
+    # Interview analysis
+    interview_analyzer: Any = None
+
 
 # Tool name -> executor mapping
 # Each entry is (tool_names_list, executor_import_path, requires_special_handling)
@@ -212,6 +215,16 @@ TOOL_REGISTRY = {
     "get_document": "document",
     "list_documents": "document",
     "delete_document": "document",
+
+    # Interview analysis tools
+    "get_interview_summary": "interview",
+    "list_interview_prompts": "interview",
+    "compare_responses": "interview",
+    "get_model_response": "interview",
+    "annotate_response": "interview",
+    "save_analysis": "interview",
+    "list_analyses": "interview",
+    "get_analysis": "interview",
 }
 
 
@@ -423,6 +436,13 @@ async def route_tool(
             project_id=ctx.project_id,
             project_manager=ctx.project_manager,
             memory=ctx.memory
+        )
+
+    elif executor_type == "interview":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            analyzer=ctx.interview_analyzer
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}

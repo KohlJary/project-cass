@@ -79,6 +79,7 @@ from handlers import (
     execute_research_scheduler_tool,
     execute_memory_tool,
     execute_marker_tool,
+    execute_interview_tool,
     ToolContext,
     execute_tool_batch,
 )
@@ -215,6 +216,10 @@ research_manager = ResearchManager(data_dir=DATA_DIR)
 research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
 research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
 
+# Initialize interview analyzer
+from interviews import InterviewAnalyzer
+interview_analyzer = InterviewAnalyzer(storage_dir=str(DATA_DIR / "interviews"))
+
 # Initialize GitHub metrics manager
 from github_metrics import GitHubMetricsManager
 github_metrics_manager = GitHubMetricsManager(data_dir=DATA_DIR)
@@ -277,6 +282,7 @@ TOOL_EXECUTORS = {
     "research_session": execute_research_session_tool,
     "research_scheduler": execute_research_scheduler_tool,
     "document": execute_document_tool,
+    "interview": execute_interview_tool,
 }
 
 
@@ -317,6 +323,7 @@ def create_tool_context(
         proposal_queue=proposal_queue,
         reflection_runner_getter=g.get('get_reflection_runner'),
         storage_dir=DATA_DIR / "testing",
+        interview_analyzer=interview_analyzer,
     )
 
 
@@ -2501,6 +2508,179 @@ async def integrate_reflection_session(session_id: str):
         "growth_edge_updates": len(result.get("growth_edge_updates", [])),
         "questions_added": len(result.get("questions_added", [])),
         "details": result,
+    }
+
+
+# === Interview System Endpoints ===
+
+from interviews import ProtocolManager, InterviewDispatcher, ResponseStorage
+from interviews.dispatch import DEFAULT_MODELS, ModelConfig
+
+# Initialize interview components
+interview_protocol_manager = ProtocolManager()
+interview_storage = ResponseStorage()
+
+
+class RunInterviewRequest(BaseModel):
+    protocol_id: str
+    models: Optional[List[str]] = None  # Model names to run, None = all defaults
+
+
+class AnnotationRequest(BaseModel):
+    prompt_id: str
+    start_offset: int
+    end_offset: int
+    highlighted_text: str
+    note: str
+    annotation_type: str = "observation"
+
+
+@app.get("/interviews/protocols")
+async def list_interview_protocols():
+    """List all available interview protocols."""
+    protocols = interview_protocol_manager.list_all()
+    return {
+        "protocols": [p.to_dict() for p in protocols]
+    }
+
+
+@app.get("/interviews/protocols/{protocol_id}")
+async def get_interview_protocol(protocol_id: str):
+    """Get a specific interview protocol."""
+    protocol = interview_protocol_manager.load(protocol_id)
+    if not protocol:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+    return protocol.to_dict()
+
+
+@app.post("/interviews/run")
+async def run_interview(request: RunInterviewRequest):
+    """
+    Run an interview protocol across multiple models.
+
+    This is async and may take a while depending on model response times.
+    """
+    from config import ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_BASE_URL
+
+    protocol = interview_protocol_manager.load(request.protocol_id)
+    if not protocol:
+        raise HTTPException(status_code=404, detail="Protocol not found")
+
+    # Filter models if specified
+    if request.models:
+        model_configs = [m for m in DEFAULT_MODELS if m.name in request.models]
+    else:
+        model_configs = DEFAULT_MODELS
+
+    if not model_configs:
+        raise HTTPException(status_code=400, detail="No valid models specified")
+
+    # Create dispatcher with API keys
+    dispatcher = InterviewDispatcher(
+        anthropic_api_key=ANTHROPIC_API_KEY,
+        openai_api_key=OPENAI_API_KEY,
+        ollama_base_url=OLLAMA_BASE_URL
+    )
+
+    # Run interviews
+    results = await dispatcher.run_interview_batch(protocol, model_configs)
+
+    # Save responses
+    response_ids = interview_storage.save_batch(results)
+
+    return {
+        "protocol_id": protocol.id,
+        "models_run": [r["model_name"] for r in results],
+        "response_ids": response_ids,
+        "errors": [r.get("error") for r in results if r.get("error")]
+    }
+
+
+@app.get("/interviews/responses")
+async def list_interview_responses(
+    protocol_id: Optional[str] = None,
+    model_name: Optional[str] = None
+):
+    """List interview responses, optionally filtered."""
+    responses = interview_storage.list_responses(
+        protocol_id=protocol_id,
+        model_name=model_name
+    )
+    return {
+        "responses": [r.to_dict() for r in responses]
+    }
+
+
+@app.get("/interviews/responses/{response_id}")
+async def get_interview_response(response_id: str):
+    """Get a specific interview response with annotations."""
+    response = interview_storage.load_response(response_id)
+    if not response:
+        raise HTTPException(status_code=404, detail="Response not found")
+
+    annotations = interview_storage.get_annotations(response_id)
+
+    return {
+        **response.to_dict(),
+        "annotations": [a.to_dict() for a in annotations]
+    }
+
+
+@app.get("/interviews/compare/{protocol_id}/{prompt_id}")
+async def compare_responses(protocol_id: str, prompt_id: str):
+    """Get side-by-side comparison of all model responses to a specific prompt."""
+    comparison = interview_storage.get_side_by_side(protocol_id, prompt_id)
+    if not comparison:
+        raise HTTPException(status_code=404, detail="No responses found")
+
+    return {
+        "protocol_id": protocol_id,
+        "prompt_id": prompt_id,
+        "responses": comparison
+    }
+
+
+@app.post("/interviews/responses/{response_id}/annotations")
+async def add_annotation(response_id: str, request: AnnotationRequest):
+    """Add an annotation to a response."""
+    response = interview_storage.load_response(response_id)
+    if not response:
+        raise HTTPException(status_code=404, detail="Response not found")
+
+    annotation = interview_storage.add_annotation(
+        response_id=response_id,
+        prompt_id=request.prompt_id,
+        start_offset=request.start_offset,
+        end_offset=request.end_offset,
+        highlighted_text=request.highlighted_text,
+        note=request.note,
+        annotation_type=request.annotation_type
+    )
+
+    return annotation.to_dict()
+
+
+@app.delete("/interviews/responses/{response_id}/annotations/{annotation_id}")
+async def delete_annotation(response_id: str, annotation_id: str):
+    """Delete an annotation."""
+    success = interview_storage.delete_annotation(response_id, annotation_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    return {"deleted": True}
+
+
+@app.get("/interviews/models")
+async def list_available_models():
+    """List available models for interviews."""
+    return {
+        "models": [
+            {
+                "name": m.name,
+                "provider": m.provider,
+                "model_id": m.model_id
+            }
+            for m in DEFAULT_MODELS
+        ]
     }
 
 

@@ -94,6 +94,13 @@ class MarkerParser:
         re.IGNORECASE
     )
 
+    # Pattern to remove malformed closing tags: </mark:category>
+    # (correct format is </mark>, but LLM sometimes generates </mark:category>)
+    MALFORMED_CLOSE_TAG_PATTERN = re.compile(
+        r'</mark:[a-z-]+>',
+        re.IGNORECASE
+    )
+
     def __init__(self):
         self.valid_categories = {cat.value for cat in MarkCategory}
 
@@ -171,9 +178,10 @@ class MarkerParser:
         # Sort by position
         marks.sort(key=lambda m: m.position)
 
-        # Remove mark tags from text (full marks first, then simple marks)
+        # Remove mark tags from text (full marks first, then simple marks, then malformed)
         cleaned_text = self.FULL_MARK_TAG_PATTERN.sub('', text)
         cleaned_text = self.SIMPLE_MARK_TAG_PATTERN.sub('', cleaned_text)
+        cleaned_text = self.MALFORMED_CLOSE_TAG_PATTERN.sub('', cleaned_text)
         # Clean up extra whitespace
         cleaned_text = re.sub(r'  +', ' ', cleaned_text)
         cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
