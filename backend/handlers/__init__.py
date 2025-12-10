@@ -20,6 +20,7 @@ from .research_session import execute_research_session_tool, RESEARCH_SESSION_TO
 from .research_scheduler import execute_research_scheduler_tool, RESEARCH_SCHEDULER_TOOLS
 from .memory import execute_memory_tool, MEMORY_TOOLS
 from .markers import execute_marker_tool, MARKER_TOOLS
+from .tool_router import ToolContext, route_tool, execute_tool_batch, TOOL_REGISTRY
 
 __all__ = [
     "execute_document_tool",
@@ -53,4 +54,8 @@ __all__ = [
     "MEMORY_TOOLS",
     "execute_marker_tool",
     "MARKER_TOOLS",
+    "ToolContext",
+    "route_tool",
+    "execute_tool_batch",
+    "TOOL_REGISTRY",
 ]

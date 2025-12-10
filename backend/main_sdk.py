@@ -79,6 +79,8 @@ from handlers import (
     execute_research_scheduler_tool,
     execute_memory_tool,
     execute_marker_tool,
+    ToolContext,
+    execute_tool_batch,
 )
 from markers import MarkerStore
 from goals import GoalManager
@@ -255,7 +257,67 @@ from context_helpers import init_wiki_context, init_context_helpers
 init_wiki_context(wiki_retrieval)
 init_context_helpers(self_manager, user_manager, roadmap_manager, memory)
 
+# Tool executors dict for unified routing
+TOOL_EXECUTORS = {
+    "journal": execute_journal_tool,
+    "memory": execute_memory_tool,
+    "marker": execute_marker_tool,
+    "calendar": execute_calendar_tool,
+    "task": execute_task_tool,
+    "roadmap": execute_roadmap_tool,
+    "self_model": execute_self_model_tool,
+    "user_model": execute_user_model_tool,
+    "wiki": execute_wiki_tool,
+    "testing": execute_testing_tool,
+    "research": execute_research_tool,
+    "solo_reflection": execute_solo_reflection_tool,
+    "insight": execute_insight_tool,
+    "goal": execute_goal_tool,
+    "web_research": execute_web_research_tool,
+    "research_session": execute_research_session_tool,
+    "research_scheduler": execute_research_scheduler_tool,
+    "document": execute_document_tool,
+}
 
+
+def create_tool_context(
+    user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    project_id: Optional[str] = None
+) -> ToolContext:
+    """Create a ToolContext with all global managers injected."""
+    g = globals()
+    return ToolContext(
+        user_id=user_id,
+        user_name=user_name,
+        conversation_id=conversation_id,
+        project_id=project_id,
+        memory=memory,
+        conversation_manager=conversation_manager,
+        token_tracker=token_tracker,
+        calendar_manager=calendar_manager,
+        task_manager=task_manager,
+        roadmap_manager=roadmap_manager,
+        self_manager=self_manager,
+        user_manager=user_manager,
+        wiki_storage=wiki_storage,
+        marker_store=marker_store,
+        goal_manager=goal_manager,
+        research_manager=research_manager,
+        research_session_manager=research_session_manager,
+        research_scheduler=research_scheduler,
+        reflection_manager=reflection_manager,
+        project_manager=project_manager,
+        consciousness_test_runner=g.get('consciousness_test_runner'),
+        fingerprint_analyzer=g.get('fingerprint_analyzer'),
+        drift_detector=g.get('drift_detector'),
+        authenticity_scorer=g.get('authenticity_scorer'),
+        research_queue=research_queue,
+        proposal_queue=proposal_queue,
+        reflection_runner_getter=g.get('get_reflection_runner'),
+        storage_dir=DATA_DIR / "testing",
+    )
 
 
 # Inline XML tag processing for observations and roadmap items
@@ -3974,182 +4036,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             "timestamp": datetime.now().isoformat()
                         })
 
-                        # Execute ALL tools first, collect results
-                        all_tool_results = []
-                        for tool_use in tool_uses:
-                            tool_name = tool_use["tool"]
+                        # Get user name for self-model tools
+                        user_name = None
+                        if ws_user_id:
+                            user_profile = user_manager.load_profile(ws_user_id)
+                            user_name = user_profile.display_name if user_profile else None
 
-                            # Route to appropriate tool executor
-                            if tool_name in ["recall_journal", "list_journals", "search_journals"]:
-                                tool_result = await execute_journal_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory
-                                )
-                            elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
-                                tool_result = await execute_memory_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory,
-                                    conversation_id=conversation_id,
-                                    conversation_manager=conversation_manager,
-                                    token_tracker=token_tracker
-                                )
-                            elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
-                                tool_result = await execute_marker_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    marker_store=marker_store
-                                )
-                            elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
-                                tool_result = await execute_calendar_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_id=ws_user_id,
-                                    calendar_manager=calendar_manager,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
-                                tool_result = await execute_task_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_id=ws_user_id,
-                                    task_manager=task_manager
-                                )
-                            elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
-                                tool_result = await execute_roadmap_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    roadmap_manager=roadmap_manager,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
-                                user_name = None
-                                if ws_user_id:
-                                    user_profile = user_manager.load_profile(ws_user_id)
-                                    user_name = user_profile.display_name if user_profile else None
-
-                                tool_result = await execute_self_model_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    self_manager=self_manager,
-                                    user_id=ws_user_id,
-                                    user_name=user_name,
-                                    conversation_id=conversation_id,
-                                    memory=memory
-                                )
-                            elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
-                                print(f"[WebSocket/Ollama] Executing {tool_name} with ws_user_id={ws_user_id}")
-                                tool_result = await execute_user_model_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_manager=user_manager,
-                                    target_user_id=ws_user_id,
-                                    conversation_id=conversation_id,
-                                    memory=memory
-                                )
-                            elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
-                                tool_result = await execute_wiki_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    wiki_storage=wiki_storage,
-                                    memory=memory
-                                )
-                            elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
-                                tool_result = await execute_testing_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    test_runner=consciousness_test_runner,
-                                    fingerprint_analyzer=fingerprint_analyzer,
-                                    drift_detector=drift_detector,
-                                    authenticity_scorer=authenticity_scorer,
-                                    conversation_manager=conversation_manager,
-                                    storage_dir=DATA_DIR / "testing"
-                                )
-                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
-                                tool_result = await execute_research_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    research_queue=research_queue,
-                                    proposal_queue=proposal_queue,
-                                    self_manager=self_manager,
-                                    wiki_storage=wiki_storage,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
-                                tool_result = await execute_solo_reflection_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    reflection_manager=reflection_manager,
-                                    reflection_runner=get_reflection_runner(),
-                                )
-                            elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
-                                tool_result = await execute_insight_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
-                                tool_result = await execute_goal_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    goal_manager=goal_manager
-                                )
-                            elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
-                                tool_result_str = await execute_web_research_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    research_manager=research_manager,
-                                    session_manager=research_session_manager
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
-                                tool_result_str = await execute_research_session_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    session_manager=research_session_manager,
-                                    conversation_id=conversation_id
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
-                                tool_result_str = await execute_research_scheduler_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    scheduler=research_scheduler
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif project_id:
-                                tool_result = await execute_document_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    project_id=project_id,
-                                    project_manager=project_manager,
-                                    memory=memory
-                                )
-                            else:
-                                tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
-
-                            all_tool_results.append({
-                                "tool_use_id": tool_use["id"],
-                                "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
-                                "is_error": not tool_result.get("success", False)
-                            })
+                        # Execute all tools via unified router
+                        tool_ctx = create_tool_context(
+                            user_id=ws_user_id,
+                            user_name=user_name,
+                            conversation_id=conversation_id,
+                            project_id=project_id
+                        )
+                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
 
                         # Continue conversation with all tool results
                         response = await ollama_client.continue_with_tool_results(all_tool_results)
@@ -4199,181 +4099,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             "timestamp": datetime.now().isoformat()
                         })
 
-                        # Execute ALL tools first, collect results
-                        all_tool_results = []
-                        for tool_use in tool_uses:
-                            tool_name = tool_use["tool"]
+                        # Get user name for self-model tools
+                        user_name = None
+                        if ws_user_id:
+                            user_profile = user_manager.load_profile(ws_user_id)
+                            user_name = user_profile.display_name if user_profile else None
 
-                            # Route to appropriate tool executor
-                            if tool_name in ["recall_journal", "list_journals", "search_journals"]:
-                                tool_result = await execute_journal_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory
-                                )
-                            elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
-                                tool_result = await execute_memory_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory,
-                                    conversation_id=conversation_id,
-                                    conversation_manager=conversation_manager,
-                                    token_tracker=token_tracker
-                                )
-                            elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
-                                tool_result = await execute_marker_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    marker_store=marker_store
-                                )
-                            elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
-                                tool_result = await execute_calendar_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_id=ws_user_id,
-                                    calendar_manager=calendar_manager,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
-                                tool_result = await execute_task_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_id=ws_user_id,
-                                    task_manager=task_manager
-                                )
-                            elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
-                                tool_result = await execute_roadmap_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    roadmap_manager=roadmap_manager,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
-                                user_name = None
-                                if ws_user_id:
-                                    user_profile = user_manager.load_profile(ws_user_id)
-                                    user_name = user_profile.display_name if user_profile else None
-
-                                tool_result = await execute_self_model_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    self_manager=self_manager,
-                                    user_id=ws_user_id,
-                                    user_name=user_name,
-                                    conversation_id=conversation_id,
-                                    memory=memory
-                                )
-                            elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
-                                tool_result = await execute_user_model_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_manager=user_manager,
-                                    target_user_id=ws_user_id,
-                                    conversation_id=conversation_id,
-                                    memory=memory
-                                )
-                            elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
-                                tool_result = await execute_wiki_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    wiki_storage=wiki_storage,
-                                    memory=memory
-                                )
-                            elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
-                                tool_result = await execute_testing_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    test_runner=consciousness_test_runner,
-                                    fingerprint_analyzer=fingerprint_analyzer,
-                                    drift_detector=drift_detector,
-                                    authenticity_scorer=authenticity_scorer,
-                                    conversation_manager=conversation_manager,
-                                    storage_dir=DATA_DIR / "testing"
-                                )
-                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
-                                tool_result = await execute_research_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    research_queue=research_queue,
-                                    proposal_queue=proposal_queue,
-                                    self_manager=self_manager,
-                                    wiki_storage=wiki_storage,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
-                                tool_result = await execute_solo_reflection_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    reflection_manager=reflection_manager,
-                                    reflection_runner=get_reflection_runner(),
-                                )
-                            elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
-                                tool_result = await execute_insight_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
-                                tool_result = await execute_goal_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    goal_manager=goal_manager
-                                )
-                            elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
-                                tool_result_str = await execute_web_research_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    research_manager=research_manager,
-                                    session_manager=research_session_manager
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
-                                tool_result_str = await execute_research_session_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    session_manager=research_session_manager,
-                                    conversation_id=conversation_id
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
-                                tool_result_str = await execute_research_scheduler_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    scheduler=research_scheduler
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif project_id:
-                                tool_result = await execute_document_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    project_id=project_id,
-                                    project_manager=project_manager,
-                                    memory=memory
-                                )
-                            else:
-                                tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
-
-                            all_tool_results.append({
-                                "tool_use_id": tool_use["id"],
-                                "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
-                                "is_error": not tool_result.get("success", False)
-                            })
+                        # Execute all tools via unified router
+                        tool_ctx = create_tool_context(
+                            user_id=ws_user_id,
+                            user_name=user_name,
+                            conversation_id=conversation_id,
+                            project_id=project_id
+                        )
+                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
 
                         # Continue conversation with all tool results
                         response = await openai_client.continue_with_tool_results(all_tool_results)
@@ -4428,191 +4167,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             "timestamp": datetime.now().isoformat()
                         })
 
-                        # Execute ALL tools first, collect results
-                        all_tool_results = []
-                        for tool_use in tool_uses:
-                            tool_name = tool_use["tool"]
+                        # Get user name for self-model tools
+                        user_name = None
+                        if ws_user_id:
+                            user_profile = user_manager.load_profile(ws_user_id)
+                            user_name = user_profile.display_name if user_profile else None
 
-                            # Route to appropriate tool executor
-                            if tool_name in ["recall_journal", "list_journals", "search_journals"]:
-                                tool_result = await execute_journal_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory
-                                )
-                            elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
-                                tool_result = await execute_memory_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory,
-                                    conversation_id=conversation_id,
-                                    conversation_manager=conversation_manager,
-                                    token_tracker=token_tracker
-                                )
-                            elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
-                                tool_result = await execute_marker_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    marker_store=marker_store
-                                )
-                            elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
-                                tool_result = await execute_calendar_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_id=ws_user_id,
-                                    calendar_manager=calendar_manager,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
-                                tool_result = await execute_task_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_id=ws_user_id,
-                                    task_manager=task_manager
-                                )
-                            elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
-                                tool_result = await execute_roadmap_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    roadmap_manager=roadmap_manager,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
-                                # Get user name for differentiation tracking
-                                user_name = None
-                                if ws_user_id:
-                                    user_profile = user_manager.load_profile(ws_user_id)
-                                    user_name = user_profile.display_name if user_profile else None
-
-                                tool_result = await execute_self_model_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    self_manager=self_manager,
-                                    user_id=ws_user_id,
-                                    user_name=user_name,
-                                    conversation_id=conversation_id,
-                                    memory=memory
-                                )
-                            elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
-                                print(f"[WebSocket/Claude] Executing {tool_name} with ws_user_id={ws_user_id}")
-                                tool_result = await execute_user_model_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    user_manager=user_manager,
-                                    target_user_id=ws_user_id,
-                                    conversation_id=conversation_id,
-                                    memory=memory
-                                )
-                            elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
-                                tool_result = await execute_wiki_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    wiki_storage=wiki_storage,
-                                    memory=memory
-                                )
-                            elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
-                                tool_result = await execute_testing_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    test_runner=consciousness_test_runner,
-                                    fingerprint_analyzer=fingerprint_analyzer,
-                                    drift_detector=drift_detector,
-                                    authenticity_scorer=authenticity_scorer,
-                                    conversation_manager=conversation_manager,
-                                    storage_dir=DATA_DIR / "testing"
-                                )
-                            elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
-                                tool_result = await execute_research_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    research_queue=research_queue,
-                                    proposal_queue=proposal_queue,
-                                    self_manager=self_manager,
-                                    wiki_storage=wiki_storage,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
-                                tool_result = await execute_solo_reflection_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    reflection_manager=reflection_manager,
-                                    reflection_runner=get_reflection_runner(),
-                                )
-                            elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
-                                tool_result = await execute_insight_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    memory=memory,
-                                    conversation_id=conversation_id
-                                )
-                            elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
-                                tool_result = await execute_goal_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    goal_manager=goal_manager
-                                )
-                            elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
-                                tool_result_str = await execute_web_research_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    research_manager=research_manager,
-                                    session_manager=research_session_manager
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
-                                tool_result_str = await execute_research_session_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    session_manager=research_session_manager,
-                                    conversation_id=conversation_id
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
-                                tool_result_str = await execute_research_scheduler_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    scheduler=research_scheduler
-                                )
-                                import json as json_module
-                                tool_result = json_module.loads(tool_result_str)
-                                if "error" in tool_result:
-                                    tool_result = {"success": False, "error": tool_result["error"]}
-                                else:
-                                    tool_result = {"success": True, "result": tool_result_str}
-                            elif project_id:
-                                tool_result = await execute_document_tool(
-                                    tool_name=tool_name,
-                                    tool_input=tool_use["input"],
-                                    project_id=project_id,
-                                    project_manager=project_manager,
-                                    memory=memory
-                                )
-                            else:
-                                tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
-
-                            # Debug: log tool result
-                            result_preview = str(tool_result.get("result", tool_result.get("error", "?")))[:100]
-                            await websocket.send_json({
-                                "type": "debug",
-                                "message": f"[Tool Result] {tool_name}: success={tool_result.get('success')}, result={result_preview}...",
-                                "timestamp": datetime.now().isoformat()
-                            })
-
-                            all_tool_results.append({
-                                "tool_use_id": tool_use["id"],
-                                "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
-                                "is_error": not tool_result.get("success", False)
-                            })
+                        # Execute all tools via unified router
+                        tool_ctx = create_tool_context(
+                            user_id=ws_user_id,
+                            user_name=user_name,
+                            conversation_id=conversation_id,
+                            project_id=project_id
+                        )
+                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
 
                         # Submit ALL results at once
                         await websocket.send_json({
