@@ -734,7 +734,13 @@ async def chat(request: ChatRequest):
         )
         # Use working summary if available (token-optimized)
         working_summary = conversation_manager.get_working_summary(request.conversation_id) if request.conversation_id else None
-        memory_context = memory.format_hierarchical_context(hierarchical, working_summary=working_summary)
+        # Get actual recent messages for chronological context (not semantic search)
+        recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=10) if request.conversation_id else None
+        memory_context = memory.format_hierarchical_context(
+            hierarchical,
+            working_summary=working_summary,
+            recent_messages=recent_messages
+        )
 
         # Add user context if we have a current user
         if current_user_id:
@@ -3799,7 +3805,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 )
                 # Use working summary if available (token-optimized)
                 working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
-                memory_context = memory.format_hierarchical_context(hierarchical, working_summary=working_summary)
+                # Get actual recent messages for chronological context (not semantic search)
+                recent_messages = conversation_manager.get_recent_messages(conversation_id, count=10) if conversation_id else None
+                memory_context = memory.format_hierarchical_context(
+                    hierarchical,
+                    working_summary=working_summary,
+                    recent_messages=recent_messages
+                )
 
                 # Add user context if we have a connection user
                 user_context_count = 0

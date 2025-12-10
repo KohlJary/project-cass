@@ -324,13 +324,17 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
         gesture_pattern = re.compile(r'<gesture:(\w+)(?::(\d*\.?\d+))?>')
         emote_pattern = re.compile(r'<emote:(\w+)(?::(\d*\.?\d+))?>')
 
-        for i, match in enumerate(gesture_pattern.finditer(text)):
+        for match in gesture_pattern.finditer(text):
+            gesture_name = match.group(1)
+            # Skip 'think' - it's handled specially by TUI for split view rendering
+            if gesture_name == "think":
+                continue
             gestures.append({
                 "index": len(gestures),
                 "type": "gesture",
-                "name": match.group(1),
+                "name": gesture_name,
                 "intensity": float(match.group(2)) if match.group(2) else 1.0,
-                "delay": i * 0.5
+                "delay": len(gestures) * 0.5
             })
 
         for match in emote_pattern.finditer(text):
@@ -347,7 +351,9 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
     def _clean_gesture_tags(self, text: str) -> str:
         """Remove gesture/emote tags from text for display"""
         import re
-        cleaned = re.sub(r'<(?:gesture|emote):\w+(?::\d*\.?\d+)?>', '', text)
+        # Don't clean <gesture:think>...</gesture:think> blocks - TUI handles those for split view
+        # Only clean self-closing gesture/emote tags
+        cleaned = re.sub(r'<(?:gesture|emote):(?!think)\w+(?::\d*\.?\d+)?>', '', text)
         cleaned = re.sub(r'  +', ' ', cleaned).strip()
         return cleaned
 

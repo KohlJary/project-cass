@@ -86,7 +86,8 @@ class GestureParser:
         r'<record_user_observation(?:\s+(?:user=["\']?([^"\'>\s]+)["\']?|category=["\']?(\w+)["\']?|confidence=["\']?([\d.]+)["\']?))*>\s*(.*?)\s*</record_user_observation>',
         re.DOTALL
     )
-    ALL_TAGS_PATTERN = re.compile(r'<(?:gesture|emote|memory):\w+(?::\d*\.?\d+)?>')
+    # Pattern to clean tags - excludes gesture:think which is handled by TUI for split view
+    ALL_TAGS_PATTERN = re.compile(r'<(?:gesture:(?!think)\w+|emote:\w+|memory:\w+)(?::\d*\.?\d+)?>')
     SELF_OBSERVATION_TAG_PATTERN = re.compile(r'<record_self_observation[^>]*>.*?</record_self_observation>', re.DOTALL)
     USER_OBSERVATION_TAG_PATTERN = re.compile(r'<record_user_observation[^>]*>.*?</record_user_observation>', re.DOTALL)
     
@@ -110,7 +111,11 @@ class GestureParser:
         for match in self.GESTURE_PATTERN.finditer(text):
             name = match.group(1).lower()
             intensity = float(match.group(2)) if match.group(2) else 1.0
-            
+
+            # Skip 'think' - it's handled specially by TUI for split view rendering
+            if name == "think":
+                continue
+
             if name in self.valid_gestures:
                 triggers.append(AnimationTrigger(
                     type="gesture",
