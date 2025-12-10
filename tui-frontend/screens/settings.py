@@ -160,7 +160,7 @@ class SettingsScreen(ModalScreen):
                             anthropic_options = [
                                 ("Claude Sonnet 4", "claude-sonnet-4-20250514"),
                                 ("Claude Opus 4", "claude-opus-4-20250514"),
-                                ("Claude Haiku 3.5", "claude-haiku-3-5-20241022"),
+                                ("Claude Haiku 4.5", "claude-haiku-4-5-20251001"),
                             ]
                         yield Select(
                             options=anthropic_options,

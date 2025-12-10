@@ -28,7 +28,7 @@ async def generate_conversation_title(
         assistant_preview = assistant_response[:500]
 
         response = await client.messages.create(
-            model="claude-3-5-haiku-latest",
+            model="claude-haiku-4-5-20251001",
             max_tokens=50,
             messages=[{
                 "role": "user",
@@ -42,7 +42,7 @@ async def generate_conversation_title(
                 category="internal",
                 operation="title_generation",
                 provider="anthropic",
-                model="claude-3-5-haiku-latest",
+                model="claude-haiku-4-5-20251001",
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 conversation_id=conversation_id

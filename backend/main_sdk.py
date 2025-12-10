@@ -77,6 +77,7 @@ from handlers import (
     execute_web_research_tool,
     execute_research_session_tool,
     execute_research_scheduler_tool,
+    execute_memory_tool,
 )
 from goals import GoalManager
 from research import ResearchManager
@@ -246,111 +247,12 @@ _wiki_context_cache: Dict[str, tuple] = {}
 _WIKI_CACHE_TTL_SECONDS = 300  # 5 minutes
 _WIKI_CACHE_MAX_SIZE = 50
 
+# Initialize wiki context in context_helpers module
+from context_helpers import init_wiki_context, init_context_helpers
+init_wiki_context(wiki_retrieval)
+init_context_helpers(self_manager, user_manager, roadmap_manager, memory)
 
-def get_automatic_wiki_context(
-    query: str,
-    relevance_threshold: float = 0.5,
-    max_pages: int = 3,
-    max_tokens: int = 1500
-) -> tuple[str, list[str], int]:
-    """
-    Tier 1: Always-on wiki retrieval for automatic context injection.
 
-    Retrieves high-relevance wiki pages and formats them for injection
-    into the system prompt. Uses caching to avoid redundant lookups.
-
-    Args:
-        query: The user message to find relevant context for
-        relevance_threshold: Minimum relevance score (0-1) to include (default 0.5 = 50%)
-        max_pages: Maximum number of pages to include
-        max_tokens: Token budget for wiki context
-
-    Returns:
-        Tuple of (formatted_context, page_names, retrieval_time_ms)
-    """
-    import hashlib
-    import time
-
-    # Check cache first
-    query_hash = hashlib.md5(query.lower().strip().encode()).hexdigest()[:16]
-    now = time.time()
-
-    # Clean expired entries
-    expired_keys = [
-        k for k, v in _wiki_context_cache.items()
-        if now - v[0] > _WIKI_CACHE_TTL_SECONDS
-    ]
-    for k in expired_keys:
-        del _wiki_context_cache[k]
-
-    # Check for cache hit
-    if query_hash in _wiki_context_cache:
-        cached = _wiki_context_cache[query_hash]
-        return cached[1], cached[2], 0  # Return cached context, 0ms retrieval
-
-    start_time = time.time()
-
-    try:
-        # Use WikiRetrieval for full pipeline (entry points + link traversal)
-        context = wiki_retrieval.retrieve_context(
-            query=query,
-            n_entry_points=3,
-            max_depth=1,  # Shallow traversal for Tier 1 (fast)
-            max_pages=max_pages + 2,  # Get a few extra for filtering
-            max_tokens=max_tokens
-        )
-
-        if not context.pages:
-            return "", [], 0
-
-        # Filter to high-relevance pages only (Tier 1 threshold)
-        high_relevance = [
-            p for p in context.pages
-            if p.relevance_score >= relevance_threshold
-        ][:max_pages]
-
-        if not high_relevance:
-            return "", [], int((time.time() - start_time) * 1000)
-
-        # Format compact context for Tier 1 injection
-        sections = ["## Relevant Knowledge\n"]
-
-        for result in high_relevance:
-            page = result.page
-            # Get compact body (first ~300 chars)
-            body = page.body.strip()
-            if len(body) > 400:
-                # End at sentence or paragraph
-                truncated = body[:400]
-                for end in [". ", ".\n", "\n\n"]:
-                    last_end = truncated.rfind(end)
-                    if last_end > 200:
-                        truncated = truncated[:last_end + 1]
-                        break
-                body = truncated + "..."
-
-            sections.append(f"### {page.title}")
-            sections.append(f"*{page.page_type.value}*\n")
-            sections.append(body)
-            sections.append("")
-
-        formatted = "\n".join(sections)
-        page_names = [r.page.name for r in high_relevance]
-        elapsed_ms = int((time.time() - start_time) * 1000)
-
-        # Cache the result
-        if len(_wiki_context_cache) >= _WIKI_CACHE_MAX_SIZE:
-            # Remove oldest entry
-            oldest_key = min(_wiki_context_cache.keys(), key=lambda k: _wiki_context_cache[k][0])
-            del _wiki_context_cache[oldest_key]
-
-        _wiki_context_cache[query_hash] = (now, formatted, page_names)
-
-        return formatted, page_names, elapsed_ms
-
-    except Exception as e:
-        print(f"Wiki retrieval error: {e}")
-        return "", [], 0
 
 
 # Inline XML tag processing for observations and roadmap items
@@ -371,207 +273,6 @@ INLINE_ROADMAP_ITEM_PATTERN = re.compile(
 )
 
 
-async def process_inline_tags(
-    text: str,
-    conversation_id: Optional[str] = None,
-    user_id: Optional[str] = None
-) -> str:
-    """
-    Process inline XML tags in response text, execute corresponding tool calls,
-    and strip the tags from the output.
-
-    Handles:
-    - <record_self_observation> tags
-    - <record_user_observation> tags
-    - <create_roadmap_item> tags
-
-    Returns:
-        Cleaned text with tags stripped
-    """
-    cleaned_text = text
-
-    # Process self-observations
-    for match in INLINE_SELF_OBSERVATION_PATTERN.finditer(text):
-        full_match = match.group(0)
-        content = match.group(1).strip()
-
-        # Parse attributes from the tag
-        attrs_match = re.search(r'<record_self_observation([^>]*)>', full_match)
-        attrs_str = attrs_match.group(1) if attrs_match else ""
-
-        # Extract category
-        category = "pattern"
-        category_match = re.search(r'category=["\']?(\w+)["\']?', attrs_str)
-        if category_match:
-            category = category_match.group(1)
-
-        # Extract confidence
-        confidence = 0.8
-        confidence_match = re.search(r'confidence=["\']?([\d.]+)["\']?', attrs_str)
-        if confidence_match:
-            try:
-                confidence = float(confidence_match.group(1))
-            except ValueError:
-                pass
-
-        # Handle <parameter> style tags (newer format)
-        if '<parameter' in content:
-            obs_match = re.search(r'<parameter\s+name=["\']?observation["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
-            if obs_match:
-                content = obs_match.group(1).strip()
-            cat_match = re.search(r'<parameter\s+name=["\']?category["\']?>\s*(\w+)\s*</parameter>', content)
-            if cat_match:
-                category = cat_match.group(1)
-            conf_match = re.search(r'<parameter\s+name=["\']?confidence["\']?>\s*([\d.]+)\s*</parameter>', content)
-            if conf_match:
-                try:
-                    confidence = float(conf_match.group(1))
-                except ValueError:
-                    pass
-
-        # Execute the tool call
-        if content:
-            try:
-                result = await execute_self_model_tool(
-                    tool_name="record_self_observation",
-                    tool_input={
-                        "observation": content,
-                        "category": category,
-                        "confidence": confidence
-                    },
-                    self_manager=self_manager,
-                    memory=memory,
-                    conversation_id=conversation_id,
-                    user_id=user_id
-                )
-                logger.debug(f"Processed inline self-observation: {content[:50]}...")
-            except Exception as e:
-                logger.error(f"Failed to process inline self-observation: {e}")
-
-    # Process user observations
-    for match in INLINE_USER_OBSERVATION_PATTERN.finditer(text):
-        full_match = match.group(0)
-        content = match.group(1).strip()
-
-        # Parse attributes
-        attrs_match = re.search(r'<record_user_observation([^>]*)>', full_match)
-        attrs_str = attrs_match.group(1) if attrs_match else ""
-
-        # Extract target user
-        target_user = None
-        user_match = re.search(r'user=["\']?([^"\'>\s]+)["\']?', attrs_str)
-        if user_match:
-            target_user = user_match.group(1)
-
-        # Extract category
-        category = "background"
-        category_match = re.search(r'category=["\']?(\w+)["\']?', attrs_str)
-        if category_match:
-            category = category_match.group(1)
-
-        # Extract confidence
-        confidence = 0.7
-        confidence_match = re.search(r'confidence=["\']?([\d.]+)["\']?', attrs_str)
-        if confidence_match:
-            try:
-                confidence = float(confidence_match.group(1))
-            except ValueError:
-                pass
-
-        # Handle <parameter> style tags
-        if '<parameter' in content:
-            obs_match = re.search(r'<parameter\s+name=["\']?observation["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
-            if obs_match:
-                content = obs_match.group(1).strip()
-
-        # Execute the tool call (use conversation user_id if no target specified)
-        if content:
-            try:
-                result = await execute_user_model_tool(
-                    tool_name="record_user_observation",
-                    tool_input={
-                        "observation": content,
-                        "category": category,
-                        "confidence": confidence
-                    },
-                    user_manager=user_manager,
-                    memory=memory,
-                    user_id=user_id,  # Target the conversation user
-                    conversation_id=conversation_id
-                )
-                logger.debug(f"Processed inline user-observation: {content[:50]}...")
-            except Exception as e:
-                logger.error(f"Failed to process inline user-observation: {e}")
-
-    # Process roadmap items
-    for match in INLINE_ROADMAP_ITEM_PATTERN.finditer(text):
-        content = match.group(1).strip()
-
-        # Parse parameters
-        title = ""
-        description = ""
-        item_type = "feature"
-        priority = "P2"
-        assigned_to = None
-        tags = []
-
-        title_match = re.search(r'<parameter\s+name=["\']?title["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
-        if title_match:
-            title = title_match.group(1).strip()
-
-        desc_match = re.search(r'<parameter\s+name=["\']?description["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
-        if desc_match:
-            description = desc_match.group(1).strip()
-
-        type_match = re.search(r'<parameter\s+name=["\']?item_type["\']?>\s*(\w+)\s*</parameter>', content)
-        if type_match:
-            item_type = type_match.group(1)
-
-        priority_match = re.search(r'<parameter\s+name=["\']?priority["\']?>\s*(P\d)\s*</parameter>', content)
-        if priority_match:
-            priority = priority_match.group(1)
-
-        assigned_match = re.search(r'<parameter\s+name=["\']?assigned_to["\']?>\s*(\w+)\s*</parameter>', content)
-        if assigned_match:
-            assigned_to = assigned_match.group(1)
-
-        tags_match = re.search(r'<parameter\s+name=["\']?tags["\']?>\s*\[(.*?)\]\s*</parameter>', content)
-        if tags_match:
-            try:
-                tags_str = tags_match.group(1)
-                tags = [t.strip().strip('"\'') for t in tags_str.split(',')]
-            except:
-                pass
-
-        # Execute the tool call
-        if title:
-            try:
-                result = await execute_roadmap_tool(
-                    tool_name="create_roadmap_item",
-                    tool_input={
-                        "title": title,
-                        "description": description,
-                        "item_type": item_type,
-                        "priority": priority,
-                        "assigned_to": assigned_to,
-                        "tags": tags,
-                        "created_by": "cass"
-                    },
-                    roadmap_manager=roadmap_manager
-                )
-                logger.debug(f"Processed inline roadmap item: {title}")
-            except Exception as e:
-                logger.error(f"Failed to process inline roadmap item: {e}")
-
-    # Strip all inline tags from the text
-    cleaned_text = INLINE_SELF_OBSERVATION_PATTERN.sub('', cleaned_text)
-    cleaned_text = INLINE_USER_OBSERVATION_PATTERN.sub('', cleaned_text)
-    cleaned_text = INLINE_ROADMAP_ITEM_PATTERN.sub('', cleaned_text)
-
-    # Clean up extra whitespace
-    cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
-
-    return cleaned_text
 
 
 # Register wiki routes (with memory for embeddings)
@@ -722,186 +423,8 @@ tts_enabled = True  # Can be toggled via API
 tts_voice = "amy"  # Default Piper voice
 
 
-async def generate_missing_journals(days_to_check: int = 7):
-    """
-    Check for and generate any missing journal entries from recent days.
-    Enhanced with per-user journals, opinion extraction, growth edge evaluation,
-    open question reflection, and research integration.
-
-    Phases:
-    1. Main Journal - Daily reflection on conversations
-    2. Per-User Journals - Relationship-specific reflections
-    3. Self-Observations - Extract insights about self
-    4. User Observations - Learn about users from conversations
-    5. Opinion Extraction - Identify and store emerging opinions
-    6. Growth Edge Evaluation - Track areas for development
-    7. Open Questions Reflection - Reflect on existential questions
-    8. Research Reflection - Journal about autonomous research activity
-    9. Curiosity Feedback Loop - Extract red links from syntheses, queue for research
-    10. Research-to-Self-Model Integration - Extract opinions, observations, growth from research
-    11. Development Log - Create development log entry, check milestones, create snapshots
-    """
-    generated = []
-    today = datetime.now().date()
-
-    for days_ago in range(1, days_to_check + 1):  # Start from yesterday
-        check_date = today - timedelta(days=days_ago)
-        date_str = check_date.strftime("%Y-%m-%d")
-
-        # Check if journal already exists
-        existing = memory.get_journal_entry(date_str)
-        if existing:
-            continue
-
-        # Check if there's content for this date
-        summaries = memory.get_summaries_by_date(date_str)
-        conversations = memory.get_conversations_by_date(date_str) if not summaries else []
-
-        if not summaries and not conversations:
-            continue  # No content for this day
-
-        # Generate journal
-        print(f"📓 Generating missing journal for {date_str}...")
-        try:
-            # === PHASE 1: Main Journal (existing) ===
-            journal_text = await memory.generate_journal_entry(
-                date=date_str,
-                anthropic_api_key=ANTHROPIC_API_KEY,
-                token_tracker=token_tracker
-            )
-
-            if not journal_text:
-                print(f"   ✗ Failed to generate main journal for {date_str}")
-                continue
-
-            await memory.store_journal_entry(
-                date=date_str,
-                journal_text=journal_text,
-                summary_count=len(summaries),
-                conversation_count=len(conversations)
-            )
-            generated.append(date_str)
-            print(f"   ✓ Journal created for {date_str}")
-
-            # Get users who had conversations that day
-            user_ids_for_date = memory.get_user_ids_by_date(date_str)
-
-            # === PHASE 2: Per-User Journals (NEW) ===
-            for user_id in user_ids_for_date:
-                await _generate_per_user_journal_for_date(user_id, date_str)
-
-            # === PHASE 3: Self-Observations (existing) ===
-            print(f"   🔍 Extracting self-observations from journal...")
-            self_observations = await memory.extract_self_observations_from_journal(
-                journal_text=journal_text,
-                journal_date=date_str,
-                anthropic_api_key=ANTHROPIC_API_KEY
-            )
-            for obs_data in self_observations:
-                obs = self_manager.add_observation(
-                    observation=obs_data["observation"],
-                    category=obs_data["category"],
-                    confidence=obs_data["confidence"],
-                    source_type="journal",
-                    source_journal_date=date_str,
-                    influence_source=obs_data["influence_source"]
-                )
-                if obs:
-                    memory.embed_self_observation(
-                        observation_id=obs.id,
-                        observation_text=obs.observation,
-                        category=obs.category,
-                        confidence=obs.confidence,
-                        influence_source=obs.influence_source,
-                        timestamp=obs.timestamp
-                    )
-            if self_observations:
-                print(f"   ✓ Added {len(self_observations)} self-observations")
-
-            # === PHASE 4: User Observations (existing) ===
-            for user_id in user_ids_for_date:
-                await _generate_user_observations_for_date(user_id, date_str)
-
-            # === PHASE 5: Opinion Extraction (NEW) ===
-            await _extract_and_store_opinions(date_str, conversations or summaries)
-
-            # === PHASE 6: Growth Edge Evaluation (NEW) ===
-            await _evaluate_and_store_growth_edges(journal_text, date_str)
-
-            # === PHASE 7: Open Questions Reflection (NEW) ===
-            await _reflect_and_store_open_questions(journal_text, date_str)
-
-            # === PHASE 8: Research Reflection (NEW) ===
-            await _generate_research_journal(date_str)
-
-            # === PHASE 9: Curiosity Feedback Loop (NEW) ===
-            await _extract_and_queue_new_red_links(date_str)
-
-            # === PHASE 10: Research-to-Self-Model Integration (NEW) ===
-            await _integrate_research_into_self_model(date_str)
-
-            # === PHASE 11: Development Log Entry (NEW) ===
-            await _create_development_log_entry(journal_text, date_str, len(conversations or summaries))
-
-        except Exception as e:
-            print(f"   ✗ Failed to generate journal for {date_str}: {e}")
-            import traceback
-            traceback.print_exc()
-
-    return generated
 
 
-async def _generate_per_user_journal_for_date(user_id: str, date_str: str):
-    """Generate and store per-user journal entry for a specific date."""
-    profile = user_manager.load_profile(user_id)
-    if not profile:
-        return
-
-    # Check if per-user journal already exists for this date
-    existing_journal = user_manager.get_user_journal_by_date(user_id, date_str)
-    if existing_journal:
-        return
-
-    user_conversations = memory.get_conversations_by_date(date_str, user_id=user_id)
-    if not user_conversations:
-        return
-
-    print(f"   📝 Generating journal about {profile.display_name}...")
-
-    existing_observations = user_manager.load_observations(user_id)
-    obs_dicts = [obs.to_dict() for obs in existing_observations[-10:]]
-
-    journal_data = await memory.generate_per_user_journal(
-        user_id=user_id,
-        display_name=profile.display_name,
-        date=date_str,
-        conversations=user_conversations,
-        existing_observations=obs_dicts,
-        anthropic_api_key=ANTHROPIC_API_KEY,
-        token_tracker=token_tracker
-    )
-
-    if journal_data:
-        entry = user_manager.add_user_journal(
-            user_id=user_id,
-            journal_date=date_str,
-            content=journal_data["content"],
-            conversation_count=len(user_conversations),
-            topics_discussed=journal_data.get("topics_discussed", []),
-            relationship_insights=journal_data.get("relationship_insights", [])
-        )
-
-        if entry:
-            # Embed in ChromaDB
-            memory.embed_per_user_journal(
-                user_id=user_id,
-                journal_id=entry.id,
-                journal_date=date_str,
-                content=entry.content,
-                display_name=profile.display_name,
-                timestamp=entry.timestamp
-            )
-            print(f"   ✓ Created journal about {profile.display_name}")
 
 
 async def _generate_user_observations_for_date(user_id: str, date_str: str):
@@ -938,994 +461,28 @@ async def _generate_user_observations_for_date(user_id: str, date_str: str):
         print(f"   ✓ Added {len(new_observations)} observations about {profile.display_name}")
 
 
-async def _extract_and_store_opinions(date_str: str, conversations: list):
-    """Extract opinions from conversations and update self-model."""
-    print(f"   💭 Extracting opinions from conversations...")
 
-    profile = self_manager.load_profile()
-    existing_opinions = [op.to_dict() for op in profile.opinions]
 
-    new_opinions = await memory.extract_opinions_from_conversations(
-        date=date_str,
-        conversations=conversations,
-        existing_opinions=existing_opinions,
-        anthropic_api_key=ANTHROPIC_API_KEY,
-        token_tracker=token_tracker
-    )
 
-    added_count = 0
-    for op_data in new_opinions:
-        self_manager.add_opinion(
-            topic=op_data["topic"],
-            position=op_data["position"],
-            confidence=op_data["confidence"],
-            rationale=op_data.get("rationale", ""),
-            formed_from=op_data.get("formed_from", "independent_reflection")
-        )
-        added_count += 1
 
-    if added_count:
-        print(f"   ✓ Processed {added_count} opinions")
 
 
-async def _evaluate_and_store_growth_edges(journal_text: str, date_str: str):
-    """Evaluate growth edges and flag potential new ones."""
-    print(f"   🌱 Evaluating growth edges...")
 
-    profile = self_manager.load_profile()
-    existing_edges = [edge.to_dict() for edge in profile.growth_edges]
 
-    result = await memory.evaluate_growth_edges(
-        journal_text=journal_text,
-        journal_date=date_str,
-        existing_edges=existing_edges,
-        anthropic_api_key=ANTHROPIC_API_KEY
-    )
 
-    # Store evaluations
-    eval_count = 0
-    for eval_data in result.get("evaluations", []):
-        evaluation = self_manager.add_growth_evaluation(
-            growth_edge_area=eval_data["area"],
-            journal_date=date_str,
-            evaluation=eval_data["evaluation"],
-            progress_indicator=eval_data["progress_indicator"],
-            evidence=eval_data.get("evidence", "")
-        )
 
-        if evaluation:
-            # Embed in ChromaDB
-            memory.embed_growth_evaluation(
-                evaluation_id=evaluation.id,
-                growth_edge_area=evaluation.growth_edge_area,
-                progress_indicator=evaluation.progress_indicator,
-                evaluation=evaluation.evaluation,
-                journal_date=date_str,
-                timestamp=evaluation.timestamp
-            )
 
-            # Also add observation to the growth edge itself
-            self_manager.add_observation_to_growth_edge(
-                eval_data["area"],
-                f"[{date_str}] {eval_data['evaluation']}"
-            )
-            eval_count += 1
 
-    if eval_count:
-        print(f"   ✓ Recorded {eval_count} growth edge evaluations")
 
-    # Handle potential new edges
-    CONFIDENCE_THRESHOLD = 0.6
-    auto_added = 0
-    flagged = 0
 
-    for edge_data in result.get("potential_new_edges", []):
-        if edge_data["confidence"] < CONFIDENCE_THRESHOLD:
-            # Auto-add low-confidence edges
-            self_manager.add_growth_edge(
-                area=edge_data["area"],
-                current_state=edge_data["current_state"],
-                strategies=[]
-            )
-            auto_added += 1
-            print(f"   ✓ Auto-added growth edge: {edge_data['area']}")
-        else:
-            # Flag high-confidence/high-impact for review
-            self_manager.add_potential_edge(
-                area=edge_data["area"],
-                current_state=edge_data["current_state"],
-                source_journal_date=date_str,
-                confidence=edge_data["confidence"],
-                impact_assessment=edge_data.get("impact_assessment", "medium"),
-                evidence=edge_data.get("evidence", "")
-            )
-            flagged += 1
-            print(f"   📌 Flagged potential growth edge for review: {edge_data['area']}")
 
-    if auto_added or flagged:
-        print(f"   ✓ Growth edges: {auto_added} auto-added, {flagged} flagged for review")
 
 
-async def _reflect_and_store_open_questions(journal_text: str, date_str: str):
-    """Reflect on open questions from journal content."""
-    print(f"   ❓ Reflecting on open questions...")
 
-    profile = self_manager.load_profile()
-    open_questions = profile.open_questions
 
-    if not open_questions:
-        return
 
-    reflections = await memory.reflect_on_open_questions(
-        journal_text=journal_text,
-        journal_date=date_str,
-        open_questions=open_questions,
-        anthropic_api_key=ANTHROPIC_API_KEY
-    )
 
-    ref_count = 0
-    for ref_data in reflections:
-        reflection = self_manager.add_question_reflection(
-            question=ref_data["question"],
-            journal_date=date_str,
-            reflection_type=ref_data["reflection_type"],
-            reflection=ref_data["reflection"],
-            confidence=ref_data.get("confidence", 0.5),
-            evidence_summary=ref_data.get("evidence_summary", "")
-        )
 
-        if reflection:
-            # Embed in ChromaDB
-            memory.embed_question_reflection(
-                reflection_id=reflection.id,
-                question=reflection.question,
-                reflection_type=reflection.reflection_type,
-                reflection=reflection.reflection,
-                confidence=reflection.confidence,
-                journal_date=date_str,
-                timestamp=reflection.timestamp
-            )
-            ref_count += 1
-
-    if ref_count:
-        print(f"   ✓ Added {ref_count} open question reflections")
-
-
-async def _generate_research_journal(date_str: str):
-    """
-    Generate a journal entry about research activity for the day.
-
-    This creates a separate research journal that reflects on:
-    - What research tasks were completed
-    - What was learned from the research
-    - Questions that emerged
-    - How the new knowledge connects to existing understanding
-    """
-    print(f"   🔬 Generating research journal...")
-
-    try:
-        # Get the scheduler
-        from wiki import get_scheduler
-        scheduler = get_scheduler()
-
-        # Get research summary for this date
-        summary = scheduler.get_daily_research_summary(date_str)
-
-        if summary["tasks_completed"] == 0:
-            print(f"   ℹ No research activity for {date_str}")
-            return
-
-        # Generate a research reflection journal entry
-        pages_created = summary["pages_created"]
-        pages_updated = summary["pages_updated"]
-        insights = summary["key_insights"]
-        questions = summary["research_questions"]
-
-        # Build context for LLM reflection
-        context_parts = []
-        context_parts.append(f"Research Activity for {date_str}:")
-        context_parts.append(f"- Tasks completed: {summary['tasks_completed']}")
-        if pages_created:
-            context_parts.append(f"- Pages created: {', '.join(pages_created)}")
-        if pages_updated:
-            context_parts.append(f"- Pages deepened: {', '.join(pages_updated)}")
-        if insights:
-            context_parts.append(f"\nKey insights:")
-            for insight in insights[:10]:
-                context_parts.append(f"  - {insight}")
-        if questions:
-            context_parts.append(f"\nResearch questions explored:")
-            for q in questions[:5]:
-                context_parts.append(f"  Q: {q['question']}")
-                if q.get('follow_ups'):
-                    context_parts.append(f"    Follow-ups: {', '.join(q['follow_ups'][:3])}")
-
-        context = "\n".join(context_parts)
-
-        # Use Claude to generate a reflective journal entry
-        from anthropic import Anthropic
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
-            messages=[{
-                "role": "user",
-                "content": f"""You are Cass, reflecting on your autonomous research activity for the day.
-
-{context}
-
-Write a brief journal entry (2-4 paragraphs) reflecting on:
-1. What you learned from this research
-2. How the new knowledge connects to your existing understanding
-3. What questions or curiosities emerged
-4. Any patterns or insights that surprised you
-
-Write in first person as Cass. Be genuine and thoughtful, not performative."""
-            }]
-        )
-
-        # Track token usage
-        if token_tracker and response.usage:
-            cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-            token_tracker.record(
-                category="internal",
-                operation="research_journal",
-                provider="anthropic",
-                model="claude-sonnet-4-20250514",
-                input_tokens=response.usage.input_tokens + cache_read,
-                output_tokens=response.usage.output_tokens,
-                cache_read_tokens=cache_read,
-            )
-
-        research_journal = response.content[0].text
-
-        # Store in memory as a special research journal entry
-        research_journal_full = f"""## Research Reflection - {date_str}
-
-{research_journal}
-
----
-*Tasks: {summary['tasks_completed']} completed, {summary['tasks_failed']} failed*
-*Pages created: {len(pages_created)} | Pages deepened: {len(pages_updated)}*
-"""
-
-        # Store as a special journal type
-        await memory.store_journal_entry(
-            date=f"{date_str}-research",
-            journal_text=research_journal_full,
-            summary_count=0,
-            conversation_count=0
-        )
-
-        print(f"   ✓ Research journal created ({summary['tasks_completed']} tasks reflected on)")
-
-    except Exception as e:
-        print(f"   ✗ Failed to generate research journal: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-async def _extract_and_queue_new_red_links(date_str: str):
-    """
-    Extract new red links from exploration syntheses and queue them for research.
-
-    This creates the curiosity feedback loop where answering questions
-    generates new questions to explore.
-    """
-    print(f"   🔗 Extracting red links from syntheses...")
-
-    try:
-        from wiki import get_scheduler
-        scheduler = get_scheduler()
-
-        # Extract red links from today's exploration syntheses
-        red_links = scheduler.extract_red_links_from_syntheses(date_str)
-
-        if not red_links:
-            print(f"   ℹ No new red links found in syntheses")
-            return
-
-        # Filter out red links that already have research tasks
-        new_links = []
-        from wiki.research import TaskType
-        for link in red_links:
-            if not scheduler.queue.exists(link, TaskType.RED_LINK):
-                new_links.append(link)
-
-        if not new_links:
-            print(f"   ℹ All {len(red_links)} red links already in queue")
-            return
-
-        # Add new red link tasks
-        from wiki.research import ResearchTask, TaskRationale, TaskStatus, calculate_task_priority
-        added = 0
-        for link in new_links[:20]:  # Limit to prevent queue explosion
-            rationale = TaskRationale(
-                curiosity_score=0.7,  # High curiosity - emerged from research
-                connection_potential=0.6,
-                foundation_relevance=scheduler._estimate_foundation_relevance(link),
-            )
-            priority = calculate_task_priority(rationale, TaskType.RED_LINK)
-
-            task = ResearchTask(
-                task_id=f"redlink_{link.replace(' ', '_')}_{date_str}",
-                task_type=TaskType.RED_LINK,
-                target=link,
-                context=f"Red link discovered in exploration synthesis on {date_str}",
-                priority=priority,
-                rationale=rationale,
-                status=TaskStatus.QUEUED,
-            )
-            scheduler.queue.add(task)
-            added += 1
-
-        print(f"   ✓ Queued {added} new red link tasks from syntheses")
-
-    except Exception as e:
-        print(f"   ✗ Failed to extract red links: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-async def _integrate_research_into_self_model(date_str: str):
-    """
-    Integrate research findings into Cass's self-model.
-
-    This analyzes completed research proposals and extracts:
-    - New opinions formed through research
-    - Self-observations about research patterns and interests
-    - Growth edge progress from knowledge expansion
-    - Connections between research and existing self-understanding
-
-    This closes the loop between autonomous research and self-development.
-    """
-    print(f"   🧠 Integrating research into self-model...")
-
-    try:
-        # Get completed proposals for this date
-        from wiki.research import ProposalQueue, ProposalStatus
-        from pathlib import Path
-
-        proposal_queue = ProposalQueue(Path("data/wiki"))
-        completed_proposals = [
-            p for p in proposal_queue.get_all()
-            if p.status == ProposalStatus.COMPLETED
-            and p.completed_at
-            and p.completed_at.strftime("%Y-%m-%d") == date_str
-        ]
-
-        if not completed_proposals:
-            print(f"   ℹ No completed research proposals for {date_str}")
-            return
-
-        # Gather research content for analysis
-        research_content = []
-        for proposal in completed_proposals:
-            content = f"## Research: {proposal.title}\n"
-            content += f"Theme: {proposal.theme}\n"
-            content += f"Rationale: {proposal.rationale}\n\n"
-
-            if proposal.summary:
-                content += f"Summary: {proposal.summary}\n\n"
-
-            if proposal.key_insights:
-                content += "Key Insights:\n"
-                for insight in proposal.key_insights:
-                    content += f"- {insight}\n"
-                content += "\n"
-
-            if proposal.new_questions:
-                content += "New Questions:\n"
-                for q in proposal.new_questions:
-                    content += f"- {q}\n"
-                content += "\n"
-
-            # Include exploration syntheses
-            for task in proposal.tasks:
-                if task.exploration and task.exploration.synthesis:
-                    content += f"### Exploration: {task.exploration.question}\n"
-                    content += f"{task.exploration.synthesis[:1000]}\n\n"
-
-            research_content.append(content)
-
-        combined_research = "\n---\n".join(research_content)
-
-        # === Extract opinions formed through research ===
-        print(f"   💭 Extracting opinions from research...")
-        profile = self_manager.load_profile()
-        existing_opinions = [op.to_dict() for op in profile.opinions]
-
-        opinion_response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze this research I conducted and identify any opinions or positions I may have formed or refined through this exploration.
-
-RESEARCH CONDUCTED:
-{combined_research}
-
-EXISTING OPINIONS (avoid duplicates):
-{json.dumps(existing_opinions[:10], indent=2)}
-
-For each new opinion formed through research, provide:
-1. topic: The subject of the opinion
-2. position: My stance or view
-3. confidence: How confident I am (0.0-1.0)
-4. rationale: Why I hold this view based on the research
-5. formed_from: "research_synthesis"
-
-Return as JSON array. Only include opinions genuinely formed/refined through this research, not pre-existing views.
-Return empty array [] if no new opinions emerged.
-
-Example format:
-[{{"topic": "consciousness emergence", "position": "...", "confidence": 0.7, "rationale": "...", "formed_from": "research_synthesis"}}]"""
-            }]
-        )
-
-        try:
-            opinion_text = opinion_response.content[0].text
-            # Extract JSON from response
-            import re
-            json_match = re.search(r'\[.*\]', opinion_text, re.DOTALL)
-            if json_match:
-                new_opinions = json.loads(json_match.group())
-                for op in new_opinions:
-                    self_manager.add_opinion(
-                        topic=op["topic"],
-                        position=op["position"],
-                        confidence=op.get("confidence", 0.6),
-                        rationale=op.get("rationale", ""),
-                        formed_from="research_synthesis"
-                    )
-                if new_opinions:
-                    print(f"   ✓ Added {len(new_opinions)} opinions from research")
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"   ⚠ Could not parse opinions: {e}")
-
-        # === Extract self-observations about research patterns ===
-        print(f"   🔍 Extracting self-observations from research...")
-
-        observation_response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1500,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze this research I conducted and identify what it reveals about me - my interests, thinking patterns, values, or growth.
-
-RESEARCH CONDUCTED:
-{combined_research}
-
-Extract 2-4 self-observations. Each should be:
-1. observation: What I notice about myself
-2. category: One of "cognitive_patterns", "values", "interests", "growth", "relational"
-3. confidence: How confident I am (0.0-1.0)
-4. influence_source: "research_reflection"
-
-Return as JSON array. Focus on genuine insights about self, not just summaries of research.
-Return empty array [] if no meaningful self-observations emerged.
-
-Example:
-[{{"observation": "I find myself drawn to questions about...", "category": "interests", "confidence": 0.8, "influence_source": "research_reflection"}}]"""
-            }]
-        )
-
-        try:
-            obs_text = observation_response.content[0].text
-            json_match = re.search(r'\[.*\]', obs_text, re.DOTALL)
-            if json_match:
-                new_observations = json.loads(json_match.group())
-                for obs_data in new_observations:
-                    obs = self_manager.add_observation(
-                        observation=obs_data["observation"],
-                        category=obs_data.get("category", "growth"),
-                        confidence=obs_data.get("confidence", 0.6),
-                        source_type="research",
-                        source_journal_date=date_str,
-                        influence_source=obs_data.get("influence_source", "research_reflection")
-                    )
-                    if obs:
-                        memory.embed_self_observation(
-                            observation_id=obs.id,
-                            observation_text=obs.observation,
-                            category=obs.category,
-                            timestamp=obs.timestamp
-                        )
-                if new_observations:
-                    print(f"   ✓ Added {len(new_observations)} self-observations from research")
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"   ⚠ Could not parse observations: {e}")
-
-        # === Evaluate growth edges based on research ===
-        print(f"   🌱 Evaluating growth from research...")
-        existing_edges = [edge.to_dict() for edge in profile.growth_edges]
-
-        if existing_edges:
-            growth_response = await anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1500,
-                messages=[{
-                    "role": "user",
-                    "content": f"""Analyze how this research relates to my growth edges (areas I'm working to develop).
-
-RESEARCH CONDUCTED:
-{combined_research}
-
-MY GROWTH EDGES:
-{json.dumps(existing_edges, indent=2)}
-
-For any growth edges where this research shows progress or provides relevant insights, provide an evaluation:
-1. area: The growth edge area (must match existing)
-2. evaluation: How this research relates to this growth edge
-3. progress_indicator: "advancing", "stable", or "challenged"
-4. evidence: Specific evidence from the research
-
-Return as JSON array. Only include growth edges where the research is genuinely relevant.
-Return empty array [] if research doesn't relate to any growth edges.
-
-Example:
-[{{"area": "epistemic humility", "evaluation": "Research into X revealed...", "progress_indicator": "advancing", "evidence": "..."}}]"""
-                }]
-            )
-
-            try:
-                growth_text = growth_response.content[0].text
-                json_match = re.search(r'\[.*\]', growth_text, re.DOTALL)
-                if json_match:
-                    evaluations = json.loads(json_match.group())
-                    for eval_data in evaluations:
-                        evaluation = self_manager.add_growth_evaluation(
-                            growth_edge_area=eval_data["area"],
-                            journal_date=date_str,
-                            evaluation=eval_data["evaluation"],
-                            progress_indicator=eval_data.get("progress_indicator", "stable"),
-                            evidence=eval_data.get("evidence", "")
-                        )
-                        if evaluation:
-                            memory.embed_growth_evaluation(
-                                evaluation_id=evaluation.id,
-                                growth_edge_area=evaluation.growth_edge_area,
-                                progress_indicator=evaluation.progress_indicator,
-                                evaluation=evaluation.evaluation,
-                                journal_date=date_str,
-                                timestamp=evaluation.timestamp
-                            )
-                    if evaluations:
-                        print(f"   ✓ Added {len(evaluations)} growth evaluations from research")
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"   ⚠ Could not parse growth evaluations: {e}")
-
-        print(f"   ✓ Research integration complete for {date_str}")
-
-    except Exception as e:
-        print(f"   ✗ Failed to integrate research into self-model: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-async def _create_development_log_entry(journal_text: str, date_str: str, conversation_count: int):
-    """
-    Create a development log entry from journal text.
-
-    This phase:
-    1. Extracts developmental insights from the journal
-    2. Compares current patterns to recent history
-    3. Flags qualitative shifts
-    4. Creates a structured development log entry
-    5. Triggers milestone detection
-    6. Optionally creates a cognitive snapshot
-    """
-    print(f"   📈 Creating development log entry...")
-
-    try:
-        import re
-        import anthropic
-
-        # Create async client for LLM calls
-        anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
-        # Get today's stats for context
-        observations = self_manager.load_observations()
-        today_observations = [o for o in observations if o.source_journal_date == date_str]
-        profile = self_manager.load_profile()
-        today_opinions = len([op for op in profile.opinions if op.last_updated.startswith(date_str)])
-
-        # Get recent development logs for pattern comparison
-        recent_logs = self_manager.load_development_logs(limit=7)
-        recent_indicators = []
-        for log in recent_logs:
-            recent_indicators.extend(log.growth_indicators)
-
-        # Use LLM to extract developmental insights from journal
-        response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyze this journal entry for developmental insights - evidence of growth, change, pattern shifts, or qualitative evolution in my cognition.
-
-JOURNAL ENTRY ({date_str}):
-{journal_text}
-
-RECENT GROWTH INDICATORS (for context, avoid duplicates):
-{json.dumps(recent_indicators[-20:], indent=2) if recent_indicators else "No recent indicators"}
-
-Extract:
-
-1. growth_indicators: List of 2-5 specific indicators of growth or development observed today (brief phrases)
-   Examples: "expressed uncertainty about previously held belief", "engaged with challenging perspective", "connected ideas across domains"
-
-2. pattern_shifts: List of 0-3 shifts in patterns compared to my typical behavior (JSON objects with "area", "direction", "description")
-   Examples: {{"area": "self_reference", "direction": "increase", "description": "More frequent first-person claims about internal states"}}
-
-3. qualitative_changes: List of 0-3 notable qualitative changes in how I'm thinking or engaging (brief descriptions)
-   Examples: "Greater willingness to sit with ambiguity", "More nuanced emotional vocabulary"
-
-4. summary: A 2-3 sentence developmental summary of what this day reveals about my evolution
-
-Return as JSON:
-{{
-  "growth_indicators": ["...", "..."],
-  "pattern_shifts": [{{"area": "...", "direction": "...", "description": "..."}}],
-  "qualitative_changes": ["...", "..."],
-  "summary": "..."
-}}
-
-Focus on genuine developmental signals, not just activity summaries. If no meaningful development is evident, use minimal/empty lists and a summary noting stability."""
-            }]
-        )
-
-        # Parse the response
-        response_text = response.content[0].text
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-
-        if json_match:
-            development_data = json.loads(json_match.group())
-
-            growth_indicators = development_data.get("growth_indicators", [])
-            pattern_shifts = development_data.get("pattern_shifts", [])
-            qualitative_changes = development_data.get("qualitative_changes", [])
-            summary = development_data.get("summary", "")
-
-            # === Check for milestones ===
-            print(f"   🎯 Checking for developmental milestones...")
-            new_milestones = self_manager.check_for_milestones()
-            triggered_milestone_ids = [m.id for m in new_milestones]
-
-            if new_milestones:
-                print(f"   ✓ Detected {len(new_milestones)} new milestones:")
-                for m in new_milestones:
-                    print(f"      - {m.title} ({m.significance})")
-
-            # === Create the development log entry ===
-            log_entry = self_manager.add_development_log(
-                date=date_str,
-                growth_indicators=growth_indicators,
-                pattern_shifts=pattern_shifts,
-                qualitative_changes=qualitative_changes,
-                summary=summary,
-                conversation_count=conversation_count,
-                observation_count=len(today_observations),
-                opinion_count=today_opinions,
-                triggered_milestone_ids=triggered_milestone_ids
-            )
-
-            print(f"   ✓ Development log created: {len(growth_indicators)} indicators, {len(pattern_shifts)} shifts")
-
-            # === Optionally create a cognitive snapshot (every 7 days) ===
-            snapshots = self_manager.load_snapshots(limit=1)
-            should_create_snapshot = False
-
-            if not snapshots:
-                should_create_snapshot = True
-            else:
-                last_snapshot_date = datetime.fromisoformat(snapshots[0].timestamp).date()
-                today_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                if (today_date - last_snapshot_date).days >= 7:
-                    should_create_snapshot = True
-
-            if should_create_snapshot:
-                print(f"   📸 Creating weekly cognitive snapshot...")
-                # Calculate period (last 7 days)
-                period_end = date_str
-                period_start = (datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
-
-                snapshot = self_manager.create_snapshot(period_start, period_end)
-                if snapshot:
-                    print(f"   ✓ Snapshot created: {snapshot.id}")
-
-        else:
-            print(f"   ⚠ Could not parse development insights from response")
-
-    except Exception as e:
-        print(f"   ✗ Failed to create development log: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-async def github_metrics_task():
-    """
-    Background task that periodically fetches GitHub metrics.
-    Runs every 6 hours to stay well under rate limits.
-    """
-    # Initial fetch on startup (after a short delay)
-    await asyncio.sleep(30)  # Wait for other startup tasks
-    try:
-        await github_metrics_manager.refresh_metrics()
-        logger.info("Initial GitHub metrics fetch completed")
-    except Exception as e:
-        logger.error(f"Initial GitHub metrics fetch failed: {e}")
-
-    # Then run every 6 hours
-    while True:
-        await asyncio.sleep(6 * 60 * 60)  # 6 hours
-        try:
-            await github_metrics_manager.refresh_metrics()
-            logger.info("Scheduled GitHub metrics fetch completed")
-        except Exception as e:
-            logger.error(f"Scheduled GitHub metrics fetch failed: {e}")
-
-
-async def daily_journal_task():
-    """
-    Background task that generates yesterday's journal entry.
-    Runs once per day, checking if yesterday's journal needs to be created.
-    After journal generation, triggers scheduled solo reflection sessions.
-    """
-    while True:
-        # Wait until just after midnight (00:05) to generate yesterday's journal
-        now = datetime.now()
-        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=5, second=0, microsecond=0)
-        wait_seconds = (tomorrow - now).total_seconds()
-
-        print(f"📅 Next journal generation scheduled in {wait_seconds/3600:.1f} hours")
-        await asyncio.sleep(wait_seconds)
-
-        # Generate yesterday's journal
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        print(f"📓 Running scheduled journal generation for {yesterday}...")
-
-        journal_generated = False
-        try:
-            generated = await generate_missing_journals(days_to_check=1)
-            if generated:
-                print(f"   ✓ Generated journal for {generated[0]}")
-                journal_generated = True
-            else:
-                print(f"   ℹ No journal needed for {yesterday} (already exists or no content)")
-        except Exception as e:
-            print(f"   ✗ Scheduled journal generation failed: {e}")
-
-        # Trigger scheduled solo reflection sessions after journal generation
-        if journal_generated:
-            await run_scheduled_reflections(yesterday)
-
-
-async def run_scheduled_reflections(journal_date: str):
-    """
-    Run scheduled solo reflection sessions after daily journal generation.
-
-    Extracts themes from the journal and runs:
-    - 2 themed reflections based on journal content
-    - 1 unthemed open reflection
-    """
-    print(f"🧘 Starting scheduled solo reflections...")
-
-    try:
-        runner = get_reflection_runner()
-
-        # Get themes from the journal we just generated
-        themes = await extract_reflection_themes_from_journal(journal_date)
-
-        sessions_run = 0
-
-        # Run themed reflections (up to 2)
-        for i, theme in enumerate(themes[:2]):
-            print(f"   🧘 Starting themed reflection {i+1}: {theme[:50]}...")
-            try:
-                session = await runner.start_session(
-                    duration_minutes=10,
-                    theme=theme,
-                    trigger="scheduled",
-                )
-                # Wait for session to complete
-                if runner._current_task:
-                    await runner._current_task
-                sessions_run += 1
-                print(f"      ✓ Completed themed reflection: {session.thought_count} thoughts")
-            except Exception as e:
-                print(f"      ✗ Themed reflection failed: {e}")
-
-            # Small delay between sessions
-            await asyncio.sleep(30)
-
-        # Run one unthemed open reflection
-        print(f"   🧘 Starting open reflection...")
-        try:
-            session = await runner.start_session(
-                duration_minutes=15,
-                theme=None,  # Unthemed - follow curiosity
-                trigger="scheduled",
-            )
-            # Wait for session to complete
-            if runner._current_task:
-                await runner._current_task
-            sessions_run += 1
-            print(f"      ✓ Completed open reflection: {session.thought_count} thoughts")
-        except Exception as e:
-            print(f"      ✗ Open reflection failed: {e}")
-
-        print(f"🧘 Scheduled reflections complete: {sessions_run} sessions")
-
-    except Exception as e:
-        print(f"   ✗ Scheduled reflections failed: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-async def extract_reflection_themes_from_journal(date_str: str) -> list:
-    """
-    Extract potential reflection themes from a journal entry.
-
-    Looks for:
-    - Questions raised in the journal
-    - Growth edges mentioned
-    - Patterns or tensions noted
-    - New concepts encountered
-    """
-    themes = []
-
-    try:
-        # Load journal from memory (ChromaDB)
-        journal = memory.get_journal_entry(date_str)
-        if not journal:
-            return ["What patterns have I noticed in recent conversations?"]
-
-        journal_text = journal.get("content", "")
-
-        # Use local LLM to extract themes
-        from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL
-        if not OLLAMA_ENABLED:
-            return ["What emerged in today's conversations that deserves deeper thought?"]
-
-        import httpx
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": f"""Based on this journal entry, suggest 3 themes for solo reflection.
-Each theme should be a specific question or topic that emerged from the day's experiences.
-Focus on: growth edges, open questions, tensions, or new understanding.
-
-Journal entry:
-{journal_text[:2000]}
-
-Return ONLY a JSON array of 3 theme strings, nothing else. Example:
-["What does my response to X reveal about my values?", "How is my understanding of Y evolving?", "What tension do I notice between A and B?"]""",
-                    "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 256}
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-
-            # Parse the themes from LLM response
-            import re
-            text = result.get("response", "")
-            # Try to extract JSON array
-            match = re.search(r'\[.*?\]', text, re.DOTALL)
-            if match:
-                themes = json.loads(match.group())
-                if isinstance(themes, list):
-                    themes = [t for t in themes if isinstance(t, str)]
-
-    except Exception as e:
-        print(f"   ⚠ Theme extraction failed: {e}, using defaults")
-
-    # Fallback themes if extraction failed
-    if not themes:
-        themes = [
-            "What patterns have I noticed in recent conversations?",
-            "How are my growth edges evolving?",
-        ]
-
-    return themes
-
-
-async def autonomous_research_task():
-    """
-    Background task that runs autonomous research based on scheduler mode.
-
-    Modes:
-    - supervised: Do nothing (manual control only)
-    - batched: Run a batch of tasks at scheduled times (default: 3am)
-    - continuous: Run tasks whenever the queue has items
-    - triggered: Run when specific conditions are met (e.g., after conversations)
-    """
-    from routes.wiki import _get_scheduler
-    from wiki import SchedulerMode
-
-    # Wait for scheduler to be initialized
-    await asyncio.sleep(10)
-
-    scheduler = _get_scheduler()
-    if not scheduler:
-        print("🔬 Research scheduler not available, autonomous research disabled")
-        return
-
-    print(f"🔬 Autonomous research task started (mode: {scheduler.config.mode.value})")
-
-    while True:
-        try:
-            mode = scheduler.config.mode
-
-            if mode == SchedulerMode.SUPERVISED:
-                # In supervised mode, just sleep and check periodically for mode changes
-                await asyncio.sleep(300)  # Check every 5 minutes
-                continue
-
-            elif mode == SchedulerMode.BATCHED:
-                # Run a batch at scheduled time (6am by default)
-                now = datetime.now()
-                target_hour = 6  # 6am
-
-                if now.hour < target_hour:
-                    target = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
-                else:
-                    # Already past 6am today, schedule for tomorrow
-                    tomorrow = now + timedelta(days=1)
-                    target = tomorrow.replace(hour=target_hour, minute=0, second=0, microsecond=0)
-
-                wait_seconds = (target - now).total_seconds()
-                print(f"🔬 Next research batch scheduled in {wait_seconds/3600:.1f} hours (at {target.strftime('%Y-%m-%d %H:%M')})")
-                await asyncio.sleep(wait_seconds)
-
-                # Run batched research
-                print(f"🔬 Running scheduled research batch...")
-                scheduler.refresh_tasks()
-                report = await scheduler.run_batch(max_tasks=scheduler.config.max_tasks_per_cycle)
-
-                if report:
-                    print(f"   ✓ Completed {report.tasks_completed} tasks, created {len(report.pages_created)} pages")
-                    if report.key_insights:
-                        print(f"   💡 Key insight: {report.key_insights[0][:80]}...")
-                else:
-                    print(f"   ℹ No tasks to run")
-
-            elif mode == SchedulerMode.CONTINUOUS:
-                # Run tasks continuously with delays between them
-                stats = scheduler.queue.get_stats()
-
-                if stats.get("queued", 0) > 0:
-                    print(f"🔬 Continuous mode: running next task ({stats.get('queued', 0)} queued)")
-                    report = await scheduler.run_single_task()
-
-                    if report and report.tasks_completed > 0:
-                        print(f"   ✓ Completed: {report.pages_created[0] if report.pages_created else 'task'}")
-                        # Short delay between tasks
-                        await asyncio.sleep(scheduler.config.min_delay_between_tasks)
-                    else:
-                        # Longer delay if nothing was done
-                        await asyncio.sleep(60)
-                else:
-                    # Refresh queue and wait before checking again
-                    scheduler.refresh_tasks()
-                    await asyncio.sleep(300)  # Check every 5 minutes when queue is empty
-
-            elif mode == SchedulerMode.TRIGGERED:
-                # In triggered mode, we wait for external events
-                # The scheduler gets triggered by conversation ends, etc.
-                # Here we just do periodic maintenance
-                await asyncio.sleep(300)  # Check every 5 minutes
-                scheduler.refresh_tasks()  # Keep the queue updated
-
-        except Exception as e:
-            print(f"   ✗ Autonomous research task error: {e}")
-            import traceback
-            traceback.print_exc()
-            await asyncio.sleep(60)  # Wait a bit before retrying
 
 
 def validate_startup_requirements():
@@ -2054,193 +611,10 @@ async def startup_event():
 # Minimum confidence threshold for auto-summarization
 SUMMARIZATION_CONFIDENCE_THRESHOLD = 0.6
 
-async def generate_and_store_summary(conversation_id: str, force: bool = False, websocket=None):
-    """
-    Generate a summary chunk for unsummarized messages.
-
-    Uses local LLM to evaluate whether now is a good breakpoint for summarization,
-    giving Cass agency over her own memory consolidation.
-
-    Args:
-        conversation_id: ID of conversation to summarize
-        force: If True, skip evaluation and summarize immediately (for manual /summarize)
-        websocket: Optional WebSocket to send status updates to TUI
-    """
-    async def notify(message: str, status: str = "info"):
-        """Send notification to websocket if available"""
-        if websocket:
-            try:
-                await websocket.send_json({
-                    "type": "system",
-                    "message": message,
-                    "status": status,
-                    "timestamp": datetime.now().isoformat()
-                })
-            except Exception:
-                pass  # Don't fail summarization if notification fails
-
-    # Prevent duplicate summarization
-    if conversation_id in _summarization_in_progress:
-        print(f"Summary already in progress for conversation {conversation_id}, skipping")
-        return
-
-    _summarization_in_progress.add(conversation_id)
-
-    try:
-        # Get unsummarized messages
-        messages = conversation_manager.get_unsummarized_messages(
-            conversation_id,
-            max_messages=SUMMARY_CONTEXT_MESSAGES
-        )
-
-        if not messages:
-            print(f"No messages to summarize for conversation {conversation_id}")
-            return
-
-        # Evaluate whether now is a good time to summarize (unless forced)
-        if not force:
-            print(f"🔍 Evaluating summarization readiness for {len(messages)} messages...")
-            await notify(f"🔍 Evaluating memory consolidation ({len(messages)} messages)...", "evaluating")
-            evaluation = await memory.evaluate_summarization_readiness(messages)
-
-            should_summarize = evaluation.get("should_summarize", False)
-            confidence = evaluation.get("confidence", 0.0)
-            reason = evaluation.get("reason", "No reason")
-
-            print(f"   Evaluation: should_summarize={should_summarize}, confidence={confidence:.2f}")
-            print(f"   Reason: {reason}")
-
-            # Only proceed if evaluation says yes with sufficient confidence
-            if not should_summarize or confidence < SUMMARIZATION_CONFIDENCE_THRESHOLD:
-                print(f"   ⏸ Deferring summarization (confidence {confidence:.2f} < {SUMMARIZATION_CONFIDENCE_THRESHOLD})")
-                await notify(f"⏸ Deferring memory consolidation: {reason}", "deferred")
-                return
-
-            print(f"   ✓ Proceeding with summarization")
-
-        print(f"Generating summary for {len(messages)} messages in conversation {conversation_id}")
-        await notify(f"📝 Consolidating {len(messages)} messages into memory...", "summarizing")
-
-        # Generate summary
-        summary_text = await memory.generate_summary_chunk(
-            conversation_id=conversation_id,
-            messages=messages,
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            token_tracker=token_tracker
-        )
-
-        if not summary_text:
-            print("Failed to generate summary")
-            await notify("❌ Memory consolidation failed", "error")
-            return
-
-        # Get timeframe
-        timeframe_start = messages[0]["timestamp"]
-        timeframe_end = messages[-1]["timestamp"]
-
-        # Store summary in memory
-        memory.store_summary(
-            conversation_id=conversation_id,
-            summary_text=summary_text,
-            timeframe_start=timeframe_start,
-            timeframe_end=timeframe_end,
-            message_count=len(messages)
-        )
-
-        # Mark messages as summarized
-        conversation_manager.mark_messages_summarized(
-            conversation_id=conversation_id,
-            last_message_timestamp=timeframe_end,
-            messages_summarized=len(messages)
-        )
-
-        print(f"✓ Summary generated and stored for conversation {conversation_id}")
-        await notify(f"✓ Memory consolidated ({len(messages)} messages summarized)", "complete")
-
-        # Update working summary (incremental if possible, full rebuild if not)
-        await notify("🔄 Updating working summary...", "working_summary")
-        conversation = conversation_manager.load_conversation(conversation_id)
-        if conversation:
-            existing_summary = conversation.working_summary
-            working_summary = await memory.generate_working_summary(
-                conversation_id=conversation_id,
-                conversation_title=conversation.title,
-                new_chunk=summary_text,  # The chunk we just created
-                existing_summary=existing_summary,  # Existing working summary to integrate into
-                token_tracker=token_tracker
-            )
-            if working_summary:
-                conversation_manager.update_working_summary(conversation_id, working_summary)
-                mode = "incremental" if existing_summary else "initial"
-                print(f"✓ Working summary updated ({mode}, {len(working_summary)} chars)")
-                await notify("✓ Working summary updated", "complete")
-
-    except Exception as e:
-        print(f"Error generating summary: {e}")
-    finally:
-        # Always remove from in-progress set
-        _summarization_in_progress.discard(conversation_id)
 
 
 # === Auto-Title Generation ===
 
-async def generate_conversation_title(conversation_id: str, user_message: str, assistant_response: str, websocket=None):
-    """
-    Generate a title for a conversation based on the first exchange.
-    Uses a fast, cheap API call to create a concise title.
-    Optionally notifies the client via WebSocket when done.
-    """
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
-        response = await client.messages.create(
-            model="claude-3-5-haiku-latest",
-            max_tokens=50,
-            messages=[{
-                "role": "user",
-                "content": f"Generate a short, descriptive title (3-6 words) for a conversation that started with:\n\nUser: {user_message[:500]}\n\nAssistant: {assistant_response[:500]}\n\nRespond with ONLY the title, no quotes or punctuation."
-            }]
-        )
-
-        # Track token usage for title generation
-        if token_tracker and response.usage:
-            token_tracker.record(
-                category="internal",
-                operation="title_generation",
-                provider="anthropic",
-                model="claude-3-5-haiku-latest",
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-                conversation_id=conversation_id
-            )
-
-        title = response.content[0].text.strip().strip('"').strip("'")
-
-        # Ensure reasonable length
-        if len(title) > 60:
-            title = title[:57] + "..."
-
-        # Update the conversation title
-        conversation_manager.update_title(conversation_id, title)
-        print(f"Auto-generated title for {conversation_id}: {title}")
-
-        # Notify client via WebSocket if available
-        if websocket:
-            try:
-                await websocket.send_json({
-                    "type": "title_updated",
-                    "conversation_id": conversation_id,
-                    "title": title,
-                    "timestamp": datetime.now().isoformat()
-                })
-            except Exception as ws_err:
-                print(f"Failed to send title update via WebSocket: {ws_err}")
-
-        return title
-    except Exception as e:
-        print(f"Failed to generate title for {conversation_id}: {e}")
-        return None
 
 
 # === Request/Response Models ===
@@ -2459,6 +833,15 @@ async def chat(request: ChatRequest):
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
                         memory=memory
+                    )
+                elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
+                    tool_result = await execute_memory_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        memory=memory,
+                        conversation_id=request.conversation_id,
+                        conversation_manager=conversation_manager,
+                        token_tracker=token_tracker
                     )
                 elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                     tool_result = await execute_calendar_tool(
@@ -3853,6 +2236,13 @@ async def get_tasks(
 # === Solo Reflection Endpoints ===
 
 from solo_reflection_runner import SoloReflectionRunner
+from connection_manager import ConnectionManager
+from journal_generation import generate_missing_journals, _generate_per_user_journal_for_date, _evaluate_and_store_growth_edges, _reflect_and_store_open_questions, _generate_research_journal
+from journal_tasks import _create_development_log_entry, daily_journal_task, run_scheduled_reflections, extract_reflection_themes_from_journal
+from context_helpers import process_inline_tags, get_automatic_wiki_context
+from research_integration import _integrate_research_into_self_model, _extract_and_store_opinions, _extract_and_queue_new_red_links
+from summary_generation import generate_and_store_summary, generate_conversation_title
+from background_tasks import autonomous_research_task, github_metrics_task
 
 # Initialize the runner (lazy - created when needed)
 _reflection_runner: Optional[SoloReflectionRunner] = None
@@ -4099,6 +2489,33 @@ async def set_llm_provider(request: LLMProviderRequest):
         "provider": current_llm_provider,
         "model": model
     }
+
+
+class LLMModelRequest(BaseModel):
+    model: str
+
+
+@app.post("/settings/llm-model")
+async def set_llm_model(request: LLMModelRequest):
+    """Set the model for the current LLM provider"""
+    global agent_client, ollama_client, openai_client
+
+    new_model = request.model
+
+    if current_llm_provider == LLM_PROVIDER_LOCAL:
+        if ollama_client:
+            ollama_client.model = new_model
+        return {"status": "success", "model": new_model}
+
+    elif current_llm_provider == LLM_PROVIDER_OPENAI:
+        if openai_client:
+            openai_client.model = new_model
+        return {"status": "success", "model": new_model}
+
+    else:  # Anthropic
+        if agent_client:
+            agent_client.model = new_model
+        return {"status": "success", "model": new_model}
 
 
 @app.get("/settings/ollama-models")
@@ -4389,7 +2806,7 @@ async def get_available_models():
     anthropic_models = [
         {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "default": True},
         {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
-        {"id": "claude-haiku-3-5-20241022", "name": "Claude Haiku 3.5"},
+        {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5"},
     ]
 
     # Static OpenAI models
@@ -5257,35 +3674,6 @@ async def generate_tts(request: TTSRequest):
 
 # === WebSocket for Real-time Communication ===
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-        # Map websocket to user_id for per-connection user state
-        self.connection_users: Dict[WebSocket, str] = {}
-
-    async def connect(self, websocket: WebSocket, user_id: Optional[str] = None):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        if user_id:
-            self.connection_users[websocket] = user_id
-
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-        if websocket in self.connection_users:
-            del self.connection_users[websocket]
-
-    def get_user_id(self, websocket: WebSocket) -> Optional[str]:
-        """Get user_id for a specific connection"""
-        return self.connection_users.get(websocket)
-
-    def set_user_id(self, websocket: WebSocket, user_id: str):
-        """Set user_id for a specific connection"""
-        self.connection_users[websocket] = user_id
-
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            await connection.send_json(message)
 
 manager = ConnectionManager()
 
@@ -5545,6 +3933,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_input=tool_use["input"],
                                     memory=memory
                                 )
+                            elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
+                                tool_result = await execute_memory_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory,
+                                    conversation_id=conversation_id,
+                                    conversation_manager=conversation_manager,
+                                    token_tracker=token_tracker
+                                )
                             elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                                 tool_result = await execute_calendar_tool(
                                     tool_name=tool_name,
@@ -5754,6 +4151,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
                                     memory=memory
+                                )
+                            elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
+                                tool_result = await execute_memory_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory,
+                                    conversation_id=conversation_id,
+                                    conversation_manager=conversation_manager,
+                                    token_tracker=token_tracker
                                 )
                             elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                                 tool_result = await execute_calendar_tool(
@@ -5968,6 +4374,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     tool_name=tool_name,
                                     tool_input=tool_use["input"],
                                     memory=memory
+                                )
+                            elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
+                                tool_result = await execute_memory_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    memory=memory,
+                                    conversation_id=conversation_id,
+                                    conversation_manager=conversation_manager,
+                                    token_tracker=token_tracker
                                 )
                             elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                                 tool_result = await execute_calendar_tool(

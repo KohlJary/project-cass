@@ -911,6 +911,7 @@ from handlers.goals import GOAL_TOOLS
 from handlers.web_research import WEB_RESEARCH_TOOLS
 from handlers.research_session import RESEARCH_SESSION_TOOLS
 from handlers.research_scheduler import RESEARCH_SCHEDULER_TOOLS
+from handlers.memory import MEMORY_TOOLS
 
 
 # ============================================================================
@@ -1072,6 +1073,7 @@ class CassAgentClient:
         # Journal tools are ALWAYS included - core memory functionality
         if self.enable_memory_tools:
             tools.extend(JOURNAL_TOOLS)
+            tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
 
         if self.enable_tools:
             # Calendar tools - only if message mentions scheduling/dates
@@ -1519,6 +1521,7 @@ class OllamaClient:
 
         # Journal tools are ALWAYS included - core memory functionality
         tools.extend(JOURNAL_TOOLS)
+        tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
 
         # Calendar tools - only if message mentions scheduling/dates
         if should_include_calendar_tools(message):
