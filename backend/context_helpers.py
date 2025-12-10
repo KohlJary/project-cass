@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 wiki_retrieval = None
 _wiki_context_cache: Dict[str, tuple] = {}
 _WIKI_CACHE_TTL_SECONDS = 300  # 5 minutes
+_WIKI_CACHE_MAX_SIZE = 50  # Maximum cache entries
 
 # Managers injected by main_sdk.py
 self_manager = None
@@ -157,7 +158,7 @@ async def process_inline_tags(
     text: str,
     conversation_id: Optional[str] = None,
     user_id: Optional[str] = None
-) -> str:
+) -> tuple[str, List[Dict], List[Dict]]:
     """
     Process inline XML tags in response text, execute corresponding tool calls,
     and strip the tags from the output.
@@ -168,9 +169,14 @@ async def process_inline_tags(
     - <create_roadmap_item> tags
 
     Returns:
-        Cleaned text with tags stripped
+        Tuple of (cleaned_text, self_observations, user_observations)
+        - cleaned_text: Text with tags stripped
+        - self_observations: List of extracted self-observations (for TUI display)
+        - user_observations: List of extracted user-observations (for TUI display)
     """
     cleaned_text = text
+    extracted_self_observations: List[Dict] = []
+    extracted_user_observations: List[Dict] = []
 
     # Process self-observations
     for match in INLINE_SELF_OBSERVATION_PATTERN.finditer(text):
@@ -226,6 +232,12 @@ async def process_inline_tags(
                     conversation_id=conversation_id,
                     user_id=user_id
                 )
+                # Track for TUI display
+                extracted_self_observations.append({
+                    "observation": content,
+                    "category": category,
+                    "confidence": confidence
+                })
                 logger.debug(f"Processed inline self-observation: {content[:50]}...")
             except Exception as e:
                 logger.error(f"Failed to process inline self-observation: {e}")
@@ -281,6 +293,12 @@ async def process_inline_tags(
                     user_id=user_id,  # Target the conversation user
                     conversation_id=conversation_id
                 )
+                # Track for TUI display
+                extracted_user_observations.append({
+                    "observation": content,
+                    "category": category,
+                    "confidence": confidence
+                })
                 logger.debug(f"Processed inline user-observation: {content[:50]}...")
             except Exception as e:
                 logger.error(f"Failed to process inline user-observation: {e}")
@@ -353,4 +371,4 @@ async def process_inline_tags(
     # Clean up extra whitespace
     cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
 
-    return cleaned_text
+    return cleaned_text, extracted_self_observations, extracted_user_observations

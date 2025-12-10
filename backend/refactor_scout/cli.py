@@ -374,6 +374,17 @@ def _handle_extract_class(args, db: Optional[ScoutDatabase] = None):
             print(f"  Target: {result.target_file}")
             print(f"  Lines moved: {result.lines_moved}")
             print(f"  Backup: {result.backup_path}")
+
+            # Show dependency warnings
+            if result.dependency_warnings:
+                print()
+                print(f"  ⚠️  DEPENDENCY WARNINGS ({len(result.dependency_warnings)}):")
+                print("  The extracted code uses names that may not be available:")
+                for warn in result.dependency_warnings:
+                    print(f"    - {warn.name} (type: {warn.likely_type})")
+                    print(f"      Context: {warn.usage_context}")
+                print()
+                print("  Consider adding imports or passing these as function parameters.")
         else:
             print(f"Extraction failed: {result.error}", file=sys.stderr)
 
@@ -441,6 +452,17 @@ def _handle_extract_functions(args, db: Optional[ScoutDatabase] = None):
             print(f"  Functions: {', '.join(result.items_extracted)}")
             print(f"  Lines moved: {result.lines_moved}")
             print(f"  Backup: {result.backup_path}")
+
+            # Show dependency warnings
+            if result.dependency_warnings:
+                print()
+                print(f"  ⚠️  DEPENDENCY WARNINGS ({len(result.dependency_warnings)}):")
+                print("  The extracted code uses names that may not be available:")
+                for warn in result.dependency_warnings:
+                    print(f"    - {warn.name} (type: {warn.likely_type})")
+                    print(f"      Context: {warn.usage_context}")
+                print()
+                print("  Consider adding imports or passing these as function parameters.")
         else:
             print(f"Extraction failed: {result.error}", file=sys.stderr)
 

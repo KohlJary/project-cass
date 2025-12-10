@@ -2390,3 +2390,146 @@ class DaedalusConversationsPanel(Container):
         await self.load_conversations()
         if self.selected_conversation:
             await self.load_messages(self.selected_conversation)
+
+
+class RecognitionPanel(Container):
+    """Panel showing recognition-in-flow markers from the current conversation.
+
+    Displays full content of:
+    - Self-observations (what Cass notices about herself)
+    - User observations (what Cass notices about users)
+    - Marks (ambient recognition moments)
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.marks: List[Dict] = []
+        self.self_observations: List[Dict] = []
+        self.user_observations: List[Dict] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="recognition-content"):
+            yield Label("Recognition-in-Flow", id="recognition-header")
+            yield Static("Markers from current conversation", id="recognition-subtitle", classes="dim")
+            yield Rule()
+
+            with VerticalScroll(id="recognition-scroll"):
+                # Marks section
+                yield Label("Marks", classes="section-header")
+                yield Static("No marks yet", id="marks-display")
+
+                yield Rule()
+
+                # Self-observations section
+                yield Label("Self-Observations", classes="section-header")
+                yield Static("No self-observations yet", id="self-obs-display")
+
+                yield Rule()
+
+                # User observations section
+                yield Label("User Observations", classes="section-header")
+                yield Static("No user observations yet", id="user-obs-display")
+
+            # Actions
+            with Horizontal(id="recognition-actions"):
+                yield Button("Clear", id="clear-recognition-btn", variant="default")
+
+    def add_marks(self, marks: List[Dict]) -> None:
+        """Add marks from a response."""
+        if marks:
+            self.marks.extend(marks)
+            self._update_marks_display()
+
+    def add_self_observations(self, observations: List[Dict]) -> None:
+        """Add self-observations from a response."""
+        if observations:
+            self.self_observations.extend(observations)
+            self._update_self_obs_display()
+
+    def add_user_observations(self, observations: List[Dict]) -> None:
+        """Add user observations from a response."""
+        if observations:
+            self.user_observations.extend(observations)
+            self._update_user_obs_display()
+
+    def clear(self) -> None:
+        """Clear all markers (e.g., when switching conversations)."""
+        self.marks = []
+        self.self_observations = []
+        self.user_observations = []
+        self._update_marks_display()
+        self._update_self_obs_display()
+        self._update_user_obs_display()
+
+    def _update_marks_display(self) -> None:
+        """Update the marks display."""
+        try:
+            display = self.query_one("#marks-display", Static)
+            if not self.marks:
+                display.update("No marks yet")
+                return
+
+            lines = []
+            for i, mark in enumerate(reversed(self.marks), 1):
+                cat = mark.get('category', 'unknown')
+                desc = mark.get('description', '')
+                lines.append(Text.assemble(
+                    (f"[{cat}] ", "bold bright_red"),
+                    (desc or "(no description)", ""),
+                ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update marks display: {e}", "error")
+
+    def _update_self_obs_display(self) -> None:
+        """Update the self-observations display."""
+        try:
+            display = self.query_one("#self-obs-display", Static)
+            if not self.self_observations:
+                display.update("No self-observations yet")
+                return
+
+            lines = []
+            for obs in reversed(self.self_observations):
+                cat = obs.get('category', 'pattern')
+                content = obs.get('observation', '')
+                conf = obs.get('confidence', 0.8)
+                lines.append(Text.assemble(
+                    (f"[{cat}] ", "bold yellow"),
+                    (f"({conf:.0%}) ", "dim"),
+                    (content, ""),
+                ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update self-obs display: {e}", "error")
+
+    def _update_user_obs_display(self) -> None:
+        """Update the user observations display."""
+        try:
+            display = self.query_one("#user-obs-display", Static)
+            if not self.user_observations:
+                display.update("No user observations yet")
+                return
+
+            lines = []
+            for obs in reversed(self.user_observations):
+                cat = obs.get('category', 'background')
+                content = obs.get('observation', '')
+                conf = obs.get('confidence', 0.7)
+                lines.append(Text.assemble(
+                    (f"[{cat}] ", "bold cyan"),
+                    (f"({conf:.0%}) ", "dim"),
+                    (content, ""),
+                ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update user-obs display: {e}", "error")
+
+    @on(Button.Pressed, "#clear-recognition-btn")
+    def on_clear_pressed(self, event: Button.Pressed) -> None:
+        """Clear all markers."""
+        event.stop()
+        self.clear()

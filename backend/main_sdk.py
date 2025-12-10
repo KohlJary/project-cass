@@ -78,7 +78,9 @@ from handlers import (
     execute_research_session_tool,
     execute_research_scheduler_tool,
     execute_memory_tool,
+    execute_marker_tool,
 )
+from markers import MarkerStore
 from goals import GoalManager
 from research import ResearchManager
 from research_session import ResearchSessionManager
@@ -205,6 +207,7 @@ project_manager = ProjectManager(storage_dir=str(DATA_DIR / "projects"))
 calendar_manager = CalendarManager(storage_dir=str(DATA_DIR / "calendar"))
 task_manager = TaskManager(storage_dir=str(DATA_DIR / "tasks"))
 roadmap_manager = RoadmapManager(storage_dir=str(DATA_DIR / "roadmap"))
+marker_store = MarkerStore(client=memory.client)  # Reuse memory's ChromaDB client
 goal_manager = GoalManager(data_dir=DATA_DIR)
 research_manager = ResearchManager(data_dir=DATA_DIR)
 research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
@@ -593,7 +596,7 @@ async def startup_event():
     asyncio.create_task(autonomous_research_task())
 
     # Start background task for GitHub metrics collection
-    asyncio.create_task(github_metrics_task())
+    asyncio.create_task(github_metrics_task(github_metrics_manager))
 
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
@@ -786,6 +789,16 @@ async def chat(request: ChatRequest):
         if active_goals_context:
             memory_context = active_goals_context + "\n\n" + memory_context
 
+        # Add recognition-in-flow patterns (between-session surfacing)
+        from pattern_aggregation import get_pattern_summary_for_surfacing
+        patterns_context, pattern_count = get_pattern_summary_for_surfacing(
+            marker_store=marker_store,
+            min_significance=0.5,  # Only surface significant patterns
+            limit=3  # Don't overwhelm context
+        )
+        if patterns_context:
+            memory_context = patterns_context + "\n\n" + memory_context
+
     # Get unsummarized message count to determine if summarization is available
     unsummarized_count = 0
     if request.conversation_id:
@@ -842,6 +855,12 @@ async def chat(request: ChatRequest):
                         conversation_id=request.conversation_id,
                         conversation_manager=conversation_manager,
                         token_tracker=token_tracker
+                    )
+                elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
+                    tool_result = await execute_marker_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        marker_store=marker_store
                     )
                 elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                     tool_result = await execute_calendar_tool(
@@ -1083,7 +1102,12 @@ async def chat(request: ChatRequest):
         # Trigger summarization if needed
         if should_summarize:
             # Run summarization in background
-            asyncio.create_task(generate_and_store_summary(request.conversation_id))
+            asyncio.create_task(generate_and_store_summary(
+                request.conversation_id,
+                memory=memory,
+                conversation_manager=conversation_manager,
+                token_tracker=token_tracker
+            ))
 
     # Track token usage for REST endpoint
     if USE_AGENT_SDK and total_input_tokens > 0:
@@ -1312,7 +1336,13 @@ async def trigger_summarization(
         }
 
     # Trigger summarization (force=True bypasses evaluation for manual trigger)
-    asyncio.create_task(generate_and_store_summary(conversation_id, force=True))
+    asyncio.create_task(generate_and_store_summary(
+        conversation_id,
+        memory=memory,
+        conversation_manager=conversation_manager,
+        token_tracker=token_tracker,
+        force=True
+    ))
 
     return {
         "status": "started",
@@ -3834,6 +3864,16 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 if active_goals_context:
                     memory_context = active_goals_context + "\n\n" + memory_context
 
+                # Add recognition-in-flow patterns (between-session surfacing)
+                from pattern_aggregation import get_pattern_summary_for_surfacing
+                patterns_context, pattern_count = get_pattern_summary_for_surfacing(
+                    marker_store=marker_store,
+                    min_significance=0.5,
+                    limit=3
+                )
+                if patterns_context:
+                    memory_context = patterns_context + "\n\n" + memory_context
+
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
                 if conversation_id:
@@ -3848,6 +3888,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "user_context_count": user_context_count,
                     "wiki_pages_count": wiki_pages_count,
                     "cross_session_insights_count": cross_session_insights_count,
+                    "pattern_count": pattern_count,
                     "has_context": bool(memory_context)
                 }
                 await websocket.send_json({
@@ -3941,6 +3982,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_id=conversation_id,
                                     conversation_manager=conversation_manager,
                                     token_tracker=token_tracker
+                                )
+                            elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
+                                tool_result = await execute_marker_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    marker_store=marker_store
                                 )
                             elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                                 tool_result = await execute_calendar_tool(
@@ -4160,6 +4207,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_id=conversation_id,
                                     conversation_manager=conversation_manager,
                                     token_tracker=token_tracker
+                                )
+                            elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
+                                tool_result = await execute_marker_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    marker_store=marker_store
                                 )
                             elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                                 tool_result = await execute_calendar_tool(
@@ -4384,6 +4437,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                     conversation_manager=conversation_manager,
                                     token_tracker=token_tracker
                                 )
+                            elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
+                                tool_result = await execute_marker_tool(
+                                    tool_name=tool_name,
+                                    tool_input=tool_use["input"],
+                                    marker_store=marker_store
+                                )
                             elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
                                 tool_result = await execute_calendar_tool(
                                     tool_name=tool_name,
@@ -4589,8 +4648,17 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     total_input_tokens = 0
                     total_output_tokens = 0
 
+                # Extract and store recognition-in-flow marks before other processing
+                from markers import parse_marks
+                clean_text, marks = parse_marks(clean_text, conversation_id)
+                if marks:
+                    stored = marker_store.store_marks(marks)
+                    if stored > 0:
+                        print(f"  Stored {stored} recognition-in-flow mark(s)")
+
                 # Process inline XML tags (observations, roadmap items) and strip them
-                clean_text = await process_inline_tags(
+                # Returns (cleaned_text, self_observations, user_observations) for TUI display
+                clean_text, extracted_self_obs, extracted_user_obs = await process_inline_tags(
                     text=clean_text,
                     conversation_id=conversation_id,
                     user_id=ws_user_id
@@ -4626,6 +4694,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         content=user_message,
                         user_id=ws_user_id
                     )
+                    # Convert marks to dicts for storage
+                    marks_for_storage = [
+                        {"category": m.category, "description": m.description}
+                        for m in marks
+                    ] if marks else None
                     conversation_manager.add_message(
                         conversation_id=conversation_id,
                         role="assistant",
@@ -4634,7 +4707,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         input_tokens=total_input_tokens,
                         output_tokens=total_output_tokens,
                         provider=response_provider,
-                        model=response_model
+                        model=response_model,
+                        self_observations=extracted_self_obs if extracted_self_obs else None,
+                        user_observations=extracted_user_obs if extracted_user_obs else None,
+                        marks=marks_for_storage
                     )
 
                     # Track token usage
@@ -4654,7 +4730,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     message_count = conversation_manager.get_message_count(conversation_id)
                     if message_count == 2:  # First user + first assistant message
                         asyncio.create_task(generate_conversation_title(
-                            conversation_id, user_message, clean_text, websocket=websocket
+                            conversation_id, user_message, clean_text,
+                            conversation_manager=conversation_manager,
+                            token_tracker=token_tracker,
+                            websocket=websocket
                         ))
 
                     # Check if summarization is needed
@@ -4677,7 +4756,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     # Trigger summarization if needed
                     if should_summarize:
                         # Run summarization in background, pass websocket for status updates
-                        asyncio.create_task(generate_and_store_summary(conversation_id, websocket=websocket))
+                        asyncio.create_task(generate_and_store_summary(
+                            conversation_id,
+                            memory=memory,
+                            conversation_manager=conversation_manager,
+                            token_tracker=token_tracker,
+                            websocket=websocket
+                        ))
 
                 # NOTE: Inline XML tags are now processed via process_inline_tags() above
                 # This handles both tool-based and tag-based observations/roadmap items
@@ -4703,6 +4788,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 # Send combined response with text and audio
                 # (response_provider and response_model already determined above for conversation storage)
+                # Convert marks to dicts for JSON serialization
+                marks_for_json = [
+                    {"category": m.category, "description": m.description}
+                    for m in marks
+                ] if marks else []
                 await websocket.send_json({
                     "type": "response",
                     "text": clean_text,
@@ -4716,7 +4806,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "output_tokens": total_output_tokens,
                     "timestamp": datetime.now().isoformat(),
                     "provider": response_provider,
-                    "model": response_model
+                    "model": response_model,
+                    # Recognition-in-flow markers for TUI display
+                    "self_observations": extracted_self_obs,
+                    "user_observations": extracted_user_obs,
+                    "marks": marks_for_json,
                 })
 
                 # Record timing metrics

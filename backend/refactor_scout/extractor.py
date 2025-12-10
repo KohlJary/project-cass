@@ -18,6 +18,15 @@ from .models import ExtractionOpportunity, FileMetrics, ClassInfo, FunctionInfo
 
 
 @dataclass
+class DependencyIssue:
+    """A potential dependency issue in extracted code."""
+    name: str  # The undefined name
+    line: int  # Line where it's used (in extracted code)
+    usage_context: str  # Brief context (e.g., "memory.get_journal()")
+    likely_type: str  # "global", "module", "function", "unknown"
+
+
+@dataclass
 class ExtractionResult:
     """Result of an extraction operation."""
     success: bool
@@ -27,6 +36,7 @@ class ExtractionResult:
     lines_moved: int = 0
     error: Optional[str] = None
     backup_path: Optional[str] = None
+    dependency_warnings: List[DependencyIssue] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -36,7 +46,29 @@ class ExtractionResult:
             'items_extracted': self.items_extracted,
             'lines_moved': self.lines_moved,
             'error': self.error,
+            'dependency_warnings': [
+                {'name': w.name, 'line': w.line, 'type': w.likely_type, 'context': w.usage_context}
+                for w in self.dependency_warnings
+            ] if self.dependency_warnings else [],
         }
+
+
+# Python builtins that should never be flagged as undefined
+PYTHON_BUILTINS = set(dir(__builtins__)) if isinstance(__builtins__, dict) else set(dir(__builtins__))
+PYTHON_BUILTINS.update({
+    # Common names that are always available
+    'True', 'False', 'None', 'print', 'len', 'range', 'str', 'int', 'float',
+    'list', 'dict', 'set', 'tuple', 'bool', 'bytes', 'type', 'object',
+    'Exception', 'TypeError', 'ValueError', 'KeyError', 'AttributeError',
+    'RuntimeError', 'StopIteration', 'ImportError', 'ModuleNotFoundError',
+    'super', 'property', 'classmethod', 'staticmethod', 'isinstance', 'issubclass',
+    'hasattr', 'getattr', 'setattr', 'delattr', 'callable', 'iter', 'next',
+    'open', 'input', 'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter',
+    'min', 'max', 'sum', 'abs', 'round', 'pow', 'divmod', 'all', 'any',
+    'repr', 'ascii', 'bin', 'hex', 'oct', 'ord', 'chr', 'format', 'hash', 'id',
+    'dir', 'vars', 'globals', 'locals', 'eval', 'exec', 'compile',
+    '__name__', '__file__', '__doc__', '__package__', '__loader__', '__spec__',
+})
 
 
 class CodeExtractor:
@@ -177,6 +209,13 @@ class CodeExtractor:
                     backup_path=str(backup_path),
                 )
 
+            # Check for potential dependency issues
+            dependency_warnings = self.find_undefined_dependencies(
+                class_code,
+                needed_imports,
+                tree,
+            )
+
             return ExtractionResult(
                 success=True,
                 source_file=str(source_path),
@@ -184,6 +223,7 @@ class CodeExtractor:
                 items_extracted=[class_name],
                 lines_moved=len(class_lines),
                 backup_path=str(backup_path),
+                dependency_warnings=dependency_warnings,
             )
 
         except Exception as e:
@@ -341,6 +381,13 @@ class CodeExtractor:
 
             total_lines = sum(end - start for start, end in ranges_to_remove)
 
+            # Check for potential dependency issues
+            dependency_warnings = self.find_undefined_dependencies(
+                extracted_code,
+                needed_imports,
+                tree,
+            )
+
             return ExtractionResult(
                 success=True,
                 source_file=str(source_path),
@@ -348,6 +395,7 @@ class CodeExtractor:
                 items_extracted=function_names,
                 lines_moved=total_lines,
                 backup_path=str(backup_path),
+                dependency_warnings=dependency_warnings,
             )
 
         except Exception as e:
@@ -525,6 +573,135 @@ class CodeExtractor:
             parts = parts[1:]
 
         return '.'.join(parts)
+
+    def find_undefined_dependencies(
+        self,
+        code: str,
+        imports: List[str],
+        source_tree: Optional[ast.AST] = None,
+    ) -> List[DependencyIssue]:
+        """
+        Find names used in code that are not defined locally or imported.
+
+        This detects globals from the source module that won't be available
+        after extraction.
+
+        Args:
+            code: The extracted code
+            imports: Imports that will be included in the new file
+            source_tree: AST of the original source (to find global definitions)
+
+        Returns:
+            List of DependencyIssue for each undefined name
+        """
+        try:
+            extracted_tree = ast.parse(code)
+        except SyntaxError:
+            return []
+
+        # Collect all names defined in the extracted code
+        defined_names: Set[str] = set()
+
+        # Add names from imports that will be included
+        for import_stmt in imports:
+            try:
+                import_tree = ast.parse(import_stmt)
+                for node in ast.walk(import_tree):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            defined_names.add(alias.asname or alias.name.split('.')[0])
+                    elif isinstance(node, ast.ImportFrom):
+                        for alias in node.names:
+                            if alias.name == '*':
+                                # Can't track star imports, skip
+                                continue
+                            defined_names.add(alias.asname or alias.name)
+            except SyntaxError:
+                pass
+
+        # Walk extracted code to find definitions
+        for node in ast.walk(extracted_tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined_names.add(node.name)
+                # Add function parameters
+                for arg in node.args.args + node.args.posonlyargs + node.args.kwonlyargs:
+                    defined_names.add(arg.arg)
+                if node.args.vararg:
+                    defined_names.add(node.args.vararg.arg)
+                if node.args.kwarg:
+                    defined_names.add(node.args.kwarg.arg)
+            elif isinstance(node, ast.ClassDef):
+                defined_names.add(node.name)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                defined_names.add(node.id)
+            elif isinstance(node, (ast.For, ast.comprehension)):
+                # Loop variables
+                if hasattr(node, 'target'):
+                    for n in ast.walk(node.target):
+                        if isinstance(n, ast.Name):
+                            defined_names.add(n.id)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                defined_names.add(node.name)
+            elif isinstance(node, ast.alias):
+                # Import aliases
+                defined_names.add(node.asname or node.name.split('.')[0])
+
+        # Find global definitions in source file (these are what we need to flag)
+        source_globals: Set[str] = set()
+        if source_tree:
+            for node in ast.iter_child_nodes(source_tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    source_globals.add(node.name)
+                elif isinstance(node, ast.ClassDef):
+                    source_globals.add(node.name)
+                elif isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        for n in ast.walk(target):
+                            if isinstance(n, ast.Name):
+                                source_globals.add(n.id)
+                elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                    source_globals.add(node.target.id)
+
+        # Find all Name usages in extracted code
+        issues: List[DependencyIssue] = []
+        code_lines = code.splitlines()
+
+        for node in ast.walk(extracted_tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                name = node.id
+                # Skip if defined locally, is a builtin, or already seen
+                if name in defined_names or name in PYTHON_BUILTINS:
+                    continue
+
+                # Get context for the usage
+                line_idx = node.lineno - 1
+                usage_context = code_lines[line_idx].strip() if 0 <= line_idx < len(code_lines) else ""
+                if len(usage_context) > 60:
+                    usage_context = usage_context[:57] + "..."
+
+                # Classify the likely type
+                if source_globals and name in source_globals:
+                    likely_type = "global"
+                elif name[0].isupper():
+                    likely_type = "class_or_constant"
+                elif name.startswith('_'):
+                    likely_type = "private_global"
+                else:
+                    likely_type = "unknown"
+
+                # Avoid duplicate issues for the same name
+                if not any(i.name == name for i in issues):
+                    issues.append(DependencyIssue(
+                        name=name,
+                        line=node.lineno,
+                        usage_context=usage_context,
+                        likely_type=likely_type,
+                    ))
+
+                # Add to defined_names to avoid duplicate issues
+                defined_names.add(name)
+
+        return issues
 
 
 class GitIntegration:

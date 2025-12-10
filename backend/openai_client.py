@@ -30,6 +30,8 @@ from agent_client import (
     should_include_calendar_tools,
     should_include_task_tools,
 )
+from handlers.memory import MEMORY_TOOLS
+from handlers.markers import MARKER_TOOLS
 
 
 def convert_tools_for_openai(tools: List[Dict]) -> List[Dict]:
@@ -96,6 +98,8 @@ class OpenAIClient:
         # Journal tools are ALWAYS included - core memory functionality
         if self.enable_memory_tools:
             tools.extend(JOURNAL_TOOLS)
+            tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
+            tools.extend(MARKER_TOOLS)  # Recognition-in-flow pattern tools
 
         if self.enable_tools:
             # Calendar tools - only if message mentions scheduling/dates
