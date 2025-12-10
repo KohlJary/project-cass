@@ -1,8 +1,22 @@
-"""Extracted from main_sdk.py"""
+"""
+Journal Generation - Extracted from main_sdk.py
 
+Handles daily journal generation including per-user journals, opinion extraction,
+growth edge evaluation, and research integration.
+"""
 
 from datetime import datetime, timedelta
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR
+from config import ANTHROPIC_API_KEY
+
+
+def _get_dependencies():
+    """
+    Lazily import dependencies from main_sdk to avoid circular imports.
+    These globals are defined in main_sdk.py and need to be accessed at runtime.
+    """
+    from main_sdk import memory, token_tracker, self_manager, user_manager
+    return memory, token_tracker, self_manager, user_manager
+
 
 async def generate_missing_journals(days_to_check: int = 7):
     """
@@ -23,6 +37,17 @@ async def generate_missing_journals(days_to_check: int = 7):
     10. Research-to-Self-Model Integration - Extract opinions, observations, growth from research
     11. Development Log - Create development log entry, check milestones, create snapshots
     """
+    # Get dependencies at runtime
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
+    # Import these functions which may also need dependencies
+    from journal_tasks import _create_development_log_entry
+    from research_integration import (
+        _integrate_research_into_self_model,
+        _extract_and_store_opinions,
+        _extract_and_queue_new_red_links
+    )
+
     generated = []
     today = datetime.now().date()
 
@@ -132,8 +157,11 @@ async def generate_missing_journals(days_to_check: int = 7):
 
     return generated
 
+
 async def _generate_per_user_journal_for_date(user_id: str, date_str: str):
     """Generate and store per-user journal entry for a specific date."""
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
     profile = user_manager.load_profile(user_id)
     if not profile:
         return
@@ -184,8 +212,57 @@ async def _generate_per_user_journal_for_date(user_id: str, date_str: str):
             )
             print(f"   ✓ Created journal about {profile.display_name}")
 
+
+async def _generate_user_observations_for_date(user_id: str, date_str: str):
+    """Generate user observations from conversations for a specific date."""
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
+    profile = user_manager.load_profile(user_id)
+    if not profile:
+        return
+
+    user_conversations = memory.get_conversations_by_date(date_str, user_id=user_id)
+    if not user_conversations:
+        return
+
+    print(f"   👤 Extracting observations about {profile.display_name}...")
+
+    observations = await memory.extract_user_observations(
+        user_id=user_id,
+        display_name=profile.display_name,
+        conversations=user_conversations,
+        anthropic_api_key=ANTHROPIC_API_KEY,
+        token_tracker=token_tracker
+    )
+
+    added = 0
+    for obs_data in observations:
+        obs = user_manager.add_observation(
+            user_id=user_id,
+            observation=obs_data["observation"],
+            category=obs_data.get("category", "general"),
+            confidence=obs_data.get("confidence", 0.7),
+            source="journal_extraction"
+        )
+        if obs:
+            memory.embed_user_observation(
+                user_id=user_id,
+                observation_id=obs.id,
+                observation_text=obs.observation,
+                category=obs.category,
+                display_name=profile.display_name,
+                timestamp=obs.timestamp
+            )
+            added += 1
+
+    if added:
+        print(f"   ✓ Added {added} observations about {profile.display_name}")
+
+
 async def _evaluate_and_store_growth_edges(journal_text: str, date_str: str):
     """Evaluate growth edges and flag potential new ones."""
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
     print(f"   🌱 Evaluating growth edges...")
 
     profile = self_manager.load_profile()
@@ -261,8 +338,11 @@ async def _evaluate_and_store_growth_edges(journal_text: str, date_str: str):
     if auto_added or flagged:
         print(f"   ✓ Growth edges: {auto_added} auto-added, {flagged} flagged for review")
 
+
 async def _reflect_and_store_open_questions(journal_text: str, date_str: str):
     """Reflect on open questions from journal content."""
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
     print(f"   ❓ Reflecting on open questions...")
 
     profile = self_manager.load_profile()
@@ -305,6 +385,7 @@ async def _reflect_and_store_open_questions(journal_text: str, date_str: str):
     if ref_count:
         print(f"   ✓ Added {ref_count} open question reflections")
 
+
 async def _generate_research_journal(date_str: str):
     """
     Generate a journal entry about research activity for the day.
@@ -315,6 +396,8 @@ async def _generate_research_journal(date_str: str):
     - Questions that emerged
     - How the new knowledge connects to existing understanding
     """
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
     print(f"   🔬 Generating research journal...")
 
     try:

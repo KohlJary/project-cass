@@ -1,10 +1,30 @@
-"""Extracted from main_sdk.py"""
+"""
+Summary Generation - Extracted from main_sdk.py
+
+Handles conversation summarization with evaluation logic for determining
+good breakpoints in conversation flow.
+"""
+
+from config import ANTHROPIC_API_KEY, SUMMARY_CONTEXT_MESSAGES
+from datetime import datetime
+from typing import Optional, Set
+
+# Module-level state for tracking in-progress summarizations
+_summarization_in_progress: Set[str] = set()
+
+# Default confidence threshold - can be overridden via parameter
+DEFAULT_SUMMARIZATION_CONFIDENCE_THRESHOLD = 0.6
 
 
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR
-from datetime import datetime, timedelta
-
-async def generate_and_store_summary(conversation_id: str, force: bool = False, websocket=None):
+async def generate_and_store_summary(
+    conversation_id: str,
+    memory,
+    conversation_manager,
+    token_tracker=None,
+    force: bool = False,
+    websocket=None,
+    confidence_threshold: float = DEFAULT_SUMMARIZATION_CONFIDENCE_THRESHOLD
+):
     """
     Generate a summary chunk for unsummarized messages.
 
@@ -13,8 +33,12 @@ async def generate_and_store_summary(conversation_id: str, force: bool = False, 
 
     Args:
         conversation_id: ID of conversation to summarize
+        memory: MemoryStore instance for summary generation
+        conversation_manager: ConversationManager instance
+        token_tracker: Optional TokenTracker for usage tracking
         force: If True, skip evaluation and summarize immediately (for manual /summarize)
         websocket: Optional WebSocket to send status updates to TUI
+        confidence_threshold: Minimum confidence to proceed with summarization
     """
     async def notify(message: str, status: str = "info"):
         """Send notification to websocket if available"""
@@ -61,8 +85,8 @@ async def generate_and_store_summary(conversation_id: str, force: bool = False, 
             print(f"   Reason: {reason}")
 
             # Only proceed if evaluation says yes with sufficient confidence
-            if not should_summarize or confidence < SUMMARIZATION_CONFIDENCE_THRESHOLD:
-                print(f"   ⏸ Deferring summarization (confidence {confidence:.2f} < {SUMMARIZATION_CONFIDENCE_THRESHOLD})")
+            if not should_summarize or confidence < confidence_threshold:
+                print(f"   ⏸ Deferring summarization (confidence {confidence:.2f} < {confidence_threshold})")
                 await notify(f"⏸ Deferring memory consolidation: {reason}", "deferred")
                 return
 
@@ -128,15 +152,33 @@ async def generate_and_store_summary(conversation_id: str, force: bool = False, 
 
     except Exception as e:
         print(f"Error generating summary: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         # Always remove from in-progress set
         _summarization_in_progress.discard(conversation_id)
 
-async def generate_conversation_title(conversation_id: str, user_message: str, assistant_response: str, websocket=None):
+
+async def generate_conversation_title(
+    conversation_id: str,
+    user_message: str,
+    assistant_response: str,
+    conversation_manager,
+    token_tracker=None,
+    websocket=None
+):
     """
     Generate a title for a conversation based on the first exchange.
     Uses a fast, cheap API call to create a concise title.
     Optionally notifies the client via WebSocket when done.
+
+    Args:
+        conversation_id: ID of conversation to title
+        user_message: First user message in conversation
+        assistant_response: First assistant response
+        conversation_manager: ConversationManager instance
+        token_tracker: Optional TokenTracker for usage tracking
+        websocket: Optional WebSocket for notifications
     """
     try:
         import anthropic

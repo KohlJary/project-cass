@@ -1,13 +1,36 @@
-"""Extracted from main_sdk.py"""
+"""
+Research Integration - Extracted from main_sdk.py
 
+Functions for integrating autonomous research findings back into Cass's
+self-model, including opinion extraction, self-observations, and growth
+edge evaluation.
+"""
 
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR
+from config import ANTHROPIC_API_KEY
 from wiki import WikiStorage, WikiRetrieval, ResearchQueue, ProposalQueue
 import re
 import json
 
+
+def _get_dependencies():
+    """
+    Lazily import dependencies from main_sdk to avoid circular imports.
+    These globals are defined in main_sdk.py and need to be accessed at runtime.
+    """
+    from main_sdk import memory, token_tracker, self_manager
+    return memory, token_tracker, self_manager
+
+
+def _get_anthropic_client():
+    """Create an async Anthropic client."""
+    import anthropic
+    return anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+
+
 async def _extract_and_store_opinions(date_str: str, conversations: list):
     """Extract opinions from conversations and update self-model."""
+    memory, token_tracker, self_manager = _get_dependencies()
+
     print(f"   💭 Extracting opinions from conversations...")
 
     profile = self_manager.load_profile()
@@ -34,6 +57,7 @@ async def _extract_and_store_opinions(date_str: str, conversations: list):
 
     if added_count:
         print(f"   ✓ Processed {added_count} opinions")
+
 
 async def _extract_and_queue_new_red_links(date_str: str):
     """
@@ -96,6 +120,7 @@ async def _extract_and_queue_new_red_links(date_str: str):
         import traceback
         traceback.print_exc()
 
+
 async def _integrate_research_into_self_model(date_str: str):
     """
     Integrate research findings into Cass's self-model.
@@ -108,6 +133,9 @@ async def _integrate_research_into_self_model(date_str: str):
 
     This closes the loop between autonomous research and self-development.
     """
+    memory, token_tracker, self_manager = _get_dependencies()
+    anthropic_client = _get_anthropic_client()
+
     print(f"   🧠 Integrating research into self-model...")
 
     try:

@@ -61,6 +61,7 @@ from widgets import (
     SoloReflectionPanel,
     RoadmapPanel,
     DaedalusConversationsPanel,
+    RecognitionPanel,
     # Daedalus panels
     SessionsPanel,
     FilesPanel,
@@ -620,6 +621,8 @@ class CassVesselTUI(App):
                             with TabPane("Roadmap", id="roadmap-tab"):
                                 yield RoadmapPanel(id="roadmap-panel")
                             # Cass-specific tabs
+                            with TabPane("Recog", id="recognition-tab"):
+                                yield RecognitionPanel(id="recognition-panel")
                             with TabPane("Growth", id="growth-tab"):
                                 yield GrowthPanel(id="growth-panel")
                             with TabPane("Self", id="self-model-tab"):
@@ -1848,13 +1851,17 @@ class CassVesselTUI(App):
                 thinking = self.query_one("#thinking-indicator", Label)
                 thinking.remove_class("visible")
 
-                # Response from Cass - audio, token info, and model may be included
+                # Response from Cass - audio, token info, model, and recognition markers
                 audio_data = data.get("audio")
                 input_tokens = data.get("input_tokens", 0)
                 output_tokens = data.get("output_tokens", 0)
                 timestamp = data.get("timestamp")
                 provider = data.get("provider")
                 model = data.get("model")
+                # Recognition-in-flow markers
+                self_observations = data.get("self_observations", [])
+                user_observations = data.get("user_observations", [])
+                marks = data.get("marks", [])
                 await chat.add_message(
                     "cass",
                     data.get("text", ""),
@@ -1864,8 +1871,24 @@ class CassVesselTUI(App):
                     output_tokens=output_tokens,
                     timestamp=timestamp,
                     provider=provider,
-                    model=model
+                    model=model,
+                    self_observations=self_observations,
+                    user_observations=user_observations,
+                    marks=marks,
                 )
+
+                # Update recognition panel with markers
+                if self_observations or user_observations or marks:
+                    try:
+                        recog_panel = self.query_one("#recognition-panel", RecognitionPanel)
+                        if marks:
+                            recog_panel.add_marks(marks)
+                        if self_observations:
+                            recog_panel.add_self_observations(self_observations)
+                        if user_observations:
+                            recog_panel.add_user_observations(user_observations)
+                    except Exception as e:
+                        debug_log(f"Failed to update recognition panel: {e}", "error")
 
                 # Play audio if available and enabled
                 if audio_data and self.tts_enabled:
@@ -2689,6 +2712,13 @@ class CassVesselTUI(App):
                 summary_panel = self.query_one("#summary-panel", SummaryPanel)
                 await summary_panel.display_summaries([])
 
+                # Clear recognition panel for new conversation
+                try:
+                    recog_panel = self.query_one("#recognition-panel", RecognitionPanel)
+                    recog_panel.clear()
+                except Exception:
+                    pass
+
                 # Reload sidebar - ensure project filter is in sync
                 sidebar = self.query_one("#sidebar", Sidebar)
                 sidebar.selected_project_id = self.current_project_id
@@ -2995,13 +3025,26 @@ class CassVesselTUI(App):
                 chat = self.query_one("#chat-container", ChatContainer)
                 await chat.remove_children()
 
+                # Clear recognition panel for new conversation
+                try:
+                    recog_panel = self.query_one("#recognition-panel", RecognitionPanel)
+                    recog_panel.clear()
+                except Exception:
+                    pass
+
                 await chat.add_message("system", f"Loaded: {data['title']}", None)
 
-                # Load messages
+                # Load messages and collect markers
+                all_self_obs = []
+                all_user_obs = []
+                all_marks = []
                 for msg in data.get("messages", []):
                     # Use current user display name for user messages
                     # (In multi-user scenario, we'd look up by msg.get("user_id"))
                     display_name = self.current_user_display_name if msg["role"] == "user" else None
+                    self_obs = msg.get("self_observations", [])
+                    user_obs = msg.get("user_observations", [])
+                    marks = msg.get("marks", [])
                     await chat.add_message(
                         msg["role"],
                         msg["content"],
@@ -3012,8 +3055,30 @@ class CassVesselTUI(App):
                         input_tokens=msg.get("input_tokens", 0),
                         output_tokens=msg.get("output_tokens", 0),
                         provider=msg.get("provider"),
-                        model=msg.get("model")
+                        model=msg.get("model"),
+                        self_observations=self_obs,
+                        user_observations=user_obs,
+                        marks=marks,
                     )
+                    # Collect markers for Recognition panel
+                    if self_obs:
+                        all_self_obs.extend(self_obs)
+                    if user_obs:
+                        all_user_obs.extend(user_obs)
+                    if marks:
+                        all_marks.extend(marks)
+
+                # Populate Recognition panel with markers from history
+                try:
+                    recog_panel = self.query_one("#recognition-panel", RecognitionPanel)
+                    if all_marks:
+                        recog_panel.add_marks(all_marks)
+                    if all_self_obs:
+                        recog_panel.add_self_observations(all_self_obs)
+                    if all_user_obs:
+                        recog_panel.add_user_observations(all_user_obs)
+                except Exception as e:
+                    debug_log(f"Failed to populate recognition panel: {e}", "error")
 
                 # Load summaries
                 summary_panel = self.query_one("#summary-panel", SummaryPanel)

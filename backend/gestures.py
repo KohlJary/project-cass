@@ -302,19 +302,33 @@ class GestureParser:
 class ResponseProcessor:
     """
     Full pipeline for processing Cass's responses.
-    
+
     1. Parse gesture/emote tags
-    2. Clean text for display
-    3. Generate animation events
-    4. Package for frontend
+    2. Parse recognition-in-flow marks
+    3. Clean text for display
+    4. Generate animation events
+    5. Package for frontend
     """
-    
+
     def __init__(self):
         self.parser = GestureParser()
-        
-    def process(self, raw_response: str) -> Dict:
+        # Import marker parser lazily to avoid circular imports
+        self._marker_parser = None
+
+    @property
+    def marker_parser(self):
+        if self._marker_parser is None:
+            from markers import MarkerParser
+            self._marker_parser = MarkerParser()
+        return self._marker_parser
+
+    def process(self, raw_response: str, conversation_id: str = None) -> Dict:
         """
         Process a raw response into frontend-ready package.
+
+        Args:
+            raw_response: Raw response text with embedded tags
+            conversation_id: Optional conversation ID for marker storage
 
         Returns:
             {
@@ -323,7 +337,8 @@ class ResponseProcessor:
                 "raw": "original response with tags",
                 "memory_tags": {"summarize": bool},
                 "self_observations": [list of SelfObservation],
-                "user_observations": [list of ParsedUserObservation]
+                "user_observations": [list of ParsedUserObservation],
+                "marks": [list of Mark objects]
             }
         """
         # First extract self-observations (before gesture parsing)
@@ -332,8 +347,18 @@ class ResponseProcessor:
         # Then extract user-observations
         text_without_observations, user_observations = self.parser.parse_user_observations(text_without_self_obs)
 
+        # Extract recognition-in-flow marks
+        marks = []
+        if conversation_id:
+            text_without_marks, marks = self.marker_parser.parse(
+                text_without_observations,
+                conversation_id
+            )
+        else:
+            text_without_marks = text_without_observations
+
         # Then parse gestures from the remaining text
-        cleaned_text, triggers = self.parser.parse(text_without_observations)
+        cleaned_text, triggers = self.parser.parse(text_without_marks)
 
         # Add talking gesture if there's text
         if cleaned_text:
@@ -353,7 +378,8 @@ class ResponseProcessor:
             "has_gestures": len(triggers) > 0,
             "memory_tags": memory_tags,
             "self_observations": self_observations,
-            "user_observations": user_observations
+            "user_observations": user_observations,
+            "marks": marks
         }
 
 

@@ -1,13 +1,25 @@
-"""Extracted from main_sdk.py"""
+"""
+Background Tasks - Extracted from main_sdk.py
 
+Long-running background tasks for periodic operations like GitHub metrics
+and autonomous research.
+"""
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
+from typing import Optional
 
-async def github_metrics_task():
+logger = logging.getLogger("cass-vessel")
+
+
+async def github_metrics_task(github_metrics_manager):
     """
     Background task that periodically fetches GitHub metrics.
     Runs every 6 hours to stay well under rate limits.
+
+    Args:
+        github_metrics_manager: GitHubMetricsManager instance
     """
     # Initial fetch on startup (after a short delay)
     await asyncio.sleep(30)  # Wait for other startup tasks
@@ -25,6 +37,7 @@ async def github_metrics_task():
             logger.info("Scheduled GitHub metrics fetch completed")
         except Exception as e:
             logger.error(f"Scheduled GitHub metrics fetch failed: {e}")
+
 
 async def autonomous_research_task():
     """

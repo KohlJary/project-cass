@@ -26,6 +26,10 @@ class Message:
     # Provider/model metadata (for assistant messages)
     provider: Optional[str] = None  # "anthropic", "openai", "local"
     model: Optional[str] = None  # e.g., "claude-sonnet-4-20250514", "gpt-4o"
+    # Recognition-in-flow markers (for assistant messages)
+    self_observations: Optional[List[Dict]] = None
+    user_observations: Optional[List[Dict]] = None
+    marks: Optional[List[Dict]] = None
 
 
 @dataclass
@@ -179,7 +183,10 @@ class ConversationManager:
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
         provider: Optional[str] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        self_observations: Optional[List[Dict]] = None,
+        user_observations: Optional[List[Dict]] = None,
+        marks: Optional[List[Dict]] = None
     ) -> bool:
         """Add a message to a conversation"""
         conversation = self.load_conversation(conversation_id)
@@ -197,7 +204,10 @@ class ConversationManager:
             input_tokens=input_tokens if role == "assistant" else None,
             output_tokens=output_tokens if role == "assistant" else None,
             provider=provider if role == "assistant" else None,
-            model=model if role == "assistant" else None
+            model=model if role == "assistant" else None,
+            self_observations=self_observations if role == "assistant" else None,
+            user_observations=user_observations if role == "assistant" else None,
+            marks=marks if role == "assistant" else None
         )
         conversation.messages.append(message)
 

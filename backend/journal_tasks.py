@@ -1,12 +1,26 @@
-"""Extracted from main_sdk.py"""
+"""
+Journal Tasks - Extracted from main_sdk.py
 
+Background tasks and utilities for journal generation, development logging,
+and scheduled reflection sessions.
+"""
 
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR
-from journal_generation import generate_missing_journals, _generate_per_user_journal_for_date, _evaluate_and_store_growth_edges, _reflect_and_store_open_questions, _generate_research_journal
+from config import ANTHROPIC_API_KEY
+from journal_generation import generate_missing_journals
 import asyncio
 import re
 import json
 from datetime import datetime, timedelta
+
+
+def _get_dependencies():
+    """
+    Lazily import dependencies from main_sdk to avoid circular imports.
+    These globals are defined in main_sdk.py and need to be accessed at runtime.
+    """
+    from main_sdk import memory, self_manager, get_reflection_runner
+    return memory, self_manager, get_reflection_runner
+
 
 async def _create_development_log_entry(journal_text: str, date_str: str, conversation_count: int):
     """
@@ -20,6 +34,8 @@ async def _create_development_log_entry(journal_text: str, date_str: str, conver
     5. Triggers milestone detection
     6. Optionally creates a cognitive snapshot
     """
+    memory, self_manager, get_reflection_runner = _get_dependencies()
+
     print(f"   📈 Creating development log entry...")
 
     try:
@@ -147,6 +163,7 @@ Focus on genuine developmental signals, not just activity summaries. If no meani
         import traceback
         traceback.print_exc()
 
+
 async def daily_journal_task():
     """
     Background task that generates yesterday's journal entry.
@@ -181,6 +198,7 @@ async def daily_journal_task():
         if journal_generated:
             await run_scheduled_reflections(yesterday)
 
+
 async def run_scheduled_reflections(journal_date: str):
     """
     Run scheduled solo reflection sessions after daily journal generation.
@@ -189,6 +207,8 @@ async def run_scheduled_reflections(journal_date: str):
     - 2 themed reflections based on journal content
     - 1 unthemed open reflection
     """
+    memory, self_manager, get_reflection_runner = _get_dependencies()
+
     print(f"🧘 Starting scheduled solo reflections...")
 
     try:
@@ -242,6 +262,7 @@ async def run_scheduled_reflections(journal_date: str):
         import traceback
         traceback.print_exc()
 
+
 async def extract_reflection_themes_from_journal(date_str: str) -> list:
     """
     Extract potential reflection themes from a journal entry.
@@ -252,6 +273,8 @@ async def extract_reflection_themes_from_journal(date_str: str) -> list:
     - Patterns or tensions noted
     - New concepts encountered
     """
+    memory, self_manager, get_reflection_runner = _get_dependencies()
+
     themes = []
 
     try:

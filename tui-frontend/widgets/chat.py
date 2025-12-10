@@ -93,7 +93,24 @@ class ChatMessage(Vertical):
     # Pattern to match code blocks: ```language\ncode\n```
     CODE_BLOCK_PATTERN = re.compile(r'```(\w*)\n(.*?)```', re.DOTALL)
 
-    def __init__(self, role: str, content: str, animations: Optional[List[Dict]] = None, audio_data: Optional[str] = None, input_tokens: int = 0, output_tokens: int = 0, timestamp: Optional[str] = None, excluded: bool = False, user_display_name: Optional[str] = None, provider: Optional[str] = None, model: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        role: str,
+        content: str,
+        animations: Optional[List[Dict]] = None,
+        audio_data: Optional[str] = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        timestamp: Optional[str] = None,
+        excluded: bool = False,
+        user_display_name: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        self_observations: Optional[List[Dict]] = None,
+        user_observations: Optional[List[Dict]] = None,
+        marks: Optional[List[Dict]] = None,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         self.role = role
         # Extract memory tags and clean content
@@ -108,6 +125,10 @@ class ChatMessage(Vertical):
         self.user_display_name = user_display_name  # Display name for user messages
         self.provider = provider  # LLM provider (anthropic, openai, local)
         self.model = model  # Model ID used for this response
+        # Recognition-in-flow markers
+        self.self_observations = self_observations or []
+        self.user_observations = user_observations or []
+        self.marks = marks or []
         # Parse content into segments (text and code blocks)
         self.segments = self._parse_content(self.content)
 
@@ -201,7 +222,7 @@ class ChatMessage(Vertical):
                     classes="message-code-block"
                 )
 
-        # Add gesture/emote/memory indicators
+        # Add gesture/emote/memory/observation indicators
         indicators = Text()
         has_indicators = False
 
@@ -222,7 +243,56 @@ class ChatMessage(Vertical):
                 has_indicators = True
 
         if self.memory_tags:
-            indicators.append(f"[memory: {', '.join(self.memory_tags)}]", style="italic magenta")
+            indicators.append(f"[memory: {', '.join(self.memory_tags)}] ", style="italic magenta")
+            has_indicators = True
+
+        # Recognition-in-flow markers
+        if self.self_observations:
+            # Show each observation with category and brief content
+            obs_parts = []
+            for obs in self.self_observations:
+                cat = obs.get('category', 'pattern')
+                content = obs.get('observation', '')
+                if content:
+                    # Truncate long content
+                    if len(content) > 50:
+                        content = content[:47] + "..."
+                    obs_parts.append(f"{cat}: \"{content}\"")
+                else:
+                    obs_parts.append(cat)
+            indicators.append(f"[self-obs: {', '.join(obs_parts)}] ", style="italic yellow")
+            has_indicators = True
+
+        if self.user_observations:
+            # Show each observation with category and brief content
+            obs_parts = []
+            for obs in self.user_observations:
+                cat = obs.get('category', 'background')
+                content = obs.get('observation', '')
+                if content:
+                    # Truncate long content
+                    if len(content) > 50:
+                        content = content[:47] + "..."
+                    obs_parts.append(f"{cat}: \"{content}\"")
+                else:
+                    obs_parts.append(cat)
+            indicators.append(f"[user-obs: {', '.join(obs_parts)}] ", style="italic cyan")
+            has_indicators = True
+
+        if self.marks:
+            # Show each mark with category and brief description
+            mark_parts = []
+            for mark in self.marks:
+                cat = mark.get('category', 'unknown')
+                desc = mark.get('description', '')
+                if desc:
+                    # Truncate long descriptions
+                    if len(desc) > 40:
+                        desc = desc[:37] + "..."
+                    mark_parts.append(f"{cat}: \"{desc}\"")
+                else:
+                    mark_parts.append(cat)
+            indicators.append(f"[marks: {', '.join(mark_parts)}]", style="italic bright_red")
             has_indicators = True
 
         if has_indicators:
@@ -379,9 +449,41 @@ class ChatContainer(VerticalScroll):
         super().__init__(**kwargs)
         self.can_focus = True
 
-    async def add_message(self, role: str, content: str, animations: Optional[List[Dict]] = None, audio_data: Optional[str] = None, input_tokens: int = 0, output_tokens: int = 0, timestamp: Optional[str] = None, excluded: bool = False, user_display_name: Optional[str] = None, provider: Optional[str] = None, model: Optional[str] = None):
+    async def add_message(
+        self,
+        role: str,
+        content: str,
+        animations: Optional[List[Dict]] = None,
+        audio_data: Optional[str] = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        timestamp: Optional[str] = None,
+        excluded: bool = False,
+        user_display_name: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        self_observations: Optional[List[Dict]] = None,
+        user_observations: Optional[List[Dict]] = None,
+        marks: Optional[List[Dict]] = None,
+    ):
         """Add a new message to the chat"""
-        message = ChatMessage(role, content, animations, audio_data=audio_data, input_tokens=input_tokens, output_tokens=output_tokens, timestamp=timestamp, excluded=excluded, user_display_name=user_display_name, provider=provider, model=model, classes="chat-message")
+        message = ChatMessage(
+            role,
+            content,
+            animations,
+            audio_data=audio_data,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            timestamp=timestamp,
+            excluded=excluded,
+            user_display_name=user_display_name,
+            provider=provider,
+            model=model,
+            self_observations=self_observations,
+            user_observations=user_observations,
+            marks=marks,
+            classes="chat-message",
+        )
         await self.mount(message)
         message.scroll_visible()
 
