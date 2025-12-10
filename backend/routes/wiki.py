@@ -16,13 +16,15 @@ router = APIRouter(prefix="/wiki", tags=["wiki"])
 # Set by main app via init_wiki_routes
 _wiki_storage = None
 _memory = None
+_token_tracker = None
 
 
-def init_wiki_routes(wiki_storage, memory=None):
+def init_wiki_routes(wiki_storage, memory=None, token_tracker=None):
     """Initialize the routes with dependencies"""
-    global _wiki_storage, _memory
+    global _wiki_storage, _memory, _token_tracker
     _wiki_storage = wiki_storage
     _memory = memory  # CassMemory instance for embeddings
+    _token_tracker = token_tracker  # Token usage tracker
 
     # Also set module-level instances for other modules to access
     import wiki as wiki_module
@@ -1615,7 +1617,7 @@ async def deepen_page(page_name: str, request: DeepenPageRequest) -> Dict:
             detail=f"Invalid trigger '{request.trigger}'. Valid: {valid}"
         )
 
-    pipeline = ResynthesisPipeline(_wiki_storage, _memory)
+    pipeline = ResynthesisPipeline(_wiki_storage, _memory, token_tracker=_token_tracker)
     result = await pipeline.deepen_page(
         page_name=page_name,
         trigger=trigger,
@@ -1702,7 +1704,7 @@ async def preview_deepening_context(page_name: str) -> Dict:
     if not page:
         raise HTTPException(status_code=404, detail=f"Page '{page_name}' not found")
 
-    pipeline = ResynthesisPipeline(_wiki_storage, _memory)
+    pipeline = ResynthesisPipeline(_wiki_storage, _memory, token_tracker=_token_tracker)
     context = await pipeline._gather_context(page)
     growth = pipeline._analyze_growth(page, context)
 
@@ -1746,6 +1748,7 @@ def _get_scheduler():
             _research_queue,
             SchedulerConfig(),
             _memory,
+            token_tracker=_token_tracker,
         )
         # Set module-level instance for other modules to access
         wiki_module.set_scheduler(_research_scheduler)

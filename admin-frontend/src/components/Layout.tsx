@@ -19,6 +19,7 @@ const navItems = [
   { path: '/development', label: 'Development', icon: '↑' },
   { path: '/data', label: 'Data', icon: '↓' },
   { path: '/reflection', label: 'Reflection', icon: '~' },
+  { path: '/metrics', label: 'Metrics', icon: 'M' },
 ];
 
 export function Layout() {

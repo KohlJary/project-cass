@@ -480,7 +480,8 @@ Respond with ONLY a JSON object (no other text):
         self,
         conversation_id: str,
         messages: List[Dict],
-        anthropic_api_key: str
+        anthropic_api_key: str,
+        token_tracker=None
     ) -> Optional[str]:
         """
         Generate a summary chunk from recent messages using Claude.
@@ -489,6 +490,7 @@ Respond with ONLY a JSON object (no other text):
             conversation_id: ID of conversation being summarized
             messages: List of message dicts with role/content/timestamp
             anthropic_api_key: API key for Claude
+            token_tracker: Optional TokenUsageTracker for recording usage
 
         Returns:
             Generated summary text or None if failed
@@ -545,8 +547,20 @@ Write naturally as yourself - not sterile logs."""
                     timeout=120.0
                 )
                 if response.status_code == 200:
-                    summary = response.json().get("response", "")
+                    result = response.json()
+                    summary = result.get("response", "")
                     print(f"Generated summary using Ollama ({OLLAMA_MODEL})")
+                    # Track Ollama usage
+                    if token_tracker:
+                        token_tracker.record(
+                            category="summarization",
+                            operation="generate_chunk",
+                            provider="ollama",
+                            model=OLLAMA_MODEL,
+                            input_tokens=result.get("prompt_eval_count", 0),
+                            output_tokens=result.get("eval_count", 0),
+                            conversation_id=conversation_id
+                        )
                     return summary
                 else:
                     print(f"Ollama request failed: {response.status_code}, falling back to Claude")
@@ -561,6 +575,20 @@ Write naturally as yourself - not sterile logs."""
             )
 
             summary = response.content[0].text
+            # Track Claude usage
+            if token_tracker and response.usage:
+                input_tokens = response.usage.input_tokens
+                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                token_tracker.record(
+                    category="summarization",
+                    operation="generate_chunk",
+                    provider="anthropic",
+                    model="claude-sonnet-4-20250514",
+                    input_tokens=input_tokens + cache_read,
+                    output_tokens=response.usage.output_tokens,
+                    cache_read_tokens=cache_read,
+                    conversation_id=conversation_id
+                )
             return summary
 
         except Exception as e:
@@ -572,7 +600,8 @@ Write naturally as yourself - not sterile logs."""
         conversation_id: str,
         conversation_title: str,
         new_chunk: Optional[str] = None,
-        existing_summary: Optional[str] = None
+        existing_summary: Optional[str] = None,
+        token_tracker=None
     ) -> Optional[str]:
         """
         Generate or update a token-optimized working summary.
@@ -586,6 +615,7 @@ Write naturally as yourself - not sterile logs."""
             conversation_title: Title of the conversation
             new_chunk: Optional new summary chunk to integrate
             existing_summary: Optional existing working summary to update
+            token_tracker: Optional TokenUsageTracker for recording usage
 
         Returns:
             Consolidated working summary or None if failed
@@ -667,9 +697,21 @@ WORKING SUMMARY:"""
                         timeout=60.0
                     )
                     if response.status_code == 200:
-                        working_summary = response.json().get("response", "").strip()
+                        result = response.json()
+                        working_summary = result.get("response", "").strip()
                         mode = "incremental" if (new_chunk and existing_summary) else "full rebuild"
                         print(f"Generated working summary using Ollama ({mode}, {len(working_summary)} chars)")
+                        # Track Ollama usage
+                        if token_tracker:
+                            token_tracker.record(
+                                category="summarization",
+                                operation=f"working_summary_{mode.replace(' ', '_')}",
+                                provider="ollama",
+                                model=OLLAMA_MODEL,
+                                input_tokens=result.get("prompt_eval_count", 0),
+                                output_tokens=result.get("eval_count", 0),
+                                conversation_id=conversation_id
+                            )
                         return working_summary
                     else:
                         print(f"Ollama working summary failed: {response.status_code}")
@@ -870,7 +912,8 @@ WORKING SUMMARY:"""
     async def generate_journal_entry(
         self,
         date: str,
-        anthropic_api_key: str
+        anthropic_api_key: str,
+        token_tracker=None
     ) -> Optional[str]:
         """
         Generate a journal entry for a specific date using summaries from that day.
@@ -878,6 +921,7 @@ WORKING SUMMARY:"""
         Args:
             date: Date string in YYYY-MM-DD format
             anthropic_api_key: API key for Claude
+            token_tracker: Optional token tracker for usage tracking
 
         Returns:
             Generated journal entry text or None if no summaries or failed
@@ -949,7 +993,18 @@ Keep it to 2-4 paragraphs - meaningful but not exhaustive."""
                     timeout=120.0
                 )
                 if response.status_code == 200:
-                    journal_entry = response.json().get("response", "")
+                    result = response.json()
+                    journal_entry = result.get("response", "")
+                    # Track token usage
+                    if token_tracker:
+                        token_tracker.record(
+                            category="internal",
+                            operation="journal_generation",
+                            provider="ollama",
+                            model=OLLAMA_MODEL,
+                            input_tokens=result.get("prompt_eval_count", 0),
+                            output_tokens=result.get("eval_count", 0),
+                        )
                     print(f"Generated journal entry using Ollama ({OLLAMA_MODEL})")
                     return journal_entry
                 else:
@@ -964,6 +1019,19 @@ Keep it to 2-4 paragraphs - meaningful but not exhaustive."""
                 messages=[{"role": "user", "content": prompt}]
             )
 
+            # Track token usage
+            if token_tracker and response.usage:
+                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                token_tracker.record(
+                    category="internal",
+                    operation="journal_generation",
+                    provider="anthropic",
+                    model="claude-sonnet-4-20250514",
+                    input_tokens=response.usage.input_tokens + cache_read,
+                    output_tokens=response.usage.output_tokens,
+                    cache_read_tokens=cache_read,
+                )
+
             journal_entry = response.content[0].text
             return journal_entry
 
@@ -977,7 +1045,8 @@ Keep it to 2-4 paragraphs - meaningful but not exhaustive."""
         conversation_title: str,
         summaries: List[Dict],
         user_display_name: str,
-        anthropic_api_key: str
+        anthropic_api_key: str,
+        token_tracker=None
     ) -> Dict:
         """
         Process a conversation's summaries into a structured digest.
@@ -1050,7 +1119,18 @@ Be authentic and specific. Skip sections if genuinely nothing to note."""
                     timeout=90.0
                 )
                 if response.status_code == 200:
-                    result = response.json().get("response", "").strip()
+                    ollama_result = response.json()
+                    result = ollama_result.get("response", "").strip()
+                    # Track token usage
+                    if token_tracker:
+                        token_tracker.record(
+                            category="internal",
+                            operation="conversation_digest",
+                            provider="ollama",
+                            model=OLLAMA_MODEL,
+                            input_tokens=ollama_result.get("prompt_eval_count", 0),
+                            output_tokens=ollama_result.get("eval_count", 0),
+                        )
                 else:
                     # Fall through to Claude
                     result = None
@@ -1065,6 +1145,18 @@ Be authentic and specific. Skip sections if genuinely nothing to note."""
                     messages=[{"role": "user", "content": prompt}]
                 )
                 result = response.content[0].text.strip()
+                # Track token usage
+                if token_tracker and response.usage:
+                    cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                    token_tracker.record(
+                        category="internal",
+                        operation="conversation_digest",
+                        provider="anthropic",
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=response.usage.input_tokens + cache_read,
+                        output_tokens=response.usage.output_tokens,
+                        cache_read_tokens=cache_read,
+                    )
 
             # Parse the structured response
             digest = {
@@ -1154,7 +1246,8 @@ Be authentic and specific. Skip sections if genuinely nothing to note."""
         self,
         date: str,
         digests: List[Dict],
-        anthropic_api_key: str
+        anthropic_api_key: str,
+        token_tracker=None
     ) -> Optional[str]:
         """
         Generate a journal entry from pre-processed conversation digests.
@@ -1163,6 +1256,7 @@ Be authentic and specific. Skip sections if genuinely nothing to note."""
             date: Date string in YYYY-MM-DD format
             digests: List of conversation digests from generate_conversation_digest
             anthropic_api_key: API key for Claude
+            token_tracker: Optional token tracker for usage tracking
 
         Returns:
             Generated journal entry text or None if failed
@@ -1238,7 +1332,18 @@ Write naturally and personally. Let your genuine voice come through."""
                     timeout=120.0
                 )
                 if response.status_code == 200:
-                    return response.json().get("response", "")
+                    result = response.json()
+                    # Track token usage
+                    if token_tracker:
+                        token_tracker.record(
+                            category="internal",
+                            operation="journal_from_digests",
+                            provider="ollama",
+                            model=OLLAMA_MODEL,
+                            input_tokens=result.get("prompt_eval_count", 0),
+                            output_tokens=result.get("eval_count", 0),
+                        )
+                    return result.get("response", "")
                 # Fall through to Claude
 
             client = anthropic.Anthropic(api_key=anthropic_api_key)
@@ -1247,6 +1352,20 @@ Write naturally and personally. Let your genuine voice come through."""
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
+
+            # Track token usage
+            if token_tracker and response.usage:
+                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                token_tracker.record(
+                    category="internal",
+                    operation="journal_from_digests",
+                    provider="anthropic",
+                    model="claude-sonnet-4-20250514",
+                    input_tokens=response.usage.input_tokens + cache_read,
+                    output_tokens=response.usage.output_tokens,
+                    cache_read_tokens=cache_read,
+                )
+
             return response.content[0].text
 
         except Exception as e:
@@ -1260,7 +1379,8 @@ Write naturally and personally. Let your genuine voice come through."""
         display_name: str,
         journal_date: str,
         anthropic_api_key: str,
-        batch_size: int = 3
+        batch_size: int = 3,
+        token_tracker=None
     ) -> List[Dict]:
         """
         Extract user observations from summary chunks.
@@ -1275,6 +1395,7 @@ Write naturally and personally. Let your genuine voice come through."""
             journal_date: Date of the journal triggering this extraction
             anthropic_api_key: API key for Claude
             batch_size: Number of summaries to process per LLM call
+            token_tracker: Optional token tracker for usage tracking
 
         Returns:
             List of dicts with 'observation', 'source_summary_id', 'source_conversation_id'
@@ -1330,7 +1451,18 @@ Observations (one per line, starting with "{display_name}"):"""
                         timeout=60.0
                     )
                     if response.status_code == 200:
-                        result = response.json().get("response", "").strip()
+                        ollama_result = response.json()
+                        result = ollama_result.get("response", "").strip()
+                        # Track token usage
+                        if token_tracker:
+                            token_tracker.record(
+                                category="internal",
+                                operation="observation_extraction",
+                                provider="ollama",
+                                model=OLLAMA_MODEL,
+                                input_tokens=ollama_result.get("prompt_eval_count", 0),
+                                output_tokens=ollama_result.get("eval_count", 0),
+                            )
                     else:
                         result = "NONE"
                 else:
@@ -1341,6 +1473,18 @@ Observations (one per line, starting with "{display_name}"):"""
                         messages=[{"role": "user", "content": prompt}]
                     )
                     result = response.content[0].text.strip()
+                    # Track token usage
+                    if token_tracker and response.usage:
+                        cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                        token_tracker.record(
+                            category="internal",
+                            operation="observation_extraction",
+                            provider="anthropic",
+                            model="claude-sonnet-4-20250514",
+                            input_tokens=response.usage.input_tokens + cache_read,
+                            output_tokens=response.usage.output_tokens,
+                            cache_read_tokens=cache_read,
+                        )
 
                 # Parse observations
                 if result.upper() != "NONE" and "NONE" not in result.upper().split('\n')[0]:
@@ -2902,7 +3046,8 @@ Observations:"""
         date: str,
         conversations: List[Dict],
         existing_observations: List[Dict],
-        anthropic_api_key: str
+        anthropic_api_key: str,
+        token_tracker=None
     ) -> Optional[Dict]:
         """
         Generate a reflective journal entry about a specific user.
@@ -2914,6 +3059,7 @@ Observations:"""
             conversations: List of conversation dicts from that day
             existing_observations: Recent observations about this user
             anthropic_api_key: API key for Claude
+            token_tracker: Optional token tracker for usage tracking
 
         Returns:
             Dict with: content, topics_discussed, relationship_insights
@@ -2971,6 +3117,19 @@ RELATIONSHIP_INSIGHTS:
                 messages=[{"role": "user", "content": prompt}]
             )
 
+            # Track token usage
+            if token_tracker and response.usage:
+                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                token_tracker.record(
+                    category="internal",
+                    operation="per_user_journal",
+                    provider="anthropic",
+                    model="claude-sonnet-4-20250514",
+                    input_tokens=response.usage.input_tokens + cache_read,
+                    output_tokens=response.usage.output_tokens,
+                    cache_read_tokens=cache_read,
+                )
+
             result = response.content[0].text.strip()
 
             # Parse the structured parts
@@ -3020,7 +3179,8 @@ RELATIONSHIP_INSIGHTS:
         date: str,
         conversations: List[Dict],
         existing_opinions: List[Dict],
-        anthropic_api_key: str
+        anthropic_api_key: str,
+        token_tracker=None
     ) -> List[Dict]:
         """
         Extract new or evolved opinions from day's conversations.
@@ -3030,6 +3190,7 @@ RELATIONSHIP_INSIGHTS:
             conversations: List of conversation dicts
             existing_opinions: Current opinions from self-model
             anthropic_api_key: API key (used as fallback)
+            token_tracker: Optional token tracker for usage tracking
 
         Returns:
             List of dicts: {topic, position, confidence, rationale, formed_from, is_new, evolution_note}
@@ -3087,7 +3248,18 @@ If no notable opinions emerged, respond with only: NONE"""
                     timeout=60.0
                 )
                 if response.status_code == 200:
-                    result = response.json().get("response", "").strip()
+                    ollama_result = response.json()
+                    result = ollama_result.get("response", "").strip()
+                    # Track token usage
+                    if token_tracker:
+                        token_tracker.record(
+                            category="internal",
+                            operation="opinion_extraction",
+                            provider="ollama",
+                            model=OLLAMA_MODEL,
+                            input_tokens=ollama_result.get("prompt_eval_count", 0),
+                            output_tokens=ollama_result.get("eval_count", 0),
+                        )
                 else:
                     return []
             else:
@@ -3099,6 +3271,18 @@ If no notable opinions emerged, respond with only: NONE"""
                     messages=[{"role": "user", "content": prompt}]
                 )
                 result = response.content[0].text.strip()
+                # Track token usage
+                if token_tracker and response.usage:
+                    cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                    token_tracker.record(
+                        category="internal",
+                        operation="opinion_extraction",
+                        provider="anthropic",
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=response.usage.input_tokens + cache_read,
+                        output_tokens=response.usage.output_tokens,
+                        cache_read_tokens=cache_read,
+                    )
 
             if result.upper() == "NONE" or "NONE" in result.upper().split('\n')[0]:
                 return []

@@ -215,9 +215,11 @@ class SoloReflectionRunner:
         ollama_base_url: str = "http://localhost:11434",
         ollama_model: str = "llama3.1:8b-instruct-q8_0",
         self_manager=None,
+        token_tracker=None,
     ):
         self.manager = reflection_manager
         self.self_manager = self_manager
+        self.token_tracker = token_tracker
         self._running = False
         self._current_task: Optional[asyncio.Task] = None
 
@@ -489,6 +491,19 @@ class SoloReflectionRunner:
                 )
             )
 
+            # Track token usage for reflection
+            if self.token_tracker and response.usage:
+                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+                self.token_tracker.record(
+                    category="reflection",
+                    operation="solo_session",
+                    provider="anthropic",
+                    model=self.haiku_model,
+                    input_tokens=response.usage.input_tokens + cache_read,
+                    output_tokens=response.usage.output_tokens,
+                    cache_read_tokens=cache_read,
+                )
+
             # Extract tool calls from response
             tool_calls = [block for block in response.content if block.type == "tool_use"]
             text_content = "".join(
@@ -532,7 +547,20 @@ class SoloReflectionRunner:
                     }
                 )
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+
+                # Track token usage for Ollama reflection
+                if self.token_tracker:
+                    self.token_tracker.record(
+                        category="reflection",
+                        operation="solo_session",
+                        provider="ollama",
+                        model=self.ollama_model,
+                        input_tokens=result.get("prompt_eval_count", 0),
+                        output_tokens=result.get("eval_count", 0),
+                    )
+
+                return result
             except Exception as e:
                 print(f"Ollama call failed: {e}")
                 return None

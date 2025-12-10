@@ -1,10 +1,31 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { goalsApi } from '../api/client';
+import { goalsApi, schedulesApi } from '../api/client';
 import ReactMarkdown from 'react-markdown';
 import './Goals.css';
 
-type TabType = 'overview' | 'questions' | 'agenda' | 'artifacts' | 'initiatives' | 'progress';
+type TabType = 'overview' | 'questions' | 'agenda' | 'schedules' | 'artifacts' | 'initiatives' | 'progress';
+
+interface ResearchSchedule {
+  schedule_id: string;
+  created_at: string;
+  status: string;
+  requested_by: string;
+  focus_description: string;
+  focus_item_id: string | null;
+  recurrence: string;
+  preferred_time: string;
+  duration_minutes: number;
+  mode: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
+  last_run: string | null;
+  next_run: string | null;
+  run_count: number;
+  last_session_id: string | null;
+  notes: string;
+}
 
 interface WorkingQuestion {
   id: string;
@@ -85,6 +106,7 @@ export default function Goals() {
   const [selectedAgendaItem, setSelectedAgendaItem] = useState<string | null>(null);
   const [selectedArtifact, setSelectedArtifact] = useState<string | null>(null);
   const [initiativeResponse, setInitiativeResponse] = useState<{ id: string; status: string; response: string } | null>(null);
+  const [scheduleRejection, setScheduleRejection] = useState<{ id: string; reason: string } | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -136,6 +158,12 @@ export default function Goals() {
     enabled: activeTab === 'overview',
   });
 
+  const { data: schedulesData } = useQuery({
+    queryKey: ['research', 'schedules'],
+    queryFn: () => schedulesApi.getAll(),
+    enabled: activeTab === 'schedules' || activeTab === 'overview',
+  });
+
   // Mutations
   const respondMutation = useMutation({
     mutationFn: ({ id, status, response }: { id: string; status: string; response: string }) =>
@@ -143,6 +171,35 @@ export default function Goals() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goals'] });
       setInitiativeResponse(null);
+    },
+  });
+
+  const approveScheduleMutation = useMutation({
+    mutationFn: (id: string) => schedulesApi.approve(id, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research', 'schedules'] });
+    },
+  });
+
+  const rejectScheduleMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => schedulesApi.reject(id, reason || 'No reason provided'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research', 'schedules'] });
+      setScheduleRejection(null);
+    },
+  });
+
+  const pauseScheduleMutation = useMutation({
+    mutationFn: (id: string) => schedulesApi.pause(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research', 'schedules'] });
+    },
+  });
+
+  const resumeScheduleMutation = useMutation({
+    mutationFn: (id: string) => schedulesApi.resume(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['research', 'schedules'] });
     },
   });
 
@@ -543,6 +600,141 @@ export default function Goals() {
     );
   };
 
+  const renderSchedules = () => {
+    const schedules: ResearchSchedule[] = schedulesData?.data?.schedules || [];
+
+    if (schedules.length === 0) {
+      return <div className="empty-state">No research schedules yet. Cass will request them when she wants recurring research sessions.</div>;
+    }
+
+    const pending = schedules.filter(s => s.status === 'pending_approval');
+    const active = schedules.filter(s => s.status === 'active');
+    const paused = schedules.filter(s => s.status === 'paused');
+    const rejected = schedules.filter(s => s.status === 'rejected');
+
+    const formatRecurrence = (recurrence: string) => {
+      const map: Record<string, string> = {
+        'daily': 'Daily',
+        'weekly': 'Weekly',
+        'biweekly': 'Every 2 weeks',
+        'monthly': 'Monthly',
+        'once': 'One-time',
+      };
+      return map[recurrence] || recurrence;
+    };
+
+    const renderScheduleCard = (schedule: ResearchSchedule) => (
+      <div key={schedule.schedule_id} className={`schedule-card status-${schedule.status}`}>
+        <div className="schedule-header">
+          <span className={`status-badge status-${schedule.status}`}>
+            {schedule.status.replace('_', ' ')}
+          </span>
+          <span className="schedule-mode">{schedule.mode}</span>
+          <span className="schedule-date">
+            {new Date(schedule.created_at).toLocaleDateString()}
+          </span>
+        </div>
+        <div className="schedule-focus">{schedule.focus_description}</div>
+        <div className="schedule-meta">
+          <span>{formatRecurrence(schedule.recurrence)}</span>
+          <span>at {schedule.preferred_time}</span>
+          <span>{schedule.duration_minutes} min</span>
+          {schedule.run_count > 0 && <span>{schedule.run_count} runs</span>}
+        </div>
+        {schedule.next_run && (
+          <div className="schedule-next">
+            Next run: {new Date(schedule.next_run).toLocaleString()}
+          </div>
+        )}
+        {schedule.rejection_reason && (
+          <div className="schedule-rejection">
+            Rejection reason: {schedule.rejection_reason}
+          </div>
+        )}
+        {schedule.notes && (
+          <div className="schedule-notes">Notes: {schedule.notes}</div>
+        )}
+        <div className="schedule-actions">
+          {schedule.status === 'pending_approval' && (
+            <>
+              <button
+                onClick={() => approveScheduleMutation.mutate(schedule.schedule_id)}
+                className="btn-approve"
+                disabled={approveScheduleMutation.isPending}
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => setScheduleRejection({ id: schedule.schedule_id, reason: '' })}
+                className="btn-reject"
+              >
+                Reject
+              </button>
+            </>
+          )}
+          {schedule.status === 'active' && (
+            <button
+              onClick={() => pauseScheduleMutation.mutate(schedule.schedule_id)}
+              className="btn-pause"
+              disabled={pauseScheduleMutation.isPending}
+            >
+              Pause
+            </button>
+          )}
+          {schedule.status === 'paused' && (
+            <button
+              onClick={() => resumeScheduleMutation.mutate(schedule.schedule_id)}
+              className="btn-resume"
+              disabled={resumeScheduleMutation.isPending}
+            >
+              Resume
+            </button>
+          )}
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="schedules-view">
+        {pending.length > 0 && (
+          <div className="schedules-section">
+            <h3>Pending Approval</h3>
+            <div className="schedules-list">
+              {pending.map(renderScheduleCard)}
+            </div>
+          </div>
+        )}
+
+        {active.length > 0 && (
+          <div className="schedules-section">
+            <h3>Active</h3>
+            <div className="schedules-list">
+              {active.map(renderScheduleCard)}
+            </div>
+          </div>
+        )}
+
+        {paused.length > 0 && (
+          <div className="schedules-section">
+            <h3>Paused</h3>
+            <div className="schedules-list">
+              {paused.map(renderScheduleCard)}
+            </div>
+          </div>
+        )}
+
+        {rejected.length > 0 && (
+          <div className="schedules-section">
+            <h3>Rejected</h3>
+            <div className="schedules-list">
+              {rejected.map(renderScheduleCard)}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderProgress = () => {
     const entries: ProgressEntry[] = progressData?.data?.entries || [];
 
@@ -597,6 +789,17 @@ export default function Goals() {
           Research Agenda
         </button>
         <button
+          className={activeTab === 'schedules' ? 'active' : ''}
+          onClick={() => setActiveTab('schedules')}
+        >
+          Schedules
+          {(schedulesData?.data?.schedules?.filter((s: ResearchSchedule) => s.status === 'pending_approval').length ?? 0) > 0 && (
+            <span className="badge">
+              {schedulesData?.data?.schedules?.filter((s: ResearchSchedule) => s.status === 'pending_approval').length}
+            </span>
+          )}
+        </button>
+        <button
           className={activeTab === 'artifacts' ? 'active' : ''}
           onClick={() => setActiveTab('artifacts')}
         >
@@ -625,6 +828,7 @@ export default function Goals() {
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'questions' && renderQuestions()}
         {activeTab === 'agenda' && renderAgenda()}
+        {activeTab === 'schedules' && renderSchedules()}
         {activeTab === 'artifacts' && renderArtifacts()}
         {activeTab === 'initiatives' && renderInitiatives()}
         {activeTab === 'progress' && renderProgress()}
@@ -653,6 +857,35 @@ export default function Goals() {
                 disabled={respondMutation.isPending}
               >
                 {respondMutation.isPending ? 'Sending...' : `Mark as ${initiativeResponse.status}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Rejection Modal */}
+      {scheduleRejection && (
+        <div className="modal-overlay" onClick={() => setScheduleRejection(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Reject Research Schedule</h3>
+            <div className="modal-body">
+              <label>
+                Reason (optional):
+                <textarea
+                  value={scheduleRejection.reason}
+                  onChange={(e) => setScheduleRejection({ ...scheduleRejection, reason: e.target.value })}
+                  placeholder="Why are you rejecting this schedule?"
+                />
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setScheduleRejection(null)}>Cancel</button>
+              <button
+                onClick={() => rejectScheduleMutation.mutate({ id: scheduleRejection.id, reason: scheduleRejection.reason })}
+                className="btn-reject"
+                disabled={rejectScheduleMutation.isPending}
+              >
+                {rejectScheduleMutation.isPending ? 'Rejecting...' : 'Reject Schedule'}
               </button>
             </div>
           </div>

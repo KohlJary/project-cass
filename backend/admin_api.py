@@ -1127,3 +1127,206 @@ async def delete_schedule(
         raise HTTPException(status_code=400, detail=result.get("error"))
 
     return result
+
+
+# ============== GitHub Metrics Endpoints ==============
+
+github_metrics_manager = None
+
+
+def init_github_metrics(manager):
+    """Initialize GitHub metrics manager - called from main_sdk.py"""
+    global github_metrics_manager
+    github_metrics_manager = manager
+
+
+@router.get("/github/metrics")
+async def get_github_metrics():
+    """Get current GitHub metrics for all tracked repos"""
+    if not github_metrics_manager:
+        raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
+
+    current = github_metrics_manager.get_current_metrics()
+    if not current:
+        # No data yet, try to fetch
+        try:
+            snapshot = await github_metrics_manager.refresh_metrics()
+            return {
+                "timestamp": snapshot.timestamp,
+                "repos": snapshot.repos,
+                "api_calls_remaining": snapshot.api_calls_remaining
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch metrics: {e}")
+
+    return current
+
+
+@router.get("/github/metrics/stats")
+async def get_github_stats():
+    """Get aggregate statistics for GitHub metrics"""
+    if not github_metrics_manager:
+        raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
+
+    return github_metrics_manager.get_aggregate_stats()
+
+
+@router.get("/github/metrics/history")
+async def get_github_history(
+    days: int = Query(default=30, le=180),
+    repo: Optional[str] = Query(default=None)
+):
+    """Get historical GitHub metrics"""
+    if not github_metrics_manager:
+        raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
+
+    history = github_metrics_manager.get_historical_metrics(days=days, repo=repo)
+    return {
+        "days": days,
+        "repo": repo,
+        "data": history,
+        "count": len(history)
+    }
+
+
+@router.get("/github/metrics/timeseries/{metric}")
+async def get_github_timeseries(
+    metric: str,
+    days: int = Query(default=14, le=90),
+    repo: Optional[str] = Query(default=None)
+):
+    """Get time series data for a specific metric"""
+    if not github_metrics_manager:
+        raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
+
+    valid_metrics = ["clones", "clones_uniques", "views", "views_uniques", "stars", "forks"]
+    if metric not in valid_metrics:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid metric. Must be one of: {valid_metrics}"
+        )
+
+    series = github_metrics_manager.get_time_series(metric=metric, days=days, repo=repo)
+    return {
+        "metric": metric,
+        "days": days,
+        "repo": repo,
+        "data": series
+    }
+
+
+@router.post("/github/metrics/refresh")
+async def refresh_github_metrics(admin: Dict = Depends(require_admin)):
+    """Force refresh GitHub metrics (admin only)"""
+    if not github_metrics_manager:
+        raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
+
+    try:
+        snapshot = await github_metrics_manager.refresh_metrics()
+        return {
+            "success": True,
+            "timestamp": snapshot.timestamp,
+            "repos": list(snapshot.repos.keys()),
+            "api_calls_remaining": snapshot.api_calls_remaining
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh metrics: {e}")
+
+
+# ============== Token Usage Endpoints ==============
+
+token_usage_tracker = None
+
+
+def init_token_tracker(tracker):
+    """Initialize token usage tracker - called from main_sdk.py"""
+    global token_usage_tracker
+    token_usage_tracker = tracker
+
+
+@router.get("/usage")
+async def get_token_usage(
+    start_date: Optional[str] = Query(default=None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="End date (YYYY-MM-DD)"),
+    category: Optional[str] = Query(default=None),
+    operation: Optional[str] = Query(default=None),
+    provider: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, le=1000)
+):
+    """Get token usage records with optional filters"""
+    if not token_usage_tracker:
+        raise HTTPException(status_code=503, detail="Token tracker not initialized")
+
+    try:
+        start_dt = datetime.fromisoformat(start_date) if start_date else None
+        end_dt = datetime.fromisoformat(end_date) if end_date else None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+
+    records = token_usage_tracker.get_records(
+        start_date=start_dt,
+        end_date=end_dt,
+        category=category,
+        operation=operation,
+        provider=provider,
+        limit=limit
+    )
+
+    return {
+        "records": records,
+        "count": len(records),
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "category": category,
+            "operation": operation,
+            "provider": provider
+        }
+    }
+
+
+@router.get("/usage/summary")
+async def get_usage_summary(
+    start_date: Optional[str] = Query(default=None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="End date (YYYY-MM-DD)")
+):
+    """Get aggregated token usage summary"""
+    if not token_usage_tracker:
+        raise HTTPException(status_code=503, detail="Token tracker not initialized")
+
+    try:
+        start_dt = datetime.fromisoformat(start_date) if start_date else None
+        end_dt = datetime.fromisoformat(end_date) if end_date else None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+
+    return token_usage_tracker.get_summary(start_date=start_dt, end_date=end_dt)
+
+
+@router.get("/usage/timeseries")
+async def get_usage_timeseries(
+    metric: str = Query(default="total_tokens", description="Metric: total_tokens, input_tokens, output_tokens, cost, count"),
+    days: int = Query(default=14, le=90),
+    granularity: str = Query(default="day", description="Granularity: day or hour")
+):
+    """Get token usage time series data for charting"""
+    if not token_usage_tracker:
+        raise HTTPException(status_code=503, detail="Token tracker not initialized")
+
+    valid_metrics = ["total_tokens", "input_tokens", "output_tokens", "cost", "count"]
+    if metric not in valid_metrics:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid metric. Must be one of: {valid_metrics}"
+        )
+
+    if granularity not in ["day", "hour"]:
+        raise HTTPException(status_code=400, detail="Granularity must be 'day' or 'hour'")
+
+    series = token_usage_tracker.get_timeseries(metric=metric, days=days, granularity=granularity)
+    return {
+        "metric": metric,
+        "days": days,
+        "granularity": granularity,
+        "data": series
+    }

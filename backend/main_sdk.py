@@ -209,6 +209,14 @@ research_manager = ResearchManager(data_dir=DATA_DIR)
 research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
 research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
 
+# Initialize GitHub metrics manager
+from github_metrics import GitHubMetricsManager
+github_metrics_manager = GitHubMetricsManager(data_dir=DATA_DIR)
+
+# Initialize token usage tracker
+from token_tracker import TokenUsageTracker
+token_tracker = TokenUsageTracker(data_dir=DATA_DIR)
+
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
 init_roadmap_routes(roadmap_manager)
@@ -568,7 +576,7 @@ async def process_inline_tags(
 
 # Register wiki routes (with memory for embeddings)
 from routes.wiki import router as wiki_router, init_wiki_routes, set_data_dir as set_wiki_data_dir
-init_wiki_routes(wiki_storage, memory)
+init_wiki_routes(wiki_storage, memory, token_tracker=token_tracker)
 set_wiki_data_dir(DATA_DIR)
 app.include_router(wiki_router)
 
@@ -596,10 +604,12 @@ init_auth_routes(auth_service)
 app.include_router(auth_router)
 
 # Register admin routes
-from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler
+from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker
 init_admin_managers(memory, conversation_manager, user_manager, self_manager)
 init_research_session_manager(research_session_manager)
 init_research_scheduler(research_scheduler)
+init_github_metrics(github_metrics_manager)
+init_token_tracker(token_tracker)
 app.include_router(admin_router)
 
 # Register testing routes
@@ -756,7 +766,8 @@ async def generate_missing_journals(days_to_check: int = 7):
             # === PHASE 1: Main Journal (existing) ===
             journal_text = await memory.generate_journal_entry(
                 date=date_str,
-                anthropic_api_key=ANTHROPIC_API_KEY
+                anthropic_api_key=ANTHROPIC_API_KEY,
+                token_tracker=token_tracker
             )
 
             if not journal_text:
@@ -866,7 +877,8 @@ async def _generate_per_user_journal_for_date(user_id: str, date_str: str):
         date=date_str,
         conversations=user_conversations,
         existing_observations=obs_dicts,
-        anthropic_api_key=ANTHROPIC_API_KEY
+        anthropic_api_key=ANTHROPIC_API_KEY,
+        token_tracker=token_tracker
     )
 
     if journal_data:
@@ -937,7 +949,8 @@ async def _extract_and_store_opinions(date_str: str, conversations: list):
         date=date_str,
         conversations=conversations,
         existing_opinions=existing_opinions,
-        anthropic_api_key=ANTHROPIC_API_KEY
+        anthropic_api_key=ANTHROPIC_API_KEY,
+        token_tracker=token_tracker
     )
 
     added_count = 0
@@ -1151,6 +1164,19 @@ Write a brief journal entry (2-4 paragraphs) reflecting on:
 Write in first person as Cass. Be genuine and thoughtful, not performative."""
             }]
         )
+
+        # Track token usage
+        if token_tracker and response.usage:
+            cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+            token_tracker.record(
+                category="internal",
+                operation="research_journal",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+                input_tokens=response.usage.input_tokens + cache_read,
+                output_tokens=response.usage.output_tokens,
+                cache_read_tokens=cache_read,
+            )
 
         research_journal = response.content[0].text
 
@@ -1618,6 +1644,29 @@ Focus on genuine developmental signals, not just activity summaries. If no meani
         traceback.print_exc()
 
 
+async def github_metrics_task():
+    """
+    Background task that periodically fetches GitHub metrics.
+    Runs every 6 hours to stay well under rate limits.
+    """
+    # Initial fetch on startup (after a short delay)
+    await asyncio.sleep(30)  # Wait for other startup tasks
+    try:
+        await github_metrics_manager.refresh_metrics()
+        logger.info("Initial GitHub metrics fetch completed")
+    except Exception as e:
+        logger.error(f"Initial GitHub metrics fetch failed: {e}")
+
+    # Then run every 6 hours
+    while True:
+        await asyncio.sleep(6 * 60 * 60)  # 6 hours
+        try:
+            await github_metrics_manager.refresh_metrics()
+            logger.info("Scheduled GitHub metrics fetch completed")
+        except Exception as e:
+            logger.error(f"Scheduled GitHub metrics fetch failed: {e}")
+
+
 async def daily_journal_task():
     """
     Background task that generates yesterday's journal entry.
@@ -1986,6 +2035,9 @@ async def startup_event():
     # Start background task for autonomous research scheduling
     asyncio.create_task(autonomous_research_task())
 
+    # Start background task for GitHub metrics collection
+    asyncio.create_task(github_metrics_task())
+
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
 ║              CASS VESSEL SERVER v0.2.0                    ║
@@ -2073,7 +2125,8 @@ async def generate_and_store_summary(conversation_id: str, force: bool = False, 
         summary_text = await memory.generate_summary_chunk(
             conversation_id=conversation_id,
             messages=messages,
-            anthropic_api_key=ANTHROPIC_API_KEY
+            anthropic_api_key=ANTHROPIC_API_KEY,
+            token_tracker=token_tracker
         )
 
         if not summary_text:
@@ -2113,7 +2166,8 @@ async def generate_and_store_summary(conversation_id: str, force: bool = False, 
                 conversation_id=conversation_id,
                 conversation_title=conversation.title,
                 new_chunk=summary_text,  # The chunk we just created
-                existing_summary=existing_summary  # Existing working summary to integrate into
+                existing_summary=existing_summary,  # Existing working summary to integrate into
+                token_tracker=token_tracker
             )
             if working_summary:
                 conversation_manager.update_working_summary(conversation_id, working_summary)
@@ -2148,6 +2202,18 @@ async def generate_conversation_title(conversation_id: str, user_message: str, a
                 "content": f"Generate a short, descriptive title (3-6 words) for a conversation that started with:\n\nUser: {user_message[:500]}\n\nAssistant: {assistant_response[:500]}\n\nRespond with ONLY the title, no quotes or punctuation."
             }]
         )
+
+        # Track token usage for title generation
+        if token_tracker and response.usage:
+            token_tracker.record(
+                category="internal",
+                operation="title_generation",
+                provider="anthropic",
+                model="claude-3-5-haiku-latest",
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                conversation_id=conversation_id
+            )
 
         title = response.content[0].text.strip().strip('"').strip("'")
 
@@ -2354,6 +2420,12 @@ async def chat(request: ChatRequest):
 
     tool_uses = []
 
+    # Track token usage across tool continuations
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cache_read_tokens = 0
+    tool_iterations = 0
+
     if USE_AGENT_SDK and agent_client:
         # Use Agent SDK with Temple-Codex kernel
         response = await agent_client.send_message(
@@ -2369,6 +2441,11 @@ async def chat(request: ChatRequest):
         clean_text = response.text
         animations = response.gestures
         tool_uses = response.tool_uses
+
+        # Track initial tokens (including cache)
+        total_input_tokens += response.input_tokens
+        total_output_tokens += response.output_tokens
+        total_cache_read_tokens += response.cache_read_tokens
 
         # Handle tool calls
         while response.stop_reason == "tool_use" and tool_uses:
@@ -2534,6 +2611,12 @@ async def chat(request: ChatRequest):
                     is_error=not tool_result.get("success", False)
                 )
 
+                # Track tokens from continuation (including cache)
+                total_input_tokens += response.input_tokens
+                total_output_tokens += response.output_tokens
+                total_cache_read_tokens += response.cache_read_tokens
+                tool_iterations += 1
+
                 # Update response data - accumulate text from before and after tool calls
                 raw_response += "\n" + response.raw
                 if response.text:
@@ -2618,6 +2701,21 @@ async def chat(request: ChatRequest):
         if should_summarize:
             # Run summarization in background
             asyncio.create_task(generate_and_store_summary(request.conversation_id))
+
+    # Track token usage for REST endpoint
+    if USE_AGENT_SDK and total_input_tokens > 0:
+        operation = "tool_continuation" if tool_iterations > 0 else "initial_message"
+        token_tracker.record(
+            category="chat",
+            operation=operation,
+            provider="anthropic",  # Agent SDK uses Anthropic
+            model=agent_client.model if agent_client else "unknown",
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            cache_read_tokens=total_cache_read_tokens,
+            conversation_id=request.conversation_id,
+            user_id=current_user_id
+        )
 
     return ChatResponse(
         text=clean_text,
@@ -3335,7 +3433,8 @@ async def generate_journal(request: JournalGenerateRequest):
     # Generate the journal entry
     journal_text = await memory.generate_journal_entry(
         date=date,
-        anthropic_api_key=ANTHROPIC_API_KEY
+        anthropic_api_key=ANTHROPIC_API_KEY,
+        token_tracker=token_tracker
     )
 
     if not journal_text:
@@ -3770,6 +3869,7 @@ def get_reflection_runner() -> SoloReflectionRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             self_manager=self_manager,
+            token_tracker=token_tracker,
         )
     return _reflection_runner
 
@@ -6120,6 +6220,19 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         output_tokens=total_output_tokens,
                         provider=response_provider,
                         model=response_model
+                    )
+
+                    # Track token usage
+                    operation = "tool_continuation" if tool_iterations_count > 0 else "initial_message"
+                    token_tracker.record(
+                        category="chat",
+                        operation=operation,
+                        provider=response_provider,
+                        model=response_model,
+                        input_tokens=total_input_tokens,
+                        output_tokens=total_output_tokens,
+                        conversation_id=conversation_id,
+                        user_id=ws_user_id
                     )
 
                     # Auto-generate title on first exchange
