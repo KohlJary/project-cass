@@ -18,6 +18,7 @@ from .goals import execute_goal_tool, GOAL_TOOLS
 from .web_research import execute_web_research_tool, WEB_RESEARCH_TOOLS
 from .research_session import execute_research_session_tool, RESEARCH_SESSION_TOOLS
 from .research_scheduler import execute_research_scheduler_tool, RESEARCH_SCHEDULER_TOOLS
+from .memory import execute_memory_tool, MEMORY_TOOLS
 
 __all__ = [
     "execute_document_tool",
@@ -47,4 +48,6 @@ __all__ = [
     "RESEARCH_SESSION_TOOLS",
     "execute_research_scheduler_tool",
     "RESEARCH_SCHEDULER_TOOLS",
+    "execute_memory_tool",
+    "MEMORY_TOOLS",
 ]

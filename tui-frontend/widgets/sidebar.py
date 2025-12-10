@@ -78,7 +78,7 @@ class UserSelector(Vertical):
 ANTHROPIC_MODELS = [
     ("claude-sonnet-4-20250514", "Claude Sonnet 4"),
     ("claude-opus-4-20250514", "Claude Opus 4"),
-    ("claude-haiku-3-5-20241022", "Claude Haiku 3.5"),
+    ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
 ]
 
 OPENAI_MODELS = [

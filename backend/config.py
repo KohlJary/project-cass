@@ -74,6 +74,12 @@ MEMORY_RETRIEVAL_COUNT = 5  # How many relevant memories to pull
 AUTO_SUMMARY_INTERVAL = 20  # Generate summary after N messages without one
 SUMMARY_CONTEXT_MESSAGES = 30  # How many recent messages to include when generating summary
 
+# Summarizer provider: "ollama" (local, free), "haiku" (Claude Haiku, fast/cheap), "sonnet" (Claude Sonnet, best quality)
+# Haiku recommended for better narrative quality while staying cost-effective
+SUMMARIZER_PROVIDER = os.getenv("SUMMARIZER_PROVIDER", "haiku")
+SUMMARIZER_MODEL_HAIKU = "claude-haiku-4-5-20251001"
+SUMMARIZER_MODEL_SONNET = "claude-sonnet-4-20250514"
+
 # Onboarding Introduction Prompt
 # Used when a new user creates their profile and Cass introduces herself
 ONBOARDING_INTRO_PROMPT = """

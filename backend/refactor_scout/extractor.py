@@ -478,7 +478,7 @@ class CodeExtractor:
         """Add an import statement to source file after existing imports."""
         lines = content.splitlines(keepends=True)
 
-        # Find the last import line
+        # Find the last MODULE-LEVEL import line (not indented)
         last_import_idx = 0
         in_docstring = False
         docstring_char = None
@@ -499,8 +499,9 @@ class CodeExtractor:
                     in_docstring = False
                 continue
 
-            # Check for import statements
-            if stripped.startswith('import ') or stripped.startswith('from '):
+            # Check for MODULE-LEVEL import statements (not indented)
+            # This prevents inserting into if __name__ == "__main__" blocks
+            if (stripped.startswith('import ') or stripped.startswith('from ')) and not line[0].isspace():
                 last_import_idx = i + 1
 
         # Insert after last import (or at beginning if no imports)
