@@ -13,11 +13,14 @@ from .opportunities import OpportunityIdentifier
 from .reporter import Reporter
 from .models import AnalysisResult, ScoutReport
 from .extractor import CodeExtractor, GitIntegration
+from .database import ScoutDatabase
+from .config import load_config, save_config, generate_default_config, ScoutConfig
 
 
 def analyze_file(
     path: str,
-    thresholds: Optional[dict] = None
+    thresholds: Optional[dict] = None,
+    db: Optional[ScoutDatabase] = None,
 ) -> AnalysisResult:
     """Analyze a single Python file."""
     analyzer = FileAnalyzer()
@@ -27,6 +30,10 @@ def analyze_file(
     metrics = analyzer.analyze(path)
     violations = checker.check(metrics)
     opportunities = identifier.identify(metrics)
+
+    # Record in database if provided
+    if db:
+        db.record_scout(path, metrics)
 
     return AnalysisResult(
         metrics=metrics,
@@ -38,7 +45,9 @@ def analyze_file(
 def scan_directory(
     directory: str,
     thresholds: Optional[dict] = None,
-    exclude_patterns: Optional[List[str]] = None
+    exclude_patterns: Optional[List[str]] = None,
+    db: Optional[ScoutDatabase] = None,
+    config: Optional[ScoutConfig] = None,
 ) -> ScoutReport:
     """Scan all Python files in a directory."""
     exclude = exclude_patterns or ['__pycache__', '.venv', 'venv', '.git']
@@ -52,11 +61,29 @@ def scan_directory(
         for file in files:
             if file.endswith('.py'):
                 path = os.path.join(root, file)
+
+                # Check if path should be skipped via config
+                if config and config.should_skip_path(path):
+                    continue
+
                 try:
-                    result = analyze_file(path, thresholds)
+                    result = analyze_file(path, thresholds, db)
                     report.results.append(result)
                 except Exception as e:
                     print(f"Warning: Could not analyze {path}: {e}", file=sys.stderr)
+
+    # Record snapshot if database provided
+    if db:
+        stats = report.get_summary_stats()
+        db.record_snapshot(
+            total_files=stats["total_files"],
+            healthy_files=stats["healthy_files"],
+            needs_attention=stats["needs_attention"],
+            critical_files=stats["critical_files"],
+            overall_score=stats["health_score"],
+            total_lines=stats["total_lines"],
+            avg_file_size=stats["avg_lines"],
+        )
 
     return report
 
@@ -88,6 +115,15 @@ Examples:
 
   # Extract functions to a new module
   python -m backend.refactor_scout extract-functions backend/main_sdk.py get_user,get_project -o backend/getters.py
+
+  # View file history
+  python -m backend.refactor_scout history backend/main_sdk.py
+
+  # View dashboard
+  python -m backend.refactor_scout dashboard
+
+  # Initialize/show config
+  python -m backend.refactor_scout config --init
         """
     )
 
@@ -174,23 +210,80 @@ Examples:
         '--json', action='store_true', help='Output result as JSON'
     )
 
+    # History command
+    history_parser = subparsers.add_parser(
+        'history', help='View Scout history for a file'
+    )
+    history_parser.add_argument('path', help='Path to Python file')
+
+    # Dashboard command
+    dashboard_parser = subparsers.add_parser(
+        'dashboard', help='View Scout dashboard with health trends'
+    )
+
+    # Config command
+    config_parser = subparsers.add_parser(
+        'config', help='Manage Scout configuration'
+    )
+    config_parser.add_argument(
+        '--init', action='store_true',
+        help='Initialize scout.yaml with default configuration'
+    )
+    config_parser.add_argument(
+        '--show', action='store_true',
+        help='Show current configuration'
+    )
+
+    # Global arguments
+    parser.add_argument(
+        '--config', '-c', default=None,
+        help='Path to Scout configuration file'
+    )
+    parser.add_argument(
+        '--no-db', action='store_true',
+        help='Disable database recording'
+    )
+
     args = parser.parse_args()
 
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
-    # Build thresholds from args
+    # Load configuration
+    config = load_config(getattr(args, 'config', None))
+
+    # Initialize database (unless disabled)
+    db = None
+    if not getattr(args, 'no_db', False):
+        db = ScoutDatabase()
+
+    # Build thresholds from args (CLI overrides config)
     thresholds = _build_thresholds(args)
+    if not thresholds:
+        thresholds = config.thresholds.to_dict()
 
     reporter = Reporter()
+
+    # Handle config command first (doesn't need thresholds)
+    if args.command == 'config':
+        _handle_config(args)
+        return
+
+    if args.command == 'history':
+        _handle_history(args, db)
+        return
+
+    if args.command == 'dashboard':
+        _handle_dashboard(db)
+        return
 
     if args.command == 'analyze':
         if not os.path.exists(args.path):
             print(f"Error: File not found: {args.path}", file=sys.stderr)
             sys.exit(1)
 
-        result = analyze_file(args.path, thresholds)
+        result = analyze_file(args.path, thresholds, db)
 
         if args.json:
             print(result.to_json())
@@ -202,7 +295,7 @@ Examples:
             print(f"Error: Directory not found: {args.directory}", file=sys.stderr)
             sys.exit(1)
 
-        report = scan_directory(args.directory, thresholds)
+        report = scan_directory(args.directory, thresholds, db=db, config=config)
 
         if args.json:
             print(report.to_json())
@@ -224,7 +317,7 @@ Examples:
             print(f"Error: Directory not found: {args.directory}", file=sys.stderr)
             sys.exit(1)
 
-        report = scan_directory(args.directory, thresholds)
+        report = scan_directory(args.directory, thresholds, db=db, config=config)
 
         if args.json:
             output = report.to_json()
@@ -239,13 +332,13 @@ Examples:
             print(output)
 
     elif args.command == 'extract-class':
-        _handle_extract_class(args)
+        _handle_extract_class(args, db)
 
     elif args.command == 'extract-functions':
-        _handle_extract_functions(args)
+        _handle_extract_functions(args, db)
 
 
-def _handle_extract_class(args):
+def _handle_extract_class(args, db: Optional[ScoutDatabase] = None):
     """Handle extract-class command."""
     git = GitIntegration()
     extractor = CodeExtractor()
@@ -290,6 +383,17 @@ def _handle_extract_class(args):
             git.switch_branch(original_branch)
         sys.exit(1)
 
+    # Record extraction in database
+    if db and result.success:
+        db.record_extraction(
+            source_path=result.source_file,
+            extraction_type="extract_class",
+            target_path=result.target_file or "",
+            lines_moved=result.lines_moved,
+            items_extracted=result.items_extracted,
+            commit_hash=None,  # Will be set after commit
+        )
+
     # Commit if requested
     if args.commit:
         if git.commit_extraction(result):
@@ -298,7 +402,7 @@ def _handle_extract_class(args):
             print("Warning: Failed to commit extraction", file=sys.stderr)
 
 
-def _handle_extract_functions(args):
+def _handle_extract_functions(args, db: Optional[ScoutDatabase] = None):
     """Handle extract-functions command."""
     git = GitIntegration()
     extractor = CodeExtractor()
@@ -346,12 +450,90 @@ def _handle_extract_functions(args):
             git.switch_branch(original_branch)
         sys.exit(1)
 
+    # Record extraction in database
+    if db and result.success:
+        db.record_extraction(
+            source_path=result.source_file,
+            extraction_type="extract_functions",
+            target_path=result.target_file or "",
+            lines_moved=result.lines_moved,
+            items_extracted=result.items_extracted,
+            commit_hash=None,
+        )
+
     # Commit if requested
     if args.commit:
         if git.commit_extraction(result):
             print("Committed extraction")
         else:
             print("Warning: Failed to commit extraction", file=sys.stderr)
+
+
+def _handle_config(args):
+    """Handle config command."""
+    if args.init:
+        config_path = "scout.yaml"
+        if os.path.exists(config_path):
+            print(f"Config file already exists: {config_path}")
+            print("Use --show to view current configuration")
+            return
+
+        config_content = generate_default_config()
+        with open(config_path, "w") as f:
+            f.write(config_content)
+        print(f"Created default configuration: {config_path}")
+        return
+
+    # Default: show current config
+    config = load_config()
+    print("Current Scout Configuration")
+    print("=" * 60)
+    print()
+    print("Thresholds:")
+    thresholds = config.thresholds
+    print(f"  max_lines: {thresholds.max_lines}")
+    print(f"  max_imports: {thresholds.max_imports}")
+    print(f"  max_functions: {thresholds.max_functions}")
+    print(f"  max_function_length: {thresholds.max_function_length}")
+    print(f"  max_classes_per_file: {thresholds.max_classes_per_file}")
+    print(f"  complexity_warning: {thresholds.complexity_warning}")
+    print(f"  complexity_critical: {thresholds.complexity_critical}")
+    print(f"  scout_cooldown_days: {thresholds.scout_cooldown_days}")
+    print()
+    print("Execution:")
+    exec_cfg = config.execution
+    print(f"  max_extractions_per_scout: {exec_cfg.max_extractions_per_scout}")
+    print(f"  require_passing_tests: {exec_cfg.require_passing_tests}")
+    print(f"  auto_rollback_on_failure: {exec_cfg.auto_rollback_on_failure}")
+    print()
+    print(f"Default Policy: {config.default_policy}")
+    if config.directory_overrides:
+        print("Directory Overrides:")
+        for path, policy in config.directory_overrides.items():
+            print(f"  {path}: {policy}")
+
+
+def _handle_history(args, db: Optional[ScoutDatabase]):
+    """Handle history command."""
+    if not db:
+        print("Database is disabled. Use without --no-db to see history.")
+        return
+
+    report = db.generate_history_report(args.path)
+    if report:
+        print(report)
+    else:
+        print(f"No history found for: {args.path}")
+        print("Run 'scout analyze' on this file to start tracking.")
+
+
+def _handle_dashboard(db: Optional[ScoutDatabase]):
+    """Handle dashboard command."""
+    if not db:
+        print("Database is disabled. Use without --no-db to see dashboard.")
+        return
+
+    print(db.generate_dashboard())
 
 
 def _add_threshold_args(parser):
