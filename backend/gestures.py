@@ -87,7 +87,8 @@ class GestureParser:
         re.DOTALL
     )
     # Pattern to clean tags - excludes gesture:think which is handled by TUI for split view
-    ALL_TAGS_PATTERN = re.compile(r'<(?:gesture:(?!think)\w+|emote:\w+|memory:\w+)(?::\d*\.?\d+)?>')
+    # Also handles malformed closing tags like </gesture:point> or </emote:happy>
+    ALL_TAGS_PATTERN = re.compile(r'</?(?:gesture:(?!think)\w+|emote:\w+|memory:\w+)(?::\d*\.?\d+)?>')
     SELF_OBSERVATION_TAG_PATTERN = re.compile(r'<record_self_observation[^>]*>.*?</record_self_observation>', re.DOTALL)
     USER_OBSERVATION_TAG_PATTERN = re.compile(r'<record_user_observation[^>]*>.*?</record_user_observation>', re.DOTALL)
     

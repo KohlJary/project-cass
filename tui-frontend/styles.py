@@ -2373,4 +2373,105 @@ CSS = """
         text-style: italic;
         padding: 2;
     }
+
+    /* Interview panel styling */
+    #interview-panel {
+        height: 1fr;
+        background: $surface;
+    }
+
+    #interview-content {
+        height: 1fr;
+        width: 100%;
+    }
+
+    #interview-header {
+        height: auto;
+        dock: top;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    #interview-header Button {
+        margin-right: 1;
+        min-width: 12;
+    }
+
+    .active-view-btn {
+        background: $primary;
+    }
+
+    #overview-section, #compare-section {
+        height: 1fr;
+        width: 100%;
+    }
+
+    .hidden-section {
+        display: none;
+    }
+
+    #overview-layout {
+        height: 1fr;
+        width: 100%;
+    }
+
+    .interview-list-pane {
+        width: 30%;
+        min-width: 20;
+        max-width: 40;
+        border-right: solid $secondary;
+        padding-right: 1;
+    }
+
+    .interview-detail-pane {
+        width: 1fr;
+        padding-left: 1;
+    }
+
+    .interview-list-header {
+        text-style: bold;
+        background: $primary;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    #protocol-list {
+        height: 1fr;
+        border: none;
+    }
+
+    #protocol-detail-scroll {
+        height: 1fr;
+    }
+
+    #protocol-detail {
+        padding: 1;
+    }
+
+    #compare-controls {
+        height: auto;
+        dock: top;
+        padding: 1;
+        background: $surface-darken-1;
+        margin-bottom: 1;
+    }
+
+    #compare-controls Label {
+        margin-right: 1;
+        padding-top: 1;
+    }
+
+    #prompt-select {
+        width: 40;
+        margin-right: 1;
+    }
+
+    #compare-viewer {
+        height: 1fr;
+        padding: 1;
+    }
+
+    #compare-content {
+        width: 100%;
+    }
     """

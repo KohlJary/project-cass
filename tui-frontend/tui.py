@@ -62,6 +62,7 @@ from widgets import (
     RoadmapPanel,
     DaedalusConversationsPanel,
     RecognitionPanel,
+    InterviewPanel,
     # Daedalus panels
     SessionsPanel,
     FilesPanel,
@@ -392,7 +393,7 @@ class CassVesselTUI(App):
     active_main_tab: reactive[str] = reactive("cass-tab")  # "cass-tab" or "daedalus-tab"
 
     # Tab visibility configuration
-    CASS_TABS = ["growth-tab", "self-model-tab", "user-tab", "summary-tab"]
+    CASS_TABS = ["growth-tab", "self-model-tab", "user-tab", "summary-tab", "interview-tab"]
     DAEDALUS_TABS = ["sessions-tab", "files-tab", "git-tab", "build-tab"]
     ALWAYS_VISIBLE_TABS = ["calendar-tab", "tasks-tab", "documents-tab", "roadmap-tab"]  # Visible in both contexts
 
@@ -633,6 +634,8 @@ class CassVesselTUI(App):
                                 yield UserPanel(id="user-panel")
                             with TabPane("Summary", id="summary-tab"):
                                 yield SummaryPanel(id="summary-panel")
+                            with TabPane("Interview", id="interview-tab"):
+                                yield InterviewPanel(id="interview-panel")
                             with TabPane("D↔C", id="daedalus-convs-tab"):
                                 yield DaedalusConversationsPanel(id="daedalus-convs-panel")
                             # Daedalus-specific tabs

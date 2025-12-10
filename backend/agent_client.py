@@ -970,6 +970,7 @@ from handlers.research_session import RESEARCH_SESSION_TOOLS
 from handlers.research_scheduler import RESEARCH_SCHEDULER_TOOLS
 from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
+from handlers.interviews import INTERVIEW_TOOLS
 
 
 # ============================================================================
@@ -1176,6 +1177,9 @@ class CassAgentClient:
 
             # Research scheduler tools - for requesting scheduled research sessions
             tools.extend(RESEARCH_SCHEDULER_TOOLS)
+
+            # Interview analysis tools - for analyzing multi-model interview responses
+            tools.extend(INTERVIEW_TOOLS)
 
             # Testing tools - for self-monitoring consciousness integrity
             if should_include_testing_tools(message):
