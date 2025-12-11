@@ -747,6 +747,9 @@ class ProjectUpdateRequest(BaseModel):
     name: Optional[str] = None
     working_directory: Optional[str] = None
     description: Optional[str] = None
+    github_repo: Optional[str] = None  # "owner/repo" format
+    github_token: Optional[str] = None  # Per-project PAT
+    clear_github_token: Optional[bool] = None  # Set True to remove project token
 
 class ProjectAddFileRequest(BaseModel):
     file_path: str
@@ -1569,7 +1572,10 @@ async def update_project(project_id: str, request: ProjectUpdateRequest):
         project_id,
         name=request.name,
         working_directory=request.working_directory,
-        description=request.description
+        description=request.description,
+        github_repo=request.github_repo,
+        github_token=request.github_token,
+        clear_github_token=request.clear_github_token or False,
     )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1883,6 +1889,77 @@ async def embed_project_documents(project_id: str):
         "documents_embedded": len(embedded_docs),
         "total_chunks": total_chunks,
         "documents": embedded_docs
+    }
+
+
+# === Project GitHub Metrics Endpoints ===
+
+@app.get("/projects/{project_id}/github/metrics")
+async def get_project_github_metrics(project_id: str):
+    """
+    Get GitHub metrics for a project's configured repository.
+
+    Uses the project's github_repo and optionally its github_token.
+    Falls back to system default token if project token not set.
+    """
+    project = project_manager.load_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.github_repo:
+        return {
+            "configured": False,
+            "message": "No GitHub repository configured for this project",
+            "metrics": None
+        }
+
+    metrics = await github_metrics_manager.fetch_project_metrics(
+        github_repo=project.github_repo,
+        github_token=project.github_token  # None means use system default
+    )
+
+    if metrics is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch metrics for {project.github_repo}"
+        )
+
+    return {
+        "configured": True,
+        "github_repo": project.github_repo,
+        "has_project_token": project.github_token is not None,
+        "metrics": metrics
+    }
+
+
+@app.post("/projects/{project_id}/github/refresh")
+async def refresh_project_github_metrics(project_id: str):
+    """Force refresh GitHub metrics for a project."""
+    project = project_manager.load_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not project.github_repo:
+        raise HTTPException(
+            status_code=400,
+            detail="No GitHub repository configured for this project"
+        )
+
+    metrics = await github_metrics_manager.fetch_project_metrics(
+        github_repo=project.github_repo,
+        github_token=project.github_token
+    )
+
+    if metrics is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to refresh metrics for {project.github_repo}"
+        )
+
+    return {
+        "status": "refreshed",
+        "github_repo": project.github_repo,
+        "metrics": metrics
     }
 
 

@@ -297,6 +297,7 @@ class RoadmapManager:
         index.append({
             "id": item.id,
             "title": item.title,
+            "description": item.description,  # Include description in index
             "status": item.status,
             "priority": item.priority,
             "item_type": item.item_type,
@@ -381,6 +382,7 @@ class RoadmapManager:
         for entry in index:
             if entry["id"] == item.id:
                 entry["title"] = item.title
+                entry["description"] = item.description  # Include description in index
                 entry["status"] = item.status
                 entry["priority"] = item.priority
                 entry["item_type"] = item.item_type
