@@ -5,22 +5,16 @@ import './Layout.css';
 const navItems = [
   { path: '/', label: 'Dashboard', icon: '~' },
   { path: '/memory', label: 'Memory', icon: '*' },
+  { path: '/self-development', label: 'Self-Dev', icon: '%' },
+  { path: '/activity', label: 'Activity', icon: '>' },
   { path: '/wiki', label: 'Wiki', icon: 'W' },
   { path: '/research', label: 'Research', icon: 'R' },
   { path: '/goals', label: 'Goals', icon: '◎' },
   { path: '/projects', label: 'Projects', icon: 'P' },
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
   { path: '/users', label: 'Users', icon: '@' },
-  { path: '/journals', label: 'Journals', icon: '#' },
-  { path: '/conversations', label: 'Conversations', icon: '>' },
-  { path: '/retrieval', label: 'Retrieval', icon: '?' },
-  { path: '/system', label: 'System', icon: '!' },
-  { path: '/vectors', label: 'Vectors', icon: 'o' },
-  { path: '/self-model', label: 'Self-Model', icon: '%' },
-  { path: '/development', label: 'Development', icon: '↑' },
-  { path: '/data', label: 'Data', icon: '↓' },
-  { path: '/reflection', label: 'Reflection', icon: '~' },
   { path: '/metrics', label: 'Metrics', icon: 'M' },
+  { path: '/settings', label: 'Settings', icon: '!' },
 ];
 
 export function Layout() {
