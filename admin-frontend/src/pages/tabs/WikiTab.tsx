@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { wikiApi } from '../../api/client';
 import { WikiReader, type WikiPage } from '../../components/WikiReader';
+import '../Wiki.css';
 
 interface GraphNode {
   id: string;
