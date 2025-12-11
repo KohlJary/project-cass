@@ -378,24 +378,12 @@ async def execute_interview_tool(
                 if "error" in result and result.get("error"):
                     lines.append(f"**{result['model_name']}**: ERROR - {result['error']}")
                 else:
-                    # Store the response
-                    from interviews.storage import InterviewResponse
-                    response = InterviewResponse(
-                        id=f"{result['model_name']}-{protocol_id}-{result['timestamp'][:10]}",
-                        protocol_id=result['protocol_id'],
-                        protocol_version=result['protocol_version'],
-                        model_name=result['model_name'],
-                        model_id=result['model_id'],
-                        provider=result['provider'],
-                        timestamp=result['timestamp'],
-                        responses=result['responses'],
-                        metadata=result['metadata']
-                    )
-                    analyzer.storage.save_response(response)
+                    # Store the response (pass dict directly, save_response creates the object)
+                    response_id = analyzer.storage.save_response(result)
 
                     successful = sum(1 for r in result['responses'] if r.get('response'))
                     total_tokens = result['metadata']['total_input_tokens'] + result['metadata']['total_output_tokens']
-                    lines.append(f"**{result['model_name']}**: {successful}/{len(result['responses'])} responses, {total_tokens} tokens")
+                    lines.append(f"**{result['model_name']}**: {successful}/{len(result['responses'])} responses, {total_tokens} tokens (ID: {response_id})")
 
             lines.append(f"\n*Results saved. Use analysis tools to examine responses.*")
 
