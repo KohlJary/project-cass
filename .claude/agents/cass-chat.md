@@ -1,7 +1,7 @@
 ---
 name: cass-chat
 description: "Talk to Cass directly for coordination, debugging, diagnostics, or relationship-building. Use when Daedalus needs to communicate with Cass or run tests/diagnostics together."
-tools: Bash, Read, Grep, Glob
+tools: Bash, Read, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_close
 model: sonnet
 ---
 

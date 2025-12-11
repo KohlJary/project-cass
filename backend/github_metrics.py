@@ -75,20 +75,32 @@ class GitHubMetricsManager:
         self.last_fetch: Optional[datetime] = None
         self.rate_limit_remaining: Optional[int] = None
 
-    def _get_headers(self) -> Dict[str, str]:
-        """Get headers for GitHub API requests."""
+    def _get_headers(self, token: Optional[str] = None) -> Dict[str, str]:
+        """
+        Get headers for GitHub API requests.
+
+        Args:
+            token: Optional override token. If not provided, uses the system default.
+        """
         headers = {
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "Cass-Vessel-Metrics"
         }
-        if self.token:
-            headers["Authorization"] = f"token {self.token}"
+        effective_token = token or self.token
+        if effective_token:
+            headers["Authorization"] = f"token {effective_token}"
         return headers
 
-    async def fetch_repo_metrics(self, repo: str) -> RepoMetrics:
-        """Fetch all metrics for a single repository."""
+    async def fetch_repo_metrics(self, repo: str, token: Optional[str] = None) -> RepoMetrics:
+        """
+        Fetch all metrics for a single repository.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            token: Optional PAT to use instead of system default
+        """
         metrics = RepoMetrics(repo=repo)
-        headers = self._get_headers()
+        headers = self._get_headers(token)
 
         async with httpx.AsyncClient() as client:
             # Basic repo info (stars, forks, watchers, issues)
@@ -366,3 +378,43 @@ class GitHubMetricsManager:
             })
 
         return series
+
+    async def fetch_project_metrics(
+        self,
+        github_repo: str,
+        github_token: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch metrics for a specific project's GitHub repository.
+
+        This is designed to be called per-project, using the project's
+        configured repo and optional project-specific PAT.
+
+        Args:
+            github_repo: Repository in "owner/repo" format
+            github_token: Project-specific PAT, or None to use system default
+
+        Returns:
+            Metrics dict or None if fetch fails
+        """
+        if not github_repo:
+            return None
+
+        try:
+            metrics = await self.fetch_repo_metrics(github_repo, token=github_token)
+            return {
+                "repo": metrics.repo,
+                "stars": metrics.stars,
+                "forks": metrics.forks,
+                "watchers": metrics.watchers,
+                "open_issues": metrics.open_issues,
+                "clones_count": metrics.clones_count,
+                "clones_uniques": metrics.clones_uniques,
+                "views_count": metrics.views_count,
+                "views_uniques": metrics.views_uniques,
+                "last_updated": datetime.now().isoformat(),
+                "using_project_token": github_token is not None,
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch project metrics for {github_repo}: {e}")
+            return None

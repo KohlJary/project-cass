@@ -69,6 +69,9 @@ class Project:
     documents: List[ProjectDocument] = field(default_factory=list)
     description: Optional[str] = None
     user_id: Optional[str] = None  # Owner of this project
+    # GitHub integration
+    github_repo: Optional[str] = None  # e.g., "owner/repo"
+    github_token: Optional[str] = None  # Per-project PAT (None = use system default)
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -81,7 +84,9 @@ class Project:
             "files": [asdict(f) for f in self.files],
             "documents": [asdict(d) for d in self.documents],
             "description": self.description,
-            "user_id": self.user_id
+            "user_id": self.user_id,
+            "github_repo": self.github_repo,
+            "github_token": self.github_token,
         }
 
     @classmethod
@@ -98,7 +103,9 @@ class Project:
             files=files,
             documents=documents,
             description=data.get("description"),
-            user_id=data.get("user_id")
+            user_id=data.get("user_id"),
+            github_repo=data.get("github_repo"),
+            github_token=data.get("github_token"),
         )
 
 
@@ -175,7 +182,8 @@ class ProjectManager:
             "created_at": now,
             "updated_at": now,
             "file_count": 0,
-            "user_id": user_id
+            "user_id": user_id,
+            "github_repo": None,  # Include github_repo in index
         })
         self._save_index(index)
 
@@ -206,9 +214,23 @@ class ProjectManager:
         project_id: str,
         name: Optional[str] = None,
         working_directory: Optional[str] = None,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        github_repo: Optional[str] = None,
+        github_token: Optional[str] = None,
+        clear_github_token: bool = False,
     ) -> Optional[Project]:
-        """Update project details"""
+        """
+        Update project details.
+
+        Args:
+            project_id: ID of the project to update
+            name: New project name
+            working_directory: New working directory
+            description: New description
+            github_repo: GitHub repo in "owner/repo" format
+            github_token: Per-project GitHub PAT (None keeps existing, use clear_github_token to remove)
+            clear_github_token: If True, removes the project-specific token (will use system default)
+        """
         project = self.load_project(project_id)
 
         if not project:
@@ -222,6 +244,12 @@ class ProjectManager:
             )
         if description is not None:
             project.description = description
+        if github_repo is not None:
+            project.github_repo = github_repo if github_repo else None
+        if github_token is not None:
+            project.github_token = github_token
+        if clear_github_token:
+            project.github_token = None
 
         project.updated_at = datetime.now().isoformat()
 
@@ -240,6 +268,7 @@ class ProjectManager:
                 entry["working_directory"] = project.working_directory
                 entry["updated_at"] = project.updated_at
                 entry["file_count"] = len(project.files)
+                entry["github_repo"] = project.github_repo  # Keep github_repo in sync
                 break
 
         self._save_index(index)

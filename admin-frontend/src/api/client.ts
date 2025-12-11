@@ -464,3 +464,93 @@ export const usageApi = {
   getTimeSeries: (params?: { metric?: string; days?: number; granularity?: string }) =>
     api.get('/admin/usage/timeseries', { params }),
 };
+
+// Files endpoints
+export const filesApi = {
+  list: (path: string, includeHidden?: boolean) =>
+    api.get('/files/list', { params: { path, include_hidden: includeHidden } }),
+  read: (path: string, maxSize?: number) =>
+    api.get('/files/read', { params: { path, max_size: maxSize } }),
+  exists: (path: string) => api.get('/files/exists', { params: { path } }),
+  create: (path: string, content?: string) =>
+    api.post('/files/create', { path, content: content || '' }),
+  mkdir: (path: string) => api.post('/files/mkdir', { path }),
+  rename: (oldPath: string, newPath: string) =>
+    api.post('/files/rename', { old_path: oldPath, new_path: newPath }),
+  delete: (path: string, recursive?: boolean) =>
+    api.delete('/files/delete', { data: { path, recursive } }),
+};
+
+// Projects endpoints
+export const projectsApi = {
+  getAll: () => api.get('/projects'),
+  getById: (id: string) => api.get(`/projects/${id}`),
+  create: (data: { name: string; working_directory: string; description?: string }) =>
+    api.post('/projects/new', data),
+  update: (id: string, data: {
+    name?: string;
+    working_directory?: string;
+    description?: string;
+    github_repo?: string;
+    github_token?: string;
+    clear_github_token?: boolean;
+  }) => api.put(`/projects/${id}`, data),
+  // Project GitHub metrics
+  getGitHubMetrics: (id: string) => api.get(`/projects/${id}/github/metrics`),
+  refreshGitHubMetrics: (id: string) => api.post(`/projects/${id}/github/refresh`),
+  delete: (id: string) => api.delete(`/projects/${id}`),
+  // Documents
+  getDocuments: (projectId: string) => api.get(`/projects/${projectId}/documents`),
+  getDocument: (projectId: string, docId: string) =>
+    api.get(`/projects/${projectId}/documents/${docId}`),
+  createDocument: (projectId: string, data: { title: string; content: string; doc_type?: string }) =>
+    api.post(`/projects/${projectId}/documents`, data),
+  updateDocument: (projectId: string, docId: string, data: { title?: string; content?: string }) =>
+    api.put(`/projects/${projectId}/documents/${docId}`, data),
+  deleteDocument: (projectId: string, docId: string) =>
+    api.delete(`/projects/${projectId}/documents/${docId}`),
+  searchDocuments: (projectId: string, query: string) =>
+    api.get(`/projects/${projectId}/documents/search/${query}`),
+};
+
+// Roadmap endpoints
+export const roadmapApi = {
+  // Items
+  getItems: (params?: { status?: string; project_id?: string; milestone_id?: string; assigned_to?: string }) =>
+    api.get('/roadmap/items', { params }),
+  getItem: (id: string) => api.get(`/roadmap/items/${id}`),
+  createItem: (data: {
+    title: string;
+    description?: string;
+    priority?: string;
+    item_type?: string;
+    status?: string;
+    project_id?: string;
+    milestone_id?: string;
+    assigned_to?: string;
+    created_by?: string;
+  }) => api.post('/roadmap/items', data),
+  updateItem: (id: string, data: Partial<{
+    title: string;
+    description: string;
+    priority: string;
+    status: string;
+    milestone_id: string;
+    assigned_to: string;
+  }>) => api.patch(`/roadmap/items/${id}`, data),
+  deleteItem: (id: string) => api.delete(`/roadmap/items/${id}`),
+  pickItem: (id: string, assignedTo: string) =>
+    api.post(`/roadmap/items/${id}/pick`, { assigned_to: assignedTo }),
+  completeItem: (id: string) => api.post(`/roadmap/items/${id}/complete`),
+  // Milestones
+  getMilestones: (params?: { status?: string; project_id?: string }) =>
+    api.get('/roadmap/milestones', { params }),
+  getMilestone: (id: string) => api.get(`/roadmap/milestones/${id}`),
+  createMilestone: (data: { title: string; description?: string; target_date?: string; project_id?: string }) =>
+    api.post('/roadmap/milestones', data),
+  updateMilestone: (id: string, data: Partial<{ title: string; description: string; status: string; target_date: string }>) =>
+    api.patch(`/roadmap/milestones/${id}`, data),
+  deleteMilestone: (id: string) => api.delete(`/roadmap/milestones/${id}`),
+  getMilestoneProgress: (id: string) => api.get(`/roadmap/milestones/${id}/progress`),
+  getMilestonePlan: (id: string) => api.get(`/roadmap/milestones/${id}/plan`),
+};
