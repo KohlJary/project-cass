@@ -544,3 +544,171 @@
 .error-state {
   color: #f07178;
 }
+
+/* Pending growth edges */
+.model-card.pending-edges {
+  grid-column: span 2;
+  border-color: #f78c6c;
+}
+
+.pending-count {
+  background: rgba(247, 140, 108, 0.2);
+  color: #f78c6c;
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.pending-list {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.pending-item {
+  background: #1a1a1a;
+  border-radius: 6px;
+  padding: 0.875rem;
+  border-left: 3px solid #f78c6c;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.pending-item:hover {
+  background: #1f1f1f;
+}
+
+.pending-item.expanded {
+  background: #1f1f1f;
+}
+
+.pending-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.pending-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pending-title {
+  color: #e0e0e0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.pending-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pending-date {
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.pending-state {
+  color: #888;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.impact-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.impact-badge.high {
+  background: rgba(247, 140, 108, 0.2);
+  color: #f78c6c;
+}
+
+.impact-badge.medium {
+  background: rgba(255, 203, 107, 0.2);
+  color: #ffcb6b;
+}
+
+.impact-badge.low {
+  background: rgba(137, 221, 255, 0.2);
+  color: #89ddff;
+}
+
+.pending-details {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+.pending-evidence {
+  background: #0d0d0d;
+  border-radius: 4px;
+  padding: 0.625rem;
+  margin-bottom: 0.75rem;
+}
+
+.evidence-label {
+  display: block;
+  color: #666;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+.evidence-text {
+  color: #888;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.pending-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.action-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn.accept {
+  background: rgba(195, 232, 141, 0.15);
+  color: #c3e88d;
+}
+
+.action-btn.accept:hover:not(:disabled) {
+  background: rgba(195, 232, 141, 0.25);
+}
+
+.action-btn.reject {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.action-btn.reject:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.25);
+}
