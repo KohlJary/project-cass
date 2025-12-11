@@ -40,6 +40,8 @@ Example agents in cass-vessel:
 - `cass-backend` - Explore backend architecture, memory, API endpoints
 - `tui-frontend` - Explore Textual TUI widgets, screens, styling
 - `roadmap` - Query roadmap items, work items, project priorities
+- `docs` - Query wiki documentation and find implementations
+- `design-analyst` - UX/UI auditing with Playwright for admin-frontend
 
 When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
 
