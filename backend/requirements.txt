@@ -39,3 +39,8 @@ slowapi>=0.1.9
 
 # For watch/sensor integration (later)
 # bleak==0.21.1  # Bluetooth LE
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0

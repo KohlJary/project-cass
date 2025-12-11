@@ -42,8 +42,29 @@ Example agents in cass-vessel:
 - `roadmap` - Query roadmap items, work items, project priorities
 - `docs` - Query wiki documentation and find implementations
 - `design-analyst` - UX/UI auditing with Playwright for admin-frontend
+- `test-runner` - Generate and maintain pytest unit tests
 
 When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
+
+## Capability Scanner
+
+The capability scanner at `scripts/capability_scanner.py` produces a comprehensive index of backend capabilities:
+
+```bash
+# Re-scan backend (run from repo root)
+python scripts/capability_scanner.py --output data/capability_index.json --markdown data/CAPABILITY_INDEX.md
+```
+
+Output: `data/capability_index.json` - JSON index of:
+- API endpoints (FastAPI routes)
+- Tools available to Cass
+- Data models (dataclasses, Pydantic)
+- Capability groupings (25 categories)
+
+Use this index to:
+- Audit test coverage against actual capabilities
+- Find endpoints when building UIs
+- Track what's implemented vs planned
 
 ## Roadmap Workflow
 
