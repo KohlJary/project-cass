@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { selfModelApi } from '../api/client';
 import './SelfModel.css';
+import { useState } from 'react';
 
 interface IdentityStatement {
   statement: string;
@@ -57,7 +58,26 @@ interface OpenQuestionsResponse {
   count: number;
 }
 
+interface PendingEdge {
+  id: string;
+  area: string;
+  current_state: string;
+  source_journal_date: string;
+  confidence: number;
+  impact_assessment: string;
+  evidence: string;
+  status: string;
+  timestamp: string;
+}
+
+interface PendingEdgesResponse {
+  pending_edges: PendingEdge[];
+}
+
 export function SelfModel() {
+  const queryClient = useQueryClient();
+  const [expandedEdge, setExpandedEdge] = useState<string | null>(null);
+
   const { data: selfModel, isLoading, error } = useQuery<SelfModelResponse>({
     queryKey: ['self-model'],
     queryFn: () => selfModelApi.get().then((r) => r.data),
@@ -80,6 +100,27 @@ export function SelfModel() {
     queryKey: ['opinions'],
     queryFn: () => selfModelApi.getOpinions().then((r) => r.data),
     retry: false,
+  });
+
+  const { data: pendingEdges } = useQuery<PendingEdgesResponse>({
+    queryKey: ['pending-edges'],
+    queryFn: () => selfModelApi.getPendingEdges().then((r) => r.data),
+    retry: false,
+  });
+
+  const acceptMutation = useMutation({
+    mutationFn: (edgeId: string) => selfModelApi.acceptPendingEdge(edgeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pending-edges'] });
+      queryClient.invalidateQueries({ queryKey: ['growth-edges'] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (edgeId: string) => selfModelApi.rejectPendingEdge(edgeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pending-edges'] });
+    },
   });
 
   const profile = selfModel?.profile;
@@ -210,6 +251,69 @@ export function SelfModel() {
             </div>
           )}
         </div>
+
+        {/* Pending growth edges (for approval) */}
+        {pendingEdges?.pending_edges && pendingEdges.pending_edges.length > 0 && (
+          <div className="model-card pending-edges">
+            <div className="card-header">
+              <h2>Proposed Growth Edges</h2>
+              <span className="pending-count">{pendingEdges.pending_edges.length}</span>
+            </div>
+            <div className="pending-list">
+              {pendingEdges.pending_edges.map((edge: PendingEdge) => (
+                <div
+                  key={edge.id}
+                  className={`pending-item ${expandedEdge === edge.id ? 'expanded' : ''}`}
+                  onClick={() => setExpandedEdge(expandedEdge === edge.id ? null : edge.id)}
+                >
+                  <div className="pending-header">
+                    <div className="pending-title-row">
+                      <span className={`impact-badge ${edge.impact_assessment}`}>{edge.impact_assessment}</span>
+                      <span className="pending-title">{edge.area}</span>
+                    </div>
+                    <div className="pending-meta-row">
+                      <span className={`confidence-badge ${edge.confidence >= 0.8 ? 'high' : edge.confidence >= 0.6 ? 'medium' : 'low'}`}>
+                        {(edge.confidence * 100).toFixed(0)}%
+                      </span>
+                      <span className="pending-date">from {edge.source_journal_date}</span>
+                    </div>
+                  </div>
+                  <div className="pending-state">{edge.current_state}</div>
+                  {expandedEdge === edge.id && (
+                    <div className="pending-details">
+                      <div className="pending-evidence">
+                        <span className="evidence-label">Evidence:</span>
+                        <span className="evidence-text">{edge.evidence}</span>
+                      </div>
+                      <div className="pending-actions">
+                        <button
+                          className="action-btn accept"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            acceptMutation.mutate(edge.id);
+                          }}
+                          disabled={acceptMutation.isPending}
+                        >
+                          {acceptMutation.isPending ? 'Accepting...' : 'Accept'}
+                        </button>
+                        <button
+                          className="action-btn reject"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            rejectMutation.mutate(edge.id);
+                          }}
+                          disabled={rejectMutation.isPending}
+                        >
+                          {rejectMutation.isPending ? 'Rejecting...' : 'Reject'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Open questions */}
         <div className="model-card open-questions">

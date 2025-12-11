@@ -65,6 +65,10 @@ export const selfModelApi = {
   getGrowthEdges: () => api.get('/cass/growth-edges'),
   getOpinions: () => api.get('/cass/opinions'),
   getOpenQuestions: () => api.get('/cass/open-questions'),
+  // Pending growth edges (for approval)
+  getPendingEdges: () => api.get('/cass/growth-edges/pending'),
+  acceptPendingEdge: (edgeId: string) => api.post(`/cass/growth-edges/pending/${edgeId}/accept`),
+  rejectPendingEdge: (edgeId: string) => api.post(`/cass/growth-edges/pending/${edgeId}/reject`),
 };
 
 // Development tracking endpoints
