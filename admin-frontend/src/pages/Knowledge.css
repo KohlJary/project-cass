@@ -1,0 +1,323 @@
+/* Knowledge Page - Consolidated Wiki + Research + Goals */
+
+.knowledge-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 1rem;
+}
+
+.knowledge-page .page-header {
+  margin-bottom: 0;
+}
+
+.knowledge-page .page-header h1 {
+  margin: 0 0 0.25rem;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.knowledge-page .subtitle {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Knowledge Tabs */
+.knowledge-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #333;
+  padding-bottom: 0;
+}
+
+.knowledge-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border: none;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+  position: relative;
+}
+
+.knowledge-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #aaa;
+}
+
+.knowledge-tab.active {
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #333;
+  border-bottom-color: transparent;
+  margin-bottom: -1px;
+}
+
+.tab-icon {
+  font-size: 1rem;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.tab-label {
+  font-weight: 500;
+}
+
+/* Content Area */
+.knowledge-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Ensure embedded views fill space */
+.knowledge-content > div {
+  height: 100%;
+}
+
+/* Wiki Page Styles - from Wiki.css */
+.wiki-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 1rem;
+}
+
+.wiki-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.view-toggle button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #888;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-toggle button.active {
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #444;
+}
+
+.view-toggle button:hover:not(.active) {
+  background: #222;
+  color: #aaa;
+}
+
+.wiki-controls .search-box {
+  flex: 1;
+  max-width: 300px;
+}
+
+.wiki-controls .search-box input {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.wiki-controls .search-box input:focus {
+  outline: none;
+  border-color: #89ddff;
+}
+
+.wiki-layout {
+  display: flex;
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.wiki-main {
+  flex: 1;
+  background: #0d0d0d;
+  border: 1px solid #222;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.wiki-sidebar {
+  width: 300px;
+  background: #0d0d0d;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+/* Graph */
+.graph-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.graph-container svg {
+  width: 100%;
+  height: 100%;
+}
+
+.graph-legend {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+/* List View */
+.wiki-list {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.wiki-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #1a1a1a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.wiki-list-item:hover {
+  background: #222;
+}
+
+.wiki-list-item.selected {
+  background: #2a2a3a;
+  border: 1px solid #444;
+}
+
+.wiki-list-item .page-name {
+  flex: 1;
+  color: #fff;
+}
+
+.wiki-list-item .link-count {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+/* Type badges */
+.type-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.type-badge.type-entity {
+  background: rgba(199, 146, 234, 0.2);
+  color: #c792ea;
+}
+
+.type-badge.type-concept {
+  background: rgba(137, 221, 255, 0.2);
+  color: #89ddff;
+}
+
+.type-badge.type-relationship {
+  background: rgba(195, 232, 141, 0.2);
+  color: #c3e88d;
+}
+
+.type-badge.type-journal {
+  background: rgba(255, 203, 107, 0.2);
+  color: #ffcb6b;
+}
+
+.type-badge.type-meta {
+  background: rgba(247, 140, 108, 0.2);
+  color: #f78c6c;
+}
+
+/* Research specific styles */
+.research-page .page-header {
+  margin-bottom: 0.5rem;
+}
+
+.research-page .page-header h1 {
+  margin: 0 0 0.25rem;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.research-page .page-header p {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Goals specific styles */
+.goals-page .page-header {
+  margin-bottom: 0.5rem;
+}
+
+.goals-page .page-header h1 {
+  margin: 0 0 0.25rem;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.goals-page .page-header p {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .knowledge-page {
+    padding: 1rem;
+  }
+
+  .knowledge-tabs {
+    overflow-x: auto;
+  }
+}

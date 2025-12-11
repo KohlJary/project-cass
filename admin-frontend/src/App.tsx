@@ -9,19 +9,11 @@ import { MemorySystem } from './pages/MemorySystem';
 import { SelfDevelopment } from './pages/SelfDevelopment';
 import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
-// Legacy imports (to be consolidated)
+// Consolidated: Knowledge (Wiki + Research + Goals)
+import { Knowledge } from './pages/Knowledge';
+// Remaining standalone views
 import { Users } from './pages/Users';
-// Journals consolidated into Activity
-// Conversations consolidated into Activity
-// SelfModel consolidated into SelfDevelopment
-// System consolidated into Settings
-import { Wiki } from './pages/Wiki';
-import { Research } from './pages/Research';
-// DataManagement consolidated into Settings
-// Development consolidated into SelfDevelopment
 import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
-// SoloReflection consolidated into Activity
-import Goals from './pages/Goals';
 import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
 
@@ -95,15 +87,18 @@ function AppRoutes() {
         <Route path="reflection" element={<Navigate to="/activity?tab=reflection" replace />} />
         {/* Remaining views */}
         <Route path="users" element={<Users />} />
-        <Route path="wiki" element={<Wiki />} />
-        <Route path="research" element={<Research />} />
+        {/* Consolidated: Knowledge (Wiki + Research + Goals) */}
+        <Route path="knowledge" element={<Knowledge />} />
+        {/* Redirects for old routes */}
+        <Route path="wiki" element={<Navigate to="/knowledge?tab=wiki" replace />} />
+        <Route path="research" element={<Navigate to="/knowledge?tab=research" replace />} />
+        <Route path="goals" element={<Navigate to="/knowledge?tab=goals" replace />} />
         {/* Consolidated: Settings (System + Data) */}
         <Route path="settings" element={<Settings />} />
         {/* Redirects for old routes */}
         <Route path="system" element={<Navigate to="/settings?tab=health" replace />} />
         <Route path="data" element={<Navigate to="/settings?tab=export" replace />} />
         <Route path="consciousness" element={<ConsciousnessHealth />} />
-        <Route path="goals" element={<Goals />} />
         <Route path="metrics" element={<Metrics />} />
         <Route path="projects" element={<Projects />} />
       </Route>
