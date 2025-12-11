@@ -260,6 +260,7 @@ class ProjectPanel(Container):
         self.documents: List[Dict] = []
         self._refresh_task: Optional[asyncio.Task] = None
         self._current_doc_content: Optional[str] = None
+        self._current_doc_title: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="project-panel-content"):
@@ -271,6 +272,7 @@ class ProjectPanel(Container):
             with Vertical(id="doc-viewer-container"):
                 with Horizontal(id="doc-viewer-actions", classes="hidden"):
                     yield Button("Copy Text", id="copy-doc-btn", variant="primary")
+                    yield Button("Save As", id="save-doc-btn", variant="default")
                     yield Button("Delete", id="delete-doc-btn", variant="error")
                 with VerticalScroll(id="doc-viewer"):
                     yield Static("Select a document to view", id="doc-content", classes="doc-placeholder")
@@ -374,8 +376,9 @@ class ProjectPanel(Container):
         created_by = doc.get("created_by", "unknown")
         markdown_content = doc.get("content", "")
 
-        # Store content for copy button
+        # Store content and title for copy/save buttons
         self._current_doc_content = markdown_content
+        self._current_doc_title = title
 
         # Show the actions bar
         try:
@@ -438,6 +441,66 @@ class ProjectPanel(Container):
             self.set_timer(1.5, lambda: setattr(btn, 'label', 'Copy Text'))
         except Exception as e:
             debug_log(f"Failed to copy to clipboard: {e}", "error")
+
+    @on(Button.Pressed, "#save-doc-btn")
+    def on_save_doc(self) -> None:
+        """Save document as markdown file using OS file dialog"""
+        if not self._current_doc_content:
+            return
+
+        import re
+        import threading
+
+        # Generate default filename from title
+        default_name = self._current_doc_title or "document"
+        # Sanitize filename: remove/replace invalid characters
+        default_name = re.sub(r'[<>:"/\\|?*]', '', default_name)
+        default_name = default_name.strip()[:50]  # Limit length
+        if not default_name:
+            default_name = "document"
+        default_name += ".md"
+
+        content = self._current_doc_content
+        btn = self.query_one("#save-doc-btn", Button)
+
+        def show_save_dialog():
+            """Run file dialog in separate thread to avoid blocking TUI"""
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+
+                # Create hidden root window
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes('-topmost', True)  # Bring dialog to front
+
+                # Show save dialog
+                file_path = filedialog.asksaveasfilename(
+                    defaultextension=".md",
+                    filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
+                    initialfile=default_name,
+                    title="Save Document As"
+                )
+
+                root.destroy()
+
+                if file_path:
+                    # Write the file
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    # Schedule UI update on main thread
+                    self.app.call_from_thread(self._show_save_success, btn)
+            except Exception as e:
+                debug_log(f"Failed to save document: {e}", "error")
+
+        # Run dialog in background thread
+        thread = threading.Thread(target=show_save_dialog, daemon=True)
+        thread.start()
+
+    def _show_save_success(self, btn: Button) -> None:
+        """Show save success feedback"""
+        btn.label = "Saved!"
+        self.set_timer(1.5, lambda: setattr(btn, 'label', 'Save As'))
 
     @on(Button.Pressed, "#delete-doc-btn")
     async def on_delete_doc(self) -> None:
