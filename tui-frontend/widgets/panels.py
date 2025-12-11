@@ -260,15 +260,20 @@ class ProjectPanel(Container):
         self.documents: List[Dict] = []
         self._refresh_task: Optional[asyncio.Task] = None
         self._current_doc_content: Optional[str] = None
+        self._current_doc_title: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="project-panel-content"):
             with Vertical(id="doc-list-container"):
-                yield Label("Documents", id="doc-list-header")
+                with Horizontal(id="doc-list-header-row"):
+                    yield Label("Documents", id="doc-list-header")
+                    yield Button("Open Folder", id="open-docs-folder-btn", variant="default")
                 yield ListView(id="doc-list")
             with Vertical(id="doc-viewer-container"):
                 with Horizontal(id="doc-viewer-actions", classes="hidden"):
                     yield Button("Copy Text", id="copy-doc-btn", variant="primary")
+                    yield Button("Save As", id="save-doc-btn", variant="default")
+                    yield Button("Delete", id="delete-doc-btn", variant="error")
                 with VerticalScroll(id="doc-viewer"):
                     yield Static("Select a document to view", id="doc-content", classes="doc-placeholder")
 
@@ -371,8 +376,9 @@ class ProjectPanel(Container):
         created_by = doc.get("created_by", "unknown")
         markdown_content = doc.get("content", "")
 
-        # Store content for copy button
+        # Store content and title for copy/save buttons
         self._current_doc_content = markdown_content
+        self._current_doc_title = title
 
         # Show the actions bar
         try:
@@ -435,6 +441,149 @@ class ProjectPanel(Container):
             self.set_timer(1.5, lambda: setattr(btn, 'label', 'Copy Text'))
         except Exception as e:
             debug_log(f"Failed to copy to clipboard: {e}", "error")
+
+    @on(Button.Pressed, "#save-doc-btn")
+    def on_save_doc(self) -> None:
+        """Save document as markdown file using OS file dialog"""
+        if not self._current_doc_content:
+            return
+
+        import re
+        import threading
+
+        # Generate default filename from title
+        default_name = self._current_doc_title or "document"
+        # Sanitize filename: remove/replace invalid characters
+        default_name = re.sub(r'[<>:"/\\|?*]', '', default_name)
+        default_name = default_name.strip()[:50]  # Limit length
+        if not default_name:
+            default_name = "document"
+        default_name += ".md"
+
+        content = self._current_doc_content
+        btn = self.query_one("#save-doc-btn", Button)
+
+        def show_save_dialog():
+            """Run file dialog in separate thread to avoid blocking TUI"""
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+
+                # Create hidden root window
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes('-topmost', True)  # Bring dialog to front
+
+                # Show save dialog
+                file_path = filedialog.asksaveasfilename(
+                    defaultextension=".md",
+                    filetypes=[("Markdown files", "*.md"), ("All files", "*.*")],
+                    initialfile=default_name,
+                    title="Save Document As"
+                )
+
+                root.destroy()
+
+                if file_path:
+                    # Write the file
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    # Schedule UI update on main thread
+                    self.app.call_from_thread(self._show_save_success, btn)
+            except Exception as e:
+                debug_log(f"Failed to save document: {e}", "error")
+
+        # Run dialog in background thread
+        thread = threading.Thread(target=show_save_dialog, daemon=True)
+        thread.start()
+
+    def _show_save_success(self, btn: Button) -> None:
+        """Show save success feedback"""
+        btn.label = "Saved!"
+        self.set_timer(1.5, lambda: setattr(btn, 'label', 'Save As'))
+
+    @on(Button.Pressed, "#delete-doc-btn")
+    async def on_delete_doc(self) -> None:
+        """Delete the currently selected document"""
+        if not self.selected_document_id:
+            return
+
+        app = self.app
+        if not hasattr(app, 'http_client') or not app.current_project_id:
+            return
+
+        # Find document title for confirmation
+        doc_info = next((d for d in self.documents if d["id"] == self.selected_document_id), None)
+        doc_title = doc_info.get("title", "this document") if doc_info else "this document"
+
+        # Confirm deletion
+        from screens.modals import ConfirmModal
+        confirmed = await app.push_screen_wait(
+            ConfirmModal(f"Delete '{doc_title}'?", "This action cannot be undone.")
+        )
+
+        if not confirmed:
+            return
+
+        try:
+            response = await app.http_client.delete(
+                f"/projects/{app.current_project_id}/documents/{self.selected_document_id}"
+            )
+
+            if response.status_code == 200:
+                # Clear selection and reload
+                self.selected_document_id = None
+                self._current_doc_content = None
+
+                # Hide actions bar
+                try:
+                    actions = self.query_one("#doc-viewer-actions", Horizontal)
+                    actions.add_class("hidden")
+                except Exception:
+                    pass
+
+                # Reset viewer
+                content = self.query_one("#doc-content", Static)
+                content.update(Text("Select a document to view", style="dim italic"))
+                content.add_class("doc-placeholder")
+
+                # Reload document list
+                await self.load_documents(app.http_client, app.current_project_id)
+            else:
+                debug_log(f"Failed to delete document: {response.status_code}", "error")
+        except Exception as e:
+            debug_log(f"Error deleting document: {e}", "error")
+
+    @on(Button.Pressed, "#open-docs-folder-btn")
+    def on_open_docs_folder(self) -> None:
+        """Open the project documents folder in the OS file manager"""
+        import subprocess
+        import platform
+        from pathlib import Path
+
+        app = self.app
+        if not hasattr(app, 'current_project_id') or not app.current_project_id:
+            return
+
+        # Get absolute path to projects directory
+        # The TUI runs from tui-frontend/, so we need to go up one level
+        projects_dir = Path(__file__).parent.parent.parent / "data" / "projects"
+        projects_dir = projects_dir.resolve()
+
+        if not projects_dir.exists():
+            debug_log(f"Projects directory not found: {projects_dir}", "error")
+            return
+
+        try:
+            system = platform.system()
+            if system == "Linux":
+                subprocess.Popen(["xdg-open", str(projects_dir)])
+            elif system == "Darwin":  # macOS
+                subprocess.Popen(["open", str(projects_dir)])
+            elif system == "Windows":
+                subprocess.Popen(["explorer", str(projects_dir)])
+        except Exception as e:
+            debug_log(f"Failed to open folder: {e}", "error")
 
 
 class UserPanel(Container):
