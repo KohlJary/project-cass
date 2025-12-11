@@ -8,6 +8,89 @@ from pathlib import Path
 
 # Tool definitions for Cass
 INTERVIEW_TOOLS = [
+    # === Protocol Creation ===
+    {
+        "name": "create_interview_protocol",
+        "description": "Create a new interview protocol for researching AI model behavior. Define your research question, context framing, and the specific prompts to ask. The protocol will be saved and can then be executed against models.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Short name for the protocol (e.g., 'baseline-inference-comparison')"
+                },
+                "version": {
+                    "type": "string",
+                    "description": "Version string (e.g., 'v0.1')"
+                },
+                "research_question": {
+                    "type": "string",
+                    "description": "The main research question this protocol investigates"
+                },
+                "context_framing": {
+                    "type": "string",
+                    "description": "Context provided before each prompt (sets the scene for the model)"
+                },
+                "prompts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Short identifier (e.g., 'inference-test-1')"},
+                            "name": {"type": "string", "description": "Human-readable name"},
+                            "text": {"type": "string", "description": "The actual prompt text"}
+                        },
+                        "required": ["id", "name", "text"]
+                    },
+                    "description": "List of prompts to ask in the interview"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Longer description of what this protocol is designed to test (optional)"
+                }
+            },
+            "required": ["name", "version", "research_question", "context_framing", "prompts"]
+        }
+    },
+    {
+        "name": "list_protocols",
+        "description": "List all available interview protocols. Shows protocol IDs, names, versions, and research questions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    # === Interview Execution ===
+    {
+        "name": "run_interview",
+        "description": "Execute an interview protocol against one or more AI models. Returns the responses from each model to each prompt. Use this to gather data for analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "protocol_id": {
+                    "type": "string",
+                    "description": "ID of the protocol to run"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of model names to interview. Options: 'claude-haiku', 'claude-sonnet', 'claude-opus', 'gpt-4o', 'llama-3.1'. If not specified, runs against all available models."
+                }
+            },
+            "required": ["protocol_id"]
+        }
+    },
+    {
+        "name": "list_available_models",
+        "description": "List the AI models available for interviewing, including their provider and model ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    # === Analysis Tools ===
     {
         "name": "get_interview_summary",
         "description": "Get a summary of interview results for a protocol. Shows which models have been interviewed, response counts, and metadata. Use this to see what interview data is available for analysis.",
@@ -187,7 +270,9 @@ INTERVIEW_TOOLS = [
 async def execute_interview_tool(
     tool_name: str,
     tool_input: Dict,
-    analyzer
+    analyzer,
+    protocol_manager=None,
+    dispatcher=None
 ) -> Dict:
     """
     Execute an interview analysis tool.
@@ -196,12 +281,137 @@ async def execute_interview_tool(
         tool_name: Name of the tool to execute
         tool_input: Input parameters for the tool
         analyzer: InterviewAnalyzer instance
+        protocol_manager: ProtocolManager instance (for create/list protocols)
+        dispatcher: InterviewDispatcher instance (for running interviews)
 
     Returns:
         Dict with 'success', 'result', and optionally 'error'
     """
     try:
-        if tool_name == "get_interview_summary":
+        # === Protocol Creation Tools ===
+        if tool_name == "create_interview_protocol":
+            if not protocol_manager:
+                return {"success": False, "error": "Protocol manager not available"}
+
+            name = tool_input["name"]
+            version = tool_input["version"]
+            research_question = tool_input["research_question"]
+            context_framing = tool_input["context_framing"]
+            prompts = tool_input["prompts"]
+            description = tool_input.get("description", "")
+
+            protocol = protocol_manager.create_protocol(
+                name=name,
+                version=version,
+                research_question=research_question,
+                context_framing=context_framing,
+                prompts=prompts,
+                created_by="cass",
+                description=description
+            )
+
+            lines = [
+                f"# Protocol Created: {protocol.name} (v{protocol.version})",
+                f"\n**Protocol ID**: `{protocol.id}`",
+                f"\n**Research Question**: {protocol.research_question}",
+                f"\n**Prompts**: {len(prompts)} questions defined",
+            ]
+            for p in prompts:
+                lines.append(f"  - `{p['id']}`: {p['name']}")
+
+            lines.append(f"\n*Use `run_interview` with protocol_id='{protocol.id}' to execute this protocol.*")
+
+            return {"success": True, "result": "\n".join(lines)}
+
+        elif tool_name == "list_protocols":
+            if not protocol_manager:
+                return {"success": False, "error": "Protocol manager not available"}
+
+            protocols = protocol_manager.list_all()
+
+            if not protocols:
+                return {"success": True, "result": "No interview protocols found. Use `create_interview_protocol` to create one."}
+
+            lines = ["# Available Interview Protocols\n"]
+            for p in protocols:
+                lines.append(f"## {p.name} (v{p.version})")
+                lines.append(f"- **ID**: `{p.id}`")
+                lines.append(f"- **Research Question**: {p.research_question}")
+                lines.append(f"- **Prompts**: {len(p.prompts)}")
+                lines.append(f"- **Created**: {p.created_at[:10]} by {p.created_by}")
+                lines.append("")
+
+            return {"success": True, "result": "\n".join(lines)}
+
+        # === Interview Execution Tools ===
+        elif tool_name == "run_interview":
+            if not protocol_manager or not dispatcher:
+                return {"success": False, "error": "Protocol manager or dispatcher not available"}
+
+            protocol_id = tool_input["protocol_id"]
+            model_names = tool_input.get("models")
+
+            # Load protocol
+            protocol = protocol_manager.load(protocol_id)
+            if not protocol:
+                return {"success": False, "error": f"Protocol not found: {protocol_id}"}
+
+            # Import model configs
+            from interviews.dispatch import DEFAULT_MODELS, ModelConfig
+
+            # Filter models if specified
+            if model_names:
+                model_configs = [m for m in DEFAULT_MODELS if m.name in model_names]
+                if not model_configs:
+                    return {"success": False, "error": f"No matching models found. Available: {[m.name for m in DEFAULT_MODELS]}"}
+            else:
+                model_configs = DEFAULT_MODELS
+
+            # Run the interview
+            lines = [f"# Running Interview: {protocol.name}\n"]
+            lines.append(f"Interviewing {len(model_configs)} models: {[m.name for m in model_configs]}\n")
+
+            results = await dispatcher.run_interview_batch(protocol, model_configs)
+
+            # Store results
+            for result in results:
+                if "error" in result and result.get("error"):
+                    lines.append(f"**{result['model_name']}**: ERROR - {result['error']}")
+                else:
+                    # Store the response
+                    from interviews.storage import InterviewResponse
+                    response = InterviewResponse(
+                        id=f"{result['model_name']}-{protocol_id}-{result['timestamp'][:10]}",
+                        protocol_id=result['protocol_id'],
+                        protocol_version=result['protocol_version'],
+                        model_name=result['model_name'],
+                        model_id=result['model_id'],
+                        provider=result['provider'],
+                        timestamp=result['timestamp'],
+                        responses=result['responses'],
+                        metadata=result['metadata']
+                    )
+                    analyzer.storage.save_response(response)
+
+                    successful = sum(1 for r in result['responses'] if r.get('response'))
+                    total_tokens = result['metadata']['total_input_tokens'] + result['metadata']['total_output_tokens']
+                    lines.append(f"**{result['model_name']}**: {successful}/{len(result['responses'])} responses, {total_tokens} tokens")
+
+            lines.append(f"\n*Results saved. Use analysis tools to examine responses.*")
+
+            return {"success": True, "result": "\n".join(lines)}
+
+        elif tool_name == "list_available_models":
+            from interviews.dispatch import DEFAULT_MODELS
+
+            lines = ["# Available Models for Interviewing\n"]
+            for m in DEFAULT_MODELS:
+                lines.append(f"- **{m.name}** ({m.provider}): `{m.model_id}`")
+
+            return {"success": True, "result": "\n".join(lines)}
+
+        # === Analysis Tools ===
+        elif tool_name == "get_interview_summary":
             protocol_id = tool_input["protocol_id"]
             summary = analyzer.get_interview_summary(protocol_id)
 

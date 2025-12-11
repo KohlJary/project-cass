@@ -216,9 +216,18 @@ research_manager = ResearchManager(data_dir=DATA_DIR)
 research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
 research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
 
-# Initialize interview analyzer
+# Initialize interview system
 from interviews import InterviewAnalyzer
+from interviews.protocols import ProtocolManager
+from interviews.dispatch import InterviewDispatcher
+
 interview_analyzer = InterviewAnalyzer(storage_dir=str(DATA_DIR / "interviews"))
+protocol_manager = ProtocolManager(storage_dir=str(DATA_DIR / "interviews" / "protocols"))
+interview_dispatcher = InterviewDispatcher(
+    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+    openai_api_key=os.getenv("OPENAI_API_KEY"),
+    ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+)
 
 # Initialize GitHub metrics manager
 from github_metrics import GitHubMetricsManager
@@ -324,6 +333,8 @@ def create_tool_context(
         reflection_runner_getter=g.get('get_reflection_runner'),
         storage_dir=DATA_DIR / "testing",
         interview_analyzer=interview_analyzer,
+        protocol_manager=protocol_manager,
+        interview_dispatcher=interview_dispatcher,
     )
 
 
