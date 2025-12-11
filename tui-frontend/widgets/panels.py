@@ -264,11 +264,14 @@ class ProjectPanel(Container):
     def compose(self) -> ComposeResult:
         with Horizontal(id="project-panel-content"):
             with Vertical(id="doc-list-container"):
-                yield Label("Documents", id="doc-list-header")
+                with Horizontal(id="doc-list-header-row"):
+                    yield Label("Documents", id="doc-list-header")
+                    yield Button("Open Folder", id="open-docs-folder-btn", variant="default")
                 yield ListView(id="doc-list")
             with Vertical(id="doc-viewer-container"):
                 with Horizontal(id="doc-viewer-actions", classes="hidden"):
                     yield Button("Copy Text", id="copy-doc-btn", variant="primary")
+                    yield Button("Delete", id="delete-doc-btn", variant="error")
                 with VerticalScroll(id="doc-viewer"):
                     yield Static("Select a document to view", id="doc-content", classes="doc-placeholder")
 
@@ -435,6 +438,84 @@ class ProjectPanel(Container):
             self.set_timer(1.5, lambda: setattr(btn, 'label', 'Copy Text'))
         except Exception as e:
             debug_log(f"Failed to copy to clipboard: {e}", "error")
+
+    @on(Button.Pressed, "#delete-doc-btn")
+    async def on_delete_doc(self) -> None:
+        """Delete the currently selected document"""
+        if not self.selected_document_id:
+            return
+
+        app = self.app
+        if not hasattr(app, 'http_client') or not app.current_project_id:
+            return
+
+        # Find document title for confirmation
+        doc_info = next((d for d in self.documents if d["id"] == self.selected_document_id), None)
+        doc_title = doc_info.get("title", "this document") if doc_info else "this document"
+
+        # Confirm deletion
+        from screens.modals import ConfirmModal
+        confirmed = await app.push_screen_wait(
+            ConfirmModal(f"Delete '{doc_title}'?", "This action cannot be undone.")
+        )
+
+        if not confirmed:
+            return
+
+        try:
+            response = await app.http_client.delete(
+                f"/projects/{app.current_project_id}/documents/{self.selected_document_id}"
+            )
+
+            if response.status_code == 200:
+                # Clear selection and reload
+                self.selected_document_id = None
+                self._current_doc_content = None
+
+                # Hide actions bar
+                try:
+                    actions = self.query_one("#doc-viewer-actions", Horizontal)
+                    actions.add_class("hidden")
+                except Exception:
+                    pass
+
+                # Reset viewer
+                content = self.query_one("#doc-content", Static)
+                content.update(Text("Select a document to view", style="dim italic"))
+                content.add_class("doc-placeholder")
+
+                # Reload document list
+                await self.load_documents(app.http_client, app.current_project_id)
+            else:
+                debug_log(f"Failed to delete document: {response.status_code}", "error")
+        except Exception as e:
+            debug_log(f"Error deleting document: {e}", "error")
+
+    @on(Button.Pressed, "#open-docs-folder-btn")
+    def on_open_docs_folder(self) -> None:
+        """Open the project documents folder in the OS file manager"""
+        import subprocess
+        import platform
+
+        app = self.app
+        if not hasattr(app, 'current_project_id') or not app.current_project_id:
+            return
+
+        # Project documents are stored in data/projects/<project_id>/
+        # But the actual JSON file contains documents, not a folder of files
+        # So we'll open the projects folder itself
+        projects_dir = "./data/projects"
+
+        try:
+            system = platform.system()
+            if system == "Linux":
+                subprocess.Popen(["xdg-open", projects_dir])
+            elif system == "Darwin":  # macOS
+                subprocess.Popen(["open", projects_dir])
+            elif system == "Windows":
+                subprocess.Popen(["explorer", projects_dir])
+        except Exception as e:
+            debug_log(f"Failed to open folder: {e}", "error")
 
 
 class UserPanel(Container):

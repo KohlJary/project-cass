@@ -239,6 +239,24 @@ CSS = """
         border-right: solid $surface-darken-1;
     }
 
+    #doc-list-header-row {
+        height: auto;
+        width: 100%;
+        background: $surface-darken-1;
+        padding: 0 1;
+    }
+
+    #doc-list-header-row Label {
+        width: 1fr;
+        text-style: bold;
+        color: $primary;
+    }
+
+    #doc-list-header-row Button {
+        min-width: 12;
+        height: 1;
+    }
+
     #doc-list-header {
         height: 1;
         padding: 0 1;
@@ -545,6 +563,41 @@ CSS = """
     }
 
     #delete-buttons Button {
+        margin: 0 1;
+    }
+
+    /* Generic confirm dialog modal */
+    ConfirmModal {
+        align: center middle;
+    }
+
+    #confirm-dialog {
+        width: 60;
+        height: auto;
+        background: $panel;
+        border: thick $error;
+        padding: 1 2;
+    }
+
+    #confirm-title {
+        text-align: center;
+        text-style: bold;
+        color: $error;
+        margin-bottom: 1;
+    }
+
+    #confirm-message {
+        text-align: center;
+        margin-bottom: 1;
+    }
+
+    #confirm-buttons {
+        width: 100%;
+        height: auto;
+        align: center middle;
+    }
+
+    #confirm-buttons Button {
         margin: 0 1;
     }
 
