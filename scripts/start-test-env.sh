@@ -65,6 +65,52 @@ echo -e "${CYAN}  Cass Test Environment Launcher${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo
 
+# Check if test environment is already running
+check_already_running() {
+    local backend_up=false
+    local frontend_up=false
+
+    if curl -s "http://localhost:$BACKEND_PORT/health" > /dev/null 2>&1; then
+        backend_up=true
+    fi
+
+    if curl -s "http://localhost:$FRONTEND_PORT" > /dev/null 2>&1; then
+        frontend_up=true
+    fi
+
+    if [ "$backend_up" = true ] && [ "$frontend_up" = true ]; then
+        echo -e "${GREEN}Test environment is already running!${NC}"
+        echo
+        echo -e "${CYAN}URLs:${NC}"
+        echo -e "  Backend:  ${GREEN}http://localhost:$BACKEND_PORT${NC}"
+        echo -e "  Frontend: ${GREEN}http://localhost:$FRONTEND_PORT${NC}"
+        echo
+        # Read credentials if available
+        if [ -f "$TEST_DATA_DIR/test_credentials.json" ]; then
+            local user_id=$(python3 -c "import json; print(json.load(open('$TEST_DATA_DIR/test_credentials.json'))['user_id'])")
+            local password=$(python3 -c "import json; print(json.load(open('$TEST_DATA_DIR/test_credentials.json'))['password'])")
+            echo -e "${CYAN}Daedalus Credentials:${NC}"
+            echo -e "  User ID:  ${GREEN}$user_id${NC}"
+            echo -e "  Password: ${GREEN}$password${NC}"
+        fi
+        echo
+        return 0
+    elif [ "$backend_up" = true ] && [ "$BACKEND_ONLY" = true ]; then
+        echo -e "${GREEN}Test backend is already running on port $BACKEND_PORT${NC}"
+        return 0
+    elif [ "$frontend_up" = true ] && [ "$FRONTEND_ONLY" = true ]; then
+        echo -e "${GREEN}Test frontend is already running on port $FRONTEND_PORT${NC}"
+        return 0
+    fi
+
+    return 1
+}
+
+# Exit early if already running (unless --clean is specified)
+if [ "$CLEAN" = false ] && check_already_running; then
+    exit 0
+fi
+
 # Check if bootstrap is needed
 if [ "$CLEAN" = true ] || [ ! -d "$TEST_DATA_DIR" ]; then
     echo -e "${YELLOW}Bootstrapping test environment...${NC}"

@@ -137,3 +137,6 @@ temple-codex/
 
 # Runtime data (roadmap state, etc.)
 data/roadmap/
+.scout_backups
+data
+data-test
