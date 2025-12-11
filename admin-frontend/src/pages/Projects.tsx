@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, roadmapApi, filesApi, githubApi } from '../api/client';
+import { projectsApi, roadmapApi, filesApi } from '../api/client';
 import './Projects.css';
 
 interface Project {
@@ -51,15 +51,6 @@ interface FileEntry {
   is_dir: boolean;
   size: number | null;
   modified: number;
-}
-
-interface GitHubMetric {
-  repo: string;
-  stars: number;
-  forks: number;
-  watchers: number;
-  open_issues: number;
-  last_updated: string;
 }
 
 type TabId = 'overview' | 'documents' | 'roadmap' | 'files' | 'metrics';
@@ -722,10 +713,6 @@ function RoadmapTab({ projectId }: { projectId: string }) {
     return milestonesData?.milestones?.find((m: Milestone) => m.id === id);
   };
 
-  const getMilestoneTitle = (id: string) => {
-    return getMilestone(id)?.title || 'Unknown Milestone';
-  };
-
   // Group items by status for Kanban view
   const itemsByStatus: Record<string, RoadmapItem[]> = {
     backlog: [],
@@ -934,7 +921,7 @@ function FilesTab({ workingDirectory }: { workingDirectory: string }) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
 
-  const { data: listData, isLoading, error, refetch } = useQuery({
+  const { data: listData, isLoading, error } = useQuery({
     queryKey: ['files-list', currentPath, showHidden],
     queryFn: () => filesApi.list(currentPath, showHidden).then((r) => r.data),
     retry: false,

@@ -4,20 +4,23 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
-import { Memory } from './pages/Memory';
+// Consolidated views
+import { MemorySystem } from './pages/MemorySystem';
+import { SelfDevelopment } from './pages/SelfDevelopment';
+import { Settings } from './pages/Settings';
+import { Activity } from './pages/Activity';
+// Legacy imports (to be consolidated)
 import { Users } from './pages/Users';
-import { Journals } from './pages/Journals';
-import { Conversations } from './pages/Conversations';
-import { Retrieval } from './pages/Retrieval';
-import { SelfModel } from './pages/SelfModel';
-import { System } from './pages/System';
-import { Vectors } from './pages/Vectors';
+// Journals consolidated into Activity
+// Conversations consolidated into Activity
+// SelfModel consolidated into SelfDevelopment
+// System consolidated into Settings
 import { Wiki } from './pages/Wiki';
 import { Research } from './pages/Research';
-import { DataManagement } from './pages/DataManagement';
-import { Development } from './pages/Development';
+// DataManagement consolidated into Settings
+// Development consolidated into SelfDevelopment
 import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
-import { SoloReflection } from './pages/SoloReflection';
+// SoloReflection consolidated into Activity
 import Goals from './pages/Goals';
 import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
@@ -74,20 +77,32 @@ function AppRoutes() {
         }
       >
         <Route index element={<Dashboard />} />
-        <Route path="memory" element={<Memory />} />
+        {/* Consolidated: Memory System (Memory + Retrieval + Vectors) */}
+        <Route path="memory" element={<MemorySystem />} />
+        {/* Redirects for old routes */}
+        <Route path="retrieval" element={<Navigate to="/memory?tab=retrieval" replace />} />
+        <Route path="vectors" element={<Navigate to="/memory?tab=vectors" replace />} />
+        {/* Consolidated: Self-Development (Self-Model + Development) */}
+        <Route path="self-development" element={<SelfDevelopment />} />
+        {/* Redirects for old routes */}
+        <Route path="self-model" element={<Navigate to="/self-development?tab=identity" replace />} />
+        <Route path="development" element={<Navigate to="/self-development?tab=timeline" replace />} />
+        {/* Consolidated: Activity (Conversations + Journals + Reflection) */}
+        <Route path="activity" element={<Activity />} />
+        {/* Redirects for old routes */}
+        <Route path="conversations" element={<Navigate to="/activity?tab=conversations" replace />} />
+        <Route path="journals" element={<Navigate to="/activity?tab=journals" replace />} />
+        <Route path="reflection" element={<Navigate to="/activity?tab=reflection" replace />} />
+        {/* Remaining views */}
         <Route path="users" element={<Users />} />
-        <Route path="journals" element={<Journals />} />
-        <Route path="conversations" element={<Conversations />} />
-        <Route path="retrieval" element={<Retrieval />} />
         <Route path="wiki" element={<Wiki />} />
         <Route path="research" element={<Research />} />
-        <Route path="system" element={<System />} />
-        <Route path="vectors" element={<Vectors />} />
-        <Route path="self-model" element={<SelfModel />} />
-        <Route path="development" element={<Development />} />
-        <Route path="data" element={<DataManagement />} />
+        {/* Consolidated: Settings (System + Data) */}
+        <Route path="settings" element={<Settings />} />
+        {/* Redirects for old routes */}
+        <Route path="system" element={<Navigate to="/settings?tab=health" replace />} />
+        <Route path="data" element={<Navigate to="/settings?tab=export" replace />} />
         <Route path="consciousness" element={<ConsciousnessHealth />} />
-        <Route path="reflection" element={<SoloReflection />} />
         <Route path="goals" element={<Goals />} />
         <Route path="metrics" element={<Metrics />} />
         <Route path="projects" element={<Projects />} />
