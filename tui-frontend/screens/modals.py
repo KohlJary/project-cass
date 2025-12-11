@@ -81,6 +81,35 @@ class DeleteConversationScreen(ModalScreen):
         self.dismiss(False)
 
 
+class ConfirmModal(ModalScreen):
+    """Generic confirmation modal that returns True/False"""
+
+    def __init__(self, title: str, message: str = "", **kwargs):
+        super().__init__(**kwargs)
+        self.modal_title = title
+        self.message = message
+
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-dialog"):
+            yield Label(self.modal_title, id="confirm-title")
+            if self.message:
+                yield Static(self.message, id="confirm-message")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Confirm", variant="error", id="confirm-yes")
+                yield Button("Cancel", variant="default", id="confirm-no")
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm-no", Button).focus()
+
+    @on(Button.Pressed, "#confirm-yes")
+    async def on_confirm(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#confirm-no")
+    async def on_cancel(self):
+        self.dismiss(False)
+
+
 class NewProjectScreen(ModalScreen):
     """Modal screen for creating a new project"""
 
