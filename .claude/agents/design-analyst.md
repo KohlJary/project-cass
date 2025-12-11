@@ -33,8 +33,44 @@ python scripts/capability_scanner.py --output data/capability_index.json --markd
 ```
 
 ### Admin Frontend
-Location: `/home/jaryk/cass/admin-frontend/`
-URL (when running): `http://localhost:3000`
+Location: `/home/jaryk/cass/cass-vessel/admin-frontend/`
+URL (production): `http://localhost:3000`
+URL (test environment): `http://localhost:3001`
+
+## Test Environment
+
+**IMPORTANT**: Always use the test environment for auditing to avoid affecting production data.
+
+### Starting the Test Environment
+```bash
+# First time or clean start
+./scripts/start-test-env.sh --clean
+
+# Subsequent runs
+./scripts/start-test-env.sh
+```
+
+This starts:
+- Backend on port **8001** with isolated `data-test/` directory
+- Frontend on port **3001** pointing to test backend
+
+### Test Credentials (Daedalus Admin)
+- **User ID**: `daedalus-test-0001-0001-000000000001`
+- **Password**: `daedalus-test-password`
+
+These credentials have admin access and can view all features.
+
+### Test Data Includes
+- 3 sample projects (with documents)
+- 4 users (Daedalus admin + 3 test users)
+- 3 sample conversations
+- All admin features accessible
+
+### Authenticating with Playwright
+When using Playwright to test the admin-frontend:
+1. Navigate to login page
+2. Use test credentials above
+3. Session will persist for subsequent page visits
 
 ## Playwright MCP Server
 
