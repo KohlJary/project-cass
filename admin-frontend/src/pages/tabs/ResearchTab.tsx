@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { wikiApi, researchApi } from '../../api/client';
 import { StandaloneWikiReader } from '../../components/WikiReader';
+import '../Research.css';
 
 // Dashboard types
 interface DashboardData {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { goalsApi, schedulesApi } from '../../api/client';
 import ReactMarkdown from 'react-markdown';
+import '../Goals.css';
 
 type TabType = 'overview' | 'questions' | 'agenda' | 'schedules' | 'artifacts' | 'initiatives' | 'progress';
 
