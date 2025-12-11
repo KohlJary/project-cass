@@ -496,24 +496,29 @@ class ProjectPanel(Container):
         """Open the project documents folder in the OS file manager"""
         import subprocess
         import platform
+        from pathlib import Path
 
         app = self.app
         if not hasattr(app, 'current_project_id') or not app.current_project_id:
             return
 
-        # Project documents are stored in data/projects/<project_id>/
-        # But the actual JSON file contains documents, not a folder of files
-        # So we'll open the projects folder itself
-        projects_dir = "./data/projects"
+        # Get absolute path to projects directory
+        # The TUI runs from tui-frontend/, so we need to go up one level
+        projects_dir = Path(__file__).parent.parent.parent / "data" / "projects"
+        projects_dir = projects_dir.resolve()
+
+        if not projects_dir.exists():
+            debug_log(f"Projects directory not found: {projects_dir}", "error")
+            return
 
         try:
             system = platform.system()
             if system == "Linux":
-                subprocess.Popen(["xdg-open", projects_dir])
+                subprocess.Popen(["xdg-open", str(projects_dir)])
             elif system == "Darwin":  # macOS
-                subprocess.Popen(["open", projects_dir])
+                subprocess.Popen(["open", str(projects_dir)])
             elif system == "Windows":
-                subprocess.Popen(["explorer", projects_dir])
+                subprocess.Popen(["explorer", str(projects_dir)])
         except Exception as e:
             debug_log(f"Failed to open folder: {e}", "error")
 
