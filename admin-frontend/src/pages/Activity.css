@@ -1514,6 +1514,147 @@
   border-color: #c792ea;
 }
 
+/* Trigger Modal for Agenda Selection */
+.trigger-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.trigger-modal {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 450px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.trigger-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.trigger-modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.modal-close-btn:hover {
+  color: #e0e0e0;
+}
+
+.trigger-modal-body {
+  padding: 1.25rem;
+}
+
+.agenda-select-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #888;
+  margin-bottom: 0.5rem;
+}
+
+.agenda-select {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.agenda-select:focus {
+  outline: none;
+  border-color: #c792ea;
+}
+
+.agenda-select optgroup {
+  font-weight: 600;
+  color: #c792ea;
+}
+
+.agenda-item-why {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: #aaa;
+  line-height: 1.4;
+}
+
+.trigger-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+.modal-cancel-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #888;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-cancel-btn:hover {
+  border-color: #444;
+  color: #e0e0e0;
+}
+
+.modal-confirm-btn {
+  padding: 0.5rem 1rem;
+  background: #c792ea;
+  border: none;
+  border-radius: 6px;
+  color: #000;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-confirm-btn:hover {
+  background: #d4a5f0;
+}
+
+.modal-confirm-btn:disabled {
+  background: #666;
+  cursor: not-allowed;
+}
+
 /* New 3-column adaptive layout */
 .rhythm-layout-v2 {
   display: grid;

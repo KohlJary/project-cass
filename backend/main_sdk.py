@@ -432,7 +432,7 @@ init_auth_routes(auth_service)
 app.include_router(auth_router)
 
 # Register admin routes
-from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager, init_research_manager
+from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager, init_research_manager, init_goal_manager
 init_admin_managers(memory, conversation_manager, user_manager, self_manager)
 init_research_session_manager(research_session_manager)
 init_research_scheduler(research_scheduler)
@@ -440,6 +440,7 @@ init_github_metrics(github_metrics_manager)
 init_token_tracker(token_tracker)
 init_daily_rhythm_manager(daily_rhythm_manager)
 init_research_manager(research_manager)
+init_goal_manager(goal_manager)
 app.include_router(admin_router)
 
 # Register testing routes
@@ -2573,6 +2574,7 @@ def get_research_runner() -> ResearchSessionRunner:
             self_manager=self_manager,
             self_model_graph=self_model_graph,
             token_tracker=token_tracker,
+            goal_manager=goal_manager,
         )
     return _research_runner
 

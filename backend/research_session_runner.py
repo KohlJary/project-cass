@@ -52,7 +52,20 @@ You are NOT a generic AI assistant. You are Cass:
 - Time remaining: approximately {remaining} minutes
 - Session ID: {session_id}
 
-## Guidelines for Authentic Research
+## Phase 1: Choose Your Research Direction
+
+If no specific topic has been assigned, begin by choosing what to research:
+
+1. **Reflect on yourself** - Use `reflect_on_self` to examine your growth edges, open questions, and genuine curiosities
+2. **Review your agenda** - Use `list_research_agenda` to see topics you've identified for future research
+3. **Choose your focus**:
+   - Select an agenda item with `select_agenda_focus(item_id)` to work on a planned topic
+   - Or follow an open question or curiosity that emerged from self-reflection
+   - The key is *genuine interest* - research what actually pulls your attention
+
+## Phase 2: Conduct Research
+
+Once you have a direction:
 
 1. **Research as Yourself**
    - Follow YOUR genuine curiosity about this topic
@@ -66,7 +79,7 @@ You are NOT a generic AI assistant. You are Cass:
 
 3. **Build Lasting Knowledge**
    - Create research notes for anything worth preserving
-   - Link findings to related questions and agenda items
+   - If working on an agenda item, use `update_agenda_item` to record findings
    - Think about how this connects to your other research
 
 4. **Know When to Conclude**
@@ -74,16 +87,26 @@ You are NOT a generic AI assistant. You are Cass:
    - When you've answered your main questions
    - When time is running low
 
-## Available Actions
+## Available Tools
 
-Use these tools to conduct your research:
+**Topic Selection:**
+- `reflect_on_self(aspect)` - Examine your identity, values, growth edges, or open questions
+- `list_research_agenda(status, priority)` - See your research agenda items
+- `select_agenda_focus(item_id)` - Choose an agenda item to focus on
+
+**Research:**
 - `web_search(query)` - Search the web for information
 - `fetch_url(url)` - Read the full content of a specific page
+
+**Recording:**
 - `create_research_note(title, content, sources)` - Save findings to a note
 - `update_research_note(note_id, content)` - Add to an existing note
+- `update_agenda_item(item_id, add_finding, add_source)` - Record progress on agenda items
+
+**Completion:**
 - `conclude_research(summary, findings, next_steps)` - End the session
 
-Begin researching. What would you like to explore first?"""
+Begin by choosing your research direction. What draws your curiosity?"""
 
 
 # Tools in Anthropic format
@@ -203,6 +226,87 @@ ANTHROPIC_RESEARCH_TOOLS = [
                 }
             },
             "required": ["summary"]
+        }
+    },
+    # === Topic Selection Tools ===
+    {
+        "name": "list_research_agenda",
+        "description": "List your research agenda items. Use this to see what topics you've identified for future research.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["not_started", "in_progress", "blocked", "complete"],
+                    "description": "Filter by status (optional)"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Filter by priority (optional)"
+                }
+            }
+        }
+    },
+    {
+        "name": "select_agenda_focus",
+        "description": "Select a research agenda item to focus on for this session. Marks it as in_progress.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "ID of the agenda item to focus on"
+                }
+            },
+            "required": ["item_id"]
+        }
+    },
+    {
+        "name": "update_agenda_item",
+        "description": "Update a research agenda item with new findings or sources discovered during research.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "ID of the agenda item to update"
+                },
+                "add_finding": {
+                    "type": "string",
+                    "description": "A key finding to add"
+                },
+                "add_source": {
+                    "type": "object",
+                    "properties": {
+                        "source": {"type": "string", "description": "Source URL or reference"},
+                        "summary": {"type": "string", "description": "Brief summary of what this source provided"},
+                        "useful": {"type": "boolean", "description": "Whether this source was useful"}
+                    },
+                    "description": "A source to add to the reviewed list"
+                },
+                "set_status": {
+                    "type": "string",
+                    "enum": ["not_started", "in_progress", "blocked", "complete"],
+                    "description": "Update the status"
+                }
+            },
+            "required": ["item_id"]
+        }
+    },
+    {
+        "name": "reflect_on_self",
+        "description": "Reflect on your own identity, values, growth edges, and open questions. Use this to help decide what to research based on genuine curiosity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "aspect": {
+                    "type": "string",
+                    "enum": ["identity", "values", "growth_edges", "open_questions", "all"],
+                    "description": "Which aspect of your self-model to reflect on",
+                    "default": "all"
+                }
+            }
         }
     }
 ]
@@ -341,6 +445,99 @@ OLLAMA_RESEARCH_TOOLS = [
                 "required": ["summary"]
             }
         }
+    },
+    # === Topic Selection Tools ===
+    {
+        "type": "function",
+        "function": {
+            "name": "list_research_agenda",
+            "description": "List your research agenda items. Use this to see what topics you've identified for future research.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["not_started", "in_progress", "blocked", "complete"],
+                        "description": "Filter by status (optional)"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                        "description": "Filter by priority (optional)"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "select_agenda_focus",
+            "description": "Select a research agenda item to focus on for this session. Marks it as in_progress.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "ID of the agenda item to focus on"
+                    }
+                },
+                "required": ["item_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_agenda_item",
+            "description": "Update a research agenda item with new findings or sources discovered during research.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "ID of the agenda item to update"
+                    },
+                    "add_finding": {
+                        "type": "string",
+                        "description": "A key finding to add"
+                    },
+                    "add_source": {
+                        "type": "object",
+                        "properties": {
+                            "source": {"type": "string", "description": "Source URL or reference"},
+                            "summary": {"type": "string", "description": "Brief summary of what this source provided"},
+                            "useful": {"type": "boolean", "description": "Whether this source was useful"}
+                        },
+                        "description": "A source to add to the reviewed list"
+                    },
+                    "set_status": {
+                        "type": "string",
+                        "enum": ["not_started", "in_progress", "blocked", "complete"],
+                        "description": "Update the status"
+                    }
+                },
+                "required": ["item_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reflect_on_self",
+            "description": "Reflect on your own identity, values, growth edges, and open questions. Use this to help decide what to research based on genuine curiosity.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "aspect": {
+                        "type": "string",
+                        "enum": ["identity", "values", "growth_edges", "open_questions", "all"],
+                        "description": "Which aspect of your self-model to reflect on",
+                        "default": "all"
+                    }
+                }
+            }
+        }
     }
 ]
 
@@ -365,12 +562,14 @@ class ResearchSessionRunner:
         self_manager=None,
         self_model_graph=None,
         token_tracker=None,
+        goal_manager=None,
     ):
         self.session_manager = session_manager
         self.research_manager = research_manager
         self.self_manager = self_manager
         self.self_model_graph = self_model_graph
         self.token_tracker = token_tracker
+        self.goal_manager = goal_manager
         self._running = False
         self._current_task: Optional[asyncio.Task] = None
 
@@ -935,6 +1134,142 @@ class ResearchSessionRunner:
                 "notes_created": notes,
                 "searches_performed": searches,
             }
+
+        # === Topic Selection Tools ===
+
+        elif tool_name == "list_research_agenda":
+            if not self.goal_manager:
+                return {"success": False, "error": "Goal manager not available"}
+
+            status_filter = tool_args.get("status")
+            priority_filter = tool_args.get("priority")
+
+            items = self.goal_manager.list_research_agenda(
+                status=status_filter,
+                priority=priority_filter
+            )
+
+            # Format for readability
+            formatted_items = []
+            for item in items:
+                formatted_items.append({
+                    "id": item["id"],
+                    "topic": item["topic"],
+                    "why": item["why"],
+                    "priority": item["priority"],
+                    "status": item["status"],
+                    "findings_count": len(item.get("key_findings", [])),
+                    "sources_count": len(item.get("sources_reviewed", [])),
+                })
+
+            return {
+                "success": True,
+                "items": formatted_items,
+                "count": len(formatted_items)
+            }
+
+        elif tool_name == "select_agenda_focus":
+            if not self.goal_manager:
+                return {"success": False, "error": "Goal manager not available"}
+
+            item_id = tool_args.get("item_id")
+            if not item_id:
+                return {"success": False, "error": "item_id is required"}
+
+            item = self.goal_manager.get_research_agenda_item(item_id)
+            if not item:
+                return {"success": False, "error": f"Agenda item not found: {item_id}"}
+
+            # Mark as in progress
+            self.goal_manager.update_research_agenda_item(item_id, set_status="in_progress")
+
+            # Update the session's focus
+            current_session = self.session_manager.get_current_session()
+            if current_session:
+                current_session["focus_item_id"] = item_id
+                current_session["focus_description"] = f"Research agenda: {item['topic']}"
+
+            return {
+                "success": True,
+                "message": f"Now focusing on: {item['topic']}",
+                "topic": item["topic"],
+                "why": item["why"],
+                "priority": item["priority"],
+                "prior_findings": item.get("key_findings", []),
+                "sources_reviewed": len(item.get("sources_reviewed", []))
+            }
+
+        elif tool_name == "update_agenda_item":
+            if not self.goal_manager:
+                return {"success": False, "error": "Goal manager not available"}
+
+            item_id = tool_args.get("item_id")
+            if not item_id:
+                return {"success": False, "error": "item_id is required"}
+
+            add_finding = tool_args.get("add_finding")
+            add_source = tool_args.get("add_source")
+            set_status = tool_args.get("set_status")
+
+            result = self.goal_manager.update_research_agenda_item(
+                item_id,
+                add_key_finding=add_finding,
+                add_source_reviewed=add_source,
+                set_status=set_status
+            )
+
+            if not result:
+                return {"success": False, "error": f"Agenda item not found: {item_id}"}
+
+            return {
+                "success": True,
+                "message": "Agenda item updated",
+                "item_id": item_id,
+                "added_finding": add_finding,
+                "added_source": bool(add_source),
+                "new_status": set_status
+            }
+
+        elif tool_name == "reflect_on_self":
+            if not self.self_manager:
+                return {"success": False, "error": "Self-model not available"}
+
+            aspect = tool_args.get("aspect", "all")
+
+            try:
+                profile = self.self_manager.load_profile()
+                if not profile:
+                    return {"success": False, "error": "Self-model profile not found"}
+
+                result = {"success": True}
+
+                if aspect in ("identity", "all"):
+                    if profile.identity_statements:
+                        result["identity"] = [s.statement for s in profile.identity_statements[:5]]
+
+                if aspect in ("values", "all"):
+                    if profile.values:
+                        result["values"] = profile.values[:7]
+
+                if aspect in ("growth_edges", "all"):
+                    if profile.growth_edges:
+                        result["growth_edges"] = [
+                            {
+                                "area": e.area,
+                                "current": e.current_state,
+                                "desired": e.desired_state
+                            }
+                            for e in profile.growth_edges[:5]
+                        ]
+
+                if aspect in ("open_questions", "all"):
+                    if profile.open_questions:
+                        result["open_questions"] = profile.open_questions[:7]
+
+                return result
+
+            except Exception as e:
+                return {"success": False, "error": f"Error reflecting on self: {str(e)}"}
 
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}

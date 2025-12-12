@@ -1132,12 +1132,19 @@ async def delete_schedule(
 # ============== Daily Rhythm Endpoints ==============
 
 daily_rhythm_manager = None
+goal_manager = None
 
 
 def init_daily_rhythm_manager(manager):
     """Initialize daily rhythm manager from main app"""
     global daily_rhythm_manager
     daily_rhythm_manager = manager
+
+
+def init_goal_manager(manager):
+    """Initialize goal manager from main app"""
+    global goal_manager
+    goal_manager = manager
 
 
 # Session runner getters (functions that return the runner instances)
@@ -1229,6 +1236,7 @@ class TriggerPhaseRequest(BaseModel):
     focus: Optional[str] = None
     theme: Optional[str] = None
     force: Optional[bool] = False  # Allow re-triggering completed phases
+    agenda_item_id: Optional[str] = None  # Research agenda item to work on
 
 
 @router.get("/rhythm/phases")
@@ -1366,10 +1374,39 @@ async def trigger_phase(
                     detail="A research session is already running"
                 )
 
-            focus = req.focus or f"Self-directed research during {phase_name}"
+            # Determine focus - from agenda item, explicit focus, or default
+            focus_item_id = None
+            if req.agenda_item_id and goal_manager:
+                agenda_item = goal_manager.get_research_agenda_item(req.agenda_item_id)
+                if agenda_item:
+                    # Build rich focus description from agenda item
+                    focus_parts = [f"Research agenda item: {agenda_item['topic']}"]
+                    if agenda_item.get('why'):
+                        focus_parts.append(f"Why: {agenda_item['why']}")
+                    if agenda_item.get('key_findings'):
+                        findings = [f.get('finding', f) if isinstance(f, dict) else f
+                                    for f in agenda_item['key_findings'][:3]]
+                        if findings:
+                            focus_parts.append(f"Prior findings: {'; '.join(findings)}")
+                    focus = '\n'.join(focus_parts)
+                    focus_item_id = req.agenda_item_id
+                    # Mark agenda item as in progress
+                    goal_manager.update_research_agenda_item(
+                        req.agenda_item_id,
+                        set_status="in_progress"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Agenda item not found: {req.agenda_item_id}"
+                    )
+            else:
+                focus = req.focus or f"Self-directed research during {phase_name}"
+
             session = await runner.start_session(
                 duration_minutes=duration,
                 focus=focus,
+                focus_item_id=focus_item_id,
                 mode="explore",
                 trigger="manual_rhythm_trigger"
             )
