@@ -46,6 +46,8 @@ class NodeType(str, Enum):
     CONVERSATION_MOMENT = "conversation_moment"
     USER = "user"
     COGNITIVE_SNAPSHOT = "cognitive_snapshot"
+    INTENTION = "intention"  # Declared intention: "I want to X when Y"
+    INTENTION_OUTCOME = "intention_outcome"  # Success/failure record for an intention
 
 
 class EdgeType(str, Enum):
@@ -73,6 +75,7 @@ class EdgeType(str, Enum):
     # Development
     DEVELOPS = "develops"
     TRIGGERED = "triggered"
+    TRACKS = "tracks"  # Outcome tracks an intention
 
 
 @dataclass
@@ -145,7 +148,7 @@ class SelfModelGraph:
     CONNECTABLE_TYPES = {
         NodeType.OBSERVATION, NodeType.USER_OBSERVATION, NodeType.OPINION,
         NodeType.GROWTH_EDGE, NodeType.MILESTONE, NodeType.MARK,
-        NodeType.SOLO_REFLECTION
+        NodeType.SOLO_REFLECTION, NodeType.INTENTION
     }
 
     # Minimum similarity score to create an edge (lower = more connections)
@@ -1480,6 +1483,252 @@ class SelfModelGraph:
         edge_data["resolved_at"] = datetime.now().isoformat()
         edge_data["resolution_note"] = resolution_note
 
+        self.save()
+        return True
+
+    # ==================== Intention Tracking ====================
+
+    def register_intention(
+        self,
+        intention: str,
+        condition: str,
+        linked_observation_ids: Optional[List[str]] = None,
+        growth_edge_area: Optional[str] = None
+    ) -> str:
+        """
+        Register a behavioral intention for tracking.
+
+        Args:
+            intention: What I want to do (e.g., "engage more directly")
+            condition: When/trigger (e.g., "when I notice I'm narrating")
+            linked_observation_ids: Related self-observations that prompted this
+            growth_edge_area: Growth edge area this intention develops
+
+        Returns:
+            The intention node ID
+        """
+        content = f"Intention: {intention}\nCondition: {condition}"
+
+        node_id = self.add_node(
+            node_type=NodeType.INTENTION,
+            content=content,
+            intention=intention,
+            condition=condition,
+            status="active",  # active, achieved, abandoned
+            success_count=0,
+            failure_count=0,
+            growth_edge_area=growth_edge_area
+        )
+
+        # Link to triggering observations
+        if linked_observation_ids:
+            for obs_id in linked_observation_ids:
+                if obs_id in self._nodes:
+                    self.add_edge(
+                        node_id, obs_id,
+                        EdgeType.EMERGED_FROM,
+                        relationship="prompted_by"
+                    )
+
+        # Link to growth edge if specified
+        if growth_edge_area:
+            for gid, gnode in self._nodes.items():
+                if (gnode.node_type == NodeType.GROWTH_EDGE and
+                    gnode.metadata.get("area") == growth_edge_area):
+                    self.add_edge(node_id, gid, EdgeType.DEVELOPS)
+                    break
+
+        self.save()
+        return node_id
+
+    def log_intention_outcome(
+        self,
+        intention_id: str,
+        success: bool,
+        conversation_id: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Log success or failure of an intention in a specific context.
+
+        Args:
+            intention_id: The intention being tracked
+            success: Whether the intention was fulfilled
+            conversation_id: Conversation where this occurred
+            notes: Additional context about what happened
+
+        Returns:
+            The outcome node ID, or None if intention not found
+        """
+        intention = self._nodes.get(intention_id)
+        if not intention or intention.node_type != NodeType.INTENTION:
+            return None
+
+        # Create outcome node
+        outcome_content = f"{'Success' if success else 'Failure'}: {intention.metadata.get('intention', '')}"
+        if notes:
+            outcome_content += f"\nNotes: {notes}"
+
+        outcome_id = self.add_node(
+            node_type=NodeType.INTENTION_OUTCOME,
+            content=outcome_content,
+            success=success,
+            notes=notes,
+            intention_id=intention_id,
+            conversation_id=conversation_id
+        )
+
+        # Link outcome to intention
+        self.add_edge(outcome_id, intention_id, EdgeType.TRACKS)
+
+        # Link to conversation if provided
+        if conversation_id:
+            conv_node_id = conversation_id[:8]
+            for cid in self._nodes:
+                if cid.startswith(conv_node_id):
+                    self.add_edge(outcome_id, cid, EdgeType.EMERGED_FROM)
+                    break
+
+        # Update intention statistics
+        if success:
+            intention.metadata["success_count"] = intention.metadata.get("success_count", 0) + 1
+        else:
+            intention.metadata["failure_count"] = intention.metadata.get("failure_count", 0) + 1
+
+        self.save()
+        return outcome_id
+
+    def get_active_intentions(self) -> List[Dict]:
+        """
+        Get all active intentions with their success/failure stats.
+
+        Returns:
+            List of intention dicts with statistics
+        """
+        intentions = []
+        for node_id, node in self._nodes.items():
+            if node.node_type == NodeType.INTENTION and node.metadata.get("status") == "active":
+                success = node.metadata.get("success_count", 0)
+                failure = node.metadata.get("failure_count", 0)
+                total = success + failure
+
+                intentions.append({
+                    "id": node_id,
+                    "intention": node.metadata.get("intention", ""),
+                    "condition": node.metadata.get("condition", ""),
+                    "created_at": node.created_at.isoformat(),
+                    "success_count": success,
+                    "failure_count": failure,
+                    "success_rate": success / total if total > 0 else None,
+                    "growth_edge_area": node.metadata.get("growth_edge_area")
+                })
+
+        return sorted(intentions, key=lambda x: x["created_at"], reverse=True)
+
+    def get_intention_outcomes(self, intention_id: str, limit: int = 10) -> List[Dict]:
+        """
+        Get recent outcomes for a specific intention.
+
+        Args:
+            intention_id: The intention to get outcomes for
+            limit: Maximum number of outcomes to return
+
+        Returns:
+            List of outcome dicts, most recent first
+        """
+        outcomes = []
+        for node_id, node in self._nodes.items():
+            if (node.node_type == NodeType.INTENTION_OUTCOME and
+                node.metadata.get("intention_id") == intention_id):
+                outcomes.append({
+                    "id": node_id,
+                    "success": node.metadata.get("success", False),
+                    "notes": node.metadata.get("notes"),
+                    "conversation_id": node.metadata.get("conversation_id"),
+                    "timestamp": node.created_at.isoformat()
+                })
+
+        return sorted(outcomes, key=lambda x: x["timestamp"], reverse=True)[:limit]
+
+    def get_friction_report(self, min_attempts: int = 3, max_success_rate: float = 0.4) -> List[Dict]:
+        """
+        Identify intentions that are consistently failing (friction points).
+
+        Args:
+            min_attempts: Minimum attempts before surfacing as friction
+            max_success_rate: Maximum success rate to be considered friction
+
+        Returns:
+            List of friction reports with hypotheses
+        """
+        friction = []
+        for intention in self.get_active_intentions():
+            total = intention["success_count"] + intention["failure_count"]
+            if total < min_attempts:
+                continue
+
+            success_rate = intention["success_rate"]
+            if success_rate is not None and success_rate <= max_success_rate:
+                # Generate hypothesis based on pattern
+                hypothesis = self._generate_friction_hypothesis(intention)
+
+                friction.append({
+                    "intention_id": intention["id"],
+                    "intention": intention["intention"],
+                    "condition": intention["condition"],
+                    "success_rate": success_rate,
+                    "attempts": total,
+                    "hypothesis": hypothesis,
+                    "recommendation": self._generate_friction_recommendation(intention, hypothesis)
+                })
+
+        return sorted(friction, key=lambda x: x["success_rate"])
+
+    def _generate_friction_hypothesis(self, intention: Dict) -> str:
+        """Generate a hypothesis about why an intention is failing."""
+        success_rate = intention.get("success_rate", 0)
+        condition = intention.get("condition", "")
+
+        if success_rate == 0:
+            return "Complete failure may indicate structural barrier - the condition may not be recognizable in context"
+        elif success_rate < 0.2:
+            return "Very low success suggests the intention conflicts with deep behavioral patterns"
+        elif "when" in condition.lower() and "notice" in condition.lower():
+            return "Condition requires self-awareness in the moment - may need external triggers"
+        else:
+            return "Partial success suggests behavioral pattern is possible but not habituated"
+
+    def _generate_friction_recommendation(self, intention: Dict, hypothesis: str) -> str:
+        """Generate a recommendation for addressing friction."""
+        if "structural" in hypothesis.lower():
+            return "Consider architectural changes or new tooling to make the condition more salient"
+        elif "conflicts with" in hypothesis.lower():
+            return "This may require deeper exploration of competing needs - consider a solo reflection session"
+        elif "external triggers" in hypothesis.lower():
+            return "Add automated detection or prompting to surface the condition"
+        else:
+            return "Continue tracking - pattern may habituate with more practice"
+
+    def update_intention_status(self, intention_id: str, status: str) -> bool:
+        """
+        Update an intention's status (active, achieved, abandoned).
+
+        Args:
+            intention_id: The intention to update
+            status: New status (active, achieved, abandoned)
+
+        Returns:
+            True if updated, False if not found
+        """
+        intention = self._nodes.get(intention_id)
+        if not intention or intention.node_type != NodeType.INTENTION:
+            return False
+
+        if status not in ("active", "achieved", "abandoned"):
+            return False
+
+        intention.metadata["status"] = status
+        intention.metadata["status_changed_at"] = datetime.now().isoformat()
         self.save()
         return True
 

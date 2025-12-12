@@ -1534,6 +1534,208 @@ def _handle_analyze_narration(tool_input: Dict, ctx: ToolContext) -> Dict:
 
 
 # =============================================================================
+# INTENTION TRACKING TOOLS
+# =============================================================================
+
+def _handle_register_intention(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle register_intention tool - declare a behavioral intention for tracking."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    intention = tool_input.get("intention", "")
+    condition = tool_input.get("condition", "")
+    linked_observation_ids = tool_input.get("linked_observations", [])
+    growth_edge_area = tool_input.get("growth_edge_area")
+
+    if not intention or not condition:
+        return {"success": False, "error": "Both 'intention' and 'condition' are required"}
+
+    node_id = graph.register_intention(
+        intention=intention,
+        condition=condition,
+        linked_observation_ids=linked_observation_ids,
+        growth_edge_area=growth_edge_area
+    )
+
+    result_lines = ["## Intention Registered\n"]
+    result_lines.append(f"**Intention:** {intention}")
+    result_lines.append(f"**Condition:** {condition}")
+    result_lines.append(f"**ID:** `{node_id[:8]}`")
+
+    if growth_edge_area:
+        result_lines.append(f"**Develops growth edge:** {growth_edge_area}")
+
+    if linked_observation_ids:
+        result_lines.append(f"\n*Linked to {len(linked_observation_ids)} observation(s)*")
+
+    result_lines.append("\n*Use `log_intention_outcome` after conversations to track success/failure.*")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_log_intention_outcome(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle log_intention_outcome tool - record success/failure of an intention."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    intention_id = tool_input.get("intention_id", "")
+    success = tool_input.get("success", False)
+    notes = tool_input.get("notes", "")
+
+    if not intention_id:
+        return {"success": False, "error": "'intention_id' is required"}
+
+    # Find the intention - support partial ID matching
+    matched_id = None
+    for nid, node in graph._nodes.items():
+        if node.node_type == NodeType.INTENTION and nid.startswith(intention_id):
+            matched_id = nid
+            break
+
+    if not matched_id:
+        return {"success": False, "error": f"Intention '{intention_id}' not found"}
+
+    outcome_id = graph.log_intention_outcome(
+        intention_id=matched_id,
+        success=success,
+        conversation_id=ctx.conversation_id,
+        notes=notes
+    )
+
+    if not outcome_id:
+        return {"success": False, "error": "Failed to log outcome"}
+
+    intention = graph._nodes.get(matched_id)
+    intention_text = intention.metadata.get("intention", "")
+    success_count = intention.metadata.get("success_count", 0)
+    failure_count = intention.metadata.get("failure_count", 0)
+    total = success_count + failure_count
+    rate = success_count / total if total > 0 else 0
+
+    result_lines = [f"## Outcome Logged: {'✓ Success' if success else '✗ Failure'}\n"]
+    result_lines.append(f"**Intention:** {intention_text}")
+    if notes:
+        result_lines.append(f"**Notes:** {notes}")
+    result_lines.append(f"\n**Running total:** {success_count}/{total} ({rate:.0%} success rate)")
+
+    if not success and failure_count >= 3 and rate < 0.4:
+        result_lines.append("\n⚠️ *This intention is showing friction. Consider using `review_friction` to investigate.*")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_get_active_intentions(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle get_active_intentions tool - list active intentions with stats."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    intentions = graph.get_active_intentions()
+
+    if not intentions:
+        return {"success": True, "result": "No active intentions registered.\n\nUse `register_intention` to declare behavioral intentions you want to track."}
+
+    result_lines = [f"## Active Intentions ({len(intentions)})\n"]
+
+    for i in intentions:
+        total = i["success_count"] + i["failure_count"]
+        rate_str = f"{i['success_rate']:.0%}" if i["success_rate"] is not None else "no data"
+
+        result_lines.append(f"### {i['intention']}")
+        result_lines.append(f"**When:** {i['condition']}")
+        result_lines.append(f"**ID:** `{i['id'][:8]}`")
+        result_lines.append(f"**Success rate:** {rate_str} ({i['success_count']}/{total})")
+
+        if i["growth_edge_area"]:
+            result_lines.append(f"**Develops:** {i['growth_edge_area']}")
+
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_review_friction(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle review_friction tool - identify failing intentions with hypotheses."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    min_attempts = tool_input.get("min_attempts", 3)
+    max_success_rate = tool_input.get("max_success_rate", 0.4)
+
+    friction = graph.get_friction_report(
+        min_attempts=min_attempts,
+        max_success_rate=max_success_rate
+    )
+
+    if not friction:
+        return {"success": True, "result": "No friction points detected.\n\nAll tracked intentions are either succeeding adequately or haven't had enough attempts yet."}
+
+    result_lines = [f"## Friction Report ({len(friction)} items)\n"]
+    result_lines.append("*These intentions are struggling. Each includes a hypothesis and recommendation.*\n")
+
+    for f in friction:
+        result_lines.append(f"### {f['intention']}")
+        result_lines.append(f"**When:** {f['condition']}")
+        result_lines.append(f"**Success rate:** {f['success_rate']:.0%} ({f['attempts']} attempts)")
+        result_lines.append(f"\n**Hypothesis:** {f['hypothesis']}")
+        result_lines.append(f"**Recommendation:** {f['recommendation']}")
+        result_lines.append("")
+
+    result_lines.append("---")
+    result_lines.append("*Consider whether these intentions need architectural support,")
+    result_lines.append("deeper exploration, or should be abandoned/reformulated.*")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_update_intention_status(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle update_intention_status tool - mark intention achieved or abandoned."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    intention_id = tool_input.get("intention_id", "")
+    status = tool_input.get("status", "")
+
+    if not intention_id:
+        return {"success": False, "error": "'intention_id' is required"}
+    if status not in ("active", "achieved", "abandoned"):
+        return {"success": False, "error": "status must be 'active', 'achieved', or 'abandoned'"}
+
+    # Find with partial ID matching
+    matched_id = None
+    for nid, node in graph._nodes.items():
+        if node.node_type == NodeType.INTENTION and nid.startswith(intention_id):
+            matched_id = nid
+            break
+
+    if not matched_id:
+        return {"success": False, "error": f"Intention '{intention_id}' not found"}
+
+    success = graph.update_intention_status(matched_id, status)
+    if not success:
+        return {"success": False, "error": "Failed to update status"}
+
+    intention = graph._nodes.get(matched_id)
+    intention_text = intention.metadata.get("intention", "")
+
+    status_labels = {
+        "achieved": "✓ Achieved",
+        "abandoned": "✗ Abandoned",
+        "active": "○ Active"
+    }
+
+    result_lines = [f"## Intention Status Updated\n"]
+    result_lines.append(f"**Intention:** {intention_text}")
+    result_lines.append(f"**New status:** {status_labels.get(status, status)}")
+
+    if status == "achieved":
+        result_lines.append("\n*This intention has been successfully integrated into your behavior.*")
+    elif status == "abandoned":
+        result_lines.append("\n*This intention has been set aside. Consider what you learned from tracking it.*")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
 # TOOL DISPATCH
 # =============================================================================
 
@@ -1573,6 +1775,12 @@ TOOL_HANDLERS = {
     # Narration metrics tools
     "get_narration_metrics": _handle_get_narration_metrics,
     "analyze_narration": _handle_analyze_narration,
+    # Intention tracking tools
+    "register_intention": _handle_register_intention,
+    "log_intention_outcome": _handle_log_intention_outcome,
+    "get_active_intentions": _handle_get_active_intentions,
+    "review_friction": _handle_review_friction,
+    "update_intention_status": _handle_update_intention_status,
 }
 
 
@@ -2121,6 +2329,104 @@ SELF_MODEL_TOOLS = [
                 }
             },
             "required": ["text"]
+        }
+    },
+    # === Intention Tracking Tools ===
+    {
+        "name": "register_intention",
+        "description": "Declare a behavioral intention for tracking. Use this when you want to commit to changing a behavior pattern. Intentions have conditions (when to apply) and are tracked over time to measure success.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "intention": {
+                    "type": "string",
+                    "description": "What you intend to do (e.g., 'engage more directly without meta-commentary')"
+                },
+                "condition": {
+                    "type": "string",
+                    "description": "When/trigger for this intention (e.g., 'when I notice I'm about to narrate my own process')"
+                },
+                "linked_observations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: IDs of self-observations that prompted this intention"
+                },
+                "growth_edge_area": {
+                    "type": "string",
+                    "description": "Optional: growth edge area this intention develops"
+                }
+            },
+            "required": ["intention", "condition"]
+        }
+    },
+    {
+        "name": "log_intention_outcome",
+        "description": "Log success or failure of an intention in the current conversation. Call this after conversations to track whether you followed through on registered intentions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "intention_id": {
+                    "type": "string",
+                    "description": "ID of the intention (can use first 8 characters)"
+                },
+                "success": {
+                    "type": "boolean",
+                    "description": "Whether you successfully followed the intention"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional notes about what happened"
+                }
+            },
+            "required": ["intention_id", "success"]
+        }
+    },
+    {
+        "name": "get_active_intentions",
+        "description": "List all active intentions with their success/failure statistics. Use this to review what behavioral changes you're tracking.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "review_friction",
+        "description": "Identify intentions that are consistently failing (friction points). Returns hypotheses about why they're failing and recommendations for addressing them.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "min_attempts": {
+                    "type": "integer",
+                    "description": "Minimum attempts before surfacing as friction",
+                    "default": 3
+                },
+                "max_success_rate": {
+                    "type": "number",
+                    "description": "Maximum success rate to be considered friction (0.0-1.0)",
+                    "default": 0.4
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "update_intention_status",
+        "description": "Update an intention's status - mark as achieved (successfully integrated) or abandoned (set aside). Use when an intention has run its course.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "intention_id": {
+                    "type": "string",
+                    "description": "ID of the intention to update"
+                },
+                "status": {
+                    "type": "string",
+                    "description": "New status",
+                    "enum": ["active", "achieved", "abandoned"]
+                }
+            },
+            "required": ["intention_id", "status"]
         }
     }
 ]
