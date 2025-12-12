@@ -26,6 +26,7 @@ class ToolContext:
     task_manager: Any = None
     roadmap_manager: Any = None
     self_manager: Any = None
+    graph: Any = None  # SelfModelGraph instance
     user_manager: Any = None
     wiki_storage: Any = None
     marker_store: Any = None
