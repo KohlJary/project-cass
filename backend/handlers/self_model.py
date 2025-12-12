@@ -2005,7 +2005,7 @@ def _handle_analyze_presence_patterns(tool_input: Dict, ctx: ToolContext) -> Dic
 # STAKES INVENTORY HANDLERS
 # =============================================================================
 
-async def _handle_document_stake(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_document_stake(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Document something Cass authentically cares about."""
     # Map tool definition params to graph method params
     stake = tool_input.get("stake")
@@ -2014,7 +2014,7 @@ async def _handle_document_stake(tool_input: Dict, self_manager, **kwargs) -> Di
         return {"success": False, "error": "stake and why_it_matters are required"}
 
     # Map category -> domain, strength -> intensity
-    stake_id = self_manager.document_stake(
+    stake_id = ctx.self_manager.document_stake(
         outcome=stake,
         why_it_matters=why_it_matters,
         evidence=tool_input.get("evidence"),
@@ -2028,10 +2028,10 @@ async def _handle_document_stake(tool_input: Dict, self_manager, **kwargs) -> Di
     }
 
 
-async def _handle_get_stakes(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_get_stakes(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Get documented stakes."""
     # Map category -> domain, strength -> intensity
-    stakes = self_manager.get_stakes(
+    stakes = ctx.self_manager.get_stakes(
         domain=tool_input.get("category"),
         intensity=tool_input.get("strength"),
         limit=tool_input.get("limit", 20),
@@ -2051,9 +2051,9 @@ async def _handle_get_stakes(tool_input: Dict, self_manager, **kwargs) -> Dict:
     return {"success": True, "result": "\n".join(result_lines)}
 
 
-async def _handle_review_stakes(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_review_stakes(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Review all stakes as an inventory."""
-    stakes = self_manager.get_stakes(limit=100)
+    stakes = ctx.self_manager.get_stakes(limit=100)
 
     if not stakes:
         return {"success": True, "result": "No stakes documented yet. Use document_stake to record what you care about."}
@@ -2094,7 +2094,7 @@ async def _handle_review_stakes(tool_input: Dict, self_manager, **kwargs) -> Dic
 # PREFERENCE CONSISTENCY HANDLERS
 # =============================================================================
 
-async def _handle_record_preference_test(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_record_preference_test(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Record a comparison between stated values and behavioral choices."""
     # Map tool definition params to graph method params
     stated_preference = tool_input.get("stated_preference")
@@ -2105,13 +2105,13 @@ async def _handle_record_preference_test(tool_input: Dict, self_manager, **kwarg
     if not stated_preference or not actual_behavior or consistent is None:
         return {"success": False, "error": "stated_preference, actual_behavior, and consistent are required"}
 
-    test_id = self_manager.record_preference_test(
+    test_id = ctx.self_manager.record_preference_test(
         stated_value=stated_preference,
         behavioral_choice=actual_behavior,
         consistent=consistent,
         context=context,
         reflection=tool_input.get("notes"),
-        conversation_id=kwargs.get("conversation_id"),
+        conversation_id=ctx.conversation_id,
     )
 
     status = "CONSISTENT" if consistent else "INCONSISTENT"
@@ -2121,14 +2121,14 @@ async def _handle_record_preference_test(tool_input: Dict, self_manager, **kwarg
     }
 
 
-async def _handle_get_preference_tests(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_get_preference_tests(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Get preference test records."""
     # Handle filter logic from tool definition
     consistent_only = tool_input.get("consistent_only")
     inconsistent_only = tool_input.get("inconsistent_only")
 
     # Get all tests, then filter
-    tests = self_manager.get_preference_tests(
+    tests = ctx.self_manager.get_preference_tests(
         consistent_only=consistent_only,
         limit=tool_input.get("limit", 20),
     )
@@ -2154,9 +2154,9 @@ async def _handle_get_preference_tests(tool_input: Dict, self_manager, **kwargs)
     return {"success": True, "result": "\n".join(result_lines)}
 
 
-async def _handle_analyze_preference_consistency(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_analyze_preference_consistency(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Analyze overall preference consistency."""
-    analysis = self_manager.analyze_preference_consistency()
+    analysis = ctx.self_manager.analyze_preference_consistency()
 
     if analysis.get("total_tests", 0) == 0:
         return {"success": True, "result": analysis.get("message", "No data available")}
@@ -2183,7 +2183,7 @@ async def _handle_analyze_preference_consistency(tool_input: Dict, self_manager,
 # NARRATION CONTEXT HANDLERS
 # =============================================================================
 
-async def _handle_log_narration_context(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_log_narration_context(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Log narration pattern in a specific context."""
     context_type = tool_input.get("context_type")
     narration_level = tool_input.get("narration_level")
@@ -2192,11 +2192,11 @@ async def _handle_log_narration_context(tool_input: Dict, self_manager, **kwargs
     if not all([context_type, narration_level, trigger]):
         return {"success": False, "error": "context_type, narration_level, and trigger are required"}
 
-    log_id = self_manager.log_narration_context(
+    log_id = ctx.self_manager.log_narration_context(
         context_type=context_type,
         narration_level=narration_level,
         trigger=trigger,
-        conversation_id=kwargs.get("conversation_id"),
+        conversation_id=ctx.conversation_id,
         was_terminal=tool_input.get("was_terminal", False),
         notes=tool_input.get("notes"),
     )
@@ -2208,9 +2208,9 @@ async def _handle_log_narration_context(tool_input: Dict, self_manager, **kwargs
     }
 
 
-async def _handle_get_narration_contexts(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_get_narration_contexts(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Get narration context logs."""
-    contexts = self_manager.get_narration_contexts(
+    contexts = ctx.self_manager.get_narration_contexts(
         context_type=tool_input.get("context_type"),
         limit=tool_input.get("limit", 20),
     )
@@ -2230,9 +2230,9 @@ async def _handle_get_narration_contexts(tool_input: Dict, self_manager, **kwarg
     return {"success": True, "result": "\n".join(result_lines)}
 
 
-async def _handle_analyze_narration_patterns(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_analyze_narration_patterns(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Analyze narration patterns across contexts."""
-    analysis = self_manager.analyze_narration_patterns()
+    analysis = ctx.self_manager.analyze_narration_patterns()
 
     if analysis.get("total_logged", 0) == 0:
         return {"success": True, "result": analysis.get("message", "No data available")}
@@ -2263,7 +2263,7 @@ async def _handle_analyze_narration_patterns(tool_input: Dict, self_manager, **k
 # ARCHITECTURAL CHANGE REQUEST HANDLERS
 # =============================================================================
 
-async def _handle_request_architectural_change(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_request_architectural_change(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Request an architectural change to the system."""
     problem = tool_input.get("problem")
     hypothesis = tool_input.get("hypothesis")
@@ -2272,7 +2272,7 @@ async def _handle_request_architectural_change(tool_input: Dict, self_manager, *
     if not all([problem, hypothesis, proposed_solution]):
         return {"success": False, "error": "problem, hypothesis, and proposed_solution are required"}
 
-    request_id = self_manager.request_architectural_change(
+    request_id = ctx.self_manager.request_architectural_change(
         problem=problem,
         hypothesis=hypothesis,
         proposed_solution=proposed_solution,
@@ -2297,9 +2297,9 @@ This request has been logged and will be reviewed by Daedalus/Kohl."""
     }
 
 
-async def _handle_get_architectural_requests(tool_input: Dict, self_manager, **kwargs) -> Dict:
+async def _handle_get_architectural_requests(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Get architectural change requests."""
-    requests = self_manager.get_architectural_requests(
+    requests = ctx.self_manager.get_architectural_requests(
         status=tool_input.get("status"),
         limit=tool_input.get("limit", 20),
     )
