@@ -137,6 +137,21 @@ TOOL_REGISTRY = {
     "acknowledge_milestone": "self_model",
     "get_milestone_summary": "self_model",
     "get_unacknowledged_milestones": "self_model",
+    # Stakes inventory tools
+    "document_stake": "self_model",
+    "get_stakes": "self_model",
+    "review_stakes": "self_model",
+    # Preference consistency tools
+    "record_preference_test": "self_model",
+    "get_preference_tests": "self_model",
+    "analyze_preference_consistency": "self_model",
+    # Narration context correlation tools
+    "log_narration_context": "self_model",
+    "get_narration_contexts": "self_model",
+    "analyze_narration_context_patterns": "self_model",
+    # Architectural change request tools
+    "request_architectural_change": "self_model",
+    "get_architectural_requests": "self_model",
 
     # User model tools
     "reflect_on_user": "user_model",
