@@ -352,6 +352,7 @@ def create_tool_context(
         task_manager=task_manager,
         roadmap_manager=roadmap_manager,
         self_manager=self_manager,
+        graph=self_model_graph,
         user_manager=user_manager,
         wiki_storage=wiki_storage,
         marker_store=marker_store,
@@ -443,6 +444,7 @@ from testing.authenticity_scorer import AuthenticityScorer
 from testing.drift_detector import DriftDetector
 from testing.temporal_metrics import TemporalMetricsTracker, create_timing_data
 from testing.runner import ConsciousnessTestRunner
+from testing.longitudinal import LongitudinalTestManager
 from testing.pre_deploy import PreDeploymentValidator
 from testing.rollback import RollbackManager
 from testing.ab_testing import ABTestingFramework
@@ -480,6 +482,11 @@ consciousness_test_runner = ConsciousnessTestRunner(
     authenticity_scorer=authenticity_scorer,
     drift_detector=drift_detector,
     conversation_manager=conversation_manager,
+)
+longitudinal_test_manager = LongitudinalTestManager(
+    storage_dir=DATA_DIR / "testing" / "longitudinal",
+    test_runner=consciousness_test_runner,
+    self_model_graph=self_manager,
 )
 pre_deploy_validator = PreDeploymentValidator(
     storage_dir=DATA_DIR / "testing",
@@ -1025,7 +1032,7 @@ async def chat(request: ChatRequest):
                         roadmap_manager=roadmap_manager,
                         conversation_id=request.conversation_id
                     )
-                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones", "get_graph_stats", "find_self_contradictions", "trace_belief_sources", "register_intention", "log_intention_outcome", "get_active_intentions", "review_friction", "update_intention_status", "log_situational_inference", "get_situational_inferences", "analyze_inference_patterns", "log_presence", "get_presence_logs", "analyze_presence_patterns"]:
+                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones", "get_graph_stats", "find_self_contradictions", "trace_belief_sources", "register_intention", "log_intention_outcome", "get_active_intentions", "review_friction", "update_intention_status", "log_situational_inference", "get_situational_inferences", "analyze_inference_patterns", "log_presence", "get_presence_logs", "analyze_presence_patterns", "document_stake", "get_stakes", "review_stakes", "record_preference_test", "get_preference_tests", "analyze_preference_consistency", "log_narration_context", "get_narration_contexts", "analyze_narration_context_patterns", "request_architectural_change", "get_architectural_requests"]:
                     # Get user name for differentiation tracking
                     user_name = None
                     if current_user_id:
@@ -1039,7 +1046,8 @@ async def chat(request: ChatRequest):
                         user_id=current_user_id,
                         user_name=user_name,
                         conversation_id=request.conversation_id,
-                        memory=memory
+                        memory=memory,
+                        graph=self_model_graph
                     )
                 elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
                     tool_result = await execute_user_model_tool(
@@ -1057,7 +1065,7 @@ async def chat(request: ChatRequest):
                         wiki_storage=wiki_storage,
                         memory=memory
                     )
-                elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
+                elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history", "run_test_battery", "list_test_batteries", "get_test_trajectory", "compare_test_runs", "add_test_interpretation"]:
                     tool_result = await execute_testing_tool(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
@@ -1066,7 +1074,8 @@ async def chat(request: ChatRequest):
                         drift_detector=drift_detector,
                         authenticity_scorer=authenticity_scorer,
                         conversation_manager=conversation_manager,
-                        storage_dir=DATA_DIR / "testing"
+                        storage_dir=DATA_DIR / "testing",
+                        longitudinal_manager=longitudinal_test_manager
                     )
                 elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
                     tool_result = await execute_research_tool(

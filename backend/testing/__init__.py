@@ -55,6 +55,13 @@ from .ab_testing import (
     RolloutStrategy,
     RollbackTrigger as ABRollbackTrigger,
 )
+from .longitudinal import (
+    LongitudinalTestManager,
+    TestBattery,
+    TestBatteryType,
+    LongitudinalResult,
+    TestComparison,
+)
 
 __all__ = [
     "CognitiveFingerprintAnalyzer",
@@ -102,4 +109,9 @@ __all__ = [
     "PromptVariant",
     "RolloutStrategy",
     "ABRollbackTrigger",
+    "LongitudinalTestManager",
+    "TestBattery",
+    "TestBatteryType",
+    "LongitudinalResult",
+    "TestComparison",
 ]
