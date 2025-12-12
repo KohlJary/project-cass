@@ -1148,9 +1148,12 @@ async def chat(request: ChatRequest):
                     tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
 
                 # Collect this tool result
+                # Use 'or' chaining to handle None/empty values - dict.get() returns the value
+                # even if it's None/empty when the key exists, breaking fallback logic
+                result_content = tool_result.get("result") or tool_result.get("error") or "Unknown error"
                 collected_results.append({
                     "tool_use_id": tool_use["id"],
-                    "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
+                    "result": result_content,
                     "is_error": not tool_result.get("success", False)
                 })
 
