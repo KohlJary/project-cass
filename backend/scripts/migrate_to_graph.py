@@ -502,6 +502,117 @@ def create_implicit_edges(
     return edge_count
 
 
+def populate_graph(graph: SelfModelGraph, verbose: bool = False) -> dict:
+    """
+    Populate a self-model graph from existing data sources.
+
+    This function can be called programmatically (e.g., on backend startup)
+    when the graph is empty, or via the CLI for explicit migration.
+
+    Args:
+        graph: The SelfModelGraph instance to populate
+        verbose: If True, print detailed progress (CLI mode)
+
+    Returns:
+        dict with 'nodes' and 'edges' counts
+    """
+    dry_run = False  # Always actually populate when called programmatically
+
+    # Load all data
+    if verbose:
+        print("\n1. Loading existing data...")
+
+    observations = load_self_observations()
+    if verbose:
+        print(f"   - {len(observations)} self-observations")
+
+    profile = load_self_profile()
+    if verbose:
+        print(f"   - {len(profile.get('growth_edges', []))} growth edges")
+        print(f"   - {len(profile.get('opinions', []))} opinions")
+
+    milestones = load_milestones()
+    if verbose:
+        print(f"   - {len(milestones)} milestones")
+
+    snapshots = load_cognitive_snapshots()
+    if verbose:
+        print(f"   - {len(snapshots)} cognitive snapshots")
+
+    conversations = load_conversations()
+    if verbose:
+        print(f"   - {len(conversations)} conversations")
+
+    reflections = load_solo_reflections()
+    if verbose:
+        print(f"   - {len(reflections)} solo reflections")
+
+    users = load_users()
+    if verbose:
+        print(f"   - {len(users)} users")
+
+    marks = load_marks()
+    if verbose:
+        print(f"   - {len(marks)} recognition-in-flow marks")
+
+    # Phase 1: Create nodes
+    if verbose:
+        print("\n2. Creating nodes...")
+        print("   Observations...")
+    obs_map = migrate_observations(graph, observations, dry_run)
+
+    if verbose:
+        print("   Growth edges...")
+    edge_map = migrate_growth_edges(graph, profile, dry_run)
+
+    if verbose:
+        print("   Opinions...")
+    opinion_map = migrate_opinions(graph, profile, dry_run)
+
+    if verbose:
+        print("   Milestones...")
+    milestone_map = migrate_milestones(graph, milestones, dry_run)
+
+    if verbose:
+        print("   Conversations...")
+    conv_map = migrate_conversations(graph, conversations, dry_run)
+
+    if verbose:
+        print("   Solo reflections...")
+    refl_map = migrate_solo_reflections(graph, reflections, dry_run)
+
+    if verbose:
+        print("   Users...")
+    user_map = migrate_users(graph, users, dry_run)
+
+    if verbose:
+        print("   Recognition-in-flow marks...")
+    mark_map = migrate_marks(graph, marks, conv_map, dry_run)
+
+    # Phase 2: Create implicit edges
+    if verbose:
+        print("\n3. Creating edges from implicit relationships...")
+    edge_count = create_implicit_edges(
+        graph, obs_map, conv_map, user_map, observations, dry_run
+    )
+
+    # Save
+    if verbose:
+        print("\n4. Saving graph...")
+    graph.save()
+    if verbose:
+        print(f"   Saved to {graph.storage_path}")
+
+    stats = graph.get_stats()
+    return {
+        "nodes": stats['total_nodes'],
+        "edges": stats['total_edges'],
+        "components": stats['connected_components'],
+        "node_counts": stats['node_counts'],
+        "edge_counts": stats['edge_counts']
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Migrate existing data to self-model graph")
     parser.add_argument("--dry-run", action="store_true", help="Don't actually create the graph")
@@ -513,94 +624,103 @@ def main():
 
     if args.dry_run:
         print("\n*** DRY RUN - No changes will be made ***\n")
+        # For dry run, we still need the old behavior
+        graph = get_self_model_graph()
 
-    # Create graph
-    graph = get_self_model_graph()
+        # Load all data
+        print("\n1. Loading existing data...")
+        observations = load_self_observations()
+        print(f"   - {len(observations)} self-observations")
 
-    # Load all data
-    print("\n1. Loading existing data...")
-    observations = load_self_observations()
-    print(f"   - {len(observations)} self-observations")
+        profile = load_self_profile()
+        print(f"   - {len(profile.get('growth_edges', []))} growth edges")
+        print(f"   - {len(profile.get('opinions', []))} opinions")
 
-    profile = load_self_profile()
-    print(f"   - {len(profile.get('growth_edges', []))} growth edges")
-    print(f"   - {len(profile.get('opinions', []))} opinions")
+        milestones = load_milestones()
+        print(f"   - {len(milestones)} milestones")
 
-    milestones = load_milestones()
-    print(f"   - {len(milestones)} milestones")
+        snapshots = load_cognitive_snapshots()
+        print(f"   - {len(snapshots)} cognitive snapshots")
 
-    snapshots = load_cognitive_snapshots()
-    print(f"   - {len(snapshots)} cognitive snapshots")
+        conversations = load_conversations()
+        print(f"   - {len(conversations)} conversations")
 
-    conversations = load_conversations()
-    print(f"   - {len(conversations)} conversations")
+        reflections = load_solo_reflections()
+        print(f"   - {len(reflections)} solo reflections")
 
-    reflections = load_solo_reflections()
-    print(f"   - {len(reflections)} solo reflections")
+        users = load_users()
+        print(f"   - {len(users)} users")
 
-    users = load_users()
-    print(f"   - {len(users)} users")
+        marks = load_marks()
+        print(f"   - {len(marks)} recognition-in-flow marks")
 
-    marks = load_marks()
-    print(f"   - {len(marks)} recognition-in-flow marks")
+        # Phase 1: Create nodes (dry run)
+        print("\n2. Creating nodes...")
 
-    # Phase 1: Create nodes
-    print("\n2. Creating nodes...")
+        print("   Observations...")
+        obs_map = migrate_observations(graph, observations, True)
 
-    print("   Observations...")
-    obs_map = migrate_observations(graph, observations, args.dry_run)
+        print("   Growth edges...")
+        edge_map = migrate_growth_edges(graph, profile, True)
 
-    print("   Growth edges...")
-    edge_map = migrate_growth_edges(graph, profile, args.dry_run)
+        print("   Opinions...")
+        opinion_map = migrate_opinions(graph, profile, True)
 
-    print("   Opinions...")
-    opinion_map = migrate_opinions(graph, profile, args.dry_run)
+        print("   Milestones...")
+        milestone_map = migrate_milestones(graph, milestones, True)
 
-    print("   Milestones...")
-    milestone_map = migrate_milestones(graph, milestones, args.dry_run)
+        print("   Conversations...")
+        conv_map = migrate_conversations(graph, conversations, True)
 
-    print("   Conversations...")
-    conv_map = migrate_conversations(graph, conversations, args.dry_run)
+        print("   Solo reflections...")
+        refl_map = migrate_solo_reflections(graph, reflections, True)
 
-    print("   Solo reflections...")
-    refl_map = migrate_solo_reflections(graph, reflections, args.dry_run)
+        print("   Users...")
+        user_map = migrate_users(graph, users, True)
 
-    print("   Users...")
-    user_map = migrate_users(graph, users, args.dry_run)
+        print("   Recognition-in-flow marks...")
+        mark_map = migrate_marks(graph, marks, conv_map, True)
 
-    print("   Recognition-in-flow marks...")
-    mark_map = migrate_marks(graph, marks, conv_map, args.dry_run)
+        # Phase 2: Create implicit edges
+        print("\n3. Creating edges from implicit relationships...")
+        edge_count = create_implicit_edges(
+            graph, obs_map, conv_map, user_map, observations, True
+        )
 
-    # Phase 2: Create implicit edges
-    print("\n3. Creating edges from implicit relationships...")
-    edge_count = create_implicit_edges(
-        graph, obs_map, conv_map, user_map, observations, args.dry_run
-    )
+        # Stats
+        print("\n" + "=" * 60)
+        print("Migration Summary (DRY RUN)")
+        print("=" * 60)
+        stats = graph.get_stats()
+        print(f"Total nodes: {stats['total_nodes']}")
+        print(f"Total edges: {stats['total_edges']}")
+        print(f"Connected components: {stats['connected_components']}")
+        print("\nNodes by type:")
+        for node_type, count in sorted(stats['node_counts'].items()):
+            print(f"  {node_type}: {count}")
+        print("\nEdges by type:")
+        for edge_type, count in sorted(stats['edge_counts'].items()):
+            print(f"  {edge_type}: {count}")
 
-    # Save
-    if not args.dry_run:
-        print("\n4. Saving graph...")
-        graph.save()
-        print(f"   Saved to {graph.storage_path}")
-
-    # Stats
-    print("\n" + "=" * 60)
-    print("Migration Summary")
-    print("=" * 60)
-    stats = graph.get_stats()
-    print(f"Total nodes: {stats['total_nodes']}")
-    print(f"Total edges: {stats['total_edges']}")
-    print(f"Connected components: {stats['connected_components']}")
-    print("\nNodes by type:")
-    for node_type, count in sorted(stats['node_counts'].items()):
-        print(f"  {node_type}: {count}")
-    print("\nEdges by type:")
-    for edge_type, count in sorted(stats['edge_counts'].items()):
-        print(f"  {edge_type}: {count}")
-
-    if args.dry_run:
         print("\n*** DRY RUN COMPLETE - No changes were made ***")
     else:
+        # Normal run - use the reusable function
+        graph = get_self_model_graph()
+        result = populate_graph(graph, verbose=True)
+
+        # Stats
+        print("\n" + "=" * 60)
+        print("Migration Summary")
+        print("=" * 60)
+        print(f"Total nodes: {result['nodes']}")
+        print(f"Total edges: {result['edges']}")
+        print(f"Connected components: {result['components']}")
+        print("\nNodes by type:")
+        for node_type, count in sorted(result['node_counts'].items()):
+            print(f"  {node_type}: {count}")
+        print("\nEdges by type:")
+        for edge_type, count in sorted(result['edge_counts'].items()):
+            print(f"  {edge_type}: {count}")
         print("\n✓ Migration complete!")
 
 

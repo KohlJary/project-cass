@@ -513,8 +513,11 @@ Write in first person as yourself. This is your memory - make it feel like one, 
 
         Returns:
             List of summary entries from that date, chronologically ordered
+
+        Note: For bulk operations checking multiple dates, use pre-fetching
+        (see journal_generation.py) to avoid repeated full scans.
         """
-        # Get all summaries
+        # Get all summaries and filter by date
         results = self.collection.get(
             where={"type": "summary"},
             include=["documents", "metadatas"]
@@ -551,6 +554,9 @@ Write in first person as yourself. This is your memory - make it feel like one, 
 
         Returns:
             List of conversation entries from that date, chronologically ordered
+
+        Note: For bulk operations checking multiple dates, use pre-fetching
+        (see journal_generation.py) to avoid repeated full scans.
         """
         # Get all conversation memories
         results = self.collection.get(

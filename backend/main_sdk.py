@@ -56,6 +56,7 @@ from projects import ProjectManager
 from users import UserManager
 from self_model import SelfManager
 from self_model_graph import get_self_model_graph, SelfModelGraph
+from scripts.migrate_to_graph import populate_graph as populate_self_model_graph
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from roadmap import RoadmapManager
@@ -196,8 +197,37 @@ memory = CassMemory()
 response_processor = ResponseProcessor()
 user_manager = UserManager(storage_dir=str(DATA_DIR / "users"))
 self_model_graph = get_self_model_graph(DATA_DIR)
-print(f"  Self-model graph loaded: {self_model_graph.get_stats()['total_nodes']} nodes, "
-      f"{self_model_graph.get_stats()['total_edges']} edges")
+_graph_stats = self_model_graph.get_stats()
+if _graph_stats['total_nodes'] == 0:
+    print("  Self-model graph is empty, populating from existing data...")
+    _populate_result = populate_self_model_graph(self_model_graph, verbose=False)
+    print(f"  Self-model graph populated: {_populate_result['nodes']} nodes, "
+          f"{_populate_result['edges']} edges")
+    # Build embeddings for newly populated graph
+    _embedded = self_model_graph.rebuild_embeddings()
+    print(f"  Built embeddings for {_embedded} nodes")
+    # Connect disconnected nodes via semantic similarity
+    _connect_result = self_model_graph.connect_disconnected_nodes(max_edges_per_node=3)
+    if _connect_result['edges_created'] > 0:
+        print(f"  Connected {_connect_result['nodes_connected']} nodes with "
+              f"{_connect_result['edges_created']} semantic edges")
+else:
+    print(f"  Self-model graph loaded: {_graph_stats['total_nodes']} nodes, "
+          f"{_graph_stats['total_edges']} edges")
+    # Check if embeddings need rebuilding (collection might be empty)
+    if self_model_graph._node_collection is not None:
+        _embedding_count = self_model_graph._node_collection.count()
+        _connectable_count = len([n for n in self_model_graph._nodes.values()
+                                  if n.node_type in self_model_graph.CONNECTABLE_TYPES])
+        if _embedding_count < _connectable_count * 0.5:  # Less than half embedded
+            print(f"  Rebuilding node embeddings ({_embedding_count} < {_connectable_count})...")
+            _embedded = self_model_graph.rebuild_embeddings()
+            print(f"  Built embeddings for {_embedded} nodes")
+            # Connect any newly embeddable disconnected nodes
+            _connect_result = self_model_graph.connect_disconnected_nodes(max_edges_per_node=3)
+            if _connect_result['edges_created'] > 0:
+                print(f"  Connected {_connect_result['nodes_connected']} nodes with "
+                      f"{_connect_result['edges_created']} semantic edges")
 self_manager = SelfManager(storage_dir=str(DATA_DIR / "cass"), graph_callback=self_model_graph)
 
 # Sync self-observations from file storage to ChromaDB for semantic search

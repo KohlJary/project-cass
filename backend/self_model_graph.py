@@ -22,6 +22,15 @@ from enum import Enum
 
 import networkx as nx
 
+# ChromaDB for semantic similarity (optional - gracefully degrade if unavailable)
+try:
+    import chromadb
+    from chromadb.config import Settings
+    from chromadb.utils import embedding_functions
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+
 
 class NodeType(str, Enum):
     """Types of nodes in the self-model graph."""
@@ -128,12 +137,50 @@ class SelfModelGraph:
     Unified self-model graph with query interface.
 
     Uses NetworkX for in-memory graph operations with JSON persistence.
+    ChromaDB provides semantic similarity for automatic edge suggestion.
     """
 
-    def __init__(self, storage_path: str = "./data/cass/self_model_graph.json"):
+    # Node types that should be connected via semantic similarity
+    CONNECTABLE_TYPES = {
+        NodeType.OBSERVATION, NodeType.OPINION, NodeType.GROWTH_EDGE,
+        NodeType.MILESTONE, NodeType.MARK, NodeType.SOLO_REFLECTION
+    }
+
+    # Minimum similarity score to create an edge (lower = more connections)
+    # ChromaDB returns L2 distance, so lower is more similar
+    SIMILARITY_THRESHOLD = 1.2  # Fairly permissive to build connections
+
+    def __init__(self, storage_path: str = "./data/cass/self_model_graph.json",
+                 chroma_persist_dir: Optional[str] = None):
         self.storage_path = Path(storage_path)
         self.graph = nx.DiGraph()
         self._nodes: Dict[str, GraphNode] = {}
+
+        # Initialize ChromaDB for semantic similarity
+        self._chroma_client = None
+        self._node_collection = None
+        self._embedding_fn = None
+
+        if CHROMADB_AVAILABLE:
+            try:
+                # Use same persist dir as main memory system if not specified
+                if chroma_persist_dir is None:
+                    chroma_persist_dir = str(self.storage_path.parent.parent / "chroma")
+
+                self._chroma_client = chromadb.PersistentClient(
+                    path=chroma_persist_dir,
+                    settings=Settings(anonymized_telemetry=False)
+                )
+                self._embedding_fn = embedding_functions.DefaultEmbeddingFunction()
+                self._node_collection = self._chroma_client.get_or_create_collection(
+                    name="self_model_graph_nodes",
+                    embedding_function=self._embedding_fn,
+                    metadata={"description": "Self-model graph node embeddings for similarity search"}
+                )
+            except Exception as e:
+                print(f"Warning: ChromaDB initialization failed for graph: {e}")
+                self._chroma_client = None
+
         self._load()
 
     # ==================== Node Operations ====================
@@ -175,6 +222,10 @@ class SelfModelGraph:
 
         self._nodes[node_id] = node
         self.graph.add_node(node_id, **node.to_dict())
+
+        # Embed in ChromaDB for semantic similarity (connectable types only)
+        if self._node_collection is not None and node_type in self.CONNECTABLE_TYPES and content:
+            self._embed_node(node)
 
         return node_id
 
@@ -261,6 +312,252 @@ class SelfModelGraph:
                 results.append(node)
 
         return results
+
+    # ==================== Semantic Similarity ====================
+
+    def _embed_node(self, node: GraphNode) -> None:
+        """
+        Embed a node's content in ChromaDB for similarity search.
+
+        Args:
+            node: The node to embed
+        """
+        if self._node_collection is None:
+            return
+
+        try:
+            # Remove existing embedding if present (for updates)
+            try:
+                self._node_collection.delete(ids=[node.id])
+            except Exception:
+                pass
+
+            self._node_collection.add(
+                documents=[node.content],
+                metadatas=[{
+                    "node_type": node.node_type.value,
+                    "created_at": node.created_at.isoformat()
+                }],
+                ids=[node.id]
+            )
+        except Exception as e:
+            print(f"Warning: Failed to embed node {node.id}: {e}")
+
+    def find_similar_nodes(
+        self,
+        content: str,
+        exclude_ids: Optional[Set[str]] = None,
+        node_types: Optional[Set[NodeType]] = None,
+        n_results: int = 10,
+        max_distance: Optional[float] = None
+    ) -> List[Tuple[GraphNode, float]]:
+        """
+        Find nodes semantically similar to given content.
+
+        Args:
+            content: Text to find similar nodes for
+            exclude_ids: Node IDs to exclude from results
+            node_types: Filter to specific node types (default: CONNECTABLE_TYPES)
+            n_results: Maximum number of results
+            max_distance: Maximum L2 distance (default: SIMILARITY_THRESHOLD)
+
+        Returns:
+            List of (node, distance) tuples, sorted by similarity (lowest distance first)
+        """
+        if self._node_collection is None or not content:
+            return []
+
+        exclude_ids = exclude_ids or set()
+        node_types = node_types or self.CONNECTABLE_TYPES
+        max_distance = max_distance if max_distance is not None else self.SIMILARITY_THRESHOLD
+
+        try:
+            # Query ChromaDB for similar content
+            results = self._node_collection.query(
+                query_texts=[content],
+                n_results=n_results + len(exclude_ids),  # Get extra to account for exclusions
+                where={"node_type": {"$in": [nt.value for nt in node_types]}} if node_types else None
+            )
+
+            similar = []
+            if results["ids"] and results["ids"][0]:
+                for i, node_id in enumerate(results["ids"][0]):
+                    if node_id in exclude_ids:
+                        continue
+
+                    distance = results["distances"][0][i] if results["distances"] else 0
+                    if distance > max_distance:
+                        continue
+
+                    node = self._nodes.get(node_id)
+                    if node:
+                        similar.append((node, distance))
+
+                    if len(similar) >= n_results:
+                        break
+
+            return similar
+
+        except Exception as e:
+            print(f"Warning: Similarity search failed: {e}")
+            return []
+
+    def suggest_edges_for_node(
+        self,
+        node_id: str,
+        create_edges: bool = True,
+        max_edges: int = 5
+    ) -> List[Tuple[str, float]]:
+        """
+        Find and optionally create semantic edges for a node.
+
+        Args:
+            node_id: Node to find connections for
+            create_edges: If True, create RELATES_TO edges automatically
+            max_edges: Maximum number of edges to suggest/create
+
+        Returns:
+            List of (connected_node_id, similarity_score) tuples
+        """
+        node = self._nodes.get(node_id)
+        if not node or not node.content:
+            return []
+
+        # Don't suggest edges for non-connectable types
+        if node.node_type not in self.CONNECTABLE_TYPES:
+            return []
+
+        # Find already-connected nodes
+        existing_connections = set()
+        for _, target, _ in self.graph.out_edges(node_id, data=True):
+            existing_connections.add(target)
+        for source, _, _ in self.graph.in_edges(node_id, data=True):
+            existing_connections.add(source)
+
+        # Find similar nodes, excluding self and already-connected
+        exclude = existing_connections | {node_id}
+        similar = self.find_similar_nodes(
+            content=node.content,
+            exclude_ids=exclude,
+            n_results=max_edges
+        )
+
+        suggestions = []
+        for similar_node, distance in similar:
+            # Convert distance to strength (inverse relationship)
+            # Distance of 0 = strength 1.0, distance of threshold = strength ~0.5
+            strength = max(0.3, 1.0 - (distance / (self.SIMILARITY_THRESHOLD * 2)))
+
+            if create_edges:
+                self.add_edge(
+                    node_id,
+                    similar_node.id,
+                    EdgeType.RELATES_TO,
+                    strength=strength,
+                    source="semantic_similarity",
+                    distance=distance
+                )
+
+            suggestions.append((similar_node.id, strength))
+
+        return suggestions
+
+    def connect_disconnected_nodes(
+        self,
+        max_edges_per_node: int = 3,
+        dry_run: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Find and connect nodes that have no edges.
+
+        This is a batch operation to improve graph connectivity by finding
+        semantic relationships between isolated nodes.
+
+        Args:
+            max_edges_per_node: Maximum edges to create per disconnected node
+            dry_run: If True, don't actually create edges, just report
+
+        Returns:
+            Dict with stats: disconnected_count, edges_created, nodes_connected
+        """
+        # Find disconnected nodes (degree 0)
+        disconnected = []
+        for node_id, node in self._nodes.items():
+            if node.node_type in self.CONNECTABLE_TYPES:
+                if self.graph.degree(node_id) == 0:
+                    disconnected.append(node_id)
+
+        edges_created = 0
+        nodes_connected = set()
+
+        for node_id in disconnected:
+            node = self._nodes[node_id]
+            if not node.content:
+                continue
+
+            # Find similar nodes (any, not just disconnected)
+            similar = self.find_similar_nodes(
+                content=node.content,
+                exclude_ids={node_id},
+                n_results=max_edges_per_node
+            )
+
+            for similar_node, distance in similar:
+                strength = max(0.3, 1.0 - (distance / (self.SIMILARITY_THRESHOLD * 2)))
+
+                if not dry_run:
+                    self.add_edge(
+                        node_id,
+                        similar_node.id,
+                        EdgeType.RELATES_TO,
+                        strength=strength,
+                        source="semantic_similarity",
+                        distance=distance
+                    )
+
+                edges_created += 1
+                nodes_connected.add(node_id)
+                nodes_connected.add(similar_node.id)
+
+        if not dry_run and edges_created > 0:
+            self.save()
+
+        return {
+            "disconnected_count": len(disconnected),
+            "edges_created": edges_created,
+            "nodes_connected": len(nodes_connected)
+        }
+
+    def rebuild_embeddings(self) -> int:
+        """
+        Rebuild all node embeddings in ChromaDB.
+
+        Useful after importing data or if embeddings get out of sync.
+
+        Returns:
+            Number of nodes embedded
+        """
+        if self._node_collection is None:
+            return 0
+
+        # Clear existing embeddings
+        try:
+            self._chroma_client.delete_collection("self_model_graph_nodes")
+            self._node_collection = self._chroma_client.get_or_create_collection(
+                name="self_model_graph_nodes",
+                embedding_function=self._embedding_fn,
+                metadata={"description": "Self-model graph node embeddings for similarity search"}
+            )
+        except Exception as e:
+            print(f"Warning: Failed to clear embeddings: {e}")
+
+        count = 0
+        for node in self._nodes.values():
+            if node.node_type in self.CONNECTABLE_TYPES and node.content:
+                self._embed_node(node)
+                count += 1
+
+        return count
 
     # ==================== Edge Operations ====================
 
@@ -998,6 +1295,9 @@ class SelfModelGraph:
                     reason="version_update"
                 )
 
+        # Auto-suggest semantic edges to related nodes
+        self.suggest_edges_for_node(node_id, create_edges=True, max_edges=3)
+
         self.save()
         return node_id
 
@@ -1065,6 +1365,9 @@ class SelfModelGraph:
                         EdgeType.EVIDENCED_BY
                     )
 
+        # Auto-suggest semantic edges to related nodes
+        self.suggest_edges_for_node(node_id, create_edges=True, max_edges=3)
+
         self.save()
         return node_id
 
@@ -1130,6 +1433,9 @@ class SelfModelGraph:
                     EdgeType.EMERGED_FROM,
                     extraction_type="recognition_in_flow"
                 )
+
+        # Auto-suggest semantic edges to related nodes
+        self.suggest_edges_for_node(node_id, create_edges=True, max_edges=3)
 
         self.save()
         return node_id
