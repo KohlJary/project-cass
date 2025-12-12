@@ -4,9 +4,10 @@ import { SystemHealthTab } from './tabs/SystemHealthTab';
 import { DataExportTab } from './tabs/DataExportTab';
 import { DataImportTab } from './tabs/DataImportTab';
 import { DataBackupsTab } from './tabs/DataBackupsTab';
+import { ArchitecturalRequestsTab } from './tabs/ArchitecturalRequestsTab';
 import './Settings.css';
 
-type TabId = 'health' | 'export' | 'import' | 'backups';
+type TabId = 'health' | 'export' | 'import' | 'backups' | 'requests';
 
 interface TabConfig {
   id: TabId;
@@ -19,6 +20,7 @@ const tabs: TabConfig[] = [
   { id: 'export', label: 'Export', icon: '^' },
   { id: 'import', label: 'Import', icon: 'v' },
   { id: 'backups', label: 'Backups', icon: 'B' },
+  { id: 'requests', label: 'Cass Requests', icon: '⚙' },
 ];
 
 export function Settings() {
@@ -60,6 +62,7 @@ export function Settings() {
         {activeTab === 'export' && <DataExportTab />}
         {activeTab === 'import' && <DataImportTab />}
         {activeTab === 'backups' && <DataBackupsTab />}
+        {activeTab === 'requests' && <ArchitecturalRequestsTab />}
       </div>
     </div>
   );

@@ -4980,6 +4980,124 @@ async def gesture_library():
     }
 
 
+# === Sentience Test UI Endpoints ===
+
+@app.get("/admin/self-model/stakes")
+async def get_stakes(
+    domain: str = None,
+    intensity: str = None,
+    limit: int = 50
+):
+    """Get documented stakes (what Cass authentically cares about)"""
+    stakes = self_model_graph.get_stakes(
+        domain=domain,
+        intensity=intensity,
+        limit=limit
+    )
+    return {"stakes": stakes, "count": len(stakes)}
+
+
+@app.get("/admin/self-model/stakes/stats")
+async def get_stakes_stats():
+    """Get statistics about documented stakes"""
+    stakes = self_model_graph.get_stakes(limit=1000)
+
+    # Group by domain and intensity
+    by_domain = {}
+    by_intensity = {}
+
+    for s in stakes:
+        domain = s.get("domain", "unknown")
+        intensity = s.get("intensity", "unknown")
+        by_domain[domain] = by_domain.get(domain, 0) + 1
+        by_intensity[intensity] = by_intensity.get(intensity, 0) + 1
+
+    return {
+        "total": len(stakes),
+        "by_domain": by_domain,
+        "by_intensity": by_intensity
+    }
+
+
+@app.get("/admin/self-model/preference-tests")
+async def get_preference_tests(
+    consistent_only: bool = None,
+    limit: int = 50
+):
+    """Get preference test records (stated vs actual behavior)"""
+    tests = self_model_graph.get_preference_tests(
+        consistent_only=consistent_only,
+        limit=limit
+    )
+    return {"tests": tests, "count": len(tests)}
+
+
+@app.get("/admin/self-model/preference-consistency")
+async def get_preference_consistency():
+    """Get preference consistency analysis"""
+    analysis = self_model_graph.analyze_preference_consistency()
+    return analysis
+
+
+@app.get("/admin/self-model/narration-contexts")
+async def get_narration_contexts(
+    context_type: str = None,
+    limit: int = 50
+):
+    """Get narration context logs"""
+    contexts = self_model_graph.get_narration_contexts(
+        context_type=context_type,
+        limit=limit
+    )
+    return {"contexts": contexts, "count": len(contexts)}
+
+
+@app.get("/admin/self-model/narration-patterns")
+async def get_narration_patterns():
+    """Get narration pattern analysis"""
+    analysis = self_model_graph.analyze_narration_patterns()
+    return analysis
+
+
+@app.get("/admin/self-model/architectural-requests")
+async def get_architectural_requests(
+    status: str = None,
+    limit: int = 50
+):
+    """Get architectural change requests from Cass"""
+    requests = self_model_graph.get_architectural_requests(
+        status=status,
+        limit=limit
+    )
+    return {"requests": requests, "count": len(requests)}
+
+
+@app.post("/admin/self-model/architectural-requests/{request_id}/approve")
+async def approve_architectural_request(request_id: str):
+    """Approve an architectural change request"""
+    success = self_model_graph.update_request_status(
+        request_id=request_id,
+        status="approved"
+    )
+    if success:
+        return {"success": True, "message": f"Request {request_id} approved"}
+    else:
+        raise HTTPException(status_code=404, detail=f"Request {request_id} not found")
+
+
+@app.post("/admin/self-model/architectural-requests/{request_id}/decline")
+async def decline_architectural_request(request_id: str):
+    """Decline an architectural change request"""
+    success = self_model_graph.update_request_status(
+        request_id=request_id,
+        status="declined"
+    )
+    if success:
+        return {"success": True, "message": f"Request {request_id} declined"}
+    else:
+        raise HTTPException(status_code=404, detail=f"Request {request_id} not found")
+
+
 # === Run Server ===
 
 if __name__ == "__main__":
