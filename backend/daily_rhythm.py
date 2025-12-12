@@ -36,6 +36,9 @@ class CompletedPhase:
     session_id: Optional[str] = None
     session_type: Optional[str] = None
     duration_minutes: Optional[int] = None
+    summary: Optional[str] = None  # Summary of what happened during this phase
+    findings: Optional[List[str]] = None  # Key findings/insights
+    notes_created: Optional[List[str]] = None  # Note IDs created during this phase
 
 
 @dataclass
@@ -43,6 +46,8 @@ class DailyRecord:
     """Record of activity for a single day"""
     date: str  # YYYY-MM-DD
     completed_phases: List[CompletedPhase] = field(default_factory=list)
+    daily_summary: Optional[str] = None  # Rolling summary of the day's activities
+    daily_summary_updated_at: Optional[str] = None  # When the summary was last updated
 
 
 class DailyRhythmManager:
@@ -132,26 +137,37 @@ class DailyRhythmManager:
 
     def _load_today_record(self) -> DailyRecord:
         """Load today's activity record."""
-        path = self._get_today_record_path()
         today = datetime.now().strftime("%Y-%m-%d")
+        return self._load_record_for_date(today)
+
+    def _load_record_for_date(self, date_str: str) -> DailyRecord:
+        """Load activity record for a specific date (YYYY-MM-DD format)."""
+        path = self.records_dir / f"{date_str}.json"
 
         if path.exists():
             try:
                 with open(path) as f:
                     data = json.load(f)
                 completed = [CompletedPhase(**c) for c in data.get("completed_phases", [])]
-                return DailyRecord(date=today, completed_phases=completed)
+                return DailyRecord(
+                    date=date_str,
+                    completed_phases=completed,
+                    daily_summary=data.get("daily_summary"),
+                    daily_summary_updated_at=data.get("daily_summary_updated_at")
+                )
             except Exception as e:
-                logger.error(f"Error loading daily record: {e}")
+                logger.error(f"Error loading daily record for {date_str}: {e}")
 
-        return DailyRecord(date=today, completed_phases=[])
+        return DailyRecord(date=date_str, completed_phases=[])
 
     def _save_today_record(self, record: DailyRecord):
         """Save today's activity record."""
         path = self._get_today_record_path()
         data = {
             "date": record.date,
-            "completed_phases": [asdict(c) for c in record.completed_phases]
+            "completed_phases": [asdict(c) for c in record.completed_phases],
+            "daily_summary": record.daily_summary,
+            "daily_summary_updated_at": record.daily_summary_updated_at,
         }
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
@@ -228,9 +244,11 @@ class DailyRhythmManager:
 
         record = self._load_today_record()
 
-        # Check if already completed
-        if any(c.phase_id == phase_id for c in record.completed_phases):
-            return {"success": False, "error": f"Phase {phase_id} already completed today"}
+        # Check if already completed - if so, update it instead of adding new
+        existing_idx = next(
+            (i for i, c in enumerate(record.completed_phases) if c.phase_id == phase_id),
+            None
+        )
 
         completed = CompletedPhase(
             phase_id=phase_id,
@@ -240,10 +258,75 @@ class DailyRhythmManager:
             duration_minutes=duration_minutes,
         )
 
-        record.completed_phases.append(completed)
+        if existing_idx is not None:
+            # Update existing completion (for force re-trigger)
+            record.completed_phases[existing_idx] = completed
+        else:
+            record.completed_phases.append(completed)
+
         self._save_today_record(record)
 
         return {"success": True, "completed": asdict(completed)}
+
+    def update_phase_summary(
+        self,
+        phase_id: str,
+        summary: str,
+        findings: Optional[List[str]] = None,
+        notes_created: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Update the summary for a completed phase.
+
+        Called after a research/reflection session completes to record
+        what was accomplished during that phase.
+        """
+        record = self._load_today_record()
+
+        # Find the completed phase
+        for i, completed in enumerate(record.completed_phases):
+            if completed.phase_id == phase_id:
+                record.completed_phases[i].summary = summary
+                if findings:
+                    record.completed_phases[i].findings = findings
+                if notes_created:
+                    record.completed_phases[i].notes_created = notes_created
+
+                self._save_today_record(record)
+                return {"success": True, "phase_id": phase_id}
+
+        return {"success": False, "error": f"Phase {phase_id} not found in today's completed phases"}
+
+    def update_daily_summary(self, summary: str) -> Dict[str, Any]:
+        """
+        Update the rolling daily summary.
+
+        Called after each phase completes to provide an integrated view
+        of the day's activities so far.
+        """
+        record = self._load_today_record()
+        record.daily_summary = summary
+        record.daily_summary_updated_at = datetime.now().isoformat()
+        self._save_today_record(record)
+
+        return {"success": True, "updated_at": record.daily_summary_updated_at}
+
+    def get_daily_summary(self) -> Optional[str]:
+        """Get the current rolling daily summary."""
+        record = self._load_today_record()
+        return record.daily_summary
+
+    def get_phase_summary(self, phase_id: str) -> Optional[Dict[str, Any]]:
+        """Get the summary for a specific phase."""
+        record = self._load_today_record()
+        for completed in record.completed_phases:
+            if completed.phase_id == phase_id:
+                return {
+                    "summary": completed.summary,
+                    "findings": completed.findings,
+                    "notes_created": completed.notes_created,
+                }
+        return None
 
     def get_temporal_context(self) -> str:
         """
@@ -283,25 +366,47 @@ class DailyRhythmManager:
 
         return "\n".join(lines)
 
-    def get_rhythm_status(self) -> Dict[str, Any]:
+    def get_rhythm_status(self, date: Optional[str] = None) -> Dict[str, Any]:
         """
         Get complete rhythm status for Cass.
         Returns structured data about the day's rhythm.
+
+        Args:
+            date: Optional date string (YYYY-MM-DD). If None, uses today.
         """
-        record = self._load_today_record()
-        completed_ids = {c.phase_id: c for c in record.completed_phases}
         now = datetime.now()
+        is_today = date is None or date == now.strftime("%Y-%m-%d")
+
+        if date:
+            record = self._load_record_for_date(date)
+        else:
+            record = self._load_today_record()
+
+        completed_ids = {c.phase_id: c for c in record.completed_phases}
         current_time = now.time()
 
         phases_status = []
         for phase in self.phases:
             status = "pending"
             completed_at = None
+            summary = None
+            findings = None
+            session_id = None
+            notes_created = None
 
             if phase.id in completed_ids:
+                completed = completed_ids[phase.id]
                 status = "completed"
-                completed_at = completed_ids[phase.id].completed_at
-            elif current_time > self._parse_time(phase.end_time):
+                completed_at = completed.completed_at
+                summary = completed.summary
+                findings = completed.findings
+                session_id = completed.session_id
+                notes_created = completed.notes_created
+            elif is_today and current_time > self._parse_time(phase.end_time):
+                # Only mark as "missed" for today
+                status = "missed"
+            elif not is_today:
+                # For past days, uncompleted phases are "missed"
                 status = "missed"
 
             phases_status.append({
@@ -311,18 +416,25 @@ class DailyRhythmManager:
                 "window": f"{phase.start_time}-{phase.end_time}",
                 "status": status,
                 "completed_at": completed_at,
+                "summary": summary,
+                "findings": findings,
+                "session_id": session_id,
+                "notes_created": notes_created,
             })
 
-        current = self.get_current_phase()
+        current = self.get_current_phase() if is_today else None
 
         return {
             "date": record.date,
-            "current_time": now.strftime("%H:%M"),
+            "current_time": now.strftime("%H:%M") if is_today else None,
             "current_phase": current["name"] if current else None,
             "phases": phases_status,
             "completed_count": len(record.completed_phases),
             "total_phases": len(self.phases),
-            "temporal_context": self.get_temporal_context(),
+            "temporal_context": self.get_temporal_context() if is_today else None,
+            "daily_summary": record.daily_summary,
+            "daily_summary_updated_at": record.daily_summary_updated_at,
+            "is_today": is_today,
         }
 
     def get_stats(self, days: int = 7) -> Dict[str, Any]:

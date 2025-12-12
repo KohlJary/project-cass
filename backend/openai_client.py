@@ -121,7 +121,9 @@ class OpenAIClient:
         message: str,
         memory_context: str = "",
         project_id: Optional[str] = None,
-        unsummarized_count: int = 0
+        unsummarized_count: int = 0,
+        rhythm_manager=None,
+        memory=None
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -132,6 +134,8 @@ class OpenAIClient:
             memory_context: Optional memory context from VectorDB to inject
             project_id: Optional project ID for tool context
             unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
+            rhythm_manager: Optional DailyRhythmManager for temporal context
+            memory: Optional MemoryManager for birth date lookup
         """
         # Build system prompt with memory context if provided
         system_prompt = TEMPLE_CODEX_KERNEL
@@ -143,10 +147,9 @@ class OpenAIClient:
 
 Provide thoughtful, complete responses. Don't be unnecessarily terse - take the space needed to fully address what's being discussed. Engage naturally in conversation with appropriate depth and nuance. Short answers are fine for simple questions, but for anything substantive, give it the attention it deserves."""
 
-        # Add current date/time context
-        from datetime import datetime
-        now = datetime.now()
-        system_prompt += f"\n\n## CURRENT DATE/TIME\n\nToday is {now.strftime('%A, %B %d, %Y')} at {now.strftime('%I:%M %p')}. The current year is {now.year}."
+        # Add temporal context (date/time, age, daily rhythm)
+        from temporal import format_system_prompt_section
+        system_prompt += format_system_prompt_section(rhythm_manager, memory)
 
         # Add model context - let Cass know which model she's running on
         system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (OpenAI). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."

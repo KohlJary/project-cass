@@ -364,6 +364,8 @@ def create_tool_context(
         research_manager=research_manager,
         research_session_manager=research_session_manager,
         research_scheduler=research_scheduler,
+        research_runner=get_research_runner(),
+        rhythm_manager=daily_rhythm_manager,
         reflection_manager=reflection_manager,
         project_manager=project_manager,
         consciousness_test_runner=g.get('consciousness_test_runner'),
@@ -430,13 +432,14 @@ init_auth_routes(auth_service)
 app.include_router(auth_router)
 
 # Register admin routes
-from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager
+from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager, init_research_manager
 init_admin_managers(memory, conversation_manager, user_manager, self_manager)
 init_research_session_manager(research_session_manager)
 init_research_scheduler(research_scheduler)
 init_github_metrics(github_metrics_manager)
 init_token_tracker(token_tracker)
 init_daily_rhythm_manager(daily_rhythm_manager)
+init_research_manager(research_manager)
 app.include_router(admin_router)
 
 # Register testing routes
@@ -726,6 +729,14 @@ async def startup_event():
 
     # Start background task for GitHub metrics collection
     asyncio.create_task(github_metrics_task(github_metrics_manager))
+
+    # Start background task for rhythm-triggered research and reflection
+    asyncio.create_task(rhythm_phase_monitor_task(
+        daily_rhythm_manager,
+        get_research_runner(),
+        get_reflection_runner(),
+        self_model_graph
+    ))
 
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
@@ -1125,12 +1136,14 @@ async def chat(request: ChatRequest):
                         tool_result = {"success": False, "error": tool_result["error"]}
                     else:
                         tool_result = {"success": True, "result": tool_result_str}
-                elif tool_name in ["start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
+                elif tool_name in ["initiate_autonomous_research", "start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
                     tool_result_str = await execute_research_session_tool(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
                         session_manager=research_session_manager,
-                        conversation_id=request.conversation_id
+                        conversation_id=request.conversation_id,
+                        research_runner=get_research_runner(),
+                        rhythm_manager=daily_rhythm_manager
                     )
                     import json as json_module
                     tool_result = json_module.loads(tool_result_str)
@@ -2519,7 +2532,7 @@ from journal_tasks import _create_development_log_entry, daily_journal_task, run
 from context_helpers import process_inline_tags, get_automatic_wiki_context
 from research_integration import _integrate_research_into_self_model, _extract_and_store_opinions, _extract_and_queue_new_red_links
 from summary_generation import generate_and_store_summary, generate_conversation_title
-from background_tasks import autonomous_research_task, github_metrics_task
+from background_tasks import autonomous_research_task, github_metrics_task, rhythm_phase_monitor_task
 
 # Initialize the runner (lazy - created when needed)
 _reflection_runner: Optional[SoloReflectionRunner] = None
@@ -2570,6 +2583,11 @@ def get_activity_runners() -> Dict[str, Any]:
         "reflection": get_reflection_runner(),
         "research": get_research_runner(),
     }
+
+
+# Initialize session runners for admin API (must be after getter functions are defined)
+from admin_api import init_session_runners
+init_session_runners(get_research_runner, get_reflection_runner)
 
 
 class SoloReflectionStartRequest(BaseModel):
@@ -4601,7 +4619,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         project_id=project_id,
                         unsummarized_count=unsummarized_count,
                         image=image_data,
-                        image_media_type=image_media_type
+                        image_media_type=image_media_type,
+                        rhythm_manager=daily_rhythm_manager,
+                        memory=memory
                     )
                     raw_response = response.raw
                     clean_text = response.text
