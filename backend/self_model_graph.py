@@ -34,7 +34,8 @@ except ImportError:
 
 class NodeType(str, Enum):
     """Types of nodes in the self-model graph."""
-    OBSERVATION = "observation"
+    OBSERVATION = "observation"  # Self-observation about Cass
+    USER_OBSERVATION = "user_observation"  # Cass's observation about a user
     OPINION = "opinion"
     GROWTH_EDGE = "growth_edge"
     MILESTONE = "milestone"
@@ -142,8 +143,9 @@ class SelfModelGraph:
 
     # Node types that should be connected via semantic similarity
     CONNECTABLE_TYPES = {
-        NodeType.OBSERVATION, NodeType.OPINION, NodeType.GROWTH_EDGE,
-        NodeType.MILESTONE, NodeType.MARK, NodeType.SOLO_REFLECTION
+        NodeType.OBSERVATION, NodeType.USER_OBSERVATION, NodeType.OPINION,
+        NodeType.GROWTH_EDGE, NodeType.MILESTONE, NodeType.MARK,
+        NodeType.SOLO_REFLECTION
     }
 
     # Minimum similarity score to create an edge (lower = more connections)
