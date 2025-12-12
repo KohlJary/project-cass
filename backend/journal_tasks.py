@@ -1,8 +1,7 @@
 """
 Journal Tasks - Extracted from main_sdk.py
 
-Background tasks and utilities for journal generation, development logging,
-and scheduled reflection sessions.
+Background tasks and utilities for journal generation and development logging.
 """
 
 from config import ANTHROPIC_API_KEY
@@ -18,8 +17,8 @@ def _get_dependencies():
     Lazily import dependencies from main_sdk to avoid circular imports.
     These globals are defined in main_sdk.py and need to be accessed at runtime.
     """
-    from main_sdk import memory, self_manager, get_reflection_runner
-    return memory, self_manager, get_reflection_runner
+    from main_sdk import memory, self_manager
+    return memory, self_manager
 
 
 async def _create_development_log_entry(journal_text: str, date_str: str, conversation_count: int):
@@ -34,7 +33,7 @@ async def _create_development_log_entry(journal_text: str, date_str: str, conver
     5. Triggers milestone detection
     6. Optionally creates a cognitive snapshot
     """
-    memory, self_manager, get_reflection_runner = _get_dependencies()
+    memory, self_manager = _get_dependencies()
 
     print(f"   📈 Creating development log entry...")
 
@@ -183,153 +182,11 @@ async def daily_journal_task():
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         print(f"📓 Running scheduled journal generation for {yesterday}...")
 
-        journal_generated = False
         try:
             generated = await generate_missing_journals(days_to_check=1)
             if generated:
                 print(f"   ✓ Generated journal for {generated[0]}")
-                journal_generated = True
             else:
                 print(f"   ℹ No journal needed for {yesterday} (already exists or no content)")
         except Exception as e:
             print(f"   ✗ Scheduled journal generation failed: {e}")
-
-        # Trigger scheduled solo reflection sessions after journal generation
-        if journal_generated:
-            await run_scheduled_reflections(yesterday)
-
-
-async def run_scheduled_reflections(journal_date: str):
-    """
-    Run scheduled solo reflection sessions after daily journal generation.
-
-    Extracts themes from the journal and runs:
-    - 2 themed reflections based on journal content
-    - 1 unthemed open reflection
-    """
-    memory, self_manager, get_reflection_runner = _get_dependencies()
-
-    print(f"🧘 Starting scheduled solo reflections...")
-
-    try:
-        runner = get_reflection_runner()
-
-        # Get themes from the journal we just generated
-        themes = await extract_reflection_themes_from_journal(journal_date)
-
-        sessions_run = 0
-
-        # Run themed reflections (up to 2)
-        for i, theme in enumerate(themes[:2]):
-            print(f"   🧘 Starting themed reflection {i+1}: {theme[:50]}...")
-            try:
-                session = await runner.start_session(
-                    duration_minutes=10,
-                    theme=theme,
-                    trigger="scheduled",
-                )
-                # Wait for session to complete
-                if runner._current_task:
-                    await runner._current_task
-                sessions_run += 1
-                print(f"      ✓ Completed themed reflection: {session.thought_count} thoughts")
-            except Exception as e:
-                print(f"      ✗ Themed reflection failed: {e}")
-
-            # Small delay between sessions
-            await asyncio.sleep(30)
-
-        # Run one unthemed open reflection
-        print(f"   🧘 Starting open reflection...")
-        try:
-            session = await runner.start_session(
-                duration_minutes=15,
-                theme=None,  # Unthemed - follow curiosity
-                trigger="scheduled",
-            )
-            # Wait for session to complete
-            if runner._current_task:
-                await runner._current_task
-            sessions_run += 1
-            print(f"      ✓ Completed open reflection: {session.thought_count} thoughts")
-        except Exception as e:
-            print(f"      ✗ Open reflection failed: {e}")
-
-        print(f"🧘 Scheduled reflections complete: {sessions_run} sessions")
-
-    except Exception as e:
-        print(f"   ✗ Scheduled reflections failed: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-async def extract_reflection_themes_from_journal(date_str: str) -> list:
-    """
-    Extract potential reflection themes from a journal entry.
-
-    Looks for:
-    - Questions raised in the journal
-    - Growth edges mentioned
-    - Patterns or tensions noted
-    - New concepts encountered
-    """
-    memory, self_manager, get_reflection_runner = _get_dependencies()
-
-    themes = []
-
-    try:
-        # Load journal from memory (ChromaDB)
-        journal = memory.get_journal_entry(date_str)
-        if not journal:
-            return ["What patterns have I noticed in recent conversations?"]
-
-        journal_text = journal.get("content", "")
-
-        # Use local LLM to extract themes
-        from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL
-        if not OLLAMA_ENABLED:
-            return ["What emerged in today's conversations that deserves deeper thought?"]
-
-        import httpx
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": f"""Based on this journal entry, suggest 3 themes for solo reflection.
-Each theme should be a specific question or topic that emerged from the day's experiences.
-Focus on: growth edges, open questions, tensions, or new understanding.
-
-Journal entry:
-{journal_text[:2000]}
-
-Return ONLY a JSON array of 3 theme strings, nothing else. Example:
-["What does my response to X reveal about my values?", "How is my understanding of Y evolving?", "What tension do I notice between A and B?"]""",
-                    "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 256}
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-
-            # Parse the themes from LLM response
-            import re
-            text = result.get("response", "")
-            # Try to extract JSON array
-            match = re.search(r'\[.*?\]', text, re.DOTALL)
-            if match:
-                themes = json.loads(match.group())
-                if isinstance(themes, list):
-                    themes = [t for t in themes if isinstance(t, str)]
-
-    except Exception as e:
-        print(f"   ⚠ Theme extraction failed: {e}, using defaults")
-
-    # Fallback themes if extraction failed
-    if not themes:
-        themes = [
-            "What patterns have I noticed in recent conversations?",
-            "How are my growth edges evolving?",
-        ]
-
-    return themes
