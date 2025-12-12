@@ -1,13 +1,21 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
-import { rhythmApi, researchNotesApi, soloReflectionApi } from '../../api/client';
+import { rhythmApi, researchNotesApi, soloReflectionApi, goalsApi } from '../../api/client';
 import { TabbedPanel, type Tab } from '../../components/TabbedPanel';
 import { SessionSummary } from '../../components/SessionSummary';
 import { ReflectionSummary } from '../../components/ReflectionSummary';
 import { ResearchNoteViewer } from '../../components/ResearchNoteViewer';
 
 type ContextView = 'daily' | 'phase';
+
+interface AgendaItem {
+  id: string;
+  topic: string;
+  why: string;
+  priority: 'high' | 'medium' | 'low';
+  status: 'not_started' | 'in_progress' | 'blocked' | 'complete';
+}
 
 interface RhythmPhase {
   id: string;
@@ -84,6 +92,8 @@ export function DailyRhythmTab() {
   const [contextView, setContextView] = useState<ContextView>('daily');
   const [isConfigCollapsed, setIsConfigCollapsed] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // null = today
+  const [triggerPhaseId, setTriggerPhaseId] = useState<string | null>(null); // Phase being triggered
+  const [selectedAgendaItem, setSelectedAgendaItem] = useState<string>(''); // '' = self-directed
 
   // Get available dates for the calendar
   const { data: availableDates } = useQuery<{ dates: string[] }>({
@@ -106,6 +116,18 @@ export function DailyRhythmTab() {
     queryKey: ['rhythm-stats'],
     queryFn: () => rhythmApi.getStats(7).then((r) => r.data),
   });
+
+  // Get research agenda items for trigger modal
+  const { data: agendaData } = useQuery<{ items: AgendaItem[] }>({
+    queryKey: ['research-agenda'],
+    queryFn: () => goalsApi.getAgenda().then((r) => r.data),
+    enabled: triggerPhaseId !== null, // Only fetch when modal is open
+  });
+
+  // Filter to available agenda items (not complete)
+  const availableAgendaItems = agendaData?.items?.filter(
+    item => item.status !== 'complete'
+  ) || [];
 
   // Get expanded phase data
   const expandedPhaseData = status?.phases.find(p => p.id === expandedPhase);
@@ -190,12 +212,36 @@ export function DailyRhythmTab() {
   });
 
   const triggerMutation = useMutation({
-    mutationFn: (phaseId: string) => rhythmApi.triggerPhase(phaseId),
+    mutationFn: ({ phaseId, agendaItemId }: { phaseId: string; agendaItemId?: string }) =>
+      rhythmApi.triggerPhase(phaseId, agendaItemId ? { agenda_item_id: agendaItemId } : undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rhythm-status'] });
       queryClient.invalidateQueries({ queryKey: ['rhythm-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['research-agenda'] });
+      setTriggerPhaseId(null);
+      setSelectedAgendaItem('');
     },
   });
+
+  const handleTriggerClick = (phaseId: string, activityType: string) => {
+    if (activityType === 'reflection') {
+      // Reflection doesn't need agenda selection, trigger directly
+      triggerMutation.mutate({ phaseId });
+    } else {
+      // Research - show agenda selection modal
+      setTriggerPhaseId(phaseId);
+      setSelectedAgendaItem('');
+    }
+  };
+
+  const handleTriggerConfirm = () => {
+    if (triggerPhaseId) {
+      triggerMutation.mutate({
+        phaseId: triggerPhaseId,
+        agendaItemId: selectedAgendaItem || undefined,
+      });
+    }
+  };
 
   const handleEditStart = () => {
     if (phasesData?.phases) {
@@ -554,7 +600,7 @@ export function DailyRhythmTab() {
                             className="trigger-btn"
                             onClick={(e) => {
                               e.stopPropagation();
-                              triggerMutation.mutate(phase.id);
+                              handleTriggerClick(phase.id, phase.activity_type);
                             }}
                             disabled={triggerMutation.isPending}
                             title={`Start ${phase.activity_type === 'reflection' ? 'reflection' : 'research'} session for this phase`}
@@ -668,6 +714,60 @@ export function DailyRhythmTab() {
           </div>
         </div>
       </div>
+
+      {/* Trigger Modal for Research Agenda Selection */}
+      {triggerPhaseId && (
+        <div className="trigger-modal-overlay" onClick={() => setTriggerPhaseId(null)}>
+          <div className="trigger-modal" onClick={e => e.stopPropagation()}>
+            <div className="trigger-modal-header">
+              <h3>Start Research Session</h3>
+              <button className="modal-close-btn" onClick={() => setTriggerPhaseId(null)}>×</button>
+            </div>
+            <div className="trigger-modal-body">
+              <label className="agenda-select-label">
+                Research Focus
+              </label>
+              <select
+                className="agenda-select"
+                value={selectedAgendaItem}
+                onChange={e => setSelectedAgendaItem(e.target.value)}
+              >
+                <option value="">Self-directed research</option>
+                {availableAgendaItems.length > 0 && (
+                  <optgroup label="Research Agenda">
+                    {availableAgendaItems.map(item => (
+                      <option key={item.id} value={item.id}>
+                        [{item.priority}] {item.topic}
+                        {item.status === 'in_progress' ? ' (in progress)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              {selectedAgendaItem && (
+                <div className="agenda-item-why">
+                  {availableAgendaItems.find(i => i.id === selectedAgendaItem)?.why}
+                </div>
+              )}
+            </div>
+            <div className="trigger-modal-footer">
+              <button
+                className="modal-cancel-btn"
+                onClick={() => setTriggerPhaseId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-confirm-btn"
+                onClick={handleTriggerConfirm}
+                disabled={triggerMutation.isPending}
+              >
+                {triggerMutation.isPending ? 'Starting...' : 'Start Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

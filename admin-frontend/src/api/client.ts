@@ -613,6 +613,12 @@ export const rhythmApi = {
   getStats: (days?: number) => api.get('/admin/rhythm/stats', { params: { days } }),
   markPhaseComplete: (phaseId: string, sessionType?: string, sessionId?: string) =>
     api.post(`/admin/rhythm/phases/${phaseId}/complete`, { session_type: sessionType, session_id: sessionId }),
-  triggerPhase: (phaseId: string, options?: { duration_minutes?: number; focus?: string; theme?: string }) =>
+  triggerPhase: (phaseId: string, options?: {
+    duration_minutes?: number;
+    focus?: string;
+    theme?: string;
+    agenda_item_id?: string;
+    force?: boolean;
+  }) =>
     api.post(`/admin/rhythm/phases/${phaseId}/trigger`, options || {}),
 };
