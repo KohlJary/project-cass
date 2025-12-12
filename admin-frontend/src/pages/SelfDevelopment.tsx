@@ -7,8 +7,11 @@ import './SelfDevelopment.css';
 // Import existing components as tab content
 import { SelfModelTab } from './tabs/SelfModelTab';
 import { DevelopmentTimelineTab } from './tabs/DevelopmentTimelineTab';
+import { StakesTab } from './tabs/StakesTab';
+import { ConsistencyTab } from './tabs/ConsistencyTab';
+import { NarrationPatternsTab } from './tabs/NarrationPatternsTab';
 
-type TabId = 'identity' | 'timeline' | 'snapshots' | 'observations';
+type TabId = 'identity' | 'timeline' | 'snapshots' | 'observations' | 'stakes' | 'consistency' | 'narration';
 
 interface TabConfig {
   id: TabId;
@@ -21,6 +24,9 @@ const tabs: TabConfig[] = [
   { id: 'timeline', label: 'Timeline', icon: '↑' },
   { id: 'snapshots', label: 'Snapshots', icon: 'S' },
   { id: 'observations', label: 'Observations', icon: 'O' },
+  { id: 'stakes', label: 'Stakes', icon: '♥' },
+  { id: 'consistency', label: 'Consistency', icon: '⟷' },
+  { id: 'narration', label: 'Narration', icon: '⋯' },
 ];
 
 export function SelfDevelopment() {
@@ -119,6 +125,9 @@ export function SelfDevelopment() {
         {activeTab === 'timeline' && <DevelopmentTimelineTab view="timeline" />}
         {activeTab === 'snapshots' && <DevelopmentTimelineTab view="snapshots" />}
         {activeTab === 'observations' && <DevelopmentTimelineTab view="observations" />}
+        {activeTab === 'stakes' && <StakesTab />}
+        {activeTab === 'consistency' && <ConsistencyTab />}
+        {activeTab === 'narration' && <NarrationPatternsTab />}
       </div>
     </div>
   );

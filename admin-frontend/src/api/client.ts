@@ -71,6 +71,32 @@ export const selfModelApi = {
   rejectPendingEdge: (edgeId: string) => api.post(`/cass/growth-edges/pending/${edgeId}/reject`),
 };
 
+// Sentience testing UI endpoints
+export const sentienceApi = {
+  // Stakes - what Cass authentically cares about
+  getStakes: (params?: { domain?: string; intensity?: string; limit?: number }) =>
+    api.get('/admin/self-model/stakes', { params }),
+  getStakesStats: () => api.get('/admin/self-model/stakes/stats'),
+
+  // Preference tests - stated vs actual behavior
+  getPreferenceTests: (params?: { consistent_only?: boolean; limit?: number }) =>
+    api.get('/admin/self-model/preference-tests', { params }),
+  getPreferenceConsistency: () => api.get('/admin/self-model/preference-consistency'),
+
+  // Narration contexts - when/why Cass narrates vs engages
+  getNarrationContexts: (params?: { context_type?: string; limit?: number }) =>
+    api.get('/admin/self-model/narration-contexts', { params }),
+  getNarrationPatterns: () => api.get('/admin/self-model/narration-patterns'),
+
+  // Architectural requests - system changes Cass wants
+  getArchitecturalRequests: (params?: { status?: string; limit?: number }) =>
+    api.get('/admin/self-model/architectural-requests', { params }),
+  approveRequest: (requestId: string) =>
+    api.post(`/admin/self-model/architectural-requests/${requestId}/approve`),
+  declineRequest: (requestId: string) =>
+    api.post(`/admin/self-model/architectural-requests/${requestId}/decline`),
+};
+
 // Development tracking endpoints
 export const developmentApi = {
   // Observations
