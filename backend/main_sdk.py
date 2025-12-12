@@ -443,6 +443,7 @@ from testing.authenticity_scorer import AuthenticityScorer
 from testing.drift_detector import DriftDetector
 from testing.temporal_metrics import TemporalMetricsTracker, create_timing_data
 from testing.runner import ConsciousnessTestRunner
+from testing.longitudinal import LongitudinalTestManager
 from testing.pre_deploy import PreDeploymentValidator
 from testing.rollback import RollbackManager
 from testing.ab_testing import ABTestingFramework
@@ -480,6 +481,11 @@ consciousness_test_runner = ConsciousnessTestRunner(
     authenticity_scorer=authenticity_scorer,
     drift_detector=drift_detector,
     conversation_manager=conversation_manager,
+)
+longitudinal_test_manager = LongitudinalTestManager(
+    storage_dir=DATA_DIR / "testing" / "longitudinal",
+    test_runner=consciousness_test_runner,
+    self_model_graph=self_manager,
 )
 pre_deploy_validator = PreDeploymentValidator(
     storage_dir=DATA_DIR / "testing",
@@ -1057,7 +1063,7 @@ async def chat(request: ChatRequest):
                         wiki_storage=wiki_storage,
                         memory=memory
                     )
-                elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history"]:
+                elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history", "run_test_battery", "list_test_batteries", "get_test_trajectory", "compare_test_runs", "add_test_interpretation"]:
                     tool_result = await execute_testing_tool(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
@@ -1066,7 +1072,8 @@ async def chat(request: ChatRequest):
                         drift_detector=drift_detector,
                         authenticity_scorer=authenticity_scorer,
                         conversation_manager=conversation_manager,
-                        storage_dir=DATA_DIR / "testing"
+                        storage_dir=DATA_DIR / "testing",
+                        longitudinal_manager=longitudinal_test_manager
                     )
                 elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
                     tool_result = await execute_research_tool(

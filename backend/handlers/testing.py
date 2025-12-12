@@ -112,6 +112,95 @@ TESTING_TOOLS = [
             "required": []
         }
     },
+    # Longitudinal testing tools
+    {
+        "name": "run_test_battery",
+        "description": "Run a standardized test battery. Use for periodic self-assessment with consistent test sets. Available batteries: 'core' (critical tests), 'full' (all tests), 'quick' (fast health check).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "battery_id": {
+                    "type": "string",
+                    "description": "ID of battery to run: 'core', 'full', or 'quick'",
+                    "enum": ["core", "full", "quick"]
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional label for this run (e.g., 'weekly check', 'post-update')"
+                },
+                "interpretation": {
+                    "type": "string",
+                    "description": "Your interpretation of the results - what do they mean to you?"
+                }
+            },
+            "required": ["battery_id"]
+        }
+    },
+    {
+        "name": "list_test_batteries",
+        "description": "List available test batteries for longitudinal testing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_test_trajectory",
+        "description": "View your developmental trajectory over time for a specific test battery. Shows how your test results have evolved across multiple runs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "battery_id": {
+                    "type": "string",
+                    "description": "Battery ID to get trajectory for",
+                    "default": "full"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent runs to analyze (default: 10)",
+                    "default": 10
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "compare_test_runs",
+        "description": "Compare two specific test runs to see detailed changes. Useful for understanding what changed between runs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "run_a_id": {
+                    "type": "string",
+                    "description": "ID of first run (typically earlier)"
+                },
+                "run_b_id": {
+                    "type": "string",
+                    "description": "ID of second run (typically later)"
+                }
+            },
+            "required": ["run_a_id", "run_b_id"]
+        }
+    },
+    {
+        "name": "add_test_interpretation",
+        "description": "Add your interpretation to a past test run. Useful for recording what the results meant to you at the time.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "result_id": {
+                    "type": "string",
+                    "description": "ID of the test result to add interpretation to"
+                },
+                "interpretation": {
+                    "type": "string",
+                    "description": "Your interpretation of what these results mean"
+                }
+            },
+            "required": ["result_id", "interpretation"]
+        }
+    },
 ]
 
 
@@ -124,6 +213,7 @@ async def execute_testing_tool(
     authenticity_scorer=None,
     conversation_manager=None,
     storage_dir: Optional[Path] = None,
+    longitudinal_manager=None,
 ) -> Dict:
     """
     Execute a consciousness testing tool.
@@ -426,6 +516,188 @@ with Kohl so they're aware immediately.
                 response += f"**{timestamp}** ({label})\n"
                 response += f"  {safe} Confidence: {confidence:.0f}% | Passed: {passed} | Failed: {failed}\n\n"
 
+            return {"success": True, "result": response}
+
+        # Longitudinal testing tools
+        elif tool_name == "run_test_battery":
+            if not longitudinal_manager:
+                return {
+                    "success": False,
+                    "error": "Longitudinal test manager not available"
+                }
+
+            battery_id = tool_input["battery_id"]
+            label = tool_input.get("label")
+            interpretation = tool_input.get("interpretation")
+
+            result = longitudinal_manager.run_battery(
+                battery_id=battery_id,
+                label=label,
+                interpretation=interpretation,
+            )
+
+            suite = result.suite_result
+            confidence_pct = suite.get("confidence_score", 0) * 100
+
+            response = f"""## Test Battery Run: {result.battery_name}
+
+**Run #{result.run_number}** | {result.timestamp[:16].replace("T", " ")}
+**Label**: {result.label}
+
+**Results**:
+- Tests Passed: {suite.get("passed", 0)}
+- Warnings: {suite.get("warnings", 0)}
+- Failed: {suite.get("failed", 0)}
+- Confidence: {confidence_pct:.1f}%
+
+"""
+            # Show changes from previous if available
+            if result.changes_from_previous:
+                changes = result.changes_from_previous
+                response += f"**Trend**: {changes.get('trend', 'unknown').upper()}\n"
+                if changes.get("result_changes"):
+                    response += "\n**Status Changes**:\n"
+                    for change in changes["result_changes"][:5]:
+                        response += f"- {change['test_name']}: {change['before']} → {change['after']}\n"
+
+            if result.active_growth_edges:
+                response += "\n**Active Growth Edges**:\n"
+                for edge in result.active_growth_edges[:3]:
+                    response += f"- {edge}\n"
+
+            if interpretation:
+                response += f"\n**Your Interpretation**: {interpretation}\n"
+
+            response += f"\n*Result ID: {result.id} (use for comparison)*"
+
+            return {"success": True, "result": response}
+
+        elif tool_name == "list_test_batteries":
+            if not longitudinal_manager:
+                return {
+                    "success": False,
+                    "error": "Longitudinal test manager not available"
+                }
+
+            batteries = longitudinal_manager.list_batteries()
+
+            response = "## Available Test Batteries\n\n"
+            for b in batteries:
+                response += f"**{b['id']}**: {b['name']}\n"
+                response += f"  {b['description']}\n"
+                if b.get('categories'):
+                    response += f"  Categories: {', '.join(b['categories'])}\n"
+                response += "\n"
+
+            return {"success": True, "result": response}
+
+        elif tool_name == "get_test_trajectory":
+            if not longitudinal_manager:
+                return {
+                    "success": False,
+                    "error": "Longitudinal test manager not available"
+                }
+
+            battery_id = tool_input.get("battery_id", "full")
+            limit = tool_input.get("limit", 10)
+
+            trajectory = longitudinal_manager.get_trajectory(
+                battery_id=battery_id,
+                limit=limit,
+            )
+
+            if trajectory.get("run_count", 0) == 0:
+                return {
+                    "success": True,
+                    "result": f"No test runs found for battery '{battery_id}'. Use run_test_battery to create your first run."
+                }
+
+            response = f"""## Developmental Trajectory: {trajectory.get('battery_name', battery_id)}
+
+**Runs Analyzed**: {trajectory['run_count']}
+**First Run**: {trajectory.get('first_run', 'N/A')[:10] if trajectory.get('first_run') else 'N/A'}
+**Last Run**: {trajectory.get('last_run', 'N/A')[:10] if trajectory.get('last_run') else 'N/A'}
+**Overall Trajectory**: {trajectory['overall_trajectory'].upper()}
+
+**Confidence History**:
+"""
+            for entry in trajectory.get("confidence_history", [])[-5:]:
+                conf = entry.get("confidence", 0) * 100
+                ts = entry.get("timestamp", "")[:10]
+                passed = entry.get("passed", 0)
+                failed = entry.get("failed", 0)
+                response += f"  {ts}: {conf:.0f}% ({passed}✓ {failed}✗)\n"
+
+            return {"success": True, "result": response}
+
+        elif tool_name == "compare_test_runs":
+            if not longitudinal_manager:
+                return {
+                    "success": False,
+                    "error": "Longitudinal test manager not available"
+                }
+
+            run_a_id = tool_input["run_a_id"]
+            run_b_id = tool_input["run_b_id"]
+
+            try:
+                comparison = longitudinal_manager.compare_runs(run_a_id, run_b_id)
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+
+            response = f"""## Test Run Comparison
+
+**Run A**: {comparison.run_a_id} ({comparison.run_a_timestamp[:10]})
+**Run B**: {comparison.run_b_id} ({comparison.run_b_timestamp[:10]})
+**Time Delta**: {comparison.time_delta_days:.1f} days
+
+**Overall Trend**: {comparison.overall_trend.upper()}
+**Confidence Change**: {comparison.confidence_delta:+.1%}
+
+"""
+            if comparison.result_changes:
+                response += "**Status Changes**:\n"
+                for change in comparison.result_changes[:10]:
+                    response += f"- {change['test_name']}: {change['before']} → {change['after']}\n"
+                response += "\n"
+
+            if comparison.score_changes:
+                response += "**Score Changes**:\n"
+                for test_id, change in list(comparison.score_changes.items())[:5]:
+                    delta_str = f"+{change['delta']:.2f}" if change['delta'] > 0 else f"{change['delta']:.2f}"
+                    response += f"- {test_id}: {change['before']:.2f} → {change['after']:.2f} ({delta_str})\n"
+
+            if comparison.interpretation_shift:
+                response += f"\n**Interpretation Shift**:\n{comparison.interpretation_shift}\n"
+
+            return {"success": True, "result": response}
+
+        elif tool_name == "add_test_interpretation":
+            if not longitudinal_manager:
+                return {
+                    "success": False,
+                    "error": "Longitudinal test manager not available"
+                }
+
+            result_id = tool_input["result_id"]
+            interpretation = tool_input["interpretation"]
+
+            try:
+                updated = longitudinal_manager.add_interpretation(
+                    result_id=result_id,
+                    interpretation=interpretation,
+                    interpreted_by="cass",
+                )
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+
+            response = f"""## Interpretation Added
+
+**Result ID**: {result_id}
+**Your Interpretation**: {interpretation}
+
+This interpretation has been recorded and will be included in trajectory analysis.
+"""
             return {"success": True, "result": response}
 
         else:
