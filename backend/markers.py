@@ -203,13 +203,15 @@ class MarkerStore:
 
     COLLECTION_NAME = "cass_markers"
 
-    def __init__(self, client=None, persist_directory: str = None):
+    def __init__(self, client=None, persist_directory: str = None, graph_callback=None):
         """
         Initialize MarkerStore.
 
         Args:
             client: Existing ChromaDB client to reuse (preferred)
             persist_directory: Path to ChromaDB storage (only used if client is None)
+            graph_callback: Optional callback for syncing to self-model graph.
+                           Should have method: sync_mark()
         """
         if client is not None:
             self.client = client
@@ -219,6 +221,7 @@ class MarkerStore:
             self.client = chromadb.PersistentClient(path=persist_directory)
 
         self.embedding_fn = embedding_functions.DefaultEmbeddingFunction()
+        self._graph_callback = graph_callback
 
         self.collection = self.client.get_or_create_collection(
             name=self.COLLECTION_NAME,
@@ -252,6 +255,21 @@ class MarkerStore:
                     "position": mark.position
                 }]
             )
+
+            # Sync to graph if callback is set
+            if self._graph_callback:
+                try:
+                    self._graph_callback.sync_mark(
+                        mark_id=mark.id,
+                        category=mark.category,
+                        description=mark.description or "",
+                        context_window=mark.context_window,
+                        conversation_id=mark.conversation_id,
+                        timestamp=mark.timestamp
+                    )
+                except Exception as e:
+                    print(f"Warning: Failed to sync mark to graph: {e}")
+
             return True
         except Exception as e:
             print(f"Error storing mark: {e}")

@@ -70,11 +70,17 @@ async def generate_missing_journals(days_to_check: int = 7):
         # Generate journal
         print(f"📓 Generating missing journal for {date_str}...")
         try:
+            # Build self-model context for journal generation
+            self_context = None
+            if self_manager:
+                self_context = self_manager.get_self_context(include_observations=True)
+
             # === PHASE 1: Main Journal (existing) ===
             journal_text = await memory.generate_journal_entry(
                 date=date_str,
                 anthropic_api_key=ANTHROPIC_API_KEY,
-                token_tracker=token_tracker
+                token_tracker=token_tracker,
+                self_context=self_context
             )
 
             if not journal_text:

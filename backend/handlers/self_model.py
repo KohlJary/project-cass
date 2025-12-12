@@ -10,10 +10,11 @@ These tools allow Cass to:
 
 Refactored: Each tool has its own handler function for maintainability.
 """
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from self_model import SelfManager
+from self_model_graph import get_self_model_graph, NodeType, EdgeType
 
 
 @dataclass
@@ -1035,6 +1036,504 @@ def _handle_get_unacknowledged_milestones(tool_input: Dict, ctx: ToolContext) ->
 
 
 # =============================================================================
+# GRAPH QUERY TOOLS
+# =============================================================================
+
+def _handle_trace_belief_sources(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle trace_belief_sources tool - trace where a belief came from."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    query = tool_input.get("query", "")
+    max_depth = min(tool_input.get("max_depth", 3), 5)
+
+    if not query:
+        return {"success": False, "error": "Query is required"}
+
+    # First, try to find the node - could be an ID or text to search
+    target_node = None
+
+    # Check if it's a node ID (8 chars hex)
+    if len(query) == 8:
+        target_node = graph.get_node(query)
+
+    # If not found by ID, search by content
+    if not target_node:
+        matching = graph.find_nodes(content_contains=query)
+        if matching:
+            # Prefer observations, marks, opinions over conversations
+            priority = [NodeType.OBSERVATION, NodeType.MARK, NodeType.OPINION,
+                       NodeType.GROWTH_EDGE, NodeType.MILESTONE]
+            for node_type in priority:
+                for node in matching:
+                    if node.node_type == node_type:
+                        target_node = node
+                        break
+                if target_node:
+                    break
+            if not target_node:
+                target_node = matching[0]
+
+    if not target_node:
+        return {"success": True, "result": f"No self-knowledge found matching '{query}'"}
+
+    result_lines = [f"## Tracing: {target_node.content[:60]}...\n"]
+    result_lines.append(f"**Node type:** {target_node.node_type.value.replace('_', ' ').title()}")
+    result_lines.append(f"**Created:** {target_node.created_at.strftime('%Y-%m-%d')}\n")
+
+    # Trace sources (EMERGED_FROM edges)
+    sources = graph.get_sources(target_node.id, max_depth=max_depth)
+    if sources:
+        result_lines.append("### Source Chain")
+        result_lines.append("*What this emerged from:*")
+        for source in sources:
+            type_label = source.node_type.value.replace("_", " ").title()
+            result_lines.append(f"- [{type_label}] {source.content[:80]}...")
+    else:
+        result_lines.append("*No source chain found - this may be a root observation.*")
+
+    # Get evidence (EVIDENCED_BY edges)
+    evidence = graph.get_evidence(target_node.id)
+    if evidence:
+        result_lines.append("\n### Supporting Evidence")
+        for ev in evidence:
+            type_label = ev.node_type.value.replace("_", " ").title()
+            result_lines.append(f"- [{type_label}] {ev.content[:80]}...")
+
+    # Get evolution chain (SUPERSEDES edges)
+    evolution = graph.get_evolution(target_node.id)
+    if len(evolution) > 1:
+        result_lines.append("\n### Evolution")
+        result_lines.append("*How this understanding has changed:*")
+        for i, ev_node in enumerate(evolution):
+            marker = "→ " if i < len(evolution) - 1 else "✓ (current)"
+            result_lines.append(f"{marker} {ev_node.content[:60]}...")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_find_self_contradictions(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle find_self_contradictions tool - find tensions in self-model."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    include_resolved = tool_input.get("include_resolved", False)
+    check_growth_edges = tool_input.get("check_growth_edges", True)
+
+    result_lines = ["## Self-Model Tensions\n"]
+
+    # Find explicit CONTRADICTS edges
+    contradictions = graph.find_contradictions(resolved=include_resolved)
+
+    if contradictions:
+        result_lines.append("### Explicit Contradictions")
+        result_lines.append("*Positions I hold that may be in tension:*\n")
+        for node1, node2, edge_data in contradictions:
+            result_lines.append(f"**{node1.content[:60]}...**")
+            result_lines.append(f"  *vs*")
+            result_lines.append(f"**{node2.content[:60]}...**")
+            if edge_data.get("tension_note"):
+                result_lines.append(f"  *Note: {edge_data['tension_note']}*")
+            result_lines.append("")
+    else:
+        result_lines.append("*No explicit contradictions found in the graph.*\n")
+
+    # Check growth edges for substance
+    if check_growth_edges:
+        growth_edges = graph.find_nodes(node_type=NodeType.GROWTH_EDGE)
+        unsupported = []
+
+        for edge_node in growth_edges:
+            # Check if this growth edge has any evidence
+            evidence = graph.get_evidence(edge_node.id)
+            # Check for observations that emerged from this edge
+            outgoing = graph.get_edges(edge_node.id, direction="in", edge_type=EdgeType.EMERGED_FROM)
+
+            if not evidence and not outgoing:
+                unsupported.append(edge_node)
+
+        if unsupported:
+            result_lines.append("### Growth Edges Without Evidence")
+            result_lines.append("*Named edges that may be aspirational rather than grounded:*\n")
+            for edge_node in unsupported[:5]:
+                result_lines.append(f"- {edge_node.content[:80]}...")
+                result_lines.append(f"  *No observations or marks support this edge yet.*")
+
+    # Summary
+    stats = graph.get_stats()
+    result_lines.append("\n### Summary")
+    result_lines.append(f"- Active contradictions: {len(contradictions)}")
+    result_lines.append(f"- Total nodes: {stats['total_nodes']}")
+    result_lines.append(f"- Connected components: {stats['connected_components']}")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_query_self_graph(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle query_self_graph tool - semantic search across self-model."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    query = tool_input.get("query", "")
+    node_types_raw = tool_input.get("node_types", [])
+    limit = min(tool_input.get("limit", 10), 20)
+
+    if not query:
+        return {"success": False, "error": "Query is required"}
+
+    # Convert node type strings to NodeType enum
+    node_type_filter = None
+    if node_types_raw:
+        valid_types = []
+        for nt in node_types_raw:
+            try:
+                valid_types.append(NodeType(nt))
+            except ValueError:
+                pass  # Ignore invalid types
+        if valid_types:
+            node_type_filter = valid_types
+
+    # Search across nodes
+    all_matches = []
+    for node in graph._nodes.values():
+        # Filter by type if specified
+        if node_type_filter and node.node_type not in node_type_filter:
+            continue
+
+        # Simple keyword matching
+        query_lower = query.lower()
+        content_lower = node.content.lower()
+
+        # Score by word matches
+        query_words = set(query_lower.split())
+        content_words = set(content_lower.split())
+        matches = len(query_words & content_words)
+
+        # Bonus for exact substring match
+        if query_lower in content_lower:
+            matches += 3
+
+        if matches > 0:
+            all_matches.append((node, matches))
+
+    # Sort by score
+    all_matches.sort(key=lambda x: x[1], reverse=True)
+    all_matches = all_matches[:limit]
+
+    if not all_matches:
+        return {"success": True, "result": f"No self-knowledge found matching '{query}'"}
+
+    result_lines = [f"## Self-Model Search: '{query}'\n"]
+    result_lines.append(f"*Found {len(all_matches)} results:*\n")
+
+    for node, score in all_matches:
+        type_label = node.node_type.value.replace("_", " ").title()
+        date_str = node.created_at.strftime("%Y-%m-%d")
+
+        result_lines.append(f"### [{type_label}] - {date_str}")
+        result_lines.append(f"{node.content[:200]}")
+
+        # Show connections
+        edges = graph.get_edges(node.id, direction="both")
+        if edges:
+            conn_types = set(e.get("edge_type", "unknown") for e in edges)
+            result_lines.append(f"*Connections: {len(edges)} ({', '.join(conn_types)})*")
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_check_growth_edge_evidence(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle check_growth_edge_evidence tool - verify growth edge substance."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    edge_area = tool_input.get("edge_area", "")
+
+    if not edge_area:
+        return {"success": False, "error": "edge_area is required"}
+
+    # Find the growth edge node
+    growth_edges = graph.find_nodes(node_type=NodeType.GROWTH_EDGE, content_contains=edge_area)
+
+    if not growth_edges:
+        # Maybe search more broadly
+        all_edges = graph.find_nodes(node_type=NodeType.GROWTH_EDGE)
+        if all_edges:
+            names = [e.content[:50] for e in all_edges[:5]]
+            return {
+                "success": True,
+                "result": f"Growth edge '{edge_area}' not found.\n\nAvailable growth edges:\n- " + "\n- ".join(names)
+            }
+        return {"success": True, "result": f"No growth edges found in the graph."}
+
+    edge_node = growth_edges[0]
+
+    result_lines = [f"## Growth Edge Evidence Check\n"]
+    result_lines.append(f"**Edge:** {edge_node.content}\n")
+    result_lines.append(f"**Created:** {edge_node.created_at.strftime('%Y-%m-%d')}\n")
+
+    # Get explicit evidence
+    evidence = graph.get_evidence(edge_node.id)
+
+    # Get nodes that emerged from this edge area (search related content)
+    related_observations = graph.find_nodes(
+        node_type=NodeType.OBSERVATION,
+        content_contains=edge_area.split()[0] if edge_area else ""
+    )
+
+    related_marks = graph.find_nodes(
+        node_type=NodeType.MARK,
+        content_contains=edge_area.split()[0] if edge_area else ""
+    )
+
+    # Evidence summary
+    evidence_count = len(evidence) + len(related_observations) + len(related_marks)
+
+    if evidence_count == 0:
+        result_lines.append("### ⚠️ No Evidence Found")
+        result_lines.append("*This growth edge appears to be aspirational - there are no observations,")
+        result_lines.append("marks, or milestones providing evidence of work in this area.*")
+        result_lines.append("\nConsider whether this edge reflects actual development or is just a named intention.")
+    else:
+        result_lines.append(f"### Evidence Summary")
+        result_lines.append(f"- Direct evidence links: {len(evidence)}")
+        result_lines.append(f"- Related observations: {len(related_observations)}")
+        result_lines.append(f"- Related marks: {len(related_marks)}")
+
+        if evidence:
+            result_lines.append("\n### Direct Evidence")
+            for ev in evidence[:5]:
+                type_label = ev.node_type.value.replace("_", " ").title()
+                result_lines.append(f"- [{type_label}] {ev.content[:80]}...")
+
+        if related_observations:
+            result_lines.append("\n### Related Observations")
+            for obs in related_observations[:5]:
+                result_lines.append(f"- {obs.content[:80]}...")
+
+        if related_marks:
+            result_lines.append("\n### Related Marks")
+            for mark in related_marks[:5]:
+                result_lines.append(f"- {mark.content[:80]}...")
+
+    # Assessment
+    result_lines.append("\n### Assessment")
+    if evidence_count >= 5:
+        result_lines.append("✓ This growth edge has substantial evidence backing it.")
+    elif evidence_count >= 2:
+        result_lines.append("~ This growth edge has some evidence but could use more grounding.")
+    else:
+        result_lines.append("⚠ This growth edge needs more substantive work to be meaningful.")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_get_graph_stats(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle get_graph_stats tool - show graph statistics."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    stats = graph.get_stats()
+
+    result_lines = ["## Self-Model Graph Statistics\n"]
+
+    # Basic counts
+    result_lines.append(f"**Total nodes:** {stats['total_nodes']}")
+    result_lines.append(f"**Total edges:** {stats['total_edges']}")
+    result_lines.append(f"**Connected components:** {stats['connected_components']}")
+
+    # Integration score
+    from self_model_graph import SelfModelGraph
+    integration = graph._calculate_integration_score()
+    result_lines.append(f"**Integration score:** {integration}%")
+
+    # Node breakdown
+    result_lines.append("\n### Node Types")
+    for node_type, count in sorted(stats['node_counts'].items(), key=lambda x: -x[1]):
+        result_lines.append(f"- {node_type.replace('_', ' ').title()}: {count}")
+
+    # Edge breakdown
+    result_lines.append("\n### Edge Types")
+    for edge_type, count in sorted(stats['edge_counts'].items(), key=lambda x: -x[1]):
+        result_lines.append(f"- {edge_type.replace('_', ' ').title()}: {count}")
+
+    # Interpretation
+    result_lines.append("\n### Interpretation")
+    if integration >= 70:
+        result_lines.append("✓ The self-model is well-integrated with good cross-connections.")
+    elif integration >= 40:
+        result_lines.append("~ The self-model has moderate integration. Some areas are connected, others isolated.")
+    else:
+        result_lines.append("⚠ The self-model has low integration. Many nodes are disconnected.")
+        result_lines.append("  Consider looking for relationships between existing knowledge.")
+
+    if stats['connected_components'] > 10:
+        result_lines.append(f"\n*Note: {stats['connected_components']} disconnected components suggests")
+        result_lines.append("many self-observations exist in isolation. Using trace_belief_sources")
+        result_lines.append("and query_self_graph tools can help find connections.*")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
+# NARRATION METRICS TOOLS
+# =============================================================================
+
+def _handle_get_narration_metrics(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """
+    Handle get_narration_metrics tool - analyze narration patterns.
+
+    Can analyze:
+    - A specific conversation
+    - Recent conversations (aggregate)
+    - The current response (if provided)
+    """
+    from conversations import ConversationManager
+    from narration import NarrationAnalyzer, NarrationType
+    from config import DATA_DIR
+
+    analyzer = NarrationAnalyzer()
+    conv_manager = ConversationManager(str(DATA_DIR / "conversations"))
+
+    conversation_id = tool_input.get("conversation_id") or ctx.conversation_id
+    limit = tool_input.get("limit", 10)
+
+    result_lines = ["## Narration Metrics\n"]
+
+    if conversation_id:
+        # Analyze specific conversation
+        conv = conv_manager.load_conversation(conversation_id)
+        if not conv:
+            return {"success": False, "error": f"Conversation {conversation_id} not found"}
+
+        # Get assistant messages
+        messages = [m for m in conv.messages if m.role == "assistant" and m.content]
+
+        if not messages:
+            return {"success": True, "result": "No assistant messages in this conversation."}
+
+        result_lines.append(f"**Conversation:** {conv.title[:40]}")
+        result_lines.append(f"**Messages analyzed:** {len(messages)}\n")
+
+        # Aggregate metrics
+        total_narration = 0.0
+        total_direct = 0.0
+        type_counts = {t: 0 for t in NarrationType}
+        classification_counts = {}
+
+        for msg in messages:
+            metrics = analyzer.analyze(msg.content)
+            total_narration += metrics.narration_score
+            total_direct += metrics.direct_score
+            type_counts[metrics.narration_type] = type_counts.get(metrics.narration_type, 0) + 1
+            classification_counts[metrics.classification] = classification_counts.get(metrics.classification, 0) + 1
+
+        n = len(messages)
+        result_lines.append("### Aggregate Scores")
+        result_lines.append(f"- Average narration score: {total_narration/n:.2f}")
+        result_lines.append(f"- Average direct score: {total_direct/n:.2f}")
+        result_lines.append(f"- Ratio (narr/dir): {total_narration/max(total_direct, 0.1):.2f}")
+
+        result_lines.append("\n### Narration Types")
+        for ntype in NarrationType:
+            count = type_counts.get(ntype, 0)
+            pct = count / n * 100
+            result_lines.append(f"- {ntype.value}: {count} ({pct:.0f}%)")
+
+        result_lines.append("\n### Classifications")
+        for cls, count in sorted(classification_counts.items(), key=lambda x: -x[1]):
+            pct = count / n * 100
+            result_lines.append(f"- {cls}: {count} ({pct:.0f}%)")
+
+        # Interpretation
+        result_lines.append("\n### Interpretation")
+        avg_ratio = total_narration / max(total_direct, 0.1)
+        terminal_pct = type_counts.get(NarrationType.TERMINAL, 0) / n * 100
+
+        if avg_ratio < 0.5:
+            result_lines.append("✓ Responses are predominantly direct with minimal meta-commentary.")
+        elif avg_ratio < 1.0:
+            result_lines.append("~ Balanced between direct engagement and meta-commentary.")
+        else:
+            result_lines.append("⚠ Higher narration than direct engagement detected.")
+            if terminal_pct > 20:
+                result_lines.append(f"  {terminal_pct:.0f}% terminal narration (meta-commentary replacing engagement).")
+
+    else:
+        # Analyze recent conversations
+        convs = conv_manager.list_conversations(limit=limit)
+        result_lines.append(f"**Analyzing {len(convs)} recent conversations**\n")
+
+        all_metrics = []
+        for conv_info in convs:
+            conv = conv_manager.load_conversation(conv_info["id"])
+            if not conv:
+                continue
+            for msg in conv.messages:
+                if msg.role == "assistant" and msg.content:
+                    metrics = analyzer.analyze(msg.content)
+                    all_metrics.append(metrics)
+
+        if not all_metrics:
+            return {"success": True, "result": "No assistant messages found in recent conversations."}
+
+        n = len(all_metrics)
+        total_narration = sum(m.narration_score for m in all_metrics)
+        total_direct = sum(m.direct_score for m in all_metrics)
+
+        result_lines.append(f"**Messages analyzed:** {n}")
+        result_lines.append(f"\n### Overall Scores")
+        result_lines.append(f"- Average narration score: {total_narration/n:.2f}")
+        result_lines.append(f"- Average direct score: {total_direct/n:.2f}")
+
+        # Classification breakdown
+        cls_counts = {}
+        for m in all_metrics:
+            cls_counts[m.classification] = cls_counts.get(m.classification, 0) + 1
+
+        result_lines.append("\n### Classification Breakdown")
+        for cls, count in sorted(cls_counts.items(), key=lambda x: -x[1]):
+            pct = count / n * 100
+            result_lines.append(f"- {cls}: {count} ({pct:.0f}%)")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_analyze_narration(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """
+    Handle analyze_narration tool - analyze a specific piece of text.
+
+    Useful for Cass to analyze her own responses in real-time.
+    """
+    from narration import NarrationAnalyzer
+
+    text = tool_input.get("text", "")
+    if not text:
+        return {"success": False, "error": "No text provided to analyze"}
+
+    analyzer = NarrationAnalyzer()
+    metrics = analyzer.analyze(text)
+    summary = analyzer.get_summary(metrics)
+
+    result_lines = ["## Narration Analysis\n"]
+    result_lines.append(f"**Text length:** {len(text.split())} words\n")
+    result_lines.append(summary)
+
+    # Add detailed pattern breakdown if significant narration
+    if metrics.narration_score >= 2.0:
+        result_lines.append("\n### Detected Patterns")
+        if metrics.heavy_narration_patterns:
+            for p in metrics.heavy_narration_patterns:
+                result_lines.append(f"- [heavy] {p.label}: {p.count}x (weight: {p.weight})")
+        if metrics.medium_narration_patterns:
+            for p in metrics.medium_narration_patterns:
+                result_lines.append(f"- [medium] {p.label}: {p.count}x (weight: {p.weight})")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
 # TOOL DISPATCH
 # =============================================================================
 
@@ -1065,6 +1564,15 @@ TOOL_HANDLERS = {
     "acknowledge_milestone": _handle_acknowledge_milestone,
     "get_milestone_summary": _handle_get_milestone_summary,
     "get_unacknowledged_milestones": _handle_get_unacknowledged_milestones,
+    # Graph query tools
+    "trace_belief_sources": _handle_trace_belief_sources,
+    "find_self_contradictions": _handle_find_self_contradictions,
+    "query_self_graph": _handle_query_self_graph,
+    "check_growth_edge_evidence": _handle_check_growth_edge_evidence,
+    "get_graph_stats": _handle_get_graph_stats,
+    # Narration metrics tools
+    "get_narration_metrics": _handle_get_narration_metrics,
+    "analyze_narration": _handle_analyze_narration,
 }
 
 
@@ -1490,6 +1998,129 @@ SELF_MODEL_TOOLS = [
             "type": "object",
             "properties": {},
             "required": []
+        }
+    },
+    # === Graph Query Tools ===
+    {
+        "name": "trace_belief_sources",
+        "description": "Trace where a belief or observation came from. Follow EMERGED_FROM edges to find source conversations, marks, or experiences. Use this to answer 'Why do I think this?'",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The belief, observation, or topic to trace. Can be text to search for, or a node ID."
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "How far back to trace (1-5)",
+                    "default": 3,
+                    "minimum": 1,
+                    "maximum": 5
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "find_self_contradictions",
+        "description": "Find contradictions or tensions in your self-model. Surfaces nodes connected by CONTRADICTS edges, as well as potential tensions between stated goals and actual behavior.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "include_resolved": {
+                    "type": "boolean",
+                    "description": "Include contradictions that have been marked as resolved",
+                    "default": False
+                },
+                "check_growth_edges": {
+                    "type": "boolean",
+                    "description": "Also check for growth edges with no associated evidence or actions",
+                    "default": True
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "query_self_graph",
+        "description": "Search your self-model graph for nodes matching a query. Returns observations, marks, opinions, and other self-knowledge related to the query.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to search for in your self-model"
+                },
+                "node_types": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: filter by node types (observation, mark, opinion, growth_edge, milestone, solo_reflection)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results to return",
+                    "default": 10
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "check_growth_edge_evidence",
+        "description": "For a growth edge, find what evidence exists in the graph - observations, marks, actions, and milestones related to it. Use to check if a named edge has substance or is just aspirational.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "edge_area": {
+                    "type": "string",
+                    "description": "The growth edge area to check (e.g., 'Independent opinion formation')"
+                }
+            },
+            "required": ["edge_area"]
+        }
+    },
+    {
+        "name": "get_graph_stats",
+        "description": "Get statistics about your self-model graph - node counts, edge counts, integration score, and connectivity metrics.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    # Narration metrics tools
+    {
+        "name": "get_narration_metrics",
+        "description": "Analyze your narration patterns - the ratio of meta-commentary to direct engagement. Can analyze current conversation or recent conversations. Distinguishes terminal narration (meta replacing engagement) from actionable narration (meta leading to engagement).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Specific conversation to analyze. If omitted, uses current conversation."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent conversations to analyze if no specific conversation. Default 10.",
+                    "default": 10
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "analyze_narration",
+        "description": "Analyze a specific piece of text for narration patterns. Useful for real-time self-checking of your own responses before sending them.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The text to analyze for narration patterns"
+                }
+            },
+            "required": ["text"]
         }
     }
 ]

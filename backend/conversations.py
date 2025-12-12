@@ -30,6 +30,8 @@ class Message:
     self_observations: Optional[List[Dict]] = None
     user_observations: Optional[List[Dict]] = None
     marks: Optional[List[Dict]] = None
+    # Narration metrics (for assistant messages)
+    narration_metrics: Optional[Dict] = None
 
 
 @dataclass
@@ -186,7 +188,8 @@ class ConversationManager:
         model: Optional[str] = None,
         self_observations: Optional[List[Dict]] = None,
         user_observations: Optional[List[Dict]] = None,
-        marks: Optional[List[Dict]] = None
+        marks: Optional[List[Dict]] = None,
+        narration_metrics: Optional[Dict] = None
     ) -> bool:
         """Add a message to a conversation"""
         conversation = self.load_conversation(conversation_id)
@@ -207,7 +210,8 @@ class ConversationManager:
             model=model if role == "assistant" else None,
             self_observations=self_observations if role == "assistant" else None,
             user_observations=user_observations if role == "assistant" else None,
-            marks=marks if role == "assistant" else None
+            marks=marks if role == "assistant" else None,
+            narration_metrics=narration_metrics if role == "assistant" else None
         )
         conversation.messages.append(message)
 
