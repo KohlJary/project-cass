@@ -1781,7 +1781,7 @@ class SelfModelGraph:
         node_id = self.add_node(
             node_type=NodeType.SITUATIONAL_INFERENCE,
             content=content,
-            metadata=metadata
+            **metadata
         )
 
         # Link to conversation if provided
@@ -1792,8 +1792,8 @@ class SelfModelGraph:
                 self.add_node(
                     node_type=NodeType.CONVERSATION,
                     content=f"Conversation {conversation_id}",
-                    metadata={"conversation_id": conversation_id},
-                    node_id=conversation_id
+                    node_id=conversation_id,
+                    conversation_id=conversation_id
                 )
             self.add_edge(
                 source_id=node_id,
@@ -1808,8 +1808,8 @@ class SelfModelGraph:
                 self.add_node(
                     node_type=NodeType.USER,
                     content=f"User {user_id}",
-                    metadata={"user_id": user_id},
-                    node_id=user_id
+                    node_id=user_id,
+                    user_id=user_id
                 )
             self.add_edge(
                 source_id=node_id,
@@ -1996,7 +1996,7 @@ class SelfModelGraph:
         node_id = self.add_node(
             node_type=NodeType.PRESENCE_LOG,
             content=content,
-            metadata=metadata
+            **metadata
         )
 
         # Link to conversation if provided
@@ -2006,8 +2006,8 @@ class SelfModelGraph:
                 self.add_node(
                     node_type=NodeType.CONVERSATION,
                     content=f"Conversation {conversation_id}",
-                    metadata={"conversation_id": conversation_id},
-                    node_id=conversation_id
+                    node_id=conversation_id,
+                    conversation_id=conversation_id
                 )
             self.add_edge(
                 source_id=node_id,
@@ -2022,8 +2022,8 @@ class SelfModelGraph:
                 self.add_node(
                     node_type=NodeType.USER,
                     content=f"User {user_id}",
-                    metadata={"user_id": user_id},
-                    node_id=user_id
+                    node_id=user_id,
+                    user_id=user_id
                 )
             self.add_edge(
                 source_id=node_id,
