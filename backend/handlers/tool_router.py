@@ -34,6 +34,8 @@ class ToolContext:
     research_manager: Any = None
     research_session_manager: Any = None
     research_scheduler: Any = None
+    research_runner: Any = None  # For autonomous research execution
+    rhythm_manager: Any = None  # Daily rhythm manager
     reflection_manager: Any = None
     project_manager: Any = None
 
@@ -234,6 +236,7 @@ TOOL_REGISTRY = {
     "search_research_notes": "web_research",
 
     # Research session tools
+    "initiate_autonomous_research": "research_session",
     "start_research_session": "research_session",
     "get_session_status": "research_session",
     "pause_research_session": "research_session",
@@ -459,7 +462,9 @@ async def route_tool(
             tool_name=tool_name,
             tool_input=tool_input,
             session_manager=ctx.research_session_manager,
-            conversation_id=ctx.conversation_id
+            conversation_id=ctx.conversation_id,
+            research_runner=ctx.research_runner,
+            rhythm_manager=ctx.rhythm_manager
         )
         tool_result = json_module.loads(tool_result_str)
         if "error" in tool_result:

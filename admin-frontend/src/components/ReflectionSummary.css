@@ -1,0 +1,158 @@
+/* ReflectionSummary Component */
+.reflection-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.reflection-summary.compact {
+  gap: 0.75rem;
+}
+
+.reflection-summary.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+}
+
+.reflection-summary .no-summary {
+  color: #555;
+  font-style: italic;
+  font-size: 0.875rem;
+}
+
+/* Block headings */
+.reflection-summary h4 {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #888;
+  margin: 0 0 0.5rem;
+}
+
+.reflection-summary.compact h4 {
+  font-size: 0.75rem;
+  margin-bottom: 0.375rem;
+}
+
+/* Summary block */
+.reflection-summary .summary-block p {
+  color: #ccc;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.reflection-summary.compact .summary-block p {
+  font-size: 0.8125rem;
+}
+
+/* List blocks */
+.reflection-summary .insights-block ul,
+.reflection-summary .questions-block ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #ccc;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.reflection-summary.compact .insights-block ul,
+.reflection-summary.compact .questions-block ul {
+  font-size: 0.8125rem;
+  padding-left: 1rem;
+}
+
+.reflection-summary .insights-block li,
+.reflection-summary .questions-block li {
+  margin: 0.25rem 0;
+}
+
+/* Color coding */
+.reflection-summary .insights-block h4 {
+  color: #c3e88d;
+}
+
+.reflection-summary .questions-block h4 {
+  color: #ffcb6b;
+}
+
+/* Thought stream */
+.reflection-summary .thought-stream-block h4 {
+  color: #c792ea;
+}
+
+.reflection-summary .thought-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.reflection-summary.compact .thought-stream {
+  max-height: 250px;
+  gap: 0.5rem;
+}
+
+.reflection-summary .thought-entry {
+  background: #0d0d0d;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border-left: 2px solid #555;
+}
+
+.reflection-summary.compact .thought-entry {
+  padding: 0.5rem 0.75rem;
+}
+
+.reflection-summary .thought-header {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.375rem;
+}
+
+.reflection-summary .thought-type {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.reflection-summary .thought-time {
+  color: #555;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+}
+
+.reflection-summary .thought-confidence {
+  margin-left: auto;
+  color: #666;
+  font-size: 0.6875rem;
+}
+
+.reflection-summary .thought-content {
+  color: #ccc;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.reflection-summary.compact .thought-content {
+  font-size: 0.8125rem;
+}
+
+.reflection-summary .thought-concepts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.reflection-summary .concept-tag {
+  background: #1a1a2a;
+  color: #c792ea;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.6875rem;
+}

@@ -1140,8 +1140,95 @@ def init_daily_rhythm_manager(manager):
     daily_rhythm_manager = manager
 
 
+# Session runner getters (functions that return the runner instances)
+research_runner_getter = None
+reflection_runner_getter = None
+
+
+def init_session_runners(research_getter, reflection_getter):
+    """Initialize session runner getters from main app"""
+    global research_runner_getter, reflection_runner_getter
+    research_runner_getter = research_getter
+    reflection_runner_getter = reflection_getter
+
+
+async def _backfill_phase_summaries(rhythm_manager, reflection_runner, research_runner):
+    """Check for phases with session_ids but no/incomplete summaries and backfill from session data."""
+    try:
+        status = rhythm_manager.get_rhythm_status()
+        for phase in status.get("phases", []):
+            session_id = phase.get("session_id")
+            current_summary = phase.get("summary") or ""
+            # Backfill if no summary, or if summary is very short (likely just the theme)
+            needs_backfill = not current_summary or len(current_summary) < 100
+
+            if session_id and needs_backfill:
+                # Detect session type from session_id prefix if not explicitly set
+                session_type = phase.get("session_type")
+                if not session_type:
+                    session_type = "reflection" if session_id.startswith("reflect_") else "research"
+                phase_id = phase.get("id")
+
+                if session_type == "research":
+                    try:
+                        session_data = research_runner.session_manager.get_session(session_id)
+                        if session_data:
+                            # Use narrative summary, not findings_summary
+                            summary = session_data.get("summary") or "Research session completed"
+                            # Extract findings from findings_summary (bullet points)
+                            findings = []
+                            if session_data.get("findings_summary"):
+                                for line in session_data["findings_summary"].split("\n"):
+                                    if line.strip().startswith("-"):
+                                        findings.append(line.strip()[1:].strip())
+                            notes = session_data.get("notes_created", [])
+                            rhythm_manager.update_phase_summary(
+                                phase_id=phase_id,
+                                summary=summary,
+                                findings=findings if findings else None,
+                                notes_created=notes if notes else None,
+                            )
+                            print(f"   📝 Backfilled phase '{phase_id}' from research session {session_id}")
+                    except Exception as e:
+                        print(f"   ⚠ Could not backfill research phase {phase_id}: {e}")
+
+                elif session_type == "reflection":
+                    try:
+                        session_data = reflection_runner.manager.get_session(session_id)
+                        if session_data:
+                            summary = None
+                            if hasattr(session_data, 'summary') and session_data.summary:
+                                summary = session_data.summary
+                            elif hasattr(session_data, 'insights') and session_data.insights:
+                                summary = "Key insights: " + "; ".join(session_data.insights[:3])
+                            else:
+                                # Fallback to thought stream
+                                thoughts = session_data.thought_stream if hasattr(session_data, 'thought_stream') else []
+                                if thoughts:
+                                    summary_thoughts = [t.content for t in thoughts[-2:] if hasattr(t, 'content')]
+                                    summary = " ".join(summary_thoughts) if summary_thoughts else None
+
+                            if summary:
+                                rhythm_manager.update_phase_summary(
+                                    phase_id=phase_id,
+                                    summary=summary,
+                                )
+                                print(f"   📝 Backfilled phase '{phase_id}' from reflection session {session_id}")
+                    except Exception as e:
+                        print(f"   ⚠ Could not backfill reflection phase {phase_id}: {e}")
+    except Exception as e:
+        print(f"   ⚠ Error backfilling phase summaries: {e}")
+
+
 class UpdateRhythmPhasesRequest(BaseModel):
     phases: List[Dict]
+
+
+class TriggerPhaseRequest(BaseModel):
+    duration_minutes: Optional[int] = None
+    focus: Optional[str] = None
+    theme: Optional[str] = None
+    force: Optional[bool] = False  # Allow re-triggering completed phases
 
 
 @router.get("/rhythm/phases")
@@ -1170,12 +1257,30 @@ async def update_rhythm_phases(
 
 
 @router.get("/rhythm/status")
-async def get_rhythm_status():
-    """Get current rhythm status including temporal context"""
+async def get_rhythm_status(date: Optional[str] = Query(default=None, description="Date in YYYY-MM-DD format")):
+    """Get rhythm status for a specific date (or today if not specified)"""
     if not daily_rhythm_manager:
         raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
 
-    return daily_rhythm_manager.get_rhythm_status()
+    return daily_rhythm_manager.get_rhythm_status(date=date)
+
+
+@router.get("/rhythm/dates")
+async def get_rhythm_dates():
+    """Get list of dates that have rhythm records"""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    # List all JSON files in the records directory
+    records_dir = daily_rhythm_manager.records_dir
+    dates = []
+    for f in sorted(records_dir.glob("*.json"), reverse=True):
+        # Extract date from filename (YYYY-MM-DD.json)
+        date_str = f.stem
+        if len(date_str) == 10 and date_str[4] == "-" and date_str[7] == "-":
+            dates.append(date_str)
+
+    return {"dates": dates}
 
 
 @router.get("/rhythm/stats")
@@ -1206,6 +1311,249 @@ async def mark_phase_complete(
         raise HTTPException(status_code=400, detail=result.get("error"))
 
     return result
+
+
+@router.post("/rhythm/phases/{phase_id}/trigger")
+async def trigger_phase(
+    phase_id: str,
+    request: TriggerPhaseRequest = None
+):
+    """
+    Manually trigger a rhythm phase (research or reflection session).
+
+    This allows triggering missed phases or re-running phases outside their normal window.
+    The phase will be marked as completed once the session starts.
+    """
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+    if not research_runner_getter or not reflection_runner_getter:
+        raise HTTPException(status_code=503, detail="Session runners not initialized")
+
+    # Get phase configuration
+    phases = daily_rhythm_manager.get_phases()
+    phase_config = next((p for p in phases if p["id"] == phase_id), None)
+
+    if not phase_config:
+        raise HTTPException(status_code=404, detail=f"Phase '{phase_id}' not found")
+
+    activity_type = phase_config.get("activity_type", "any")
+    phase_name = phase_config.get("name", phase_id)
+
+    # Check current status
+    status = daily_rhythm_manager.get_rhythm_status()
+    phase_status = next(
+        (p for p in status.get("phases", []) if p["id"] == phase_id),
+        {}
+    ).get("status")
+
+    # Parse request or use defaults
+    req = request or TriggerPhaseRequest()
+
+    if phase_status == "completed" and not req.force:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Phase '{phase_name}' already completed today. Use force=true to re-run."
+        )
+    duration = req.duration_minutes or 30
+
+    try:
+        # Start appropriate session based on activity type
+        if activity_type in ("research", "any"):
+            runner = research_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A research session is already running"
+                )
+
+            focus = req.focus or f"Self-directed research during {phase_name}"
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+                mode="explore",
+                trigger="manual_rhythm_trigger"
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="research",
+                    session_id=session.session_id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "research",
+                    "session_id": session.session_id,
+                    "duration_minutes": duration,
+                    "message": f"Started research session for '{phase_name}'"
+                }
+
+        elif activity_type == "reflection":
+            runner = reflection_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A reflection session is already running"
+                )
+
+            # Generate theme based on phase name or use provided
+            if req.theme:
+                theme = req.theme
+            elif "morning" in phase_name.lower():
+                theme = "Setting intentions and preparing for the day ahead"
+            elif "evening" in phase_name.lower() or "synthesis" in phase_name.lower():
+                theme = "Integrating the day's experiences and insights"
+            else:
+                theme = "Private contemplation and self-examination"
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                theme=theme,
+                trigger="manual_rhythm_trigger"
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="reflection",
+                    session_id=session.session_id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "reflection",
+                    "session_id": session.session_id,
+                    "duration_minutes": duration,
+                    "message": f"Started reflection session for '{phase_name}'"
+                }
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to start session"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error triggering phase: {str(e)}"
+        )
+
+
+@router.post("/rhythm/regenerate-summary")
+async def regenerate_daily_summary():
+    """Regenerate the daily summary as a narrative written by Cass."""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    from background_tasks import _generate_narrative_summary
+    from datetime import datetime
+
+    # Backfill any missing phase summaries from session data
+    if reflection_runner_getter and research_runner_getter:
+        reflection_runner = reflection_runner_getter()
+        research_runner = research_runner_getter()
+        await _backfill_phase_summaries(daily_rhythm_manager, reflection_runner, research_runner)
+
+    status = daily_rhythm_manager.get_rhythm_status()
+    all_phases = status.get("phases", [])
+    completed_phases = [p for p in all_phases if p.get("status") == "completed"]
+
+    if not completed_phases:
+        raise HTTPException(status_code=400, detail="No completed phases to summarize")
+
+    total_phases = status.get("total_phases", len(all_phases))
+    completion_rate = int((len(completed_phases) / total_phases) * 100) if total_phases > 0 else 0
+
+    # Build phase data
+    phase_data = []
+    for phase in completed_phases:
+        entry = {
+            "name": phase.get("name"),
+            "activity_type": phase.get("activity_type", "any"),
+            "summary": phase.get("summary"),
+            "completed_at": phase.get("completed_at"),
+            "notes_count": len(phase.get("notes_created") or []),
+            "findings": phase.get("findings") or []
+        }
+        phase_data.append(entry)
+
+    # Generate narrative summary
+    narrative = await _generate_narrative_summary(
+        date=status.get("date", datetime.now().strftime("%Y-%m-%d")),
+        phase_data=phase_data,
+        completion_rate=completion_rate,
+        total_phases=total_phases
+    )
+
+    # Update the manager
+    daily_rhythm_manager.update_daily_summary(narrative)
+
+    return {
+        "success": True,
+        "summary": narrative,
+        "phases_included": len(completed_phases)
+    }
+
+
+# ============== Research Notes Endpoints ==============
+
+research_manager = None
+
+
+def init_research_manager(manager):
+    """Initialize research manager from main app"""
+    global research_manager
+    research_manager = manager
+
+
+@router.get("/research/notes")
+async def list_research_notes(
+    limit: int = Query(default=50, le=200),
+    session_id: Optional[str] = None
+):
+    """List research notes, optionally filtered by session"""
+    if not research_manager:
+        raise HTTPException(status_code=503, detail="Research manager not initialized")
+
+    notes = research_manager.list_research_notes()
+
+    # Filter by session if specified
+    if session_id:
+        notes = [n for n in notes if n.get("session_id") == session_id]
+
+    # Sort by created_at descending and limit
+    notes = sorted(notes, key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
+
+    return {"notes": notes, "count": len(notes)}
+
+
+@router.get("/research/notes/{note_id}")
+async def get_research_note(note_id: str):
+    """Get a specific research note by ID"""
+    if not research_manager:
+        raise HTTPException(status_code=503, detail="Research manager not initialized")
+
+    note = research_manager.get_research_note(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    return note
+
+
+@router.get("/research/notes/session/{session_id}")
+async def get_notes_for_session(session_id: str):
+    """Get all research notes created during a specific session"""
+    if not research_manager:
+        raise HTTPException(status_code=503, detail="Research manager not initialized")
+
+    notes = research_manager.list_research_notes()
+    session_notes = [n for n in notes if n.get("session_id") == session_id]
+    session_notes = sorted(session_notes, key=lambda x: x.get("created_at", ""))
+
+    return {"notes": session_notes, "count": len(session_notes), "session_id": session_id}
 
 
 # ============== GitHub Metrics Endpoints ==============

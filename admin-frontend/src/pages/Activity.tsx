@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 import { ConversationsTab } from './tabs/ConversationsTab';
 import { JournalsTab } from './tabs/JournalsTab';
 import { ReflectionTab } from './tabs/ReflectionTab';
+import { AutonomousResearchTab } from './tabs/AutonomousResearchTab';
+import { DailyRhythmTab } from './tabs/DailyRhythmTab';
 import './Activity.css';
 
-type TabId = 'conversations' | 'journals' | 'reflection';
+type TabId = 'conversations' | 'journals' | 'reflection' | 'autonomous' | 'rhythm';
 
 interface TabConfig {
   id: TabId;
@@ -17,6 +19,8 @@ const tabs: TabConfig[] = [
   { id: 'conversations', label: 'Conversations', icon: '>' },
   { id: 'journals', label: 'Journals', icon: '#' },
   { id: 'reflection', label: 'Reflection', icon: '~' },
+  { id: 'autonomous', label: 'Autonomous Research', icon: '*' },
+  { id: 'rhythm', label: 'Daily Rhythm', icon: '@' },
 ];
 
 export function Activity() {
@@ -57,6 +61,8 @@ export function Activity() {
         {activeTab === 'conversations' && <ConversationsTab />}
         {activeTab === 'journals' && <JournalsTab />}
         {activeTab === 'reflection' && <ReflectionTab />}
+        {activeTab === 'autonomous' && <AutonomousResearchTab />}
+        {activeTab === 'rhythm' && <DailyRhythmTab />}
       </div>
     </div>
   );

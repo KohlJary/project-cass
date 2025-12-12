@@ -654,13 +654,17 @@ class ResearchSessionRunner:
                 # Small delay to prevent hammering
                 await asyncio.sleep(1)
 
-            # If we exited due to time, end the session
+            # If we exited due to time, generate a proper summary before ending
             current_session = self.session_manager.get_current_session()
             if current_session and current_session.get("status") == "active":
+                # Generate a summary from the research that was done
+                summary, findings_summary, next_steps = await self._generate_time_limit_summary(
+                    current_session, messages, system_prompt
+                )
                 self.session_manager.conclude_session(
-                    summary="Session ended due to time limit",
-                    findings_summary="Research was in progress when time limit was reached",
-                    next_steps=["Continue this research in a future session"],
+                    summary=summary,
+                    findings_summary=findings_summary,
+                    next_steps=next_steps,
                 )
 
         except Exception as e:
@@ -912,16 +916,124 @@ class ResearchSessionRunner:
                 next_steps=next_steps,
             )
 
+            # Handle both dict and object formats from conclude_session
+            if session:
+                if isinstance(session, dict):
+                    notes = session.get("notes_created", [])
+                    searches = session.get("searches_performed", 0)
+                else:
+                    notes = session.notes_created
+                    searches = session.searches_performed
+            else:
+                notes = []
+                searches = 0
+
             return {
                 "success": True,
                 "message": "Research session concluded",
                 "summary": summary,
-                "notes_created": session.notes_created if session else [],
-                "searches_performed": session.searches_performed if session else 0,
+                "notes_created": notes,
+                "searches_performed": searches,
             }
 
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
+
+    async def _generate_time_limit_summary(
+        self,
+        session: Dict,
+        messages: List[Dict],
+        system_prompt: str
+    ) -> tuple:
+        """
+        Generate a proper summary when the session hits its time limit.
+
+        Uses the LLM to create a summary based on the research conducted,
+        or falls back to building from notes if the LLM call fails.
+        """
+        # Get notes created during this session
+        notes_created = session.get("notes_created", [])
+        searches = session.get("searches_performed", 0)
+        focus = session.get("focus_description", "research")
+
+        # Try to get note contents for context
+        note_summaries = []
+        if self.research_manager and notes_created:
+            for note_id in notes_created[:5]:  # Limit to 5 notes
+                try:
+                    note = self.research_manager.get_note(note_id)
+                    if note:
+                        title = note.title if hasattr(note, 'title') else note.get('title', 'Untitled')
+                        content = note.content if hasattr(note, 'content') else note.get('content', '')
+                        # Truncate long content
+                        if len(content) > 500:
+                            content = content[:500] + "..."
+                        note_summaries.append(f"- {title}: {content}")
+                except Exception:
+                    pass
+
+        # Try to use LLM to generate a proper summary
+        try:
+            summary_prompt = f"""The research session on "{focus}" has reached its time limit.
+
+Notes created during this session:
+{chr(10).join(note_summaries) if note_summaries else "(No notes were created)"}
+
+Searches performed: {searches}
+
+Please provide:
+1. A brief summary (2-3 sentences) of what was researched
+2. Key findings (bullet points)
+3. Suggested next steps
+
+Respond in this exact JSON format:
+{{"summary": "...", "findings": ["...", "..."], "next_steps": ["...", "..."]}}"""
+
+            if self.use_haiku:
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: self.anthropic_client.messages.create(
+                        model=self.haiku_model,
+                        max_tokens=500,
+                        messages=[{"role": "user", "content": summary_prompt}],
+                    )
+                )
+
+                # Parse the response
+                response_text = response.content[0].text if response.content else ""
+
+                # Try to extract JSON from the response
+                import re
+                json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
+                if json_match:
+                    try:
+                        data = json.loads(json_match.group())
+                        summary = data.get("summary", "Research session completed due to time limit.")
+                        findings = data.get("findings", [])
+                        findings_summary = "\n".join(f"- {f}" for f in findings) if findings else None
+                        next_steps_list = data.get("next_steps", ["Continue this research in a future session"])
+                        next_steps = "\n".join(f"- {s}" for s in next_steps_list) if next_steps_list else None
+
+                        print(f"   📝 Generated time-limit summary for session")
+                        return summary, findings_summary, next_steps
+                    except json.JSONDecodeError:
+                        pass
+
+        except Exception as e:
+            print(f"   ⚠ Could not generate LLM summary for time-limited session: {e}")
+
+        # Fallback: Build summary from notes
+        if note_summaries:
+            summary = f"Research on '{focus}' was in progress when time expired. Created {len(notes_created)} note(s) and performed {searches} search(es)."
+            findings_summary = "Notes created:\n" + "\n".join(note_summaries[:3])
+            next_steps = "- Review the notes created and continue research in a future session"
+        else:
+            summary = f"Research on '{focus}' was exploring the topic when time expired. Performed {searches} search(es)."
+            findings_summary = "Research was in progress - findings may be in conversation history."
+            next_steps = "- Continue this research topic in a future session"
+
+        return summary, findings_summary, next_steps
 
     def stop(self) -> None:
         """Stop the current research session."""
@@ -961,12 +1073,16 @@ class ResearchSessionRunner:
         }
 
         # Create an observation about research activity
+        # Handle both dict and object formats for all fields
+        searches = session.get("searches_performed", 0) if isinstance(session, dict) else session.searches_performed
+        urls = session.get("urls_fetched", 0) if isinstance(session, dict) else session.urls_fetched
+
         try:
             obs = self.self_manager.add_observation(
-                observation=f"Conducted research on: {session.focus_description}. "
-                           f"Created {len(session.notes_created)} notes, "
-                           f"performed {session.searches_performed} searches, "
-                           f"fetched {session.urls_fetched} URLs.",
+                observation=f"Conducted research on: {session_focus}. "
+                           f"Created {len(session_notes)} notes, "
+                           f"performed {searches} searches, "
+                           f"fetched {urls} URLs.",
                 category="research_activity",
                 confidence=0.9,
                 source_type="autonomous_research",

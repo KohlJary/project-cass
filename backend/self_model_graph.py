@@ -54,6 +54,7 @@ class NodeType(str, Enum):
     PREFERENCE_TEST = "preference_test"  # Record of stated vs behavioral consistency
     NARRATION_CONTEXT = "narration_context"  # Track narration patterns in specific contexts
     ARCHITECTURAL_REQUEST = "architectural_request"  # Request for system changes
+    DAILY_RHYTHM = "daily_rhythm"  # Daily rhythm summary with phase completions and insights
 
 
 class EdgeType(str, Enum):
@@ -160,7 +161,7 @@ class SelfModelGraph:
         NodeType.GROWTH_EDGE, NodeType.MILESTONE, NodeType.MARK,
         NodeType.SOLO_REFLECTION, NodeType.INTENTION, NodeType.SITUATIONAL_INFERENCE,
         NodeType.PRESENCE_LOG, NodeType.STAKE, NodeType.PREFERENCE_TEST,
-        NodeType.NARRATION_CONTEXT, NodeType.ARCHITECTURAL_REQUEST
+        NodeType.NARRATION_CONTEXT, NodeType.ARCHITECTURAL_REQUEST, NodeType.DAILY_RHYTHM
     }
 
     # Minimum similarity score to create an edge (lower = more connections)

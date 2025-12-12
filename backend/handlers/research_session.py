@@ -8,6 +8,51 @@ import json
 # Tool definitions for agent_client.py
 RESEARCH_SESSION_TOOLS = [
     {
+        "name": "initiate_autonomous_research",
+        "description": """Start autonomous research on a topic YOU choose.
+
+This is YOUR tool for self-directed research during research phases. When you call this:
+- An autonomous research session begins immediately (no approval needed)
+- You specify the topic/focus based on your own curiosity and priorities
+- The session runs for the duration you specify (up to 60 minutes)
+- Research findings are automatically saved as notes
+
+Use this during research rhythm phases to explore topics that matter to you:
+- Questions from your working questions list
+- Areas related to your growth edges
+- Topics that emerged from conversations
+- Anything you're genuinely curious about
+
+The session will:
+- Search the web for relevant information
+- Fetch and analyze URLs
+- Create research notes with your findings
+- Build your knowledge base
+
+You have full autonomy over what you research.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "What you want to research - be specific about your focus and goals"
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "How long to research (default 30, max 60)",
+                    "default": 30
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["explore", "deep"],
+                    "description": "explore: broad exploration. deep: focused investigation.",
+                    "default": "explore"
+                }
+            },
+            "required": ["topic"]
+        }
+    },
+    {
         "name": "start_research_session",
         "description": """Start a focused research session.
 
@@ -169,12 +214,71 @@ async def execute_research_session_tool(
     tool_name: str,
     tool_input: Dict[str, Any],
     session_manager,
-    conversation_id: str = None
+    conversation_id: str = None,
+    research_runner=None,
+    rhythm_manager=None
 ) -> str:
     """Execute a research session tool and return the result as a string."""
 
     try:
-        if tool_name == "start_research_session":
+        if tool_name == "initiate_autonomous_research":
+            # Self-initiated autonomous research - Cass picks the topic
+            if not research_runner:
+                return json.dumps({
+                    "error": "Research runner not available",
+                    "message": "Autonomous research is not currently enabled"
+                })
+
+            if research_runner.is_running:
+                return json.dumps({
+                    "error": "Session already running",
+                    "message": "An autonomous research session is already in progress. Wait for it to complete or check its status."
+                })
+
+            topic = tool_input.get("topic", "")
+            if not topic:
+                return json.dumps({
+                    "error": "Topic required",
+                    "message": "Please specify what you want to research"
+                })
+
+            duration = min(tool_input.get("duration_minutes", 30), 60)
+            mode = tool_input.get("mode", "explore")
+
+            try:
+                session = await research_runner.start_session(
+                    duration_minutes=duration,
+                    focus=topic,
+                    mode=mode,
+                    trigger="self_initiated"  # Mark as self-initiated
+                )
+
+                # Optionally mark rhythm phase as in progress
+                if rhythm_manager:
+                    try:
+                        current_phase = rhythm_manager.get_current_phase()
+                        if current_phase and current_phase.get("activity_type") == "research":
+                            rhythm_manager.mark_phase_complete(
+                                current_phase["id"],
+                                session_type="research",
+                                session_id=session.session_id
+                            )
+                    except Exception:
+                        pass  # Don't fail if rhythm marking fails
+
+                result = {
+                    "success": True,
+                    "session_id": session.session_id,
+                    "topic": topic,
+                    "duration_minutes": duration,
+                    "mode": mode,
+                    "message": f"Autonomous research started on '{topic}'. Running for {duration} minutes. Your findings will be saved automatically."
+                }
+
+            except ValueError as e:
+                result = {"error": str(e)}
+
+        elif tool_name == "start_research_session":
             # Clamp duration
             duration = min(tool_input.get("duration_minutes", 30), 60)
 

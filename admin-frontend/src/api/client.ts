@@ -412,6 +412,14 @@ export const researchApi = {
   regenerateSummary: (id: string) => api.post(`/wiki/research/proposals/${id}/regenerate-summary`),
 };
 
+// Research Notes API (from autonomous research sessions)
+export const researchNotesApi = {
+  list: (params?: { limit?: number; session_id?: string }) =>
+    api.get('/admin/research/notes', { params }),
+  get: (noteId: string) => api.get(`/admin/research/notes/${noteId}`),
+  getBySession: (sessionId: string) => api.get(`/admin/research/notes/session/${sessionId}`),
+};
+
 // Goals endpoints (Cass's goal generation and tracking)
 export const goalsApi = {
   // Working Questions
@@ -579,4 +587,32 @@ export const roadmapApi = {
   deleteMilestone: (id: string) => api.delete(`/roadmap/milestones/${id}`),
   getMilestoneProgress: (id: string) => api.get(`/roadmap/milestones/${id}/progress`),
   getMilestonePlan: (id: string) => api.get(`/roadmap/milestones/${id}/plan`),
+};
+
+// Autonomous Research Session endpoints
+export const autonomousResearchApi = {
+  getStatus: () => api.get('/autonomous-research/status'),
+  startSession: (data: { duration_minutes: number; focus: string; mode: string }) =>
+    api.post('/autonomous-research/sessions', data),
+  stopSession: () => api.post('/autonomous-research/stop'),
+};
+
+// Daily Rhythm endpoints
+export const rhythmApi = {
+  getPhases: () => api.get('/admin/rhythm/phases'),
+  updatePhases: (phases: Array<{
+    id: string;
+    name: string;
+    activity_type: string;
+    start_time: string;
+    end_time: string;
+    description?: string;
+  }>) => api.put('/admin/rhythm/phases', { phases }),
+  getStatus: (date?: string) => api.get('/admin/rhythm/status', { params: date ? { date } : {} }),
+  getDates: () => api.get('/admin/rhythm/dates'),
+  getStats: (days?: number) => api.get('/admin/rhythm/stats', { params: { days } }),
+  markPhaseComplete: (phaseId: string, sessionType?: string, sessionId?: string) =>
+    api.post(`/admin/rhythm/phases/${phaseId}/complete`, { session_type: sessionType, session_id: sessionId }),
+  triggerPhase: (phaseId: string, options?: { duration_minutes?: number; focus?: string; theme?: string }) =>
+    api.post(`/admin/rhythm/phases/${phaseId}/trigger`, options || {}),
 };
