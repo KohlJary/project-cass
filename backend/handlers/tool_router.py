@@ -368,7 +368,8 @@ async def route_tool(
             user_id=ctx.user_id,
             user_name=ctx.user_name,
             conversation_id=ctx.conversation_id,
-            memory=ctx.memory
+            memory=ctx.memory,
+            graph=ctx.graph
         )
 
     elif executor_type == "user_model":
