@@ -215,10 +215,12 @@ class SoloReflectionRunner:
         ollama_base_url: str = "http://localhost:11434",
         ollama_model: str = "llama3.1:8b-instruct-q8_0",
         self_manager=None,
+        self_model_graph=None,
         token_tracker=None,
     ):
         self.manager = reflection_manager
         self.self_manager = self_manager
+        self.self_model_graph = self_model_graph
         self.token_tracker = token_tracker
         self._running = False
         self._current_task: Optional[asyncio.Task] = None
@@ -348,8 +350,22 @@ class SoloReflectionRunner:
         session_context += f"Duration: {session.duration_minutes} minutes\n"
         session_context += f"Session ID: {session.session_id}"
 
-        # Build self-model context
+        # Build self-model context (from file-based profile)
         self_context = self._build_self_context()
+
+        # Add graph context (integrated view with relationships)
+        if self.self_model_graph:
+            graph_context = self.self_model_graph.get_graph_context(
+                message=session.theme or "",
+                include_contradictions=True,
+                include_recent=True,
+                include_stats=False,  # Less relevant for reflection
+                max_related=5
+            )
+            if graph_context and self_context:
+                self_context = self_context + "\n\n" + graph_context
+            elif graph_context:
+                self_context = graph_context
 
         system_prompt = SOLO_REFLECTION_SYSTEM_PROMPT.format(
             session_context=session_context,

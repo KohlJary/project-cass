@@ -24,6 +24,9 @@ pydub>=0.25.0  # For WAV to MP3 conversion
 # edge-tts>=6.1.0  # Currently broken (401 auth errors)
 # elevenlabs==0.2.27  # For later if we want voice cloning
 
+# Graph Structure for Self-Model
+networkx>=3.0
+
 # Utilities
 pydantic>=2.5.3
 websockets>=12.0

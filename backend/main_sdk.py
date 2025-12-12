@@ -55,6 +55,7 @@ from conversations import ConversationManager
 from projects import ProjectManager
 from users import UserManager
 from self_model import SelfManager
+from self_model_graph import get_self_model_graph, SelfModelGraph
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from roadmap import RoadmapManager
@@ -84,6 +85,7 @@ from handlers import (
     execute_tool_batch,
 )
 from markers import MarkerStore
+from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
 from research import ResearchManager
 from research_session import ResearchSessionManager
@@ -193,7 +195,10 @@ async def add_security_headers(request: Request, call_next):
 memory = CassMemory()
 response_processor = ResponseProcessor()
 user_manager = UserManager(storage_dir=str(DATA_DIR / "users"))
-self_manager = SelfManager(storage_dir=str(DATA_DIR / "cass"))
+self_model_graph = get_self_model_graph(DATA_DIR)
+print(f"  Self-model graph loaded: {self_model_graph.get_stats()['total_nodes']} nodes, "
+      f"{self_model_graph.get_stats()['total_edges']} edges")
+self_manager = SelfManager(storage_dir=str(DATA_DIR / "cass"), graph_callback=self_model_graph)
 
 # Sync self-observations from file storage to ChromaDB for semantic search
 _synced_count = memory.sync_self_observations_from_file(self_manager)
@@ -210,7 +215,7 @@ project_manager = ProjectManager(storage_dir=str(DATA_DIR / "projects"))
 calendar_manager = CalendarManager(storage_dir=str(DATA_DIR / "calendar"))
 task_manager = TaskManager(storage_dir=str(DATA_DIR / "tasks"))
 roadmap_manager = RoadmapManager(storage_dir=str(DATA_DIR / "roadmap"))
-marker_store = MarkerStore(client=memory.client)  # Reuse memory's ChromaDB client
+marker_store = MarkerStore(client=memory.client, graph_callback=self_model_graph)  # Reuse memory's ChromaDB client
 goal_manager = GoalManager(data_dir=DATA_DIR)
 research_manager = ResearchManager(data_dir=DATA_DIR)
 research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
@@ -845,10 +850,22 @@ async def chat(request: ChatRequest):
             if project_context:
                 memory_context = project_context + "\n\n" + memory_context
 
-        # Add Cass's self-model context
-        self_context = self_manager.get_self_context(include_observations=True)
+        # Add Cass's self-model context (flat profile - identity/values/edges)
+        # Note: observations now handled by graph context with message-relevance
+        self_context = self_manager.get_self_context(include_observations=False)
         if self_context:
             memory_context = self_context + "\n\n" + memory_context
+
+        # Add self-model graph context (message-relevant observations, marks, changes)
+        graph_context = self_model_graph.get_graph_context(
+            message=request.message,
+            include_contradictions=True,
+            include_recent=True,
+            include_stats=True,
+            max_related=5
+        )
+        if graph_context:
+            memory_context = graph_context + "\n\n" + memory_context
 
         # Automatic wiki context retrieval
         wiki_context_str, wiki_page_names, wiki_retrieval_ms = get_automatic_wiki_context(
@@ -923,9 +940,12 @@ async def chat(request: ChatRequest):
         total_output_tokens += response.output_tokens
         total_cache_read_tokens += response.cache_read_tokens
 
-        # Handle tool calls
+        # Handle tool calls (execute all tools, then continue with all results)
         while response.stop_reason == "tool_use" and tool_uses:
-            # Execute each tool
+            # Collect all tool results before continuing
+            collected_results = []
+            
+            # Execute each tool and collect results
             for tool_use in tool_uses:
                 tool_name = tool_use["tool"]
 
@@ -973,7 +993,7 @@ async def chat(request: ChatRequest):
                         roadmap_manager=roadmap_manager,
                         conversation_id=request.conversation_id
                     )
-                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones"]:
+                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones", "get_graph_stats", "find_self_contradictions", "trace_belief_sources"]:
                     # Get user name for differentiation tracking
                     user_name = None
                     if current_user_id:
@@ -1095,29 +1115,30 @@ async def chat(request: ChatRequest):
                 else:
                     tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
 
-                # Continue conversation with tool result
-                response = await agent_client.continue_with_tool_result(
-                    tool_use_id=tool_use["id"],
-                    result=tool_result.get("result", tool_result.get("error", "Unknown error")),
-                    is_error=not tool_result.get("success", False)
-                )
+                # Collect this tool result
+                collected_results.append({
+                    "tool_use_id": tool_use["id"],
+                    "result": tool_result.get("result", tool_result.get("error", "Unknown error")),
+                    "is_error": not tool_result.get("success", False)
+                })
 
-                # Track tokens from continuation (including cache)
-                total_input_tokens += response.input_tokens
-                total_output_tokens += response.output_tokens
-                total_cache_read_tokens += response.cache_read_tokens
-                tool_iterations += 1
+            # Now continue conversation with ALL tool results at once
+            response = await agent_client.continue_with_tool_results(
+                tool_results=collected_results
+            )
 
-                # Update response data - accumulate text from before and after tool calls
-                raw_response += "\n" + response.raw
-                if response.text:
-                    clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
-                animations.extend(response.gestures)
-                tool_uses = response.tool_uses
+            # Track tokens from continuation (including cache)
+            total_input_tokens += response.input_tokens
+            total_output_tokens += response.output_tokens
+            total_cache_read_tokens += response.cache_read_tokens
+            tool_iterations += 1
 
-                # Break if no more tools
-                if response.stop_reason != "tool_use":
-                    break
+            # Update response data - accumulate text from before and after tool calls
+            raw_response += "\n" + response.raw
+            if response.text:
+                clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
+            animations.extend(response.gestures)
+            tool_uses = response.tool_uses
 
     else:
         # Legacy raw API path
@@ -1145,11 +1166,13 @@ async def chat(request: ChatRequest):
             content=request.message,
             user_id=current_user_id
         )
+        narration_metrics = get_narration_metrics(clean_text)
         conversation_manager.add_message(
             conversation_id=request.conversation_id,
             role="assistant",
             content=clean_text,
-            animations=animations
+            animations=animations,
+            narration_metrics=narration_metrics
         )
 
         # Record cross-context behavioral sample for pattern analysis
@@ -2452,6 +2475,7 @@ def get_reflection_runner() -> SoloReflectionRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             self_manager=self_manager,
+            self_model_graph=self_model_graph,
             token_tracker=token_tracker,
         )
     return _reflection_runner
@@ -4167,10 +4191,22 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     if project_context:
                         memory_context = project_context + "\n\n" + memory_context
 
-                # Add Cass's self-model context
-                self_context = self_manager.get_self_context(include_observations=True)
+                # Add Cass's self-model context (flat profile - identity/values/edges)
+                # Note: observations now handled by graph context with message-relevance
+                self_context = self_manager.get_self_context(include_observations=False)
                 if self_context:
                     memory_context = self_context + "\n\n" + memory_context
+
+                # Add self-model graph context (message-relevant observations, marks, changes)
+                graph_context = self_model_graph.get_graph_context(
+                    message=user_message,
+                    include_contradictions=True,
+                    include_recent=True,
+                    include_stats=True,
+                    max_related=5
+                )
+                if graph_context:
+                    memory_context = graph_context + "\n\n" + memory_context
 
                 # Tier 1: Automatic wiki context retrieval
                 # Inject high-relevance wiki pages without explicit tool call
@@ -4547,6 +4583,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         {"category": m.category, "description": m.description}
                         for m in marks
                     ] if marks else None
+
+                    # Analyze narration patterns
+                    narration_metrics = get_narration_metrics(clean_text)
+
                     conversation_manager.add_message(
                         conversation_id=conversation_id,
                         role="assistant",
@@ -4558,7 +4598,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         model=response_model,
                         self_observations=extracted_self_obs if extracted_self_obs else None,
                         user_observations=extracted_user_obs if extracted_user_obs else None,
-                        marks=marks_for_storage
+                        marks=marks_for_storage,
+                        narration_metrics=narration_metrics
                     )
 
                     # Track token usage
@@ -4752,6 +4793,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         total_output_tokens = response.output_tokens
 
                         # Store in conversation
+                        narration_metrics = get_narration_metrics(clean_text)
                         conversation_manager.add_message(
                             conversation_id=conversation_id,
                             role="assistant",
@@ -4760,7 +4802,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             input_tokens=total_input_tokens,
                             output_tokens=total_output_tokens,
                             provider="anthropic",
-                            model=agent_client.model if hasattr(agent_client, 'model') else None
+                            model=agent_client.model if hasattr(agent_client, 'model') else None,
+                            narration_metrics=narration_metrics
                         )
 
                         # Send response

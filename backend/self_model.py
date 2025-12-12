@@ -634,7 +634,15 @@ class SelfManager:
             differentiation_log.json  # Disagreements and divergences
     """
 
-    def __init__(self, storage_dir: str = "./data/cass"):
+    def __init__(self, storage_dir: str = "./data/cass", graph_callback=None):
+        """
+        Initialize SelfManager.
+
+        Args:
+            storage_dir: Directory for self-model data files
+            graph_callback: Optional callback for syncing to self-model graph.
+                           Should have methods: sync_observation(), sync_milestone()
+        """
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.profile_file = self.storage_dir / "self_profile.yaml"
@@ -645,6 +653,7 @@ class SelfManager:
         self.potential_edges_file = self.storage_dir / "potential_growth_edges.json"
         self.snapshots_file = self.storage_dir / "cognitive_snapshots.json"
         self.milestones_file = self.storage_dir / "developmental_milestones.json"
+        self._graph_callback = graph_callback
         self._ensure_files()
 
     def _ensure_files(self):
@@ -910,6 +919,24 @@ class SelfManager:
 
         observations.append(obs)
         self._save_observations(observations)
+
+        # Sync to graph if callback is set
+        if self._graph_callback:
+            try:
+                self._graph_callback.sync_observation(
+                    observation_id=obs.id,
+                    observation_text=obs.observation,
+                    category=obs.category,
+                    confidence=obs.confidence,
+                    timestamp=obs.timestamp,
+                    source_conversation_id=source_conversation_id,
+                    supersedes=supersedes,
+                    developmental_stage=obs.developmental_stage,
+                    source_type=obs.source_type,
+                    influence_source=obs.influence_source
+                )
+            except Exception as e:
+                print(f"Warning: Failed to sync observation to graph: {e}")
 
         return obs
 
@@ -1912,6 +1939,24 @@ class SelfManager:
         milestones = self.load_milestones()
         milestones.append(milestone)
         self._save_milestones(milestones)
+
+        # Sync to graph if callback is set
+        if self._graph_callback:
+            try:
+                self._graph_callback.sync_milestone(
+                    milestone_id=milestone.id,
+                    title=milestone.title,
+                    description=milestone.description,
+                    milestone_type=milestone.milestone_type,
+                    category=milestone.category,
+                    significance=milestone.significance,
+                    timestamp=milestone.timestamp,
+                    evidence_ids=milestone.evidence_ids,
+                    developmental_stage=milestone.developmental_stage,
+                    triggered_by=milestone.triggered_by
+                )
+            except Exception as e:
+                print(f"Warning: Failed to sync milestone to graph: {e}")
 
         return milestone
 
