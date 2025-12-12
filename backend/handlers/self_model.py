@@ -2424,7 +2424,7 @@ async def execute_self_model_tool(
 
         handler = TOOL_HANDLERS.get(tool_name)
         if handler:
-            return handler(tool_input, ctx)
+            return await handler(tool_input, ctx)
         else:
             return {"success": False, "error": f"Unknown self-model tool: {tool_name}"}
 
