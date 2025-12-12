@@ -1046,7 +1046,8 @@ async def chat(request: ChatRequest):
                         user_id=current_user_id,
                         user_name=user_name,
                         conversation_id=request.conversation_id,
-                        memory=memory
+                        memory=memory,
+                        graph=self_model_graph
                     )
                 elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
                     tool_result = await execute_user_model_tool(

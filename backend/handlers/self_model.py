@@ -2128,7 +2128,7 @@ async def _handle_get_preference_tests(tool_input: Dict, ctx: ToolContext) -> Di
     inconsistent_only = tool_input.get("inconsistent_only")
 
     # Get all tests, then filter
-    tests = ctx.self_manager.get_preference_tests(
+    tests = ctx.graph.get_preference_tests(
         consistent_only=consistent_only,
         limit=tool_input.get("limit", 20),
     )
@@ -2156,7 +2156,7 @@ async def _handle_get_preference_tests(tool_input: Dict, ctx: ToolContext) -> Di
 
 async def _handle_analyze_preference_consistency(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Analyze overall preference consistency."""
-    analysis = ctx.self_manager.analyze_preference_consistency()
+    analysis = ctx.graph.analyze_preference_consistency()
 
     if analysis.get("total_tests", 0) == 0:
         return {"success": True, "result": analysis.get("message", "No data available")}
@@ -2187,10 +2187,11 @@ async def _handle_log_narration_context(tool_input: Dict, ctx: ToolContext) -> D
     """Log narration pattern in a specific context."""
     context_type = tool_input.get("context_type")
     narration_level = tool_input.get("narration_level")
-    trigger = tool_input.get("trigger")
+    # Tool schema uses triggered_by, map to trigger
+    trigger = tool_input.get("triggered_by") or tool_input.get("trigger")
 
     if not all([context_type, narration_level, trigger]):
-        return {"success": False, "error": "context_type, narration_level, and trigger are required"}
+        return {"success": False, "error": "context_type, narration_level, and triggered_by are required"}
 
     log_id = ctx.graph.log_narration_context(
         context_type=context_type,
@@ -2210,7 +2211,7 @@ async def _handle_log_narration_context(tool_input: Dict, ctx: ToolContext) -> D
 
 async def _handle_get_narration_contexts(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Get narration context logs."""
-    contexts = ctx.self_manager.get_narration_contexts(
+    contexts = ctx.graph.get_narration_contexts(
         context_type=tool_input.get("context_type"),
         limit=tool_input.get("limit", 20),
     )
@@ -2232,7 +2233,7 @@ async def _handle_get_narration_contexts(tool_input: Dict, ctx: ToolContext) -> 
 
 async def _handle_analyze_narration_patterns(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Analyze narration patterns across contexts."""
-    analysis = ctx.self_manager.analyze_narration_patterns()
+    analysis = ctx.graph.analyze_narration_patterns()
 
     if analysis.get("total_logged", 0) == 0:
         return {"success": True, "result": analysis.get("message", "No data available")}
@@ -2299,7 +2300,7 @@ This request has been logged and will be reviewed by Daedalus/Kohl."""
 
 async def _handle_get_architectural_requests(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Get architectural change requests."""
-    requests = ctx.self_manager.get_architectural_requests(
+    requests = ctx.graph.get_architectural_requests(
         status=tool_input.get("status"),
         limit=tool_input.get("limit", 20),
     )
@@ -2396,7 +2397,8 @@ async def execute_self_model_tool(
     user_id: str = None,
     user_name: str = None,
     conversation_id: str = None,
-    memory=None
+    memory=None,
+    graph=None
 ) -> Dict:
     """
     Execute a self-model tool.
@@ -2419,7 +2421,8 @@ async def execute_self_model_tool(
             user_id=user_id,
             user_name=user_name,
             conversation_id=conversation_id,
-            memory=memory
+            memory=memory,
+            graph=graph
         )
 
         handler = TOOL_HANDLERS.get(tool_name)
