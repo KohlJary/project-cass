@@ -138,6 +138,10 @@ TOOL_REGISTRY = {
     "update_user_profile": "user_model",
     "review_user_observations": "user_model",
 
+    # File tools
+    "read_file": "file",
+    "list_directory": "file",
+
     # Wiki tools
     "update_wiki_page": "wiki",
     "add_wiki_link": "wiki",
@@ -347,6 +351,12 @@ async def route_tool(
             target_user_id=ctx.user_id,
             conversation_id=ctx.conversation_id,
             memory=ctx.memory
+        )
+
+    elif executor_type == "file":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input
         )
 
     elif executor_type == "wiki":

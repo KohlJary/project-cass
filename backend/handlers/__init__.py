@@ -2,7 +2,7 @@
 Cass Vessel - Tool Handlers
 Modular handlers for tool execution
 """
-from .documents import execute_document_tool
+from .documents import execute_document_tool, execute_file_tool
 from .journals import execute_journal_tool
 from .calendar import execute_calendar_tool
 from .tasks import execute_task_tool
@@ -25,6 +25,7 @@ from .tool_router import ToolContext, route_tool, execute_tool_batch, TOOL_REGIS
 
 __all__ = [
     "execute_document_tool",
+    "execute_file_tool",
     "execute_journal_tool",
     "execute_calendar_tool",
     "execute_task_tool",

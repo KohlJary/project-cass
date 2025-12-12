@@ -67,6 +67,7 @@ from handlers import (
     execute_calendar_tool,
     execute_task_tool,
     execute_document_tool,
+    execute_file_tool,
     execute_self_model_tool,
     execute_user_model_tool,
     execute_roadmap_tool,
@@ -327,6 +328,7 @@ TOOL_EXECUTORS = {
     "research_scheduler": execute_research_scheduler_tool,
     "document": execute_document_tool,
     "interview": execute_interview_tool,
+    "file": execute_file_tool,
 }
 
 

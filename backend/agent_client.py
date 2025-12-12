@@ -432,6 +432,50 @@ PROJECT_DOCUMENT_TOOLS = [
     }
 ]
 
+FILE_TOOLS = [
+    {
+        "name": "read_file",
+        "description": "Read the contents of a file from the filesystem. Use this to examine code, logs, configuration files, documentation, or any text file. Supports partial reads for large files using start_line/end_line.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to read. Can be absolute or use ~ for home directory."
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "Line number to start reading from (1-indexed, optional)"
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Line number to stop reading at (inclusive, optional)"
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "list_directory",
+        "description": "List the contents of a directory. Shows files and subdirectories with sizes. Use this to explore project structure or find files.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "directory_path": {
+                    "type": "string",
+                    "description": "Path to the directory to list. Can be absolute or use ~ for home directory."
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Optional glob pattern to filter results (e.g., '*.py', '*.md')",
+                    "default": "*"
+                }
+            },
+            "required": ["directory_path"]
+        }
+    }
+]
+
 CALENDAR_TOOLS = [
     {
         "name": "create_event",
@@ -1185,6 +1229,9 @@ class CassAgentClient:
             if should_include_testing_tools(message):
                 tools.extend(TESTING_TOOLS)
 
+            # File tools - always available for reading files and exploring directories
+            tools.extend(FILE_TOOLS)
+
         # Project tools only available in project context
         if project_id and self.enable_tools:
             tools.extend(PROJECT_DOCUMENT_TOOLS)
@@ -1634,6 +1681,9 @@ class OllamaClient:
 
         # Research scheduler tools - for requesting scheduled research sessions
         tools.extend(RESEARCH_SCHEDULER_TOOLS)
+
+        # File tools - always available for reading files and exploring directories
+        tools.extend(FILE_TOOLS)
 
         # Project tools only available in project context
         if project_id:
