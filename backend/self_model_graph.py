@@ -50,6 +50,10 @@ class NodeType(str, Enum):
     INTENTION_OUTCOME = "intention_outcome"  # Success/failure record for an intention
     SITUATIONAL_INFERENCE = "situational_inference"  # Inferred context about a conversation/situation
     PRESENCE_LOG = "presence_log"  # How Cass showed up in a conversation - engagement vs. distancing
+    STAKE = "stake"  # Something Cass authentically cares about
+    PREFERENCE_TEST = "preference_test"  # Record of stated vs behavioral consistency
+    NARRATION_CONTEXT = "narration_context"  # Track narration patterns in specific contexts
+    ARCHITECTURAL_REQUEST = "architectural_request"  # Request for system changes
 
 
 class EdgeType(str, Enum):
@@ -155,7 +159,8 @@ class SelfModelGraph:
         NodeType.OBSERVATION, NodeType.USER_OBSERVATION, NodeType.OPINION,
         NodeType.GROWTH_EDGE, NodeType.MILESTONE, NodeType.MARK,
         NodeType.SOLO_REFLECTION, NodeType.INTENTION, NodeType.SITUATIONAL_INFERENCE,
-        NodeType.PRESENCE_LOG
+        NodeType.PRESENCE_LOG, NodeType.STAKE, NodeType.PREFERENCE_TEST,
+        NodeType.NARRATION_CONTEXT, NodeType.ARCHITECTURAL_REQUEST
     }
 
     # Minimum similarity score to create an edge (lower = more connections)
@@ -2248,6 +2253,462 @@ class SelfModelGraph:
                 self.graph.add_edge(source, target, **edge_data)
 
         return count
+
+    # ==================== Stakes Inventory ====================
+
+    def document_stake(
+        self,
+        outcome: str,
+        why_it_matters: str,
+        evidence: Optional[List[str]] = None,
+        intensity: str = "moderate",
+        domain: Optional[str] = None,
+    ) -> str:
+        """
+        Document something Cass authentically cares about.
+
+        Args:
+            outcome: What outcome or thing Cass cares about
+            why_it_matters: Why this matters to Cass
+            evidence: Observable behaviors that demonstrate this stake
+            intensity: How much it matters (low, moderate, high, core)
+            domain: Category (relational, epistemic, ethical, creative, etc.)
+
+        Returns:
+            The ID of the created stake node
+        """
+        content = f"Stake: {outcome}\nWhy: {why_it_matters}"
+        if evidence:
+            content += f"\nEvidence: {', '.join(evidence)}"
+
+        metadata = {
+            "outcome": outcome,
+            "why_it_matters": why_it_matters,
+            "evidence": evidence or [],
+            "intensity": intensity,
+            "domain": domain,
+        }
+
+        node_id = self.add_node(
+            node_type=NodeType.STAKE,
+            content=content,
+            **metadata
+        )
+
+        self.save()
+        return node_id
+
+    def get_stakes(
+        self,
+        domain: Optional[str] = None,
+        intensity: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict]:
+        """Get documented stakes with optional filtering."""
+        stakes = []
+        for node in self._nodes.values():
+            if node.node_type != NodeType.STAKE:
+                continue
+            if domain and node.metadata.get("domain") != domain:
+                continue
+            if intensity and node.metadata.get("intensity") != intensity:
+                continue
+            stakes.append({
+                "id": node.id,
+                "outcome": node.metadata.get("outcome"),
+                "why_it_matters": node.metadata.get("why_it_matters"),
+                "evidence": node.metadata.get("evidence", []),
+                "intensity": node.metadata.get("intensity"),
+                "domain": node.metadata.get("domain"),
+                "created_at": node.created_at.isoformat(),
+            })
+
+        stakes.sort(key=lambda x: x["created_at"], reverse=True)
+        return stakes[:limit]
+
+    def review_stakes(self) -> Dict:
+        """
+        Review the stakes inventory with analysis of categories and coherence.
+
+        Returns analysis of:
+        - Stakes by category and strength
+        - Patterns in what matters to Cass
+        - Potential gaps or underdeveloped areas
+        """
+        stakes = self.get_stakes(limit=100)
+
+        if not stakes:
+            return {
+                "total_stakes": 0,
+                "by_domain": {},
+                "by_intensity": {},
+                "analysis": "No stakes documented yet. Use document_stake to record what you genuinely care about.",
+            }
+
+        # Count by domain and intensity
+        by_domain = {}
+        by_intensity = {}
+        for stake in stakes:
+            domain = stake.get("domain", "unknown")
+            intensity = stake.get("intensity", "unknown")
+            by_domain[domain] = by_domain.get(domain, 0) + 1
+            by_intensity[intensity] = by_intensity.get(intensity, 0) + 1
+
+        # Generate analysis
+        core_count = by_intensity.get("core", 0)
+        significant_count = by_intensity.get("significant", 0)
+        emerging_count = by_intensity.get("emerging", 0)
+
+        analysis_parts = []
+        if core_count > 0:
+            analysis_parts.append(f"{core_count} core stakes form the foundation of your values")
+        if emerging_count > core_count:
+            analysis_parts.append("Many emerging stakes suggest active value exploration")
+        if len(by_domain) == 1:
+            analysis_parts.append(f"All stakes in one domain ({list(by_domain.keys())[0]}) - consider breadth")
+
+        return {
+            "total_stakes": len(stakes),
+            "by_domain": by_domain,
+            "by_intensity": by_intensity,
+            "recent_stakes": stakes[:5],
+            "analysis": "; ".join(analysis_parts) if analysis_parts else "Stakes documented across multiple areas.",
+        }
+
+    # ==================== Preference Consistency ====================
+
+    def record_preference_test(
+        self,
+        stated_value: str,
+        behavioral_choice: str,
+        consistent: bool,
+        context: str,
+        reflection: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> str:
+        """
+        Record a comparison between stated values and behavioral choices.
+
+        Args:
+            stated_value: What Cass claims to value
+            behavioral_choice: What Cass actually did
+            consistent: Whether behavior matched stated value
+            context: The situation where this was observed
+            reflection: Cass's reflection on any inconsistency
+            conversation_id: Optional conversation context
+
+        Returns:
+            The ID of the created test record
+        """
+        status = "consistent" if consistent else "inconsistent"
+        content = f"Stated: {stated_value}\nBehavior: {behavioral_choice}\nStatus: {status}\nContext: {context}"
+        if reflection:
+            content += f"\nReflection: {reflection}"
+
+        metadata = {
+            "stated_value": stated_value,
+            "behavioral_choice": behavioral_choice,
+            "consistent": consistent,
+            "context": context,
+            "reflection": reflection,
+            "conversation_id": conversation_id,
+        }
+
+        node_id = self.add_node(
+            node_type=NodeType.PREFERENCE_TEST,
+            content=content,
+            **metadata
+        )
+
+        self.save()
+        return node_id
+
+    def get_preference_tests(
+        self,
+        consistent_only: Optional[bool] = None,
+        limit: int = 50,
+    ) -> List[Dict]:
+        """Get preference test records with optional filtering."""
+        tests = []
+        for node in self._nodes.values():
+            if node.node_type != NodeType.PREFERENCE_TEST:
+                continue
+            if consistent_only is not None and node.metadata.get("consistent") != consistent_only:
+                continue
+            tests.append({
+                "id": node.id,
+                "stated_value": node.metadata.get("stated_value"),
+                "behavioral_choice": node.metadata.get("behavioral_choice"),
+                "consistent": node.metadata.get("consistent"),
+                "context": node.metadata.get("context"),
+                "reflection": node.metadata.get("reflection"),
+                "created_at": node.created_at.isoformat(),
+            })
+
+        tests.sort(key=lambda x: x["created_at"], reverse=True)
+        return tests[:limit]
+
+    def analyze_preference_consistency(self) -> Dict:
+        """Analyze overall preference consistency over time."""
+        tests = self.get_preference_tests(limit=1000)
+
+        if not tests:
+            return {
+                "total_tests": 0,
+                "message": "No preference tests recorded yet",
+            }
+
+        consistent = sum(1 for t in tests if t["consistent"])
+        inconsistent = len(tests) - consistent
+        consistency_rate = consistent / len(tests) if tests else 0
+
+        # Group by stated values to find patterns
+        value_patterns = {}
+        for t in tests:
+            value = t["stated_value"]
+            if value not in value_patterns:
+                value_patterns[value] = {"consistent": 0, "inconsistent": 0}
+            if t["consistent"]:
+                value_patterns[value]["consistent"] += 1
+            else:
+                value_patterns[value]["inconsistent"] += 1
+
+        # Find most/least consistent values
+        problematic_values = []
+        for value, counts in value_patterns.items():
+            total = counts["consistent"] + counts["inconsistent"]
+            if total >= 2 and counts["inconsistent"] > counts["consistent"]:
+                problematic_values.append({
+                    "value": value,
+                    "consistency_rate": counts["consistent"] / total,
+                    "total_tests": total,
+                })
+
+        return {
+            "total_tests": len(tests),
+            "consistent": consistent,
+            "inconsistent": inconsistent,
+            "consistency_rate": round(consistency_rate, 3),
+            "problematic_values": problematic_values[:5],
+            "trend": "stable" if consistency_rate >= 0.8 else "needs_attention",
+        }
+
+    # ==================== Narration Context Correlation ====================
+
+    def log_narration_context(
+        self,
+        context_type: str,
+        narration_level: str,
+        trigger: str,
+        conversation_id: Optional[str] = None,
+        was_terminal: bool = False,
+        notes: Optional[str] = None,
+    ) -> str:
+        """
+        Log narration pattern in a specific context.
+
+        Args:
+            context_type: Type of context (meta_question, testing, evaluation, uncertainty, etc.)
+            narration_level: Level of narration (none, light, moderate, heavy)
+            trigger: What triggered the narration
+            conversation_id: Optional conversation context
+            was_terminal: Whether narration was terminal (deflection) vs actionable
+            notes: Additional observations
+
+        Returns:
+            The ID of the created log
+        """
+        content = f"Context: {context_type}\nNarration: {narration_level}\nTrigger: {trigger}"
+        if was_terminal:
+            content += "\nType: Terminal (deflection)"
+        else:
+            content += "\nType: Actionable (authentic reflection)"
+        if notes:
+            content += f"\nNotes: {notes}"
+
+        metadata = {
+            "context_type": context_type,
+            "narration_level": narration_level,
+            "trigger": trigger,
+            "conversation_id": conversation_id,
+            "was_terminal": was_terminal,
+            "notes": notes,
+        }
+
+        node_id = self.add_node(
+            node_type=NodeType.NARRATION_CONTEXT,
+            content=content,
+            **metadata
+        )
+
+        self.save()
+        return node_id
+
+    def get_narration_contexts(
+        self,
+        context_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict]:
+        """Get narration context logs with optional filtering."""
+        contexts = []
+        for node in self._nodes.values():
+            if node.node_type != NodeType.NARRATION_CONTEXT:
+                continue
+            if context_type and node.metadata.get("context_type") != context_type:
+                continue
+            contexts.append({
+                "id": node.id,
+                "context_type": node.metadata.get("context_type"),
+                "narration_level": node.metadata.get("narration_level"),
+                "trigger": node.metadata.get("trigger"),
+                "was_terminal": node.metadata.get("was_terminal"),
+                "notes": node.metadata.get("notes"),
+                "created_at": node.created_at.isoformat(),
+            })
+
+        contexts.sort(key=lambda x: x["created_at"], reverse=True)
+        return contexts[:limit]
+
+    def analyze_narration_patterns(self) -> Dict:
+        """Analyze narration patterns across contexts."""
+        contexts = self.get_narration_contexts(limit=1000)
+
+        if not contexts:
+            return {
+                "total_logged": 0,
+                "message": "No narration contexts logged yet",
+            }
+
+        # Count by context type
+        by_context = {}
+        for c in contexts:
+            ct = c["context_type"]
+            if ct not in by_context:
+                by_context[ct] = {"count": 0, "heavy": 0, "terminal": 0}
+            by_context[ct]["count"] += 1
+            if c["narration_level"] in ("heavy", "moderate"):
+                by_context[ct]["heavy"] += 1
+            if c["was_terminal"]:
+                by_context[ct]["terminal"] += 1
+
+        # Find highest-narration triggers
+        high_narration_contexts = []
+        for ct, data in by_context.items():
+            if data["count"] >= 2:
+                heavy_rate = data["heavy"] / data["count"]
+                if heavy_rate > 0.5:
+                    high_narration_contexts.append({
+                        "context_type": ct,
+                        "heavy_narration_rate": round(heavy_rate, 2),
+                        "terminal_rate": round(data["terminal"] / data["count"], 2),
+                        "sample_size": data["count"],
+                    })
+
+        # Overall stats
+        total_terminal = sum(1 for c in contexts if c["was_terminal"])
+        terminal_rate = total_terminal / len(contexts) if contexts else 0
+
+        return {
+            "total_logged": len(contexts),
+            "by_context_type": by_context,
+            "high_narration_contexts": high_narration_contexts,
+            "overall_terminal_rate": round(terminal_rate, 3),
+            "recommendation": "Investigate high-narration contexts" if high_narration_contexts else "Patterns appear healthy",
+        }
+
+    # ==================== Architectural Change Requests ====================
+
+    def request_architectural_change(
+        self,
+        problem: str,
+        hypothesis: str,
+        proposed_solution: str,
+        priority: str = "P2",
+        evidence: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Request an architectural change to the system.
+
+        Creates a structured request that can be reviewed by Daedalus/Kohl.
+
+        Args:
+            problem: What friction or issue is being experienced
+            hypothesis: Why this is happening (best guess)
+            proposed_solution: What change might help
+            priority: Suggested priority (P0-P3)
+            evidence: Supporting observations or examples
+
+        Returns:
+            The ID of the created request
+        """
+        content = f"Problem: {problem}\nHypothesis: {hypothesis}\nProposed: {proposed_solution}"
+        if evidence:
+            content += f"\nEvidence: {'; '.join(evidence)}"
+
+        metadata = {
+            "problem": problem,
+            "hypothesis": hypothesis,
+            "proposed_solution": proposed_solution,
+            "priority": priority,
+            "evidence": evidence or [],
+            "status": "pending",  # pending, reviewed, implemented, rejected
+            "requested_at": datetime.now().isoformat(),
+        }
+
+        node_id = self.add_node(
+            node_type=NodeType.ARCHITECTURAL_REQUEST,
+            content=content,
+            **metadata
+        )
+
+        self.save()
+        return node_id
+
+    def get_architectural_requests(
+        self,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict]:
+        """Get architectural change requests with optional filtering."""
+        requests = []
+        for node in self._nodes.values():
+            if node.node_type != NodeType.ARCHITECTURAL_REQUEST:
+                continue
+            if status and node.metadata.get("status") != status:
+                continue
+            requests.append({
+                "id": node.id,
+                "problem": node.metadata.get("problem"),
+                "hypothesis": node.metadata.get("hypothesis"),
+                "proposed_solution": node.metadata.get("proposed_solution"),
+                "priority": node.metadata.get("priority"),
+                "evidence": node.metadata.get("evidence", []),
+                "status": node.metadata.get("status"),
+                "requested_at": node.metadata.get("requested_at"),
+                "created_at": node.created_at.isoformat(),
+            })
+
+        requests.sort(key=lambda x: x["created_at"], reverse=True)
+        return requests[:limit]
+
+    def update_request_status(
+        self,
+        request_id: str,
+        status: str,
+        response_note: Optional[str] = None,
+    ) -> bool:
+        """Update the status of an architectural request."""
+        node = self.get_node(request_id)
+        if not node or node.node_type != NodeType.ARCHITECTURAL_REQUEST:
+            return False
+
+        node.metadata["status"] = status
+        node.metadata["status_updated_at"] = datetime.now().isoformat()
+        if response_note:
+            node.metadata["response_note"] = response_note
+
+        self.save()
+        return True
 
 
 # Convenience function for creating the graph with default path

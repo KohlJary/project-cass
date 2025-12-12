@@ -26,6 +26,7 @@ class ToolContext:
     task_manager: Any = None
     roadmap_manager: Any = None
     self_manager: Any = None
+    graph: Any = None  # SelfModelGraph instance
     user_manager: Any = None
     wiki_storage: Any = None
     marker_store: Any = None
@@ -137,6 +138,21 @@ TOOL_REGISTRY = {
     "acknowledge_milestone": "self_model",
     "get_milestone_summary": "self_model",
     "get_unacknowledged_milestones": "self_model",
+    # Stakes inventory tools
+    "document_stake": "self_model",
+    "get_stakes": "self_model",
+    "review_stakes": "self_model",
+    # Preference consistency tools
+    "record_preference_test": "self_model",
+    "get_preference_tests": "self_model",
+    "analyze_preference_consistency": "self_model",
+    # Narration context correlation tools
+    "log_narration_context": "self_model",
+    "get_narration_contexts": "self_model",
+    "analyze_narration_context_patterns": "self_model",
+    # Architectural change request tools
+    "request_architectural_change": "self_model",
+    "get_architectural_requests": "self_model",
 
     # User model tools
     "reflect_on_user": "user_model",
@@ -164,6 +180,12 @@ TOOL_REGISTRY = {
     "report_concern": "testing",
     "self_authenticity_check": "testing",
     "view_test_history": "testing",
+    # Longitudinal testing tools
+    "run_test_battery": "testing",
+    "list_test_batteries": "testing",
+    "get_test_trajectory": "testing",
+    "compare_test_runs": "testing",
+    "add_test_interpretation": "testing",
 
     # Research tools
     "identify_research_questions": "research",
@@ -346,7 +368,8 @@ async def route_tool(
             user_id=ctx.user_id,
             user_name=ctx.user_name,
             conversation_id=ctx.conversation_id,
-            memory=ctx.memory
+            memory=ctx.memory,
+            graph=ctx.graph
         )
 
     elif executor_type == "user_model":

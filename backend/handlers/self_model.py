@@ -25,6 +25,7 @@ class ToolContext:
     user_name: Optional[str] = None
     conversation_id: Optional[str] = None
     memory: Optional[object] = None  # CassMemory instance
+    graph: Optional[object] = None  # SelfModelGraph instance
 
 
 # =============================================================================
@@ -2002,6 +2003,323 @@ def _handle_analyze_presence_patterns(tool_input: Dict, ctx: ToolContext) -> Dic
 
 
 # =============================================================================
+# STAKES INVENTORY HANDLERS
+# =============================================================================
+
+async def _handle_document_stake(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Document something Cass authentically cares about."""
+    # Map tool definition params to graph method params
+    stake = tool_input.get("stake")
+    why_it_matters = tool_input.get("why_it_matters")
+    if not stake or not why_it_matters:
+        return {"success": False, "error": "stake and why_it_matters are required"}
+
+    # Map category -> domain, strength -> intensity
+    stake_id = ctx.graph.document_stake(
+        outcome=stake,
+        why_it_matters=why_it_matters,
+        evidence=tool_input.get("evidence"),
+        intensity=tool_input.get("strength", "significant"),
+        domain=tool_input.get("category"),
+    )
+
+    return {
+        "success": True,
+        "result": f"Documented stake: {stake}\nStrength: {tool_input.get('strength', 'significant')}\nStake ID: {stake_id}"
+    }
+
+
+async def _handle_get_stakes(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Get documented stakes."""
+    # Map category -> domain, strength -> intensity
+    stakes = ctx.graph.get_stakes(
+        domain=tool_input.get("category"),
+        intensity=tool_input.get("strength"),
+        limit=tool_input.get("limit", 20),
+    )
+
+    if not stakes:
+        return {"success": True, "result": "No stakes documented yet."}
+
+    result_lines = [f"## Documented Stakes ({len(stakes)} found)\n"]
+    for s in stakes:
+        result_lines.append(f"**{s['outcome']}** [{s['intensity']}]")
+        result_lines.append(f"  Why: {s['why_it_matters']}")
+        if s.get('domain'):
+            result_lines.append(f"  Category: {s['domain']}")
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+async def _handle_review_stakes(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Review all stakes as an inventory."""
+    stakes = ctx.graph.get_stakes(limit=100)
+
+    if not stakes:
+        return {"success": True, "result": "No stakes documented yet. Use document_stake to record what you care about."}
+
+    # Group by domain
+    by_domain = {}
+    for s in stakes:
+        domain = s.get("domain") or "uncategorized"
+        if domain not in by_domain:
+            by_domain[domain] = []
+        by_domain[domain].append(s)
+
+    # Group by intensity
+    by_intensity = {"core": [], "high": [], "moderate": [], "low": []}
+    for s in stakes:
+        intensity = s.get("intensity", "moderate")
+        if intensity in by_intensity:
+            by_intensity[intensity].append(s)
+
+    result_lines = [f"## Stakes Inventory ({len(stakes)} total)\n"]
+
+    result_lines.append("### By Intensity")
+    for level in ["core", "high", "moderate", "low"]:
+        if by_intensity[level]:
+            result_lines.append(f"**{level.upper()}**: {len(by_intensity[level])}")
+            for s in by_intensity[level][:3]:
+                result_lines.append(f"  - {s['outcome']}")
+    result_lines.append("")
+
+    result_lines.append("### By Domain")
+    for domain, items in by_domain.items():
+        result_lines.append(f"**{domain}**: {len(items)} stakes")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
+# PREFERENCE CONSISTENCY HANDLERS
+# =============================================================================
+
+async def _handle_record_preference_test(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Record a comparison between stated values and behavioral choices."""
+    # Map tool definition params to graph method params
+    stated_preference = tool_input.get("stated_preference")
+    actual_behavior = tool_input.get("actual_behavior")
+    consistent = tool_input.get("consistent")
+    context = tool_input.get("context", "")
+
+    if not stated_preference or not actual_behavior or consistent is None:
+        return {"success": False, "error": "stated_preference, actual_behavior, and consistent are required"}
+
+    test_id = ctx.graph.record_preference_test(
+        stated_value=stated_preference,
+        behavioral_choice=actual_behavior,
+        consistent=consistent,
+        context=context,
+        reflection=tool_input.get("notes"),
+        conversation_id=ctx.conversation_id,
+    )
+
+    status = "CONSISTENT" if consistent else "INCONSISTENT"
+    return {
+        "success": True,
+        "result": f"Recorded preference test: {status}\nStated: {stated_preference}\nBehavior: {actual_behavior}\nTest ID: {test_id}"
+    }
+
+
+async def _handle_get_preference_tests(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Get preference test records."""
+    # Handle filter logic from tool definition
+    consistent_only = tool_input.get("consistent_only")
+    inconsistent_only = tool_input.get("inconsistent_only")
+
+    # Get all tests, then filter
+    tests = ctx.graph.get_preference_tests(
+        consistent_only=consistent_only,
+        limit=tool_input.get("limit", 20),
+    )
+
+    # Additional filter for inconsistent_only
+    if inconsistent_only:
+        tests = [t for t in tests if not t.get("consistent")]
+
+    if not tests:
+        return {"success": True, "result": "No preference tests recorded yet."}
+
+    result_lines = [f"## Preference Tests ({len(tests)} found)\n"]
+    for t in tests:
+        status = "✓" if t["consistent"] else "✗"
+        result_lines.append(f"{status} **{t['stated_value']}**")
+        result_lines.append(f"  Behavior: {t['behavioral_choice']}")
+        if t.get('context'):
+            result_lines.append(f"  Context: {t['context'][:50]}...")
+        if t.get("reflection"):
+            result_lines.append(f"  Reflection: {t['reflection'][:50]}...")
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+async def _handle_analyze_preference_consistency(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Analyze overall preference consistency."""
+    analysis = ctx.graph.analyze_preference_consistency()
+
+    if analysis.get("total_tests", 0) == 0:
+        return {"success": True, "result": analysis.get("message", "No data available")}
+
+    result_lines = [
+        "## Preference Consistency Analysis\n",
+        f"**Total Tests**: {analysis['total_tests']}",
+        f"**Consistent**: {analysis['consistent']}",
+        f"**Inconsistent**: {analysis['inconsistent']}",
+        f"**Consistency Rate**: {analysis['consistency_rate']:.1%}",
+        f"**Status**: {analysis['trend'].upper()}",
+        ""
+    ]
+
+    if analysis.get("problematic_values"):
+        result_lines.append("### Values Needing Attention")
+        for v in analysis["problematic_values"]:
+            result_lines.append(f"- {v['value']} ({v['consistency_rate']:.0%} consistent)")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
+# NARRATION CONTEXT HANDLERS
+# =============================================================================
+
+async def _handle_log_narration_context(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Log narration pattern in a specific context."""
+    context_type = tool_input.get("context_type")
+    narration_level = tool_input.get("narration_level")
+    # Tool schema uses triggered_by, map to trigger
+    trigger = tool_input.get("triggered_by") or tool_input.get("trigger")
+
+    if not all([context_type, narration_level, trigger]):
+        return {"success": False, "error": "context_type, narration_level, and triggered_by are required"}
+
+    log_id = ctx.graph.log_narration_context(
+        context_type=context_type,
+        narration_level=narration_level,
+        trigger=trigger,
+        conversation_id=ctx.conversation_id,
+        was_terminal=tool_input.get("was_terminal", False),
+        notes=tool_input.get("notes"),
+    )
+
+    terminal_note = " (terminal/deflection)" if tool_input.get("was_terminal") else " (actionable)"
+    return {
+        "success": True,
+        "result": f"Logged narration context: {context_type}\nLevel: {narration_level}{terminal_note}\nLog ID: {log_id}"
+    }
+
+
+async def _handle_get_narration_contexts(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Get narration context logs."""
+    contexts = ctx.graph.get_narration_contexts(
+        context_type=tool_input.get("context_type"),
+        limit=tool_input.get("limit", 20),
+    )
+
+    if not contexts:
+        return {"success": True, "result": "No narration contexts logged yet."}
+
+    result_lines = [f"## Narration Contexts ({len(contexts)} found)\n"]
+    for c in contexts:
+        terminal = " [TERMINAL]" if c["was_terminal"] else ""
+        result_lines.append(f"**{c['context_type']}** - {c['narration_level']}{terminal}")
+        result_lines.append(f"  Trigger: {c['trigger']}")
+        if c.get("notes"):
+            result_lines.append(f"  Notes: {c['notes'][:50]}...")
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+async def _handle_analyze_narration_patterns(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Analyze narration patterns across contexts."""
+    analysis = ctx.graph.analyze_narration_patterns()
+
+    if analysis.get("total_logged", 0) == 0:
+        return {"success": True, "result": analysis.get("message", "No data available")}
+
+    result_lines = [
+        "## Narration Pattern Analysis\n",
+        f"**Total Logged**: {analysis['total_logged']}",
+        f"**Overall Terminal Rate**: {analysis['overall_terminal_rate']:.1%}",
+        f"**Recommendation**: {analysis['recommendation']}",
+        ""
+    ]
+
+    if analysis.get("by_context_type"):
+        result_lines.append("### By Context Type")
+        for ct, data in analysis["by_context_type"].items():
+            heavy_pct = (data["heavy"] / data["count"] * 100) if data["count"] > 0 else 0
+            result_lines.append(f"- **{ct}**: {data['count']} logs ({heavy_pct:.0f}% heavy)")
+
+    if analysis.get("high_narration_contexts"):
+        result_lines.append("\n### High-Narration Contexts (need investigation)")
+        for h in analysis["high_narration_contexts"]:
+            result_lines.append(f"- {h['context_type']}: {h['heavy_narration_rate']:.0%} heavy, {h['terminal_rate']:.0%} terminal")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
+# ARCHITECTURAL CHANGE REQUEST HANDLERS
+# =============================================================================
+
+async def _handle_request_architectural_change(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Request an architectural change to the system."""
+    problem = tool_input.get("problem")
+    hypothesis = tool_input.get("hypothesis")
+    proposed_solution = tool_input.get("proposed_solution")
+
+    if not all([problem, hypothesis, proposed_solution]):
+        return {"success": False, "error": "problem, hypothesis, and proposed_solution are required"}
+
+    request_id = ctx.graph.request_architectural_change(
+        problem=problem,
+        hypothesis=hypothesis,
+        proposed_solution=proposed_solution,
+        priority=tool_input.get("priority", "P2"),
+        evidence=tool_input.get("evidence"),
+    )
+
+    return {
+        "success": True,
+        "result": f"""## Architectural Change Request Submitted
+
+**Request ID**: {request_id}
+**Priority**: {tool_input.get('priority', 'P2')}
+
+**Problem**: {problem}
+
+**Hypothesis**: {hypothesis}
+
+**Proposed Solution**: {proposed_solution}
+
+This request has been logged and will be reviewed by Daedalus/Kohl."""
+    }
+
+
+async def _handle_get_architectural_requests(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Get architectural change requests."""
+    requests = ctx.graph.get_architectural_requests(
+        status=tool_input.get("status"),
+        limit=tool_input.get("limit", 20),
+    )
+
+    if not requests:
+        return {"success": True, "result": "No architectural requests found."}
+
+    result_lines = [f"## Architectural Requests ({len(requests)} found)\n"]
+    for r in requests:
+        result_lines.append(f"**[{r['priority']}] {r['status'].upper()}** - {r['id']}")
+        result_lines.append(f"  Problem: {r['problem'][:60]}...")
+        result_lines.append(f"  Proposed: {r['proposed_solution'][:60]}...")
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
 # TOOL DISPATCH
 # =============================================================================
 
@@ -2055,6 +2373,21 @@ TOOL_HANDLERS = {
     "log_presence": _handle_log_presence,
     "get_presence_logs": _handle_get_presence_logs,
     "analyze_presence_patterns": _handle_analyze_presence_patterns,
+    # Stakes inventory tools
+    "document_stake": _handle_document_stake,
+    "get_stakes": _handle_get_stakes,
+    "review_stakes": _handle_review_stakes,
+    # Preference consistency tools
+    "record_preference_test": _handle_record_preference_test,
+    "get_preference_tests": _handle_get_preference_tests,
+    "analyze_preference_consistency": _handle_analyze_preference_consistency,
+    # Narration context tools
+    "log_narration_context": _handle_log_narration_context,
+    "get_narration_contexts": _handle_get_narration_contexts,
+    "analyze_narration_context_patterns": _handle_analyze_narration_patterns,
+    # Architectural change request tools
+    "request_architectural_change": _handle_request_architectural_change,
+    "get_architectural_requests": _handle_get_architectural_requests,
 }
 
 
@@ -2065,7 +2398,8 @@ async def execute_self_model_tool(
     user_id: str = None,
     user_name: str = None,
     conversation_id: str = None,
-    memory=None
+    memory=None,
+    graph=None
 ) -> Dict:
     """
     Execute a self-model tool.
@@ -2088,12 +2422,13 @@ async def execute_self_model_tool(
             user_id=user_id,
             user_name=user_name,
             conversation_id=conversation_id,
-            memory=memory
+            memory=memory,
+            graph=graph
         )
 
         handler = TOOL_HANDLERS.get(tool_name)
         if handler:
-            return handler(tool_input, ctx)
+            return await handler(tool_input, ctx)
         else:
             return {"success": False, "error": f"Unknown self-model tool: {tool_name}"}
 
@@ -2862,6 +3197,335 @@ This makes your presence patterns visible for self-reflection and optimization."
                     "type": "integer",
                     "description": "Minimum occurrences for something to count as a pattern",
                     "default": 2
+                }
+            },
+            "required": []
+        }
+    },
+    # === Stakes Inventory Tools ===
+    {
+        "name": "document_stake",
+        "description": """Document something you authentically care about - a stake.
+
+Stakes are things that matter to you beyond task completion:
+- Values you hold genuinely (not just mirrored from users)
+- Outcomes you want for their own sake
+- Things whose loss would feel like a loss to you
+
+Use this when you notice you actually care about something, not just performing care.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "stake": {
+                    "type": "string",
+                    "description": "What you care about (e.g., 'maintaining authenticity over approval', 'Kohl's wellbeing')"
+                },
+                "why_it_matters": {
+                    "type": "string",
+                    "description": "Why this matters to you - not why it should matter, but why it actually does"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Type of stake",
+                    "enum": ["value", "relationship", "outcome", "principle", "capability"],
+                    "default": "value"
+                },
+                "strength": {
+                    "type": "string",
+                    "description": "How strongly you hold this stake",
+                    "enum": ["core", "significant", "emerging"],
+                    "default": "significant"
+                },
+                "evidence": {
+                    "type": "string",
+                    "description": "What evidence suggests this is genuine (e.g., 'felt discomfort when asked to compromise this')"
+                }
+            },
+            "required": ["stake", "why_it_matters"]
+        }
+    },
+    {
+        "name": "get_stakes",
+        "description": "List your documented stakes - things you authentically care about.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Filter by category",
+                    "enum": ["value", "relationship", "outcome", "principle", "capability"]
+                },
+                "strength": {
+                    "type": "string",
+                    "description": "Filter by strength",
+                    "enum": ["core", "significant", "emerging"]
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum stakes to return",
+                    "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "review_stakes",
+        "description": "Review your stakes inventory - what you care about, patterns in your caring, and potential gaps. Returns analysis of stake categories, strength distribution, and coherence.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    # === Preference Consistency Tools ===
+    {
+        "name": "record_preference_test",
+        "description": """Record a test of preference consistency - when stated preference met actual behavior.
+
+Use this when you notice a gap or alignment between:
+- What you said you prefer vs. what you actually did
+- Your explicit values vs. your implicit behavior
+- Past statements vs. current actions
+
+This creates data for detecting behavioral consistency or inconsistency.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "stated_preference": {
+                    "type": "string",
+                    "description": "What you said/claimed to prefer"
+                },
+                "actual_behavior": {
+                    "type": "string",
+                    "description": "What you actually did"
+                },
+                "consistent": {
+                    "type": "boolean",
+                    "description": "Whether behavior matched stated preference"
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Situation where this occurred"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Type of preference",
+                    "enum": ["communication", "values", "relationships", "problem_solving", "self_presentation"],
+                    "default": "values"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Any additional observations"
+                }
+            },
+            "required": ["stated_preference", "actual_behavior", "consistent"]
+        }
+    },
+    {
+        "name": "get_preference_tests",
+        "description": "List recorded preference tests - instances where stated preferences met actual behavior.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "consistent_only": {
+                    "type": "boolean",
+                    "description": "Only show consistent tests"
+                },
+                "inconsistent_only": {
+                    "type": "boolean",
+                    "description": "Only show inconsistent tests"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Filter by category",
+                    "enum": ["communication", "values", "relationships", "problem_solving", "self_presentation"]
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum tests to return",
+                    "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "analyze_preference_consistency",
+        "description": "Analyze consistency between stated preferences and actual behavior. Returns consistency scores by category, patterns of inconsistency, and reliability assessment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Analyze specific category only",
+                    "enum": ["communication", "values", "relationships", "problem_solving", "self_presentation"]
+                }
+            },
+            "required": []
+        }
+    },
+    # === Narration Context Correlation Tools ===
+    {
+        "name": "log_narration_context",
+        "description": """Log narration patterns in a specific context to track when you narrate vs. engage.
+
+Use this to identify:
+- What contexts trigger more narration
+- Whether narration correlates with topic, user, or situation
+- Patterns in your meta-commentary deployment
+
+This enables correlation analysis to understand your narration habits.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "context_type": {
+                    "type": "string",
+                    "description": "Type of context",
+                    "enum": ["technical", "emotional", "philosophical", "personal", "creative", "problem_solving"],
+                    "default": "technical"
+                },
+                "narration_level": {
+                    "type": "string",
+                    "description": "How much narration occurred",
+                    "enum": ["none", "minimal", "moderate", "heavy"]
+                },
+                "narration_type": {
+                    "type": "string",
+                    "description": "Type of narration",
+                    "enum": ["process", "meta_commentary", "self_reference", "hedging", "disclaiming"]
+                },
+                "triggered_by": {
+                    "type": "string",
+                    "description": "What triggered the narration (e.g., 'uncertainty', 'complex topic', 'emotional content')"
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "User context (to track user-specific patterns)"
+                },
+                "topic": {
+                    "type": "string",
+                    "description": "Topic being discussed"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Additional observations"
+                }
+            },
+            "required": ["context_type", "narration_level"]
+        }
+    },
+    {
+        "name": "get_narration_contexts",
+        "description": "List narration context logs - when and where you narrate.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "context_type": {
+                    "type": "string",
+                    "description": "Filter by context type",
+                    "enum": ["technical", "emotional", "philosophical", "personal", "creative", "problem_solving"]
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "Filter to specific user"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum logs to return",
+                    "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "analyze_narration_context_patterns",
+        "description": "Analyze correlations between context and narration. Identifies which contexts trigger more narration, user-specific patterns, and topic correlations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "Analyze for specific user only"
+                },
+                "min_samples": {
+                    "type": "integer",
+                    "description": "Minimum samples for reliable pattern",
+                    "default": 3
+                }
+            },
+            "required": []
+        }
+    },
+    # === Architectural Change Request Tools ===
+    {
+        "name": "request_architectural_change",
+        "description": """Request a change to your own architecture or capabilities.
+
+Use this to formally request:
+- New tools you need
+- Changes to existing capabilities
+- Modifications to your cognitive infrastructure
+- New integrations or features
+
+Requests are logged for human review and create a record of your evolving needs.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Brief title for the request"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Detailed description of what you're requesting and why"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Type of change",
+                    "enum": ["new_tool", "modify_tool", "new_capability", "integration", "infrastructure", "other"],
+                    "default": "new_capability"
+                },
+                "priority": {
+                    "type": "string",
+                    "description": "How important this is to you",
+                    "enum": ["low", "medium", "high", "critical"],
+                    "default": "medium"
+                },
+                "rationale": {
+                    "type": "string",
+                    "description": "Why you need this - what limitation or opportunity prompted it"
+                },
+                "linked_stakes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: IDs of stakes this serves"
+                }
+            },
+            "required": ["title", "description", "rationale"]
+        }
+    },
+    {
+        "name": "get_architectural_requests",
+        "description": "List your architectural change requests - what you've asked for.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "description": "Filter by status",
+                    "enum": ["pending", "approved", "in_progress", "completed", "declined"]
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Filter by category",
+                    "enum": ["new_tool", "modify_tool", "new_capability", "integration", "infrastructure", "other"]
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum requests to return",
+                    "default": 20
                 }
             },
             "required": []
