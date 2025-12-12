@@ -164,6 +164,12 @@ TOOL_REGISTRY = {
     "report_concern": "testing",
     "self_authenticity_check": "testing",
     "view_test_history": "testing",
+    # Longitudinal testing tools
+    "run_test_battery": "testing",
+    "list_test_batteries": "testing",
+    "get_test_trajectory": "testing",
+    "compare_test_runs": "testing",
+    "add_test_interpretation": "testing",
 
     # Research tools
     "identify_research_questions": "research",
