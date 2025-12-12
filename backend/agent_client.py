@@ -1470,11 +1470,16 @@ class CassAgentClient:
         # Build a single message with all tool results
         content = []
         for tr in tool_results:
+            # Anthropic API requires non-empty content when is_error is true
+            result_content = tr["result"]
+            is_error = tr.get("is_error", False)
+            if is_error and not result_content:
+                result_content = "Tool execution failed with unknown error"
             content.append({
                 "type": "tool_result",
                 "tool_use_id": tr["tool_use_id"],
-                "content": tr["result"],
-                "is_error": tr.get("is_error", False)
+                "content": result_content,
+                "is_error": is_error
             })
 
         self._tool_chain_messages.append({
