@@ -101,22 +101,34 @@ class SelfModelMemory:
 
     def sync_self_observations_from_file(self, self_manager) -> int:
         """
-        Sync all self-observations from SelfManager's file storage into ChromaDB.
+        Sync self-observations from SelfManager's file storage into ChromaDB.
 
-        This ensures self-observations are available for semantic search.
+        Only syncs observations that aren't already embedded, making startup fast.
 
         Args:
             self_manager: SelfManager instance to load observations from
 
         Returns:
-            Number of observations synced
+            Number of new observations synced
         """
         observations = self_manager.load_observations()
         if not observations:
             return 0
 
+        # Get already-embedded observation IDs to avoid re-embedding
+        existing = self.collection.get(
+            where={"type": "cass_self_observation"},
+            include=[]  # Only need IDs
+        )
+        existing_ids = set(existing["ids"]) if existing["ids"] else set()
+
+        # Only embed observations not already in ChromaDB
         count = 0
         for obs in observations:
+            doc_id = f"cass_self_observation_{obs.id}"
+            if doc_id in existing_ids:
+                continue  # Already embedded
+
             try:
                 self.embed_self_observation(
                     observation_id=obs.id,

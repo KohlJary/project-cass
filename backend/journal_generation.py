@@ -51,18 +51,82 @@ async def generate_missing_journals(days_to_check: int = 7):
     generated = []
     today = datetime.now().date()
 
+    # Pre-fetch all data in a single batch to avoid repeated ChromaDB scans
+    # and cold-start latency on individual queries
+    print("  Checking for missing journals...")
+    _all_journals_cache = {}
+    _all_summaries_cache = {}
+    _all_conversations_cache = {}
+
+    try:
+        # Fetch all journals, summaries, and conversations in one batch
+        # This warms ChromaDB cache and avoids per-date query overhead
+        all_journals = memory.collection.get(
+            where={"type": "journal"},
+            include=["metadatas"]
+        )
+        if all_journals["metadatas"]:
+            for meta in all_journals["metadatas"]:
+                date = meta.get("journal_date", "")
+                if date:
+                    _all_journals_cache[date] = True
+
+        all_summaries = memory.collection.get(
+            where={"type": "summary"},
+            include=["documents", "metadatas"]
+        )
+        if all_summaries["documents"]:
+            for i, doc in enumerate(all_summaries["documents"]):
+                meta = all_summaries["metadatas"][i]
+                ts = meta.get("timeframe_start", "")[:10]  # Extract date part
+                if ts not in _all_summaries_cache:
+                    _all_summaries_cache[ts] = []
+                _all_summaries_cache[ts].append({
+                    "content": doc, "metadata": meta, "id": all_summaries["ids"][i]
+                })
+
+        all_conversations = memory.collection.get(
+            where={"type": "conversation"},
+            include=["documents", "metadatas"]
+        )
+        if all_conversations["documents"]:
+            for i, doc in enumerate(all_conversations["documents"]):
+                meta = all_conversations["metadatas"][i]
+                ts = meta.get("timestamp", "")[:10]  # Extract date part
+                if ts not in _all_conversations_cache:
+                    _all_conversations_cache[ts] = []
+                _all_conversations_cache[ts].append({
+                    "content": doc, "metadata": meta, "id": all_conversations["ids"][i]
+                })
+    except Exception as e:
+        print(f"  Warning: Pre-fetch failed, falling back to per-date queries: {e}")
+        _all_journals_cache = None
+        _all_summaries_cache = None
+        _all_conversations_cache = None
+
     for days_ago in range(1, days_to_check + 1):  # Start from yesterday
         check_date = today - timedelta(days=days_ago)
         date_str = check_date.strftime("%Y-%m-%d")
 
-        # Check if journal already exists
-        existing = memory.get_journal_entry(date_str)
-        if existing:
-            continue
+        # Check if journal already exists (use cache if available)
+        if _all_journals_cache is not None:
+            if date_str in _all_journals_cache:
+                continue
+        else:
+            existing = memory.get_journal_entry(date_str)
+            if existing:
+                continue
 
-        # Check if there's content for this date
-        summaries = memory.get_summaries_by_date(date_str)
-        conversations = memory.get_conversations_by_date(date_str) if not summaries else []
+        # Check if there's content for this date (use cache if available)
+        if _all_summaries_cache is not None:
+            summaries = _all_summaries_cache.get(date_str, [])
+        else:
+            summaries = memory.get_summaries_by_date(date_str)
+
+        if _all_conversations_cache is not None:
+            conversations = _all_conversations_cache.get(date_str, []) if not summaries else []
+        else:
+            conversations = memory.get_conversations_by_date(date_str) if not summaries else []
 
         if not summaries and not conversations:
             continue  # No content for this day
