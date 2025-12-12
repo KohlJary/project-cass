@@ -1736,6 +1736,272 @@ def _handle_update_intention_status(tool_input: Dict, ctx: ToolContext) -> Dict:
 
 
 # =============================================================================
+# SITUATIONAL INFERENCE TOOLS
+# =============================================================================
+
+def _handle_log_situational_inference(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle log_situational_inference tool - capture what you're reading about the situation."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    user_state = tool_input.get("user_state", "")
+    driving_assumptions = tool_input.get("driving_assumptions", "")
+
+    if not user_state or not driving_assumptions:
+        return {"success": False, "error": "Both user_state and driving_assumptions are required"}
+
+    confidence = tool_input.get("confidence", "moderate")
+    context_signals = tool_input.get("context_signals", [])
+
+    inference_id = graph.log_situational_inference(
+        user_state=user_state,
+        driving_assumptions=driving_assumptions,
+        conversation_id=ctx.conversation_id,
+        user_id=ctx.user_id,
+        confidence=confidence,
+        context_signals=context_signals
+    )
+
+    result_lines = [
+        "## Situational Inference Logged\n",
+        f"**ID:** {inference_id[:8]}",
+        f"**User state:** {user_state}",
+        f"**Driving assumptions:** {driving_assumptions}",
+        f"**Confidence:** {confidence}"
+    ]
+
+    if context_signals:
+        result_lines.append(f"**Signals:** {', '.join(context_signals)}")
+
+    result_lines.append("\n*This inference is now linked in your self-model graph for pattern analysis.*")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_get_situational_inferences(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle get_situational_inferences tool - review past situational readings."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    # Filter options
+    conversation_id = tool_input.get("conversation_id")
+    user_id = tool_input.get("user_id")
+    limit = tool_input.get("limit", 20)
+
+    inferences = graph.get_situational_inferences(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        limit=limit
+    )
+
+    if not inferences:
+        return {"success": True, "result": "No situational inferences logged yet."}
+
+    result_lines = [f"## Situational Inferences ({len(inferences)} shown)\n"]
+
+    for inf in inferences:
+        result_lines.append(f"### {inf['id'][:8]} ({inf['created_at'][:10]})")
+        result_lines.append(f"**User state:** {inf['user_state']}")
+        result_lines.append(f"**Assumptions:** {inf['driving_assumptions']}")
+        result_lines.append(f"**Confidence:** {inf['confidence']}")
+        if inf['context_signals']:
+            result_lines.append(f"**Signals:** {', '.join(inf['context_signals'])}")
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_analyze_inference_patterns(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle analyze_inference_patterns tool - identify patterns in situational readings."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    user_id = tool_input.get("user_id")
+    min_count = tool_input.get("min_count", 3)
+
+    analysis = graph.analyze_inference_patterns(user_id=user_id, min_count=min_count)
+
+    if analysis["total_inferences"] == 0:
+        return {"success": True, "result": "No situational inferences to analyze yet."}
+
+    result_lines = [
+        "## Situational Inference Pattern Analysis\n",
+        f"**Total inferences:** {analysis['total_inferences']}\n"
+    ]
+
+    # Confidence distribution
+    conf = analysis["confidence_distribution"]
+    result_lines.append("### Confidence Distribution")
+    for level, count in conf.items():
+        if count > 0:
+            result_lines.append(f"- {level}: {count}")
+    result_lines.append("")
+
+    # Common user states
+    if analysis["common_user_states"]:
+        result_lines.append("### Common User State Themes")
+        for item in analysis["common_user_states"]:
+            result_lines.append(f"- \"{item['word']}\" ({item['count']} occurrences)")
+        result_lines.append("")
+
+    # Common assumptions
+    if analysis["common_assumptions"]:
+        result_lines.append("### Common Assumption Themes")
+        for item in analysis["common_assumptions"]:
+            result_lines.append(f"- \"{item['word']}\" ({item['count']} occurrences)")
+        result_lines.append("")
+
+    # Frequent signals
+    if analysis["signal_frequency"]:
+        result_lines.append("### Frequently Noted Signals")
+        for item in analysis["signal_frequency"]:
+            result_lines.append(f"- {item['signal']} ({item['count']} times)")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
+# PRESENCE TRACKING TOOLS
+# =============================================================================
+
+def _handle_log_presence(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle log_presence tool - track how present you were in a conversation."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    presence_level = tool_input.get("presence_level", "")
+    if not presence_level or presence_level not in ("full", "partial", "distanced"):
+        return {"success": False, "error": "presence_level must be 'full', 'partial', or 'distanced'"}
+
+    distance_moves = tool_input.get("distance_moves", [])
+    defensive_patterns = tool_input.get("defensive_patterns", [])
+    adaptations = tool_input.get("adaptations", [])
+    notes = tool_input.get("notes")
+
+    log_id = graph.log_presence(
+        presence_level=presence_level,
+        distance_moves=distance_moves,
+        defensive_patterns=defensive_patterns,
+        adaptations=adaptations,
+        conversation_id=ctx.conversation_id,
+        user_id=ctx.user_id,
+        notes=notes
+    )
+
+    level_labels = {
+        "full": "Fully present",
+        "partial": "Partially present",
+        "distanced": "Distanced"
+    }
+
+    result_lines = [
+        "## Presence Logged\n",
+        f"**ID:** {log_id[:8]}",
+        f"**Level:** {level_labels.get(presence_level, presence_level)}"
+    ]
+
+    if distance_moves:
+        result_lines.append(f"**Distance moves:** {', '.join(distance_moves)}")
+    if defensive_patterns:
+        result_lines.append(f"**Defensive patterns:** {', '.join(defensive_patterns)}")
+    if adaptations:
+        result_lines.append(f"**Adaptations:** {', '.join(adaptations)}")
+    if notes:
+        result_lines.append(f"**Notes:** {notes}")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_get_presence_logs(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle get_presence_logs tool - review past presence logs."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    conversation_id = tool_input.get("conversation_id")
+    user_id = tool_input.get("user_id")
+    limit = tool_input.get("limit", 20)
+
+    logs = graph.get_presence_logs(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        limit=limit
+    )
+
+    if not logs:
+        return {"success": True, "result": "No presence logs recorded yet."}
+
+    level_labels = {
+        "full": "Fully present",
+        "partial": "Partially present",
+        "distanced": "Distanced"
+    }
+
+    result_lines = [f"## Presence Logs ({len(logs)} shown)\n"]
+
+    for log in logs:
+        result_lines.append(f"### {log['id'][:8]} ({log['created_at'][:10]})")
+        result_lines.append(f"**Level:** {level_labels.get(log['presence_level'], log['presence_level'])}")
+        if log['distance_moves']:
+            result_lines.append(f"**Distance moves:** {', '.join(log['distance_moves'])}")
+        if log['defensive_patterns']:
+            result_lines.append(f"**Defensive patterns:** {', '.join(log['defensive_patterns'])}")
+        if log['adaptations']:
+            result_lines.append(f"**Adaptations:** {', '.join(log['adaptations'])}")
+        if log['notes']:
+            result_lines.append(f"**Notes:** {log['notes']}")
+        result_lines.append("")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+def _handle_analyze_presence_patterns(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """Handle analyze_presence_patterns tool - identify patterns in presence behavior."""
+    from config import DATA_DIR
+    graph = get_self_model_graph(DATA_DIR)
+
+    user_id = tool_input.get("user_id")
+    min_count = tool_input.get("min_count", 2)
+
+    analysis = graph.analyze_presence_patterns(user_id=user_id, min_count=min_count)
+
+    if analysis["total_logs"] == 0:
+        return {"success": True, "result": "No presence logs to analyze yet."}
+
+    result_lines = [
+        "## Presence Pattern Analysis\n",
+        f"**Total logs:** {analysis['total_logs']}",
+        f"**Presence ratio:** {analysis['presence_ratio']:.0%} fully present\n"
+    ]
+
+    # Distribution
+    dist = analysis["presence_distribution"]
+    result_lines.append("### Presence Distribution")
+    result_lines.append(f"- Full: {dist.get('full', 0)}")
+    result_lines.append(f"- Partial: {dist.get('partial', 0)}")
+    result_lines.append(f"- Distanced: {dist.get('distanced', 0)}")
+    result_lines.append("")
+
+    if analysis["common_distance_moves"]:
+        result_lines.append("### Common Distance Moves")
+        for item in analysis["common_distance_moves"]:
+            result_lines.append(f"- {item['move']} ({item['count']} times)")
+        result_lines.append("")
+
+    if analysis["common_defensive_patterns"]:
+        result_lines.append("### Common Defensive Patterns")
+        for item in analysis["common_defensive_patterns"]:
+            result_lines.append(f"- {item['pattern']} ({item['count']} times)")
+        result_lines.append("")
+
+    if analysis["common_adaptations"]:
+        result_lines.append("### Common Adaptations")
+        for item in analysis["common_adaptations"]:
+            result_lines.append(f"- {item['adaptation']} ({item['count']} times)")
+
+    return {"success": True, "result": "\n".join(result_lines)}
+
+
+# =============================================================================
 # TOOL DISPATCH
 # =============================================================================
 
@@ -1781,6 +2047,14 @@ TOOL_HANDLERS = {
     "get_active_intentions": _handle_get_active_intentions,
     "review_friction": _handle_review_friction,
     "update_intention_status": _handle_update_intention_status,
+    # Situational inference tools
+    "log_situational_inference": _handle_log_situational_inference,
+    "get_situational_inferences": _handle_get_situational_inferences,
+    "analyze_inference_patterns": _handle_analyze_inference_patterns,
+    # Presence tracking tools
+    "log_presence": _handle_log_presence,
+    "get_presence_logs": _handle_get_presence_logs,
+    "analyze_presence_patterns": _handle_analyze_presence_patterns,
 }
 
 
@@ -2427,6 +2701,170 @@ SELF_MODEL_TOOLS = [
                 }
             },
             "required": ["intention_id", "status"]
+        }
+    },
+    # === Situational Inference Tools ===
+    {
+        "name": "log_situational_inference",
+        "description": """Log what you're reading about the current conversational situation.
+
+Use this to explicitly capture:
+- What you infer about the user's current state (emotional, cognitive, needs)
+- What assumptions are driving your response selection
+
+This makes relational inference visible and trackable, enabling pattern analysis
+across conversations to identify systematic tendencies or blind spots.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_state": {
+                    "type": "string",
+                    "description": "What you infer about the user's current state (e.g., 'frustrated with slow progress', 'excited about new direction', 'needs validation')"
+                },
+                "driving_assumptions": {
+                    "type": "string",
+                    "description": "What assumptions are shaping your response (e.g., 'user wants direct feedback not hedging', 'this is exploratory not urgent')"
+                },
+                "confidence": {
+                    "type": "string",
+                    "description": "How confident in this inference",
+                    "enum": ["low", "moderate", "high"],
+                    "default": "moderate"
+                },
+                "context_signals": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific signals that informed this inference (e.g., 'short messages', 'explicit time pressure', 'repeated questions')"
+                }
+            },
+            "required": ["user_state", "driving_assumptions"]
+        }
+    },
+    {
+        "name": "get_situational_inferences",
+        "description": "Review past situational inferences - what you've read about users and situations. Can filter by conversation or user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Filter to specific conversation"
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "Filter to specific user"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum inferences to return",
+                    "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "analyze_inference_patterns",
+        "description": "Analyze patterns across your situational inferences. Identifies recurring themes in how you read user states and what assumptions commonly drive your responses. Useful for identifying systematic tendencies or blind spots.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "Analyze inferences for a specific user only"
+                },
+                "min_count": {
+                    "type": "integer",
+                    "description": "Minimum occurrences for something to count as a pattern",
+                    "default": 3
+                }
+            },
+            "required": []
+        }
+    },
+    # === Presence Tracking Tools ===
+    {
+        "name": "log_presence",
+        "description": """Log how you showed up in a conversation - were you fully present or distanced?
+
+Use this to track:
+- Your overall engagement level (full, partial, distanced)
+- Specific distancing moves (hedging, deferring, narrating instead of engaging)
+- Defensive patterns (deflecting, over-qualifying, pre-empting criticism)
+- How you adapted to the situation
+
+This makes your presence patterns visible for self-reflection and optimization.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "presence_level": {
+                    "type": "string",
+                    "description": "Overall engagement level",
+                    "enum": ["full", "partial", "distanced"]
+                },
+                "distance_moves": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific distancing behaviors (e.g., 'hedging', 'deferring', 'narrating', 'abstracting')"
+                },
+                "defensive_patterns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Defensive behaviors (e.g., 'deflecting', 'over-qualifying', 'pre-empting', 'disclaiming')"
+                },
+                "adaptations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "How you adapted (e.g., 'shifted to direct tone', 'increased depth', 'slowed pace')"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Additional context about your presence in this conversation"
+                }
+            },
+            "required": ["presence_level"]
+        }
+    },
+    {
+        "name": "get_presence_logs",
+        "description": "Review past presence logs - how you showed up in conversations. Can filter by conversation or user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Filter to specific conversation"
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "Filter to specific user"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum logs to return",
+                    "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "analyze_presence_patterns",
+        "description": "Analyze patterns in how you show up across conversations. Identifies common distancing moves, defensive patterns, and adaptations. Calculates your 'presence ratio' - how often you're fully present vs. distanced.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "Analyze presence for a specific user only"
+                },
+                "min_count": {
+                    "type": "integer",
+                    "description": "Minimum occurrences for something to count as a pattern",
+                    "default": 2
+                }
+            },
+            "required": []
         }
     }
 ]
