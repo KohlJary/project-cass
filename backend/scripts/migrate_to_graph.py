@@ -446,6 +446,80 @@ def migrate_users(graph: SelfModelGraph, users: dict, dry_run: bool) -> dict:
     return id_map
 
 
+def migrate_user_observations(
+    graph: SelfModelGraph,
+    users: dict,
+    user_map: dict,
+    dry_run: bool
+) -> dict:
+    """
+    Migrate user observations to graph nodes.
+
+    These are Cass's observations about users (not self-observations).
+    Each observation becomes a USER_OBSERVATION node linked to the
+    user via ABOUT edge.
+
+    Returns mapping of observation IDs to new graph IDs.
+    """
+    id_map = {}
+
+    for user_id, user_data in users.items():
+        observations = user_data.get("observations", [])
+        profile = user_data.get("profile", {})
+        display_name = profile.get("display_name", "Unknown")
+
+        # Get the user's node ID from the user_map
+        user_node_id = user_map.get(user_id)
+
+        for obs in observations:
+            old_id = obs.get("id")
+
+            # Parse timestamp
+            timestamp_str = obs.get("timestamp", datetime.now().isoformat())
+            try:
+                timestamp = datetime.fromisoformat(timestamp_str)
+            except ValueError:
+                timestamp = datetime.now()
+
+            # Content includes context about who this observation is about
+            observation_text = obs.get("observation", "")
+            category = obs.get("category", "background")
+            content = f"[{display_name}] [{category}] {observation_text}"
+
+            node_id = graph.add_node(
+                node_type=NodeType.USER_OBSERVATION,
+                content=content,
+                node_id=old_id[:8] if old_id else None,
+                created_at=timestamp,
+                category=category,
+                confidence=obs.get("confidence", 0.7),
+                source_type=obs.get("source_type", "conversation"),
+                source_conversation_id=obs.get("source_conversation_id"),
+                source_summary_id=obs.get("source_summary_id"),
+                source_journal_date=obs.get("source_journal_date"),
+                validation_count=obs.get("validation_count", 1),
+                about_user_id=user_id,
+                about_user_name=display_name,
+                original_id=old_id
+            )
+
+            id_map[old_id] = node_id
+
+            # Create ABOUT edge linking observation to user
+            if user_node_id:
+                graph.add_edge(
+                    node_id,
+                    user_node_id,
+                    EdgeType.ABOUT,
+                    category=category
+                )
+
+            if not dry_run:
+                print(f"  Created user observation: {node_id[:8]}... about {display_name} ({category})")
+
+    return id_map
+
+
 def create_implicit_edges(
     graph: SelfModelGraph,
     obs_map: dict,
@@ -586,6 +660,10 @@ def populate_graph(graph: SelfModelGraph, verbose: bool = False) -> dict:
     user_map = migrate_users(graph, users, dry_run)
 
     if verbose:
+        print("   User observations...")
+    user_obs_map = migrate_user_observations(graph, users, user_map, dry_run)
+
+    if verbose:
         print("   Recognition-in-flow marks...")
     mark_map = migrate_marks(graph, marks, conv_map, dry_run)
 
@@ -677,6 +755,9 @@ def main():
 
         print("   Users...")
         user_map = migrate_users(graph, users, True)
+
+        print("   User observations...")
+        user_obs_map = migrate_user_observations(graph, users, user_map, True)
 
         print("   Recognition-in-flow marks...")
         mark_map = migrate_marks(graph, marks, conv_map, True)
