@@ -30,9 +30,14 @@ class ScheduleRecurrence(str, Enum):
     WEEKLY = "weekly"
 
 
+class SessionType(str, Enum):
+    REFLECTION = "reflection"
+    RESEARCH = "research"
+
+
 @dataclass
 class ScheduledSession:
-    """A scheduled research session request"""
+    """A scheduled activity session request"""
     schedule_id: str
     created_at: str
     status: ScheduleStatus
@@ -41,6 +46,9 @@ class ScheduledSession:
     requested_by: str  # "cass" or admin username
     focus_description: str
     focus_item_id: Optional[str] = None  # Agenda item to focus on
+
+    # Session type - determines which runner handles it
+    session_type: SessionType = SessionType.REFLECTION
 
     # Scheduling
     recurrence: ScheduleRecurrence = ScheduleRecurrence.ONCE
@@ -93,6 +101,11 @@ class ResearchScheduler:
                     data = json.load(f)
                 data["status"] = ScheduleStatus(data["status"])
                 data["recurrence"] = ScheduleRecurrence(data["recurrence"])
+                # Handle session_type (default to reflection for backwards compatibility)
+                if "session_type" in data:
+                    data["session_type"] = SessionType(data["session_type"])
+                else:
+                    data["session_type"] = SessionType.REFLECTION
                 schedule = ScheduledSession(**data)
                 self.schedules[schedule.schedule_id] = schedule
             except Exception as e:
@@ -104,6 +117,7 @@ class ResearchScheduler:
         data = asdict(schedule)
         data["status"] = schedule.status.value
         data["recurrence"] = schedule.recurrence.value
+        data["session_type"] = schedule.session_type.value
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
         self.schedules[schedule.schedule_id] = schedule
@@ -121,19 +135,21 @@ class ResearchScheduler:
         preferred_time: Optional[str] = None,
         duration_minutes: int = 30,
         recurrence: str = "once",
-        mode: str = "explore"
+        mode: str = "explore",
+        session_type: str = "reflection"
     ) -> Dict[str, Any]:
         """
-        Cass requests a research session.
+        Cass requests a scheduled activity session.
         Creates a pending request for admin approval.
 
         Args:
-            focus_description: What Cass wants to research
+            focus_description: What Cass wants to do (research topic or reflection theme)
             focus_item_id: Optional agenda item ID
             preferred_time: Preferred time in HH:MM format
             duration_minutes: Requested duration
             recurrence: "once", "daily", or "weekly"
             mode: "explore" or "deep"
+            session_type: "reflection" or "research"
 
         Returns:
             The created schedule request
@@ -160,6 +176,7 @@ class ResearchScheduler:
             requested_by="cass",
             focus_description=focus_description,
             focus_item_id=focus_item_id,
+            session_type=SessionType(session_type),
             preferred_time=preferred_time,
             duration_minutes=min(duration_minutes, 60),
             recurrence=ScheduleRecurrence(recurrence),
@@ -401,26 +418,56 @@ class ResearchScheduler:
 
         self._save_schedule(schedule)
 
-    async def check_and_trigger_due_sessions(self):
-        """Check for due sessions and trigger them"""
-        if not self._session_trigger:
-            logger.warning("No session trigger configured")
-            return []
+    async def check_and_trigger_due_sessions(self, runners: Optional[Dict[str, Any]] = None):
+        """
+        Check for due sessions and trigger them.
 
+        Args:
+            runners: Dict mapping session_type to runner instances.
+                     Each runner must have an async start_session() method.
+                     If not provided, falls back to legacy _session_trigger callback.
+        """
         due_schedules = self.get_due_schedules()
         triggered = []
 
         for schedule in due_schedules:
             try:
-                logger.info(f"Triggering scheduled session: {schedule.schedule_id}")
-                session_id = await self._session_trigger(
-                    duration_minutes=schedule.duration_minutes,
-                    mode=schedule.mode,
-                    focus_item_id=schedule.focus_item_id,
-                    focus_description=schedule.focus_description
-                )
-                self.mark_session_started(schedule.schedule_id, session_id)
-                triggered.append(schedule.schedule_id)
+                logger.info(f"Triggering scheduled {schedule.session_type.value} session: {schedule.schedule_id}")
+
+                session_id = None
+
+                # New dispatch pattern: use runners dict
+                if runners:
+                    runner = runners.get(schedule.session_type.value)
+                    if runner:
+                        session = await runner.start_session(
+                            duration_minutes=schedule.duration_minutes,
+                            focus=schedule.focus_description,
+                            focus_item_id=schedule.focus_item_id,
+                            mode=schedule.mode,
+                            trigger="scheduled",
+                        )
+                        session_id = getattr(session, 'session_id', None)
+                    else:
+                        logger.warning(f"No runner for session type: {schedule.session_type.value}")
+                        continue
+
+                # Legacy fallback: use single callback
+                elif self._session_trigger:
+                    session_id = await self._session_trigger(
+                        duration_minutes=schedule.duration_minutes,
+                        mode=schedule.mode,
+                        focus_item_id=schedule.focus_item_id,
+                        focus_description=schedule.focus_description
+                    )
+                else:
+                    logger.warning("No runners or session trigger configured")
+                    return []
+
+                if session_id:
+                    self.mark_session_started(schedule.schedule_id, session_id)
+                    triggered.append(schedule.schedule_id)
+
             except Exception as e:
                 logger.error(f"Error triggering schedule {schedule.schedule_id}: {e}")
 
@@ -431,6 +478,7 @@ class ResearchScheduler:
         d = asdict(schedule)
         d["status"] = schedule.status.value
         d["recurrence"] = schedule.recurrence.value
+        d["session_type"] = schedule.session_type.value
         return d
 
     def get_stats(self) -> Dict[str, Any]:

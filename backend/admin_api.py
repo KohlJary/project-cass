@@ -1129,6 +1129,85 @@ async def delete_schedule(
     return result
 
 
+# ============== Daily Rhythm Endpoints ==============
+
+daily_rhythm_manager = None
+
+
+def init_daily_rhythm_manager(manager):
+    """Initialize daily rhythm manager from main app"""
+    global daily_rhythm_manager
+    daily_rhythm_manager = manager
+
+
+class UpdateRhythmPhasesRequest(BaseModel):
+    phases: List[Dict]
+
+
+@router.get("/rhythm/phases")
+async def get_rhythm_phases():
+    """Get configured daily rhythm phases"""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    return {"phases": daily_rhythm_manager.get_phases()}
+
+
+@router.put("/rhythm/phases")
+async def update_rhythm_phases(
+    request: UpdateRhythmPhasesRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Update daily rhythm phase configuration"""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    result = daily_rhythm_manager.update_phases(request.phases)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
+@router.get("/rhythm/status")
+async def get_rhythm_status():
+    """Get current rhythm status including temporal context"""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    return daily_rhythm_manager.get_rhythm_status()
+
+
+@router.get("/rhythm/stats")
+async def get_rhythm_stats(days: int = Query(default=7, le=30)):
+    """Get rhythm statistics over recent days"""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    return daily_rhythm_manager.get_stats(days=days)
+
+
+@router.post("/rhythm/phases/{phase_id}/complete")
+async def mark_phase_complete(
+    phase_id: str,
+    session_id: Optional[str] = None,
+    session_type: Optional[str] = None
+):
+    """Mark a rhythm phase as completed"""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    result = daily_rhythm_manager.mark_phase_completed(
+        phase_id=phase_id,
+        session_id=session_id,
+        session_type=session_type
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result
+
+
 # ============== GitHub Metrics Endpoints ==============
 
 github_metrics_manager = None

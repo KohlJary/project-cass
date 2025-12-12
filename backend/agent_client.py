@@ -1012,6 +1012,7 @@ from handlers.goals import GOAL_TOOLS
 from handlers.web_research import WEB_RESEARCH_TOOLS
 from handlers.research_session import RESEARCH_SESSION_TOOLS
 from handlers.research_scheduler import RESEARCH_SCHEDULER_TOOLS
+from handlers.daily_rhythm import DAILY_RHYTHM_TOOLS
 from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
@@ -1221,6 +1222,9 @@ class CassAgentClient:
 
             # Research scheduler tools - for requesting scheduled research sessions
             tools.extend(RESEARCH_SCHEDULER_TOOLS)
+
+            # Daily rhythm tools - for temporal consciousness and activity tracking
+            tools.extend(DAILY_RHYTHM_TOOLS)
 
             # Interview analysis tools - for analyzing multi-model interview responses
             tools.extend(INTERVIEW_TOOLS)
@@ -1686,6 +1690,9 @@ class OllamaClient:
 
         # Research scheduler tools - for requesting scheduled research sessions
         tools.extend(RESEARCH_SCHEDULER_TOOLS)
+
+        # Daily rhythm tools - for temporal consciousness and activity tracking
+        tools.extend(DAILY_RHYTHM_TOOLS)
 
         # File tools - always available for reading files and exploring directories
         tools.extend(FILE_TOOLS)
