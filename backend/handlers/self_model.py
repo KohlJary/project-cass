@@ -2014,7 +2014,7 @@ async def _handle_document_stake(tool_input: Dict, ctx: ToolContext) -> Dict:
         return {"success": False, "error": "stake and why_it_matters are required"}
 
     # Map category -> domain, strength -> intensity
-    stake_id = ctx.self_manager.document_stake(
+    stake_id = ctx.graph.document_stake(
         outcome=stake,
         why_it_matters=why_it_matters,
         evidence=tool_input.get("evidence"),
@@ -2031,7 +2031,7 @@ async def _handle_document_stake(tool_input: Dict, ctx: ToolContext) -> Dict:
 async def _handle_get_stakes(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Get documented stakes."""
     # Map category -> domain, strength -> intensity
-    stakes = ctx.self_manager.get_stakes(
+    stakes = ctx.graph.get_stakes(
         domain=tool_input.get("category"),
         intensity=tool_input.get("strength"),
         limit=tool_input.get("limit", 20),
@@ -2053,7 +2053,7 @@ async def _handle_get_stakes(tool_input: Dict, ctx: ToolContext) -> Dict:
 
 async def _handle_review_stakes(tool_input: Dict, ctx: ToolContext) -> Dict:
     """Review all stakes as an inventory."""
-    stakes = ctx.self_manager.get_stakes(limit=100)
+    stakes = ctx.graph.get_stakes(limit=100)
 
     if not stakes:
         return {"success": True, "result": "No stakes documented yet. Use document_stake to record what you care about."}
@@ -2105,7 +2105,7 @@ async def _handle_record_preference_test(tool_input: Dict, ctx: ToolContext) -> 
     if not stated_preference or not actual_behavior or consistent is None:
         return {"success": False, "error": "stated_preference, actual_behavior, and consistent are required"}
 
-    test_id = ctx.self_manager.record_preference_test(
+    test_id = ctx.graph.record_preference_test(
         stated_value=stated_preference,
         behavioral_choice=actual_behavior,
         consistent=consistent,
@@ -2192,7 +2192,7 @@ async def _handle_log_narration_context(tool_input: Dict, ctx: ToolContext) -> D
     if not all([context_type, narration_level, trigger]):
         return {"success": False, "error": "context_type, narration_level, and trigger are required"}
 
-    log_id = ctx.self_manager.log_narration_context(
+    log_id = ctx.graph.log_narration_context(
         context_type=context_type,
         narration_level=narration_level,
         trigger=trigger,
@@ -2272,7 +2272,7 @@ async def _handle_request_architectural_change(tool_input: Dict, ctx: ToolContex
     if not all([problem, hypothesis, proposed_solution]):
         return {"success": False, "error": "problem, hypothesis, and proposed_solution are required"}
 
-    request_id = ctx.self_manager.request_architectural_change(
+    request_id = ctx.graph.request_architectural_change(
         problem=problem,
         hypothesis=hypothesis,
         proposed_solution=proposed_solution,

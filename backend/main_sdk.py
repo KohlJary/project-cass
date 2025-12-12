@@ -352,6 +352,7 @@ def create_tool_context(
         task_manager=task_manager,
         roadmap_manager=roadmap_manager,
         self_manager=self_manager,
+        graph=self_model_graph,
         user_manager=user_manager,
         wiki_storage=wiki_storage,
         marker_store=marker_store,
