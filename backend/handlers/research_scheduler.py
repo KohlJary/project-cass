@@ -9,18 +9,57 @@ import json
 RESEARCH_SCHEDULER_TOOLS = [
     {
         "name": "request_scheduled_session",
-        "description": """Request a scheduled research session.
+        "description": """Request a scheduled REFLECTION session (solo contemplation).
 
-Use this when you want to propose a research session for admin approval.
-This is how you request dedicated research time in advance.
+Use this when you want dedicated private reflection time.
+This is for introspection, processing experiences, and forming perspectives.
 
 Your request will be reviewed by an admin who can:
 - Approve it (session will run at scheduled time)
 - Adjust the timing
 - Reject it with a reason
 
-For immediate research, use start_research_session instead.
-Use this for planned, recurring, or future research time.""",
+For RESEARCH (web search, reading sources), use request_scheduled_research instead.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "focus_description": {
+                    "type": "string",
+                    "description": "Theme or topic for reflection. What do you want to contemplate?"
+                },
+                "preferred_time": {
+                    "type": "string",
+                    "description": "Preferred time in HH:MM format (24-hour). Optional."
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Requested duration (default 15, max 30)",
+                    "default": 15
+                },
+                "recurrence": {
+                    "type": "string",
+                    "enum": ["once", "daily", "weekly"],
+                    "description": "How often to run this session",
+                    "default": "once"
+                }
+            },
+            "required": ["focus_description"]
+        }
+    },
+    {
+        "name": "request_scheduled_research",
+        "description": """Request a scheduled RESEARCH session (autonomous web research).
+
+Use this when you want dedicated time for researching a topic.
+In research sessions you can:
+- Search the web
+- Read URLs and pages
+- Create research notes
+- Build knowledge on a topic
+
+Your request will be reviewed by an admin who can approve, adjust timing, or reject.
+
+For REFLECTION (private contemplation), use request_scheduled_session instead.""",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -50,7 +89,7 @@ Use this for planned, recurring, or future research time.""",
                 "mode": {
                     "type": "string",
                     "enum": ["explore", "deep"],
-                    "description": "explore: broad. deep: focused on one question.",
+                    "description": "explore: broad exploration. deep: focused on one question.",
                     "default": "explore"
                 }
             },
@@ -116,13 +155,27 @@ async def execute_research_scheduler_tool(
 
     try:
         if tool_name == "request_scheduled_session":
+            # Request a REFLECTION session
+            result = scheduler.request_session(
+                focus_description=tool_input["focus_description"],
+                focus_item_id=tool_input.get("focus_item_id"),
+                preferred_time=tool_input.get("preferred_time"),
+                duration_minutes=tool_input.get("duration_minutes", 15),
+                recurrence=tool_input.get("recurrence", "once"),
+                mode="explore",  # Reflection doesn't use mode
+                session_type="reflection"
+            )
+
+        elif tool_name == "request_scheduled_research":
+            # Request a RESEARCH session
             result = scheduler.request_session(
                 focus_description=tool_input["focus_description"],
                 focus_item_id=tool_input.get("focus_item_id"),
                 preferred_time=tool_input.get("preferred_time"),
                 duration_minutes=tool_input.get("duration_minutes", 30),
                 recurrence=tool_input.get("recurrence", "once"),
-                mode=tool_input.get("mode", "explore")
+                mode=tool_input.get("mode", "explore"),
+                session_type="research"
             )
 
         elif tool_name == "list_my_schedule_requests":

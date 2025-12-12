@@ -24,7 +24,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("cass-vessel")
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import json
 import asyncio
 from datetime import datetime, timedelta
@@ -91,7 +91,10 @@ from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
 from research import ResearchManager
 from research_session import ResearchSessionManager
-from research_scheduler import ResearchScheduler
+from research_scheduler import ResearchScheduler, SessionType
+from research_session_runner import ResearchSessionRunner
+from daily_rhythm import DailyRhythmManager
+from handlers.daily_rhythm import execute_daily_rhythm_tool
 import base64
 
 
@@ -251,6 +254,7 @@ goal_manager = GoalManager(data_dir=DATA_DIR)
 research_manager = ResearchManager(data_dir=DATA_DIR)
 research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
 research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
+daily_rhythm_manager = DailyRhythmManager(data_dir=DATA_DIR)
 
 # Initialize interview system
 from interviews import InterviewAnalyzer
@@ -426,12 +430,13 @@ init_auth_routes(auth_service)
 app.include_router(auth_router)
 
 # Register admin routes
-from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker
+from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager
 init_admin_managers(memory, conversation_manager, user_manager, self_manager)
 init_research_session_manager(research_session_manager)
 init_research_scheduler(research_scheduler)
 init_github_metrics(github_metrics_manager)
 init_token_tracker(token_tracker)
+init_daily_rhythm_manager(daily_rhythm_manager)
 app.include_router(admin_router)
 
 # Register testing routes
@@ -1133,11 +1138,23 @@ async def chat(request: ChatRequest):
                         tool_result = {"success": False, "error": tool_result["error"]}
                     else:
                         tool_result = {"success": True, "result": tool_result_str}
-                elif tool_name in ["request_scheduled_session", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
+                elif tool_name in ["request_scheduled_session", "request_scheduled_research", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
                     tool_result_str = await execute_research_scheduler_tool(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
                         scheduler=research_scheduler
+                    )
+                    import json as json_module
+                    tool_result = json_module.loads(tool_result_str)
+                    if "error" in tool_result:
+                        tool_result = {"success": False, "error": tool_result["error"]}
+                    else:
+                        tool_result = {"success": True, "result": tool_result_str}
+                elif tool_name in ["get_daily_rhythm_status", "get_temporal_context", "mark_rhythm_phase_complete", "get_rhythm_stats"]:
+                    tool_result_str = await execute_daily_rhythm_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        rhythm_manager=daily_rhythm_manager
                     )
                     import json as json_module
                     tool_result = json_module.loads(tool_result_str)
@@ -2525,6 +2542,36 @@ def get_reflection_runner() -> SoloReflectionRunner:
     return _reflection_runner
 
 
+# Initialize the research runner (lazy - created when needed)
+_research_runner: Optional[ResearchSessionRunner] = None
+
+def get_research_runner() -> ResearchSessionRunner:
+    """Get or create the autonomous research runner."""
+    global _research_runner
+    if _research_runner is None:
+        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
+        _research_runner = ResearchSessionRunner(
+            session_manager=research_session_manager,
+            research_manager=research_manager,
+            anthropic_api_key=ANTHROPIC_API_KEY,
+            use_haiku=True,  # Use Haiku for better quality research
+            ollama_base_url=OLLAMA_BASE_URL,
+            ollama_model=OLLAMA_CHAT_MODEL,
+            self_manager=self_manager,
+            self_model_graph=self_model_graph,
+            token_tracker=token_tracker,
+        )
+    return _research_runner
+
+
+def get_activity_runners() -> Dict[str, Any]:
+    """Get runners dict for scheduler dispatch by session type."""
+    return {
+        "reflection": get_reflection_runner(),
+        "research": get_research_runner(),
+    }
+
+
 class SoloReflectionStartRequest(BaseModel):
     duration_minutes: int = 15
     theme: Optional[str] = None
@@ -2665,6 +2712,76 @@ async def integrate_reflection_session(session_id: str):
         "questions_added": len(result.get("questions_added", [])),
         "details": result,
     }
+
+
+# === Autonomous Research Session Endpoints ===
+
+class AutonomousResearchStartRequest(BaseModel):
+    duration_minutes: int = 30
+    focus: str
+    mode: str = "explore"  # explore or deep
+
+
+@app.post("/autonomous-research/sessions")
+async def start_autonomous_research(request: AutonomousResearchStartRequest, background_tasks: BackgroundTasks):
+    """
+    Start an autonomous research session.
+
+    This runs via LLM (Haiku or Ollama) with full Cass context injected.
+    The session runs in the background and creates research notes.
+    """
+    runner = get_research_runner()
+
+    if runner.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail="A research session is already running"
+        )
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=min(request.duration_minutes, 60),
+            focus=request.focus,
+            mode=request.mode,
+            trigger="admin",
+        )
+
+        return {
+            "status": "started",
+            "session_id": session.session_id,
+            "duration_minutes": session.duration_limit_minutes,
+            "focus": session.focus_description,
+            "mode": session.mode.value if hasattr(session.mode, 'value') else str(session.mode),
+            "message": f"Autonomous research session started. Running for {session.duration_limit_minutes} minutes."
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/autonomous-research/status")
+async def get_autonomous_research_status():
+    """Get status of the current autonomous research session."""
+    runner = get_research_runner()
+    current_session = runner.session_manager.get_current_session()
+    return {
+        "is_running": runner.is_running,
+        "current_session": current_session,
+    }
+
+
+@app.post("/autonomous-research/stop")
+async def stop_autonomous_research():
+    """Stop the currently running autonomous research session."""
+    runner = get_research_runner()
+
+    if not runner.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail="No research session is currently running"
+        )
+
+    await runner.stop()
+    return {"status": "stopped", "message": "Research session stopped"}
 
 
 # === Interview System Endpoints ===
