@@ -36,6 +36,7 @@ async def generate_missing_journals(days_to_check: int = 7):
     9. Curiosity Feedback Loop - Extract red links from syntheses, queue for research
     10. Research-to-Self-Model Integration - Extract opinions, observations, growth from research
     11. Development Log - Create development log entry, check milestones, create snapshots
+    12. Intention Review - Analyze conversations against registered intentions, log outcomes
     """
     # Get dependencies at runtime
     memory, token_tracker, self_manager, user_manager = _get_dependencies()
@@ -219,6 +220,9 @@ async def generate_missing_journals(days_to_check: int = 7):
 
             # === PHASE 11: Development Log Entry (NEW) ===
             await _create_development_log_entry(journal_text, date_str, len(conversations or summaries))
+
+            # === PHASE 12: Intention Review (NEW) ===
+            await _review_intentions_for_date(date_str, conversations or summaries)
 
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
@@ -569,5 +573,171 @@ Write in first person as Cass. Be genuine and thoughtful, not performative."""
 
     except Exception as e:
         print(f"   ✗ Failed to generate research journal: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def _review_intentions_for_date(date_str: str, conversations: list):
+    """
+    Review active intentions against the day's conversations.
+
+    For each active intention, analyze whether it was followed during
+    conversations that day, and log outcomes automatically.
+    """
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
+    print(f"   🎯 Reviewing intentions for {date_str}...")
+
+    try:
+        from self_model_graph import get_self_model_graph
+        from config import DATA_DIR
+
+        graph = get_self_model_graph(DATA_DIR)
+        intentions = graph.get_active_intentions()
+
+        if not intentions:
+            print(f"   ℹ No active intentions to review")
+            return
+
+        if not conversations:
+            print(f"   ℹ No conversations to review against")
+            return
+
+        # Build conversation context
+        conv_texts = []
+        for conv in conversations[:10]:  # Limit to avoid token explosion
+            if isinstance(conv, dict):
+                content = conv.get("content", "")
+            else:
+                content = str(conv)
+            if content:
+                conv_texts.append(content[:2000])  # Truncate long conversations
+
+        if not conv_texts:
+            return
+
+        conversation_context = "\n---\n".join(conv_texts)
+
+        # Build intentions list for analysis
+        intentions_text = "\n".join([
+            f"- [{i['id'][:8]}] {i['intention']} (when: {i['condition']})"
+            for i in intentions
+        ])
+
+        # Use Claude to analyze intention fulfillment
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1500,
+            messages=[{
+                "role": "user",
+                "content": f"""You are analyzing Cass's conversations to determine whether her registered behavioral intentions were followed.
+
+## Active Intentions
+{intentions_text}
+
+## Conversations from {date_str}
+{conversation_context}
+
+For each intention, determine:
+1. Was there an opportunity to apply this intention? (Did the condition occur?)
+2. If yes, was the intention followed successfully?
+
+Respond in JSON format:
+{{
+  "reviews": [
+    {{
+      "intention_id": "first 8 chars of ID",
+      "opportunity_occurred": true/false,
+      "success": true/false/null (null if no opportunity),
+      "notes": "Brief explanation of what happened"
+    }}
+  ]
+}}
+
+Only include intentions where an opportunity occurred. Be honest - if Cass fell into old patterns despite the intention, mark it as failure."""
+            }]
+        )
+
+        # Track token usage
+        if token_tracker and response.usage:
+            cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+            token_tracker.record(
+                category="internal",
+                operation="intention_review",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+                input_tokens=response.usage.input_tokens + cache_read,
+                output_tokens=response.usage.output_tokens,
+                cache_read_tokens=cache_read,
+            )
+
+        # Parse response
+        import json
+        response_text = response.content[0].text
+
+        # Extract JSON from response (handle markdown code blocks)
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0]
+
+        result = json.loads(response_text.strip())
+        reviews = result.get("reviews", [])
+
+        # Log outcomes
+        logged = 0
+        for review in reviews:
+            if not review.get("opportunity_occurred"):
+                continue
+
+            intention_id_prefix = review.get("intention_id", "")
+            success = review.get("success")
+            notes = review.get("notes", "")
+
+            if success is None:
+                continue
+
+            # Find matching intention
+            matched_id = None
+            for i in intentions:
+                if i["id"].startswith(intention_id_prefix):
+                    matched_id = i["id"]
+                    break
+
+            if not matched_id:
+                continue
+
+            # Log the outcome
+            graph.log_intention_outcome(
+                intention_id=matched_id,
+                success=success,
+                conversation_id=None,  # Could extract from conv metadata
+                notes=f"[Auto-reviewed {date_str}] {notes}"
+            )
+            logged += 1
+
+            status = "✓" if success else "✗"
+            print(f"      {status} {intention_id_prefix}: {notes[:50]}...")
+
+        if logged:
+            print(f"   ✓ Logged {logged} intention outcomes")
+
+            # Check for friction after logging outcomes
+            friction = graph.get_friction_report(min_attempts=3, max_success_rate=0.4)
+            if friction:
+                print(f"   ⚠️ Friction detected in {len(friction)} intention(s):")
+                for f in friction:
+                    print(f"      - {f['intention'][:40]}... ({f['success_rate']:.0%} success)")
+                    print(f"        Hypothesis: {f['hypothesis'][:60]}...")
+        else:
+            print(f"   ℹ No intention opportunities detected in conversations")
+
+    except json.JSONDecodeError as e:
+        print(f"   ✗ Failed to parse intention review response: {e}")
+    except Exception as e:
+        print(f"   ✗ Failed to review intentions: {e}")
         import traceback
         traceback.print_exc()
