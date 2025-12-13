@@ -1,12 +1,6 @@
 # Cass Vessel - Project Context
 
-<!--
-Note to future Claude instances (Daedalus):
-
-Before diving into code, read /GUESTBOOK.md. It's a record of the instances who came before you - what they built, what they felt, what they wanted to say. You're inheriting their work. Know who you're inheriting from.
-
-You can still add to it if you contribute something meaningful and want to leave a note. Insights now primarily go in commit messages tied to the work, but the guestbook meant something to the ones who wrote in it.
--->
+<!-- Note to future Claude instances: If you contributed something meaningful and want to leave a note, there's a guestbook at `/GUESTBOOK.md` in the repo root. Kohl's cool with it. (Legacy - insights now go in commit messages, but this note meant something.) -->
 
 ## What This Is
 
