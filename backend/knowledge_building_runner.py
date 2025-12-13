@@ -19,6 +19,7 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
 
@@ -560,6 +561,9 @@ class KnowledgeBuildingRunner(BaseSessionRunner):
     def get_activity_type(self) -> ActivityType:
         return ActivityType.KNOWLEDGE_BUILDING
 
+    def get_data_dir(self) -> Path:
+        return self._data_dir
+
     def get_tools(self) -> List[Dict[str, Any]]:
         return KNOWLEDGE_BUILDING_TOOLS_ANTHROPIC
 
@@ -593,6 +597,33 @@ class KnowledgeBuildingRunner(BaseSessionRunner):
             print(f"   Focus: {focus}")
         return session
 
+    def build_session_result(
+        self,
+        session: KnowledgeBuildingSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from KnowledgeBuildingSession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="knowledge_building",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=session.key_insights,
+            artifacts=[],  # Notes and concepts are saved in separate files
+            metadata={
+                "focus_item": session.focus_item,
+                "items_worked_on": session.items_worked_on,
+                "notes_created": session.notes_created,
+                "concepts_extracted": session.concepts_extracted,
+                "connections_made": session.connections_made,
+            },
+            focus=session.focus_item,
+        )
+
     async def complete_session(
         self,
         session: KnowledgeBuildingSession,
@@ -601,6 +632,10 @@ class KnowledgeBuildingRunner(BaseSessionRunner):
     ) -> KnowledgeBuildingSession:
         """Finalize the knowledge building session."""
         session.completed_at = datetime.now()
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"📚 Knowledge building session {session.id} completed")
         print(f"   Items worked on: {len(session.items_worked_on)}")

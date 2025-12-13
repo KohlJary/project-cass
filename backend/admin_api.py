@@ -3302,6 +3302,71 @@ async def regenerate_daily_summary():
 # Unified Session Endpoint
 # ============================================================================
 
+# Map session types to their data directories
+SESSION_TYPE_DIRS = {
+    "reflection": "solo_reflections",
+    "research": "research/sessions",
+    "curiosity": "curiosity",
+    "world_state": "world_state",
+    "creative_output": "creative",
+    "creative": "creative",  # alias
+    "consolidation": "consolidation",
+    "knowledge_building": "knowledge_building",
+    "writing": "writing",
+    "synthesis": "synthesis",
+    "meta_reflection": "meta_reflection",
+    "growth_edge": "growth_edge",
+}
+
+
+def _try_load_session_result(session_type: str, session_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Try to load a session using the new standardized SessionResult format.
+
+    Returns the session dict if found in new format, None otherwise.
+    This allows graceful fallback to legacy loaders.
+    """
+    import json
+
+    subdir = SESSION_TYPE_DIRS.get(session_type.lower())
+    if not subdir:
+        return None
+
+    session_dir = DATA_DIR / subdir
+
+    # Try new standard naming first: session_{id}.json
+    session_file = session_dir / f"session_{session_id}.json"
+    if not session_file.exists():
+        # Try without prefix for legacy
+        session_file = session_dir / f"{session_id}.json"
+
+    if not session_file.exists():
+        return None
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Check if this is the new SessionResult format (has session_type field)
+    if "session_type" in data and "artifacts" in data:
+        # It's the new format - normalize field names for frontend
+        return {
+            "session_id": data.get("session_id"),
+            "session_type": data.get("session_type"),
+            "started_at": data.get("started_at"),
+            "ended_at": data.get("completed_at"),
+            "duration_minutes": data.get("duration_minutes"),
+            "status": data.get("status", "completed"),
+            "summary": data.get("summary"),
+            "findings": data.get("findings", []),
+            "artifacts": data.get("artifacts", []),
+            "metadata": data.get("metadata", {}),
+            "focus": data.get("focus"),
+        }
+
+    # Not new format, return None to use legacy loader
+    return None
+
+
 @router.get("/sessions/{session_id}")
 async def get_session(
     session_id: str,
@@ -3317,13 +3382,19 @@ async def get_session(
     - artifacts: Type-specific artifacts (thoughts, notes, discoveries, etc.)
     - metadata: Additional type-specific data
     """
-    import json
-    from pathlib import Path
-
-    # Map session types to their data directories and loaders
     session_type_lower = session_type.lower()
 
+    # Handle alias
+    if session_type_lower == "creative":
+        session_type_lower = "creative_output"
+
     try:
+        # First, try loading using new SessionResult format
+        result = _try_load_session_result(session_type_lower, session_id)
+        if result:
+            return result
+
+        # Fall back to legacy loaders
         if session_type_lower == "reflection":
             return await _load_reflection_session(session_id)
         elif session_type_lower == "research":

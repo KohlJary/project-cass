@@ -13,6 +13,7 @@ Variations:
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
+from pathlib import Path
 import json
 
 from session_runner import (
@@ -20,6 +21,7 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
 
@@ -400,6 +402,9 @@ class ConsolidationRunner(BaseSessionRunner):
     def get_activity_type(self) -> ActivityType:
         return ActivityType.CONSOLIDATION
 
+    def get_data_dir(self) -> Path:
+        return Path(self._summaries_dir)
+
     def get_tools(self) -> List[Dict[str, Any]]:
         return CONSOLIDATION_TOOLS_ANTHROPIC
 
@@ -453,6 +458,37 @@ class ConsolidationRunner(BaseSessionRunner):
         print(f"   Period: {period_start} to {period_end}")
         return session
 
+    def build_session_result(
+        self,
+        session: ConsolidationSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from ConsolidationSession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="consolidation",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=session.key_insights,
+            artifacts=[
+                {"type": "theme", "content": t} for t in session.themes_identified
+            ],
+            metadata={
+                "period_type": session.period_type,
+                "period_start": session.period_start,
+                "period_end": session.period_end,
+                "items_reviewed": session.items_reviewed,
+                "summaries_created": session.summaries_created,
+                "items_archived": session.items_archived,
+                "patterns_noted": session.patterns_noted,
+            },
+            focus=None,
+        )
+
     async def complete_session(
         self,
         session: ConsolidationSession,
@@ -461,6 +497,10 @@ class ConsolidationRunner(BaseSessionRunner):
     ) -> ConsolidationSession:
         """Finalize the consolidation session."""
         session.completed_at = datetime.now()
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"📦 Consolidation session {session.id} completed")
         print(f"   Items reviewed: {session.items_reviewed}")

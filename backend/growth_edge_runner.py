@@ -16,8 +16,10 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
+from pathlib import Path
 
 
 # Tool definitions for Anthropic API
@@ -339,13 +341,18 @@ class GrowthEdgeRunner(BaseSessionRunner):
     areas of development.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, data_dir: str = "data", **kwargs):
         super().__init__(**kwargs)
         self._sessions: Dict[str, GrowthEdgeSession] = {}
         self._current_edge_focus: Optional[str] = None
+        self._data_dir = Path(data_dir) / "growth_edge"
+        self._data_dir.mkdir(parents=True, exist_ok=True)
 
     def get_activity_type(self) -> ActivityType:
         return ActivityType.GROWTH_EDGE
+
+    def get_data_dir(self) -> Path:
+        return self._data_dir
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return GROWTH_EDGE_TOOLS_ANTHROPIC
@@ -381,6 +388,36 @@ class GrowthEdgeRunner(BaseSessionRunner):
             print(f"   Focus: {focus}")
         return session
 
+    def build_session_result(
+        self,
+        session: GrowthEdgeSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from GrowthEdgeSession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="growth_edge",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=[],
+            artifacts=[
+                {"type": "exercise", "content": e} for e in session.exercises_designed
+            ] + [
+                {"type": "observation", "content": o} for o in session.observations_recorded
+            ],
+            metadata={
+                "focus_edge": session.focus_edge,
+                "edges_worked": session.edges_worked,
+                "strategies_added": session.strategies_added,
+                "evaluations_made": session.evaluations_made,
+            },
+            focus=session.focus_edge,
+        )
+
     async def complete_session(
         self,
         session: GrowthEdgeSession,
@@ -389,6 +426,10 @@ class GrowthEdgeRunner(BaseSessionRunner):
     ) -> GrowthEdgeSession:
         """Finalize the growth edge work session."""
         session.completed_at = datetime.now()
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"🌱 Growth edge work session {session.id} completed")
         print(f"   Focus edge: {session.focus_edge or 'various'}")

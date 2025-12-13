@@ -11,6 +11,7 @@ Synthesis sessions allow Cass to:
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from dataclasses import dataclass, field
+from pathlib import Path
 import json
 
 from session_runner import (
@@ -18,6 +19,7 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
 
@@ -258,15 +260,21 @@ class SynthesisSessionRunner(BaseSessionRunner):
         self,
         goal_manager,  # GoalManager for synthesis artifacts
         research_manager=None,  # For searching research notes
+        data_dir: str = "data",
         **kwargs
     ):
         super().__init__(**kwargs)
         self.goal_manager = goal_manager
         self.research_manager = research_manager
         self._sessions: Dict[str, SynthesisSession] = {}
+        self._data_dir = Path(data_dir) / "synthesis"
+        self._data_dir.mkdir(parents=True, exist_ok=True)
 
     def get_activity_type(self) -> ActivityType:
         return ActivityType.SYNTHESIS
+
+    def get_data_dir(self) -> Path:
+        return self._data_dir
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return SYNTHESIS_TOOLS_ANTHROPIC
@@ -302,6 +310,37 @@ class SynthesisSessionRunner(BaseSessionRunner):
             print(f"   Focus: {focus}")
         return session
 
+    def build_session_result(
+        self,
+        session: SynthesisSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from SynthesisSession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="synthesis",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=[],
+            artifacts=[
+                {"type": "created", "artifact_id": a} for a in session.artifacts_created
+            ] + [
+                {"type": "updated", "artifact_id": a} for a in session.artifacts_updated
+            ],
+            metadata={
+                "mode": session.mode,
+                "artifacts_created": session.artifacts_created,
+                "artifacts_updated": session.artifacts_updated,
+                "contradictions_addressed": session.contradictions_addressed,
+                "next_steps": session.next_steps,
+            },
+            focus=session.focus,
+        )
+
     async def complete_session(
         self,
         session: SynthesisSession,
@@ -310,6 +349,10 @@ class SynthesisSessionRunner(BaseSessionRunner):
     ) -> SynthesisSession:
         """Finalize the synthesis session."""
         session.completed_at = datetime.now()
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         # Log completion
         created = len(session.artifacts_created)

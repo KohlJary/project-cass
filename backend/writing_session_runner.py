@@ -18,6 +18,7 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
 
@@ -463,6 +464,9 @@ class WritingRunner(BaseSessionRunner):
     def get_activity_type(self) -> ActivityType:
         return ActivityType.WRITING
 
+    def get_data_dir(self) -> Path:
+        return self._projects_dir
+
     def get_tools(self) -> List[Dict[str, Any]]:
         return WRITING_TOOLS_ANTHROPIC
 
@@ -496,6 +500,36 @@ class WritingRunner(BaseSessionRunner):
             print(f"   Focus: {focus}")
         return session
 
+    def build_session_result(
+        self,
+        session: WritingSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from WritingSession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="writing",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=[],
+            artifacts=[
+                {"type": "project_created", "project_id": p} for p in session.projects_created
+            ] + [
+                {"type": "project_updated", "project_id": p} for p in session.projects_updated
+            ],
+            metadata={
+                "focus_project": session.focus_project,
+                "projects_created": session.projects_created,
+                "projects_updated": session.projects_updated,
+                "words_written": session.words_written,
+            },
+            focus=session.focus_project,
+        )
+
     async def complete_session(
         self,
         session: WritingSession,
@@ -504,6 +538,10 @@ class WritingRunner(BaseSessionRunner):
     ) -> WritingSession:
         """Finalize the writing session."""
         session.completed_at = datetime.now()
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"✍️ Writing session {session.id} completed")
         print(f"   Projects created: {len(session.projects_created)}")

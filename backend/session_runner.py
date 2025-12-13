@@ -16,9 +16,11 @@ while sharing common infrastructure for LLM interaction and session management.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Type
 from datetime import datetime
 import asyncio
+import json
 import anthropic
 import httpx
 
@@ -83,6 +85,78 @@ class SessionState:
     is_running: bool = True
     completed_at: Optional[datetime] = None
     completion_reason: Optional[str] = None  # "time_limit", "natural", "stopped", "error"
+
+
+@dataclass
+class SessionResult:
+    """
+    Standardized session result format for all session types.
+
+    All session runners must produce a SessionResult that gets saved
+    to disk with consistent naming and structure. This enables unified
+    loading in the admin API.
+    """
+    # Core identifiers
+    session_id: str
+    session_type: str  # ActivityType.value
+
+    # Timing
+    started_at: str  # ISO format
+    completed_at: Optional[str] = None
+    duration_minutes: int = 0
+
+    # Status
+    status: str = "completed"  # "active", "completed", "interrupted", "error"
+    completion_reason: Optional[str] = None
+
+    # Content - the core output
+    summary: Optional[str] = None
+    findings: List[str] = field(default_factory=list)  # Key insights/discoveries
+
+    # Artifacts - things created during the session
+    artifacts: List[Dict[str, Any]] = field(default_factory=list)
+    # Each artifact: {"type": str, "id": str, "content": str, ...}
+
+    # Session-specific metadata (varies by type)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Focus/theme if provided
+    focus: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "session_id": self.session_id,
+            "session_type": self.session_type,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "duration_minutes": self.duration_minutes,
+            "status": self.status,
+            "completion_reason": self.completion_reason,
+            "summary": self.summary,
+            "findings": self.findings,
+            "artifacts": self.artifacts,
+            "metadata": self.metadata,
+            "focus": self.focus,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SessionResult":
+        """Create from dictionary."""
+        return cls(
+            session_id=data.get("session_id", ""),
+            session_type=data.get("session_type", ""),
+            started_at=data.get("started_at", ""),
+            completed_at=data.get("completed_at"),
+            duration_minutes=data.get("duration_minutes", 0),
+            status=data.get("status", "completed"),
+            completion_reason=data.get("completion_reason"),
+            summary=data.get("summary"),
+            findings=data.get("findings", []),
+            artifacts=data.get("artifacts", []),
+            metadata=data.get("metadata", {}),
+            focus=data.get("focus"),
+        )
 
 
 class BaseSessionRunner(ABC):
@@ -212,6 +286,68 @@ class BaseSessionRunner(ABC):
             Completed session object/record
         """
         pass
+
+    @abstractmethod
+    def get_data_dir(self) -> "Path":
+        """
+        Return the data directory for this session type.
+
+        e.g., Path("backend/data/reflection") or Path("backend/data/world_state")
+        """
+        pass
+
+    @abstractmethod
+    def build_session_result(
+        self,
+        session: Any,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """
+        Build a standardized SessionResult from the session-specific data.
+
+        This method must be implemented by each runner to convert their
+        internal session representation to the unified SessionResult format.
+        """
+        pass
+
+    # === Persistence methods (use standard naming) ===
+
+    def save_session_result(self, result: SessionResult) -> None:
+        """
+        Save a SessionResult to disk with standard naming.
+
+        File naming convention: session_{session_id}.json
+        This ensures consistency across all session types.
+        """
+        data_dir = self.get_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        session_file = data_dir / f"session_{result.session_id}.json"
+        with open(session_file, 'w') as f:
+            json.dump(result.to_dict(), f, indent=2)
+
+    @classmethod
+    def load_session_result(cls, data_dir: Path, session_id: str) -> Optional[SessionResult]:
+        """
+        Load a SessionResult from disk.
+
+        Tries both naming conventions for backwards compatibility:
+        1. session_{session_id}.json (new standard)
+        2. {session_id}.json (legacy)
+        """
+        # Try new naming first
+        session_file = data_dir / f"session_{session_id}.json"
+        if not session_file.exists():
+            # Fall back to legacy naming
+            session_file = data_dir / f"{session_id}.json"
+
+        if not session_file.exists():
+            return None
+
+        with open(session_file, 'r') as f:
+            data = json.load(f)
+
+        return SessionResult.from_dict(data)
 
     # === Optional hooks subclasses can override ===
 
