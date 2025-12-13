@@ -2808,6 +2808,7 @@ def get_user_model_synthesis_runner() -> UserModelSynthesisRunner:
         from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
         _user_model_synthesis_runner = UserModelSynthesisRunner(
             user_manager=user_manager,
+            conversation_manager=conversation_manager,
             anthropic_api_key=ANTHROPIC_API_KEY,
             use_haiku=True,
             ollama_base_url=OLLAMA_BASE_URL,
