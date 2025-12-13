@@ -2211,6 +2211,125 @@ async def list_creative_projects(
     }
 
 
+# ============== User Model Synthesis Endpoints ==============
+
+class StartUserModelSynthesisRequest(BaseModel):
+    duration_minutes: int = 30
+    target_user_id: str  # Required - which user to synthesize
+    target_user_name: str = ""  # Display name for logging
+
+
+user_model_synthesis_runner_getter = None
+
+
+def init_user_model_synthesis_runner(getter):
+    """Initialize user model synthesis runner getter"""
+    global user_model_synthesis_runner_getter
+    user_model_synthesis_runner_getter = getter
+
+
+@router.get("/user-model-synthesis/status")
+async def get_user_model_synthesis_status():
+    """Get the current user model synthesis session status"""
+    if not user_model_synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="User model synthesis runner not initialized")
+
+    runner = user_model_synthesis_runner_getter()
+    return {
+        "is_running": runner.is_running,
+        "session_type": "user_model_synthesis"
+    }
+
+
+@router.post("/user-model-synthesis/start")
+async def start_user_model_synthesis_session(request: StartUserModelSynthesisRequest):
+    """Start a new user model synthesis session"""
+    if not user_model_synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="User model synthesis runner not initialized")
+
+    runner = user_model_synthesis_runner_getter()
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A user model synthesis session is already running")
+
+    try:
+        # Get user info to check if foundational
+        user_manager = runner.user_manager
+        rel_model = user_manager.load_relationship_model(request.target_user_id)
+        is_foundational = rel_model.is_foundational if rel_model else False
+
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            target_user_id=request.target_user_id,
+            target_user_name=request.target_user_name,
+            is_foundational=is_foundational,
+            focus=f"Synthesizing understanding of {request.target_user_name or request.target_user_id}"
+        )
+
+        return {
+            "status": "started",
+            "session_type": "user_model_synthesis",
+            "session_id": session.id,
+            "target_user_id": request.target_user_id,
+            "is_foundational": is_foundational,
+            "duration_minutes": request.duration_minutes,
+            "message": f"Started user model synthesis session for {request.target_user_name or 'user'}"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/user-model-synthesis/stop")
+async def stop_user_model_synthesis_session():
+    """Stop the current user model synthesis session"""
+    if not user_model_synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="User model synthesis runner not initialized")
+
+    runner = user_model_synthesis_runner_getter()
+    if not runner.is_running:
+        raise HTTPException(status_code=404, detail="No user model synthesis session is currently running")
+
+    runner.stop()
+    return {"status": "stopped", "message": "User model synthesis session stopped"}
+
+
+@router.get("/user-model-synthesis/sessions")
+async def list_user_model_synthesis_sessions(limit: int = Query(default=20, le=100)):
+    """List past user model synthesis sessions"""
+    if not user_model_synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="User model synthesis runner not initialized")
+
+    runner = user_model_synthesis_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+                "duration_minutes": s.duration_minutes,
+                "target_user_id": s.target_user_id,
+                "target_user_name": s.target_user_name,
+                "is_foundational": s.is_foundational,
+                "status": s.status,
+                "observations_reviewed": s.observations_reviewed,
+                "understandings_added": s.understandings_added,
+                "patterns_identified": s.patterns_identified,
+                "contradictions_flagged": s.contradictions_flagged,
+                "questions_raised": s.questions_raised,
+                "summary": s.summary,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
 # ============== Research Scheduler Endpoints ==============
 
 # Research scheduler - initialized from main app
