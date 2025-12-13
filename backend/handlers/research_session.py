@@ -258,7 +258,7 @@ async def execute_research_session_tool(
                     try:
                         current_phase = rhythm_manager.get_current_phase()
                         if current_phase and current_phase.get("activity_type") == "research":
-                            rhythm_manager.mark_phase_complete(
+                            rhythm_manager.mark_phase_completed(
                                 current_phase["id"],
                                 session_type="research",
                                 session_id=session.session_id
