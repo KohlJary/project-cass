@@ -25,6 +25,8 @@ export const usersApi = {
   getAll: () => api.get('/admin/users'),
   getById: (id: string) => api.get(`/admin/users/${id}`),
   getObservations: (id: string) => api.get(`/admin/users/${id}/observations`),
+  getUserModel: (id: string) => api.get(`/admin/users/${id}/model`),
+  getRelationshipModel: (id: string) => api.get(`/admin/users/${id}/relationship`),
   updateProfile: (id: string, data: unknown) =>
     api.patch(`/admin/users/${id}`, data),
   setAdminStatus: (id: string, isAdmin: boolean) =>

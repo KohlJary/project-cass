@@ -426,6 +426,38 @@ async def get_user_observations(user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/users/{user_id}/model")
+async def get_user_model(user_id: str):
+    """Get the structured user model for a specific user"""
+    if not users:
+        raise HTTPException(status_code=503, detail="Users not initialized")
+
+    try:
+        model = users.load_user_model(user_id)
+        if model:
+            return {"user_model": model.to_dict()}
+        return {"user_model": None}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/users/{user_id}/relationship")
+async def get_relationship_model(user_id: str):
+    """Get the relationship model for a specific user"""
+    if not users:
+        raise HTTPException(status_code=503, detail="Users not initialized")
+
+    try:
+        model = users.load_relationship_model(user_id)
+        if model:
+            return {"relationship_model": model.to_dict()}
+        return {"relationship_model": None}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class AdminStatusRequest(BaseModel):
     is_admin: bool
 

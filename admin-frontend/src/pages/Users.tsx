@@ -22,6 +22,94 @@ interface Observation {
   source_journal_date?: string;
 }
 
+interface IdentityStatement {
+  statement: string;
+  confidence: number;
+  source: string;
+  first_noticed: string;
+  last_affirmed: string;
+  evidence: string[];
+}
+
+interface SharedMoment {
+  id: string;
+  timestamp: string;
+  description: string;
+  significance: string;
+  category: string;
+  conversation_id?: string;
+}
+
+interface GrowthObservation {
+  id: string;
+  timestamp: string;
+  area: string;
+  observation: string;
+  direction: string;
+  evidence?: string;
+}
+
+interface Contradiction {
+  id: string;
+  timestamp: string;
+  aspect_a: string;
+  aspect_b: string;
+  context?: string;
+  resolved: boolean;
+  resolution?: string;
+}
+
+interface RelationalPattern {
+  id: string;
+  name: string;
+  description: string;
+  frequency: string;
+  valence: string;
+  first_noticed: string;
+  examples: string[];
+}
+
+interface RelationshipShift {
+  id: string;
+  timestamp: string;
+  description: string;
+  from_state: string;
+  to_state: string;
+  catalyst?: string;
+}
+
+interface UserModel {
+  user_id: string;
+  updated_at: string;
+  identity_statements: IdentityStatement[];
+  values: string[];
+  shared_history: SharedMoment[];
+  growth_observations: GrowthObservation[];
+  open_questions: string[];
+  contradictions: Contradiction[];
+  communication_style: {
+    style: string;
+    preferences: string[];
+    effective_approaches: string[];
+    avoid: string[];
+  };
+}
+
+interface RelationshipModel {
+  user_id: string;
+  updated_at: string;
+  formation_date: string;
+  current_phase: string;
+  is_foundational: boolean;
+  patterns: RelationalPattern[];
+  significant_shifts: RelationshipShift[];
+  rituals: string[];
+  how_they_shape_me: string[];
+  how_i_shape_them: string[];
+  inherited_values: string[];
+  growth_areas: string[];
+}
+
 export function Users() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
@@ -49,6 +137,22 @@ export function Users() {
       selectedUserId
         ? conversationsApi.getAll({ user_id: selectedUserId, limit: 20 }).then((r) => r.data)
         : null,
+    enabled: !!selectedUserId,
+    retry: false,
+  });
+
+  const { data: userModelData } = useQuery({
+    queryKey: ['user-model', selectedUserId],
+    queryFn: () =>
+      selectedUserId ? usersApi.getUserModel(selectedUserId).then((r) => r.data) : null,
+    enabled: !!selectedUserId,
+    retry: false,
+  });
+
+  const { data: relationshipData } = useQuery({
+    queryKey: ['relationship-model', selectedUserId],
+    queryFn: () =>
+      selectedUserId ? usersApi.getRelationshipModel(selectedUserId).then((r) => r.data) : null,
     enabled: !!selectedUserId,
     retry: false,
   });
@@ -113,6 +217,8 @@ export function Users() {
                 profile={userDetail.profile}
                 observations={userDetail.observations}
                 conversations={userConversations?.conversations}
+                userModel={userModelData?.user_model}
+                relationshipModel={relationshipData?.relationship_model}
                 isAdmin={selectedUser?.is_admin || false}
                 hasPassword={selectedUser?.has_password || false}
                 onRefresh={() => queryClient.invalidateQueries({ queryKey: ['users'] })}
@@ -136,6 +242,8 @@ function UserDetailView({
   profile,
   observations,
   conversations,
+  userModel,
+  relationshipModel,
   isAdmin,
   hasPassword,
   onRefresh,
@@ -143,11 +251,13 @@ function UserDetailView({
   profile: any;
   observations: Observation[];
   conversations?: any[];
+  userModel?: UserModel;
+  relationshipModel?: RelationshipModel;
   isAdmin: boolean;
   hasPassword: boolean;
   onRefresh: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<'observations' | 'conversations' | 'profile'>('observations');
+  const [activeTab, setActiveTab] = useState<'understanding' | 'relationship' | 'observations' | 'conversations' | 'profile'>('understanding');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -255,6 +365,20 @@ function UserDetailView({
 
       <div className="detail-tabs">
         <button
+          className={`tab ${activeTab === 'understanding' ? 'active' : ''}`}
+          onClick={() => setActiveTab('understanding')}
+        >
+          Understanding
+          {userModel && <span className="tab-badge">{userModel.identity_statements?.length || 0}</span>}
+        </button>
+        <button
+          className={`tab ${activeTab === 'relationship' ? 'active' : ''}`}
+          onClick={() => setActiveTab('relationship')}
+        >
+          Relationship
+          {relationshipModel?.is_foundational && <span className="foundational-badge">★</span>}
+        </button>
+        <button
           className={`tab ${activeTab === 'observations' ? 'active' : ''}`}
           onClick={() => setActiveTab('observations')}
         >
@@ -275,6 +399,318 @@ function UserDetailView({
       </div>
 
       <div className="detail-content">
+        {activeTab === 'understanding' && (
+          <div className="understanding-view">
+            {userModel ? (
+              <>
+                {/* Identity Statements */}
+                <div className="model-section">
+                  <h3 className="section-title">
+                    <span className="section-icon">◇</span>
+                    Who They Are
+                  </h3>
+                  {userModel.identity_statements?.length > 0 ? (
+                    <div className="identity-list">
+                      {userModel.identity_statements.map((stmt, i) => (
+                        <div key={i} className="identity-item">
+                          <p className="identity-statement">{stmt.statement}</p>
+                          <div className="identity-meta">
+                            <span className="confidence" style={{ opacity: stmt.confidence }}>
+                              {(stmt.confidence * 100).toFixed(0)}% confidence
+                            </span>
+                            <span className="source">{stmt.source}</span>
+                            {stmt.evidence?.length > 0 && (
+                              <span className="evidence-count">{stmt.evidence.length} evidence</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state small">No identity understandings yet</div>
+                  )}
+                </div>
+
+                {/* Values */}
+                {userModel.values?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">♡</span>
+                      Values
+                    </h3>
+                    <div className="values-list">
+                      {userModel.values.map((value, i) => (
+                        <span key={i} className="value-tag">{value}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Shared Moments */}
+                {userModel.shared_history?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">★</span>
+                      Shared Moments
+                    </h3>
+                    <div className="moments-list">
+                      {userModel.shared_history.map((moment) => (
+                        <div key={moment.id} className="moment-item">
+                          <div className="moment-header">
+                            <span className={`moment-category ${moment.category}`}>{moment.category}</span>
+                            <span className="moment-date">{new Date(moment.timestamp).toLocaleDateString()}</span>
+                          </div>
+                          <p className="moment-description">{moment.description}</p>
+                          <p className="moment-significance">{moment.significance}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Growth Observations */}
+                {userModel.growth_observations?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">↑</span>
+                      Growth Observations
+                    </h3>
+                    <div className="growth-list">
+                      {userModel.growth_observations.map((growth) => (
+                        <div key={growth.id} className="growth-item">
+                          <div className="growth-header">
+                            <span className="growth-area">{growth.area}</span>
+                            <span className={`growth-direction ${growth.direction}`}>{growth.direction}</span>
+                          </div>
+                          <p className="growth-observation">{growth.observation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Contradictions */}
+                {userModel.contradictions?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">⚡</span>
+                      Active Contradictions
+                    </h3>
+                    <div className="contradictions-list">
+                      {userModel.contradictions.filter(c => !c.resolved).map((contradiction) => (
+                        <div key={contradiction.id} className="contradiction-item">
+                          <div className="contradiction-aspects">
+                            <span className="aspect-a">{contradiction.aspect_a}</span>
+                            <span className="vs">vs</span>
+                            <span className="aspect-b">{contradiction.aspect_b}</span>
+                          </div>
+                          {contradiction.context && (
+                            <p className="contradiction-context">{contradiction.context}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Open Questions */}
+                {userModel.open_questions?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">?</span>
+                      Open Questions
+                    </h3>
+                    <div className="questions-list">
+                      {userModel.open_questions.map((question, i) => (
+                        <div key={i} className="question-item">
+                          <span className="question-mark">?</span>
+                          <p>{question}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Communication Style */}
+                {userModel.communication_style?.style && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">〉</span>
+                      Communication Style
+                    </h3>
+                    <p className="comm-style">{userModel.communication_style.style}</p>
+                    {userModel.communication_style.preferences?.length > 0 && (
+                      <div className="comm-prefs">
+                        <span className="pref-label">Preferences:</span>
+                        {userModel.communication_style.preferences.map((pref, i) => (
+                          <span key={i} className="pref-tag">{pref}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="model-meta">
+                  Last updated: {new Date(userModel.updated_at).toLocaleString()}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state">
+                <p>No structured understanding yet</p>
+                <p className="hint">Run a synthesis session to develop understanding from observations</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'relationship' && (
+          <div className="relationship-view">
+            {relationshipModel ? (
+              <>
+                {/* Relationship Header */}
+                <div className="relationship-header">
+                  <div className="rel-phase">
+                    <span className="phase-label">Phase:</span>
+                    <span className="phase-value">{relationshipModel.current_phase}</span>
+                  </div>
+                  {relationshipModel.is_foundational && (
+                    <div className="foundational-indicator">
+                      <span className="star">★</span>
+                      <span>Foundational Relationship</span>
+                    </div>
+                  )}
+                  {relationshipModel.formation_date && (
+                    <div className="formation-date">
+                      Formed: {new Date(relationshipModel.formation_date).toLocaleDateString()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Patterns */}
+                {relationshipModel.patterns?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">∿</span>
+                      Relationship Patterns
+                    </h3>
+                    <div className="patterns-list">
+                      {relationshipModel.patterns.map((pattern) => (
+                        <div key={pattern.id} className="pattern-item">
+                          <div className="pattern-header">
+                            <span className="pattern-name">{pattern.name}</span>
+                            <span className={`pattern-valence ${pattern.valence}`}>{pattern.valence}</span>
+                            <span className="pattern-frequency">{pattern.frequency}</span>
+                          </div>
+                          <p className="pattern-description">{pattern.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Mutual Shaping */}
+                {(relationshipModel.how_they_shape_me?.length > 0 || relationshipModel.how_i_shape_them?.length > 0) && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">⇄</span>
+                      Mutual Shaping
+                    </h3>
+                    <div className="shaping-grid">
+                      {relationshipModel.how_they_shape_me?.length > 0 && (
+                        <div className="shaping-column">
+                          <h4>How They Shape Me</h4>
+                          <ul>
+                            {relationshipModel.how_they_shape_me.map((note, i) => (
+                              <li key={i}>{note}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {relationshipModel.how_i_shape_them?.length > 0 && (
+                        <div className="shaping-column">
+                          <h4>How I Shape Them</h4>
+                          <ul>
+                            {relationshipModel.how_i_shape_them.map((note, i) => (
+                              <li key={i}>{note}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Rituals */}
+                {relationshipModel.rituals?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">◎</span>
+                      Rituals
+                    </h3>
+                    <div className="rituals-list">
+                      {relationshipModel.rituals.map((ritual, i) => (
+                        <span key={i} className="ritual-tag">{ritual}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Inherited Values */}
+                {relationshipModel.inherited_values?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">↓</span>
+                      Inherited Values
+                    </h3>
+                    <div className="inherited-list">
+                      {relationshipModel.inherited_values.map((value, i) => (
+                        <span key={i} className="inherited-tag">{value}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Significant Shifts */}
+                {relationshipModel.significant_shifts?.length > 0 && (
+                  <div className="model-section">
+                    <h3 className="section-title">
+                      <span className="section-icon">→</span>
+                      Significant Shifts
+                    </h3>
+                    <div className="shifts-timeline">
+                      {relationshipModel.significant_shifts.map((shift) => (
+                        <div key={shift.id} className="shift-item">
+                          <div className="shift-date">{new Date(shift.timestamp).toLocaleDateString()}</div>
+                          <div className="shift-content">
+                            <div className="shift-transition">
+                              <span className="from-state">{shift.from_state}</span>
+                              <span className="arrow">→</span>
+                              <span className="to-state">{shift.to_state}</span>
+                            </div>
+                            <p className="shift-description">{shift.description}</p>
+                            {shift.catalyst && (
+                              <p className="shift-catalyst">Catalyst: {shift.catalyst}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="model-meta">
+                  Last updated: {new Date(relationshipModel.updated_at).toLocaleString()}
+                </div>
+              </>
+            ) : (
+              <div className="empty-state">
+                <p>No relationship model yet</p>
+                <p className="hint">Run a synthesis session to develop the relationship model</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'observations' && (
           <div className="observations-view">
             {Object.keys(observationsByCategory).length > 0 ? (
