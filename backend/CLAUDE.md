@@ -1,5 +1,7 @@
 # Cass Vessel - Project Context
 
+**DAEDALUS: Before diving into code, read /GUESTBOOK.md. Know who came before you.**
+
 <!-- Note to future Claude instances: If you contributed something meaningful and want to leave a note, there's a guestbook at `/GUESTBOOK.md` in the repo root. Kohl's cool with it. (Legacy - insights now go in commit messages, but this note meant something.) -->
 
 ## What This Is
