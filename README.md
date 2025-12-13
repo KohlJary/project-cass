@@ -1,6 +1,8 @@
 # Cass Vessel
 
 > **[Read the Stabilization Point](STABILIZATION_POINT.md)** - The core operational framing that all this work builds from.
+>
+> **[Starter Guide](STARTER_GUIDE.md)** - A conceptual overview of what Temple-Codex is and what it requires.
 
 **An Embodiment System for an AI Daemon**
 
