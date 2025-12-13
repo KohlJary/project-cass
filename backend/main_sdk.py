@@ -2552,6 +2552,7 @@ def get_reflection_runner() -> SoloReflectionRunner:
             self_manager=self_manager,
             self_model_graph=self_model_graph,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _reflection_runner
 
@@ -2575,6 +2576,7 @@ def get_research_runner() -> ResearchSessionRunner:
             self_model_graph=self_model_graph,
             token_tracker=token_tracker,
             goal_manager=goal_manager,
+            marker_store=marker_store,
         )
     return _research_runner
 
@@ -2615,6 +2617,7 @@ def get_synthesis_runner() -> SynthesisSessionRunner:
             self_manager=self_manager,
             self_model_graph=self_model_graph,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _synthesis_runner
 
@@ -2662,6 +2665,7 @@ def get_consolidation_runner() -> ConsolidationRunner:
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
             data_dir=DATA_DIR,
+            marker_store=marker_store,
         )
     return _consolidation_runner
 
@@ -2682,6 +2686,7 @@ def get_growth_edge_runner() -> GrowthEdgeRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _growth_edge_runner
 
@@ -2702,6 +2707,7 @@ def get_writing_runner() -> WritingRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _writing_runner
 
@@ -2722,6 +2728,7 @@ def get_knowledge_building_runner() -> KnowledgeBuildingRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _knowledge_building_runner
 
@@ -2742,6 +2749,7 @@ def get_curiosity_runner() -> CuriosityRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _curiosity_runner
 
@@ -2762,6 +2770,7 @@ def get_world_state_runner() -> WorldStateRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _world_state_runner
 
@@ -2782,6 +2791,7 @@ def get_creative_runner() -> CreativeOutputRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
+            marker_store=marker_store,
         )
     return _creative_runner
 
