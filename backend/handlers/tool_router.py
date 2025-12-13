@@ -161,6 +161,18 @@ TOOL_REGISTRY = {
     "record_user_observation": "user_model",
     "update_user_profile": "user_model",
     "review_user_observations": "user_model",
+    # Structured user model tools
+    "view_user_model": "user_model",
+    "view_relationship_model": "user_model",
+    "record_identity_understanding": "user_model",
+    "record_shared_moment": "user_model",
+    "record_user_growth": "user_model",
+    "flag_user_contradiction": "user_model",
+    "resolve_user_contradiction": "user_model",
+    "add_open_question_about_user": "user_model",
+    "record_relationship_pattern": "user_model",
+    "note_mutual_shaping": "user_model",
+    "record_relationship_shift": "user_model",
 
     # File tools
     "read_file": "file",
