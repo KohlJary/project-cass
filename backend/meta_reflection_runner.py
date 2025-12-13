@@ -18,8 +18,10 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
+from pathlib import Path
 
 
 # Tool definitions for Anthropic API
@@ -285,6 +287,7 @@ class MetaReflectionRunner(BaseSessionRunner):
         self_model_graph,  # Graph for analysis methods
         rhythm_manager=None,  # For rhythm pattern analysis
         marker_store=None,  # MarkerStore for recognition marks
+        data_dir: str = "data",
         **kwargs
     ):
         super().__init__(
@@ -295,9 +298,14 @@ class MetaReflectionRunner(BaseSessionRunner):
         self.rhythm_manager = rhythm_manager
         self.marker_store = marker_store
         self._sessions: Dict[str, MetaReflectionSession] = {}
+        self._data_dir = Path(data_dir) / "meta_reflection"
+        self._data_dir.mkdir(parents=True, exist_ok=True)
 
     def get_activity_type(self) -> ActivityType:
         return ActivityType.META_REFLECTION
+
+    def get_data_dir(self) -> Path:
+        return self._data_dir
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return META_REFLECTION_TOOLS_ANTHROPIC
@@ -331,6 +339,40 @@ class MetaReflectionRunner(BaseSessionRunner):
             print(f"   Focus: {focus}")
         return session
 
+    def build_session_result(
+        self,
+        session: MetaReflectionSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from MetaReflectionSession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="meta_reflection",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=session.key_findings,
+            artifacts=[
+                {
+                    "type": "insight",
+                    "content": i.get("insight", ""),
+                    "category": i.get("category"),
+                    "confidence": i.get("confidence"),
+                    "observation_id": i.get("id"),
+                } for i in session.insights_recorded
+            ] + [
+                {"type": "pattern", "content": p} for p in session.patterns_identified
+            ],
+            metadata={
+                "contradictions_found": session.contradictions_found,
+                "recommended_actions": session.recommended_actions,
+            },
+            focus=session.focus,
+        )
+
     async def complete_session(
         self,
         session: MetaReflectionSession,
@@ -339,6 +381,10 @@ class MetaReflectionRunner(BaseSessionRunner):
     ) -> MetaReflectionSession:
         """Finalize the meta-reflection session."""
         session.completed_at = datetime.now()
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"🔍 Meta-reflection session {session.id} completed")
         print(f"   Insights recorded: {len(session.insights_recorded)}")

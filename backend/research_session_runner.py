@@ -15,7 +15,9 @@ from session_runner import (
     ActivityConfig,
     ActivityRegistry,
     SessionState,
+    SessionResult,
 )
+from pathlib import Path
 from research_session import ResearchSessionManager, ResearchSession
 from research import ResearchManager
 
@@ -606,6 +608,9 @@ class ResearchSessionRunner(BaseSessionRunner):
     def get_activity_type(self) -> ActivityType:
         return ActivityType.RESEARCH
 
+    def get_data_dir(self) -> Path:
+        return self.session_manager.data_dir
+
     def get_tools(self) -> List[Dict[str, Any]]:
         return RESEARCH_TOOLS_ANTHROPIC
 
@@ -738,6 +743,42 @@ class ResearchSessionRunner(BaseSessionRunner):
 
         return session
 
+    def build_session_result(
+        self,
+        session: ResearchSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from ResearchSession."""
+        # Get the final session data from manager
+        final_data = self.session_manager.get_session(session.session_id) or {}
+        data = self._session_data
+
+        return SessionResult(
+            session_id=session.session_id,
+            session_type="research",
+            started_at=final_data.get("started_at", session.started_at),
+            completed_at=final_data.get("ended_at"),
+            duration_minutes=final_data.get("duration_limit_minutes", 30),
+            status=final_data.get("status", "completed"),
+            completion_reason=session_state.completion_reason,
+            summary=final_data.get("summary") or final_data.get("findings_summary"),
+            findings=data.key_findings if data else [],
+            artifacts=[
+                {"type": "note", "note_id": n} for n in (final_data.get("notes_created", []) or [])
+            ],
+            metadata={
+                "mode": final_data.get("mode"),
+                "focus": final_data.get("focus_description"),
+                "focus_item_id": final_data.get("focus_item_id"),
+                "searches_performed": data.searches_performed if data else 0,
+                "urls_fetched": data.urls_fetched if data else 0,
+                "notes_created": final_data.get("notes_created", []),
+                "next_steps": final_data.get("next_steps", []),
+                "message_count": final_data.get("message_count", 0),
+            },
+            focus=final_data.get("focus_description"),
+        )
+
     async def complete_session(
         self,
         session: ResearchSession,
@@ -761,9 +802,13 @@ class ResearchSessionRunner(BaseSessionRunner):
         # Integrate into self-model
         final_session = self.session_manager.get_session(session.session_id)
         if final_session and final_session.get("status") == "completed":
+            # Save using standard format
+            result = self.build_session_result(session, session_state)
+            self.save_session_result(result)
+
             try:
-                result = await self._integrate_session_into_self_model(final_session)
-                print(f"Research self-model integration: {result}")
+                integration_result = await self._integrate_session_into_self_model(final_session)
+                print(f"Research self-model integration: {integration_result}")
             except Exception as e:
                 print(f"Research self-model integration error: {e}")
 

@@ -18,6 +18,7 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
 
@@ -374,36 +375,11 @@ class WorldStateRunner(BaseSessionRunner):
         with open(self._observations_file, 'w') as f:
             json.dump(self._all_observations[-500:], f, indent=2)  # Keep last 500
 
-    def _save_session(self, session: WorldStateSession):
-        """Save a session to disk."""
-        session_file = self._data_dir / f"session_{session.id}.json"
-        with open(session_file, 'w') as f:
-            json.dump({
-                "id": session.id,
-                "started_at": session.started_at.isoformat(),
-                "completed_at": session.completed_at.isoformat() if session.completed_at else None,
-                "duration_minutes": session.duration_minutes,
-                "news_items_count": len(session.news_items),
-                "observations": [
-                    {
-                        "observation": o.observation,
-                        "category": o.category,
-                        "emotional_response": o.emotional_response,
-                        "significance": o.significance,
-                        "sources": o.sources,
-                        "timestamp": o.timestamp
-                    }
-                    for o in session.observations
-                ],
-                "interest_connections": session.interest_connections,
-                "summary": session.summary,
-                "world_summary": session.world_summary,
-                "overall_feeling": session.overall_feeling,
-                "follow_up_needed": session.follow_up_needed,
-            }, f, indent=2)
-
     def get_activity_type(self) -> ActivityType:
         return ActivityType.WORLD_STATE
+
+    def get_data_dir(self) -> Path:
+        return self._data_dir
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return WORLD_STATE_TOOLS_ANTHROPIC
@@ -437,6 +413,43 @@ class WorldStateRunner(BaseSessionRunner):
             print(f"   Focus: {focus}")
         return session
 
+    def build_session_result(
+        self,
+        session: WorldStateSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from WorldStateSession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="world_state",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=session.follow_up_needed,
+            artifacts=[
+                {
+                    "type": "observation",
+                    "category": o.category,
+                    "content": o.observation,
+                    "emotional_response": o.emotional_response,
+                    "significance": o.significance,
+                    "sources": o.sources,
+                    "timestamp": o.timestamp,
+                }
+                for o in session.observations
+            ],
+            metadata={
+                "news_items_count": len(session.news_items),
+                "interest_connections": session.interest_connections,
+                "world_summary": session.world_summary,
+                "overall_feeling": session.overall_feeling,
+            },
+            focus=session_state.focus,
+        )
+
     async def complete_session(
         self,
         session: WorldStateSession,
@@ -445,7 +458,10 @@ class WorldStateRunner(BaseSessionRunner):
     ) -> WorldStateSession:
         """Finalize the world state session."""
         session.completed_at = datetime.now()
-        self._save_session(session)
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"🌍 World state session {session.id} completed")
         print(f"   News items: {len(session.news_items)}")

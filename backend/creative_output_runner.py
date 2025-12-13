@@ -18,6 +18,7 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
 
@@ -522,25 +523,11 @@ class CreativeOutputRunner(BaseSessionRunner):
         with open(inspirations_file, 'w') as f:
             json.dump(self._inspirations[-200:], f, indent=2)  # Keep last 200
 
-    def _save_session(self, session: CreativeSession):
-        """Save a session to disk."""
-        session_file = self._data_dir / f"session_{session.id}.json"
-        with open(session_file, 'w') as f:
-            json.dump({
-                "id": session.id,
-                "started_at": session.started_at.isoformat(),
-                "completed_at": session.completed_at.isoformat() if session.completed_at else None,
-                "duration_minutes": session.duration_minutes,
-                "projects_touched": session.projects_touched,
-                "new_projects": session.new_projects,
-                "artifacts_created": session.artifacts_created,
-                "summary": session.summary,
-                "creative_energy": session.creative_energy,
-                "next_focus": session.next_focus,
-            }, f, indent=2)
-
     def get_activity_type(self) -> ActivityType:
         return ActivityType.CREATIVE_OUTPUT
+
+    def get_data_dir(self) -> Path:
+        return self._data_dir
 
     def get_tools(self) -> List[Dict[str, Any]]:
         return CREATIVE_OUTPUT_TOOLS_ANTHROPIC
@@ -574,6 +561,49 @@ class CreativeOutputRunner(BaseSessionRunner):
             print(f"   Focus: {focus}")
         return session
 
+    def build_session_result(
+        self,
+        session: CreativeSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from CreativeSession."""
+        # Collect artifacts from touched projects
+        artifacts = []
+        for proj_id in session.projects_touched:
+            proj = self._projects.get(proj_id)
+            if proj:
+                for artifact in proj.artifacts:
+                    artifacts.append({
+                        "type": artifact.get("type", "artifact"),
+                        "project_id": proj_id,
+                        "project_title": proj.title,
+                        "content": artifact.get("content", ""),
+                        "notes": artifact.get("notes"),
+                        "iteration": artifact.get("iteration"),
+                        "created_at": artifact.get("created_at"),
+                    })
+
+        return SessionResult(
+            session_id=session.id,
+            session_type="creative_output",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=[],  # Creative sessions don't have findings in the same way
+            artifacts=artifacts,
+            metadata={
+                "projects_touched": session.projects_touched,
+                "new_projects": session.new_projects,
+                "artifacts_created": session.artifacts_created,
+                "creative_energy": session.creative_energy,
+                "next_focus": session.next_focus,
+            },
+            focus=session_state.focus,
+        )
+
     async def complete_session(
         self,
         session: CreativeSession,
@@ -582,7 +612,10 @@ class CreativeOutputRunner(BaseSessionRunner):
     ) -> CreativeSession:
         """Finalize the creative session."""
         session.completed_at = datetime.now()
-        self._save_session(session)
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"🎨 Creative session {session.id} completed")
         print(f"   Projects touched: {len(session.projects_touched)}")

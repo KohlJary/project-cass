@@ -17,7 +17,9 @@ from session_runner import (
     ActivityConfig,
     ActivityRegistry,
     SessionState,
+    SessionResult,
 )
+from pathlib import Path
 from solo_reflection import SoloReflectionManager, SoloReflectionSession, ThoughtEntry
 
 
@@ -351,6 +353,9 @@ class SoloReflectionRunner(BaseSessionRunner):
     def get_activity_type(self) -> ActivityType:
         return ActivityType.REFLECTION
 
+    def get_data_dir(self) -> Path:
+        return self.manager.storage_dir
+
     def get_tools(self) -> List[Dict[str, Any]]:
         return REFLECTION_TOOLS_ANTHROPIC
 
@@ -419,6 +424,42 @@ class SoloReflectionRunner(BaseSessionRunner):
 
         return session
 
+    def build_session_result(
+        self,
+        session: SoloReflectionSession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from SoloReflectionSession."""
+        return SessionResult(
+            session_id=session.session_id,
+            session_type="reflection",
+            started_at=session.started_at.isoformat() if session.started_at else "",
+            completed_at=session.ended_at.isoformat() if session.ended_at else None,
+            duration_minutes=session.duration_minutes,
+            status=session.status,
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=session.insights or [],
+            artifacts=[
+                {
+                    "type": "thought",
+                    "content": t.content,
+                    "thought_type": t.thought_type,
+                    "confidence": t.confidence,
+                    "related_concepts": t.related_concepts,
+                    "timestamp": t.timestamp,
+                }
+                for t in session.thought_stream
+            ],
+            metadata={
+                "theme": session.theme,
+                "questions_raised": session.questions_raised,
+                "model_used": session.model_used,
+                "thought_count": session.thought_count,
+            },
+            focus=session.theme,
+        )
+
     async def complete_session(
         self,
         session: SoloReflectionSession,
@@ -439,9 +480,13 @@ class SoloReflectionRunner(BaseSessionRunner):
         # Integrate into self-model
         final_session = self.manager.get_session(session.session_id)
         if final_session and final_session.status == "completed":
+            # Save using standard format
+            result = self.build_session_result(final_session, session_state)
+            self.save_session_result(result)
+
             try:
-                result = await self._integrate_session_into_self_model(final_session)
-                print(f"Reflection self-model integration: {len(result.get('observations_created', []))} observations")
+                integration_result = await self._integrate_session_into_self_model(final_session)
+                print(f"Reflection self-model integration: {len(integration_result.get('observations_created', []))} observations")
             except Exception as e:
                 print(f"Reflection self-model integration error: {e}")
 

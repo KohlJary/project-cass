@@ -19,6 +19,7 @@ from session_runner import (
     ActivityType,
     ActivityConfig,
     SessionState,
+    SessionResult,
     ActivityRegistry,
 )
 
@@ -427,6 +428,9 @@ class CuriosityRunner(BaseSessionRunner):
     def get_activity_type(self) -> ActivityType:
         return ActivityType.CURIOSITY
 
+    def get_data_dir(self) -> Path:
+        return self._data_dir
+
     def get_tools(self) -> List[Dict[str, Any]]:
         return CURIOSITY_TOOLS_ANTHROPIC
 
@@ -466,6 +470,49 @@ Start by choosing an exploration direction based on authentic interest."""
         print("   No focus - pure exploration")
         return session
 
+    def build_session_result(
+        self,
+        session: CuriositySession,
+        session_state: SessionState,
+    ) -> SessionResult:
+        """Build standardized SessionResult from CuriositySession."""
+        return SessionResult(
+            session_id=session.id,
+            session_type="curiosity",
+            started_at=session.started_at.isoformat(),
+            completed_at=session.completed_at.isoformat() if session.completed_at else None,
+            duration_minutes=session.duration_minutes,
+            status="completed",
+            completion_reason=session_state.completion_reason,
+            summary=session.summary,
+            findings=session.best_discoveries,
+            artifacts=[
+                {
+                    "type": "discovery",
+                    "content": d.what,
+                    "significance": d.significance,
+                    "surprise_level": d.surprise_level,
+                    "leads_to": d.leads_to,
+                    "source": d.source,
+                    "timestamp": d.timestamp,
+                }
+                for d in session.discoveries
+            ] + [
+                {"type": "question", "content": q} for q in session.questions_captured
+            ],
+            metadata={
+                "directions_chosen": session.directions_chosen,
+                "threads_followed": session.threads_followed,
+                "threads_to_continue": session.threads_to_continue,
+                "interest_patterns": session.interest_patterns,
+                "territories_explored": session.territories_explored,
+                "flagged_for_agenda": session.flagged_for_agenda,
+                "satisfaction": session.satisfaction,
+                "energy": session.energy,
+            },
+            focus=None,  # Curiosity sessions don't have focus
+        )
+
     async def complete_session(
         self,
         session: CuriositySession,
@@ -474,7 +521,10 @@ Start by choosing an exploration direction based on authentic interest."""
     ) -> CuriositySession:
         """Finalize the curiosity session."""
         session.completed_at = datetime.now()
-        self._save_session(session)
+
+        # Save using standard format
+        result = self.build_session_result(session, session_state)
+        self.save_session_result(result)
 
         print(f"🔍 Curiosity session {session.id} completed")
         print(f"   Directions explored: {len(session.directions_chosen)}")
