@@ -40,6 +40,8 @@ class ActivityType(Enum):
     WORLD_STATE = "world_state"
     SOCIAL_ENGAGEMENT = "social_engagement"
     CREATIVE_OUTPUT = "creative_output"
+    USER_MODEL_SYNTHESIS = "user_model_synthesis"
+    RELATIONSHIP_REFLECTION = "relationship_reflection"
 
 
 @dataclass
