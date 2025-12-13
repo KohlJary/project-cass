@@ -18,6 +18,36 @@ from users import (
 )
 
 
+def resolve_user_id(user_manager: UserManager, user_id_or_name: str) -> Optional[str]:
+    """
+    Resolve a user ID from either a UUID or a display name.
+
+    Args:
+        user_manager: UserManager instance
+        user_id_or_name: Either a UUID or a display name (case-insensitive)
+
+    Returns:
+        The resolved UUID, or None if not found
+    """
+    if not user_id_or_name:
+        return None
+
+    # First, try as-is (it might already be a valid UUID)
+    profile = user_manager.load_profile(user_id_or_name)
+    if profile:
+        return user_id_or_name
+
+    # Try to find by display name (case-insensitive)
+    all_profiles = user_manager.list_users()
+    search_name = user_id_or_name.lower().strip()
+
+    for user_info in all_profiles:
+        if user_info.get("display_name", "").lower() == search_name:
+            return user_info.get("id")
+
+    return None
+
+
 async def execute_user_model_tool(
     tool_name: str,
     tool_input: Dict,
@@ -41,6 +71,13 @@ async def execute_user_model_tool(
         Dict with 'success', 'result', and optionally 'error'
     """
     try:
+        # Pre-process: resolve user_id from name if needed
+        if "user_id" in tool_input and tool_input["user_id"]:
+            resolved_id = resolve_user_id(user_manager, tool_input["user_id"])
+            if resolved_id:
+                tool_input["user_id"] = resolved_id
+            # If not resolved, leave it as-is - the individual tool will report the error
+
         if tool_name == "reflect_on_user":
             user_id = tool_input.get("user_id") or target_user_id
             focus = tool_input.get("focus", "general")
