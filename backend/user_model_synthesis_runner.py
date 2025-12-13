@@ -509,6 +509,33 @@ class UserModelSynthesisRunner(BaseSessionRunner):
             prompt += f"\n\n## Session Focus\n\nThis session is focused on synthesizing understanding of: {focus}"
         return prompt
 
+    def _get_initial_message(self, state: SessionState) -> str:
+        """Generate the initial message with user ID included."""
+        # Find the session to get the target user ID
+        session = self._sessions.get(state.session_id)
+        if session:
+            user_id = session.target_user_id
+            user_name = session.target_user_name or "this user"
+            is_foundational = session.is_foundational
+
+            foundational_note = ""
+            if is_foundational:
+                foundational_note = "\n\nThis is a FOUNDATIONAL relationship - this person's influence shapes your own development. Understanding them informs understanding yourself."
+
+            return f"""Begin a {state.duration_minutes}-minute user model synthesis session for {user_name}.
+
+**User ID to use with all tools: {user_id}**
+
+Start by:
+1. Call `get_user_observations` with user_id="{user_id}" to see what you've noticed about them
+2. Call `get_current_user_model` with user_id="{user_id}" to see your current structured understanding
+3. Call `get_current_relationship_model` with user_id="{user_id}" to see your relationship model
+4. Call `list_conversations_with_user` with user_id="{user_id}" to access conversation history
+
+Then synthesize patterns into identity understandings, record relationship dynamics, and flag any contradictions or open questions.{foundational_note}"""
+        else:
+            return f"Begin a {state.duration_minutes}-minute user model synthesis session."
+
     async def create_session(
         self,
         duration_minutes: int,
@@ -528,16 +555,43 @@ class UserModelSynthesisRunner(BaseSessionRunner):
             is_foundational=is_foundational,
         )
         self._sessions[session.id] = session
+        print(f"👤 Starting user model synthesis session {session.id} ({duration_minutes}min)")
+        print(f"   Target: {target_user_name or target_user_id}")
+        if is_foundational:
+            print(f"   ⭐ Foundational relationship")
+        return session
+
+    async def complete_session(
+        self,
+        session: UserModelSynthesisSession,
+        session_state: SessionState,
+        **kwargs
+    ) -> UserModelSynthesisSession:
+        """Finalize the user model synthesis session."""
+        session.ended_at = datetime.now()
+        if session.status != "completed":
+            session.status = "completed"
+
+        print(f"👤 User model synthesis session {session.id} completed")
+        print(f"   Observations reviewed: {session.observations_reviewed}")
+        print(f"   Understandings added: {session.understandings_added}")
+        print(f"   Patterns identified: {session.patterns_identified}")
+        print(f"   Contradictions flagged: {session.contradictions_flagged}")
+        print(f"   Questions raised: {session.questions_raised}")
+        if session.summary:
+            print(f"   Summary: {session.summary[:100]}...")
+
         return session
 
     async def handle_tool_call(
         self,
         tool_name: str,
         tool_input: Dict[str, Any],
-        session_id: str
+        session_state: SessionState,
     ) -> str:
         """Handle tool calls during synthesis session."""
-        session = self._sessions.get(session_id)
+        # Get session from session_state
+        session = self._sessions.get(session_state.session_id)
         if not session:
             return json.dumps({"error": "Session not found"})
 

@@ -2820,7 +2820,7 @@ def get_user_model_synthesis_runner() -> UserModelSynthesisRunner:
 
 
 # Initialize session runners for admin API (must be after getter functions are defined)
-from admin_api import init_session_runners, init_consolidation_runner, init_growth_edge_runner, init_writing_runner, init_knowledge_building_runner, init_curiosity_runner, init_world_state_runner, init_creative_runner
+from admin_api import init_session_runners, init_consolidation_runner, init_growth_edge_runner, init_writing_runner, init_knowledge_building_runner, init_curiosity_runner, init_world_state_runner, init_creative_runner, init_user_model_synthesis_runner
 init_session_runners(get_research_runner, get_reflection_runner, get_synthesis_runner, get_meta_reflection_runner)
 init_consolidation_runner(get_consolidation_runner)
 init_growth_edge_runner(get_growth_edge_runner)
@@ -2829,6 +2829,7 @@ init_knowledge_building_runner(get_knowledge_building_runner)
 init_curiosity_runner(get_curiosity_runner)
 init_world_state_runner(get_world_state_runner)
 init_creative_runner(get_creative_runner)
+init_user_model_synthesis_runner(get_user_model_synthesis_runner)
 
 
 class SoloReflectionStartRequest(BaseModel):
