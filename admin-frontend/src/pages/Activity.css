@@ -1967,17 +1967,20 @@
 
 .phase-detail-content {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
 .phase-detail-content .tabbed-panel {
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .phase-detail-content .tabbed-panel-content {
-  max-height: 450px;
+  flex: 1;
+  max-height: none;
   overflow-y: auto;
 }
 
@@ -2819,6 +2822,10 @@
   color: #b0b0b0;
   font-size: 0.875rem;
   line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 @media (max-width: 900px) {

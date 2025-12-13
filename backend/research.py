@@ -517,7 +517,8 @@ class ResearchManager:
         limit: int = 50,
         related_to_agenda: Optional[str] = None,
         related_to_question: Optional[str] = None,
-        tag: Optional[str] = None
+        tag: Optional[str] = None,
+        full_content: bool = False
     ) -> List[Dict[str, Any]]:
         """
         List research notes with optional filtering.
@@ -527,9 +528,10 @@ class ResearchManager:
             related_to_agenda: Filter by agenda item ID
             related_to_question: Filter by question ID
             tag: Filter by tag
+            full_content: If True, return full content; if False, truncate to 200 chars
 
         Returns:
-            List of notes (without full content for efficiency)
+            List of notes (with truncated content unless full_content=True)
         """
         notes = []
 
@@ -546,9 +548,9 @@ class ResearchManager:
             if tag and tag not in note.tags:
                 continue
 
-            # Return summary (truncate content)
             note_dict = asdict(note)
-            if len(note_dict["content"]) > 200:
+            # Truncate content for list views unless full_content requested
+            if not full_content and len(note_dict["content"]) > 200:
                 note_dict["content"] = note_dict["content"][:200] + "..."
             notes.append(note_dict)
 

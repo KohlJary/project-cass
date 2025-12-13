@@ -731,12 +731,23 @@ async def startup_event():
     # Start background task for GitHub metrics collection
     asyncio.create_task(github_metrics_task(github_metrics_manager))
 
-    # Start background task for rhythm-triggered research and reflection
+    # Start background task for rhythm-triggered autonomous sessions
     asyncio.create_task(rhythm_phase_monitor_task(
         daily_rhythm_manager,
-        get_research_runner(),
-        get_reflection_runner(),
-        self_model_graph
+        runners={
+            "research": get_research_runner(),
+            "reflection": get_reflection_runner(),
+            "synthesis": get_synthesis_runner(),
+            "meta_reflection": get_meta_reflection_runner(),
+            "consolidation": get_consolidation_runner(),
+            "growth_edge": get_growth_edge_runner(),
+            "knowledge_building": get_knowledge_building_runner(),
+            "writing": get_writing_runner(),
+            "curiosity": get_curiosity_runner(),
+            "world_state": get_world_state_runner(),
+            "creative": get_creative_runner(),
+        },
+        self_model_graph=self_model_graph
     ))
 
     print(f"""

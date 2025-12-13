@@ -171,6 +171,7 @@ export function DailyRhythmTab() {
         case 'knowledge_building': return '📖';
         case 'writing': return '✎';
         case 'world_state': return '🌍';
+        case 'creative':
         case 'creative_output': return '✧';
         default: return '*';
       }
@@ -388,7 +389,8 @@ export function DailyRhythmTab() {
       case 'writing': return '#f07178';          // coral - expression
       case 'curiosity': return '#89ddff';        // cyan - exploration (same as research)
       case 'world_state': return '#b2ccd6';      // slate - grounding
-      case 'creative_output': return '#c792ea';  // purple - creativity (same as reflection)
+      case 'creative':
+      case 'creative_output': return '#c792ea';  // purple - creativity
       case 'any': return '#888';                 // gray - flexible
       default: return '#888';
     }

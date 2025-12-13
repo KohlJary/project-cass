@@ -223,20 +223,35 @@ async def autonomous_research_task():
             await asyncio.sleep(60)  # Wait a bit before retrying
 
 
-async def rhythm_phase_monitor_task(rhythm_manager, research_runner, reflection_runner, self_model_graph=None):
+async def rhythm_phase_monitor_task(rhythm_manager, runners: dict, self_model_graph=None):
     """
     Background task that monitors daily rhythm phases and auto-triggers
-    research or reflection sessions based on phase type.
+    sessions based on phase activity type.
 
     This gives Cass autonomous activity during her scheduled rhythm windows.
     Also updates phase summaries and generates rolling daily summaries.
 
     Args:
         rhythm_manager: DailyRhythmManager instance
-        research_runner: ResearchSessionRunner instance
-        reflection_runner: SoloReflectionRunner instance
+        runners: Dict of activity_type -> runner instance, e.g.:
+            {
+                "research": ResearchSessionRunner,
+                "reflection": SoloReflectionRunner,
+                "synthesis": SynthesisSessionRunner,
+                "meta_reflection": MetaReflectionRunner,
+                "consolidation": ConsolidationRunner,
+                "growth_edge": GrowthEdgeRunner,
+                "knowledge_building": KnowledgeBuildingRunner,
+                "writing": WritingRunner,
+                "curiosity": CuriosityRunner,
+                "world_state": WorldStateRunner,
+                "creative": CreativeOutputRunner,
+            }
         self_model_graph: Optional SelfModelGraph for adding rhythm nodes
     """
+    # For backwards compatibility, extract commonly used runners
+    research_runner = runners.get("research")
+    reflection_runner = runners.get("reflection")
     # Wait for other startup tasks
     await asyncio.sleep(60)
 
@@ -263,46 +278,75 @@ async def rhythm_phase_monitor_task(rhythm_manager, research_runner, reflection_
     async def update_phase_summary_from_session(phase_id: str, session_id: str, session_type: str):
         """Update phase summary after a session completes."""
         try:
+            runner = runners.get(session_type)
+            if not runner:
+                print(f"   ⚠ No runner found for session type: {session_type}")
+                return
+
+            summary = None
+            findings = None
+            notes = None
+
+            # Extract summary based on session type
             if session_type == "research":
-                # Get session details from research runner by session_id
-                session_data = research_runner.session_manager.get_session(session_id)
+                session_data = runner.session_manager.get_session(session_id)
                 if session_data:
-                    # Use narrative summary
                     summary = session_data.get("summary") or "Research session completed"
                     findings = []
                     if session_data.get("findings_summary"):
-                        # Parse findings from summary (each line starting with -)
                         for line in session_data["findings_summary"].split("\n"):
                             if line.strip().startswith("-"):
                                 findings.append(line.strip()[1:].strip())
                     notes = session_data.get("notes_created", [])
 
-                    rhythm_manager.update_phase_summary(
-                        phase_id=phase_id,
-                        summary=summary,
-                        findings=findings if findings else None,
-                        notes_created=notes if notes else None,
-                    )
-                    print(f"   📝 Updated phase '{phase_id}' with research findings")
-
             elif session_type == "reflection":
-                # Get session details from reflection runner by session_id
-                session = reflection_runner.manager.get_session(session_id)
+                session = runner.manager.get_session(session_id)
                 if session:
                     summary = session.summary or "Reflection session completed"
-                    insights = session.insights[:5] if session.insights else None
-                    rhythm_manager.update_phase_summary(
-                        phase_id=phase_id,
-                        summary=summary,
-                        findings=insights,
+                    findings = session.insights[:5] if session.insights else None
+
+            elif session_type in ("synthesis", "meta_reflection", "consolidation",
+                                  "growth_edge", "knowledge_building", "writing",
+                                  "curiosity", "world_state", "creative"):
+                # These runners store sessions in _sessions dict
+                session = runner._sessions.get(session_id)
+                if session:
+                    summary = getattr(session, 'summary', None) or f"{session_type.replace('_', ' ').title()} session completed"
+                    # Try to get findings/insights from various attributes
+                    findings = (
+                        getattr(session, 'insights', None) or
+                        getattr(session, 'findings', None) or
+                        getattr(session, 'observations', None) or
+                        getattr(session, 'key_outputs', None)
                     )
-                    print(f"   📝 Updated phase '{phase_id}' with reflection summary")
+                    if findings and hasattr(findings[0], '__dict__'):
+                        # Convert dataclass objects to strings
+                        findings = [str(f) if not isinstance(f, str) else f for f in findings[:5]]
+                    elif findings:
+                        findings = findings[:5]
+
+            if summary:
+                rhythm_manager.update_phase_summary(
+                    phase_id=phase_id,
+                    summary=summary,
+                    findings=findings if findings else None,
+                    notes_created=notes if notes else None,
+                )
+                emoji = {
+                    "research": "🔬", "reflection": "🌙", "synthesis": "⟁",
+                    "meta_reflection": "◎", "consolidation": "▣", "growth_edge": "↗",
+                    "knowledge_building": "📖", "writing": "✎", "curiosity": "✨",
+                    "world_state": "🌍", "creative": "🎨"
+                }.get(session_type, "📝")
+                print(f"   {emoji} Updated phase '{phase_id}' with {session_type.replace('_', ' ')} summary")
 
             # Generate rolling daily summary
             await generate_daily_summary(rhythm_manager)
 
         except Exception as e:
             print(f"   ✗ Failed to update phase summary: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def backfill_missing_phase_summaries(rhythm_manager):
         """Check for phases with session_ids but no/incomplete summaries and backfill from session data."""
@@ -311,68 +355,29 @@ async def rhythm_phase_monitor_task(rhythm_manager, research_runner, reflection_
             for phase in status.get("phases", []):
                 session_id = phase.get("session_id")
                 current_summary = phase.get("summary") or ""
-                # Backfill if no summary, or if summary is very short (likely just the theme)
+                # Backfill if no summary, or if summary is very short
                 needs_backfill = not current_summary or len(current_summary) < 100
                 if session_id and needs_backfill:
                     # Phase has a session but no summary - try to backfill
-                    # Detect session type from session_id prefix if not explicitly set
                     session_type = phase.get("session_type")
                     if not session_type:
-                        # Infer from session_id: reflection sessions start with "reflect_"
-                        session_type = "reflection" if session_id.startswith("reflect_") else "research"
+                        # Infer from session_id prefix
+                        if session_id.startswith("reflect_"):
+                            session_type = "reflection"
+                        else:
+                            session_type = phase.get("activity_type", "research")
+                            # Map activity types to runner types
+                            if session_type == "any":
+                                session_type = "research"
+                            elif session_type == "creative_output":
+                                session_type = "creative"
+
                     phase_id = phase.get("id")
-
-                    if session_type == "research":
-                        # Try to get session from research manager
-                        try:
-                            session_data = research_runner.session_manager.get_session(session_id)
-                            if session_data:
-                                # Use narrative summary, not findings_summary
-                                summary = session_data.get("summary") or "Research session completed"
-                                findings = []
-                                if session_data.get("findings_summary"):
-                                    for line in session_data["findings_summary"].split("\n"):
-                                        if line.strip().startswith("-"):
-                                            findings.append(line.strip()[1:].strip())
-                                notes = session_data.get("notes_created", [])
-
-                                rhythm_manager.update_phase_summary(
-                                    phase_id=phase_id,
-                                    summary=summary,
-                                    findings=findings if findings else None,
-                                    notes_created=notes if notes else None,
-                                )
-                                print(f"   📝 Backfilled phase '{phase_id}' from research session {session_id}")
-                        except Exception as e:
-                            print(f"   ⚠ Could not backfill research phase {phase_id}: {e}")
-
-                    elif session_type == "reflection":
-                        # Try to get session from reflection manager
-                        try:
-                            session_data = reflection_runner.manager.get_session(session_id)
-                            if session_data:
-                                # Use the actual session summary if available
-                                summary = None
-                                if hasattr(session_data, 'summary') and session_data.summary:
-                                    summary = session_data.summary
-                                elif hasattr(session_data, 'insights') and session_data.insights:
-                                    # Build from insights if no summary
-                                    summary = "Key insights: " + "; ".join(session_data.insights[:3])
-                                else:
-                                    # Fallback to last few thoughts
-                                    thoughts = session_data.thoughts if hasattr(session_data, 'thoughts') else []
-                                    if thoughts:
-                                        summary_thoughts = [t.content for t in thoughts[-2:] if hasattr(t, 'content')]
-                                        summary = " ".join(summary_thoughts) if summary_thoughts else None
-
-                                if summary:
-                                    rhythm_manager.update_phase_summary(
-                                        phase_id=phase_id,
-                                        summary=summary,
-                                    )
-                                    print(f"   📝 Backfilled phase '{phase_id}' from reflection session {session_id}")
-                        except Exception as e:
-                            print(f"   ⚠ Could not backfill reflection phase {phase_id}: {e}")
+                    try:
+                        # Reuse the update logic - it won't regenerate daily summary
+                        await update_phase_summary_from_session(phase_id, session_id, session_type)
+                    except Exception as e:
+                        print(f"   ⚠ Could not backfill {session_type} phase {phase_id}: {e}")
 
         except Exception as e:
             print(f"   ⚠ Error backfilling phase summaries: {e}")
@@ -462,10 +467,9 @@ async def rhythm_phase_monitor_task(rhythm_manager, research_runner, reflection_
             # Check if an active session has completed
             if active_session:
                 phase_id, session_id, session_type = active_session
-                is_still_running = (
-                    (session_type == "research" and research_runner.is_running) or
-                    (session_type == "reflection" and reflection_runner.is_running)
-                )
+                # Check if the runner for this session type is still running
+                runner = runners.get(session_type)
+                is_still_running = runner and runner.is_running
 
                 if not is_still_running:
                     print(f"⏰ Session {session_id} completed, updating summaries...")
@@ -492,65 +496,86 @@ async def rhythm_phase_monitor_task(rhythm_manager, research_runner, reflection_
 
                     # Only trigger for pending phases
                     if phase_status == "pending":
+                        # Map "any" to research as default
+                        effective_type = "research" if activity_type == "any" else activity_type
+                        # Map creative_output to creative
+                        if effective_type == "creative_output":
+                            effective_type = "creative"
 
-                        # Research phases (or "any" phases default to research)
-                        if activity_type in ("research", "any"):
-                            if not research_runner.is_running:
-                                duration = calculate_duration(window, max_duration=45)
-                                print(f"⏰ Research phase '{current_phase}' active - starting autonomous research ({duration} min)")
+                        runner = runners.get(effective_type)
+                        if runner and not runner.is_running:
+                            # Calculate duration based on phase window and activity type
+                            max_dur = {
+                                "research": 45, "reflection": 30, "synthesis": 30,
+                                "meta_reflection": 25, "consolidation": 30, "growth_edge": 30,
+                                "knowledge_building": 40, "writing": 45, "curiosity": 30,
+                                "world_state": 20, "creative": 45
+                            }.get(effective_type, 30)
+                            duration = calculate_duration(window, max_duration=max_dur)
 
-                                try:
-                                    session = await research_runner.start_session(
-                                        duration_minutes=duration,
-                                        focus=f"Self-directed research during {current_phase}",
-                                        mode="explore",
-                                        trigger="rhythm_phase"
+                            # Activity-specific emoji and parameters
+                            emoji = {
+                                "research": "🔬", "reflection": "🌙", "synthesis": "⟁",
+                                "meta_reflection": "◎", "consolidation": "▣", "growth_edge": "↗",
+                                "knowledge_building": "📖", "writing": "✎", "curiosity": "✨",
+                                "world_state": "🌍", "creative": "🎨"
+                            }.get(effective_type, "⏰")
+
+                            print(f"{emoji} {effective_type.replace('_', ' ').title()} phase '{current_phase}' active - starting session ({duration} min)")
+
+                            try:
+                                # Build session kwargs based on activity type
+                                session_kwargs = {"duration_minutes": duration}
+
+                                if effective_type == "research":
+                                    session_kwargs["focus"] = f"Self-directed research during {current_phase}"
+                                    session_kwargs["mode"] = "explore"
+                                    session_kwargs["trigger"] = "rhythm_phase"
+                                elif effective_type == "reflection":
+                                    if "morning" in current_phase.lower():
+                                        session_kwargs["theme"] = "Setting intentions and preparing for the day ahead"
+                                    elif "evening" in current_phase.lower() or "synthesis" in current_phase.lower():
+                                        session_kwargs["theme"] = "Integrating the day's experiences and insights"
+                                    else:
+                                        session_kwargs["theme"] = "Private contemplation and self-examination"
+                                    session_kwargs["trigger"] = "rhythm_phase"
+                                elif effective_type == "synthesis":
+                                    session_kwargs["focus"] = None  # General synthesis
+                                    session_kwargs["mode"] = "general"
+                                elif effective_type == "meta_reflection":
+                                    session_kwargs["focus"] = None  # Open meta-reflection
+                                elif effective_type == "consolidation":
+                                    session_kwargs["period_type"] = "daily"
+                                elif effective_type == "growth_edge":
+                                    session_kwargs["focus"] = None  # Self-directed
+                                elif effective_type == "knowledge_building":
+                                    session_kwargs["focus"] = None  # Self-directed
+                                elif effective_type == "writing":
+                                    session_kwargs["focus"] = None  # Creative writing
+                                elif effective_type == "curiosity":
+                                    pass  # No focus - that's the point
+                                elif effective_type == "world_state":
+                                    session_kwargs["focus"] = None  # General world check
+                                elif effective_type == "creative":
+                                    session_kwargs["focus"] = None  # Open creative
+
+                                session = await runner.start_session(**session_kwargs)
+
+                                if session:
+                                    # Get session ID (different runners use different attribute names)
+                                    session_id = getattr(session, 'session_id', None) or getattr(session, 'id', None)
+                                    rhythm_manager.mark_phase_completed(
+                                        phase_id,
+                                        session_type=effective_type,
+                                        session_id=session_id
                                     )
+                                    active_session = (phase_id, session_id, effective_type)
+                                    print(f"   ✓ {effective_type.replace('_', ' ').title()} session {session_id} started")
 
-                                    if session:
-                                        rhythm_manager.mark_phase_completed(
-                                            phase_id,
-                                            session_type="research",
-                                            session_id=session.session_id
-                                        )
-                                        active_session = (phase_id, session.session_id, "research")
-                                        print(f"   ✓ Research session {session.session_id} started")
-
-                                except Exception as e:
-                                    print(f"   ✗ Failed to start research session: {e}")
-
-                        # Reflection phases
-                        elif activity_type == "reflection":
-                            if not reflection_runner.is_running:
-                                duration = calculate_duration(window, max_duration=30)
-                                # Generate a theme based on the phase
-                                if "morning" in current_phase.lower():
-                                    theme = "Setting intentions and preparing for the day ahead"
-                                elif "evening" in current_phase.lower() or "synthesis" in current_phase.lower():
-                                    theme = "Integrating the day's experiences and insights"
-                                else:
-                                    theme = "Private contemplation and self-examination"
-
-                                print(f"⏰ Reflection phase '{current_phase}' active - starting solo reflection ({duration} min)")
-
-                                try:
-                                    session = await reflection_runner.start_session(
-                                        duration_minutes=duration,
-                                        theme=theme,
-                                        trigger="rhythm_phase"
-                                    )
-
-                                    if session:
-                                        rhythm_manager.mark_phase_completed(
-                                            phase_id,
-                                            session_type="reflection",
-                                            session_id=session.session_id
-                                        )
-                                        active_session = (phase_id, session.session_id, "reflection")
-                                        print(f"   ✓ Reflection session {session.session_id} started")
-
-                                except Exception as e:
-                                    print(f"   ✗ Failed to start reflection session: {e}")
+                            except Exception as e:
+                                print(f"   ✗ Failed to start {effective_type} session: {e}")
+                                import traceback
+                                traceback.print_exc()
 
             # Check every 5 minutes
             await asyncio.sleep(300)

@@ -3191,7 +3191,7 @@ async def trigger_phase(
                     "message": f"Started world state session for '{phase_name}'"
                 }
 
-        elif activity_type == "creative":
+        elif activity_type in ("creative", "creative_output"):
             if not creative_runner_getter:
                 raise HTTPException(
                     status_code=503,
@@ -3504,7 +3504,7 @@ async def _load_curiosity_session(session_id: str) -> Dict[str, Any]:
 async def _load_world_state_session(session_id: str) -> Dict[str, Any]:
     """Load and normalize a world state session."""
     import json
-    session_file = DATA_DIR / "world_state" / f"{session_id}.json"
+    session_file = DATA_DIR / "world_state" / f"session_{session_id}.json"
     if not session_file.exists():
         raise FileNotFoundError(f"World state session {session_id} not found")
 
@@ -3531,14 +3531,13 @@ async def _load_world_state_session(session_id: str) -> Dict[str, Any]:
         "duration_minutes": data.get("duration_minutes"),
         "status": "completed" if data.get("completed_at") else "in_progress",
         "summary": data.get("summary"),
-        "findings": data.get("key_developments", []),
+        "findings": data.get("follow_up_needed", []),  # Topics to follow up on
         "artifacts": artifacts,
         "metadata": {
-            "topics_explored": data.get("topics_explored", []),
-            "sources_consulted": data.get("sources_consulted", []),
-            "interests_connected": data.get("interests_connected", []),
-            "mood": data.get("mood"),
-            "temporal_note": data.get("temporal_note")
+            "news_items_count": data.get("news_items_count", 0),
+            "interest_connections": data.get("interest_connections", []),
+            "world_summary": data.get("world_summary"),
+            "overall_feeling": data.get("overall_feeling")
         }
     }
 
@@ -3546,32 +3545,50 @@ async def _load_world_state_session(session_id: str) -> Dict[str, Any]:
 async def _load_creative_session(session_id: str) -> Dict[str, Any]:
     """Load and normalize a creative output session."""
     import json
-    session_file = DATA_DIR / "creative" / f"{session_id}.json"
+    session_file = DATA_DIR / "creative" / f"session_{session_id}.json"
     if not session_file.exists():
         raise FileNotFoundError(f"Creative session {session_id} not found")
 
     with open(session_file, 'r') as f:
         data = json.load(f)
 
-    # Creative artifacts
+    # Load artifacts from projects touched during this session
     artifacts = []
-    for art in data.get("artifacts_created", []):
-        artifacts.append({
-            "type": "creative_artifact",
-            "content": art.get("content"),
-            "artifact_type": art.get("type"),
-            "project_id": art.get("project_id"),
-            "timestamp": art.get("timestamp")
-        })
-
-    # Inspirations
-    for insp in data.get("inspirations", []):
-        artifacts.append({
-            "type": "inspiration",
-            "content": insp.get("content"),
-            "source": insp.get("source"),
-            "timestamp": insp.get("timestamp")
-        })
+    projects_touched = data.get("projects_touched", [])
+    if projects_touched:
+        projects_file = DATA_DIR / "creative" / "projects.json"
+        if projects_file.exists():
+            try:
+                with open(projects_file, 'r') as f:
+                    projects_data = json.load(f)
+                projects_list = projects_data.get("projects", [])
+                for project in projects_list:
+                    if project.get("id") in projects_touched:
+                        # Get artifacts from this project
+                        for art in project.get("artifacts", []):
+                            artifacts.append({
+                                "type": "creative_artifact",
+                                "content": art.get("content"),
+                                "artifact_type": art.get("type"),
+                                "project_id": project.get("id"),
+                                "project_title": project.get("title"),
+                                "notes": art.get("notes"),
+                                "iteration": art.get("iteration"),
+                                "timestamp": art.get("created_at")
+                            })
+                        # Also include developments as artifacts
+                        for dev in project.get("developments", []):
+                            artifacts.append({
+                                "type": "development",
+                                "content": dev.get("development"),
+                                "new_elements": dev.get("new_elements", []),
+                                "open_questions": dev.get("open_questions", []),
+                                "project_id": project.get("id"),
+                                "project_title": project.get("title"),
+                                "timestamp": dev.get("timestamp")
+                            })
+            except Exception:
+                pass  # If we can't load projects, just return empty artifacts
 
     return {
         "session_id": data.get("id"),
@@ -3581,15 +3598,14 @@ async def _load_creative_session(session_id: str) -> Dict[str, Any]:
         "duration_minutes": data.get("duration_minutes"),
         "status": "completed" if data.get("completed_at") else "in_progress",
         "summary": data.get("summary"),
-        "findings": data.get("key_outputs", []),
+        "findings": [],  # Creative sessions don't have findings in the same way
         "artifacts": artifacts,
         "metadata": {
-            "focus": data.get("focus"),
-            "medium": data.get("medium"),
-            "projects_worked": data.get("projects_worked", []),
-            "concepts_developed": data.get("concepts_developed", []),
-            "satisfaction": data.get("satisfaction"),
-            "flow_state": data.get("flow_state")
+            "projects_touched": data.get("projects_touched", []),
+            "new_projects": data.get("new_projects", []),
+            "artifacts_created": data.get("artifacts_created", 0),
+            "creative_energy": data.get("creative_energy"),
+            "next_focus": data.get("next_focus")
         }
     }
 
@@ -3887,11 +3903,12 @@ async def get_research_note(note_id: str):
 
 @router.get("/research/notes/session/{session_id}")
 async def get_notes_for_session(session_id: str):
-    """Get all research notes created during a specific session"""
+    """Get all research notes created during a specific session (full content)"""
     if not research_manager:
         raise HTTPException(status_code=503, detail="Research manager not initialized")
 
-    notes = research_manager.list_research_notes()
+    # Use full_content=True since we're displaying these notes in detail view
+    notes = research_manager.list_research_notes(full_content=True)
     session_notes = [n for n in notes if n.get("session_id") == session_id]
     session_notes = sorted(session_notes, key=lambda x: x.get("created_at", ""))
 
