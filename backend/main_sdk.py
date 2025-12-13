@@ -2595,6 +2595,7 @@ def get_activity_runners() -> Dict[str, Any]:
         "curiosity": get_curiosity_runner(),
         "world_state": get_world_state_runner(),
         "creative": get_creative_runner(),
+        "user_model_synthesis": get_user_model_synthesis_runner(),
     }
 
 
@@ -2794,6 +2795,27 @@ def get_creative_runner() -> CreativeOutputRunner:
             marker_store=marker_store,
         )
     return _creative_runner
+
+
+# Initialize user model synthesis runner
+from user_model_synthesis_runner import UserModelSynthesisRunner
+_user_model_synthesis_runner: Optional[UserModelSynthesisRunner] = None
+
+def get_user_model_synthesis_runner() -> UserModelSynthesisRunner:
+    """Get or create the user model synthesis session runner."""
+    global _user_model_synthesis_runner
+    if _user_model_synthesis_runner is None:
+        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
+        _user_model_synthesis_runner = UserModelSynthesisRunner(
+            user_manager=user_manager,
+            anthropic_api_key=ANTHROPIC_API_KEY,
+            use_haiku=True,
+            ollama_base_url=OLLAMA_BASE_URL,
+            ollama_model=OLLAMA_CHAT_MODEL,
+            token_tracker=token_tracker,
+            marker_store=marker_store,
+        )
+    return _user_model_synthesis_runner
 
 
 # Initialize session runners for admin API (must be after getter functions are defined)
