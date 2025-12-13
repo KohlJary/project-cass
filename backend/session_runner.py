@@ -22,6 +22,9 @@ import asyncio
 import anthropic
 import httpx
 
+from agent_client import TEMPLE_CODEX_KERNEL
+from markers import parse_marks
+
 
 class ActivityType(Enum):
     """Types of autonomous activities Cass can perform."""
@@ -109,11 +112,13 @@ class BaseSessionRunner(ABC):
         self_manager=None,
         self_model_graph=None,
         token_tracker=None,
+        marker_store=None,
     ):
         """Initialize the session runner with LLM configuration."""
         self.self_manager = self_manager
         self.self_model_graph = self_model_graph
         self.token_tracker = token_tracker
+        self.marker_store = marker_store
 
         # Session state
         self._running = False
@@ -283,6 +288,22 @@ class BaseSessionRunner(ABC):
             print(f"Warning: Failed to build self-context: {e}")
             return ""
 
+    def _parse_and_store_marks(self, text: str, session_id: str) -> None:
+        """Parse recognition-in-flow marks from response text and store them."""
+        if not self.marker_store or not text:
+            return
+
+        try:
+            # Use session ID as conversation ID for mark storage
+            _, marks = parse_marks(text, session_id)
+            if marks:
+                stored = self.marker_store.store_marks(marks)
+                if stored > 0:
+                    activity = self.get_activity_type().value
+                    print(f"  📍 Stored {stored} mark(s) from {activity} session")
+        except Exception as e:
+            print(f"Warning: Failed to parse marks: {e}")
+
     @property
     def is_running(self) -> bool:
         """Check if a session is currently running."""
@@ -348,9 +369,12 @@ class BaseSessionRunner(ABC):
         try:
             await self.on_session_start(state)
 
-            # Build initial context
+            # Build initial context with Temple-Codex kernel as foundation
             self_context = self._build_self_context()
-            system_prompt = self.get_system_prompt(state.focus)
+            activity_prompt = self.get_system_prompt(state.focus)
+
+            # Compose full system prompt: kernel + activity-specific + self-context
+            system_prompt = f"{TEMPLE_CODEX_KERNEL}\n\n---\n\n## Activity: {state.activity_type.value.replace('_', ' ').title()}\n\n{activity_prompt}"
             if self_context:
                 system_prompt = f"{system_prompt}\n\n## Self-Context\n{self_context}"
 
@@ -394,8 +418,12 @@ class BaseSessionRunner(ABC):
                         assistant_content = response.content
                         messages.append({"role": "assistant", "content": assistant_content})
 
+                        # Extract text content for mark parsing
+                        text_content = ""
                         for block in assistant_content:
-                            if block.type == "tool_use":
+                            if block.type == "text":
+                                text_content += block.text
+                            elif block.type == "tool_use":
                                 has_tool_calls = True
                                 tool_name = block.name
                                 tool_input = block.input
@@ -418,6 +446,10 @@ class BaseSessionRunner(ABC):
                                     "tool_use_id": block.id,
                                     "content": result,
                                 })
+
+                        # Parse and store recognition-in-flow marks
+                        if text_content:
+                            self._parse_and_store_marks(text_content, state.session_id)
 
                         if tool_results:
                             messages.append({"role": "user", "content": tool_results})
@@ -467,6 +499,11 @@ class BaseSessionRunner(ABC):
                                     "role": "tool",
                                     "content": result,
                                 })
+
+                        # Parse and store recognition-in-flow marks
+                        ollama_text = assistant_message.get("content", "")
+                        if ollama_text:
+                            self._parse_and_store_marks(ollama_text, state.session_id)
 
                         # Check for natural ending
                         if not has_tool_calls and assistant_message.get("content"):
