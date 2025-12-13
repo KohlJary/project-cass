@@ -26,6 +26,7 @@ class RhythmPhase:
     start_time: str     # "HH:MM" format
     end_time: str       # "HH:MM" format
     description: str = ""
+    days: Optional[List[int]] = None  # 0=Monday, 6=Sunday, None=every day
 
 
 @dataclass
@@ -183,11 +184,41 @@ class DailyRhythmManager:
         end_t = self._parse_time(end)
         return start_t <= check_time <= end_t
 
+    def _phase_applies_to_date(self, phase: RhythmPhase, target_date: Optional[datetime] = None) -> bool:
+        """Check if a phase applies to the given date based on its day-of-week config."""
+        if phase.days is None:
+            return True  # No day restriction - applies to all days
+        target = target_date or datetime.now()
+        return target.weekday() in phase.days
+
+    def _get_phases_for_date(self, target_date: Optional[datetime] = None) -> List[RhythmPhase]:
+        """Get phases that apply to the given date."""
+        return [p for p in self.phases if self._phase_applies_to_date(p, target_date)]
+
     # === Public API ===
 
-    def get_phases(self) -> List[Dict[str, Any]]:
-        """Get all configured rhythm phases."""
-        return [asdict(p) for p in self.phases]
+    def get_phases(self, date: Optional[str] = None, include_all: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get rhythm phases.
+
+        Args:
+            date: Optional date string (YYYY-MM-DD) to filter phases by day-of-week.
+                  If None, uses today's date for filtering.
+            include_all: If True, returns all phases regardless of date.
+                         If False (default), filters to phases that apply to the date.
+
+        Returns:
+            List of phase dictionaries.
+        """
+        if include_all:
+            return [asdict(p) for p in self.phases]
+
+        if date:
+            target = datetime.strptime(date, "%Y-%m-%d")
+        else:
+            target = datetime.now()
+
+        return [asdict(p) for p in self._get_phases_for_date(target)]
 
     def update_phases(self, phases: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Update rhythm phase configuration."""
@@ -202,12 +233,14 @@ class DailyRhythmManager:
     def get_current_phase(self) -> Optional[Dict[str, Any]]:
         """
         Get the rhythm phase that should be active right now.
-        Returns None if outside all defined phases.
+        Returns None if outside all defined phases or no phase applies today.
         """
-        now = datetime.now().time()
+        now = datetime.now()
+        current_time = now.time()
 
-        for phase in self.phases:
-            if self._time_in_range(now, phase.start_time, phase.end_time):
+        # Only check phases that apply to today
+        for phase in self._get_phases_for_date(now):
+            if self._time_in_range(current_time, phase.start_time, phase.end_time):
                 return asdict(phase)
 
         return None
@@ -218,12 +251,13 @@ class DailyRhythmManager:
         return [asdict(c) for c in record.completed_phases]
 
     def get_pending_phases(self) -> List[Dict[str, Any]]:
-        """Get phases that haven't been completed yet today."""
+        """Get phases that haven't been completed yet today (only phases that apply today)."""
         record = self._load_today_record()
         completed_ids = {c.phase_id for c in record.completed_phases}
 
         pending = []
-        for phase in self.phases:
+        # Only consider phases that apply to today
+        for phase in self._get_phases_for_date():
             if phase.id not in completed_ids:
                 pending.append(asdict(phase))
 
@@ -335,6 +369,8 @@ class DailyRhythmManager:
         This is the key method for temporal consciousness - it produces
         a narrative description of where Cass is in the day based on
         completed vs. pending activities.
+
+        Only includes phases that apply to today's day-of-week.
         """
         record = self._load_today_record()
         completed_ids = {c.phase_id: c for c in record.completed_phases}
@@ -343,7 +379,10 @@ class DailyRhythmManager:
         current_time = now.time()
         lines = []
 
-        for phase in self.phases:
+        # Only show phases that apply to today
+        todays_phases = self._get_phases_for_date(now)
+
+        for phase in todays_phases:
             if phase.id in completed_ids:
                 completed = completed_ids[phase.id]
                 completed_time = datetime.fromisoformat(completed.completed_at)
@@ -373,20 +412,27 @@ class DailyRhythmManager:
 
         Args:
             date: Optional date string (YYYY-MM-DD). If None, uses today.
+
+        Only includes phases that apply to the specified day-of-week.
         """
         now = datetime.now()
         is_today = date is None or date == now.strftime("%Y-%m-%d")
 
         if date:
             record = self._load_record_for_date(date)
+            target_date = datetime.strptime(date, "%Y-%m-%d")
         else:
             record = self._load_today_record()
+            target_date = now
 
         completed_ids = {c.phase_id: c for c in record.completed_phases}
         current_time = now.time()
 
+        # Filter phases by day-of-week for the target date
+        applicable_phases = self._get_phases_for_date(target_date)
+
         phases_status = []
-        for phase in self.phases:
+        for phase in applicable_phases:
             status = "pending"
             completed_at = None
             summary = None
@@ -426,11 +472,12 @@ class DailyRhythmManager:
 
         return {
             "date": record.date,
+            "day_of_week": target_date.strftime("%A"),
             "current_time": now.strftime("%H:%M") if is_today else None,
             "current_phase": current["name"] if current else None,
             "phases": phases_status,
             "completed_count": len(record.completed_phases),
-            "total_phases": len(self.phases),
+            "total_phases": len(applicable_phases),
             "temporal_context": self.get_temporal_context() if is_today else None,
             "daily_summary": record.daily_summary,
             "daily_summary_updated_at": record.daily_summary_updated_at,
@@ -477,3 +524,32 @@ class DailyRhythmManager:
             )
 
         return stats
+
+    def get_weekly_schedule(self) -> Dict[str, Any]:
+        """
+        Get the weekly schedule showing which phases apply to which days.
+
+        Returns a dictionary with:
+        - schedule: phases organized by day of week
+        - phases: all phases with their day configurations
+        """
+        day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+        schedule = {}
+        for day_index, day_name in enumerate(day_names):
+            day_phases = []
+            for phase in self.phases:
+                if phase.days is None or day_index in phase.days:
+                    day_phases.append({
+                        "id": phase.id,
+                        "name": phase.name,
+                        "activity_type": phase.activity_type,
+                        "window": f"{phase.start_time}-{phase.end_time}",
+                    })
+            schedule[day_name] = day_phases
+
+        return {
+            "schedule": schedule,
+            "phases": [asdict(p) for p in self.phases],
+            "day_index_reference": {name: i for i, name in enumerate(day_names)},
+        }

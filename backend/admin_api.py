@@ -963,6 +963,1254 @@ async def get_research_session(session_id: str):
     return {"session": session}
 
 
+# ============== Synthesis Session Endpoints ==============
+
+class StartSynthesisRequest(BaseModel):
+    duration_minutes: int = 30
+    focus: Optional[str] = None
+    mode: str = "general"  # general, focused, contradiction-resolution
+
+
+@router.get("/synthesis/status")
+async def get_synthesis_status():
+    """Get the current synthesis session status"""
+    if not synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="Synthesis runner not initialized")
+
+    runner = synthesis_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Synthesis runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+            "artifacts_created": state.artifacts_created,
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/synthesis/start")
+async def start_synthesis_session(request: StartSynthesisRequest):
+    """Start a new synthesis session"""
+    if not synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="Synthesis runner not initialized")
+
+    runner = synthesis_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Synthesis runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A synthesis session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            focus=request.focus,
+            mode=request.mode,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "focus": request.focus,
+            "mode": request.mode,
+            "message": "Synthesis session started"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/synthesis/stop")
+async def stop_synthesis_session():
+    """Stop the current synthesis session"""
+    if not synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="Synthesis runner not initialized")
+
+    runner = synthesis_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Synthesis runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No synthesis session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Synthesis session stop requested"}
+
+
+@router.get("/synthesis/sessions")
+async def list_synthesis_sessions(limit: int = Query(default=20, le=100)):
+    """List past synthesis sessions"""
+    if not synthesis_runner_getter:
+        raise HTTPException(status_code=503, detail="Synthesis runner not initialized")
+
+    runner = synthesis_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    # Get sessions from runner's internal storage
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "focus": s.focus,
+                "mode": s.mode,
+                "artifacts_created": s.artifacts_created,
+                "artifacts_updated": s.artifacts_updated,
+                "summary": s.summary,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+# ============== Meta-Reflection Session Endpoints ==============
+
+class StartMetaReflectionRequest(BaseModel):
+    duration_minutes: int = 20
+    focus: Optional[str] = None  # Optional focus area (e.g., "growth_edges", "coherence")
+
+
+@router.get("/meta-reflection/status")
+async def get_meta_reflection_status():
+    """Get the current meta-reflection session status"""
+    if not meta_reflection_runner_getter:
+        raise HTTPException(status_code=503, detail="Meta-reflection runner not initialized")
+
+    runner = meta_reflection_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Meta-reflection runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/meta-reflection/start")
+async def start_meta_reflection_session(request: StartMetaReflectionRequest):
+    """Start a new meta-reflection session"""
+    if not meta_reflection_runner_getter:
+        raise HTTPException(status_code=503, detail="Meta-reflection runner not initialized")
+
+    runner = meta_reflection_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Meta-reflection runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A meta-reflection session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            focus=request.focus,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "focus": request.focus,
+            "message": "Meta-reflection session started"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/meta-reflection/stop")
+async def stop_meta_reflection_session():
+    """Stop the current meta-reflection session"""
+    if not meta_reflection_runner_getter:
+        raise HTTPException(status_code=503, detail="Meta-reflection runner not initialized")
+
+    runner = meta_reflection_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Meta-reflection runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No meta-reflection session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Meta-reflection session stop requested"}
+
+
+@router.get("/meta-reflection/sessions")
+async def list_meta_reflection_sessions(limit: int = Query(default=20, le=100)):
+    """List past meta-reflection sessions"""
+    if not meta_reflection_runner_getter:
+        raise HTTPException(status_code=503, detail="Meta-reflection runner not initialized")
+
+    runner = meta_reflection_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    # Get sessions from runner's internal storage
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "focus": s.focus,
+                "insights_recorded": len(s.insights_recorded),
+                "contradictions_found": s.contradictions_found,
+                "patterns_identified": len(s.patterns_identified),
+                "summary": s.summary,
+                "key_findings": s.key_findings,
+                "recommended_actions": s.recommended_actions,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+# ============== Consolidation Session Endpoints ==============
+
+class StartConsolidationRequest(BaseModel):
+    duration_minutes: int = 25
+    period_type: str = "weekly"  # daily, weekly, monthly, quarterly
+    period_start: Optional[str] = None  # YYYY-MM-DD
+    period_end: Optional[str] = None  # YYYY-MM-DD
+
+
+consolidation_runner_getter = None
+
+
+def init_consolidation_runner(getter):
+    """Initialize consolidation runner getter"""
+    global consolidation_runner_getter
+    consolidation_runner_getter = getter
+
+
+@router.get("/consolidation/status")
+async def get_consolidation_status():
+    """Get the current consolidation session status"""
+    if not consolidation_runner_getter:
+        raise HTTPException(status_code=503, detail="Consolidation runner not initialized")
+
+    runner = consolidation_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Consolidation runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/consolidation/start")
+async def start_consolidation_session(request: StartConsolidationRequest):
+    """Start a new consolidation session"""
+    if not consolidation_runner_getter:
+        raise HTTPException(status_code=503, detail="Consolidation runner not initialized")
+
+    runner = consolidation_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Consolidation runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A consolidation session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            period_type=request.period_type,
+            period_start=request.period_start,
+            period_end=request.period_end,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "period_type": request.period_type,
+            "period_start": session.period_start,
+            "period_end": session.period_end,
+            "message": f"Consolidation session started ({request.period_type})"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/consolidation/stop")
+async def stop_consolidation_session():
+    """Stop the current consolidation session"""
+    if not consolidation_runner_getter:
+        raise HTTPException(status_code=503, detail="Consolidation runner not initialized")
+
+    runner = consolidation_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Consolidation runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No consolidation session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Consolidation session stop requested"}
+
+
+@router.get("/consolidation/sessions")
+async def list_consolidation_sessions(limit: int = Query(default=20, le=100)):
+    """List past consolidation sessions"""
+    if not consolidation_runner_getter:
+        raise HTTPException(status_code=503, detail="Consolidation runner not initialized")
+
+    runner = consolidation_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    # Get sessions from runner's internal storage
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "period_type": s.period_type,
+                "period_start": s.period_start,
+                "period_end": s.period_end,
+                "items_reviewed": s.items_reviewed,
+                "summaries_created": s.summaries_created,
+                "items_archived": s.items_archived,
+                "themes_identified": s.themes_identified,
+                "key_learnings": s.key_learnings[:5],  # Limit for API response
+                "summary": s.summary,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+# ============== Growth Edge Work Endpoints ==============
+
+class StartGrowthEdgeRequest(BaseModel):
+    duration_minutes: int = 20
+    focus: Optional[str] = None  # Specific growth edge area to focus on
+
+
+growth_edge_runner_getter = None
+
+
+def init_growth_edge_runner(getter):
+    """Initialize growth edge runner getter"""
+    global growth_edge_runner_getter
+    growth_edge_runner_getter = getter
+
+
+@router.get("/growth-edge/status")
+async def get_growth_edge_status():
+    """Get the current growth edge work session status"""
+    if not growth_edge_runner_getter:
+        raise HTTPException(status_code=503, detail="Growth edge runner not initialized")
+
+    runner = growth_edge_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Growth edge runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/growth-edge/start")
+async def start_growth_edge_session(request: StartGrowthEdgeRequest):
+    """Start a new growth edge work session"""
+    if not growth_edge_runner_getter:
+        raise HTTPException(status_code=503, detail="Growth edge runner not initialized")
+
+    runner = growth_edge_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Growth edge runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A growth edge session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            focus=request.focus,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "focus": request.focus,
+            "message": "Growth edge work session started"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/growth-edge/stop")
+async def stop_growth_edge_session():
+    """Stop the current growth edge work session"""
+    if not growth_edge_runner_getter:
+        raise HTTPException(status_code=503, detail="Growth edge runner not initialized")
+
+    runner = growth_edge_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Growth edge runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No growth edge session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Growth edge session stop requested"}
+
+
+@router.get("/growth-edge/sessions")
+async def list_growth_edge_sessions(limit: int = Query(default=20, le=100)):
+    """List past growth edge work sessions"""
+    if not growth_edge_runner_getter:
+        raise HTTPException(status_code=503, detail="Growth edge runner not initialized")
+
+    runner = growth_edge_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "focus_edge": s.focus_edge,
+                "exercises_designed": len(s.exercises_designed),
+                "observations_recorded": len(s.observations_recorded),
+                "evaluations_made": s.evaluations_made,
+                "strategies_updated": s.strategies_updated,
+                "summary": s.summary,
+                "next_steps": s.next_steps[:3],
+                "commitments": s.commitments[:3],
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+# ============== Writing Session Endpoints ==============
+
+class StartWritingRequest(BaseModel):
+    duration_minutes: int = 30
+    focus: Optional[str] = None  # Specific project ID or description to focus on
+
+
+writing_runner_getter = None
+
+
+def init_writing_runner(getter):
+    """Initialize writing runner getter"""
+    global writing_runner_getter
+    writing_runner_getter = getter
+
+
+@router.get("/writing/status")
+async def get_writing_status():
+    """Get the current writing session status"""
+    if not writing_runner_getter:
+        raise HTTPException(status_code=503, detail="Writing runner not initialized")
+
+    runner = writing_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Writing runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/writing/start")
+async def start_writing_session(request: StartWritingRequest):
+    """Start a new writing session"""
+    if not writing_runner_getter:
+        raise HTTPException(status_code=503, detail="Writing runner not initialized")
+
+    runner = writing_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Writing runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A writing session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            focus=request.focus,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "focus": request.focus,
+            "message": "Writing session started"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/writing/stop")
+async def stop_writing_session():
+    """Stop the current writing session"""
+    if not writing_runner_getter:
+        raise HTTPException(status_code=503, detail="Writing runner not initialized")
+
+    runner = writing_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Writing runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No writing session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Writing session stop requested"}
+
+
+@router.get("/writing/sessions")
+async def list_writing_sessions(limit: int = Query(default=20, le=100)):
+    """List past writing sessions"""
+    if not writing_runner_getter:
+        raise HTTPException(status_code=503, detail="Writing runner not initialized")
+
+    runner = writing_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "focus_project": s.focus_project,
+                "projects_created": s.projects_created,
+                "projects_updated": s.projects_updated,
+                "words_written": s.words_written,
+                "critiques_done": s.critiques_done,
+                "summary": s.summary,
+                "satisfaction": s.satisfaction,
+                "next_intentions": s.next_intentions,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+@router.get("/writing/projects")
+async def list_writing_projects(status: str = "all", project_type: str = "all"):
+    """List all writing projects"""
+    if not writing_runner_getter:
+        raise HTTPException(status_code=503, detail="Writing runner not initialized")
+
+    runner = writing_runner_getter()
+    if not runner:
+        return {"projects": [], "count": 0}
+
+    projects = list(runner._projects.values())
+
+    if status != "all":
+        projects = [p for p in projects if p.status == status]
+    if project_type != "all":
+        projects = [p for p in projects if p.project_type == project_type]
+
+    projects.sort(key=lambda p: p.updated_at, reverse=True)
+
+    return {
+        "projects": [
+            {
+                "id": p.id,
+                "title": p.title,
+                "project_type": p.project_type,
+                "status": p.status,
+                "word_count": p.word_count,
+                "description": p.description[:100] if p.description else None,
+                "created_at": p.created_at,
+                "updated_at": p.updated_at,
+                "completed_at": p.completed_at,
+            }
+            for p in projects
+        ],
+        "count": len(projects)
+    }
+
+
+# ============== Knowledge Building Session Endpoints ==============
+
+class StartKnowledgeBuildingRequest(BaseModel):
+    duration_minutes: int = 30
+    focus: Optional[str] = None  # Specific reading item ID or topic to focus on
+
+
+knowledge_building_runner_getter = None
+
+
+def init_knowledge_building_runner(getter):
+    """Initialize knowledge building runner getter"""
+    global knowledge_building_runner_getter
+    knowledge_building_runner_getter = getter
+
+
+@router.get("/knowledge-building/status")
+async def get_knowledge_building_status():
+    """Get the current knowledge building session status"""
+    if not knowledge_building_runner_getter:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not initialized")
+
+    runner = knowledge_building_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/knowledge-building/start")
+async def start_knowledge_building_session(request: StartKnowledgeBuildingRequest):
+    """Start a new knowledge building session"""
+    if not knowledge_building_runner_getter:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not initialized")
+
+    runner = knowledge_building_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A knowledge building session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            focus=request.focus,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "focus": request.focus,
+            "message": "Knowledge building session started"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/knowledge-building/stop")
+async def stop_knowledge_building_session():
+    """Stop the current knowledge building session"""
+    if not knowledge_building_runner_getter:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not initialized")
+
+    runner = knowledge_building_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No knowledge building session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Knowledge building session stop requested"}
+
+
+@router.get("/knowledge-building/sessions")
+async def list_knowledge_building_sessions(limit: int = Query(default=20, le=100)):
+    """List past knowledge building sessions"""
+    if not knowledge_building_runner_getter:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not initialized")
+
+    runner = knowledge_building_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "focus_item": s.focus_item,
+                "items_worked_on": s.items_worked_on,
+                "notes_created": s.notes_created,
+                "concepts_extracted": s.concepts_extracted,
+                "connections_made": s.connections_made,
+                "summary": s.summary,
+                "key_insights": s.key_insights[:5],
+                "next_focus": s.next_focus,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+@router.get("/knowledge-building/reading-queue")
+async def list_reading_queue(
+    status: str = "all",
+    source_type: str = "all",
+    priority: str = "all"
+):
+    """List all reading queue items"""
+    if not knowledge_building_runner_getter:
+        raise HTTPException(status_code=503, detail="Knowledge building runner not initialized")
+
+    runner = knowledge_building_runner_getter()
+    if not runner:
+        return {"items": [], "count": 0}
+
+    items = runner.get_all_items()
+
+    if status != "all":
+        items = [i for i in items if i.get("status") == status]
+    if source_type != "all":
+        items = [i for i in items if i.get("source_type") == source_type]
+    if priority != "all":
+        items = [i for i in items if i.get("priority") == priority]
+
+    # Sort by priority then added_at
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    items.sort(key=lambda i: (priority_order.get(i.get("priority", "medium"), 1), i.get("added_at", "")))
+
+    return {
+        "items": items,
+        "count": len(items)
+    }
+
+
+# ============== Curiosity Session Endpoints ==============
+
+class StartCuriosityRequest(BaseModel):
+    duration_minutes: int = 20
+    # No focus parameter - that's the point of curiosity sessions
+
+
+curiosity_runner_getter = None
+
+
+def init_curiosity_runner(getter):
+    """Initialize curiosity runner getter"""
+    global curiosity_runner_getter
+    curiosity_runner_getter = getter
+
+
+@router.get("/curiosity/status")
+async def get_curiosity_status():
+    """Get the current curiosity session status"""
+    if not curiosity_runner_getter:
+        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
+
+    runner = curiosity_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Curiosity runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/curiosity/start")
+async def start_curiosity_session(request: StartCuriosityRequest):
+    """Start a new curiosity session - pure self-directed exploration"""
+    if not curiosity_runner_getter:
+        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
+
+    runner = curiosity_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Curiosity runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A curiosity session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "message": "Curiosity session started - no focus, pure exploration"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/curiosity/stop")
+async def stop_curiosity_session():
+    """Stop the current curiosity session"""
+    if not curiosity_runner_getter:
+        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
+
+    runner = curiosity_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Curiosity runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No curiosity session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Curiosity session stop requested"}
+
+
+@router.get("/curiosity/sessions")
+async def list_curiosity_sessions(limit: int = Query(default=20, le=100)):
+    """List past curiosity sessions"""
+    if not curiosity_runner_getter:
+        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
+
+    runner = curiosity_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "directions_count": len(s.directions_chosen),
+                "discoveries_count": len(s.discoveries),
+                "questions_count": len(s.questions_captured),
+                "threads_followed": len(s.threads_followed),
+                "territories_explored": s.territories_explored,
+                "best_discoveries": s.best_discoveries[:3],
+                "satisfaction": s.satisfaction,
+                "energy": s.energy,
+                "summary": s.summary,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+# ============== World State Session Endpoints ==============
+
+class StartWorldStateRequest(BaseModel):
+    duration_minutes: int = 15
+    focus: Optional[str] = None  # Optional topic focus (e.g., "technology news")
+
+
+world_state_runner_getter = None
+
+
+def init_world_state_runner(getter):
+    """Initialize world state runner getter"""
+    global world_state_runner_getter
+    world_state_runner_getter = getter
+
+
+@router.get("/world-state/status")
+async def get_world_state_status():
+    """Get the current world state session status"""
+    if not world_state_runner_getter:
+        raise HTTPException(status_code=503, detail="World state runner not initialized")
+
+    runner = world_state_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="World state runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/world-state/start")
+async def start_world_state_session(request: StartWorldStateRequest):
+    """Start a new world state consumption session"""
+    if not world_state_runner_getter:
+        raise HTTPException(status_code=503, detail="World state runner not initialized")
+
+    runner = world_state_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="World state runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A world state session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            focus=request.focus,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "focus": request.focus,
+            "message": "World state session started"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/world-state/stop")
+async def stop_world_state_session():
+    """Stop the current world state session"""
+    if not world_state_runner_getter:
+        raise HTTPException(status_code=503, detail="World state runner not initialized")
+
+    runner = world_state_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="World state runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No world state session running"}
+
+    runner.stop()
+    return {"success": True, "message": "World state session stop requested"}
+
+
+@router.get("/world-state/sessions")
+async def list_world_state_sessions(limit: int = Query(default=20, le=100)):
+    """List past world state sessions"""
+    if not world_state_runner_getter:
+        raise HTTPException(status_code=503, detail="World state runner not initialized")
+
+    runner = world_state_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "news_items_count": len(s.news_items),
+                "observations_count": len(s.observations),
+                "connections_count": len(s.interest_connections),
+                "summary": s.summary,
+                "overall_feeling": s.overall_feeling,
+                "follow_up_needed": s.follow_up_needed[:3],
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+@router.get("/world-state/observations")
+async def list_world_observations(limit: int = Query(default=50, le=200)):
+    """List recent world observations"""
+    if not world_state_runner_getter:
+        raise HTTPException(status_code=503, detail="World state runner not initialized")
+
+    runner = world_state_runner_getter()
+    if not runner:
+        return {"observations": [], "count": 0}
+
+    observations = runner._all_observations[-limit:]
+    observations.reverse()  # Most recent first
+
+    return {
+        "observations": observations,
+        "count": len(observations)
+    }
+
+
+# ============== Creative Output Session Endpoints ==============
+
+class StartCreativeRequest(BaseModel):
+    duration_minutes: int = 30
+    focus: Optional[str] = None  # Optional focus (e.g., "visual concepts" or specific project)
+
+
+creative_runner_getter = None
+
+
+def init_creative_runner(getter):
+    """Initialize creative runner getter"""
+    global creative_runner_getter
+    creative_runner_getter = getter
+
+
+@router.get("/creative/status")
+async def get_creative_status():
+    """Get the current creative session status"""
+    if not creative_runner_getter:
+        raise HTTPException(status_code=503, detail="Creative runner not initialized")
+
+    runner = creative_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Creative runner not available")
+
+    state = runner._current_state
+    if state and runner.is_running:
+        elapsed = (datetime.now() - state.started_at).total_seconds()
+        return {
+            "running": True,
+            "session_id": state.session_id,
+            "focus": state.focus,
+            "started_at": state.started_at.isoformat(),
+            "duration_minutes": state.duration_minutes,
+            "elapsed_seconds": int(elapsed),
+            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
+            "iteration_count": state.iteration_count,
+            "tool_calls": len(state.tool_calls),
+        }
+    else:
+        return {"running": False}
+
+
+@router.post("/creative/start")
+async def start_creative_session(request: StartCreativeRequest):
+    """Start a new creative output session"""
+    if not creative_runner_getter:
+        raise HTTPException(status_code=503, detail="Creative runner not initialized")
+
+    runner = creative_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Creative runner not available")
+
+    if runner.is_running:
+        raise HTTPException(status_code=409, detail="A creative session is already running")
+
+    try:
+        session = await runner.start_session(
+            duration_minutes=request.duration_minutes,
+            focus=request.focus,
+        )
+
+        return {
+            "success": True,
+            "session_id": session.id,
+            "duration_minutes": request.duration_minutes,
+            "focus": request.focus,
+            "message": "Creative session started"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
+
+
+@router.post("/creative/stop")
+async def stop_creative_session():
+    """Stop the current creative session"""
+    if not creative_runner_getter:
+        raise HTTPException(status_code=503, detail="Creative runner not initialized")
+
+    runner = creative_runner_getter()
+    if not runner:
+        raise HTTPException(status_code=503, detail="Creative runner not available")
+
+    if not runner.is_running:
+        return {"success": False, "message": "No creative session running"}
+
+    runner.stop()
+    return {"success": True, "message": "Creative session stop requested"}
+
+
+@router.get("/creative/sessions")
+async def list_creative_sessions(limit: int = Query(default=20, le=100)):
+    """List past creative sessions"""
+    if not creative_runner_getter:
+        raise HTTPException(status_code=503, detail="Creative runner not initialized")
+
+    runner = creative_runner_getter()
+    if not runner:
+        return {"sessions": [], "count": 0}
+
+    sessions = list(runner._sessions.values())
+    sessions.sort(key=lambda s: s.started_at, reverse=True)
+
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "started_at": s.started_at.isoformat(),
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "duration_minutes": s.duration_minutes,
+                "projects_touched": s.projects_touched,
+                "new_projects": s.new_projects,
+                "artifacts_created": s.artifacts_created,
+                "summary": s.summary,
+                "creative_energy": s.creative_energy,
+                "next_focus": s.next_focus,
+            }
+            for s in sessions[:limit]
+        ],
+        "count": len(sessions)
+    }
+
+
+@router.get("/creative/projects")
+async def list_creative_projects(
+    status: str = "all",
+    medium: str = "all"
+):
+    """List all creative projects"""
+    if not creative_runner_getter:
+        raise HTTPException(status_code=503, detail="Creative runner not initialized")
+
+    runner = creative_runner_getter()
+    if not runner:
+        return {"projects": [], "count": 0}
+
+    projects = runner.get_all_projects()
+
+    if status != "all":
+        projects = [p for p in projects if p.get("status") == status]
+    if medium != "all":
+        projects = [p for p in projects if p.get("medium") == medium]
+
+    # Sort by updated_at
+    projects.sort(key=lambda p: p.get("updated_at", ""), reverse=True)
+
+    return {
+        "projects": projects,
+        "count": len(projects)
+    }
+
+
 # ============== Research Scheduler Endpoints ==============
 
 # Research scheduler - initialized from main app
@@ -1150,13 +2398,17 @@ def init_goal_manager(manager):
 # Session runner getters (functions that return the runner instances)
 research_runner_getter = None
 reflection_runner_getter = None
+synthesis_runner_getter = None
+meta_reflection_runner_getter = None
 
 
-def init_session_runners(research_getter, reflection_getter):
+def init_session_runners(research_getter, reflection_getter, synthesis_getter=None, meta_reflection_getter=None):
     """Initialize session runner getters from main app"""
-    global research_runner_getter, reflection_runner_getter
+    global research_runner_getter, reflection_runner_getter, synthesis_runner_getter, meta_reflection_runner_getter
     research_runner_getter = research_getter
     reflection_runner_getter = reflection_getter
+    synthesis_runner_getter = synthesis_getter
+    meta_reflection_runner_getter = meta_reflection_getter
 
 
 async def _backfill_phase_summaries(rhythm_manager, reflection_runner, research_runner):
@@ -1298,6 +2550,15 @@ async def get_rhythm_stats(days: int = Query(default=7, le=30)):
         raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
 
     return daily_rhythm_manager.get_stats(days=days)
+
+
+@router.get("/rhythm/weekly")
+async def get_weekly_schedule():
+    """Get weekly schedule showing which phases apply to which days"""
+    if not daily_rhythm_manager:
+        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
+
+    return daily_rhythm_manager.get_weekly_schedule()
 
 
 @router.post("/rhythm/phases/{phase_id}/complete")
@@ -1465,6 +2726,357 @@ async def trigger_phase(
                     "message": f"Started reflection session for '{phase_name}'"
                 }
 
+        elif activity_type == "synthesis":
+            if not synthesis_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Synthesis runner not initialized"
+                )
+
+            runner = synthesis_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A synthesis session is already running"
+                )
+
+            # Determine synthesis mode and focus
+            if req.focus:
+                focus = req.focus
+                mode = "focused"
+            elif "contradiction" in phase_name.lower():
+                focus = "Resolving tensions in self-model"
+                mode = "contradiction-resolution"
+            else:
+                focus = None
+                mode = "general"
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+                mode=mode,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="synthesis",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "synthesis",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "message": f"Started synthesis session for '{phase_name}'"
+                }
+
+        elif activity_type == "meta_reflection":
+            if not meta_reflection_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Meta-reflection runner not initialized"
+                )
+
+            runner = meta_reflection_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A meta-reflection session is already running"
+                )
+
+            # Determine focus area
+            focus = req.focus
+            if not focus and "coherence" in phase_name.lower():
+                focus = "coherence"
+            elif not focus and "growth" in phase_name.lower():
+                focus = "growth_edges"
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="meta_reflection",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "meta_reflection",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "message": f"Started meta-reflection session for '{phase_name}'"
+                }
+
+        elif activity_type == "consolidation":
+            if not consolidation_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Consolidation runner not initialized"
+                )
+
+            runner = consolidation_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A consolidation session is already running"
+                )
+
+            # Determine period type from phase name
+            period_type = "weekly"  # default
+            if "daily" in phase_name.lower():
+                period_type = "daily"
+            elif "monthly" in phase_name.lower():
+                period_type = "monthly"
+            elif "quarterly" in phase_name.lower():
+                period_type = "quarterly"
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                period_type=period_type,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="consolidation",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "consolidation",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "period_type": period_type,
+                    "message": f"Started consolidation session for '{phase_name}'"
+                }
+
+        elif activity_type == "growth_edge":
+            if not growth_edge_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Growth edge runner not initialized"
+                )
+
+            runner = growth_edge_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A growth edge session is already running"
+                )
+
+            # Focus from request or phase name
+            focus = req.focus
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="growth_edge",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "growth_edge",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "focus": focus,
+                    "message": f"Started growth edge work session for '{phase_name}'"
+                }
+
+        elif activity_type == "writing":
+            if not writing_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Writing runner not initialized"
+                )
+
+            runner = writing_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A writing session is already running"
+                )
+
+            focus = req.focus
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="writing",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "writing",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "focus": focus,
+                    "message": f"Started writing session for '{phase_name}'"
+                }
+
+        elif activity_type == "knowledge_building":
+            if not knowledge_building_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Knowledge building runner not initialized"
+                )
+
+            runner = knowledge_building_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A knowledge building session is already running"
+                )
+
+            focus = req.focus
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="knowledge_building",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "knowledge_building",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "focus": focus,
+                    "message": f"Started knowledge building session for '{phase_name}'"
+                }
+
+        elif activity_type == "curiosity":
+            if not curiosity_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Curiosity runner not initialized"
+                )
+
+            runner = curiosity_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A curiosity session is already running"
+                )
+
+            # No focus for curiosity - that's the point
+            session = await runner.start_session(
+                duration_minutes=duration,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="curiosity",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "curiosity",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "message": f"Started curiosity session for '{phase_name}' - pure exploration"
+                }
+
+        elif activity_type == "world_state":
+            if not world_state_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="World state runner not initialized"
+                )
+
+            runner = world_state_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A world state session is already running"
+                )
+
+            focus = req.focus
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="world_state",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "world_state",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "focus": focus,
+                    "message": f"Started world state session for '{phase_name}'"
+                }
+
+        elif activity_type == "creative":
+            if not creative_runner_getter:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Creative runner not initialized"
+                )
+
+            runner = creative_runner_getter()
+            if runner.is_running:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A creative session is already running"
+                )
+
+            focus = req.focus
+
+            session = await runner.start_session(
+                duration_minutes=duration,
+                focus=focus,
+            )
+
+            if session:
+                daily_rhythm_manager.mark_phase_completed(
+                    phase_id,
+                    session_type="creative",
+                    session_id=session.id
+                )
+                return {
+                    "success": True,
+                    "phase_id": phase_id,
+                    "session_type": "creative",
+                    "session_id": session.id,
+                    "duration_minutes": duration,
+                    "focus": focus,
+                    "message": f"Started creative session for '{phase_name}'"
+                }
+
         raise HTTPException(
             status_code=500,
             detail="Failed to start session"
@@ -1533,6 +3145,548 @@ async def regenerate_daily_summary():
         "summary": narrative,
         "phases_included": len(completed_phases)
     }
+
+
+# ============================================================================
+# Unified Session Endpoint
+# ============================================================================
+
+@router.get("/sessions/{session_id}")
+async def get_session(
+    session_id: str,
+    session_type: str = Query(..., description="Session type: reflection, research, synthesis, meta_reflection, consolidation, growth_edge, knowledge_building, writing, curiosity, world_state, creative_output")
+):
+    """
+    Get unified session result for any activity type.
+
+    Returns a standardized format regardless of session type:
+    - session_id, session_type, started_at, ended_at, duration_minutes, status
+    - summary: Main session summary
+    - findings: Key findings/insights as a list
+    - artifacts: Type-specific artifacts (thoughts, notes, discoveries, etc.)
+    - metadata: Additional type-specific data
+    """
+    import json
+    from pathlib import Path
+
+    # Map session types to their data directories and loaders
+    session_type_lower = session_type.lower()
+
+    try:
+        if session_type_lower == "reflection":
+            return await _load_reflection_session(session_id)
+        elif session_type_lower == "research":
+            return await _load_research_session(session_id)
+        elif session_type_lower == "curiosity":
+            return await _load_curiosity_session(session_id)
+        elif session_type_lower == "world_state":
+            return await _load_world_state_session(session_id)
+        elif session_type_lower == "creative_output":
+            return await _load_creative_session(session_id)
+        elif session_type_lower == "consolidation":
+            return await _load_consolidation_session(session_id)
+        elif session_type_lower == "knowledge_building":
+            return await _load_knowledge_building_session(session_id)
+        elif session_type_lower == "writing":
+            return await _load_writing_session(session_id)
+        elif session_type_lower == "synthesis":
+            return await _load_synthesis_session(session_id)
+        elif session_type_lower == "meta_reflection":
+            return await _load_meta_reflection_session(session_id)
+        elif session_type_lower == "growth_edge":
+            return await _load_growth_edge_session(session_id)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown session type: {session_type}. Valid types: reflection, research, synthesis, meta_reflection, consolidation, growth_edge, knowledge_building, writing, curiosity, world_state, creative_output"
+            )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading session: {str(e)}")
+
+
+async def _load_reflection_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a reflection session."""
+    import json
+    session_file = DATA_DIR / "solo_reflections" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"Reflection session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Extract thoughts as artifacts
+    artifacts = []
+    for thought in data.get("thought_stream", []):
+        artifacts.append({
+            "type": "thought",
+            "content": thought.get("content"),
+            "thought_type": thought.get("thought_type"),
+            "confidence": thought.get("confidence"),
+            "related_concepts": thought.get("related_concepts", []),
+            "timestamp": thought.get("timestamp")
+        })
+
+    return {
+        "session_id": data.get("session_id"),
+        "session_type": "reflection",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("ended_at"),
+        "duration_minutes": data.get("duration_minutes"),
+        "status": data.get("status", "completed"),
+        "summary": data.get("summary"),
+        "findings": data.get("insights", []),
+        "artifacts": artifacts,
+        "metadata": {
+            "theme": data.get("theme"),
+            "trigger": data.get("trigger"),
+            "questions_raised": data.get("questions_raised", []),
+            "model_used": data.get("model_used"),
+            "thought_count": len(artifacts)
+        }
+    }
+
+
+async def _load_research_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a research session."""
+    import json
+    session_file = DATA_DIR / "research" / "sessions" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"Research session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Notes as artifacts
+    artifacts = []
+    for note_id in data.get("notes_created", []):
+        artifacts.append({
+            "type": "research_note",
+            "note_id": note_id
+        })
+
+    # Progress entries as artifacts
+    for entry in data.get("progress_entries", []):
+        artifacts.append({
+            "type": "progress",
+            "content": entry.get("entry"),
+            "timestamp": entry.get("timestamp")
+        })
+
+    return {
+        "session_id": data.get("session_id"),
+        "session_type": "research",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("ended_at"),
+        "duration_minutes": data.get("duration_limit_minutes"),
+        "status": data.get("status", "completed"),
+        "summary": data.get("summary") or data.get("findings_summary"),
+        "findings": [data.get("findings_summary")] if data.get("findings_summary") else [],
+        "artifacts": artifacts,
+        "metadata": {
+            "mode": data.get("mode"),
+            "focus": data.get("focus_description"),
+            "focus_item_id": data.get("focus_item_id"),
+            "searches_performed": data.get("searches_performed", 0),
+            "urls_fetched": data.get("urls_fetched", 0),
+            "notes_created": data.get("notes_created", []),
+            "next_steps": data.get("next_steps"),
+            "message_count": data.get("message_count", 0)
+        }
+    }
+
+
+async def _load_curiosity_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a curiosity session."""
+    import json
+    session_file = DATA_DIR / "curiosity" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"Curiosity session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Discoveries as artifacts
+    artifacts = []
+    for disc in data.get("discoveries", []):
+        artifacts.append({
+            "type": "discovery",
+            "content": disc.get("what"),
+            "significance": disc.get("significance"),
+            "surprise_level": disc.get("surprise_level"),
+            "leads_to": disc.get("leads_to"),
+            "source": disc.get("source"),
+            "timestamp": disc.get("timestamp")
+        })
+
+    # Questions as artifacts
+    for q in data.get("questions_captured", []):
+        artifacts.append({
+            "type": "question",
+            "content": q
+        })
+
+    return {
+        "session_id": data.get("id"),
+        "session_type": "curiosity",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("completed_at"),
+        "duration_minutes": data.get("duration_minutes"),
+        "status": "completed" if data.get("completed_at") else "in_progress",
+        "summary": data.get("summary"),
+        "findings": data.get("best_discoveries", []),
+        "artifacts": artifacts,
+        "metadata": {
+            "directions_chosen": data.get("directions_chosen", []),
+            "threads_followed": data.get("threads_followed", []),
+            "threads_to_continue": data.get("threads_to_continue", []),
+            "interest_patterns": data.get("interest_patterns", []),
+            "territories_explored": data.get("territories_explored", []),
+            "flagged_for_agenda": data.get("flagged_for_agenda", []),
+            "satisfaction": data.get("satisfaction"),
+            "energy": data.get("energy")
+        }
+    }
+
+
+async def _load_world_state_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a world state session."""
+    import json
+    session_file = DATA_DIR / "world_state" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"World state session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Observations as artifacts
+    artifacts = []
+    for obs in data.get("observations", []):
+        artifacts.append({
+            "type": "world_observation",
+            "content": obs.get("observation"),
+            "category": obs.get("category"),
+            "significance": obs.get("significance"),
+            "topics": obs.get("topics", []),
+            "timestamp": obs.get("timestamp")
+        })
+
+    return {
+        "session_id": data.get("id"),
+        "session_type": "world_state",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("completed_at"),
+        "duration_minutes": data.get("duration_minutes"),
+        "status": "completed" if data.get("completed_at") else "in_progress",
+        "summary": data.get("summary"),
+        "findings": data.get("key_developments", []),
+        "artifacts": artifacts,
+        "metadata": {
+            "topics_explored": data.get("topics_explored", []),
+            "sources_consulted": data.get("sources_consulted", []),
+            "interests_connected": data.get("interests_connected", []),
+            "mood": data.get("mood"),
+            "temporal_note": data.get("temporal_note")
+        }
+    }
+
+
+async def _load_creative_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a creative output session."""
+    import json
+    session_file = DATA_DIR / "creative" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"Creative session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Creative artifacts
+    artifacts = []
+    for art in data.get("artifacts_created", []):
+        artifacts.append({
+            "type": "creative_artifact",
+            "content": art.get("content"),
+            "artifact_type": art.get("type"),
+            "project_id": art.get("project_id"),
+            "timestamp": art.get("timestamp")
+        })
+
+    # Inspirations
+    for insp in data.get("inspirations", []):
+        artifacts.append({
+            "type": "inspiration",
+            "content": insp.get("content"),
+            "source": insp.get("source"),
+            "timestamp": insp.get("timestamp")
+        })
+
+    return {
+        "session_id": data.get("id"),
+        "session_type": "creative_output",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("completed_at"),
+        "duration_minutes": data.get("duration_minutes"),
+        "status": "completed" if data.get("completed_at") else "in_progress",
+        "summary": data.get("summary"),
+        "findings": data.get("key_outputs", []),
+        "artifacts": artifacts,
+        "metadata": {
+            "focus": data.get("focus"),
+            "medium": data.get("medium"),
+            "projects_worked": data.get("projects_worked", []),
+            "concepts_developed": data.get("concepts_developed", []),
+            "satisfaction": data.get("satisfaction"),
+            "flow_state": data.get("flow_state")
+        }
+    }
+
+
+async def _load_consolidation_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a consolidation session."""
+    import json
+    session_file = DATA_DIR / "consolidation" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"Consolidation session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Learnings and themes as artifacts
+    artifacts = []
+    for learning in data.get("key_learnings", []):
+        artifacts.append({
+            "type": "learning",
+            "content": learning
+        })
+
+    for theme in data.get("themes_identified", []):
+        artifacts.append({
+            "type": "theme",
+            "content": theme
+        })
+
+    return {
+        "session_id": data.get("id"),
+        "session_type": "consolidation",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("completed_at"),
+        "duration_minutes": data.get("duration_minutes"),
+        "status": "completed" if data.get("completed_at") else "in_progress",
+        "summary": data.get("summary") or data.get("period_summary"),
+        "findings": data.get("key_learnings", []),
+        "artifacts": artifacts,
+        "metadata": {
+            "period_type": data.get("period_type"),
+            "period_start": data.get("period_start"),
+            "period_end": data.get("period_end"),
+            "material_reviewed": data.get("material_reviewed", {}),
+            "items_archived": data.get("items_archived", []),
+            "agenda_updates": data.get("agenda_updates", [])
+        }
+    }
+
+
+async def _load_knowledge_building_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a knowledge building session."""
+    import json
+    session_file = DATA_DIR / "knowledge" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"Knowledge building session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Reading notes as artifacts
+    artifacts = []
+    for note in data.get("notes_created", []):
+        artifacts.append({
+            "type": "reading_note",
+            "content": note.get("content"),
+            "note_type": note.get("type"),
+            "source_title": note.get("source_title"),
+            "timestamp": note.get("timestamp")
+        })
+
+    for concept in data.get("concepts_extracted", []):
+        artifacts.append({
+            "type": "concept",
+            "content": concept.get("name"),
+            "definition": concept.get("definition"),
+            "connections": concept.get("connections", [])
+        })
+
+    return {
+        "session_id": data.get("id"),
+        "session_type": "knowledge_building",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("completed_at"),
+        "duration_minutes": data.get("duration_minutes"),
+        "status": "completed" if data.get("completed_at") else "in_progress",
+        "summary": data.get("summary"),
+        "findings": data.get("key_insights", []),
+        "artifacts": artifacts,
+        "metadata": {
+            "focus": data.get("focus"),
+            "sources_read": data.get("sources_read", []),
+            "reading_progress": data.get("reading_progress", {}),
+            "connections_made": data.get("connections_made", 0),
+            "understanding_level": data.get("understanding_level")
+        }
+    }
+
+
+async def _load_writing_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a writing session."""
+    import json
+    session_file = DATA_DIR / "writing" / f"{session_id}.json"
+    if not session_file.exists():
+        raise FileNotFoundError(f"Writing session {session_id} not found")
+
+    with open(session_file, 'r') as f:
+        data = json.load(f)
+
+    # Writing artifacts
+    artifacts = []
+    for draft in data.get("drafts_created", []):
+        artifacts.append({
+            "type": "draft",
+            "project_id": draft.get("project_id"),
+            "title": draft.get("title"),
+            "word_count": draft.get("word_count")
+        })
+
+    for note in data.get("revision_notes", []):
+        artifacts.append({
+            "type": "revision_note",
+            "content": note
+        })
+
+    return {
+        "session_id": data.get("id"),
+        "session_type": "writing",
+        "started_at": data.get("started_at"),
+        "ended_at": data.get("completed_at"),
+        "duration_minutes": data.get("duration_minutes"),
+        "status": "completed" if data.get("completed_at") else "in_progress",
+        "summary": data.get("summary"),
+        "findings": data.get("key_outputs", []),
+        "artifacts": artifacts,
+        "metadata": {
+            "focus": data.get("focus"),
+            "projects_worked": data.get("projects_worked", []),
+            "words_written": data.get("words_written", 0),
+            "pieces_completed": data.get("pieces_completed", []),
+            "creative_state": data.get("creative_state")
+        }
+    }
+
+
+async def _load_synthesis_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a synthesis session."""
+    # Synthesis sessions are kept in memory, check if runner has it
+    if synthesis_runner_getter:
+        runner = synthesis_runner_getter()
+        if hasattr(runner, '_sessions') and session_id in runner._sessions:
+            session = runner._sessions[session_id]
+            return {
+                "session_id": session.id,
+                "session_type": "synthesis",
+                "started_at": session.started_at.isoformat() if session.started_at else None,
+                "ended_at": session.completed_at.isoformat() if session.completed_at else None,
+                "duration_minutes": session.duration_minutes,
+                "status": "completed" if session.completed_at else "in_progress",
+                "summary": session.summary,
+                "findings": [],
+                "artifacts": [
+                    {"type": "artifact_created", "id": a} for a in session.artifacts_created
+                ] + [
+                    {"type": "artifact_updated", "id": a} for a in session.artifacts_updated
+                ],
+                "metadata": {
+                    "mode": session.mode,
+                    "focus": session.focus,
+                    "contradictions_addressed": session.contradictions_addressed,
+                    "next_steps": session.next_steps
+                }
+            }
+    raise FileNotFoundError(f"Synthesis session {session_id} not found")
+
+
+async def _load_meta_reflection_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a meta-reflection session."""
+    # Meta-reflection sessions are kept in memory
+    if meta_reflection_runner_getter:
+        runner = meta_reflection_runner_getter()
+        if hasattr(runner, '_sessions') and session_id in runner._sessions:
+            session = runner._sessions[session_id]
+            artifacts = []
+            for insight in getattr(session, 'insights_recorded', []):
+                artifacts.append({
+                    "type": "meta_insight",
+                    "content": insight.get("content"),
+                    "category": insight.get("category"),
+                    "timestamp": insight.get("timestamp")
+                })
+            return {
+                "session_id": session.id,
+                "session_type": "meta_reflection",
+                "started_at": session.started_at.isoformat() if session.started_at else None,
+                "ended_at": session.completed_at.isoformat() if getattr(session, 'completed_at', None) else None,
+                "duration_minutes": session.duration_minutes,
+                "status": "completed" if getattr(session, 'completed_at', None) else "in_progress",
+                "summary": getattr(session, 'summary', None),
+                "findings": getattr(session, 'key_findings', []),
+                "artifacts": artifacts,
+                "metadata": {
+                    "focus": session.focus,
+                    "analyses_performed": getattr(session, 'analyses_performed', []),
+                    "patterns_found": getattr(session, 'patterns_found', [])
+                }
+            }
+    raise FileNotFoundError(f"Meta-reflection session {session_id} not found")
+
+
+async def _load_growth_edge_session(session_id: str) -> Dict[str, Any]:
+    """Load and normalize a growth edge session."""
+    # Growth edge sessions are kept in memory
+    if growth_edge_runner_getter:
+        runner = growth_edge_runner_getter()
+        if hasattr(runner, '_sessions') and session_id in runner._sessions:
+            session = runner._sessions[session_id]
+            artifacts = []
+            for obs in getattr(session, 'observations', []):
+                artifacts.append({
+                    "type": "practice_observation",
+                    "content": obs.get("observation"),
+                    "edge_id": obs.get("edge_id"),
+                    "timestamp": obs.get("timestamp")
+                })
+            for exercise in getattr(session, 'exercises_designed', []):
+                artifacts.append({
+                    "type": "practice_exercise",
+                    "content": exercise.get("description"),
+                    "exercise_type": exercise.get("type")
+                })
+            return {
+                "session_id": session.id,
+                "session_type": "growth_edge",
+                "started_at": session.started_at.isoformat() if session.started_at else None,
+                "ended_at": session.completed_at.isoformat() if getattr(session, 'completed_at', None) else None,
+                "duration_minutes": session.duration_minutes,
+                "status": "completed" if getattr(session, 'completed_at', None) else "in_progress",
+                "summary": getattr(session, 'summary', None),
+                "findings": getattr(session, 'progress_notes', []),
+                "artifacts": artifacts,
+                "metadata": {
+                    "focus": session.focus,
+                    "edges_worked": getattr(session, 'edges_worked', []),
+                    "progress_evaluations": getattr(session, 'progress_evaluations', [])
+                }
+            }
+    raise FileNotFoundError(f"Growth edge session {session_id} not found")
+
 
 
 # ============== Research Notes Endpoints ==============

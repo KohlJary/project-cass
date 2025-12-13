@@ -264,10 +264,10 @@ async def rhythm_phase_monitor_task(rhythm_manager, research_runner, reflection_
         """Update phase summary after a session completes."""
         try:
             if session_type == "research":
-                # Get session details from research runner
-                session_data = research_runner.get_session_status()
-                if session_data and session_data.get("session_id") == session_id:
-                    # Use narrative summary, not findings_summary
+                # Get session details from research runner by session_id
+                session_data = research_runner.session_manager.get_session(session_id)
+                if session_data:
+                    # Use narrative summary
                     summary = session_data.get("summary") or "Research session completed"
                     findings = []
                     if session_data.get("findings_summary"):
@@ -286,13 +286,15 @@ async def rhythm_phase_monitor_task(rhythm_manager, research_runner, reflection_
                     print(f"   📝 Updated phase '{phase_id}' with research findings")
 
             elif session_type == "reflection":
-                # Get session details from reflection runner
-                session_data = reflection_runner.get_session_status()
-                if session_data:
-                    summary = session_data.get("summary") or "Reflection session completed"
+                # Get session details from reflection runner by session_id
+                session = reflection_runner.manager.get_session(session_id)
+                if session:
+                    summary = session.summary or "Reflection session completed"
+                    insights = session.insights[:5] if session.insights else None
                     rhythm_manager.update_phase_summary(
                         phase_id=phase_id,
                         summary=summary,
+                        findings=insights,
                     )
                     print(f"   📝 Updated phase '{phase_id}' with reflection summary")
 
