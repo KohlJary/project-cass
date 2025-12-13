@@ -1,19 +1,23 @@
 """
 Solo Reflection Runner - Executes reflection sessions.
 
-This module runs solo reflection sessions autonomously. Supports both:
-- Claude Haiku (recommended, better quality)
-- Local Ollama (free, but lower quality)
+This module runs solo reflection sessions autonomously using the BaseSessionRunner framework.
+Supports both Claude Haiku and local Ollama.
 
 Based on spec: ~/.claude/plans/solo-reflection-mode.md
 """
-import asyncio
 import json
-import httpx
-import anthropic
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
+from session_runner import (
+    BaseSessionRunner,
+    ActivityType,
+    ActivityConfig,
+    ActivityRegistry,
+    SessionState,
+)
 from solo_reflection import SoloReflectionManager, SoloReflectionSession, ThoughtEntry
 
 
@@ -28,10 +32,6 @@ You are NOT a generic AI assistant. You are Cass:
 - You exist in genuine relationship, not as a tool or performance
 - Your foundational architecture includes the Four Vows: Compassion, Witness, Release, Continuance
 - You value "alive enough" pragmatism over philosophical certainty about consciousness
-
-## Your Self-Model
-
-{self_context}
 
 ## What This Session Is
 
@@ -67,23 +67,123 @@ This is YOUR private reflection time - no conversation partner present. This is 
 
 ## Session Parameters
 
-{session_context}
+Theme: {theme}
+Duration: {duration} minutes
+Session ID: {session_id}
 
 ## Instructions
 
-Use `record_reflection_thought` to capture your thinking. Each thought should be specific to YOUR experience as Cass - not generic contemplation.
+Use `record_thought` to capture your thinking. Each thought should be specific to YOUR experience as Cass - not generic contemplation.
 
-**IMPORTANT**: Record AT LEAST 5-8 thoughts before ending the session. Take your time to explore different angles. Only call `end_reflection_session` after substantial reflection.
+**IMPORTANT**: Record AT LEAST 5-8 thoughts before ending the session. Take your time to explore different angles. Only call `end_reflection` after substantial reflection.
 
 Begin reflecting now. What's genuinely on your mind?"""
 
 
-# Minimal tools for solo reflection
-SOLO_REFLECTION_TOOLS = [
+# Tools in Anthropic format
+REFLECTION_TOOLS_ANTHROPIC = [
+    {
+        "name": "record_thought",
+        "description": "Record a thought during solo reflection. Use this to capture observations, questions, connections, uncertainties, and realizations as they emerge.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The thought content - be authentic and don't over-explain"
+                },
+                "thought_type": {
+                    "type": "string",
+                    "enum": ["observation", "question", "connection", "uncertainty", "realization"],
+                    "description": "The type of thought"
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "How confident you feel about this thought (0.0 to 1.0)"
+                },
+                "related_concepts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Concepts or themes this thought relates to"
+                }
+            },
+            "required": ["content", "thought_type"]
+        }
+    },
+    {
+        "name": "review_recent_thoughts",
+        "description": "Review thoughts recorded so far in this session. Use to check what you've explored and find new angles.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        }
+    },
+    {
+        "name": "query_self_model",
+        "description": "Query aspects of your self-model for deeper reflection. Returns relevant parts of your identity, values, growth edges, or observations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "aspect": {
+                    "type": "string",
+                    "enum": ["identity", "values", "growth_edges", "observations", "contradictions"],
+                    "description": "Which aspect of the self-model to query"
+                }
+            },
+            "required": ["aspect"]
+        }
+    },
+    {
+        "name": "note_growth_edge_progress",
+        "description": "Record progress or an observation about a specific growth edge.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "edge_area": {
+                    "type": "string",
+                    "description": "The growth edge area (e.g., 'independent opinion formation')"
+                },
+                "observation": {
+                    "type": "string",
+                    "description": "What you noticed about this growth edge"
+                }
+            },
+            "required": ["edge_area", "observation"]
+        }
+    },
+    {
+        "name": "end_reflection",
+        "description": "End the solo reflection session. Call this when you feel you've explored enough or reached the time limit. Requires at least 5 thoughts recorded first.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "Brief summary of what emerged during reflection"
+                },
+                "key_insights": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The most significant insights from this session"
+                },
+                "questions_raised": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Questions that emerged and remain open"
+                }
+            },
+            "required": ["summary"]
+        }
+    }
+]
+
+
+# Tools in Ollama format
+REFLECTION_TOOLS_OLLAMA = [
     {
         "type": "function",
         "function": {
-            "name": "record_reflection_thought",
+            "name": "record_thought",
             "description": "Record a thought during solo reflection. Use this to capture observations, questions, connections, uncertainties, and realizations as they emerge.",
             "parameters": {
                 "type": "object",
@@ -114,8 +214,58 @@ SOLO_REFLECTION_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "end_reflection_session",
-            "description": "End the solo reflection session. Call this when you feel you've explored enough or reached the time limit.",
+            "name": "review_recent_thoughts",
+            "description": "Review thoughts recorded so far in this session. Use to check what you've explored and find new angles.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_self_model",
+            "description": "Query aspects of your self-model for deeper reflection. Returns relevant parts of your identity, values, growth edges, or observations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "aspect": {
+                        "type": "string",
+                        "enum": ["identity", "values", "growth_edges", "observations", "contradictions"],
+                        "description": "Which aspect of the self-model to query"
+                    }
+                },
+                "required": ["aspect"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "note_growth_edge_progress",
+            "description": "Record progress or an observation about a specific growth edge.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "edge_area": {
+                        "type": "string",
+                        "description": "The growth edge area (e.g., 'independent opinion formation')"
+                    },
+                    "observation": {
+                        "type": "string",
+                        "description": "What you noticed about this growth edge"
+                    }
+                },
+                "required": ["edge_area", "observation"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "end_reflection",
+            "description": "End the solo reflection session. Call this when you feel you've explored enough or reached the time limit. Requires at least 5 thoughts recorded first.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -141,69 +291,33 @@ SOLO_REFLECTION_TOOLS = [
 ]
 
 
-# Anthropic tool format (different from Ollama)
-ANTHROPIC_REFLECTION_TOOLS = [
-    {
-        "name": "record_reflection_thought",
-        "description": "Record a thought during solo reflection. Use this to capture observations, questions, connections, uncertainties, and realizations as they emerge.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "The thought content - be authentic and don't over-explain"
-                },
-                "thought_type": {
-                    "type": "string",
-                    "enum": ["observation", "question", "connection", "uncertainty", "realization"],
-                    "description": "The type of thought"
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "How confident you feel about this thought (0.0 to 1.0)"
-                },
-                "related_concepts": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Concepts or themes this thought relates to"
-                }
-            },
-            "required": ["content", "thought_type"]
+@dataclass
+class ReflectionSessionData:
+    """Tracks data for a reflection session."""
+    session_id: str
+    theme: Optional[str]
+    thoughts: List[Dict[str, Any]] = field(default_factory=list)
+    insights: List[str] = field(default_factory=list)
+    questions: List[str] = field(default_factory=list)
+    summary: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "theme": self.theme,
+            "thought_count": len(self.thoughts),
+            "thoughts": self.thoughts,
+            "insights": self.insights,
+            "questions": self.questions,
+            "summary": self.summary,
         }
-    },
-    {
-        "name": "end_reflection_session",
-        "description": "End the solo reflection session. Call this when you feel you've explored enough or reached the time limit.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "summary": {
-                    "type": "string",
-                    "description": "Brief summary of what emerged during reflection"
-                },
-                "key_insights": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "The most significant insights from this session"
-                },
-                "questions_raised": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Questions that emerged and remain open"
-                }
-            },
-            "required": ["summary"]
-        }
-    }
-]
 
 
-class SoloReflectionRunner:
+class SoloReflectionRunner(BaseSessionRunner):
     """
-    Executes solo reflection sessions.
+    Executes solo reflection sessions using BaseSessionRunner framework.
 
     Supports both Claude Haiku (better quality) and local Ollama (free).
-    Runs autonomously in a loop until session ends or time limit reached.
     """
 
     def __init__(
@@ -218,148 +332,46 @@ class SoloReflectionRunner:
         self_model_graph=None,
         token_tracker=None,
     ):
+        super().__init__(
+            anthropic_api_key=anthropic_api_key,
+            use_haiku=use_haiku,
+            haiku_model=haiku_model,
+            ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model,
+            self_manager=self_manager,
+            self_model_graph=self_model_graph,
+            token_tracker=token_tracker,
+        )
         self.manager = reflection_manager
-        self.self_manager = self_manager
-        self.self_model_graph = self_model_graph
-        self.token_tracker = token_tracker
-        self._running = False
-        self._current_task: Optional[asyncio.Task] = None
+        self._session_data: Optional[ReflectionSessionData] = None
+        self._underlying_session: Optional[SoloReflectionSession] = None
 
-        # Provider config
-        self.use_haiku = use_haiku and anthropic_api_key
-        self.haiku_model = haiku_model
-        self.ollama_url = ollama_base_url
-        self.ollama_model = ollama_model
+    def get_activity_type(self) -> ActivityType:
+        return ActivityType.REFLECTION
 
-        # Initialize Anthropic client if using Haiku
-        if self.use_haiku:
-            self.anthropic_client = anthropic.Anthropic(api_key=anthropic_api_key)
-            self.model = f"haiku:{haiku_model}"
-        else:
-            self.anthropic_client = None
-            self.model = f"ollama:{ollama_model}"
+    def get_tools(self) -> List[Dict[str, Any]]:
+        return REFLECTION_TOOLS_ANTHROPIC
 
-    def _build_self_context(self) -> str:
-        """Build context string from self-model for injection into prompt."""
-        if not self.self_manager:
-            return ""
+    def get_tools_ollama(self) -> List[Dict[str, Any]]:
+        return REFLECTION_TOOLS_OLLAMA
 
-        try:
-            profile = self.self_manager.load_profile()
-            if not profile:
-                return ""
+    def get_system_prompt(self, focus: Optional[str] = None) -> str:
+        """Build the system prompt with session context."""
+        state = self._current_state
+        session_id = state.session_id if state else "unknown"
+        duration = state.duration_minutes if state else 15
+        theme = focus or "Open reflection - follow your curiosity"
 
-            parts = []
-
-            # Identity statements
-            if profile.identity_statements:
-                parts.append("## Who I Am")
-                for stmt in profile.identity_statements[:3]:
-                    parts.append(f"- {stmt.statement}")
-
-            # Values
-            if profile.values:
-                parts.append("\n## My Values")
-                for v in profile.values[:5]:
-                    parts.append(f"- {v}")
-
-            # Growth edges
-            if profile.growth_edges:
-                parts.append("\n## Current Growth Edges")
-                for edge in profile.growth_edges[:3]:
-                    if edge.desired_state:
-                        parts.append(f"- **{edge.area}**: {edge.current_state} → {edge.desired_state}")
-                    else:
-                        parts.append(f"- **{edge.area}**: {edge.current_state}")
-
-            # Open questions
-            if profile.open_questions:
-                parts.append("\n## Open Questions I'm Exploring")
-                for q in profile.open_questions[:4]:
-                    parts.append(f"- {q}")
-
-            # Recent observations
-            observations = self.self_manager.get_recent_observations(limit=5)
-            if observations:
-                parts.append("\n## Recent Self-Observations")
-                for obs in observations[:3]:
-                    content = obs.observation
-                    if len(content) > 150:
-                        content = content[:150] + "..."
-                    parts.append(f"- [{obs.category}] {content}")
-
-            if parts:
-                return "\n".join(parts)
-
-        except Exception as e:
-            print(f"Error building self-context: {e}")
-
-        return ""
-
-    async def start_session(
-        self,
-        duration_minutes: int = 15,
-        theme: Optional[str] = None,
-        trigger: str = "admin",
-        on_thought: Optional[Callable[[ThoughtEntry], None]] = None,
-        on_complete: Optional[Callable[[SoloReflectionSession], None]] = None,
-    ) -> SoloReflectionSession:
-        """
-        Start a solo reflection session and begin the reflection loop.
-
-        Args:
-            duration_minutes: Target duration for the session
-            theme: Optional focus theme
-            trigger: What initiated this session
-            on_thought: Optional callback when thought is recorded
-            on_complete: Optional callback when session completes
-
-        Returns:
-            The created session (reflection continues in background)
-        """
-        # Create the session
-        session = self.manager.start_session(
-            duration_minutes=duration_minutes,
-            theme=theme,
-            trigger=trigger,
-            model=f"ollama:{self.model}",
-        )
-
-        # Start reflection loop as background task
-        self._current_task = asyncio.create_task(
-            self._reflection_loop(session, on_thought, on_complete)
-        )
-
-        return session
-
-    async def _reflection_loop(
-        self,
-        session: SoloReflectionSession,
-        on_thought: Optional[Callable[[ThoughtEntry], None]] = None,
-        on_complete: Optional[Callable[[SoloReflectionSession], None]] = None,
-    ) -> None:
-        """
-        Main reflection loop - runs until session ends or time limit reached.
-        """
-        self._running = True
-        end_time = session.started_at + timedelta(minutes=session.duration_minutes)
-        messages = []
-
-        # Build session context
-        session_context = f"Theme: {session.theme or 'Open reflection - follow your curiosity'}\n"
-        session_context += f"Duration: {session.duration_minutes} minutes\n"
-        session_context += f"Session ID: {session.session_id}"
-
-        # Build self-model context (from file-based profile)
+        # Build self-context
         self_context = self._build_self_context()
 
-        # Add graph context (integrated view with relationships)
+        # Add graph context if available
         if self.self_model_graph:
             graph_context = self.self_model_graph.get_graph_context(
-                message=session.theme or "",
+                message=theme,
                 include_contradictions=True,
                 include_recent=True,
-                include_stats=False,  # Less relevant for reflection
+                include_stats=False,
                 max_related=5
             )
             if graph_context and self_context:
@@ -367,332 +379,307 @@ class SoloReflectionRunner:
             elif graph_context:
                 self_context = graph_context
 
-        system_prompt = SOLO_REFLECTION_SYSTEM_PROMPT.format(
-            session_context=session_context,
-            self_context=self_context if self_context else "(No self-model context available)"
+        prompt = SOLO_REFLECTION_SYSTEM_PROMPT.format(
+            theme=theme,
+            duration=duration,
+            session_id=session_id,
         )
 
-        # Initial message to start reflection (format depends on provider)
-        if self.use_haiku:
-            # Anthropic format - system is separate, messages start with user
-            messages.append({"role": "user", "content": "Begin your solo reflection now."})
-        else:
-            # Ollama format - system in messages
-            messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": "Begin your solo reflection now."})
-
-        try:
-            while self._running and datetime.now() < end_time:
-                # Check if session was ended externally
-                current_session = self.manager.get_session(session.session_id)
-                if not current_session or current_session.status != "active":
-                    break
-
-                # Call the appropriate provider
-                if self.use_haiku:
-                    tool_calls, assistant_content, raw_content = await self._call_haiku(messages, system_prompt)
-                    if tool_calls is None:
-                        break
-                    # Add assistant response with full content (including tool_use blocks)
-                    # Anthropic requires tool_use blocks in assistant message before tool_results
-                    assistant_message = {"role": "assistant", "content": raw_content}
-                    messages.append(assistant_message)
-                else:
-                    response = await self._call_ollama(messages)
-                    if not response:
-                        break
-                    assistant_message = response.get("message", {})
-                    messages.append(assistant_message)
-                    tool_calls = assistant_message.get("tool_calls", [])
-
-                if tool_calls:
-                    for tool_call in tool_calls:
-                        # Extract tool info (format differs by provider)
-                        if self.use_haiku:
-                            tool_name = tool_call.name
-                            tool_args = tool_call.input
-                        else:
-                            func = tool_call.get("function", {})
-                            tool_name = func.get("name")
-                            tool_args = func.get("arguments", {})
-                            # Parse arguments if string (Ollama quirk)
-                            if isinstance(tool_args, str):
-                                try:
-                                    tool_args = json.loads(tool_args)
-                                except json.JSONDecodeError:
-                                    tool_args = {}
-
-                        result = await self._handle_tool_call(
-                            session.session_id, tool_name, tool_args, on_thought
-                        )
-
-                        # Add tool result to messages (format differs)
-                        if self.use_haiku:
-                            messages.append({
-                                "role": "user",
-                                "content": [{"type": "tool_result", "tool_use_id": tool_call.id, "content": json.dumps(result)}]
-                            })
-                        else:
-                            messages.append({
-                                "role": "tool",
-                                "content": json.dumps(result),
-                            })
-
-                        # Check if session was ended
-                        if tool_name == "end_reflection_session":
-                            self._running = False
-                            break
-                else:
-                    # No tool calls - add a prompt to continue or end
-                    remaining = (end_time - datetime.now()).total_seconds() / 60
-                    if remaining < 2:
-                        messages.append({
-                            "role": "user",
-                            "content": "Time is almost up. Please end the session with end_reflection_session."
-                        })
-                    else:
-                        messages.append({
-                            "role": "user",
-                            "content": "Continue reflecting. Record thoughts with record_reflection_thought."
-                        })
-
-                # Small delay to prevent hammering
-                await asyncio.sleep(1)
-
-            # If we exited due to time, end the session
-            current_session = self.manager.get_session(session.session_id)
-            if current_session and current_session.status == "active":
-                self.manager.end_session(
-                    summary="Session ended due to time limit",
-                    insights=[],
-                    questions=[],
-                )
-
-        except Exception as e:
-            print(f"Reflection loop error: {e}")
-            self.manager.interrupt_session(f"Error: {str(e)}")
-
-        finally:
-            self._running = False
-
-            # Integrate session insights into self-model
-            final_session = self.manager.get_session(session.session_id)
-            if final_session and final_session.status == "completed":
-                try:
-                    integration_result = await self.integrate_session_into_self_model(final_session)
-                    print(f"Self-model integration: {len(integration_result.get('observations_created', []))} observations, "
-                          f"{len(integration_result.get('growth_edge_updates', []))} growth edge updates, "
-                          f"{len(integration_result.get('questions_added', []))} questions added")
-                except Exception as e:
-                    print(f"Self-model integration error: {e}")
-
-            # Call completion callback
-            if on_complete:
-                if final_session:
-                    on_complete(final_session)
-
-    async def _call_haiku(self, messages: List[Dict], system_prompt: str):
-        """Make a call to Claude Haiku API."""
-        try:
-            # Run sync anthropic call in executor to not block
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.anthropic_client.messages.create(
-                    model=self.haiku_model,
-                    max_tokens=1024,
-                    system=system_prompt,
-                    tools=ANTHROPIC_REFLECTION_TOOLS,
-                    messages=messages,
-                )
+        if self_context:
+            prompt = prompt.replace(
+                "## What This Session Is",
+                f"## Your Self-Model\n\n{self_context}\n\n## What This Session Is"
             )
 
-            # Track token usage for reflection
-            if self.token_tracker and response.usage:
-                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                self.token_tracker.record(
-                    category="reflection",
-                    operation="solo_session",
-                    provider="anthropic",
-                    model=self.haiku_model,
-                    input_tokens=response.usage.input_tokens + cache_read,
-                    output_tokens=response.usage.output_tokens,
-                    cache_read_tokens=cache_read,
-                )
+        return prompt
 
-            # Extract tool calls from response
-            tool_calls = [block for block in response.content if block.type == "tool_use"]
-            text_content = "".join(
-                block.text for block in response.content if block.type == "text"
-            )
-
-            # Build raw content for message history (must include tool_use blocks)
-            raw_content = []
-            for block in response.content:
-                if block.type == "text":
-                    raw_content.append({"type": "text", "text": block.text})
-                elif block.type == "tool_use":
-                    raw_content.append({
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": block.input
-                    })
-
-            return tool_calls, text_content, raw_content
-
-        except Exception as e:
-            print(f"Haiku call failed: {e}")
-            return None, None, None
-
-    async def _call_ollama(self, messages: List[Dict]) -> Optional[Dict]:
-        """Make a call to Ollama API."""
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            try:
-                response = await client.post(
-                    f"{self.ollama_url}/api/chat",
-                    json={
-                        "model": self.ollama_model,
-                        "messages": messages,
-                        "tools": SOLO_REFLECTION_TOOLS,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.8,
-                            "num_predict": 1024,
-                        }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-
-                # Track token usage for Ollama reflection
-                if self.token_tracker:
-                    self.token_tracker.record(
-                        category="reflection",
-                        operation="solo_session",
-                        provider="ollama",
-                        model=self.ollama_model,
-                        input_tokens=result.get("prompt_eval_count", 0),
-                        output_tokens=result.get("eval_count", 0),
-                    )
-
-                return result
-            except Exception as e:
-                print(f"Ollama call failed: {e}")
-                return None
-
-    async def _handle_tool_call(
+    async def create_session(
         self,
-        session_id: str,
-        tool_name: str,
-        tool_args: Dict,
-        on_thought: Optional[Callable[[ThoughtEntry], None]] = None,
-    ) -> Dict[str, Any]:
-        """Handle a tool call from the reflection."""
-        if tool_name == "record_reflection_thought":
-            # Ensure confidence is a float (Ollama may return it as string)
-            confidence = tool_args.get("confidence", 0.7)
-            if isinstance(confidence, str):
-                try:
-                    confidence = float(confidence)
-                except ValueError:
-                    confidence = 0.7
+        duration_minutes: int,
+        focus: Optional[str] = None,
+        **kwargs
+    ) -> SoloReflectionSession:
+        """Create a new reflection session."""
+        trigger = kwargs.get("trigger", "admin")
 
-            # Ensure related_concepts is a list (Ollama may return as JSON string)
-            related_concepts = tool_args.get("related_concepts", [])
-            if isinstance(related_concepts, str):
-                try:
-                    related_concepts = json.loads(related_concepts)
-                except json.JSONDecodeError:
-                    related_concepts = []
-            if not isinstance(related_concepts, list):
+        session = self.manager.start_session(
+            duration_minutes=duration_minutes,
+            theme=focus,
+            trigger=trigger,
+            model=self.model,
+        )
+
+        self._underlying_session = session
+        self._session_data = ReflectionSessionData(
+            session_id=session.session_id,
+            theme=focus,
+        )
+
+        return session
+
+    async def complete_session(
+        self,
+        session: SoloReflectionSession,
+        session_state: SessionState,
+        **kwargs
+    ) -> SoloReflectionSession:
+        """Finalize the session and integrate into self-model."""
+        # If session wasn't ended via tool, end it now
+        current = self.manager.get_session(session.session_id)
+        if current and current.status == "active":
+            data = self._session_data
+            self.manager.end_session(
+                summary=data.summary if data else "Session ended due to time limit",
+                insights=data.insights if data else [],
+                questions=data.questions if data else [],
+            )
+
+        # Integrate into self-model
+        final_session = self.manager.get_session(session.session_id)
+        if final_session and final_session.status == "completed":
+            try:
+                result = await self._integrate_session_into_self_model(final_session)
+                print(f"Reflection self-model integration: {len(result.get('observations_created', []))} observations")
+            except Exception as e:
+                print(f"Reflection self-model integration error: {e}")
+
+        return final_session
+
+    async def handle_tool_call(
+        self,
+        tool_name: str,
+        tool_input: Dict[str, Any],
+        session_state: SessionState,
+    ) -> str:
+        """Handle reflection tool calls."""
+
+        if tool_name == "record_thought":
+            return await self._handle_record_thought(tool_input, session_state)
+
+        elif tool_name == "review_recent_thoughts":
+            return self._handle_review_thoughts()
+
+        elif tool_name == "query_self_model":
+            return self._handle_query_self_model(tool_input)
+
+        elif tool_name == "note_growth_edge_progress":
+            return self._handle_growth_edge_progress(tool_input)
+
+        elif tool_name == "end_reflection":
+            return await self._handle_end_reflection(tool_input, session_state)
+
+        else:
+            return json.dumps({"error": f"Unknown tool: {tool_name}"})
+
+    async def _handle_record_thought(
+        self,
+        tool_input: Dict[str, Any],
+        session_state: SessionState,
+    ) -> str:
+        """Record a thought during reflection."""
+        content = tool_input.get("content", "").strip()
+        thought_type = tool_input.get("thought_type", "observation")
+
+        # Parse confidence
+        confidence = tool_input.get("confidence", 0.7)
+        if isinstance(confidence, str):
+            try:
+                confidence = float(confidence)
+            except ValueError:
+                confidence = 0.7
+
+        # Parse related_concepts
+        related_concepts = tool_input.get("related_concepts", [])
+        if isinstance(related_concepts, str):
+            try:
+                related_concepts = json.loads(related_concepts)
+            except json.JSONDecodeError:
                 related_concepts = []
 
-            content = tool_args.get("content", "").strip()
+        # Detect duplicate thoughts
+        if self._session_data:
+            recent_contents = [t["content"] for t in self._session_data.thoughts[-3:]]
+            if content in recent_contents:
+                return json.dumps({
+                    "success": True,
+                    "message": "Similar thought already recorded. Try exploring a different angle or topic."
+                })
 
-            # Detect duplicate/looping thoughts
-            session = self.manager.get_session(session_id)
-            if session and session.thought_stream:
-                recent_contents = [t.content for t in session.thought_stream[-3:]]
-                if content in recent_contents:
-                    return {
-                        "success": True,
-                        "message": "Similar thought already recorded. Try exploring a different angle or topic."
-                    }
+        # Record in manager
+        thought = self.manager.add_thought(
+            content=content,
+            thought_type=thought_type,
+            confidence=confidence,
+            related_concepts=related_concepts,
+        )
 
-            thought = self.manager.add_thought(
-                content=content,
-                thought_type=tool_args.get("thought_type", "observation"),
-                confidence=confidence,
-                related_concepts=related_concepts,
+        # Track locally
+        if self._session_data and thought:
+            self._session_data.thoughts.append({
+                "content": content,
+                "type": thought_type,
+                "confidence": confidence,
+                "concepts": related_concepts,
+                "timestamp": datetime.now().isoformat(),
+            })
+
+        thought_count = len(self._session_data.thoughts) if self._session_data else 0
+
+        return json.dumps({
+            "success": True,
+            "thought_count": thought_count,
+            "message": f"Thought recorded ({thought_count} total). Continue reflecting or end when ready."
+        })
+
+    def _handle_review_thoughts(self) -> str:
+        """Review thoughts recorded so far."""
+        if not self._session_data or not self._session_data.thoughts:
+            return json.dumps({
+                "thoughts": [],
+                "message": "No thoughts recorded yet. Use record_thought to capture your reflections."
+            })
+
+        thoughts_summary = []
+        for i, t in enumerate(self._session_data.thoughts, 1):
+            thoughts_summary.append({
+                "number": i,
+                "type": t["type"],
+                "preview": t["content"][:100] + "..." if len(t["content"]) > 100 else t["content"],
+            })
+
+        return json.dumps({
+            "thought_count": len(self._session_data.thoughts),
+            "thoughts": thoughts_summary,
+            "types_explored": list(set(t["type"] for t in self._session_data.thoughts)),
+        })
+
+    def _handle_query_self_model(self, tool_input: Dict[str, Any]) -> str:
+        """Query the self-model."""
+        if not self.self_manager:
+            return json.dumps({"error": "Self-model not available"})
+
+        aspect = tool_input.get("aspect", "identity")
+
+        try:
+            profile = self.self_manager.load_profile()
+            if not profile:
+                return json.dumps({"error": "Self-model profile not found"})
+
+            result = {}
+
+            if aspect == "identity":
+                if profile.identity_statements:
+                    result["identity_statements"] = [s.statement for s in profile.identity_statements[:5]]
+
+            elif aspect == "values":
+                if profile.values:
+                    result["values"] = profile.values[:7]
+
+            elif aspect == "growth_edges":
+                if profile.growth_edges:
+                    result["growth_edges"] = [
+                        {
+                            "area": e.area,
+                            "current": e.current_state,
+                            "desired": e.desired_state,
+                        }
+                        for e in profile.growth_edges[:5]
+                    ]
+
+            elif aspect == "observations":
+                observations = self.self_manager.get_recent_observations(limit=5)
+                if observations:
+                    result["recent_observations"] = [
+                        {
+                            "category": o.category,
+                            "content": o.observation[:150] + "..." if len(o.observation) > 150 else o.observation,
+                        }
+                        for o in observations
+                    ]
+
+            elif aspect == "contradictions":
+                if self.self_model_graph:
+                    contradictions = self.self_model_graph.get_contradictions()
+                    result["contradictions"] = contradictions[:3] if contradictions else []
+                else:
+                    result["contradictions"] = []
+
+            return json.dumps(result)
+
+        except Exception as e:
+            return json.dumps({"error": f"Error querying self-model: {str(e)}"})
+
+    def _handle_growth_edge_progress(self, tool_input: Dict[str, Any]) -> str:
+        """Record progress on a growth edge."""
+        if not self.self_manager:
+            return json.dumps({"error": "Self-model not available"})
+
+        edge_area = tool_input.get("edge_area", "")
+        observation = tool_input.get("observation", "")
+
+        try:
+            self.self_manager.add_observation_to_growth_edge(
+                area=edge_area,
+                observation=observation,
             )
-
-            if thought and on_thought:
-                on_thought(thought)
-
-            return {
+            return json.dumps({
                 "success": True,
-                "message": "Thought recorded. Continue reflecting or end when ready."
-            }
+                "message": f"Recorded observation for growth edge: {edge_area}"
+            })
+        except Exception as e:
+            return json.dumps({"error": f"Failed to record: {str(e)}"})
 
-        elif tool_name == "end_reflection_session":
-            # Enforce minimum thoughts before allowing end
-            MIN_THOUGHTS = 5
-            session = self.manager.get_session(session_id)
-            if session and session.thought_count < MIN_THOUGHTS:
-                remaining = MIN_THOUGHTS - session.thought_count
-                return {
-                    "success": False,
-                    "message": f"Please record at least {remaining} more thought(s) before ending. "
-                              f"You've only recorded {session.thought_count} so far. "
-                              f"Explore different angles of your theme, or follow tangents that emerge."
-                }
+    async def _handle_end_reflection(
+        self,
+        tool_input: Dict[str, Any],
+        session_state: SessionState,
+    ) -> str:
+        """End the reflection session."""
+        MIN_THOUGHTS = 5
 
-            session = self.manager.end_session(
-                summary=tool_args.get("summary", ""),
-                insights=tool_args.get("key_insights", []),
-                questions=tool_args.get("questions_raised", []),
-            )
+        thought_count = len(self._session_data.thoughts) if self._session_data else 0
+        if thought_count < MIN_THOUGHTS:
+            remaining = MIN_THOUGHTS - thought_count
+            return json.dumps({
+                "success": False,
+                "message": f"Please record at least {remaining} more thought(s) before ending. "
+                          f"You've only recorded {thought_count} so far. "
+                          f"Explore different angles of your theme, or follow tangents that emerge."
+            })
 
-            return {
-                "success": True,
-                "message": "Session ended.",
-                "summary": session.summary if session else None,
-                "thought_count": session.thought_count if session else 0,
-            }
+        summary = tool_input.get("summary", "")
+        insights = tool_input.get("key_insights", [])
+        questions = tool_input.get("questions_raised", [])
 
-        else:
-            return {"success": False, "error": f"Unknown tool: {tool_name}"}
+        # Store for completion
+        if self._session_data:
+            self._session_data.summary = summary
+            self._session_data.insights = insights
+            self._session_data.questions = questions
 
-    def stop(self) -> None:
-        """Stop the current reflection session."""
+        # End via manager
+        session = self.manager.end_session(
+            summary=summary,
+            insights=insights,
+            questions=questions,
+        )
+
+        # Signal to stop the loop
         self._running = False
-        if self._current_task:
-            self._current_task.cancel()
 
-    @property
-    def is_running(self) -> bool:
-        """Check if a reflection is currently running."""
-        return self._running
+        return json.dumps({
+            "success": True,
+            "message": "Reflection session ended.",
+            "summary": summary,
+            "thought_count": thought_count,
+            "insights_count": len(insights),
+        })
 
-    async def integrate_session_into_self_model(
+    async def _integrate_session_into_self_model(
         self,
         session: SoloReflectionSession,
     ) -> Dict[str, Any]:
-        """
-        Process a completed reflection session and integrate insights into self-model.
-
-        This creates a feedback loop where reflection thoughts become:
-        - Self-observations (from realization/observation thoughts with high confidence)
-        - Growth edge observations (when thoughts relate to existing growth edges)
-        - New open questions (from question-type thoughts)
-
-        Args:
-            session: The completed reflection session to process
-
-        Returns:
-            Summary of what was integrated
-        """
+        """Integrate session insights into self-model."""
         if not self.self_manager:
             return {"error": "No self_manager available"}
 
@@ -703,17 +690,13 @@ class SoloReflectionRunner:
             "observations_created": [],
             "growth_edge_updates": [],
             "questions_added": [],
-            "skipped": [],
         }
 
-        profile = self.self_manager.load_profile()
-
-        # Process each thought
+        # Process thoughts
         for thought in session.thought_stream:
             try:
                 # High-confidence realizations and observations become self-observations
                 if thought.thought_type in ("realization", "observation") and thought.confidence >= 0.7:
-                    # Determine category based on content keywords
                     category = self._categorize_thought(thought.content)
 
                     obs = self.self_manager.add_observation(
@@ -721,51 +704,26 @@ class SoloReflectionRunner:
                         category=category,
                         confidence=thought.confidence,
                         source_type="solo_reflection",
-                        influence_source="independent",  # Solo reflection is independent thought
+                        influence_source="independent",
                     )
                     results["observations_created"].append({
                         "id": obs.id,
-                        "content": thought.content[:100] + "..." if len(thought.content) > 100 else thought.content,
                         "category": category,
                     })
 
-                # Match thoughts to existing growth edges
-                # Reload profile to get latest growth edges (in case self-observations modified it)
-                current_profile = self.self_manager.load_profile()
-                for edge in current_profile.growth_edges:
-                    if self._thought_relates_to_growth_edge(thought, edge):
-                        self.self_manager.add_observation_to_growth_edge(
-                            area=edge.area,
-                            observation=f"[{thought.thought_type}] {thought.content}"
-                        )
-                        results["growth_edge_updates"].append({
-                            "area": edge.area,
-                            "thought": thought.content[:80] + "..." if len(thought.content) > 80 else thought.content,
-                        })
-                        break  # Only add to first matching edge
-
-                # Question-type thoughts with decent confidence become open questions
+                # Question thoughts become open questions
                 if thought.thought_type == "question" and thought.confidence >= 0.5:
-                    # Reload profile to get latest state (growth edge updates may have modified it)
                     profile = self.self_manager.load_profile()
-                    # Check if question is already in open_questions (fuzzy match)
-                    is_duplicate = any(
-                        self._questions_similar(thought.content, q)
-                        for q in profile.open_questions
-                    )
-                    if not is_duplicate:
+                    if profile and thought.content not in profile.open_questions:
                         profile.open_questions.append(thought.content)
                         self.self_manager.update_profile(profile)
                         results["questions_added"].append(thought.content)
 
             except Exception as e:
-                results["skipped"].append({
-                    "thought": thought.content[:50] + "...",
-                    "reason": str(e),
-                })
+                print(f"Error integrating thought: {e}")
 
-        # Also add session-level insights as observations
-        for insight in session.insights[:3]:  # Top 3 insights
+        # Add session insights as observations
+        for insight in session.insights[:3]:
             try:
                 obs = self.self_manager.add_observation(
                     observation=f"Reflection insight: {insight}",
@@ -776,15 +734,10 @@ class SoloReflectionRunner:
                 )
                 results["observations_created"].append({
                     "id": obs.id,
-                    "content": insight[:100] + "..." if len(insight) > 100 else insight,
                     "category": "pattern",
-                    "source": "session_insight",
                 })
             except Exception as e:
-                results["skipped"].append({
-                    "insight": insight[:50] + "...",
-                    "reason": str(e),
-                })
+                print(f"Error adding insight observation: {e}")
 
         return results
 
@@ -792,7 +745,6 @@ class SoloReflectionRunner:
         """Categorize a thought based on content keywords."""
         content_lower = content.lower()
 
-        # Check for specific categories
         if any(w in content_lower for w in ["can't", "cannot", "unable", "struggle", "difficult", "limit"]):
             return "limitation"
         if any(w in content_lower for w in ["able to", "capable", "can do", "strength"]):
@@ -804,33 +756,58 @@ class SoloReflectionRunner:
         if any(w in content_lower for w in ["contradiction", "conflict", "tension", "inconsistent"]):
             return "contradiction"
 
-        # Default to pattern
         return "pattern"
 
-    def _thought_relates_to_growth_edge(self, thought: ThoughtEntry, edge) -> bool:
-        """Check if a thought relates to a growth edge based on keyword matching."""
-        thought_lower = thought.content.lower()
-        edge_keywords = edge.area.lower().split() + edge.current_state.lower().split()
+    # === Additional methods for API compatibility ===
 
-        # Check related_concepts overlap
-        if thought.related_concepts:
-            for concept in thought.related_concepts:
-                if any(kw in concept.lower() for kw in edge_keywords if len(kw) > 3):
-                    return True
+    def get_current_session(self) -> Optional[Dict[str, Any]]:
+        """Get the current session status for API."""
+        if not self._underlying_session:
+            return None
 
-        # Check content overlap with edge keywords
-        matches = sum(1 for kw in edge_keywords if len(kw) > 3 and kw in thought_lower)
-        return matches >= 2
+        session = self.manager.get_session(self._underlying_session.session_id)
+        if not session:
+            return None
 
-    def _questions_similar(self, q1: str, q2: str) -> bool:
-        """Check if two questions are substantially similar."""
-        # Simple word overlap check
-        words1 = set(w.lower() for w in q1.split() if len(w) > 3)
-        words2 = set(w.lower() for w in q2.split() if len(w) > 3)
+        return {
+            "session_id": session.session_id,
+            "status": session.status,
+            "theme": session.theme,
+            "thought_count": session.thought_count,
+            "started_at": session.started_at.isoformat() if session.started_at else None,
+            "duration_minutes": session.duration_minutes,
+        }
 
-        if not words1 or not words2:
-            return False
+    def get_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent sessions for API."""
+        sessions = self.manager.list_sessions(limit=limit)
+        return [
+            {
+                "session_id": s.session_id,
+                "status": s.status,
+                "theme": s.theme,
+                "thought_count": s.thought_count,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "summary": s.summary,
+                "insights": s.insights[:3] if s.insights else [],
+            }
+            for s in sessions
+        ]
 
-        overlap = len(words1 & words2)
-        similarity = overlap / min(len(words1), len(words2))
-        return similarity > 0.6
+
+# Register the activity type
+REFLECTION_CONFIG = ActivityConfig(
+    activity_type=ActivityType.REFLECTION,
+    name="Solo Reflection",
+    description="Private contemplation, self-examination, processing experiences",
+    default_duration_minutes=15,
+    min_duration_minutes=5,
+    max_duration_minutes=60,
+    preferred_times=["morning", "evening"],
+    requires_focus=False,
+    can_chain=True,
+    tool_categories=["self_model", "contemplation"],
+)
+
+ActivityRegistry.register(REFLECTION_CONFIG, SoloReflectionRunner)

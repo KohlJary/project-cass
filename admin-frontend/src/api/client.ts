@@ -622,3 +622,10 @@ export const rhythmApi = {
   }) =>
     api.post(`/admin/rhythm/phases/${phaseId}/trigger`, options || {}),
 };
+
+// Unified Sessions endpoint - works with all activity types
+export const sessionsApi = {
+  // Get session details in unified format regardless of activity type
+  getSession: (sessionId: string, sessionType: string) =>
+    api.get(`/admin/sessions/${sessionId}`, { params: { session_type: sessionType } }),
+};

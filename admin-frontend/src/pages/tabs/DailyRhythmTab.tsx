@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
-import { rhythmApi, researchNotesApi, soloReflectionApi, goalsApi } from '../../api/client';
+import { rhythmApi, sessionsApi, researchNotesApi, goalsApi } from '../../api/client';
 import { TabbedPanel, type Tab } from '../../components/TabbedPanel';
-import { SessionSummary } from '../../components/SessionSummary';
-import { ReflectionSummary } from '../../components/ReflectionSummary';
 import { ResearchNoteViewer } from '../../components/ResearchNoteViewer';
 
 type ContextView = 'daily' | 'phase';
@@ -61,27 +59,29 @@ interface ResearchNote {
   session_id: string | null;
 }
 
-interface ThoughtEntry {
-  timestamp: string;
-  content: string;
-  thought_type: string;
-  confidence: string | number;
-  related_concepts: string[];
-}
-
-interface ReflectionSession {
-  session_id: string;
-  summary?: string;
-  insights: string[];
-  questions_raised: string[];
-  thought_stream: ThoughtEntry[];
-}
-
 interface RhythmStats {
   days_analyzed: number;
   total_completions: number;
   completions_by_phase: Record<string, number>;
   avg_completions_per_day: number;
+}
+
+// Unified session response from /admin/sessions endpoint
+interface UnifiedSession {
+  session_id: string;
+  session_type: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_minutes: number;
+  status: string;
+  summary: string | null;
+  findings: string[];
+  artifacts: Array<{
+    type: string;
+    content?: string;
+    [key: string]: unknown;
+  }>;
+  metadata: Record<string, unknown>;
 }
 
 export function DailyRhythmTab() {
@@ -132,7 +132,17 @@ export function DailyRhythmTab() {
   // Get expanded phase data
   const expandedPhaseData = status?.phases.find(p => p.id === expandedPhase);
 
-  // Fetch notes for the expanded phase (research or 'any' type)
+  // Fetch unified session details for any activity type
+  const { data: unifiedSession } = useQuery<UnifiedSession>({
+    queryKey: ['unified-session', expandedPhaseData?.session_id, expandedPhaseData?.activity_type],
+    queryFn: () => sessionsApi.getSession(
+      expandedPhaseData!.session_id!,
+      expandedPhaseData!.activity_type
+    ).then((r) => r.data),
+    enabled: !!expandedPhaseData?.session_id && !!expandedPhaseData?.activity_type,
+  });
+
+  // Fetch notes for research-type phases (for note viewer tabs)
   const { data: phaseNotes } = useQuery<{ notes: ResearchNote[] }>({
     queryKey: ['phase-notes', expandedPhaseData?.session_id],
     queryFn: () => researchNotesApi.getBySession(expandedPhaseData!.session_id!).then((r) => r.data),
@@ -141,43 +151,121 @@ export function DailyRhythmTab() {
              (expandedPhaseData?.notes_created?.length ?? 0) > 0,
   });
 
-  // Fetch reflection session details (reflection only)
-  const { data: reflectionSession } = useQuery<ReflectionSession>({
-    queryKey: ['reflection-session', expandedPhaseData?.session_id],
-    queryFn: () => soloReflectionApi.getSession(expandedPhaseData!.session_id!).then((r) => r.data),
-    enabled: !!expandedPhaseData?.session_id && expandedPhaseData?.activity_type === 'reflection',
-  });
-
-  // Build tabs for phase detail panel
+  // Build tabs for phase detail panel - now uses unified session data
   const buildPhaseTabs = (): Tab[] => {
     if (!expandedPhaseData) return [];
 
     const activityType = expandedPhaseData.activity_type;
-    const isReflection = activityType === 'reflection';
     const isResearch = activityType === 'research' || activityType === 'any';
+
+    // Get icon based on activity type
+    const getIcon = () => {
+      switch (activityType) {
+        case 'reflection': return '~';
+        case 'meta_reflection': return '◎';
+        case 'research':
+        case 'curiosity': return '*';
+        case 'synthesis': return '⟁';
+        case 'consolidation': return '▣';
+        case 'growth_edge': return '↗';
+        case 'knowledge_building': return '📖';
+        case 'writing': return '✎';
+        case 'world_state': return '🌍';
+        case 'creative_output': return '✧';
+        default: return '*';
+      }
+    };
 
     const tabs: Tab[] = [
       {
         id: 'summary',
         label: 'Summary',
-        icon: isReflection ? '~' : '*',
-        content: isReflection ? (
-          <ReflectionSummary
-            summary={reflectionSession?.summary || expandedPhaseData.summary || undefined}
-            insights={reflectionSession?.insights}
-            questionsRaised={reflectionSession?.questions_raised}
-            thoughtStream={reflectionSession?.thought_stream}
-            compact
-          />
-        ) : (
-          <SessionSummary
-            summary={expandedPhaseData.summary || undefined}
-            findings={expandedPhaseData.findings || undefined}
-            compact
-          />
+        icon: getIcon(),
+        content: (
+          <div className="unified-session-summary">
+            {/* Summary */}
+            {(unifiedSession?.summary || expandedPhaseData.summary) && (
+              <div className="session-summary-text">
+                <ReactMarkdown>
+                  {unifiedSession?.summary || expandedPhaseData.summary || ''}
+                </ReactMarkdown>
+              </div>
+            )}
+
+            {/* Findings/Insights */}
+            {(unifiedSession?.findings?.length || expandedPhaseData.findings?.length) ? (
+              <div className="session-findings">
+                <h4>Key Insights</h4>
+                <ul>
+                  {(unifiedSession?.findings || expandedPhaseData.findings || []).map((f, i) => (
+                    <li key={i}>{f}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {/* Metadata specific to session type */}
+            {unifiedSession?.metadata && (
+              <div className="session-metadata">
+                {unifiedSession.metadata.theme ? (
+                  <div className="metadata-item">
+                    <span className="label">Theme:</span> {String(unifiedSession.metadata.theme)}
+                  </div>
+                ) : null}
+                {unifiedSession.metadata.focus ? (
+                  <div className="metadata-item">
+                    <span className="label">Focus:</span> {String(unifiedSession.metadata.focus)}
+                  </div>
+                ) : null}
+                {unifiedSession.metadata.mode ? (
+                  <div className="metadata-item">
+                    <span className="label">Mode:</span> {String(unifiedSession.metadata.mode)}
+                  </div>
+                ) : null}
+                {(unifiedSession.metadata.questions_raised as string[])?.length > 0 ? (
+                  <div className="metadata-questions">
+                    <h4>Questions Raised</h4>
+                    <ul>
+                      {(unifiedSession.metadata.questions_raised as string[]).map((q, i) => (
+                        <li key={i}>{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {/* No content fallback */}
+            {!unifiedSession?.summary && !expandedPhaseData.summary && (
+              <div className="empty-summary">
+                <p>Session completed. Summary not available.</p>
+              </div>
+            )}
+          </div>
         ),
       },
     ];
+
+    // Add artifacts tab if there are artifacts
+    if (unifiedSession?.artifacts && unifiedSession.artifacts.length > 0) {
+      tabs.push({
+        id: 'artifacts',
+        label: `Artifacts (${unifiedSession.artifacts.length})`,
+        icon: '⬡',
+        content: (
+          <div className="session-artifacts">
+            {unifiedSession.artifacts.map((artifact, i) => (
+              <div key={i} className="artifact-item">
+                <span className="artifact-type">{artifact.type}</span>
+                {artifact.content && (
+                  <div className="artifact-content">{artifact.content}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        ),
+      });
+    }
 
     // Add tabs for each note (research or 'any' types)
     if (isResearch) {
@@ -224,13 +312,16 @@ export function DailyRhythmTab() {
   });
 
   const handleTriggerClick = (phaseId: string, activityType: string) => {
-    if (activityType === 'reflection') {
-      // Reflection doesn't need agenda selection, trigger directly
-      triggerMutation.mutate({ phaseId });
-    } else {
-      // Research - show agenda selection modal
+    // Types that can use agenda items for focus
+    const agendaFocusTypes = ['research', 'any', 'knowledge_building', 'curiosity'];
+
+    if (agendaFocusTypes.includes(activityType)) {
+      // Show agenda selection modal for research-like activities
       setTriggerPhaseId(phaseId);
       setSelectedAgendaItem('');
+    } else {
+      // Trigger directly for reflection, synthesis, meta_reflection, etc.
+      triggerMutation.mutate({ phaseId });
     }
   };
 
@@ -287,9 +378,18 @@ export function DailyRhythmTab() {
 
   const getActivityTypeColor = (type: string) => {
     switch (type) {
-      case 'reflection': return '#c792ea';
-      case 'research': return '#89ddff';
-      case 'any': return '#ffcb6b';
+      case 'reflection': return '#c792ea';       // purple - contemplation
+      case 'research': return '#89ddff';         // cyan - exploration
+      case 'synthesis': return '#82aaff';        // blue - integration
+      case 'meta_reflection': return '#f78c6c';  // orange - analysis
+      case 'consolidation': return '#c3e88d';    // green - organization
+      case 'growth_edge': return '#ff5370';      // red - practice
+      case 'knowledge_building': return '#ffcb6b'; // yellow - learning
+      case 'writing': return '#f07178';          // coral - expression
+      case 'curiosity': return '#89ddff';        // cyan - exploration (same as research)
+      case 'world_state': return '#b2ccd6';      // slate - grounding
+      case 'creative_output': return '#c792ea';  // purple - creativity (same as reflection)
+      case 'any': return '#888';                 // gray - flexible
       default: return '#888';
     }
   };
@@ -694,7 +794,7 @@ export function DailyRhythmTab() {
                   </span>
                 </div>
                 <div className="phase-detail-body">
-                  {expandedPhaseData.summary || expandedPhaseData.notes_created?.length ? (
+                  {expandedPhaseData.summary || expandedPhaseData.notes_created?.length || unifiedSession?.summary ? (
                     <TabbedPanel tabs={buildPhaseTabs()} defaultTab="summary" className="compact" />
                   ) : (
                     <div className="empty-state">
