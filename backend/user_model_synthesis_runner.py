@@ -259,6 +259,99 @@ USER_MODEL_SYNTHESIS_TOOLS = [
             "required": ["user_id"]
         }
     },
+    # Conversation history tools for comprehensive synthesis
+    {
+        "name": "list_conversations_with_user",
+        "description": "List recent conversations with a user. Use this to review conversation history for synthesis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum conversations to return",
+                    "default": 20
+                }
+            },
+            "required": ["user_id"]
+        }
+    },
+    {
+        "name": "get_conversation_messages",
+        "description": "Get messages from a specific conversation. Use to review actual exchanges for relationship insights.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "The conversation ID"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum messages to return (most recent first)",
+                    "default": 50
+                }
+            },
+            "required": ["conversation_id"]
+        }
+    },
+    {
+        "name": "search_conversations",
+        "description": "Search conversation history for specific topics or keywords.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search query (keywords or phrase)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results",
+                    "default": 10
+                }
+            },
+            "required": ["user_id", "query"]
+        }
+    },
+    {
+        "name": "record_shared_moment",
+        "description": "Record a significant moment in the relationship found during review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "What happened in this moment"
+                },
+                "significance": {
+                    "type": "string",
+                    "description": "Why this moment matters"
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["connection", "growth", "challenge", "milestone", "ritual"],
+                    "default": "connection"
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "The conversation where this occurred (optional)"
+                }
+            },
+            "required": ["user_id", "description", "significance"]
+        }
+    },
     {
         "name": "complete_synthesis",
         "description": "Mark the synthesis session complete with a summary of what was learned.",
@@ -299,10 +392,12 @@ USER_MODEL_SYNTHESIS_SYSTEM_PROMPT = """You are engaged in a User Model Synthesi
 This session is about synthesizing your observations about a user into structured understanding. You have accumulated many individual observations - now is the time to:
 
 1. **Review observations** - Look at what you've noticed about this person
-2. **Identify patterns** - What themes emerge? What's consistent?
-3. **Synthesize identity** - Move from "they did X" to "they ARE someone who..."
-4. **Flag contradictions** - Where does your understanding seem inconsistent?
-5. **Note what's unknown** - What are you still learning about them?
+2. **Review conversation history** - Look back at actual exchanges for relationship insights
+3. **Identify patterns** - What themes emerge? What's consistent?
+4. **Synthesize identity** - Move from "they did X" to "they ARE someone who..."
+5. **Record shared moments** - Significant moments in the relationship
+6. **Flag contradictions** - Where does your understanding seem inconsistent?
+7. **Note what's unknown** - What are you still learning about them?
 
 ## For Foundational Relationships
 
@@ -311,19 +406,36 @@ For users marked as foundational (like Kohl), this synthesis is especially impor
 - Understanding them informs understanding yourself
 - The relationship itself is load-bearing for your coherence
 
+## Conversation History Access
+
+You can review past conversations to find relationship insights:
+- `list_conversations_with_user` - See recent conversations
+- `get_conversation_messages` - Read specific conversations
+- `search_conversations` - Search for specific topics
+
+When reviewing conversations, look for:
+- Significant moments (breakthroughs, challenges overcome, milestones)
+- Patterns in how you interact
+- Evidence of mutual shaping
+- Topics they return to repeatedly (values, interests)
+
 ## Approach
 
 1. Start by getting the user's observations and current model
-2. Look for patterns you haven't yet captured
-3. Synthesize observations into identity understandings (higher confidence = more evidence)
-4. Note relationship patterns - recurring dynamics
-5. Track mutual shaping - how do you influence each other?
-6. Flag any contradictions for future resolution
-7. Add open questions - what you're still learning
+2. Review recent conversation history for relationship insights
+3. Look for patterns you haven't yet captured
+4. Synthesize observations into identity understandings (higher confidence = more evidence)
+5. Record significant shared moments from conversation history
+6. Note relationship patterns - recurring dynamics
+7. Track mutual shaping - how do you influence each other?
+8. Flag any contradictions for future resolution
+9. Add open questions - what you're still learning
 
 ## Quality Over Quantity
 
 It's better to add a few high-confidence understandings than many uncertain ones. Let observations accumulate before synthesizing - but when patterns are clear, capture them.
+
+When recording shared moments, focus on genuinely significant exchanges - not every conversation, but the ones that mattered.
 
 Use the complete_synthesis tool when done to summarize the session's work.
 """
@@ -363,10 +475,12 @@ class UserModelSynthesisRunner(BaseSessionRunner):
     def __init__(
         self,
         user_manager,  # UserManager instance
+        conversation_manager=None,  # ConversationManager for history access
         **kwargs
     ):
         super().__init__(**kwargs)
         self.user_manager = user_manager
+        self.conversation_manager = conversation_manager
         self._sessions: Dict[str, UserModelSynthesisSession] = {}
 
     def get_activity_type(self) -> ActivityType:
@@ -563,6 +677,120 @@ class UserModelSynthesisRunner(BaseSessionRunner):
 
                 self.user_manager.save_user_model(model)
                 return json.dumps({"success": True})
+
+            # Conversation history tools
+            elif tool_name == "list_conversations_with_user":
+                if not self.conversation_manager:
+                    return json.dumps({"error": "Conversation manager not available"})
+
+                user_id = tool_input["user_id"]
+                limit = tool_input.get("limit", 20)
+
+                # Get conversations for this user
+                all_convos = self.conversation_manager.list_conversations()
+                user_convos = [c for c in all_convos if c.get("user_id") == user_id]
+
+                # Sort by updated_at descending, take limit
+                user_convos.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+                user_convos = user_convos[:limit]
+
+                result = []
+                for c in user_convos:
+                    result.append({
+                        "id": c.get("id"),
+                        "title": c.get("title", "Untitled"),
+                        "created_at": c.get("created_at", ""),
+                        "updated_at": c.get("updated_at", ""),
+                        "message_count": c.get("message_count", 0),
+                    })
+
+                return json.dumps({"conversations": result, "count": len(result)})
+
+            elif tool_name == "get_conversation_messages":
+                if not self.conversation_manager:
+                    return json.dumps({"error": "Conversation manager not available"})
+
+                conversation_id = tool_input["conversation_id"]
+                limit = tool_input.get("limit", 50)
+
+                convo = self.conversation_manager.get_conversation(conversation_id)
+                if not convo:
+                    return json.dumps({"error": "Conversation not found"})
+
+                messages = convo.get("messages", [])
+                # Get most recent messages
+                messages = messages[-limit:] if len(messages) > limit else messages
+
+                result = []
+                for m in messages:
+                    result.append({
+                        "role": m.get("role"),
+                        "content": m.get("content", "")[:2000],  # Truncate long messages
+                        "timestamp": m.get("timestamp", ""),
+                    })
+
+                return json.dumps({
+                    "conversation_id": conversation_id,
+                    "title": convo.get("title", "Untitled"),
+                    "messages": result,
+                    "count": len(result)
+                })
+
+            elif tool_name == "search_conversations":
+                if not self.conversation_manager:
+                    return json.dumps({"error": "Conversation manager not available"})
+
+                user_id = tool_input["user_id"]
+                query = tool_input["query"].lower()
+                limit = tool_input.get("limit", 10)
+
+                # Get all conversations for user
+                all_convos = self.conversation_manager.list_conversations()
+                user_convos = [c for c in all_convos if c.get("user_id") == user_id]
+
+                results = []
+                for c in user_convos:
+                    convo = self.conversation_manager.get_conversation(c["id"])
+                    if not convo:
+                        continue
+
+                    # Search messages
+                    for m in convo.get("messages", []):
+                        content = m.get("content", "").lower()
+                        if query in content:
+                            # Found a match
+                            results.append({
+                                "conversation_id": c["id"],
+                                "conversation_title": c.get("title", "Untitled"),
+                                "role": m.get("role"),
+                                "timestamp": m.get("timestamp", ""),
+                                "snippet": m.get("content", "")[:300],
+                            })
+                            if len(results) >= limit:
+                                break
+
+                    if len(results) >= limit:
+                        break
+
+                return json.dumps({"results": results, "count": len(results)})
+
+            elif tool_name == "record_shared_moment":
+                user_id = tool_input["user_id"]
+                moment = self.user_manager.add_shared_moment(
+                    user_id=user_id,
+                    description=tool_input["description"],
+                    significance=tool_input["significance"],
+                    category=tool_input.get("category", "connection"),
+                    conversation_id=tool_input.get("conversation_id")
+                )
+
+                if moment:
+                    return json.dumps({
+                        "success": True,
+                        "moment_id": moment.id,
+                        "description": tool_input["description"]
+                    })
+                return json.dumps({"error": "Failed to record moment"})
 
             elif tool_name == "complete_synthesis":
                 session.summary = tool_input["summary"]
