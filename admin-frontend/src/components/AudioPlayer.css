@@ -1,0 +1,41 @@
+.audio-player-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #89ddff;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  transition: all 0.15s ease;
+}
+
+.audio-player-btn:hover:not(:disabled) {
+  background: #1f1f2e;
+  border-color: #89ddff40;
+}
+
+.audio-player-btn.playing {
+  background: #1f2a1f;
+  border-color: #90ee9040;
+  color: #90ee90;
+}
+
+.audio-player-btn.loading {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.audio-player-btn:disabled {
+  cursor: not-allowed;
+}
+
+.audio-icon {
+  font-size: 0.625rem;
+  letter-spacing: -1px;
+}
