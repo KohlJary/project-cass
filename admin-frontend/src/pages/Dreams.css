@@ -1,0 +1,580 @@
+.dreams-page {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.5rem;
+  max-width: 1400px;
+  min-height: 700px;
+}
+
+.dreams-page.three-column {
+  grid-template-columns: 260px 1fr 340px;
+}
+
+.dreams-page.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 0.875rem;
+}
+
+/* Left panel - Dream list */
+.dreams-list-panel {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dreams-list-panel h2 {
+  color: #c792ea;
+  font-size: 1rem;
+  margin: 0 0 0.25rem;
+}
+
+.dreams-subtitle {
+  color: #666;
+  font-size: 0.75rem;
+  font-style: italic;
+  margin: 0 0 1rem;
+}
+
+.dreams-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.no-dreams {
+  color: #666;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 2rem;
+}
+
+/* Dream item in list */
+.dream-item {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dream-item:hover {
+  background: #1f1f2e;
+  border-color: #3a3a4a;
+}
+
+.dream-item.selected {
+  background: #1f1f2e;
+  border-color: #c792ea;
+}
+
+.dream-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.dream-date {
+  color: #89ddff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+}
+
+.dream-exchanges {
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.dream-seeds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.seed-tag {
+  background: #1f1f2e;
+  color: #c792ea;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+}
+
+/* Middle panel - Dream narrative */
+.dream-narrative-panel {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+/* Right panel - Integration insights */
+.insights-panel {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+.insights-panel h2 {
+  color: #c792ea;
+  font-size: 1rem;
+  margin: 0 0 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.insights-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.no-insights {
+  color: #666;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.no-insights button {
+  margin-top: 1rem;
+}
+
+/* Questions list */
+.questions-list {
+  margin: 0;
+  padding: 0 0 0 1.25rem;
+  color: #ccc;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.questions-list li {
+  margin-bottom: 0.5rem;
+}
+
+/* Legacy: Right panel - Dream detail (2-column fallback) */
+.dream-detail-panel {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+.no-selection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  font-size: 0.875rem;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #888;
+  font-size: 0.875rem;
+}
+
+/* Dream header */
+.dream-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #2a2a2a;
+  margin-bottom: 1rem;
+}
+
+.dream-header h2 {
+  color: #89ddff;
+  font-size: 1rem;
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.dream-status {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.status-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.status-badge.integrated {
+  background: #1a2a1a;
+  color: #c3e88d;
+}
+
+.status-badge.pending {
+  background: #2a2a1a;
+  color: #ffcb6b;
+}
+
+.status-badge.discussed {
+  background: #1f1f2e;
+  color: #c792ea;
+}
+
+/* Seeds detail */
+.dream-seeds-detail {
+  color: #888;
+  font-size: 0.8125rem;
+  margin-bottom: 1rem;
+}
+
+.dream-seeds-detail strong {
+  color: #c792ea;
+}
+
+/* Integration actions */
+.integration-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.btn-preview,
+.btn-integrate {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid;
+}
+
+.btn-preview {
+  background: #1a1a1a;
+  border-color: #2a2a2a;
+  color: #888;
+}
+
+.btn-preview:hover:not(:disabled) {
+  background: #1f1f2e;
+  border-color: #c792ea;
+  color: #c792ea;
+}
+
+.btn-integrate {
+  background: #1f1f2e;
+  border-color: #c792ea;
+  color: #c792ea;
+}
+
+.btn-integrate:hover:not(:disabled) {
+  background: #2f2f4e;
+}
+
+.btn-preview:disabled,
+.btn-integrate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Integration panel */
+.integration-panel {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.integration-panel h3 {
+  color: #c792ea;
+  font-size: 0.9375rem;
+  margin: 0 0 1rem;
+}
+
+/* Insight sections */
+.insight-section {
+  margin-bottom: 1.25rem;
+}
+
+.insight-section h4 {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+}
+
+/* Identity statements */
+.insight-item {
+  background: #141414;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.insight-item.identity {
+  border-left: 3px solid #c792ea;
+}
+
+.insight-statement {
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.insight-meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.confidence {
+  color: #c3e88d;
+}
+
+.context {
+  color: #666;
+}
+
+/* Growth observations */
+.insight-item.growth {
+  border-left: 3px solid #82aaff;
+}
+
+.insight-item.growth.breakthrough {
+  border-left-color: #ffcb6b;
+  background: #1a1a14;
+}
+
+.insight-edge {
+  color: #82aaff;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.breakthrough-badge {
+  background: #2a2a1a;
+  color: #ffcb6b;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.625rem;
+  margin-left: 0.5rem;
+  font-weight: 600;
+}
+
+.insight-observation {
+  color: #ccc;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* Symbols grid */
+.symbols-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+}
+
+.symbol-item {
+  background: #141414;
+  border-radius: 6px;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.symbol-item.positive {
+  border-bottom: 2px solid #c3e88d;
+}
+
+.symbol-item.negative {
+  border-bottom: 2px solid #f07178;
+}
+
+.symbol-item.ambivalent {
+  border-bottom: 2px solid #ffcb6b;
+}
+
+.symbol-item.transformative {
+  border-bottom: 2px solid #c792ea;
+}
+
+.symbol-name {
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.symbol-meaning {
+  color: #888;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin-bottom: 0.25rem;
+}
+
+.symbol-charge {
+  color: #666;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Summary section */
+.insight-section.summary {
+  background: #141414;
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.emotional-core {
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+}
+
+.emotional-core strong {
+  color: #c792ea;
+}
+
+.significance {
+  color: #ccc;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.significance strong {
+  color: #82aaff;
+}
+
+/* Dry run notice */
+.dry-run-notice {
+  background: #2a2a1a;
+  color: #ffcb6b;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+/* Dream exchanges */
+.dream-exchanges {
+  margin-top: 1.5rem;
+}
+
+.dream-exchanges h3 {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 1rem;
+}
+
+.exchange {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  border-radius: 8px;
+}
+
+.exchange.dreaming {
+  background: linear-gradient(135deg, #1a1a2e 0%, #141428 100%);
+  border-left: 3px solid #c792ea;
+}
+
+.exchange.cass {
+  background: #0d0d0d;
+  border-left: 3px solid #89ddff;
+}
+
+.exchange-speaker {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.exchange.dreaming .exchange-speaker {
+  color: #c792ea;
+}
+
+.exchange.cass .exchange-speaker {
+  color: #89ddff;
+}
+
+.exchange-text {
+  color: #ccc;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.exchange-text p {
+  margin: 0 0 0.5rem;
+}
+
+.exchange-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* Reflections */
+.dream-reflections {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+.dream-reflections h3 {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 1rem;
+}
+
+.reflection {
+  background: #1a1a1a;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.reflection-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.reflection-source {
+  color: #c792ea;
+}
+
+.reflection-time {
+  color: #666;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.reflection-content {
+  color: #ccc;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}

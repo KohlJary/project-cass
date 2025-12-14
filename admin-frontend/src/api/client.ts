@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// In dev with proxy, use relative URLs. In production, use VITE_API_URL or default.
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -630,4 +631,31 @@ export const sessionsApi = {
   // Get session details in unified format regardless of activity type
   getSession: (sessionId: string, sessionType: string) =>
     api.get(`/admin/sessions/${sessionId}`, { params: { session_type: sessionType } }),
+};
+
+// Dreams API - The Dreaming system
+export const dreamsApi = {
+  // List dreams
+  getAll: (params?: { limit?: number }) =>
+    api.get('/dreams', { params }),
+
+  // Get a specific dream with full exchanges
+  getById: (dreamId: string) =>
+    api.get(`/dreams/${dreamId}`),
+
+  // Get dream context block (for discussion)
+  getContext: (dreamId: string) =>
+    api.get(`/dreams/${dreamId}/context`),
+
+  // Add a reflection to a dream
+  addReflection: (dreamId: string, reflection: string, source: string = 'conversation') =>
+    api.post(`/dreams/${dreamId}/reflect`, { reflection, source }),
+
+  // Mark dream as integrated
+  markIntegrated: (dreamId: string) =>
+    api.post(`/dreams/${dreamId}/mark-integrated`),
+
+  // Process dream for insight extraction and self-model integration
+  integrate: (dreamId: string, dryRun: boolean = false) =>
+    api.post(`/dreams/${dreamId}/integrate`, { dry_run: dryRun }),
 };
