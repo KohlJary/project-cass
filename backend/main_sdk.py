@@ -160,6 +160,11 @@ else:
     ALLOWED_ORIGINS = [
         "http://localhost:3000",
         "http://localhost:5173",  # Vite dev server (admin-frontend)
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:5176",
+        "http://localhost:5177",
+        "http://localhost:5178",
         "http://localhost:8080",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
@@ -4537,10 +4542,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
         "user_id": connection_user_id,
         "timestamp": datetime.now().isoformat()
     })
+    print(f"[WebSocket] Sent connected message, entering message loop for user {connection_user_id}")
 
     try:
         while True:
+            print("[WebSocket] Waiting for message...")
             data = await websocket.receive_json()
+            print(f"[WebSocket] Received message type: {data.get('type')}")
 
             # Handle auth message (alternative to query param)
             if data.get("type") == "auth":
@@ -5355,6 +5363,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     })
 
     except WebSocketDisconnect:
+        print(f"[WebSocket] Client disconnected normally")
+        manager.disconnect(websocket)
+    except Exception as e:
+        print(f"[WebSocket] Unexpected error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         manager.disconnect(websocket)
 
 

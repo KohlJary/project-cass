@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { Chat } from './pages/Chat';
 // Consolidated views
 import { MemorySystem } from './pages/MemorySystem';
 import { SelfDevelopment } from './pages/SelfDevelopment';
@@ -69,6 +70,7 @@ function AppRoutes() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="chat" element={<Chat />} />
         {/* Consolidated: Memory System (Memory + Retrieval + Vectors) */}
         <Route path="memory" element={<MemorySystem />} />
         {/* Redirects for old routes */}

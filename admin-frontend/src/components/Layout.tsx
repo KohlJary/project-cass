@@ -4,6 +4,7 @@ import './Layout.css';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: '~' },
+  { path: '/chat', label: 'Chat', icon: 'C' },
   { path: '/memory', label: 'Memory', icon: '*' },
   { path: '/self-development', label: 'Self-Dev', icon: '%' },
   { path: '/activity', label: 'Activity', icon: '>' },
