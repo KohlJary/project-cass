@@ -29,7 +29,9 @@ from agent_client import (
     AgentResponse,
     should_include_calendar_tools,
     should_include_task_tools,
+    should_include_dream_tools,
 )
+from handlers.dreams import DREAM_TOOLS
 from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 
@@ -110,6 +112,10 @@ class OpenAIClient:
             if should_include_task_tools(message):
                 tools.extend(TASK_TOOLS)
 
+            # Dream tools - for recalling and reflecting on dreams
+            if should_include_dream_tools(message):
+                tools.extend(DREAM_TOOLS)
+
         # Project tools only available in project context
         if project_id and self.enable_tools:
             tools.extend(PROJECT_DOCUMENT_TOOLS)
@@ -123,7 +129,8 @@ class OpenAIClient:
         project_id: Optional[str] = None,
         unsummarized_count: int = 0,
         rhythm_manager=None,
-        memory=None
+        memory=None,
+        dream_context: Optional[str] = None
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -136,6 +143,7 @@ class OpenAIClient:
             unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
             rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
+            dream_context: Optional dream context to hold in memory during conversation
         """
         # Build system prompt with memory context if provided
         system_prompt = TEMPLE_CODEX_KERNEL
@@ -160,6 +168,11 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
 
         if memory_context:
             system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+
+        # Add dream context if holding a dream in memory
+        if dream_context:
+            from handlers.dreams import format_dream_for_system_context
+            system_prompt += format_dream_for_system_context(dream_context)
 
         # Add project context note if in a project
         if project_id:

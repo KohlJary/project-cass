@@ -283,6 +283,11 @@ TOOL_REGISTRY = {
     "save_analysis": "interview",
     "list_analyses": "interview",
     "get_analysis": "interview",
+
+    # Dream tools
+    "recall_dream": "dream",
+    "list_dreams": "dream",
+    "add_dream_reflection": "dream",
 }
 
 
@@ -512,6 +517,12 @@ async def route_tool(
             analyzer=ctx.interview_analyzer,
             protocol_manager=ctx.protocol_manager,
             dispatcher=ctx.interview_dispatcher
+        )
+
+    elif executor_type == "dream":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}

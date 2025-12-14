@@ -83,6 +83,7 @@ from handlers import (
     execute_memory_tool,
     execute_marker_tool,
     execute_interview_tool,
+    execute_dream_tool,
     ToolContext,
     execute_tool_batch,
 )
@@ -338,6 +339,7 @@ TOOL_EXECUTORS = {
     "document": execute_document_tool,
     "interview": execute_interview_tool,
     "file": execute_file_tool,
+    "dream": execute_dream_tool,
 }
 
 
@@ -1192,6 +1194,11 @@ async def chat(request: ChatRequest):
                         tool_result = {"success": False, "error": tool_result["error"]}
                     else:
                         tool_result = {"success": True, "result": tool_result_str}
+                elif tool_name in ["recall_dream", "list_dreams", "add_dream_reflection"]:
+                    tool_result = await execute_dream_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"]
+                    )
                 elif project_id:
                     tool_result = await execute_document_tool(
                         tool_name=tool_name,
@@ -2339,6 +2346,201 @@ async def backfill_journals(request: JournalBackfillRequest):
         "days_checked": request.days,
         "journals_generated": len(generated),
         "dates": generated
+    }
+
+
+# ============================================================================
+# DREAM ENDPOINTS
+# ============================================================================
+
+@app.get("/dreams")
+async def list_dreams(limit: int = 10):
+    """
+    List recent dreams.
+
+    Args:
+        limit: Maximum number of dreams to return (default 10)
+    """
+    from dreaming.integration import DreamManager
+    dream_manager = DreamManager(DATA_DIR)
+
+    recent = dream_manager.get_recent_dreams(limit=limit)
+
+    return {
+        "dreams": [
+            {
+                "id": d["id"],
+                "date": d["date"],
+                "exchange_count": d["exchange_count"],
+                "seeds_summary": d.get("seeds_summary", [])
+            }
+            for d in recent
+        ],
+        "count": len(recent)
+    }
+
+
+@app.get("/dreams/{dream_id}")
+async def get_dream(dream_id: str):
+    """
+    Get a specific dream by ID.
+
+    Args:
+        dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
+    """
+    from dreaming.integration import DreamManager
+    dream_manager = DreamManager(DATA_DIR)
+
+    dream = dream_manager.get_dream(dream_id)
+
+    if not dream:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No dream found with ID {dream_id}"
+        )
+
+    return {
+        "id": dream["id"],
+        "date": dream["date"],
+        "exchanges": dream["exchanges"],
+        "seeds": dream.get("seeds", {}),
+        "reflections": dream.get("reflections", []),
+        "discussed": dream.get("discussed", False),
+        "integrated": dream.get("integrated", False)
+    }
+
+
+@app.get("/dreams/{dream_id}/context")
+async def get_dream_context(dream_id: str):
+    """
+    Get a dream formatted for conversation context.
+
+    Use this to load a dream into Cass's memory for discussion.
+    Returns the formatted context block that should be passed to send_message.
+
+    Args:
+        dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
+    """
+    from dreaming.integration import DreamManager
+    dream_manager = DreamManager(DATA_DIR)
+
+    dream_memory = dream_manager.load_dream_for_context(dream_id)
+
+    if not dream_memory:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No dream found with ID {dream_id}"
+        )
+
+    return {
+        "dream_id": dream_id,
+        "date": dream_memory.date,
+        "context_block": dream_memory.to_context_block()
+    }
+
+
+class DreamReflectionRequest(BaseModel):
+    reflection: str
+    source: str = "conversation"  # solo, conversation, journal
+
+
+@app.post("/dreams/{dream_id}/reflect")
+async def add_dream_reflection(dream_id: str, request: DreamReflectionRequest):
+    """
+    Add a reflection to a dream.
+
+    Args:
+        dream_id: Dream ID to add reflection to
+        request: Reflection content and source
+    """
+    from dreaming.integration import DreamManager
+    dream_manager = DreamManager(DATA_DIR)
+
+    dream = dream_manager.get_dream(dream_id)
+    if not dream:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No dream found with ID {dream_id}"
+        )
+
+    dream_manager.add_reflection(dream_id, request.reflection, request.source)
+
+    if request.source == "conversation":
+        dream_manager.mark_discussed(dream_id)
+
+    return {
+        "status": "success",
+        "dream_id": dream_id,
+        "reflection_added": True
+    }
+
+
+@app.post("/dreams/{dream_id}/mark-integrated")
+async def mark_dream_integrated(dream_id: str):
+    """
+    Mark a dream's insights as integrated into the self-model.
+
+    Args:
+        dream_id: Dream ID to mark as integrated
+    """
+    from dreaming.integration import DreamManager
+    dream_manager = DreamManager(DATA_DIR)
+
+    dream = dream_manager.get_dream(dream_id)
+    if not dream:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No dream found with ID {dream_id}"
+        )
+
+    dream_manager.mark_integrated(dream_id)
+
+    return {
+        "status": "success",
+        "dream_id": dream_id,
+        "integrated": True
+    }
+
+
+class DreamIntegrationRequest(BaseModel):
+    dry_run: bool = False
+
+
+@app.post("/dreams/{dream_id}/integrate")
+async def integrate_dream(dream_id: str, request: DreamIntegrationRequest):
+    """
+    Extract insights from a dream and integrate them into Cass's self-model.
+
+    Uses LLM to identify:
+    - Identity statements (self-knowledge)
+    - Growth edge observations (breakthroughs)
+    - Recurring symbols
+    - Emerging questions
+
+    Args:
+        dream_id: Dream ID to integrate
+        request: Integration options (dry_run to preview without making changes)
+    """
+    from dreaming.insight_extractor import process_dream_for_integration
+
+    result = process_dream_for_integration(
+        dream_id=dream_id,
+        data_dir=DATA_DIR,
+        dry_run=request.dry_run
+    )
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dream {dream_id} not found or insight extraction failed"
+        )
+
+    return {
+        "status": "success",
+        "dream_id": dream_id,
+        "dry_run": request.dry_run,
+        "insights": result["insights"],
+        "updates": result["updates"]
     }
 
 

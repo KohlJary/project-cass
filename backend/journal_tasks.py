@@ -1,7 +1,8 @@
 """
 Journal Tasks - Extracted from main_sdk.py
 
-Background tasks and utilities for journal generation and development logging.
+Background tasks and utilities for journal generation, development logging,
+and nightly dream generation.
 """
 
 from config import ANTHROPIC_API_KEY
@@ -10,6 +11,7 @@ import asyncio
 import re
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 
 
 def _get_dependencies():
@@ -19,6 +21,11 @@ def _get_dependencies():
     """
     from main_sdk import memory, self_manager
     return memory, self_manager
+
+
+def _get_data_dir() -> Path:
+    """Get the data directory path"""
+    return Path(__file__).parent / "data"
 
 
 async def _create_development_log_entry(journal_text: str, date_str: str, conversation_count: int):
@@ -190,3 +197,22 @@ async def daily_journal_task():
                 print(f"   ℹ No journal needed for {yesterday} (already exists or no content)")
         except Exception as e:
             print(f"   ✗ Scheduled journal generation failed: {e}")
+
+        # Generate nightly dream
+        try:
+            from dreaming.dream_runner import generate_nightly_dream
+            _, self_manager = _get_dependencies()
+            data_dir = _get_data_dir()
+
+            dream_id = await generate_nightly_dream(
+                data_dir=data_dir,
+                self_manager=self_manager,
+                max_turns=4
+            )
+
+            if dream_id:
+                print(f"   ✓ Nightly dream generated: {dream_id}")
+        except Exception as e:
+            print(f"   ✗ Nightly dream generation failed: {e}")
+            import traceback
+            traceback.print_exc()

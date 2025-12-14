@@ -48,7 +48,7 @@ interface UseWebSocketReturn {
   memoryContext: MemoryContext | null;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  sendMessage: (message: string, conversationId?: string) => void;
+  sendMessage: (message: string, conversationId?: string, image?: { data: string; mediaType: string }) => void;
   error: string | null;
   currentConversationId: string | null;
   conversationTitle: string | null;

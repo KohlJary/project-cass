@@ -11,6 +11,7 @@ const navItems = [
   { path: '/knowledge', label: 'Knowledge', icon: 'K' },
   { path: '/projects', label: 'Projects', icon: 'P' },
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
+  { path: '/dreams', label: 'Dreams', icon: 'D' },
   { path: '/users', label: 'Users', icon: '@' },
   { path: '/metrics', label: 'Metrics', icon: 'M' },
   { path: '/settings', label: 'Settings', icon: '!' },

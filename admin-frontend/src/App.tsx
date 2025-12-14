@@ -17,6 +17,7 @@ import { Users } from './pages/Users';
 import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
 import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
+import { Dreams } from './pages/Dreams';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -101,6 +102,7 @@ function AppRoutes() {
         <Route path="system" element={<Navigate to="/settings?tab=health" replace />} />
         <Route path="data" element={<Navigate to="/settings?tab=export" replace />} />
         <Route path="consciousness" element={<ConsciousnessHealth />} />
+        <Route path="dreams" element={<Dreams />} />
         <Route path="metrics" element={<Metrics />} />
         <Route path="projects" element={<Projects />} />
       </Route>

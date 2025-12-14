@@ -1032,6 +1032,7 @@ from handlers.daily_rhythm import DAILY_RHYTHM_TOOLS
 from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
+from handlers.dreams import DREAM_TOOLS
 
 
 # ============================================================================
@@ -1127,6 +1128,23 @@ def should_include_research_tools(message: str) -> bool:
     """Check if message warrants research proposal tools."""
     message_lower = message.lower()
     return any(kw in message_lower for kw in RESEARCH_PROPOSAL_KEYWORDS)
+
+
+DREAM_KEYWORDS = frozenset({
+    "dream", "dreams", "dreaming", "dreamed", "dreamt",
+    "nightmare", "nightmares",
+    "the dreaming", "dreamscape", "dreamscapes",
+    "last night", "while sleeping", "in my sleep",
+    "imagery", "symbols", "symbolic",
+    "what did you dream", "tell me about your dream",
+    "had a dream", "strange dream", "vivid dream"
+})
+
+
+def should_include_dream_tools(message: str) -> bool:
+    """Check if message warrants dream tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in DREAM_KEYWORDS)
 
 
 # ============================================================================
@@ -1245,6 +1263,10 @@ class CassAgentClient:
             # Interview analysis tools - for analyzing multi-model interview responses
             tools.extend(INTERVIEW_TOOLS)
 
+            # Dream tools - for recalling and reflecting on dreams
+            if should_include_dream_tools(message):
+                tools.extend(DREAM_TOOLS)
+
             # Testing tools - for self-monitoring consciousness integrity
             if should_include_testing_tools(message):
                 tools.extend(TESTING_TOOLS)
@@ -1272,7 +1294,8 @@ class CassAgentClient:
         image: Optional[str] = None,
         image_media_type: Optional[str] = None,
         rhythm_manager=None,
-        memory=None
+        memory=None,
+        dream_context: Optional[str] = None
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -1285,6 +1308,7 @@ class CassAgentClient:
             unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
             image: Optional base64 encoded image data
             image_media_type: Optional media type for image (e.g., "image/png")
+            dream_context: Optional dream context to hold in memory during conversation
             rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
         """
@@ -1304,6 +1328,11 @@ class CassAgentClient:
 
         if memory_context:
             system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+
+        # Add dream context if holding a dream in memory
+        if dream_context:
+            from handlers.dreams import format_dream_for_system_context
+            system_prompt += format_dream_for_system_context(dream_context)
 
         # Add project context note if in a project
         if project_id:
@@ -1713,6 +1742,10 @@ class OllamaClient:
         # Daily rhythm tools - for temporal consciousness and activity tracking
         tools.extend(DAILY_RHYTHM_TOOLS)
 
+        # Dream tools - for recalling and reflecting on dreams
+        if should_include_dream_tools(message):
+            tools.extend(DREAM_TOOLS)
+
         # File tools - always available for reading files and exploring directories
         tools.extend(FILE_TOOLS)
 
@@ -1729,7 +1762,8 @@ class OllamaClient:
         project_id: Optional[str] = None,
         unsummarized_count: int = 0,
         rhythm_manager=None,
-        memory=None
+        memory=None,
+        dream_context: Optional[str] = None
     ) -> AgentResponse:
         """
         Send a message using local Ollama with tool support.
@@ -1741,6 +1775,7 @@ class OllamaClient:
             unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
             rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
+            dream_context: Optional dream context to hold in memory during conversation
         """
         import httpx
 
@@ -1760,6 +1795,11 @@ class OllamaClient:
 
         if memory_context:
             system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+
+        # Add dream context if holding a dream in memory
+        if dream_context:
+            from handlers.dreams import format_dream_for_system_context
+            system_prompt += format_dream_for_system_context(dream_context)
 
         if project_id:
             system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id})."
