@@ -341,40 +341,75 @@ async def export_self_model_json() -> Dict[str, Any]:
 
 @router.get("/conversations/json")
 async def export_conversations_json(
-    anonymize: bool = Query(default=True, description="Anonymize user messages")
+    anonymize: bool = Query(default=True, description="Anonymize user messages"),
+    daemon_id: Optional[str] = Query(default=None, description="Filter by daemon ID"),
+    user_id: Optional[str] = Query(default=None, description="Filter by user ID"),
 ) -> Dict[str, Any]:
     """
     Export conversation history with optional anonymization.
+    Now reads from SQLite database.
     """
-    from conversations import ConversationManager
-
-    conv_manager = ConversationManager()
+    from database import get_db
 
     conversations = []
-    for conv_file in CONVERSATIONS_DIR.glob("*.json"):
-        try:
-            with open(conv_file, "r") as f:
-                conv_data = json.load(f)
 
-            # Anonymize if requested
-            if anonymize:
-                messages = conv_data.get("messages", [])
-                for msg in messages:
-                    if msg.get("role") == "user":
-                        # Keep structure but note it's anonymized
-                        msg["content"] = f"[USER MESSAGE - {len(msg.get('content', ''))} chars]"
+    with get_db() as conn:
+        # Build query with optional filters
+        query = "SELECT id, title, user_id, daemon_id, working_summary, created_at, updated_at FROM conversations WHERE 1=1"
+        params = []
+
+        if daemon_id:
+            query += " AND daemon_id = ?"
+            params.append(daemon_id)
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+
+        query += " ORDER BY updated_at DESC"
+
+        cursor = conn.execute(query, params)
+        conv_rows = cursor.fetchall()
+
+        for row in conv_rows:
+            conv_id, title, conv_user_id, conv_daemon_id, summary, created_at, updated_at = row
+
+            # Get messages for this conversation
+            msg_cursor = conn.execute(
+                """SELECT id, role, content, timestamp, provider, model,
+                          input_tokens, output_tokens, user_id
+                   FROM messages WHERE conversation_id = ? ORDER BY timestamp""",
+                (conv_id,)
+            )
+            messages = []
+            for msg_row in msg_cursor.fetchall():
+                msg_id, role, content, timestamp, provider, model, input_tokens, output_tokens, msg_user_id = msg_row
+
+                # Anonymize user messages if requested
+                if anonymize and role == "user":
+                    content = f"[USER MESSAGE - {len(content)} chars]"
+
+                messages.append({
+                    "id": msg_id,
+                    "role": role,
+                    "content": content,
+                    "timestamp": timestamp,
+                    "provider": provider,
+                    "model": model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                })
 
             conversations.append({
-                "id": conv_data.get("id"),
-                "title": conv_data.get("title"),
-                "created_at": conv_data.get("created_at"),
-                "updated_at": conv_data.get("updated_at"),
-                "message_count": len(conv_data.get("messages", [])),
-                "messages": conv_data.get("messages", []) if not anonymize else None,
-                "summary": conv_data.get("summary"),
+                "id": conv_id,
+                "title": title,
+                "user_id": conv_user_id if not anonymize else None,
+                "daemon_id": conv_daemon_id,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "message_count": len(messages),
+                "messages": messages,
+                "summary": summary,
             })
-        except Exception as e:
-            continue
 
     return {
         "export_type": "conversations",
@@ -382,6 +417,7 @@ async def export_conversations_json(
         "anonymized": anonymize,
         "stats": {
             "total_conversations": len(conversations),
+            "total_messages": sum(c["message_count"] for c in conversations),
         },
         "conversations": conversations,
     }
@@ -864,4 +900,293 @@ async def list_backups() -> Dict[str, Any]:
     return {
         "backup_count": len(backups),
         "backups": backups,
+    }
+
+
+# === Import Endpoints ===
+
+from pydantic import BaseModel
+from typing import List
+
+
+class ImportMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+
+
+class ImportConversation(BaseModel):
+    id: str
+    title: Optional[str] = None
+    user_id: Optional[str] = None
+    daemon_id: str
+    created_at: str
+    updated_at: str
+    summary: Optional[str] = None
+    messages: List[ImportMessage]
+
+
+class ImportConversationsRequest(BaseModel):
+    conversations: List[ImportConversation]
+    merge_strategy: str = "skip_existing"  # "skip_existing", "overwrite", "append_new"
+
+
+@router.post("/import/conversations")
+async def import_conversations(request: ImportConversationsRequest) -> Dict[str, Any]:
+    """
+    Import conversations from exported JSON data.
+
+    Merge strategies:
+    - skip_existing: Skip conversations that already exist (by ID)
+    - overwrite: Replace existing conversations with imported data
+    - append_new: Only import conversations with new IDs
+    """
+    from database import get_db
+
+    imported = 0
+    skipped = 0
+    errors = []
+
+    with get_db() as conn:
+        for conv in request.conversations:
+            try:
+                # Check if conversation exists
+                existing = conn.execute(
+                    "SELECT id FROM conversations WHERE id = ?",
+                    (conv.id,)
+                ).fetchone()
+
+                if existing:
+                    if request.merge_strategy == "skip_existing":
+                        skipped += 1
+                        continue
+                    elif request.merge_strategy == "overwrite":
+                        # Delete existing conversation and messages
+                        conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conv.id,))
+                        conn.execute("DELETE FROM conversations WHERE id = ?", (conv.id,))
+                    elif request.merge_strategy == "append_new":
+                        skipped += 1
+                        continue
+
+                # Insert conversation
+                conn.execute(
+                    """INSERT INTO conversations
+                       (id, title, user_id, daemon_id, working_summary, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (conv.id, conv.title, conv.user_id, conv.daemon_id,
+                     conv.summary, conv.created_at, conv.updated_at)
+                )
+
+                # Insert messages
+                for msg in conv.messages:
+                    conn.execute(
+                        """INSERT INTO messages
+                           (conversation_id, role, content, timestamp, provider, model,
+                            input_tokens, output_tokens)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (conv.id, msg.role, msg.content, msg.timestamp,
+                         msg.provider, msg.model, msg.input_tokens, msg.output_tokens)
+                    )
+
+                imported += 1
+
+            except Exception as e:
+                errors.append({"conversation_id": conv.id, "error": str(e)})
+
+        conn.commit()
+
+    return {
+        "success": True,
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors,
+        "merge_strategy": request.merge_strategy,
+    }
+
+
+class ImportUserObservation(BaseModel):
+    observation_type: str
+    content: Dict[str, Any]  # content_json
+    confidence: Optional[float] = None
+    created_at: str
+
+
+class ImportUserData(BaseModel):
+    id: str
+    display_name: str
+    relationship: Optional[str] = None
+    background: Optional[Dict[str, Any]] = None
+    communication: Optional[Dict[str, Any]] = None
+    preferences: Optional[Dict[str, Any]] = None
+    observations: List[ImportUserObservation] = []
+
+
+class ImportUsersRequest(BaseModel):
+    users: List[ImportUserData]
+    merge_strategy: str = "merge"  # "skip_existing", "overwrite", "merge"
+
+
+@router.post("/import/users")
+async def import_users(request: ImportUsersRequest) -> Dict[str, Any]:
+    """
+    Import user profiles and observations.
+
+    Merge strategies:
+    - skip_existing: Skip users that already exist
+    - overwrite: Replace existing user data
+    - merge: Merge observations, keep newer profile data
+    """
+    from database import get_db
+
+    imported = 0
+    merged = 0
+    skipped = 0
+    errors = []
+
+    with get_db() as conn:
+        for user in request.users:
+            try:
+                existing = conn.execute(
+                    "SELECT id FROM users WHERE id = ?",
+                    (user.id,)
+                ).fetchone()
+
+                if existing:
+                    if request.merge_strategy == "skip_existing":
+                        skipped += 1
+                        continue
+                    elif request.merge_strategy == "overwrite":
+                        conn.execute(
+                            """UPDATE users SET
+                               display_name = ?, relationship = ?,
+                               background_json = ?, communication_json = ?,
+                               preferences_json = ?, updated_at = ?
+                               WHERE id = ?""",
+                            (user.display_name, user.relationship,
+                             json.dumps(user.background) if user.background else None,
+                             json.dumps(user.communication) if user.communication else None,
+                             json.dumps(user.preferences) if user.preferences else None,
+                             datetime.now().isoformat(), user.id)
+                        )
+                    elif request.merge_strategy == "merge":
+                        # Just update timestamp, keep existing data
+                        conn.execute(
+                            "UPDATE users SET updated_at = ? WHERE id = ?",
+                            (datetime.now().isoformat(), user.id)
+                        )
+                    merged += 1
+                else:
+                    # Insert new user
+                    conn.execute(
+                        """INSERT INTO users
+                           (id, display_name, relationship, background_json,
+                            communication_json, preferences_json, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (user.id, user.display_name, user.relationship,
+                         json.dumps(user.background) if user.background else None,
+                         json.dumps(user.communication) if user.communication else None,
+                         json.dumps(user.preferences) if user.preferences else None,
+                         datetime.now().isoformat(), datetime.now().isoformat())
+                    )
+                    imported += 1
+
+                # Import observations (always merge - observations are additive)
+                # Need daemon_id for observations - get default daemon
+                daemon_row = conn.execute("SELECT id FROM daemons LIMIT 1").fetchone()
+                daemon_id = daemon_row[0] if daemon_row else None
+
+                if daemon_id:
+                    for obs in user.observations:
+                        # Check if similar observation exists
+                        content_str = json.dumps(obs.content)
+                        existing_obs = conn.execute(
+                            """SELECT id FROM user_observations
+                               WHERE user_id = ? AND observation_type = ? AND content_json = ?""",
+                            (user.id, obs.observation_type, content_str)
+                        ).fetchone()
+
+                        if not existing_obs:
+                            import uuid
+                            conn.execute(
+                                """INSERT INTO user_observations
+                                   (id, daemon_id, user_id, observation_type, content_json, confidence, created_at)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                (str(uuid.uuid4()), daemon_id, user.id, obs.observation_type,
+                                 content_str, obs.confidence, obs.created_at)
+                            )
+
+            except Exception as e:
+                errors.append({"user_id": user.id, "error": str(e)})
+
+        conn.commit()
+
+    return {
+        "success": True,
+        "imported": imported,
+        "merged": merged,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
+@router.get("/users/json")
+async def export_users_json(
+    include_observations: bool = Query(default=True, description="Include user observations")
+) -> Dict[str, Any]:
+    """
+    Export all users and their observations.
+    """
+    from database import get_db
+
+    users = []
+
+    with get_db() as conn:
+        cursor = conn.execute(
+            """SELECT id, display_name, relationship, background_json,
+                      communication_json, preferences_json, created_at
+               FROM users"""
+        )
+
+        for row in cursor.fetchall():
+            user_id, display_name, relationship, bg_json, comm_json, pref_json, created_at = row
+
+            user_data = {
+                "id": user_id,
+                "display_name": display_name,
+                "relationship": relationship,
+                "background": json.loads(bg_json) if bg_json else None,
+                "communication": json.loads(comm_json) if comm_json else None,
+                "preferences": json.loads(pref_json) if pref_json else None,
+                "created_at": created_at,
+            }
+
+            if include_observations:
+                obs_cursor = conn.execute(
+                    """SELECT observation_type, content_json, confidence, created_at
+                       FROM user_observations WHERE user_id = ?""",
+                    (user_id,)
+                )
+                user_data["observations"] = [
+                    {
+                        "observation_type": obs_type,
+                        "content": json.loads(content_json) if content_json else {},
+                        "confidence": conf,
+                        "created_at": created_at,
+                    }
+                    for obs_type, content_json, conf, created_at in obs_cursor.fetchall()
+                ]
+
+            users.append(user_data)
+
+    return {
+        "export_type": "users",
+        "exported_at": datetime.now().isoformat(),
+        "stats": {
+            "total_users": len(users),
+        },
+        "users": users,
     }
