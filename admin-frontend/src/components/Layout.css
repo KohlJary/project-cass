@@ -1,6 +1,6 @@
 .layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
   background-color: #0d0d0d;
 }
 
@@ -183,4 +183,10 @@
   padding: 1.5rem 2rem;
   overflow-y: auto;
   background-color: #0d0d0d;
+}
+
+/* Remove padding when chat page is displayed (uses full viewport) */
+.main-content:has(.chat-page) {
+  padding: 0;
+  overflow: hidden;
 }
