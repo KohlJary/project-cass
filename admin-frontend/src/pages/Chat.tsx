@@ -48,6 +48,7 @@ export function Chat() {
     currentConversationId,
     conversationTitle,
     recognition,
+    setRecognition,
     clearRecognition,
   } = useWebSocket();
 
@@ -80,6 +81,39 @@ export function Chat() {
     retry: false,
     refetchInterval: 30000, // Refresh every 30s
   });
+
+  // Fetch historical observations for current conversation
+  const { data: observationsData } = useQuery({
+    queryKey: ['chat-observations', selectedConversationId],
+    queryFn: () =>
+      selectedConversationId
+        ? conversationsApi.getObservations(selectedConversationId).then((r) => r.data)
+        : Promise.resolve(null),
+    enabled: !!selectedConversationId,
+    retry: false,
+  });
+
+  // Populate recognition from historical observations
+  useEffect(() => {
+    if (observationsData) {
+      setRecognition({
+        marks: (observationsData.marks || []).map((m: { category: string; description: string }) => ({
+          category: m.category,
+          description: m.description,
+        })),
+        selfObservations: (observationsData.self_observations || []).map((o: { observation: string; category: string; confidence: number }) => ({
+          observation: o.observation,
+          category: o.category,
+          confidence: o.confidence,
+        })),
+        userObservations: (observationsData.user_observations || []).map((o: { observation: string; category: string; confidence: number }) => ({
+          observation: o.observation,
+          category: o.category,
+          confidence: o.confidence,
+        })),
+      });
+    }
+  }, [observationsData, setRecognition]);
 
   // Load history when conversation messages are fetched
   useEffect(() => {
