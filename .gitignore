@@ -140,3 +140,6 @@ data/roadmap/
 .scout_backups
 data
 data-test
+
+# Exception: Allow daemon seed exports to be versioned
+!seed/

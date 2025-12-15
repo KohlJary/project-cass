@@ -7,7 +7,7 @@ This version leverages Anthropic's official Agent SDK for:
 - Tool ecosystem
 - The "initializer agent" pattern with our cognitive architecture
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -203,8 +203,9 @@ async def add_security_headers(request: Request, call_next):
 
 
 # Initialize database and run JSON migrations
-from database import init_database_with_migrations
+from database import init_database_with_migrations, get_daemon_entity_name
 _daemon_id = init_database_with_migrations("cass")
+_daemon_name = get_daemon_entity_name(_daemon_id)  # Entity name for system prompts
 
 # Initialize components with absolute data paths
 memory = CassMemory()
@@ -688,7 +689,9 @@ async def startup_event():
         logger.info("Using Claude Agent SDK with Temple-Codex kernel")
         agent_client = CassAgentClient(
             enable_tools=True,
-            enable_memory_tools=True
+            enable_memory_tools=True,
+            daemon_name=_daemon_name,
+            daemon_id=_daemon_id
         )
     else:
         logger.warning("Agent SDK not available, using raw API client")
@@ -698,7 +701,7 @@ async def startup_event():
     from config import OLLAMA_ENABLED
     if OLLAMA_ENABLED:
         logger.info("Initializing Ollama client for local LLM...")
-        ollama_client = OllamaClient()
+        ollama_client = OllamaClient(daemon_name=_daemon_name, daemon_id=_daemon_id)
         logger.info(f"Ollama ready (model: {ollama_client.model})")
 
     # Initialize OpenAI client if enabled
@@ -708,7 +711,9 @@ async def startup_event():
         try:
             openai_client = OpenAIClient(
                 enable_tools=True,
-                enable_memory_tools=True
+                enable_memory_tools=True,
+                daemon_name=_daemon_name,
+                daemon_id=_daemon_id
             )
             logger.info(f"OpenAI ready (model: {openai_client.model})")
         except Exception as e:
@@ -732,6 +737,14 @@ async def startup_event():
             logger.debug("All recent journals up to date")
     except Exception as e:
         logger.error(f"Journal check failed: {e}")
+
+    # Generate initial identity snippet if none exists
+    logger.info("Checking identity snippet...")
+    try:
+        from migrations import generate_initial_identity_snippet
+        await generate_initial_identity_snippet(_daemon_id)
+    except Exception as e:
+        logger.error(f"Identity snippet generation failed: {e}")
 
     # Start background task for daily journal generation
     asyncio.create_task(daily_journal_task())
@@ -2358,15 +2371,19 @@ async def backfill_journals(request: JournalBackfillRequest):
 # ============================================================================
 
 @app.get("/dreams")
-async def list_dreams(limit: int = 10):
+async def list_dreams(
+    limit: int = 10,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID to fetch dreams for")
+):
     """
     List recent dreams.
 
     Args:
         limit: Maximum number of dreams to return (default 10)
+        daemon_id: Optional daemon ID (defaults to current daemon)
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager()
+    dream_manager = DreamManager(daemon_id=daemon_id)
 
     recent = dream_manager.get_recent_dreams(limit=limit)
 
@@ -2385,15 +2402,19 @@ async def list_dreams(limit: int = 10):
 
 
 @app.get("/dreams/{dream_id}")
-async def get_dream(dream_id: str):
+async def get_dream(
+    dream_id: str,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID")
+):
     """
     Get a specific dream by ID.
 
     Args:
         dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
+        daemon_id: Optional daemon ID (defaults to current daemon)
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager()
+    dream_manager = DreamManager(daemon_id=daemon_id)
 
     dream = dream_manager.get_dream(dream_id)
 
@@ -2415,7 +2436,10 @@ async def get_dream(dream_id: str):
 
 
 @app.get("/dreams/{dream_id}/context")
-async def get_dream_context(dream_id: str):
+async def get_dream_context(
+    dream_id: str,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID")
+):
     """
     Get a dream formatted for conversation context.
 
@@ -2424,9 +2448,10 @@ async def get_dream_context(dream_id: str):
 
     Args:
         dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
+        daemon_id: Optional daemon ID (defaults to current daemon)
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager()
+    dream_manager = DreamManager(daemon_id=daemon_id)
 
     dream_memory = dream_manager.load_dream_for_context(dream_id)
 
@@ -2538,6 +2563,14 @@ async def integrate_dream(dream_id: str, request: DreamIntegrationRequest):
             status_code=404,
             detail=f"Dream {dream_id} not found or insight extraction failed"
         )
+
+    # Trigger identity snippet regeneration if identity statements were added (not dry run)
+    if not request.dry_run and result.get("updates", {}).get("identity_statements_added"):
+        from identity_snippets import trigger_snippet_regeneration
+        asyncio.create_task(trigger_snippet_regeneration(
+            daemon_id=self_manager.daemon_id,
+            token_tracker=token_tracker
+        ))
 
     return {
         "status": "success",
@@ -4249,6 +4282,14 @@ async def add_cass_identity_statement(request: IdentityStatementRequest):
         confidence=request.confidence,
         source="manual"
     )
+
+    # Trigger identity snippet regeneration in background
+    from identity_snippets import trigger_snippet_regeneration
+    asyncio.create_task(trigger_snippet_regeneration(
+        daemon_id=self_manager.daemon_id,
+        token_tracker=token_tracker
+    ))
+
     return {"identity_statement": stmt.to_dict()}
 
 

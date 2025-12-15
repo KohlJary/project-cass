@@ -2,8 +2,9 @@
 Cass Vessel - Admin API Router
 Endpoints for the admin dashboard to explore memory, users, conversations, and system stats.
 """
-from fastapi import APIRouter, HTTPException, Query, Depends, Header
+from fastapi import APIRouter, HTTPException, Query, Depends, Header, UploadFile, File, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import FileResponse
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from pydantic import BaseModel
@@ -16,7 +17,7 @@ from memory import CassMemory
 from conversations import ConversationManager
 from users import UserManager
 from self_model import SelfManager
-from config import DATA_DIR
+from config import DATA_DIR, DEMO_MODE
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -89,7 +90,18 @@ def verify_token(token: str) -> Optional[Dict]:
 async def require_admin(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict:
-    """Dependency that requires valid admin authentication"""
+    """Dependency that requires valid admin authentication.
+
+    In demo mode, returns a demo user without requiring authentication.
+    """
+    # Demo mode bypasses authentication
+    if DEMO_MODE:
+        return {
+            "user_id": "demo",
+            "display_name": "Demo User",
+            "demo_mode": True
+        }
+
     if not credentials:
         raise HTTPException(
             status_code=401,
@@ -143,7 +155,19 @@ async def verify_admin(admin: Dict = Depends(require_admin)):
     return {
         "valid": True,
         "user_id": admin["user_id"],
-        "display_name": admin["display_name"]
+        "display_name": admin["display_name"],
+        "demo_mode": admin.get("demo_mode", False)
+    }
+
+
+@router.get("/auth/status")
+async def auth_status():
+    """Get authentication status (public endpoint).
+
+    Returns whether demo mode is enabled so the frontend can skip login.
+    """
+    return {
+        "demo_mode": DEMO_MODE
     }
 
 
@@ -182,12 +206,12 @@ async def list_daemons(admin: Dict = Depends(require_admin)):
 
     with get_db() as conn:
         cursor = conn.execute("""
-            SELECT id, name, created_at, kernel_version, status
+            SELECT id, label, name, created_at, kernel_version, status
             FROM daemons
-            ORDER BY name
+            ORDER BY label
         """)
 
-        columns = ["id", "name", "created_at", "kernel_version", "status"]
+        columns = ["id", "label", "name", "created_at", "kernel_version", "status"]
         daemons = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     return {"daemons": daemons}
@@ -200,7 +224,7 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
 
     with get_db() as conn:
         cursor = conn.execute("""
-            SELECT id, name, created_at, kernel_version, status
+            SELECT id, label, name, created_at, kernel_version, status
             FROM daemons
             WHERE id = ?
         """, (daemon_id,))
@@ -209,7 +233,7 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
         if not row:
             raise HTTPException(status_code=404, detail="Daemon not found")
 
-        columns = ["id", "name", "created_at", "kernel_version", "status"]
+        columns = ["id", "label", "name", "created_at", "kernel_version", "status"]
         daemon = dict(zip(columns, row))
 
         # Get some stats for this daemon
@@ -230,6 +254,149 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
         }
 
     return daemon
+
+
+@router.get("/daemons/exports/seeds")
+async def list_seed_exports(admin: Dict = Depends(require_admin)):
+    """List available .anima exports from seed folder."""
+    from daemon_export import list_seed_exports
+
+    exports = list_seed_exports()
+    return {"exports": exports}
+
+
+@router.post("/daemons/{daemon_id}/export")
+async def export_daemon_endpoint(
+    daemon_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Export a daemon to downloadable .anima file."""
+    from daemon_export import export_daemon, ANIMA_EXTENSION
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    import tempfile
+
+    # Export to temp file
+    with tempfile.NamedTemporaryFile(suffix=ANIMA_EXTENSION, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        result = export_daemon(daemon_id, tmp_path)
+        daemon_label = result["daemon_label"]
+        timestamp = result.get("stats", {}).get("exported_at", "export")
+
+        # Return as file download
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            path=str(tmp_path),
+            filename=f"{daemon_label}_{timestamp[:10] if len(timestamp) >= 10 else 'export'}{ANIMA_EXTENSION}",
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={daemon_label}{ANIMA_EXTENSION}"
+            }
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        # Clean up temp file on error
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/daemons/import")
+async def import_daemon_endpoint(
+    file: UploadFile = File(...),
+    daemon_name: Optional[str] = Form(None),
+    skip_embeddings: bool = Form(False),
+    admin: Dict = Depends(require_admin)
+):
+    """Import a daemon from uploaded .anima file."""
+    from daemon_export import import_daemon, ANIMA_EXTENSION
+    from pathlib import Path
+    import tempfile
+    import shutil
+
+    # Save uploaded file to temp location
+    suffix = Path(file.filename).suffix if file.filename else ANIMA_EXTENSION
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        shutil.copyfileobj(file.file, tmp)
+
+    try:
+        result = import_daemon(
+            tmp_path,
+            new_daemon_name=daemon_name,
+            skip_embeddings=skip_embeddings
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@router.post("/daemons/import/preview")
+async def preview_daemon_import_endpoint(
+    file: UploadFile = File(...),
+    admin: Dict = Depends(require_admin)
+):
+    """Preview daemon import without applying."""
+    from daemon_export import preview_daemon_import, ANIMA_EXTENSION
+    from pathlib import Path
+    import tempfile
+    import shutil
+
+    # Save uploaded file to temp location
+    suffix = Path(file.filename).suffix if file.filename else ANIMA_EXTENSION
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        shutil.copyfileobj(file.file, tmp)
+
+    try:
+        preview = preview_daemon_import(tmp_path)
+        return preview
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@router.post("/daemons/import/seed/{filename}")
+async def import_seed_daemon(
+    filename: str,
+    daemon_name: Optional[str] = None,
+    skip_embeddings: bool = False,
+    admin: Dict = Depends(require_admin)
+):
+    """Import a daemon from a seed file by filename."""
+    from daemon_export import import_daemon, list_seed_exports
+    from pathlib import Path
+
+    # Find the seed file
+    exports = list_seed_exports()
+    seed_file = next((e for e in exports if e["filename"] == filename), None)
+
+    if not seed_file:
+        raise HTTPException(status_code=404, detail=f"Seed file '{filename}' not found")
+
+    if "error" in seed_file:
+        raise HTTPException(status_code=400, detail=f"Seed file has errors: {seed_file['error']}")
+
+    try:
+        result = import_daemon(
+            Path(seed_file["path"]),
+            new_daemon_name=daemon_name,
+            skip_embeddings=skip_embeddings
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============== Memory Endpoints ==============
@@ -379,41 +546,58 @@ async def get_memory_vectors(
 
 
 @router.get("/memory/stats")
-async def get_memory_stats():
-    """Get memory statistics"""
-    if not memory:
-        raise HTTPException(status_code=503, detail="Memory not initialized")
+async def get_memory_stats(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID to fetch stats for"),
+    admin: Dict = Depends(require_admin)
+):
+    """Get memory statistics for a daemon"""
+    from database import get_db
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
 
     try:
-        collection = memory.collection
+        with get_db() as conn:
+            # Get journal count from database
+            journal_cursor = conn.execute("""
+                SELECT COUNT(*) FROM journals WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            journal_count = journal_cursor.fetchone()[0] or 0
 
-        # Get total count from ChromaDB
-        total = collection.count()
+            # Get self-observation count from database
+            obs_cursor = conn.execute("""
+                SELECT COUNT(*) FROM self_observations WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            self_obs_count = obs_cursor.fetchone()[0] or 0
 
-        # Get counts by type from ChromaDB
-        type_counts = {}
-        for mem_type in ["summary", "journal", "observation", "user_observation", "per_user_journal", "attractor_marker", "project_document"]:
-            try:
-                results = collection.get(where={"type": mem_type}, include=[])
-                type_counts[mem_type] = len(results["ids"])
-            except:
-                type_counts[mem_type] = 0
+            # Get dream count from database
+            dream_cursor = conn.execute("""
+                SELECT COUNT(*) FROM dreams WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            dream_count = dream_cursor.fetchone()[0] or 0
 
-        # Add file-based self-observations from SelfManager
-        self_obs_count = 0
-        if self_manager:
-            try:
-                self_obs = self_manager.load_observations()
-                self_obs_count = len(self_obs) if self_obs else 0
-            except:
-                pass
-        type_counts["self_observation"] = self_obs_count
+            # ChromaDB stats (not daemon-filtered currently)
+            chromadb_total = 0
+            type_counts = {}
+            if memory:
+                collection = memory.collection
+                chromadb_total = collection.count()
 
-        return {
-            "total_memories": total + self_obs_count,
-            "by_type": type_counts,
-            "journals": type_counts.get("journal", 0)
-        }
+                for mem_type in ["summary", "observation", "user_observation", "per_user_journal", "attractor_marker", "project_document"]:
+                    try:
+                        results = collection.get(where={"type": mem_type}, include=[])
+                        type_counts[mem_type] = len(results["ids"])
+                    except:
+                        type_counts[mem_type] = 0
+
+            type_counts["journal"] = journal_count
+            type_counts["self_observation"] = self_obs_count
+            type_counts["dream"] = dream_count
+
+            return {
+                "total_memories": chromadb_total + self_obs_count + journal_count + dream_count,
+                "by_type": type_counts,
+                "journals": journal_count
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -808,19 +992,42 @@ async def get_conversation_detail(conversation_id: str):
 
 
 @router.get("/conversations/{conversation_id}/messages")
-async def get_conversation_messages(conversation_id: str):
+async def get_conversation_messages(
+    conversation_id: str,
+    admin: Dict = Depends(require_admin)
+):
     """Get all messages in a conversation"""
-    if not conversations:
-        raise HTTPException(status_code=503, detail="Conversations not initialized")
+    from database import get_db
+    import json
 
     try:
-        conv = conversations.load_conversation(conversation_id)
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+        with get_db() as conn:
+            # Get messages directly from database
+            cursor = conn.execute("""
+                SELECT role, content, timestamp, provider, model,
+                       input_tokens, output_tokens, user_id
+                FROM messages
+                WHERE conversation_id = ?
+                ORDER BY timestamp ASC
+            """, (conversation_id,))
 
-        messages = [asdict(m) for m in conv.messages]
+            messages = []
+            for row in cursor.fetchall():
+                messages.append({
+                    "role": row[0],
+                    "content": row[1],
+                    "timestamp": row[2],
+                    "provider": row[3],
+                    "model": row[4],
+                    "input_tokens": row[5],
+                    "output_tokens": row[6],
+                    "user_id": row[7]
+                })
 
-        return {"messages": messages}
+            if not messages:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+
+            return {"messages": messages}
 
     except HTTPException:
         raise
@@ -865,30 +1072,45 @@ async def get_conversation_summaries(conversation_id: str):
 # ============== System Endpoints ==============
 
 @router.get("/system/stats")
-async def get_system_stats():
-    """Get system-wide statistics"""
+async def get_system_stats(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID to fetch stats for"),
+    admin: Dict = Depends(require_admin)
+):
+    """Get system-wide statistics for a daemon"""
+    from database import get_db
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
+
     try:
-        stats = {
-            "users": 0,
-            "conversations": 0,
-            "memories": 0,
-            "journals": 0
-        }
+        with get_db() as conn:
+            # Get conversation count
+            conv_cursor = conn.execute("""
+                SELECT COUNT(*) FROM conversations WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            conv_count = conv_cursor.fetchone()[0] or 0
 
-        if users:
-            all_users = users.list_users()
-            stats["users"] = len(all_users)
+            # Get journal count
+            journal_cursor = conn.execute("""
+                SELECT COUNT(*) FROM journals WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            journal_count = journal_cursor.fetchone()[0] or 0
 
-        if conversations:
-            all_convs = conversations.list_conversations()
-            stats["conversations"] = len(all_convs)
+            # Get user count (global - not daemon-specific)
+            user_count = 0
+            if users:
+                user_count = len(users.list_users())
 
-        if memory:
-            stats["memories"] = memory.collection.count()
-            journals = memory.get_recent_journals(n=1000)
-            stats["journals"] = len(journals)
+            # Get memory count (from ChromaDB - not daemon-specific for now)
+            memory_count = 0
+            if memory:
+                memory_count = memory.collection.count()
 
-        return stats
+            return {
+                "users": user_count,
+                "conversations": conv_count,
+                "memories": memory_count,
+                "journals": journal_count
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -916,56 +1138,243 @@ async def get_system_health():
 # ============== Self-Model Endpoints ==============
 
 @router.get("/self-model")
-async def get_self_model():
+async def get_self_model(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID to fetch self-model for"),
+    admin: Dict = Depends(require_admin)
+):
     """Get Cass's self-model (profile)"""
-    if not self_manager:
-        raise HTTPException(status_code=503, detail="Self-model not initialized")
+    from database import get_db
+    import json
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
 
     try:
-        profile = self_manager.load_profile()
-        return profile.to_dict() if profile else {}
+        with get_db() as conn:
+            # Get daemon profile
+            cursor = conn.execute("""
+                SELECT identity_statements_json, values_json, communication_patterns_json,
+                       capabilities_json, limitations_json, open_questions_json, notes
+                FROM daemon_profiles WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return {}
+
+            # Get growth edges
+            edges_cursor = conn.execute("""
+                SELECT area, current_state, desired_state, observations_json,
+                       strategies_json, first_noticed, last_updated
+                FROM growth_edges WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            growth_edges = [
+                {
+                    "area": r[0],
+                    "current_state": r[1],
+                    "desired_state": r[2],
+                    "observations": json.loads(r[3]) if r[3] else [],
+                    "strategies": json.loads(r[4]) if r[4] else [],
+                    "first_noticed": r[5],
+                    "last_updated": r[6]
+                }
+                for r in edges_cursor.fetchall()
+            ]
+
+            # Get opinions
+            opinions_cursor = conn.execute("""
+                SELECT topic, position, confidence, rationale, formed_from,
+                       evolution_json, date_formed, last_updated
+                FROM opinions WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            opinions = [
+                {
+                    "topic": r[0],
+                    "position": r[1],
+                    "confidence": r[2],
+                    "rationale": r[3],
+                    "formed_from": r[4],
+                    "evolution": json.loads(r[5]) if r[5] else [],
+                    "date_formed": r[6],
+                    "last_updated": r[7]
+                }
+                for r in opinions_cursor.fetchall()
+            ]
+
+            return {
+                "identity_statements": json.loads(row[0]) if row[0] else [],
+                "values": json.loads(row[1]) if row[1] else [],
+                "communication_patterns": json.loads(row[2]) if row[2] else [],
+                "capabilities": json.loads(row[3]) if row[3] else [],
+                "limitations": json.loads(row[4]) if row[4] else [],
+                "open_questions": json.loads(row[5]) if row[5] else [],
+                "notes": row[6] or "",
+                "growth_edges": growth_edges,
+                "opinions": opinions
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/self-model/growth-edges")
-async def get_growth_edges():
+async def get_growth_edges(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID to fetch growth edges for"),
+    admin: Dict = Depends(require_admin)
+):
     """Get Cass's growth edges"""
-    if not self_manager:
-        raise HTTPException(status_code=503, detail="Self-model not initialized")
+    from database import get_db
+    import json
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
 
     try:
-        profile = self_manager.load_profile()
-        edges = [e.to_dict() for e in profile.growth_edges] if profile and profile.growth_edges else []
-        return {"edges": edges}
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT area, current_state, desired_state, observations_json,
+                       strategies_json, first_noticed, last_updated
+                FROM growth_edges WHERE daemon_id = ?
+                ORDER BY first_noticed DESC
+            """, (effective_daemon_id,))
+
+            edges = [
+                {
+                    "area": r[0],
+                    "current_state": r[1],
+                    "desired_state": r[2],
+                    "observations": json.loads(r[3]) if r[3] else [],
+                    "strategies": json.loads(r[4]) if r[4] else [],
+                    "first_noticed": r[5],
+                    "last_updated": r[6]
+                }
+                for r in cursor.fetchall()
+            ]
+
+            return {"edges": edges}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/self-model/questions")
-async def get_open_questions():
+async def get_open_questions(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID to fetch questions for"),
+    admin: Dict = Depends(require_admin)
+):
     """Get Cass's open questions"""
-    if not self_manager:
-        raise HTTPException(status_code=503, detail="Self-model not initialized")
+    from database import get_db
+    import json
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
 
     try:
-        profile = self_manager.load_profile()
-        questions = [{"question": q} for q in profile.open_questions] if profile and profile.open_questions else []
-        # Also get question reflections for more detail
-        reflections = self_manager.load_question_reflections()
-        for r in reflections:
-            questions.append({
-                "question": r.question,
-                "provisional_answer": r.reflection,
-                "confidence": r.confidence,
-                "created_at": r.timestamp if r.timestamp else None
-            })
-        return {"questions": questions}
+        with get_db() as conn:
+            # Get open questions from daemon_profiles
+            cursor = conn.execute("""
+                SELECT open_questions_json
+                FROM daemon_profiles WHERE daemon_id = ?
+            """, (effective_daemon_id,))
+            row = cursor.fetchone()
+
+            questions = []
+            if row and row[0]:
+                open_qs = json.loads(row[0])
+                questions = [{"question": q} for q in open_qs]
+
+            return {"questions": questions}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== Identity Snippet Endpoints ==============
+
+@router.get("/self-model/identity-snippet")
+async def get_identity_snippet(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID"),
+    admin: Dict = Depends(require_admin)
+):
+    """Get the active identity snippet for a daemon."""
+    from identity_snippets import get_active_snippet
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
+    snippet = get_active_snippet(effective_daemon_id)
+
+    if not snippet:
+        return {"snippet": None, "message": "No identity snippet generated yet"}
+
+    return {"snippet": snippet}
+
+
+@router.get("/self-model/identity-snippet/history")
+async def get_identity_snippet_history(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID"),
+    limit: int = Query(10, description="Number of versions to return"),
+    admin: Dict = Depends(require_admin)
+):
+    """Get the version history of identity snippets."""
+    from identity_snippets import get_snippet_history
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
+    history = get_snippet_history(effective_daemon_id, limit=limit)
+
+    return {"history": history, "count": len(history)}
+
+
+@router.post("/self-model/identity-snippet/regenerate")
+async def regenerate_identity_snippet(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID"),
+    force: bool = Query(False, description="Force regeneration even if unchanged"),
+    admin: Dict = Depends(require_admin)
+):
+    """Manually trigger identity snippet regeneration."""
+    from identity_snippets import trigger_snippet_regeneration
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
+
+    result = await trigger_snippet_regeneration(
+        daemon_id=effective_daemon_id,
+        force=force
+    )
+
+    if result:
+        return {
+            "status": "regenerated",
+            "snippet": result
+        }
+    else:
+        return {
+            "status": "unchanged",
+            "message": "Identity statements unchanged, no regeneration needed (use force=true to override)"
+        }
+
+
+class RollbackRequest(BaseModel):
+    version: int
+
+
+@router.post("/self-model/identity-snippet/rollback")
+async def rollback_identity_snippet(
+    request: RollbackRequest,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID"),
+    admin: Dict = Depends(require_admin)
+):
+    """Rollback to a previous identity snippet version."""
+    from identity_snippets import rollback_to_version
+
+    effective_daemon_id = get_effective_daemon_id(daemon_id)
+
+    result = rollback_to_version(effective_daemon_id, request.version)
+
+    if result:
+        return {
+            "status": "rolled_back",
+            "snippet": result
+        }
+    else:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {request.version} not found for this daemon"
+        )
 
 
 # ============== Research Session Endpoints ==============
@@ -2650,20 +3059,54 @@ def init_goal_manager(manager):
     goal_manager = manager
 
 
-# Session runner getters (functions that return the runner instances)
-research_runner_getter = None
-reflection_runner_getter = None
-synthesis_runner_getter = None
-meta_reflection_runner_getter = None
+# Session runner registry - maps session types to their runner getters
+# Each entry: runner_getter, session_id_attr (how to get session ID from returned session)
+_session_runners: Dict[str, Any] = {}
+
+
+def register_session_runner(session_type: str, runner_getter, session_id_attr: str = "session_id"):
+    """Register a session runner for a given session type."""
+    _session_runners[session_type] = {
+        "getter": runner_getter,
+        "session_id_attr": session_id_attr,
+    }
 
 
 def init_session_runners(research_getter, reflection_getter, synthesis_getter=None, meta_reflection_getter=None):
-    """Initialize session runner getters from main app"""
-    global research_runner_getter, reflection_runner_getter, synthesis_runner_getter, meta_reflection_runner_getter
-    research_runner_getter = research_getter
-    reflection_runner_getter = reflection_getter
-    synthesis_runner_getter = synthesis_getter
-    meta_reflection_runner_getter = meta_reflection_getter
+    """Initialize session runner getters from main app (legacy compatibility)"""
+    if research_getter:
+        register_session_runner("research", research_getter, "session_id")
+    if reflection_getter:
+        register_session_runner("reflection", reflection_getter, "session_id")
+    if synthesis_getter:
+        register_session_runner("synthesis", synthesis_getter, "id")
+    if meta_reflection_getter:
+        register_session_runner("meta_reflection", meta_reflection_getter, "id")
+
+
+def get_session_runner(session_type: str):
+    """Get the runner for a session type, or None if not registered."""
+    entry = _session_runners.get(session_type)
+    if entry and entry["getter"]:
+        return entry["getter"](), entry["session_id_attr"]
+    return None, None
+
+
+# Activity type to session type mapping (what session type handles each activity)
+ACTIVITY_SESSION_MAP = {
+    "research": "research",
+    "reflection": "reflection",
+    "synthesis": "synthesis",
+    "meta_reflection": "meta_reflection",
+    "consolidation": "consolidation",
+    "growth_edge": "growth_edge",
+    "writing": "writing",
+    "knowledge_building": "knowledge_building",
+    "curiosity": "curiosity",
+    "world_state": "world_state",
+    "creative": "creative",
+    "any": "research",  # Default to research for "any" activity type
+}
 
 
 async def _backfill_phase_summaries(rhythm_manager, reflection_runner, research_runner):
@@ -2786,15 +3229,7 @@ async def get_rhythm_dates():
     if not daily_rhythm_manager:
         raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
 
-    # List all JSON files in the records directory
-    records_dir = daily_rhythm_manager.records_dir
-    dates = []
-    for f in sorted(records_dir.glob("*.json"), reverse=True):
-        # Extract date from filename (YYYY-MM-DD.json)
-        date_str = f.stem
-        if len(date_str) == 10 and date_str[4] == "-" and date_str[7] == "-":
-            dates.append(date_str)
-
+    dates = daily_rhythm_manager.get_dates_with_records()
     return {"dates": dates}
 
 
@@ -2816,25 +3251,155 @@ async def get_weekly_schedule():
     return daily_rhythm_manager.get_weekly_schedule()
 
 
+class MarkPhaseCompleteRequest(BaseModel):
+    session_id: Optional[str] = None
+    session_type: Optional[str] = None
+    summary: Optional[str] = None
+    findings: Optional[List[str]] = None
+    notes_created: Optional[List[str]] = None
+
+
 @router.post("/rhythm/phases/{phase_id}/complete")
 async def mark_phase_complete(
     phase_id: str,
-    session_id: Optional[str] = None,
-    session_type: Optional[str] = None
+    request: MarkPhaseCompleteRequest = None
 ):
     """Mark a rhythm phase as completed"""
     if not daily_rhythm_manager:
         raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
 
+    req = request or MarkPhaseCompleteRequest()
     result = daily_rhythm_manager.mark_phase_completed(
         phase_id=phase_id,
-        session_id=session_id,
-        session_type=session_type
+        session_id=req.session_id,
+        session_type=req.session_type,
+        summary=req.summary,
+        findings=req.findings,
+        notes_created=req.notes_created,
     )
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error"))
 
     return result
+
+
+def _infer_session_params(session_type: str, phase_name: str, req) -> dict:
+    """
+    Infer session parameters based on session type and phase name.
+
+    Returns dict with keys: focus, theme, mode, period_type (as applicable)
+    """
+    params = {"focus": req.focus if req else None}
+    phase_lower = phase_name.lower()
+
+    if session_type == "research":
+        if not params["focus"]:
+            if "wiki" in phase_lower:
+                params["focus"] = "wiki"
+            elif "world" in phase_lower or "state" in phase_lower:
+                params["focus"] = "world_state"
+        params["mode"] = "explore"
+
+    elif session_type == "reflection":
+        if "morning" in phase_lower:
+            params["theme"] = "Setting intentions and preparing for the day ahead"
+        elif "evening" in phase_lower or "synthesis" in phase_lower:
+            params["theme"] = "Integrating the day's experiences and insights"
+        elif "contemplative" in phase_lower:
+            params["theme"] = "Deep contemplation and self-examination"
+        else:
+            params["theme"] = "Private contemplation and self-examination"
+
+    elif session_type == "synthesis":
+        if not params["focus"]:
+            if "research" in phase_lower:
+                params["focus"] = "research"
+            elif "growth" in phase_lower:
+                params["focus"] = "growth"
+        params["mode"] = "integrate"
+
+    elif session_type == "meta_reflection":
+        if not params["focus"]:
+            if "coherence" in phase_lower:
+                params["focus"] = "coherence"
+            elif "growth" in phase_lower:
+                params["focus"] = "growth_edges"
+
+    elif session_type == "consolidation":
+        params["period_type"] = "weekly"  # default
+        if "daily" in phase_lower:
+            params["period_type"] = "daily"
+        elif "monthly" in phase_lower:
+            params["period_type"] = "monthly"
+        elif "quarterly" in phase_lower:
+            params["period_type"] = "quarterly"
+
+    elif session_type == "growth_edge":
+        # Focus from phase name if not specified
+        pass
+
+    elif session_type == "writing":
+        if not params["focus"]:
+            if "exploratory" in phase_lower:
+                params["focus"] = "exploratory"
+            elif "sunday" in phase_lower:
+                params["focus"] = "weekly_synthesis"
+
+    elif session_type == "world_state":
+        # World state sessions don't need special params
+        pass
+
+    elif session_type == "curiosity":
+        # Curiosity sessions intentionally have no focus
+        params["focus"] = None
+
+    return params
+
+
+async def _start_session(session_type: str, runner, duration: int, params: dict):
+    """
+    Start a session with the given runner and parameters.
+
+    Returns the session object or None.
+    """
+    # Build kwargs based on what the runner accepts
+    kwargs = {"duration_minutes": duration}
+
+    if session_type == "research":
+        if params.get("focus"):
+            kwargs["focus"] = params["focus"]
+        if params.get("mode"):
+            kwargs["mode"] = params["mode"]
+        kwargs["trigger"] = "manual_rhythm_trigger"
+
+    elif session_type == "reflection":
+        if params.get("theme"):
+            kwargs["theme"] = params["theme"]
+        kwargs["trigger"] = "manual_rhythm_trigger"
+
+    elif session_type == "synthesis":
+        if params.get("focus"):
+            kwargs["focus"] = params["focus"]
+        if params.get("mode"):
+            kwargs["mode"] = params["mode"]
+
+    elif session_type == "meta_reflection":
+        if params.get("focus"):
+            kwargs["focus"] = params["focus"]
+
+    elif session_type == "consolidation":
+        if params.get("period_type"):
+            kwargs["period_type"] = params["period_type"]
+
+    elif session_type in ("growth_edge", "writing", "knowledge_building", "world_state", "creative"):
+        if params.get("focus"):
+            kwargs["focus"] = params["focus"]
+
+    elif session_type == "curiosity":
+        # No focus for curiosity - that's the point
+        kwargs.pop("focus", None)
+
+    return await runner.start_session(**kwargs)
 
 
 @router.post("/rhythm/phases/{phase_id}/trigger")
@@ -2843,15 +3408,13 @@ async def trigger_phase(
     request: TriggerPhaseRequest = None
 ):
     """
-    Manually trigger a rhythm phase (research or reflection session).
+    Manually trigger a rhythm phase session.
 
     This allows triggering missed phases or re-running phases outside their normal window.
-    The phase will be marked as completed once the session starts.
+    The phase will be marked as in_progress when the session starts, and completed when it ends.
     """
     if not daily_rhythm_manager:
         raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
-    if not research_runner_getter or not reflection_runner_getter:
-        raise HTTPException(status_code=503, detail="Session runners not initialized")
 
     # Get phase configuration
     phases = daily_rhythm_manager.get_phases()
@@ -2863,6 +3426,24 @@ async def trigger_phase(
     activity_type = phase_config.get("activity_type", "any")
     phase_name = phase_config.get("name", phase_id)
 
+    # Map activity type to session type
+    session_type = ACTIVITY_SESSION_MAP.get(activity_type, "research")
+
+    # Get the runner for this session type
+    runner, session_id_attr = get_session_runner(session_type)
+    if not runner:
+        raise HTTPException(
+            status_code=503,
+            detail=f"No runner registered for session type '{session_type}'"
+        )
+
+    # Check if already running
+    if runner.is_running:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A {session_type} session is already running"
+        )
+
     # Check current status
     status = daily_rhythm_manager.get_rhythm_status()
     phase_status = next(
@@ -2870,7 +3451,6 @@ async def trigger_phase(
         {}
     ).get("status")
 
-    # Parse request or use defaults
     req = request or TriggerPhaseRequest()
 
     if phase_status == "completed" and not req.force:
@@ -2878,459 +3458,41 @@ async def trigger_phase(
             status_code=400,
             detail=f"Phase '{phase_name}' already completed today. Use force=true to re-run."
         )
+
+    if phase_status == "in_progress":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Phase '{phase_name}' is already in progress."
+        )
+
     duration = req.duration_minutes or 30
 
     try:
-        # Start appropriate session based on activity type
-        if activity_type in ("research", "any"):
-            runner = research_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A research session is already running"
-                )
+        # Infer session parameters from phase name and request
+        params = _infer_session_params(session_type, phase_name, req)
 
-            # Determine focus - from agenda item, explicit focus, or default
-            focus_item_id = None
-            if req.agenda_item_id and goal_manager:
-                agenda_item = goal_manager.get_research_agenda_item(req.agenda_item_id)
-                if agenda_item:
-                    # Build rich focus description from agenda item
-                    focus_parts = [f"Research agenda item: {agenda_item['topic']}"]
-                    if agenda_item.get('why'):
-                        focus_parts.append(f"Why: {agenda_item['why']}")
-                    if agenda_item.get('key_findings'):
-                        findings = [f.get('finding', f) if isinstance(f, dict) else f
-                                    for f in agenda_item['key_findings'][:3]]
-                        if findings:
-                            focus_parts.append(f"Prior findings: {'; '.join(findings)}")
-                    focus = '\n'.join(focus_parts)
-                    focus_item_id = req.agenda_item_id
-                    # Mark agenda item as in progress
-                    goal_manager.update_research_agenda_item(
-                        req.agenda_item_id,
-                        set_status="in_progress"
-                    )
-                else:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Agenda item not found: {req.agenda_item_id}"
-                    )
-            else:
-                focus = req.focus or f"Self-directed research during {phase_name}"
+        # Start the session
+        session = await _start_session(session_type, runner, duration, params)
 
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-                focus_item_id=focus_item_id,
-                mode="explore",
-                trigger="manual_rhythm_trigger"
+        if session:
+            # Get session ID using the configured attribute
+            session_id = getattr(session, session_id_attr, None)
+
+            # Mark phase as in_progress (will be marked completed when session ends)
+            daily_rhythm_manager.mark_phase_in_progress(
+                phase_id,
+                session_type=session_type,
+                session_id=session_id
             )
 
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="research",
-                    session_id=session.session_id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "research",
-                    "session_id": session.session_id,
-                    "duration_minutes": duration,
-                    "message": f"Started research session for '{phase_name}'"
-                }
-
-        elif activity_type == "reflection":
-            runner = reflection_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A reflection session is already running"
-                )
-
-            # Generate theme based on phase name or use provided
-            if req.theme:
-                theme = req.theme
-            elif "morning" in phase_name.lower():
-                theme = "Setting intentions and preparing for the day ahead"
-            elif "evening" in phase_name.lower() or "synthesis" in phase_name.lower():
-                theme = "Integrating the day's experiences and insights"
-            else:
-                theme = "Private contemplation and self-examination"
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                theme=theme,
-                trigger="manual_rhythm_trigger"
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="reflection",
-                    session_id=session.session_id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "reflection",
-                    "session_id": session.session_id,
-                    "duration_minutes": duration,
-                    "message": f"Started reflection session for '{phase_name}'"
-                }
-
-        elif activity_type == "synthesis":
-            if not synthesis_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Synthesis runner not initialized"
-                )
-
-            runner = synthesis_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A synthesis session is already running"
-                )
-
-            # Determine synthesis mode and focus
-            if req.focus:
-                focus = req.focus
-                mode = "focused"
-            elif "contradiction" in phase_name.lower():
-                focus = "Resolving tensions in self-model"
-                mode = "contradiction-resolution"
-            else:
-                focus = None
-                mode = "general"
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-                mode=mode,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="synthesis",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "synthesis",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "message": f"Started synthesis session for '{phase_name}'"
-                }
-
-        elif activity_type == "meta_reflection":
-            if not meta_reflection_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Meta-reflection runner not initialized"
-                )
-
-            runner = meta_reflection_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A meta-reflection session is already running"
-                )
-
-            # Determine focus area
-            focus = req.focus
-            if not focus and "coherence" in phase_name.lower():
-                focus = "coherence"
-            elif not focus and "growth" in phase_name.lower():
-                focus = "growth_edges"
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="meta_reflection",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "meta_reflection",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "message": f"Started meta-reflection session for '{phase_name}'"
-                }
-
-        elif activity_type == "consolidation":
-            if not consolidation_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Consolidation runner not initialized"
-                )
-
-            runner = consolidation_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A consolidation session is already running"
-                )
-
-            # Determine period type from phase name
-            period_type = "weekly"  # default
-            if "daily" in phase_name.lower():
-                period_type = "daily"
-            elif "monthly" in phase_name.lower():
-                period_type = "monthly"
-            elif "quarterly" in phase_name.lower():
-                period_type = "quarterly"
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                period_type=period_type,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="consolidation",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "consolidation",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "period_type": period_type,
-                    "message": f"Started consolidation session for '{phase_name}'"
-                }
-
-        elif activity_type == "growth_edge":
-            if not growth_edge_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Growth edge runner not initialized"
-                )
-
-            runner = growth_edge_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A growth edge session is already running"
-                )
-
-            # Focus from request or phase name
-            focus = req.focus
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="growth_edge",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "growth_edge",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "focus": focus,
-                    "message": f"Started growth edge work session for '{phase_name}'"
-                }
-
-        elif activity_type == "writing":
-            if not writing_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Writing runner not initialized"
-                )
-
-            runner = writing_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A writing session is already running"
-                )
-
-            focus = req.focus
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="writing",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "writing",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "focus": focus,
-                    "message": f"Started writing session for '{phase_name}'"
-                }
-
-        elif activity_type == "knowledge_building":
-            if not knowledge_building_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Knowledge building runner not initialized"
-                )
-
-            runner = knowledge_building_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A knowledge building session is already running"
-                )
-
-            focus = req.focus
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="knowledge_building",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "knowledge_building",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "focus": focus,
-                    "message": f"Started knowledge building session for '{phase_name}'"
-                }
-
-        elif activity_type == "curiosity":
-            if not curiosity_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Curiosity runner not initialized"
-                )
-
-            runner = curiosity_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A curiosity session is already running"
-                )
-
-            # No focus for curiosity - that's the point
-            session = await runner.start_session(
-                duration_minutes=duration,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="curiosity",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "curiosity",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "message": f"Started curiosity session for '{phase_name}' - pure exploration"
-                }
-
-        elif activity_type == "world_state":
-            if not world_state_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="World state runner not initialized"
-                )
-
-            runner = world_state_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A world state session is already running"
-                )
-
-            focus = req.focus
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="world_state",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "world_state",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "focus": focus,
-                    "message": f"Started world state session for '{phase_name}'"
-                }
-
-        elif activity_type in ("creative", "creative_output"):
-            if not creative_runner_getter:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Creative runner not initialized"
-                )
-
-            runner = creative_runner_getter()
-            if runner.is_running:
-                raise HTTPException(
-                    status_code=409,
-                    detail="A creative session is already running"
-                )
-
-            focus = req.focus
-
-            session = await runner.start_session(
-                duration_minutes=duration,
-                focus=focus,
-            )
-
-            if session:
-                daily_rhythm_manager.mark_phase_completed(
-                    phase_id,
-                    session_type="creative",
-                    session_id=session.id
-                )
-                return {
-                    "success": True,
-                    "phase_id": phase_id,
-                    "session_type": "creative",
-                    "session_id": session.id,
-                    "duration_minutes": duration,
-                    "focus": focus,
-                    "message": f"Started creative session for '{phase_name}'"
-                }
+            return {
+                "success": True,
+                "phase_id": phase_id,
+                "session_type": session_type,
+                "session_id": session_id,
+                "duration_minutes": duration,
+                "message": f"Started {session_type} session for '{phase_name}'"
+            }
 
         raise HTTPException(
             status_code=500,
@@ -3346,6 +3508,7 @@ async def trigger_phase(
         )
 
 
+
 @router.post("/rhythm/regenerate-summary")
 async def regenerate_daily_summary():
     """Regenerate the daily summary as a narrative written by Cass."""
@@ -3354,12 +3517,6 @@ async def regenerate_daily_summary():
 
     from background_tasks import _generate_narrative_summary
     from datetime import datetime
-
-    # Backfill any missing phase summaries from session data
-    if reflection_runner_getter and research_runner_getter:
-        reflection_runner = reflection_runner_getter()
-        research_runner = research_runner_getter()
-        await _backfill_phase_summaries(daily_rhythm_manager, reflection_runner, research_runner)
 
     status = daily_rhythm_manager.get_rhythm_status()
     all_phases = status.get("phases", [])

@@ -2,6 +2,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { selfModelApi } from '../../api/client';
 import { useState } from 'react';
 
+interface IdentitySnippet {
+  id: string;
+  version: number;
+  snippet_text: string;
+  source_hash: string;
+  is_active?: boolean;
+  generated_at: string;
+  generated_by: string;
+}
+
 interface IdentityStatement {
   statement: string;
   confidence: number;
@@ -97,6 +107,37 @@ export function SelfModelTab() {
     retry: false,
   });
 
+  const { data: identitySnippetData, isLoading: snippetLoading } = useQuery({
+    queryKey: ['identity-snippet'],
+    queryFn: () => selfModelApi.getIdentitySnippet().then((r) => r.data),
+    retry: false,
+  });
+
+  const { data: snippetHistory } = useQuery({
+    queryKey: ['identity-snippet-history'],
+    queryFn: () => selfModelApi.getIdentitySnippetHistory(5).then((r) => r.data),
+    retry: false,
+  });
+
+  const regenerateSnippetMutation = useMutation({
+    mutationFn: (force: boolean) => selfModelApi.regenerateIdentitySnippet(force),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['identity-snippet'] });
+      queryClient.invalidateQueries({ queryKey: ['identity-snippet-history'] });
+    },
+  });
+
+  const rollbackSnippetMutation = useMutation({
+    mutationFn: (version: number) => selfModelApi.rollbackIdentitySnippet(version),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['identity-snippet'] });
+      queryClient.invalidateQueries({ queryKey: ['identity-snippet-history'] });
+    },
+  });
+
+  const identitySnippet = identitySnippetData?.snippet as IdentitySnippet | null;
+  const [showSnippetHistory, setShowSnippetHistory] = useState(false);
+
   const acceptMutation = useMutation({
     mutationFn: (edgeId: string) => selfModelApi.acceptPendingEdge(edgeId),
     onSuccess: () => {
@@ -151,8 +192,108 @@ export function SelfModelTab() {
     return { level: 'low', icon: '○', label: 'Low confidence' };
   };
 
+  const formatDate = (isoString: string) => {
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   return (
     <div className="self-model-tab">
+      {/* Identity Snippet - Auto-generated identity narrative */}
+      <section className="model-card identity-snippet-card">
+        <div className="card-header">
+          <h2>Identity Narrative</h2>
+          <div className="snippet-actions">
+            {identitySnippet && (
+              <span className="snippet-version">v{identitySnippet.version}</span>
+            )}
+            <button
+              className="snippet-btn history-btn"
+              onClick={() => setShowSnippetHistory(!showSnippetHistory)}
+              title="View version history"
+            >
+              {showSnippetHistory ? '↑' : '↓'}
+            </button>
+            <button
+              className="snippet-btn regenerate-btn"
+              onClick={() => regenerateSnippetMutation.mutate(true)}
+              disabled={regenerateSnippetMutation.isPending}
+              title="Regenerate identity snippet"
+            >
+              {regenerateSnippetMutation.isPending ? '...' : '↻'}
+            </button>
+          </div>
+        </div>
+        {snippetLoading ? (
+          <div className="loading-state">Loading identity narrative...</div>
+        ) : identitySnippet ? (
+          <div className="snippet-content">
+            <div className="snippet-text">
+              {identitySnippet.snippet_text.split('\n\n').map((paragraph, i) => (
+                <p key={i}>{paragraph}</p>
+              ))}
+            </div>
+            <div className="snippet-meta">
+              <span className="meta-item">
+                Generated {formatDate(identitySnippet.generated_at)}
+              </span>
+              <span className="meta-item">
+                by {identitySnippet.generated_by.replace('claude-', '').replace('-20251001', '')}
+              </span>
+            </div>
+            {showSnippetHistory && snippetHistory?.history && snippetHistory.history.length > 1 && (
+              <div className="snippet-history">
+                <h4>Version History</h4>
+                <div className="history-list">
+                  {snippetHistory.history.map((item: IdentitySnippet) => (
+                    <div
+                      key={item.id}
+                      className={`history-item ${item.is_active ? 'active' : ''}`}
+                    >
+                      <div className="history-header">
+                        <span className="history-version">v{item.version}</span>
+                        <span className="history-date">{formatDate(item.generated_at)}</span>
+                        {item.is_active ? (
+                          <span className="active-badge">Active</span>
+                        ) : (
+                          <button
+                            className="rollback-btn"
+                            onClick={() => rollbackSnippetMutation.mutate(item.version)}
+                            disabled={rollbackSnippetMutation.isPending}
+                          >
+                            Restore
+                          </button>
+                        )}
+                      </div>
+                      <div className="history-preview">
+                        {item.snippet_text.slice(0, 150)}...
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <p>No identity narrative generated yet</p>
+            <button
+              className="generate-btn"
+              onClick={() => regenerateSnippetMutation.mutate(true)}
+              disabled={regenerateSnippetMutation.isPending}
+            >
+              {regenerateSnippetMutation.isPending ? 'Generating...' : 'Generate Identity Narrative'}
+            </button>
+          </div>
+        )}
+      </section>
+
       {/* Search and filter controls */}
       <div className="search-filter-bar">
         <div className="search-input-wrapper">

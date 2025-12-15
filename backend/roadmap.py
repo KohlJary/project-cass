@@ -240,7 +240,7 @@ class RoadmapManager:
         """Load the default daemon ID from database"""
         with get_db() as conn:
             cursor = conn.execute(
-                "SELECT id FROM daemons WHERE name = 'cass' LIMIT 1"
+                "SELECT id FROM daemons WHERE label = 'cass' LIMIT 1"
             )
             row = cursor.fetchone()
             if row:
@@ -249,11 +249,12 @@ class RoadmapManager:
                 # Create default daemon if not exists
                 self._daemon_id = str(uuid.uuid4())
                 conn.execute("""
-                    INSERT INTO daemons (id, name, created_at, kernel_version, status)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO daemons (id, label, name, created_at, kernel_version, status)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     self._daemon_id,
                     'cass',
+                    'Cass',
                     datetime.now().isoformat(),
                     'temple-codex-1.0',
                     'active'

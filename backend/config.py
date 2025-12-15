@@ -164,3 +164,8 @@ OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:8b-instruct-q8_0") 
 # Explicit socket path is needed when running as systemd service with PrivateTmp=yes
 # Use: TMUX_SOCKET=/tmp/tmux-1000/default (replace 1000 with your UID)
 TMUX_SOCKET = os.getenv("TMUX_SOCKET")
+
+# Demo Mode
+# When enabled, admin dashboard requires no authentication (read-only browsing)
+# Set DEMO_MODE=true in .env or environment to enable
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"

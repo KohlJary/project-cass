@@ -1827,11 +1827,38 @@
   line-height: 1.7;
 }
 
+.daily-summary-view .summary-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.5rem;
+  border-top: 1px solid #2a2a2a;
+}
+
 .daily-summary-view .summary-updated {
   font-size: 0.6875rem;
   color: #666;
-  padding-top: 0.5rem;
-  border-top: 1px solid #2a2a2a;
+}
+
+.regenerate-btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: 1px solid #c792ea55;
+  border-radius: 4px;
+  color: #c792ea;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.regenerate-btn:hover:not(:disabled) {
+  background: #c792ea22;
+  border-color: #c792ea;
+}
+
+.regenerate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Phase Detail View */

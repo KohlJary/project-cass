@@ -30,6 +30,34 @@ api.interceptors.request.use((config) => {
 export const daemonsApi = {
   getAll: () => api.get('/admin/daemons'),
   getById: (id: string) => api.get(`/admin/daemons/${id}`),
+
+  // Daemon export/import endpoints
+  listSeedExports: () => api.get('/admin/daemons/exports/seeds'),
+  exportDaemon: (daemonId: string) =>
+    api.post(`/admin/daemons/${daemonId}/export`, {}, { responseType: 'blob' }),
+  importDaemon: (file: File, daemonName?: string, skipEmbeddings?: boolean) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (daemonName) formData.append('daemon_name', daemonName);
+    if (skipEmbeddings) formData.append('skip_embeddings', 'true');
+    return api.post('/admin/daemons/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  previewImport: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/admin/daemons/import/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  importSeed: (filename: string, daemonName?: string, skipEmbeddings?: boolean) =>
+    api.post(`/admin/daemons/import/seed/${encodeURIComponent(filename)}`, null, {
+      params: {
+        daemon_name: daemonName,
+        skip_embeddings: skipEmbeddings,
+      },
+    }),
 };
 
 // Memory endpoints
@@ -94,6 +122,14 @@ export const selfModelApi = {
   getPendingEdges: () => api.get('/cass/growth-edges/pending'),
   acceptPendingEdge: (edgeId: string) => api.post(`/cass/growth-edges/pending/${edgeId}/accept`),
   rejectPendingEdge: (edgeId: string) => api.post(`/cass/growth-edges/pending/${edgeId}/reject`),
+  // Identity snippet (auto-generated identity narrative)
+  getIdentitySnippet: () => api.get('/admin/self-model/identity-snippet'),
+  getIdentitySnippetHistory: (limit?: number) =>
+    api.get('/admin/self-model/identity-snippet/history', { params: { limit } }),
+  regenerateIdentitySnippet: (force?: boolean) =>
+    api.post('/admin/self-model/identity-snippet/regenerate', null, { params: { force } }),
+  rollbackIdentitySnippet: (version: number) =>
+    api.post('/admin/self-model/identity-snippet/rollback', { version }),
 };
 
 // Sentience testing UI endpoints
@@ -646,6 +682,7 @@ export const rhythmApi = {
     force?: boolean;
   }) =>
     api.post(`/admin/rhythm/phases/${phaseId}/trigger`, options || {}),
+  regenerateSummary: () => api.post('/admin/rhythm/regenerate-summary'),
 };
 
 // Unified Sessions endpoint - works with all activity types

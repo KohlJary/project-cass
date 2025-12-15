@@ -24,6 +24,9 @@ def run_migrations(daemon_id: str):
     """
     logger.info("Checking for JSON data to migrate...")
 
+    # Ensure new tables exist (schema additions)
+    ensure_identity_snippets_table()
+
     migrations = [
         ("token_usage", migrate_token_usage),
         ("github_metrics", migrate_github_metrics),
@@ -408,3 +411,56 @@ def migrate_research_history(daemon_id: str) -> int:
         logger.error(f"Error migrating research history: {e}")
 
     return migrated
+
+
+def ensure_identity_snippets_table():
+    """Ensure the daemon_identity_snippets table exists (schema addition)."""
+    from database import get_db
+
+    with get_db() as conn:
+        conn.executescript('''
+            -- Daemon identity snippets (version-controlled auto-generated identity text)
+            CREATE TABLE IF NOT EXISTS daemon_identity_snippets (
+                id TEXT PRIMARY KEY,
+                daemon_id TEXT NOT NULL REFERENCES daemons(id),
+                version INTEGER NOT NULL,
+                snippet_text TEXT NOT NULL,
+                source_hash TEXT NOT NULL,
+                is_active INTEGER DEFAULT 0,
+                generated_at TEXT NOT NULL,
+                generated_by TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_identity_snippets_daemon ON daemon_identity_snippets(daemon_id);
+            CREATE INDEX IF NOT EXISTS idx_identity_snippets_active ON daemon_identity_snippets(daemon_id, is_active);
+        ''')
+        logger.info("Ensured daemon_identity_snippets table exists")
+
+
+async def generate_initial_identity_snippet(daemon_id: str):
+    """
+    Generate the initial identity snippet for a daemon if none exists.
+
+    This should be called after database initialization to bootstrap the identity.
+    """
+    from identity_snippets import get_active_snippet, trigger_snippet_regeneration
+
+    # Check if snippet already exists
+    existing = get_active_snippet(daemon_id)
+    if existing:
+        logger.info(f"Identity snippet already exists (v{existing['version']})")
+        return existing
+
+    # Generate initial snippet
+    logger.info("Generating initial identity snippet...")
+    try:
+        result = await trigger_snippet_regeneration(daemon_id=daemon_id, force=True)
+        if result:
+            logger.info(f"Generated initial identity snippet v{result['version']}")
+            return result
+        else:
+            logger.warning("No identity statements found, skipping snippet generation")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to generate initial identity snippet: {e}")
+        return None

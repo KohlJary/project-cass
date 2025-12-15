@@ -24,7 +24,7 @@ import json
 import anthropic
 import httpx
 
-from agent_client import TEMPLE_CODEX_KERNEL
+from agent_client import TEMPLE_CODEX_KERNEL, get_temple_codex_kernel
 from markers import parse_marks
 
 
