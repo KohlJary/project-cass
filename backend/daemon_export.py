@@ -205,6 +205,21 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
 
         export_data["stats"]["total_rows"] = total_rows
 
+    # Include self_model_graph.json if it exists
+    from config import DATA_DIR
+    graph_path = DATA_DIR / "cass" / "self_model_graph.json"
+    if graph_path.exists():
+        try:
+            with open(graph_path, 'r') as f:
+                export_data["self_model_graph"] = json.load(f)
+            node_count = len(export_data["self_model_graph"].get("nodes", []))
+            edge_count = len(export_data["self_model_graph"].get("edges", []))
+            export_data["stats"]["self_model_graph_nodes"] = node_count
+            export_data["stats"]["self_model_graph_edges"] = edge_count
+            logger.info(f"Included self_model_graph: {node_count} nodes, {edge_count} edges")
+        except Exception as e:
+            logger.warning(f"Could not include self_model_graph: {e}")
+
     # Write output if path specified
     if output_path:
         output_path = Path(output_path)
@@ -310,7 +325,7 @@ def _create_export_archive(export_data: Dict, output_path: Path, daemon_id: str)
     tmpdir = tempfile.mkdtemp()
 
     try:
-        # Write main JSON
+        # Write main JSON (graph already included in export_data)
         json_path = Path(tmpdir) / "daemon_data.json"
         with open(json_path, 'w') as f:
             json.dump(export_data, f, indent=2, default=str)
@@ -350,6 +365,7 @@ modified: {page.get('updated_at', 'unknown')}
 
 - `daemon_data.json` - Complete daemon data in JSON format
 - `wiki/` - Wiki pages as markdown files (if any)
+- Self-model graph (embedded in daemon_data.json if available)
 
 ## Statistics
 
@@ -580,6 +596,23 @@ def import_daemon(
             imported_counts["users"] = count
 
         conn.commit()
+
+    # Restore self_model_graph.json if included in export
+    if "self_model_graph" in export_data:
+        try:
+            from config import DATA_DIR
+            graph_dir = DATA_DIR / "cass"
+            graph_dir.mkdir(parents=True, exist_ok=True)
+            graph_path = graph_dir / "self_model_graph.json"
+            with open(graph_path, 'w') as f:
+                json.dump(export_data["self_model_graph"], f, indent=2)
+            node_count = len(export_data["self_model_graph"].get("nodes", []))
+            edge_count = len(export_data["self_model_graph"].get("edges", []))
+            imported_counts["self_model_graph_nodes"] = node_count
+            imported_counts["self_model_graph_edges"] = edge_count
+            logger.info(f"Restored self_model_graph: {node_count} nodes, {edge_count} edges")
+        except Exception as e:
+            logger.warning(f"Could not restore self_model_graph: {e}")
 
     # Regenerate ChromaDB embeddings from imported data
     embedding_counts = {}
