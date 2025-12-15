@@ -164,6 +164,74 @@ async def set_admin_password(
     return {"success": True}
 
 
+# ============== Daemon Endpoints ==============
+
+def get_effective_daemon_id(daemon_id: Optional[str] = None) -> str:
+    """Get effective daemon ID - uses provided one or falls back to global default."""
+    if daemon_id:
+        return daemon_id
+    # Import here to avoid circular dependency
+    from database import get_daemon_id
+    return get_daemon_id()
+
+
+@router.get("/daemons")
+async def list_daemons(admin: Dict = Depends(require_admin)):
+    """List all available daemons."""
+    from database import get_db
+
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT id, name, created_at, kernel_version, status
+            FROM daemons
+            ORDER BY name
+        """)
+
+        columns = ["id", "name", "created_at", "kernel_version", "status"]
+        daemons = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    return {"daemons": daemons}
+
+
+@router.get("/daemons/{daemon_id}")
+async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
+    """Get details for a specific daemon."""
+    from database import get_db
+
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT id, name, created_at, kernel_version, status
+            FROM daemons
+            WHERE id = ?
+        """, (daemon_id,))
+
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Daemon not found")
+
+        columns = ["id", "name", "created_at", "kernel_version", "status"]
+        daemon = dict(zip(columns, row))
+
+        # Get some stats for this daemon
+        stats_cursor = conn.execute("""
+            SELECT
+                (SELECT COUNT(*) FROM conversations WHERE daemon_id = ?) as conversations,
+                (SELECT COUNT(*) FROM wiki_pages WHERE daemon_id = ?) as wiki_pages,
+                (SELECT COUNT(*) FROM journals WHERE daemon_id = ?) as journals,
+                (SELECT COUNT(*) FROM dreams WHERE daemon_id = ?) as dreams
+        """, (daemon_id, daemon_id, daemon_id, daemon_id))
+
+        stats_row = stats_cursor.fetchone()
+        daemon["stats"] = {
+            "conversations": stats_row[0] or 0,
+            "wiki_pages": stats_row[1] or 0,
+            "journals": stats_row[2] or 0,
+            "dreams": stats_row[3] or 0,
+        }
+
+    return daemon
+
+
 # ============== Memory Endpoints ==============
 
 @router.get("/memory")
@@ -515,21 +583,36 @@ async def set_user_password(
 # ============== Journal Endpoints ==============
 
 @router.get("/journals")
-async def get_all_journals(limit: int = Query(default=30, le=100)):
+async def get_all_journals(
+    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
+    limit: int = Query(default=30, le=100)
+):
     """Get all journal entries"""
-    if not memory:
-        raise HTTPException(status_code=503, detail="Memory not initialized")
+    from database import get_db
 
     try:
-        journals = memory.get_recent_journals(n=limit)
+        effective_daemon_id = get_effective_daemon_id(daemon_id)
 
-        journal_list = []
-        for j in journals:
-            journal_list.append({
-                "date": j["metadata"].get("journal_date"),
-                "summary": j["metadata"].get("summary"),
-                "locked": j["metadata"].get("locked", False)
-            })
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT date, content, themes_json, created_at
+                FROM journals
+                WHERE daemon_id = ?
+                ORDER BY date DESC
+                LIMIT ?
+            """, (effective_daemon_id, limit))
+
+            journal_list = []
+            for row in cursor.fetchall():
+                # Generate a summary from first ~100 chars of content
+                content = row[1] or ""
+                summary = content[:100] + "..." if len(content) > 100 else content
+
+                journal_list.append({
+                    "date": row[0],
+                    "summary": summary,
+                    "locked": False  # Could add locked column later
+                })
 
         return {"journals": journal_list}
 
@@ -538,21 +621,35 @@ async def get_all_journals(limit: int = Query(default=30, le=100)):
 
 
 @router.get("/journals/{date}")
-async def get_journal_by_date(date: str):
+async def get_journal_by_date(
+    date: str,
+    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID")
+):
     """Get a specific journal entry by date"""
-    if not memory:
-        raise HTTPException(status_code=503, detail="Memory not initialized")
+    from database import get_db
 
     try:
-        journal = memory.get_journal_entry(date)
-        if not journal:
-            raise HTTPException(status_code=404, detail="Journal not found")
+        effective_daemon_id = get_effective_daemon_id(daemon_id)
 
-        return {
-            "date": date,
-            "content": journal["content"],
-            "metadata": journal["metadata"]
-        }
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, date, content, themes_json, created_at
+                FROM journals
+                WHERE daemon_id = ? AND date = ?
+            """, (effective_daemon_id, date))
+
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Journal not found")
+
+            return {
+                "date": row[1],
+                "content": row[2],
+                "metadata": {
+                    "themes": row[3],
+                    "created_at": row[4]
+                }
+            }
 
     except HTTPException:
         raise
@@ -563,23 +660,24 @@ async def get_journal_by_date(date: str):
 @router.get("/journals/calendar")
 async def get_journal_calendar(
     year: int = Query(...),
-    month: int = Query(...)
+    month: int = Query(...),
+    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID")
 ):
     """Get journal dates for a specific month (for calendar view)"""
-    if not memory:
-        raise HTTPException(status_code=503, detail="Memory not initialized")
+    from database import get_db
 
     try:
-        # Get all journals and filter by month
-        journals = memory.get_recent_journals(n=100)
-
+        effective_daemon_id = get_effective_daemon_id(daemon_id)
         month_str = f"{year}-{month:02d}"
-        dates_with_journals = []
 
-        for j in journals:
-            journal_date = j["metadata"].get("journal_date", "")
-            if journal_date.startswith(month_str):
-                dates_with_journals.append(journal_date)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT date FROM journals
+                WHERE daemon_id = ? AND date LIKE ?
+                ORDER BY date
+            """, (effective_daemon_id, f"{month_str}%"))
+
+            dates_with_journals = [row[0] for row in cursor.fetchall()]
 
         return {
             "year": year,
@@ -596,29 +694,35 @@ async def get_journal_calendar(
 @router.get("/conversations")
 async def get_all_conversations(
     user_id: Optional[str] = None,
+    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
     limit: int = Query(default=50, le=200)
 ):
     """Get all conversations"""
-    if not conversations:
-        raise HTTPException(status_code=503, detail="Conversations not initialized")
+    from database import get_db
 
     try:
-        all_convs = conversations.list_conversations()
+        effective_daemon_id = get_effective_daemon_id(daemon_id)
 
-        conv_list = []
-        for conv in all_convs[:limit]:
-            conv_list.append({
-                "id": conv.get("id"),
-                "title": conv.get("title"),
-                "message_count": conv.get("message_count", 0),
-                "created_at": conv.get("created_at"),
-                "updated_at": conv.get("updated_at"),
-                "user_id": conv.get("user_id")
-            })
+        with get_db() as conn:
+            # Build query with optional user filter
+            query = """
+                SELECT c.id, c.title, c.created_at, c.updated_at, c.user_id,
+                       (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as message_count
+                FROM conversations c
+                WHERE c.daemon_id = ?
+            """
+            params = [effective_daemon_id]
 
-        # Filter by user if specified
-        if user_id:
-            conv_list = [c for c in conv_list if c.get("user_id") == user_id]
+            if user_id:
+                query += " AND c.user_id = ?"
+                params.append(user_id)
+
+            query += " ORDER BY c.updated_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor = conn.execute(query, params)
+            columns = ["id", "title", "created_at", "updated_at", "user_id", "message_count"]
+            conv_list = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
         return {"conversations": conv_list}
 

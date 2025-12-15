@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useDaemon } from '../context/DaemonContext';
 import './Layout.css';
 
 const navItems = [
@@ -19,13 +20,32 @@ const navItems = [
 
 export function Layout() {
   const { user, logout } = useAuth();
+  const { currentDaemon, availableDaemons, isLoading: daemonLoading, setDaemon } = useDaemon();
 
   return (
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
           <h1>Cass Admin</h1>
-          <span className="version">v0.1.0</span>
+          <div className="daemon-selector">
+            {daemonLoading ? (
+              <span className="daemon-loading">Loading...</span>
+            ) : availableDaemons.length > 1 ? (
+              <select
+                value={currentDaemon?.id || ''}
+                onChange={(e) => setDaemon(e.target.value)}
+                className="daemon-select"
+              >
+                {availableDaemons.map((daemon) => (
+                  <option key={daemon.id} value={daemon.id}>
+                    {daemon.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="daemon-name">{currentDaemon?.name || 'No daemon'}</span>
+            )}
+          </div>
         </div>
         <nav className="nav">
           {navItems.map((item) => (

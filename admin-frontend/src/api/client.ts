@@ -10,6 +10,28 @@ export const api = axios.create({
   },
 });
 
+// Daemon ID storage key (shared with DaemonContext)
+const DAEMON_KEY = 'cass_admin_daemon';
+
+// Add request interceptor to inject daemon_id into all requests
+api.interceptors.request.use((config) => {
+  const daemonId = localStorage.getItem(DAEMON_KEY);
+  if (daemonId) {
+    // Add daemon_id as query parameter
+    config.params = {
+      ...config.params,
+      daemon_id: daemonId,
+    };
+  }
+  return config;
+});
+
+// Daemon endpoints
+export const daemonsApi = {
+  getAll: () => api.get('/admin/daemons'),
+  getById: (id: string) => api.get(`/admin/daemons/${id}`),
+};
+
 // Memory endpoints
 export const memoryApi = {
   getAll: (params?: { type?: string; limit?: number; offset?: number }) =>
