@@ -1412,12 +1412,18 @@ async def get_history():
 
 @app.post("/conversations/new")
 @limiter.limit("30/minute")
-async def create_conversation(request: Request, body: ConversationCreateRequest):
+async def create_conversation(
+    request: Request,
+    body: ConversationCreateRequest,
+    current_user: str = Depends(get_current_user)
+):
     """Create a new conversation"""
+    # Use authenticated user if not specified in body
+    user_id = body.user_id or current_user
     conversation = conversation_manager.create_conversation(
         title=body.title,
         project_id=body.project_id,
-        user_id=body.user_id
+        user_id=user_id
     )
     return {
         "id": conversation.id,
