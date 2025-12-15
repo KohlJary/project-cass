@@ -304,7 +304,8 @@ Export Version: {export_data['export_version']}
 def import_daemon(
     input_path: Path,
     new_daemon_name: Optional[str] = None,
-    merge_existing: bool = False
+    merge_existing: bool = False,
+    skip_embeddings: bool = False
 ) -> Dict[str, Any]:
     """
     Import a daemon from an export file.
@@ -313,6 +314,7 @@ def import_daemon(
         input_path: Path to JSON file or ZIP archive
         new_daemon_name: Optional new name for the daemon (creates new daemon_id)
         merge_existing: If True, merge into existing daemon instead of creating new
+        skip_embeddings: If True, skip ChromaDB embedding regeneration
 
     Returns:
         Dict with import results
@@ -469,12 +471,23 @@ def import_daemon(
 
         conn.commit()
 
+    # Regenerate ChromaDB embeddings from imported data
+    embedding_counts = {}
+    if not skip_embeddings:
+        try:
+            embedding_counts = regenerate_embeddings(target_daemon_id, tables_data)
+        except Exception as e:
+            logger.error(f"Embedding regeneration failed: {e}")
+            logger.info("Import succeeded but embeddings not regenerated. "
+                       "Run regenerate_embeddings() manually or restart server.")
+
     return {
         "success": True,
         "daemon_id": target_daemon_id,
         "daemon_name": new_daemon_name or original_daemon["name"],
         "imported_counts": imported_counts,
         "total_rows": sum(imported_counts.values()),
+        "embedding_counts": embedding_counts,
     }
 
 
@@ -568,6 +581,190 @@ def _import_users(conn, users: List[Dict]) -> int:
     return imported
 
 
+def regenerate_embeddings(daemon_id: str, tables_data: Dict[str, List[Dict]]) -> Dict[str, int]:
+    """
+    Regenerate ChromaDB embeddings from imported SQLite data.
+
+    This is called after import to rebuild the semantic search index.
+    Embeddings are model-specific, so we regenerate rather than export/import them.
+
+    Args:
+        daemon_id: The daemon ID to regenerate embeddings for
+        tables_data: The imported table data (to access content without re-querying)
+
+    Returns:
+        Dict with counts of embedded items by type
+    """
+    from memory import CassMemory, initialize_attractor_basins
+    import asyncio
+
+    logger.info(f"Regenerating ChromaDB embeddings for daemon {daemon_id[:8]}...")
+
+    memory = CassMemory()
+    counts = {}
+
+    # 1. Initialize attractor basins (core cognitive markers)
+    initialize_attractor_basins(memory)
+    counts["attractor_basins"] = 5
+
+    # 2. Embed wiki pages
+    wiki_pages = tables_data.get("wiki_pages", [])
+    embedded_wiki = 0
+    for page in wiki_pages:
+        try:
+            content = page.get("content", "")
+            if content:
+                memory.embed_wiki_page(
+                    page_name=page["id"],
+                    title=page.get("title", page["id"]),
+                    content=content,
+                    category=page.get("category", "unknown"),
+                    timestamp=page.get("updated_at", page.get("created_at", ""))
+                )
+                embedded_wiki += 1
+        except Exception as e:
+            logger.warning(f"Failed to embed wiki page {page.get('id')}: {e}")
+    counts["wiki_pages"] = embedded_wiki
+    logger.info(f"  Embedded {embedded_wiki} wiki pages")
+
+    # 3. Embed journals
+    journals = tables_data.get("journals", [])
+    embedded_journals = 0
+    for journal in journals:
+        try:
+            content = journal.get("content", "")
+            if content:
+                # Journals are embedded via store_journal_entry but we need sync version
+                # Use the core collection directly
+                entry_id = memory._generate_id(content, journal.get("date", ""))
+                memory.collection.add(
+                    documents=[content],
+                    metadatas=[{
+                        "type": "journal",
+                        "date": journal.get("date", ""),
+                        "daemon_id": daemon_id,
+                        "timestamp": journal.get("created_at", ""),
+                    }],
+                    ids=[entry_id]
+                )
+                embedded_journals += 1
+        except Exception as e:
+            logger.warning(f"Failed to embed journal {journal.get('date')}: {e}")
+    counts["journals"] = embedded_journals
+    logger.info(f"  Embedded {embedded_journals} journals")
+
+    # 4. Embed self observations
+    self_obs = tables_data.get("self_observations", [])
+    embedded_self_obs = 0
+    for obs in self_obs:
+        try:
+            observation = obs.get("observation", "")
+            if observation:
+                memory.embed_self_observation(
+                    observation_id=obs.get("id", ""),
+                    category=obs.get("category", "general"),
+                    observation=observation,
+                    confidence=obs.get("confidence", 0.7),
+                    timestamp=obs.get("created_at", "")
+                )
+                embedded_self_obs += 1
+        except Exception as e:
+            logger.warning(f"Failed to embed self observation: {e}")
+    counts["self_observations"] = embedded_self_obs
+    logger.info(f"  Embedded {embedded_self_obs} self observations")
+
+    # 5. Embed conversations (as summaries/gists - full messages would be too large)
+    # We embed conversation summaries if available, not individual messages
+    conversations = tables_data.get("conversations", [])
+    embedded_convs = 0
+    for conv in conversations:
+        try:
+            summary = conv.get("working_summary", "")
+            if summary:
+                entry_id = memory._generate_id(summary, conv.get("created_at", ""))
+                memory.collection.add(
+                    documents=[summary],
+                    metadatas=[{
+                        "type": "summary",
+                        "conversation_id": conv.get("id", ""),
+                        "daemon_id": daemon_id,
+                        "timestamp": conv.get("updated_at", conv.get("created_at", "")),
+                    }],
+                    ids=[entry_id]
+                )
+                embedded_convs += 1
+        except Exception as e:
+            logger.warning(f"Failed to embed conversation summary: {e}")
+    counts["conversation_summaries"] = embedded_convs
+    logger.info(f"  Embedded {embedded_convs} conversation summaries")
+
+    # 6. Embed user observations
+    user_obs = tables_data.get("user_observations", [])
+    embedded_user_obs = 0
+    for obs in user_obs:
+        try:
+            content_json = obs.get("content_json", "{}")
+            if isinstance(content_json, str):
+                content = json.loads(content_json) if content_json else {}
+            else:
+                content = content_json or {}
+
+            observation_text = content.get("observation", content.get("content", str(content)))
+            if observation_text:
+                memory.embed_user_observation(
+                    user_id=obs.get("user_id", ""),
+                    observation_id=obs.get("id", ""),
+                    observation_type=obs.get("observation_type", "identity"),
+                    content=observation_text,
+                    confidence=obs.get("confidence", 0.7),
+                    timestamp=obs.get("created_at", "")
+                )
+                embedded_user_obs += 1
+        except Exception as e:
+            logger.warning(f"Failed to embed user observation: {e}")
+    counts["user_observations"] = embedded_user_obs
+    logger.info(f"  Embedded {embedded_user_obs} user observations")
+
+    # 7. Embed dreams (key exchanges for memory)
+    dreams = tables_data.get("dreams", [])
+    embedded_dreams = 0
+    for dream in dreams:
+        try:
+            exchanges_json = dream.get("exchanges_json", "[]")
+            if isinstance(exchanges_json, str):
+                exchanges = json.loads(exchanges_json) if exchanges_json else []
+            else:
+                exchanges = exchanges_json or []
+
+            # Combine exchanges into searchable content
+            if exchanges:
+                dream_content = "\n".join([
+                    f"{ex.get('role', 'unknown')}: {ex.get('content', '')}"
+                    for ex in exchanges[:10]  # Limit to first 10 exchanges
+                ])
+                entry_id = memory._generate_id(dream_content, dream.get("created_at", ""))
+                memory.collection.add(
+                    documents=[dream_content],
+                    metadatas=[{
+                        "type": "dream",
+                        "date": dream.get("date", ""),
+                        "daemon_id": daemon_id,
+                        "timestamp": dream.get("created_at", ""),
+                    }],
+                    ids=[entry_id]
+                )
+                embedded_dreams += 1
+        except Exception as e:
+            logger.warning(f"Failed to embed dream: {e}")
+    counts["dreams"] = embedded_dreams
+    logger.info(f"  Embedded {embedded_dreams} dreams")
+
+    total = sum(counts.values())
+    logger.info(f"Embedding regeneration complete: {total} items embedded")
+
+    return counts
+
+
 def list_daemons() -> List[Dict[str, Any]]:
     """List all daemons in the database."""
     with get_db() as conn:
@@ -598,7 +795,10 @@ if __name__ == "__main__":
         print("Usage:")
         print("  python daemon_export.py list                    - List all daemons")
         print("  python daemon_export.py export <daemon_id> [output_path]")
-        print("  python daemon_export.py import <input_path> [new_name]")
+        print("  python daemon_export.py import <input_path> [new_name] [--skip-embeddings]")
+        print("")
+        print("Options:")
+        print("  --skip-embeddings   Skip ChromaDB embedding regeneration during import")
         sys.exit(1)
 
     command = sys.argv[1]
@@ -633,12 +833,30 @@ if __name__ == "__main__":
             sys.exit(1)
 
         input_path = sys.argv[2]
-        new_name = sys.argv[3] if len(sys.argv) > 3 else None
+        new_name = None
+        skip_embeddings = False
 
-        result = import_daemon(Path(input_path), new_daemon_name=new_name)
+        # Parse remaining args
+        for arg in sys.argv[3:]:
+            if arg == "--skip-embeddings":
+                skip_embeddings = True
+            else:
+                new_name = arg
+
+        result = import_daemon(
+            Path(input_path),
+            new_daemon_name=new_name,
+            skip_embeddings=skip_embeddings
+        )
         print(f"\nImport complete!")
         print(f"  Daemon: {result['daemon_name']} ({result['daemon_id'][:8]}...)")
         print(f"  Total rows: {result['total_rows']}")
+
+        if result.get("embedding_counts"):
+            print(f"\n  Embeddings regenerated:")
+            for embed_type, count in result["embedding_counts"].items():
+                print(f"    {embed_type}: {count}")
+            print(f"    Total: {sum(result['embedding_counts'].values())}")
 
     else:
         print(f"Unknown command: {command}")
