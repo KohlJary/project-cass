@@ -2,6 +2,8 @@
 Cass Vessel - Roadmap Manager
 Lightweight project management system accessible to both Cass and Daedalus.
 Provides work item tracking, prioritization, and milestone management.
+
+Storage: SQLite database (data/cass.db)
 """
 import json
 import os
@@ -11,6 +13,8 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import uuid
 from enum import Enum
+
+from database import get_db, json_serialize, json_deserialize
 
 
 class ItemStatus(str, Enum):
@@ -211,46 +215,80 @@ class Milestone:
 
 class RoadmapManager:
     """
-    Manages roadmap work items and milestones.
+    Manages roadmap work items and milestones with SQLite persistence.
 
-    Storage structure:
-    - data/roadmap/index.json - Quick listing of all items
-    - data/roadmap/items/{id}.json - Full item content
-    - data/roadmap/milestones.json - Milestone definitions
+    Storage:
+        - roadmap_items table: Work items
+        - roadmap_links table: Links between items
     """
 
-    def __init__(self, storage_dir: str = "./data/roadmap"):
-        self.storage_dir = Path(storage_dir)
-        self.items_dir = self.storage_dir / "items"
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.items_dir.mkdir(parents=True, exist_ok=True)
-        self.index_file = self.storage_dir / "index.json"
-        self.milestones_file = self.storage_dir / "milestones.json"
-        self._ensure_files()
+    # Default daemon ID for Cass
+    DEFAULT_DAEMON_ID = None  # Will be loaded from database
 
-    def _ensure_files(self):
-        """Ensure storage files exist"""
-        if not self.index_file.exists():
-            self._save_index([])
-        if not self.milestones_file.exists():
-            self._save_milestones([])
+    def __init__(self, daemon_id: str = None):
+        """
+        Initialize RoadmapManager.
 
-    def _load_index(self) -> List[Dict]:
-        """Load item index"""
+        Args:
+            daemon_id: UUID of the daemon. If None, uses default Cass daemon.
+        """
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
+
+    def _load_default_daemon(self):
+        """Load the default daemon ID from database"""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM daemons WHERE name = 'cass' LIMIT 1"
+            )
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row['id']
+            else:
+                # Create default daemon if not exists
+                self._daemon_id = str(uuid.uuid4())
+                conn.execute("""
+                    INSERT INTO daemons (id, name, created_at, kernel_version, status)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    self._daemon_id,
+                    'cass',
+                    datetime.now().isoformat(),
+                    'temple-codex-1.0',
+                    'active'
+                ))
+
+    def _load_item_links(self, item_id: str) -> List[Dict]:
+        """Load links for an item from database"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT target_id, link_type FROM roadmap_links WHERE source_id = ?
+            """, (item_id,))
+            return [{"target_id": row['target_id'], "link_type": row['link_type']}
+                    for row in cursor.fetchall()]
+
+    # Fallback file path for milestones (not yet in SQLite schema)
+    @property
+    def _milestones_file(self) -> Path:
+        path = Path("./data/roadmap")
+        path.mkdir(parents=True, exist_ok=True)
+        return path / "milestones.json"
+
+    def _load_milestones(self) -> List[Dict]:
+        """Load milestones from file (fallback)"""
         try:
-            with open(self.index_file, 'r') as f:
+            if not self._milestones_file.exists():
+                return []
+            with open(self._milestones_file, 'r') as f:
                 return json.load(f)
         except (json.JSONDecodeError, FileNotFoundError):
             return []
 
-    def _save_index(self, index: List[Dict]):
-        """Save item index"""
-        with open(self.index_file, 'w') as f:
-            json.dump(index, f, indent=2)
-
-    def _get_item_path(self, item_id: str) -> Path:
-        """Get file path for an item"""
-        return self.items_dir / f"{item_id}.json"
+    def _save_milestones(self, milestones: List[Dict]):
+        """Save milestones to file (fallback)"""
+        with open(self._milestones_file, 'w') as f:
+            json.dump(milestones, f, indent=2)
 
     # === Work Item Operations ===
 
@@ -289,48 +327,67 @@ class RoadmapManager:
             created_by=created_by,
         )
 
-        # Save full item
-        self._save_item(item)
-
-        # Update index
-        index = self._load_index()
-        index.append({
-            "id": item.id,
-            "title": item.title,
-            "description": item.description,  # Include description in index
-            "status": item.status,
-            "priority": item.priority,
-            "item_type": item.item_type,
-            "assigned_to": item.assigned_to,
-            "project_id": item.project_id,
-            "milestone_id": item.milestone_id,
-            "links": item.links,
-            "created_at": item.created_at,
-            "updated_at": item.updated_at,
-            "urgency": item.urgency_score(),
-        })
-        self._save_index(index)
+        # Save to database
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO roadmap_items (
+                    id, daemon_id, project_id, title, description, status, priority,
+                    item_type, assigned_to, source_conversation_id, tags_json,
+                    created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                item_id,
+                self._daemon_id,
+                project_id,
+                title,
+                description,
+                status,
+                priority,
+                item_type,
+                assigned_to,
+                source_conversation_id,
+                json_serialize(tags or []),
+                created_by,
+                now,
+                now
+            ))
 
         return item
 
-    def _save_item(self, item: WorkItem):
-        """Save an item to disk"""
-        path = self._get_item_path(item.id)
-        with open(path, 'w') as f:
-            json.dump(item.to_dict(), f, indent=2)
-
     def load_item(self, item_id: str) -> Optional[WorkItem]:
         """Load an item by ID"""
-        path = self._get_item_path(item_id)
-        if not path.exists():
-            return None
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, description, status, priority, item_type,
+                       created_at, updated_at, tags_json, assigned_to, project_id,
+                       source_conversation_id, created_by
+                FROM roadmap_items WHERE id = ?
+            """, (item_id,))
+            row = cursor.fetchone()
 
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-            return WorkItem.from_dict(data)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return None
+            if not row:
+                return None
+
+            # Load links
+            links = self._load_item_links(item_id)
+
+            return WorkItem(
+                id=row['id'],
+                title=row['title'],
+                description=row['description'] or "",
+                status=row['status'],
+                priority=row['priority'],
+                item_type=row['item_type'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                tags=json_deserialize(row['tags_json']) or [],
+                assigned_to=row['assigned_to'],
+                project_id=row['project_id'],
+                milestone_id=None,  # TODO: Add milestone support
+                source_conversation_id=row['source_conversation_id'],
+                created_by=row['created_by'] or 'user',
+                links=links
+            )
 
     def update_item(
         self,
@@ -346,68 +403,55 @@ class RoadmapManager:
         milestone_id: Optional[str] = None,
     ) -> Optional[WorkItem]:
         """Update an existing item"""
-        item = self.load_item(item_id)
-        if not item:
-            return None
+        now = datetime.now().isoformat()
 
-        if title is not None:
-            item.title = title
-        if description is not None:
-            item.description = description
-        if status is not None:
-            item.status = status
-        if priority is not None:
-            item.priority = priority
-        if item_type is not None:
-            item.item_type = item_type
-        if tags is not None:
-            item.tags = tags
-        if assigned_to is not None:
-            item.assigned_to = assigned_to
-        if project_id is not None:
-            item.project_id = project_id
-        if milestone_id is not None:
-            item.milestone_id = milestone_id
+        with get_db() as conn:
+            updates = []
+            params = []
 
-        item.updated_at = datetime.now().isoformat()
-        self._save_item(item)
-        self._update_index_entry(item)
+            if title is not None:
+                updates.append("title = ?")
+                params.append(title)
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            if status is not None:
+                updates.append("status = ?")
+                params.append(status)
+            if priority is not None:
+                updates.append("priority = ?")
+                params.append(priority)
+            if item_type is not None:
+                updates.append("item_type = ?")
+                params.append(item_type)
+            if tags is not None:
+                updates.append("tags_json = ?")
+                params.append(json_serialize(tags))
+            if assigned_to is not None:
+                updates.append("assigned_to = ?")
+                params.append(assigned_to)
+            if project_id is not None:
+                updates.append("project_id = ?")
+                params.append(project_id)
 
-        return item
+            updates.append("updated_at = ?")
+            params.append(now)
+            params.append(item_id)
 
-    def _update_index_entry(self, item: WorkItem):
-        """Update an item's index entry"""
-        index = self._load_index()
+            if updates:
+                conn.execute(
+                    f"UPDATE roadmap_items SET {', '.join(updates)} WHERE id = ?",
+                    params
+                )
 
-        for entry in index:
-            if entry["id"] == item.id:
-                entry["title"] = item.title
-                entry["description"] = item.description  # Include description in index
-                entry["status"] = item.status
-                entry["priority"] = item.priority
-                entry["item_type"] = item.item_type
-                entry["assigned_to"] = item.assigned_to
-                entry["project_id"] = item.project_id
-                entry["milestone_id"] = item.milestone_id
-                entry["links"] = item.links
-                entry["updated_at"] = item.updated_at
-                entry["urgency"] = item.urgency_score()
-                break
-
-        self._save_index(index)
+        return self.load_item(item_id)
 
     def delete_item(self, item_id: str) -> bool:
-        """Delete an item"""
-        path = self._get_item_path(item_id)
-
-        if path.exists():
-            path.unlink()
-
-        # Remove from index
-        index = self._load_index()
-        index = [e for e in index if e["id"] != item_id]
-        self._save_index(index)
-
+        """Delete an item and its links"""
+        with get_db() as conn:
+            conn.execute("DELETE FROM roadmap_links WHERE source_id = ? OR target_id = ?",
+                        (item_id, item_id))
+            conn.execute("DELETE FROM roadmap_items WHERE id = ?", (item_id,))
         return True
 
     def list_items(
@@ -422,30 +466,76 @@ class RoadmapManager:
     ) -> List[Dict]:
         """
         List items with optional filters.
-        Returns index entries sorted by urgency score.
+        Returns items sorted by urgency score.
         """
-        index = self._load_index()
+        with get_db() as conn:
+            query = """
+                SELECT id, title, description, status, priority, item_type,
+                       created_at, updated_at, tags_json, assigned_to, project_id,
+                       source_conversation_id, created_by
+                FROM roadmap_items WHERE daemon_id = ?
+            """
+            params = [self._daemon_id]
 
-        # Apply filters
-        if status:
-            index = [e for e in index if e.get("status") == status]
-        if priority:
-            index = [e for e in index if e.get("priority") == priority]
-        if item_type:
-            index = [e for e in index if e.get("item_type") == item_type]
-        if assigned_to:
-            index = [e for e in index if e.get("assigned_to") == assigned_to]
-        if project_id:
-            index = [e for e in index if e.get("project_id") == project_id]
-        if milestone_id:
-            index = [e for e in index if e.get("milestone_id") == milestone_id]
-        if not include_archived:
-            index = [e for e in index if e.get("status") != ItemStatus.ARCHIVED.value]
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+            if priority:
+                query += " AND priority = ?"
+                params.append(priority)
+            if item_type:
+                query += " AND item_type = ?"
+                params.append(item_type)
+            if assigned_to:
+                query += " AND assigned_to = ?"
+                params.append(assigned_to)
+            if project_id:
+                query += " AND project_id = ?"
+                params.append(project_id)
+            if not include_archived:
+                query += " AND status != 'archived'"
 
-        # Sort by urgency (highest first)
-        index.sort(key=lambda x: x.get("urgency", 0), reverse=True)
+            cursor = conn.execute(query, params)
 
-        return index
+            items = []
+            for row in cursor.fetchall():
+                links = self._load_item_links(row['id'])
+                item = WorkItem(
+                    id=row['id'],
+                    title=row['title'],
+                    description=row['description'] or "",
+                    status=row['status'],
+                    priority=row['priority'],
+                    item_type=row['item_type'],
+                    created_at=row['created_at'],
+                    updated_at=row['updated_at'],
+                    tags=json_deserialize(row['tags_json']) or [],
+                    assigned_to=row['assigned_to'],
+                    project_id=row['project_id'],
+                    milestone_id=None,
+                    source_conversation_id=row['source_conversation_id'],
+                    created_by=row['created_by'] or 'user',
+                    links=links
+                )
+                items.append({
+                    "id": item.id,
+                    "title": item.title,
+                    "description": item.description,
+                    "status": item.status,
+                    "priority": item.priority,
+                    "item_type": item.item_type,
+                    "assigned_to": item.assigned_to,
+                    "project_id": item.project_id,
+                    "milestone_id": item.milestone_id,
+                    "links": item.links,
+                    "created_at": item.created_at,
+                    "updated_at": item.updated_at,
+                    "urgency": item.urgency_score(),
+                })
+
+            # Sort by urgency (highest first)
+            items.sort(key=lambda x: x.get("urgency", 0), reverse=True)
+            return items
 
     def pick_item(self, item_id: str, assigned_to: str) -> Optional[WorkItem]:
         """Claim an item for work"""
@@ -525,14 +615,14 @@ class RoadmapManager:
     def _load_milestones(self) -> List[Dict]:
         """Load milestones"""
         try:
-            with open(self.milestones_file, 'r') as f:
+            with open(self._milestones_file, 'r') as f:
                 return json.load(f)
         except (json.JSONDecodeError, FileNotFoundError):
             return []
 
     def _save_milestones(self, milestones: List[Dict]):
         """Save milestones"""
-        with open(self.milestones_file, 'w') as f:
+        with open(self._milestones_file, 'w') as f:
             json.dump(milestones, f, indent=2)
 
     def create_milestone(
@@ -639,41 +729,57 @@ class RoadmapManager:
         if not source or not target:
             return None
 
-        # Check if link already exists
-        for link in source.links:
-            if link["target_id"] == target_id and link["link_type"] == link_type:
+        now = datetime.now().isoformat()
+
+        with get_db() as conn:
+            # Check if link already exists
+            cursor = conn.execute(
+                "SELECT id FROM roadmap_links WHERE source_id = ? AND target_id = ? AND link_type = ?",
+                (source_id, target_id, link_type)
+            )
+            if cursor.fetchone():
                 return source  # Already exists
 
-        # Add the link
-        source.links.append({"link_type": link_type, "target_id": target_id})
-        source.updated_at = datetime.now().isoformat()
-        self._save_item(source)
-        self._update_index_entry(source)
+            # Add the link
+            conn.execute("""
+                INSERT INTO roadmap_links (source_id, target_id, link_type)
+                VALUES (?, ?, ?)
+            """, (source_id, target_id, link_type))
 
-        # Add inverse link for bidirectional relationships
-        inverse_type = None
-        if link_type == LinkType.DEPENDS_ON.value:
-            inverse_type = LinkType.BLOCKS.value
-        elif link_type == LinkType.BLOCKS.value:
-            inverse_type = LinkType.DEPENDS_ON.value
-        elif link_type == LinkType.PARENT.value:
-            inverse_type = LinkType.CHILD.value
-        elif link_type == LinkType.CHILD.value:
-            inverse_type = LinkType.PARENT.value
-
-        if inverse_type:
-            # Check if inverse already exists
-            exists = any(
-                link["target_id"] == source_id and link["link_type"] == inverse_type
-                for link in target.links
+            # Update source timestamp
+            conn.execute(
+                "UPDATE roadmap_items SET updated_at = ? WHERE id = ?",
+                (now, source_id)
             )
-            if not exists:
-                target.links.append({"link_type": inverse_type, "target_id": source_id})
-                target.updated_at = datetime.now().isoformat()
-                self._save_item(target)
-                self._update_index_entry(target)
 
-        return source
+            # Add inverse link for bidirectional relationships
+            inverse_type = None
+            if link_type == LinkType.DEPENDS_ON.value:
+                inverse_type = LinkType.BLOCKS.value
+            elif link_type == LinkType.BLOCKS.value:
+                inverse_type = LinkType.DEPENDS_ON.value
+            elif link_type == LinkType.PARENT.value:
+                inverse_type = LinkType.CHILD.value
+            elif link_type == LinkType.CHILD.value:
+                inverse_type = LinkType.PARENT.value
+
+            if inverse_type:
+                # Check if inverse already exists
+                cursor = conn.execute(
+                    "SELECT id FROM roadmap_links WHERE source_id = ? AND target_id = ? AND link_type = ?",
+                    (target_id, source_id, inverse_type)
+                )
+                if not cursor.fetchone():
+                    conn.execute("""
+                        INSERT INTO roadmap_links (source_id, target_id, link_type)
+                        VALUES (?, ?, ?)
+                    """, (target_id, source_id, inverse_type))
+                    conn.execute(
+                        "UPDATE roadmap_items SET updated_at = ? WHERE id = ?",
+                        (now, target_id)
+                    )
+
+        return self.load_item(source_id)
 
     def remove_link(
         self,
@@ -689,38 +795,41 @@ class RoadmapManager:
         if not source:
             return None
 
-        # Remove the link
-        source.links = [
-            link for link in source.links
-            if not (link["target_id"] == target_id and link["link_type"] == link_type)
-        ]
-        source.updated_at = datetime.now().isoformat()
-        self._save_item(source)
-        self._update_index_entry(source)
+        now = datetime.now().isoformat()
 
-        # Remove inverse link
-        inverse_type = None
-        if link_type == LinkType.DEPENDS_ON.value:
-            inverse_type = LinkType.BLOCKS.value
-        elif link_type == LinkType.BLOCKS.value:
-            inverse_type = LinkType.DEPENDS_ON.value
-        elif link_type == LinkType.PARENT.value:
-            inverse_type = LinkType.CHILD.value
-        elif link_type == LinkType.CHILD.value:
-            inverse_type = LinkType.PARENT.value
+        with get_db() as conn:
+            # Remove the link
+            conn.execute(
+                "DELETE FROM roadmap_links WHERE source_id = ? AND target_id = ? AND link_type = ?",
+                (source_id, target_id, link_type)
+            )
+            conn.execute(
+                "UPDATE roadmap_items SET updated_at = ? WHERE id = ?",
+                (now, source_id)
+            )
 
-        if inverse_type:
-            target = self.load_item(target_id)
-            if target:
-                target.links = [
-                    link for link in target.links
-                    if not (link["target_id"] == source_id and link["link_type"] == inverse_type)
-                ]
-                target.updated_at = datetime.now().isoformat()
-                self._save_item(target)
-                self._update_index_entry(target)
+            # Remove inverse link
+            inverse_type = None
+            if link_type == LinkType.DEPENDS_ON.value:
+                inverse_type = LinkType.BLOCKS.value
+            elif link_type == LinkType.BLOCKS.value:
+                inverse_type = LinkType.DEPENDS_ON.value
+            elif link_type == LinkType.PARENT.value:
+                inverse_type = LinkType.CHILD.value
+            elif link_type == LinkType.CHILD.value:
+                inverse_type = LinkType.PARENT.value
 
-        return source
+            if inverse_type:
+                conn.execute(
+                    "DELETE FROM roadmap_links WHERE source_id = ? AND target_id = ? AND link_type = ?",
+                    (target_id, source_id, inverse_type)
+                )
+                conn.execute(
+                    "UPDATE roadmap_items SET updated_at = ? WHERE id = ?",
+                    (now, target_id)
+                )
+
+        return self.load_item(source_id)
 
     def get_item_links(self, item_id: str) -> Dict:
         """

@@ -10,6 +10,8 @@ from pathlib import Path
 import uuid
 from enum import Enum
 
+from database import get_db, json_serialize, json_deserialize
+
 
 class Priority(str, Enum):
     """Task priority levels (Taskwarrior style)"""
@@ -158,38 +160,52 @@ class Task:
 class TaskManager:
     """
     Manages tasks with Taskwarrior-like functionality.
-    Stores tasks in a JSON file per user.
+    Uses SQLite database for storage.
     """
 
-    def __init__(self, storage_dir: str = "./data/tasks"):
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, daemon_id: str = None):
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
-    def _get_user_file(self, user_id: str) -> Path:
-        """Get the task file for a user"""
-        return self.storage_dir / f"{user_id}.json"
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
+
+    def _row_to_task(self, row) -> Task:
+        """Convert database row to Task object"""
+        task = Task(
+            id=row[0],
+            description=row[1],
+            status=TaskStatus(row[2]) if row[2] else TaskStatus.PENDING,
+            priority=Priority(row[3]) if row[3] else Priority.NONE,
+            tags=json_deserialize(row[4]) or [],
+            project=row[5],
+            due=row[6],
+            notes=row[7],
+            created_at=row[8],
+            modified_at=row[9],
+            completed_at=row[10],
+            user_id=row[11]
+        )
+        task.calculate_urgency()
+        return task
 
     def _load_tasks(self, user_id: str) -> List[Task]:
         """Load all tasks for a user"""
-        filepath = self._get_user_file(user_id)
-        if not filepath.exists():
-            return []
-
-        try:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-            return [Task.from_dict(t) for t in data.get("tasks", [])]
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
-
-    def _save_tasks(self, user_id: str, tasks: List[Task]):
-        """Save all tasks for a user"""
-        filepath = self._get_user_file(user_id)
-        with open(filepath, 'w') as f:
-            json.dump({
-                "tasks": [t.to_dict() for t in tasks],
-                "updated_at": datetime.now().isoformat()
-            }, f, indent=2)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, description, status, priority, tags_json, project,
+                       due_date, notes, created_at, modified_at, completed_at, user_id
+                FROM tasks
+                WHERE daemon_id = ? AND user_id = ?
+                ORDER BY created_at DESC
+            """, (self._daemon_id, user_id))
+            return [self._row_to_task(row) for row in cursor.fetchall()]
 
     def add(
         self,
@@ -203,9 +219,10 @@ class TaskManager:
     ) -> Task:
         """Add a new task"""
         now = datetime.now().isoformat()
+        task_id = str(uuid.uuid4())
 
         task = Task(
-            id=str(uuid.uuid4()),
+            id=task_id,
             description=description,
             status=TaskStatus.PENDING,
             priority=priority,
@@ -219,48 +236,61 @@ class TaskManager:
         )
         task.calculate_urgency()
 
-        tasks = self._load_tasks(user_id)
-        tasks.append(task)
-        self._save_tasks(user_id, tasks)
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO tasks (
+                    id, daemon_id, user_id, description, status, priority,
+                    tags_json, project, due_date, notes, created_at, modified_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                task_id, self._daemon_id, user_id, description,
+                TaskStatus.PENDING.value, priority.value,
+                json_serialize(tags or []), project,
+                due.isoformat() if due else None, notes, now, now
+            ))
+            conn.commit()
 
         return task
 
     def get(self, user_id: str, task_id: str) -> Optional[Task]:
         """Get a specific task by ID"""
-        tasks = self._load_tasks(user_id)
-        for task in tasks:
-            if task.id == task_id:
-                return task
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, description, status, priority, tags_json, project,
+                       due_date, notes, created_at, modified_at, completed_at, user_id
+                FROM tasks
+                WHERE daemon_id = ? AND user_id = ? AND id = ?
+            """, (self._daemon_id, user_id, task_id))
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_task(row)
         return None
 
     def complete(self, user_id: str, task_id: str) -> Optional[Task]:
         """Mark a task as completed"""
-        tasks = self._load_tasks(user_id)
-
-        for i, task in enumerate(tasks):
-            if task.id == task_id:
-                task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now().isoformat()
-                task.modified_at = datetime.now().isoformat()
-                tasks[i] = task
-                self._save_tasks(user_id, tasks)
-                return task
-
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            cursor = conn.execute("""
+                UPDATE tasks
+                SET status = ?, completed_at = ?, modified_at = ?
+                WHERE daemon_id = ? AND user_id = ? AND id = ?
+            """, (TaskStatus.COMPLETED.value, now, now, self._daemon_id, user_id, task_id))
+            conn.commit()
+            if cursor.rowcount > 0:
+                return self.get(user_id, task_id)
         return None
 
     def delete(self, user_id: str, task_id: str) -> bool:
         """Delete a task (mark as deleted)"""
-        tasks = self._load_tasks(user_id)
-
-        for i, task in enumerate(tasks):
-            if task.id == task_id:
-                task.status = TaskStatus.DELETED
-                task.modified_at = datetime.now().isoformat()
-                tasks[i] = task
-                self._save_tasks(user_id, tasks)
-                return True
-
-        return False
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            cursor = conn.execute("""
+                UPDATE tasks
+                SET status = ?, modified_at = ?
+                WHERE daemon_id = ? AND user_id = ? AND id = ?
+            """, (TaskStatus.DELETED.value, now, self._daemon_id, user_id, task_id))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def modify(
         self,
@@ -276,38 +306,61 @@ class TaskManager:
         remove_tags: Optional[List[str]] = None
     ) -> Optional[Task]:
         """Modify an existing task"""
-        tasks = self._load_tasks(user_id)
+        # Get current task for tag manipulation
+        current_task = self.get(user_id, task_id)
+        if not current_task:
+            return None
 
-        for i, task in enumerate(tasks):
-            if task.id == task_id:
-                if description is not None:
-                    task.description = description
-                if priority is not None:
-                    task.priority = priority
-                if tags is not None:
-                    task.tags = tags
-                if project is not None:
-                    task.project = project
-                if due is not None:
-                    task.due = due.isoformat()
-                if notes is not None:
-                    task.notes = notes
+        # Build dynamic update query
+        updates = []
+        params = []
 
-                # Add/remove tags
-                if add_tags:
-                    for tag in add_tags:
-                        if tag not in task.tags:
-                            task.tags.append(tag)
-                if remove_tags:
-                    task.tags = [t for t in task.tags if t not in remove_tags]
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if priority is not None:
+            updates.append("priority = ?")
+            params.append(priority.value)
+        if project is not None:
+            updates.append("project = ?")
+            params.append(project)
+        if due is not None:
+            updates.append("due_date = ?")
+            params.append(due.isoformat())
+        if notes is not None:
+            updates.append("notes = ?")
+            params.append(notes)
 
-                task.modified_at = datetime.now().isoformat()
-                task.calculate_urgency()
-                tasks[i] = task
-                self._save_tasks(user_id, tasks)
-                return task
+        # Handle tags
+        final_tags = tags if tags is not None else current_task.tags
+        if add_tags:
+            for tag in add_tags:
+                if tag not in final_tags:
+                    final_tags.append(tag)
+        if remove_tags:
+            final_tags = [t for t in final_tags if t not in remove_tags]
 
-        return None
+        if tags is not None or add_tags or remove_tags:
+            updates.append("tags_json = ?")
+            params.append(json_serialize(final_tags))
+
+        if not updates:
+            return current_task
+
+        updates.append("modified_at = ?")
+        params.append(datetime.now().isoformat())
+
+        params.extend([self._daemon_id, user_id, task_id])
+
+        with get_db() as conn:
+            conn.execute(f"""
+                UPDATE tasks
+                SET {', '.join(updates)}
+                WHERE daemon_id = ? AND user_id = ? AND id = ?
+            """, params)
+            conn.commit()
+
+        return self.get(user_id, task_id)
 
     def list_tasks(
         self,
@@ -395,7 +448,7 @@ class TaskManager:
 
 if __name__ == "__main__":
     # Test the task manager
-    manager = TaskManager("./data/tasks_test")
+    manager = TaskManager()
     test_user = "test-user-123"
 
     # Add some tasks

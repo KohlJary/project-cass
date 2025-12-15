@@ -80,6 +80,7 @@ class ResearchSessionManager:
     """
     Manages research sessions for Cass.
     Only one session can be active at a time.
+    Sessions are stored in SQLite database.
     """
 
     # Rate limits for sessions
@@ -87,52 +88,109 @@ class ResearchSessionManager:
     MAX_URLS_PER_SESSION = 30
     MIN_COOLDOWN_MINUTES = 5  # Between sessions
 
-    def __init__(self, data_dir: Path):
-        self.data_dir = data_dir / "research" / "sessions"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, daemon_id: str = None):
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
         self.current_session: Optional[ResearchSession] = None
         self._load_current_session()
 
-    def _load_current_session(self):
-        """Load any active session from disk"""
-        current_file = self.data_dir / "current.json"
-        if current_file.exists():
-            try:
-                with open(current_file) as f:
-                    data = json.load(f)
-                # Convert enums
-                data["status"] = SessionStatus(data["status"])
-                data["mode"] = SessionMode(data["mode"])
-                self.current_session = ResearchSession(**data)
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
 
-                # Check if it should have timed out
-                if self.current_session.is_active() and self.current_session.is_overtime():
-                    self._auto_timeout_session()
-            except Exception as e:
-                print(f"Error loading current session: {e}")
-                self.current_session = None
+    def _load_current_session(self):
+        """Load any active session from database"""
+        from database import get_db, json_deserialize
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, status, mode, started_at, ended_at, paused_at, pause_reason,
+                       duration_limit_minutes, focus_item_id, focus_description,
+                       searches_performed, urls_fetched, notes_created_json,
+                       progress_entries_json, summary, findings_summary, next_steps,
+                       conversation_id, message_count
+                FROM research_sessions
+                WHERE daemon_id = ? AND status IN ('active', 'paused')
+                ORDER BY started_at DESC LIMIT 1
+            """, (self._daemon_id,))
+            row = cursor.fetchone()
+            if row:
+                try:
+                    self.current_session = ResearchSession(
+                        session_id=row[0],
+                        status=SessionStatus(row[1]),
+                        mode=SessionMode(row[2]),
+                        started_at=row[3],
+                        ended_at=row[4],
+                        paused_at=row[5],
+                        pause_reason=row[6],
+                        duration_limit_minutes=row[7] or 30,
+                        focus_item_id=row[8],
+                        focus_description=row[9],
+                        searches_performed=row[10] or 0,
+                        urls_fetched=row[11] or 0,
+                        notes_created=json_deserialize(row[12]) or [],
+                        progress_entries=json_deserialize(row[13]) or [],
+                        summary=row[14],
+                        findings_summary=row[15],
+                        next_steps=row[16],
+                        conversation_id=row[17],
+                        message_count=row[18] or 0
+                    )
+                    # Check if it should have timed out
+                    if self.current_session.is_active() and self.current_session.is_overtime():
+                        self._auto_timeout_session()
+                except Exception as e:
+                    print(f"Error loading current session: {e}")
+                    self.current_session = None
 
     def _save_current_session(self):
-        """Save current session to disk"""
-        current_file = self.data_dir / "current.json"
-        if self.current_session:
-            data = asdict(self.current_session)
-            # Convert enums to strings
-            data["status"] = self.current_session.status.value
-            data["mode"] = self.current_session.mode.value
-            with open(current_file, "w") as f:
-                json.dump(data, f, indent=2)
-        elif current_file.exists():
-            current_file.unlink()
+        """Save current session to database"""
+        from database import get_db, json_serialize
+        if not self.current_session:
+            return
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO research_sessions (
+                    id, daemon_id, status, mode, started_at, ended_at, paused_at,
+                    pause_reason, duration_limit_minutes, focus_item_id, focus_description,
+                    searches_performed, urls_fetched, notes_created_json, progress_entries_json,
+                    summary, findings_summary, next_steps, conversation_id, message_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                self.current_session.session_id,
+                self._daemon_id,
+                self.current_session.status.value,
+                self.current_session.mode.value,
+                self.current_session.started_at,
+                self.current_session.ended_at,
+                self.current_session.paused_at,
+                self.current_session.pause_reason,
+                self.current_session.duration_limit_minutes,
+                self.current_session.focus_item_id,
+                self.current_session.focus_description,
+                self.current_session.searches_performed,
+                self.current_session.urls_fetched,
+                json_serialize(self.current_session.notes_created),
+                json_serialize(self.current_session.progress_entries),
+                self.current_session.summary,
+                self.current_session.findings_summary,
+                self.current_session.next_steps,
+                self.current_session.conversation_id,
+                self.current_session.message_count
+            ))
+            conn.commit()
 
     def _archive_session(self, session: ResearchSession):
-        """Archive a completed session"""
-        archive_file = self.data_dir / f"{session.session_id}.json"
-        data = asdict(session)
-        data["status"] = session.status.value
-        data["mode"] = session.mode.value
-        with open(archive_file, "w") as f:
-            json.dump(data, f, indent=2)
+        """Archive a completed session (just saves with updated status)"""
+        # Session is already saved via _save_current_session
+        pass
 
     def _auto_timeout_session(self):
         """Auto-terminate an overtime session"""
@@ -370,41 +428,103 @@ class ResearchSessionManager:
         status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """List past research sessions"""
-        sessions = []
+        from database import get_db, json_deserialize
 
-        for session_file in self.data_dir.glob("*.json"):
-            if session_file.name == "current.json":
-                continue
+        with get_db() as conn:
+            if status:
+                cursor = conn.execute("""
+                    SELECT id, status, mode, started_at, ended_at, paused_at, pause_reason,
+                           duration_limit_minutes, focus_item_id, focus_description,
+                           searches_performed, urls_fetched, notes_created_json,
+                           progress_entries_json, summary, findings_summary, next_steps,
+                           conversation_id, message_count
+                    FROM research_sessions
+                    WHERE daemon_id = ? AND status = ?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                """, (self._daemon_id, status, limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT id, status, mode, started_at, ended_at, paused_at, pause_reason,
+                           duration_limit_minutes, focus_item_id, focus_description,
+                           searches_performed, urls_fetched, notes_created_json,
+                           progress_entries_json, summary, findings_summary, next_steps,
+                           conversation_id, message_count
+                    FROM research_sessions
+                    WHERE daemon_id = ?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                """, (self._daemon_id, limit))
 
-            try:
-                with open(session_file) as f:
-                    data = json.load(f)
+            sessions = []
+            for row in cursor.fetchall():
+                sessions.append({
+                    "session_id": row[0],
+                    "status": row[1],
+                    "mode": row[2],
+                    "started_at": row[3],
+                    "ended_at": row[4],
+                    "paused_at": row[5],
+                    "pause_reason": row[6],
+                    "duration_limit_minutes": row[7] or 30,
+                    "focus_item_id": row[8],
+                    "focus_description": row[9],
+                    "searches_performed": row[10] or 0,
+                    "urls_fetched": row[11] or 0,
+                    "notes_created": json_deserialize(row[12]) or [],
+                    "progress_entries": json_deserialize(row[13]) or [],
+                    "summary": row[14],
+                    "findings_summary": row[15],
+                    "next_steps": row[16],
+                    "conversation_id": row[17],
+                    "message_count": row[18] or 0
+                })
 
-                if status and data.get("status") != status:
-                    continue
-
-                sessions.append(data)
-            except Exception:
-                continue
-
-        # Sort by started_at descending
-        sessions.sort(key=lambda x: x.get("started_at", ""), reverse=True)
-
-        return sessions[:limit]
+        return sessions
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific session by ID"""
+        from database import get_db, json_deserialize
+
         # Check current
         if self.current_session and self.current_session.session_id == session_id:
             return self.get_current_session()
 
-        # Check archive
-        session_file = self.data_dir / f"{session_id}.json"
-        if session_file.exists():
-            with open(session_file) as f:
-                return json.load(f)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, status, mode, started_at, ended_at, paused_at, pause_reason,
+                       duration_limit_minutes, focus_item_id, focus_description,
+                       searches_performed, urls_fetched, notes_created_json,
+                       progress_entries_json, summary, findings_summary, next_steps,
+                       conversation_id, message_count
+                FROM research_sessions
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, session_id))
+            row = cursor.fetchone()
+            if not row:
+                return None
 
-        return None
+            return {
+                "session_id": row[0],
+                "status": row[1],
+                "mode": row[2],
+                "started_at": row[3],
+                "ended_at": row[4],
+                "paused_at": row[5],
+                "pause_reason": row[6],
+                "duration_limit_minutes": row[7] or 30,
+                "focus_item_id": row[8],
+                "focus_description": row[9],
+                "searches_performed": row[10] or 0,
+                "urls_fetched": row[11] or 0,
+                "notes_created": json_deserialize(row[12]) or [],
+                "progress_entries": json_deserialize(row[13]) or [],
+                "summary": row[14],
+                "findings_summary": row[15],
+                "next_steps": row[16],
+                "conversation_id": row[17],
+                "message_count": row[18] or 0
+            }
 
     def get_session_stats(self) -> Dict[str, Any]:
         """Get aggregate stats about research sessions"""

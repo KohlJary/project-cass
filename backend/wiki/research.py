@@ -352,79 +352,164 @@ class ProgressReport:
 
 class ResearchQueue:
     """
-    Persistent queue for research tasks.
-
-    Stores tasks in a JSON file and provides priority queue operations.
+    Persistent queue for research tasks using SQLite.
     """
 
-    def __init__(self, data_dir: str):
-        self.data_dir = Path(data_dir)
-        self.queue_file = self.data_dir / "research_queue.json"
-        self.history_file = self.data_dir / "research_history.json"
+    def __init__(self, daemon_id: str = None, data_dir: str = None):
+        # data_dir kept for backwards compatibility but not used
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
-        # Ensure directories exist
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
 
-        # Load existing tasks
-        self._tasks: Dict[str, ResearchTask] = {}
-        self._load()
+    def _task_to_row(self, task: ResearchTask) -> tuple:
+        """Convert ResearchTask to database row values."""
+        from database import json_serialize
+        return (
+            task.task_id,
+            self._daemon_id,
+            task.task_type.value,
+            task.target,
+            task.context,
+            task.priority,
+            task.status.value,
+            json_serialize(task.rationale.to_dict()),
+            task.source_page,
+            task.source_type,
+            task.estimated_duration,
+            task.scheduled_for.isoformat() if task.scheduled_for else None,
+            task.started_at.isoformat() if task.started_at else None,
+            task.completed_at.isoformat() if task.completed_at else None,
+            json_serialize(task.result.to_dict()) if task.result else None,
+            json_serialize(task.exploration.to_dict()) if task.exploration else None,
+            task.created_at.isoformat()
+        )
 
-    def _load(self) -> None:
-        """Load tasks from disk."""
-        if self.queue_file.exists():
-            try:
-                with open(self.queue_file, "r") as f:
-                    data = json.load(f)
-                    for task_data in data.get("tasks", []):
-                        task = ResearchTask.from_dict(task_data)
-                        self._tasks[task.task_id] = task
-            except Exception as e:
-                print(f"Error loading research queue: {e}")
-
-    def _save(self) -> None:
-        """Save tasks to disk."""
-        data = {
-            "tasks": [t.to_dict() for t in self._tasks.values()],
-            "updated_at": datetime.now().isoformat(),
-        }
-        with open(self.queue_file, "w") as f:
-            json.dump(data, f, indent=2)
+    def _row_to_task(self, row) -> ResearchTask:
+        """Convert database row to ResearchTask."""
+        from database import json_deserialize
+        task = ResearchTask(
+            task_id=row[0],
+            task_type=TaskType(row[2]),
+            target=row[3],
+            context=row[4] or "",
+            priority=row[5] or 0.5,
+            status=TaskStatus(row[6] or "queued"),
+            rationale=TaskRationale.from_dict(json_deserialize(row[7]) or {}),
+            created_at=datetime.fromisoformat(row[16]),
+            source_page=row[8],
+            source_type=row[9] or "auto",
+            estimated_duration=row[10] or "5m",
+        )
+        if row[11]:  # scheduled_for
+            task.scheduled_for = datetime.fromisoformat(row[11])
+        if row[12]:  # started_at
+            task.started_at = datetime.fromisoformat(row[12])
+        if row[13]:  # completed_at
+            task.completed_at = datetime.fromisoformat(row[13])
+        if row[14]:  # result_json
+            task.result = TaskResult.from_dict(json_deserialize(row[14]))
+        if row[15]:  # exploration_json
+            task.exploration = ExplorationContext.from_dict(json_deserialize(row[15]))
+        return task
 
     def add(self, task: ResearchTask) -> None:
         """Add a task to the queue."""
-        self._tasks[task.task_id] = task
-        self._save()
+        from database import get_db, json_serialize
+        row = self._task_to_row(task)
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO research_tasks (
+                    id, daemon_id, task_type, target, context, priority, status,
+                    rationale_json, source_page, source_type, estimated_duration,
+                    scheduled_for, started_at, completed_at, result_json,
+                    exploration_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, row)
+            conn.commit()
 
     def get(self, task_id: str) -> Optional[ResearchTask]:
         """Get a task by ID."""
-        return self._tasks.get(task_id)
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, task_type, target, context, priority, status,
+                       rationale_json, source_page, source_type, estimated_duration,
+                       scheduled_for, started_at, completed_at, result_json,
+                       exploration_json, created_at
+                FROM research_tasks
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, task_id))
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_task(row)
+            return None
 
     def update(self, task: ResearchTask) -> None:
         """Update an existing task."""
-        if task.task_id in self._tasks:
-            self._tasks[task.task_id] = task
-            self._save()
+        self.add(task)  # INSERT OR REPLACE handles update
 
     def remove(self, task_id: str) -> bool:
         """Remove a task from the queue."""
-        if task_id in self._tasks:
-            del self._tasks[task_id]
-            self._save()
-            return True
-        return False
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                DELETE FROM research_tasks
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, task_id))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def get_queued(self) -> List[ResearchTask]:
         """Get all queued tasks, sorted by priority."""
-        queued = [t for t in self._tasks.values() if t.status == TaskStatus.QUEUED]
-        return sorted(queued, key=lambda t: t.priority, reverse=True)
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, task_type, target, context, priority, status,
+                       rationale_json, source_page, source_type, estimated_duration,
+                       scheduled_for, started_at, completed_at, result_json,
+                       exploration_json, created_at
+                FROM research_tasks
+                WHERE daemon_id = ? AND status = 'queued'
+                ORDER BY priority DESC
+            """, (self._daemon_id,))
+            return [self._row_to_task(row) for row in cursor.fetchall()]
 
     def get_by_status(self, status: TaskStatus) -> List[ResearchTask]:
         """Get tasks by status."""
-        return [t for t in self._tasks.values() if t.status == status]
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, task_type, target, context, priority, status,
+                       rationale_json, source_page, source_type, estimated_duration,
+                       scheduled_for, started_at, completed_at, result_json,
+                       exploration_json, created_at
+                FROM research_tasks
+                WHERE daemon_id = ? AND status = ?
+            """, (self._daemon_id, status.value))
+            return [self._row_to_task(row) for row in cursor.fetchall()]
 
     def get_by_type(self, task_type: TaskType) -> List[ResearchTask]:
         """Get tasks by type."""
-        return [t for t in self._tasks.values() if t.task_type == task_type]
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, task_type, target, context, priority, status,
+                       rationale_json, source_page, source_type, estimated_duration,
+                       scheduled_for, started_at, completed_at, result_json,
+                       exploration_json, created_at
+                FROM research_tasks
+                WHERE daemon_id = ? AND task_type = ?
+            """, (self._daemon_id, task_type.value))
+            return [self._row_to_task(row) for row in cursor.fetchall()]
 
     def pop_next(self) -> Optional[ResearchTask]:
         """Get and start the highest priority queued task."""
@@ -434,82 +519,125 @@ class ResearchQueue:
         task = queued[0]
         task.status = TaskStatus.IN_PROGRESS
         task.started_at = datetime.now()
-        self._save()
+        self.update(task)
         return task
 
     def pop(self, task_id: str) -> Optional[ResearchTask]:
         """Get and start a specific task by ID."""
-        task = self._tasks.get(task_id)
+        task = self.get(task_id)
         if not task or task.status != TaskStatus.QUEUED:
             return None
         task.status = TaskStatus.IN_PROGRESS
         task.started_at = datetime.now()
-        self._save()
+        self.update(task)
         return task
 
     def pop_next_by_type(self, task_type: TaskType) -> Optional[ResearchTask]:
         """Get and start the highest priority queued task of a specific type."""
-        queued = [t for t in self.get_queued() if t.task_type == task_type]
-        if not queued:
-            return None
-        task = queued[0]  # Already sorted by priority
-        task.status = TaskStatus.IN_PROGRESS
-        task.started_at = datetime.now()
-        self._save()
-        return task
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, task_type, target, context, priority, status,
+                       rationale_json, source_page, source_type, estimated_duration,
+                       scheduled_for, started_at, completed_at, result_json,
+                       exploration_json, created_at
+                FROM research_tasks
+                WHERE daemon_id = ? AND status = 'queued' AND task_type = ?
+                ORDER BY priority DESC
+                LIMIT 1
+            """, (self._daemon_id, task_type.value))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            task = self._row_to_task(row)
+            task.status = TaskStatus.IN_PROGRESS
+            task.started_at = datetime.now()
+            self.update(task)
+            return task
 
     def complete(self, task_id: str, result: TaskResult) -> Optional[ResearchTask]:
         """Mark a task as completed with its result."""
-        task = self._tasks.get(task_id)
+        task = self.get(task_id)
         if task:
             task.status = TaskStatus.COMPLETED if result.success else TaskStatus.FAILED
             task.completed_at = datetime.now()
             task.result = result
-            self._save()
+            self.update(task)
             self._archive_completed(task)
         return task
 
     def _archive_completed(self, task: ResearchTask) -> None:
-        """Archive completed task to history file."""
-        history = []
-        if self.history_file.exists():
-            try:
-                with open(self.history_file, "r") as f:
-                    history = json.load(f).get("history", [])
-            except Exception:
-                pass
-
-        history.append(task.to_dict())
-
-        # Keep last 500 entries
-        history = history[-500:]
-
-        with open(self.history_file, "w") as f:
-            json.dump({"history": history, "updated_at": datetime.now().isoformat()}, f, indent=2)
+        """Archive completed task to history table."""
+        from database import get_db, json_serialize
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO research_task_history (
+                    id, daemon_id, task_type, target, context, priority, status,
+                    rationale_json, source_page, source_type, estimated_duration,
+                    started_at, completed_at, result_json, exploration_json,
+                    created_at, archived_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                task.task_id,
+                self._daemon_id,
+                task.task_type.value,
+                task.target,
+                task.context,
+                task.priority,
+                task.status.value,
+                json_serialize(task.rationale.to_dict()),
+                task.source_page,
+                task.source_type,
+                task.estimated_duration,
+                task.started_at.isoformat() if task.started_at else None,
+                task.completed_at.isoformat() if task.completed_at else None,
+                json_serialize(task.result.to_dict()) if task.result else None,
+                json_serialize(task.exploration.to_dict()) if task.exploration else None,
+                task.created_at.isoformat(),
+                datetime.now().isoformat()
+            ))
+            conn.commit()
 
     def clear_completed(self) -> int:
         """Remove all completed tasks from the queue (they're in history)."""
-        to_remove = [tid for tid, t in self._tasks.items() if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)]
-        for tid in to_remove:
-            del self._tasks[tid]
-        self._save()
-        return len(to_remove)
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                DELETE FROM research_tasks
+                WHERE daemon_id = ? AND status IN ('completed', 'failed')
+            """, (self._daemon_id,))
+            conn.commit()
+            return cursor.rowcount
 
     def get_stats(self) -> Dict[str, Any]:
         """Get queue statistics."""
-        by_status = {}
-        by_type = {}
-        for task in self._tasks.values():
-            by_status[task.status.value] = by_status.get(task.status.value, 0) + 1
-            by_type[task.task_type.value] = by_type.get(task.task_type.value, 0) + 1
+        from database import get_db
+        with get_db() as conn:
+            # Get counts by status
+            cursor = conn.execute("""
+                SELECT status, COUNT(*) FROM research_tasks
+                WHERE daemon_id = ?
+                GROUP BY status
+            """, (self._daemon_id,))
+            by_status = {row[0]: row[1] for row in cursor.fetchall()}
 
-        return {
-            "total": len(self._tasks),
-            "by_status": by_status,
-            "by_type": by_type,
-            "queued_count": by_status.get("queued", 0),
-            "in_progress_count": by_status.get("in_progress", 0),
-        }
+            # Get counts by type
+            cursor = conn.execute("""
+                SELECT task_type, COUNT(*) FROM research_tasks
+                WHERE daemon_id = ?
+                GROUP BY task_type
+            """, (self._daemon_id,))
+            by_type = {row[0]: row[1] for row in cursor.fetchall()}
+
+            total = sum(by_status.values())
+
+            return {
+                "total": total,
+                "by_status": by_status,
+                "by_type": by_type,
+                "queued_count": by_status.get("queued", 0),
+                "in_progress_count": by_status.get("in_progress", 0),
+            }
 
     def get_history(
         self,
@@ -528,32 +656,62 @@ class ResearchQueue:
         Returns:
             List of completed task dicts
         """
-        if not self.history_file.exists():
-            return []
+        from database import get_db, json_deserialize
+        with get_db() as conn:
+            if year is not None:
+                if month is not None:
+                    # Filter by year and month
+                    date_prefix = f"{year:04d}-{month:02d}"
+                    cursor = conn.execute("""
+                        SELECT id, daemon_id, task_type, target, context, priority, status,
+                               rationale_json, source_page, source_type, estimated_duration,
+                               started_at, completed_at, result_json, exploration_json, created_at
+                        FROM research_task_history
+                        WHERE daemon_id = ? AND completed_at LIKE ?
+                        ORDER BY completed_at DESC
+                        LIMIT ?
+                    """, (self._daemon_id, f"{date_prefix}%", limit))
+                else:
+                    # Filter by year only
+                    cursor = conn.execute("""
+                        SELECT id, daemon_id, task_type, target, context, priority, status,
+                               rationale_json, source_page, source_type, estimated_duration,
+                               started_at, completed_at, result_json, exploration_json, created_at
+                        FROM research_task_history
+                        WHERE daemon_id = ? AND completed_at LIKE ?
+                        ORDER BY completed_at DESC
+                        LIMIT ?
+                    """, (self._daemon_id, f"{year:04d}%", limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT id, daemon_id, task_type, target, context, priority, status,
+                           rationale_json, source_page, source_type, estimated_duration,
+                           started_at, completed_at, result_json, exploration_json, created_at
+                    FROM research_task_history
+                    WHERE daemon_id = ?
+                    ORDER BY completed_at DESC
+                    LIMIT ?
+                """, (self._daemon_id, limit))
 
-        try:
-            with open(self.history_file, "r") as f:
-                history = json.load(f).get("history", [])
-        except Exception:
-            return []
-
-        # Filter by date if specified
-        if year is not None:
-            filtered = []
-            for entry in history:
-                completed_at = entry.get("completed_at")
-                if completed_at:
-                    try:
-                        dt = datetime.fromisoformat(completed_at)
-                        if dt.year == year:
-                            if month is None or dt.month == month:
-                                filtered.append(entry)
-                    except Exception:
-                        continue
-            history = filtered
-
-        # Return most recent first, limited
-        return list(reversed(history[-limit:]))
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    "task_id": row[0],
+                    "task_type": row[2],
+                    "target": row[3],
+                    "context": row[4],
+                    "priority": row[5],
+                    "status": row[6],
+                    "rationale": json_deserialize(row[7]),
+                    "source_page": row[8],
+                    "source_type": row[9],
+                    "started_at": row[11],
+                    "completed_at": row[12],
+                    "result": json_deserialize(row[13]),
+                    "exploration": json_deserialize(row[14]),
+                    "created_at": row[15]
+                })
+            return results
 
     def get_history_for_date(self, date_str: str) -> List[Dict[str, Any]]:
         """
@@ -562,36 +720,48 @@ class ResearchQueue:
         Returns:
             List of completed task dicts for that date
         """
-        if not self.history_file.exists():
-            return []
+        from database import get_db, json_deserialize
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, task_type, target, context, priority, status,
+                       rationale_json, source_page, source_type, estimated_duration,
+                       started_at, completed_at, result_json, exploration_json, created_at
+                FROM research_task_history
+                WHERE daemon_id = ? AND completed_at LIKE ?
+                ORDER BY completed_at DESC
+            """, (self._daemon_id, f"{date_str}%"))
 
-        try:
-            with open(self.history_file, "r") as f:
-                history = json.load(f).get("history", [])
-        except Exception:
-            return []
-
-        # Filter to tasks completed on the specific date
-        result = []
-        for entry in history:
-            completed_at = entry.get("completed_at")
-            if completed_at:
-                try:
-                    dt = datetime.fromisoformat(completed_at)
-                    if dt.strftime("%Y-%m-%d") == date_str:
-                        result.append(entry)
-                except Exception:
-                    continue
-
-        return result
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    "task_id": row[0],
+                    "task_type": row[2],
+                    "target": row[3],
+                    "context": row[4],
+                    "priority": row[5],
+                    "status": row[6],
+                    "rationale": json_deserialize(row[7]),
+                    "source_page": row[8],
+                    "source_type": row[9],
+                    "started_at": row[11],
+                    "completed_at": row[12],
+                    "result": json_deserialize(row[13]),
+                    "exploration": json_deserialize(row[14]),
+                    "created_at": row[15]
+                })
+            return results
 
     def exists(self, target: str, task_type: TaskType) -> bool:
         """Check if a task already exists for this target."""
-        for task in self._tasks.values():
-            if task.target == target and task.task_type == task_type:
-                if task.status in (TaskStatus.QUEUED, TaskStatus.IN_PROGRESS):
-                    return True
-        return False
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT 1 FROM research_tasks
+                WHERE daemon_id = ? AND target = ? AND task_type = ?
+                AND status IN ('queued', 'in_progress')
+                LIMIT 1
+            """, (self._daemon_id, target, task_type.value))
+            return cursor.fetchone() is not None
 
 
 def calculate_task_priority(
@@ -825,75 +995,149 @@ def create_proposal_id() -> str:
 
 class ProposalQueue:
     """
-    Persistent storage for research proposals.
+    Persistent storage for research proposals using SQLite.
     """
 
-    def __init__(self, data_dir: str):
-        self.data_dir = Path(data_dir)
-        self.proposals_file = self.data_dir / "research_proposals.json"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._proposals: Dict[str, ResearchProposal] = {}
-        self._load()
+    def __init__(self, daemon_id: str = None, data_dir: str = None):
+        # data_dir kept for backwards compatibility but not used
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
-    def _load(self) -> None:
-        """Load proposals from disk."""
-        if self.proposals_file.exists():
-            try:
-                with open(self.proposals_file, "r") as f:
-                    data = json.load(f)
-                    self._proposals.clear()
-                    for proposal_data in data.get("proposals", []):
-                        proposal = ResearchProposal.from_dict(proposal_data)
-                        self._proposals[proposal.proposal_id] = proposal
-            except Exception as e:
-                print(f"Error loading proposals: {e}")
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
+
+    def _row_to_proposal(self, row) -> ResearchProposal:
+        """Convert database row to ResearchProposal."""
+        from database import json_deserialize
+        tasks_data = json_deserialize(row[4]) or []
+        tasks = [ResearchTask.from_dict(t) for t in tasks_data]
+
+        return ResearchProposal(
+            proposal_id=row[0],
+            title=row[2],
+            theme=row[3],
+            rationale=row[5],
+            tasks=tasks,
+            status=ProposalStatus(row[6] or "draft"),
+            created_by=row[7] or "cass",
+            created_at=datetime.fromisoformat(row[8]) if row[8] else datetime.now(),
+            approved_at=datetime.fromisoformat(row[9]) if row[9] else None,
+            approved_by=row[10],
+            completed_at=datetime.fromisoformat(row[11]) if row[11] else None,
+            tasks_completed=row[12] or 0,
+            tasks_failed=row[13] or 0,
+            summary=row[14],
+            key_insights=json_deserialize(row[15]) or [],
+            new_questions=json_deserialize(row[16]) or [],
+            pages_created=json_deserialize(row[17]) or [],
+            pages_updated=json_deserialize(row[18]) or [],
+        )
 
     def reload(self) -> None:
-        """Reload proposals from disk (for sync across instances)."""
-        self._load()
-
-    def _save(self) -> None:
-        """Save proposals to disk."""
-        data = {
-            "proposals": [p.to_dict() for p in self._proposals.values()],
-            "updated_at": datetime.now().isoformat(),
-        }
-        with open(self.proposals_file, "w") as f:
-            json.dump(data, f, indent=2)
+        """Reload proposals - no-op for SQLite (always reads fresh)."""
+        pass
 
     def add(self, proposal: ResearchProposal) -> None:
         """Add a proposal."""
-        self._proposals[proposal.proposal_id] = proposal
-        self._save()
+        from database import get_db, json_serialize
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO research_proposals (
+                    id, daemon_id, title, theme, tasks_json, rationale, status,
+                    created_by, created_at, approved_at, approved_by, completed_at,
+                    tasks_completed, tasks_failed, summary, key_insights_json,
+                    new_questions_json, pages_created_json, pages_updated_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                proposal.proposal_id,
+                self._daemon_id,
+                proposal.title,
+                proposal.theme,
+                json_serialize([t.to_dict() for t in proposal.tasks]),
+                proposal.rationale,
+                proposal.status.value,
+                proposal.created_by,
+                proposal.created_at.isoformat() if proposal.created_at else None,
+                proposal.approved_at.isoformat() if proposal.approved_at else None,
+                proposal.approved_by,
+                proposal.completed_at.isoformat() if proposal.completed_at else None,
+                proposal.tasks_completed,
+                proposal.tasks_failed,
+                proposal.summary,
+                json_serialize(proposal.key_insights),
+                json_serialize(proposal.new_questions),
+                json_serialize(proposal.pages_created),
+                json_serialize(proposal.pages_updated)
+            ))
+            conn.commit()
 
     def get(self, proposal_id: str) -> Optional[ResearchProposal]:
         """Get a proposal by ID."""
-        self.reload()  # Sync with disk in case other instances modified
-        return self._proposals.get(proposal_id)
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, title, theme, tasks_json, rationale, status,
+                       created_by, created_at, approved_at, approved_by, completed_at,
+                       tasks_completed, tasks_failed, summary, key_insights_json,
+                       new_questions_json, pages_created_json, pages_updated_json
+                FROM research_proposals
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, proposal_id))
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_proposal(row)
+            return None
 
     def update(self, proposal: ResearchProposal) -> None:
         """Update an existing proposal."""
-        if proposal.proposal_id in self._proposals:
-            self._proposals[proposal.proposal_id] = proposal
-            self._save()
+        self.add(proposal)  # INSERT OR REPLACE handles update
 
     def remove(self, proposal_id: str) -> bool:
         """Remove a proposal."""
-        if proposal_id in self._proposals:
-            del self._proposals[proposal_id]
-            self._save()
-            return True
-        return False
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                DELETE FROM research_proposals
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, proposal_id))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def get_by_status(self, status: ProposalStatus) -> List[ResearchProposal]:
         """Get proposals by status."""
-        self.reload()  # Sync with disk in case other instances modified
-        return [p for p in self._proposals.values() if p.status == status]
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, title, theme, tasks_json, rationale, status,
+                       created_by, created_at, approved_at, approved_by, completed_at,
+                       tasks_completed, tasks_failed, summary, key_insights_json,
+                       new_questions_json, pages_created_json, pages_updated_json
+                FROM research_proposals
+                WHERE daemon_id = ? AND status = ?
+            """, (self._daemon_id, status.value))
+            return [self._row_to_proposal(row) for row in cursor.fetchall()]
 
     def get_all(self) -> List[ResearchProposal]:
         """Get all proposals, sorted by creation date descending."""
-        self.reload()  # Sync with disk in case other instances modified
-        return sorted(self._proposals.values(), key=lambda p: p.created_at, reverse=True)
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, daemon_id, title, theme, tasks_json, rationale, status,
+                       created_by, created_at, approved_at, approved_by, completed_at,
+                       tasks_completed, tasks_failed, summary, key_insights_json,
+                       new_questions_json, pages_created_json, pages_updated_json
+                FROM research_proposals
+                WHERE daemon_id = ?
+                ORDER BY created_at DESC
+            """, (self._daemon_id,))
+            return [self._row_to_proposal(row) for row in cursor.fetchall()]
 
     def get_pending(self) -> List[ResearchProposal]:
         """Get proposals awaiting approval."""

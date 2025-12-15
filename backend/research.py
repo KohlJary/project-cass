@@ -89,12 +89,14 @@ class RateLimiter:
 class ResearchManager:
     """
     Manages research tools: web search, URL fetching, and research notes.
+    Notes are stored in SQLite database.
     """
 
-    def __init__(self, data_dir: Path):
-        self.data_dir = data_dir / "research"
-        self.notes_dir = self.data_dir / "notes"
-        self.notes_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, daemon_id: str = None):
+        from database import get_db
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
         # API keys
         self.tavily_api_key = os.environ.get("TAVILY_API_KEY")
@@ -105,6 +107,15 @@ class ResearchManager:
 
         # HTTP client
         self._client: Optional[httpx.AsyncClient] = None
+
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client"""
@@ -533,31 +544,52 @@ class ResearchManager:
         Returns:
             List of notes (with truncated content unless full_content=True)
         """
-        notes = []
+        from database import get_db, json_deserialize
 
-        for note_file in self.notes_dir.glob("*.json"):
-            note = self._load_note(note_file.stem)
-            if not note:
-                continue
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, content, created_at, updated_at, sources_json,
+                       related_agenda_items_json, related_questions_json, session_id, tags_json
+                FROM research_notes
+                WHERE daemon_id = ?
+                ORDER BY updated_at DESC
+            """, (self._daemon_id,))
 
-            # Apply filters
-            if related_to_agenda and related_to_agenda not in note.related_agenda_items:
-                continue
-            if related_to_question and related_to_question not in note.related_questions:
-                continue
-            if tag and tag not in note.tags:
-                continue
+            notes = []
+            for row in cursor.fetchall():
+                related_agenda_items = json_deserialize(row[6]) or []
+                related_questions = json_deserialize(row[7]) or []
+                tags = json_deserialize(row[9]) or []
 
-            note_dict = asdict(note)
-            # Truncate content for list views unless full_content requested
-            if not full_content and len(note_dict["content"]) > 200:
-                note_dict["content"] = note_dict["content"][:200] + "..."
-            notes.append(note_dict)
+                # Apply filters
+                if related_to_agenda and related_to_agenda not in related_agenda_items:
+                    continue
+                if related_to_question and related_to_question not in related_questions:
+                    continue
+                if tag and tag not in tags:
+                    continue
 
-        # Sort by updated_at descending
-        notes.sort(key=lambda x: x["updated_at"], reverse=True)
+                content = row[2]
+                if not full_content and len(content) > 200:
+                    content = content[:200] + "..."
 
-        return notes[:limit]
+                notes.append({
+                    "note_id": row[0],
+                    "title": row[1],
+                    "content": content,
+                    "created_at": row[3],
+                    "updated_at": row[4],
+                    "sources": json_deserialize(row[5]) or [],
+                    "related_agenda_items": related_agenda_items,
+                    "related_questions": related_questions,
+                    "session_id": row[8],
+                    "tags": tags
+                })
+
+                if len(notes) >= limit:
+                    break
+
+        return notes
 
     def search_research_notes(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         """
@@ -565,44 +597,92 @@ class ResearchManager:
 
         Simple substring search - could be enhanced with embeddings later.
         """
+        from database import get_db, json_deserialize
+
         query_lower = query.lower()
-        matches = []
 
-        for note_file in self.notes_dir.glob("*.json"):
-            note = self._load_note(note_file.stem)
-            if not note:
-                continue
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, content, created_at, updated_at, sources_json,
+                       related_agenda_items_json, related_questions_json, session_id, tags_json
+                FROM research_notes
+                WHERE daemon_id = ?
+                ORDER BY updated_at DESC
+            """, (self._daemon_id,))
 
-            # Search in title, content, and tags
-            if (query_lower in note.title.lower() or
-                query_lower in note.content.lower() or
-                any(query_lower in tag.lower() for tag in note.tags)):
+            matches = []
+            for row in cursor.fetchall():
+                title = row[1]
+                content = row[2]
+                tags = json_deserialize(row[9]) or []
 
-                note_dict = asdict(note)
-                if len(note_dict["content"]) > 200:
-                    note_dict["content"] = note_dict["content"][:200] + "..."
-                matches.append(note_dict)
+                # Search in title, content, and tags
+                if (query_lower in title.lower() or
+                    query_lower in content.lower() or
+                    any(query_lower in tag.lower() for tag in tags)):
 
-        # Sort by updated_at descending
-        matches.sort(key=lambda x: x["updated_at"], reverse=True)
+                    display_content = content
+                    if len(display_content) > 200:
+                        display_content = display_content[:200] + "..."
 
-        return matches[:limit]
+                    matches.append({
+                        "note_id": row[0],
+                        "title": title,
+                        "content": display_content,
+                        "created_at": row[3],
+                        "updated_at": row[4],
+                        "sources": json_deserialize(row[5]) or [],
+                        "related_agenda_items": json_deserialize(row[6]) or [],
+                        "related_questions": json_deserialize(row[7]) or [],
+                        "session_id": row[8],
+                        "tags": tags
+                    })
+
+                    if len(matches) >= limit:
+                        break
+
+        return matches
 
     def _save_note(self, note: ResearchNote):
-        """Save a research note to disk"""
-        path = self.notes_dir / f"{note.note_id}.json"
-        with open(path, "w") as f:
-            json.dump(asdict(note), f, indent=2)
+        """Save a research note to database"""
+        from database import get_db, json_serialize
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO research_notes (
+                    id, daemon_id, session_id, title, content,
+                    sources_json, related_agenda_items_json, related_questions_json,
+                    tags_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                note.note_id, self._daemon_id, note.session_id, note.title, note.content,
+                json_serialize(note.sources), json_serialize(note.related_agenda_items),
+                json_serialize(note.related_questions), json_serialize(note.tags),
+                note.created_at, note.updated_at
+            ))
+            conn.commit()
 
     def _load_note(self, note_id: str) -> Optional[ResearchNote]:
-        """Load a research note from disk"""
-        path = self.notes_dir / f"{note_id}.json"
-        if not path.exists():
-            return None
-
-        try:
-            with open(path) as f:
-                data = json.load(f)
-            return ResearchNote(**data)
-        except Exception:
-            return None
+        """Load a research note from database"""
+        from database import get_db, json_deserialize
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, content, created_at, updated_at, sources_json,
+                       related_agenda_items_json, related_questions_json, session_id, tags_json
+                FROM research_notes
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, note_id))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return ResearchNote(
+                note_id=row[0],
+                title=row[1],
+                content=row[2],
+                created_at=row[3],
+                updated_at=row[4],
+                sources=json_deserialize(row[5]) or [],
+                related_agenda_items=json_deserialize(row[6]) or [],
+                related_questions=json_deserialize(row[7]) or [],
+                session_id=row[8],
+                tags=json_deserialize(row[9]) or []
+            )

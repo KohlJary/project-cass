@@ -10,6 +10,8 @@ from pathlib import Path
 import uuid
 from enum import Enum
 
+from database import get_db, json_serialize, json_deserialize
+
 
 class RecurrenceType(str, Enum):
     """How an event repeats"""
@@ -87,38 +89,55 @@ class CalendarManager:
     """
     Manages calendar events and reminders.
 
-    Stores events in a JSON file per user, with an index for quick lookups.
+    Uses SQLite database for storage.
     """
 
-    def __init__(self, storage_dir: str = "./data/calendar"):
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, daemon_id: str = None):
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
-    def _get_user_file(self, user_id: str) -> Path:
-        """Get the calendar file for a user"""
-        return self.storage_dir / f"{user_id}.json"
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
+
+    def _row_to_event(self, row) -> Event:
+        """Convert database row to Event object"""
+        return Event(
+            id=row[0],
+            title=row[1],
+            start_time=row[2],
+            end_time=row[3],
+            description=row[4],
+            location=row[5],
+            is_reminder=bool(row[6]),
+            reminder_minutes=row[7] or 15,
+            recurrence=RecurrenceType(row[8]) if row[8] else RecurrenceType.NONE,
+            recurrence_end=row[9],
+            created_at=row[10],
+            updated_at=row[11],
+            completed=bool(row[12]),
+            user_id=row[13],
+            conversation_id=row[14],
+            tags=json_deserialize(row[15]) or []
+        )
 
     def _load_events(self, user_id: str) -> List[Event]:
         """Load all events for a user"""
-        filepath = self._get_user_file(user_id)
-        if not filepath.exists():
-            return []
-
-        try:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-            return [Event.from_dict(e) for e in data.get("events", [])]
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
-
-    def _save_events(self, user_id: str, events: List[Event]):
-        """Save all events for a user"""
-        filepath = self._get_user_file(user_id)
-        with open(filepath, 'w') as f:
-            json.dump({
-                "events": [e.to_dict() for e in events],
-                "updated_at": datetime.now().isoformat()
-            }, f, indent=2)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, start_time, end_time, description, location,
+                       is_reminder, reminder_minutes, recurrence, recurrence_end,
+                       created_at, updated_at, completed, user_id, conversation_id, tags_json
+                FROM calendar_events
+                WHERE daemon_id = ? AND user_id = ?
+                ORDER BY start_time
+            """, (self._daemon_id, user_id))
+            return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def create_event(
         self,
@@ -137,9 +156,10 @@ class CalendarManager:
     ) -> Event:
         """Create a new event or reminder"""
         now = datetime.now().isoformat()
+        event_id = str(uuid.uuid4())
 
         event = Event(
-            id=str(uuid.uuid4()),
+            id=event_id,
             title=title,
             start_time=start_time.isoformat(),
             end_time=end_time.isoformat() if end_time else None,
@@ -156,9 +176,21 @@ class CalendarManager:
             tags=tags or []
         )
 
-        events = self._load_events(user_id)
-        events.append(event)
-        self._save_events(user_id, events)
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO calendar_events (
+                    id, daemon_id, user_id, title, description, location,
+                    start_time, end_time, is_reminder, reminder_minutes,
+                    recurrence, recurrence_end, completed, conversation_id,
+                    tags_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event_id, self._daemon_id, user_id, title, description, location,
+                event.start_time, event.end_time, int(is_reminder), reminder_minutes,
+                recurrence.value, event.recurrence_end, 0, conversation_id,
+                json_serialize(tags or []), now, now
+            ))
+            conn.commit()
 
         return event
 
@@ -182,10 +214,17 @@ class CalendarManager:
 
     def get_event(self, user_id: str, event_id: str) -> Optional[Event]:
         """Get a specific event by ID"""
-        events = self._load_events(user_id)
-        for event in events:
-            if event.id == event_id:
-                return event
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, start_time, end_time, description, location,
+                       is_reminder, reminder_minutes, recurrence, recurrence_end,
+                       created_at, updated_at, completed, user_id, conversation_id, tags_json
+                FROM calendar_events
+                WHERE daemon_id = ? AND user_id = ? AND id = ?
+            """, (self._daemon_id, user_id, event_id))
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_event(row)
         return None
 
     def update_event(
@@ -201,42 +240,59 @@ class CalendarManager:
         tags: Optional[List[str]] = None
     ) -> Optional[Event]:
         """Update an existing event"""
-        events = self._load_events(user_id)
+        # Build dynamic update query
+        updates = []
+        params = []
 
-        for i, event in enumerate(events):
-            if event.id == event_id:
-                if title is not None:
-                    event.title = title
-                if start_time is not None:
-                    event.start_time = start_time.isoformat()
-                if end_time is not None:
-                    event.end_time = end_time.isoformat()
-                if description is not None:
-                    event.description = description
-                if location is not None:
-                    event.location = location
-                if completed is not None:
-                    event.completed = completed
-                if tags is not None:
-                    event.tags = tags
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+        if start_time is not None:
+            updates.append("start_time = ?")
+            params.append(start_time.isoformat())
+        if end_time is not None:
+            updates.append("end_time = ?")
+            params.append(end_time.isoformat())
+        if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if location is not None:
+            updates.append("location = ?")
+            params.append(location)
+        if completed is not None:
+            updates.append("completed = ?")
+            params.append(int(completed))
+        if tags is not None:
+            updates.append("tags_json = ?")
+            params.append(json_serialize(tags))
 
-                event.updated_at = datetime.now().isoformat()
-                events[i] = event
-                self._save_events(user_id, events)
-                return event
+        if not updates:
+            return self.get_event(user_id, event_id)
 
-        return None
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+
+        params.extend([self._daemon_id, user_id, event_id])
+
+        with get_db() as conn:
+            conn.execute(f"""
+                UPDATE calendar_events
+                SET {', '.join(updates)}
+                WHERE daemon_id = ? AND user_id = ? AND id = ?
+            """, params)
+            conn.commit()
+
+        return self.get_event(user_id, event_id)
 
     def delete_event(self, user_id: str, event_id: str) -> bool:
         """Delete an event"""
-        events = self._load_events(user_id)
-        original_count = len(events)
-        events = [e for e in events if e.id != event_id]
-
-        if len(events) < original_count:
-            self._save_events(user_id, events)
-            return True
-        return False
+        with get_db() as conn:
+            cursor = conn.execute("""
+                DELETE FROM calendar_events
+                WHERE daemon_id = ? AND user_id = ? AND id = ?
+            """, (self._daemon_id, user_id, event_id))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def complete_reminder(self, user_id: str, event_id: str) -> Optional[Event]:
         """Mark a reminder as completed/acknowledged"""
@@ -244,14 +300,19 @@ class CalendarManager:
 
     def get_events_for_date(self, user_id: str, date: datetime) -> List[Event]:
         """Get all events for a specific date"""
-        events = self._load_events(user_id)
-        target_date = date.date()
-
-        return [
-            e for e in events
-            if datetime.fromisoformat(e.start_time).date() == target_date
-            and not e.completed
-        ]
+        target_date = date.strftime("%Y-%m-%d")
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, start_time, end_time, description, location,
+                       is_reminder, reminder_minutes, recurrence, recurrence_end,
+                       created_at, updated_at, completed, user_id, conversation_id, tags_json
+                FROM calendar_events
+                WHERE daemon_id = ? AND user_id = ?
+                  AND date(start_time) = ?
+                  AND completed = 0
+                ORDER BY start_time
+            """, (self._daemon_id, user_id, target_date))
+            return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def get_events_in_range(
         self,
@@ -261,18 +322,24 @@ class CalendarManager:
         include_completed: bool = False
     ) -> List[Event]:
         """Get all events within a date range"""
-        events = self._load_events(user_id)
+        query = """
+            SELECT id, title, start_time, end_time, description, location,
+                   is_reminder, reminder_minutes, recurrence, recurrence_end,
+                   created_at, updated_at, completed, user_id, conversation_id, tags_json
+            FROM calendar_events
+            WHERE daemon_id = ? AND user_id = ?
+              AND start_time >= ? AND start_time <= ?
+        """
+        params = [self._daemon_id, user_id, start.isoformat(), end.isoformat()]
 
-        results = []
-        for event in events:
-            event_time = datetime.fromisoformat(event.start_time)
-            if start <= event_time <= end:
-                if include_completed or not event.completed:
-                    results.append(event)
+        if not include_completed:
+            query += " AND completed = 0"
 
-        # Sort by start time
-        results.sort(key=lambda e: e.start_time)
-        return results
+        query += " ORDER BY start_time"
+
+        with get_db() as conn:
+            cursor = conn.execute(query, params)
+            return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def get_upcoming_events(
         self,
@@ -292,16 +359,22 @@ class CalendarManager:
         within_minutes: int = 60
     ) -> List[Event]:
         """Get reminders that are coming up soon (for notifications)"""
-        events = self._load_events(user_id)
         now = datetime.now()
         cutoff = now + timedelta(minutes=within_minutes)
 
-        return [
-            e for e in events
-            if e.is_reminder
-            and not e.completed
-            and now <= datetime.fromisoformat(e.start_time) <= cutoff
-        ]
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, start_time, end_time, description, location,
+                       is_reminder, reminder_minutes, recurrence, recurrence_end,
+                       created_at, updated_at, completed, user_id, conversation_id, tags_json
+                FROM calendar_events
+                WHERE daemon_id = ? AND user_id = ?
+                  AND is_reminder = 1
+                  AND completed = 0
+                  AND start_time >= ? AND start_time <= ?
+                ORDER BY start_time
+            """, (self._daemon_id, user_id, now.isoformat(), cutoff.isoformat()))
+            return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def get_today_agenda(self, user_id: str) -> Dict:
         """Get a summary of today's events"""
@@ -373,24 +446,32 @@ class CalendarManager:
         include_past: bool = False
     ) -> List[Event]:
         """List all events for a user"""
-        events = self._load_events(user_id)
-        now = datetime.now()
+        query = """
+            SELECT id, title, start_time, end_time, description, location,
+                   is_reminder, reminder_minutes, recurrence, recurrence_end,
+                   created_at, updated_at, completed, user_id, conversation_id, tags_json
+            FROM calendar_events
+            WHERE daemon_id = ? AND user_id = ?
+        """
+        params = [self._daemon_id, user_id]
 
-        results = []
-        for event in events:
-            if not include_completed and event.completed:
-                continue
-            if not include_past and datetime.fromisoformat(event.start_time) < now:
-                continue
-            results.append(event)
+        if not include_completed:
+            query += " AND completed = 0"
 
-        results.sort(key=lambda e: e.start_time)
-        return results
+        if not include_past:
+            query += " AND start_time >= ?"
+            params.append(datetime.now().isoformat())
+
+        query += " ORDER BY start_time"
+
+        with get_db() as conn:
+            cursor = conn.execute(query, params)
+            return [self._row_to_event(row) for row in cursor.fetchall()]
 
 
 if __name__ == "__main__":
     # Test the calendar manager
-    manager = CalendarManager("./data/calendar_test")
+    manager = CalendarManager()
     test_user = "test-user-123"
 
     # Create a reminder

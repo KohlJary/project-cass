@@ -202,10 +202,14 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+# Initialize database and run JSON migrations
+from database import init_database_with_migrations
+_daemon_id = init_database_with_migrations("cass")
+
 # Initialize components with absolute data paths
 memory = CassMemory()
 response_processor = ResponseProcessor()
-user_manager = UserManager(storage_dir=str(DATA_DIR / "users"))
+user_manager = UserManager()
 self_model_graph = get_self_model_graph(DATA_DIR)
 _graph_stats = self_model_graph.get_stats()
 if _graph_stats['total_nodes'] == 0:
@@ -238,7 +242,7 @@ else:
             if _connect_result['edges_created'] > 0:
                 print(f"  Connected {_connect_result['nodes_connected']} nodes with "
                       f"{_connect_result['edges_created']} semantic edges")
-self_manager = SelfManager(storage_dir=str(DATA_DIR / "cass"), graph_callback=self_model_graph)
+self_manager = SelfManager(graph_callback=self_model_graph)
 
 # Sync self-observations from file storage to ChromaDB for semantic search
 _synced_count = memory.sync_self_observations_from_file(self_manager)
@@ -250,17 +254,17 @@ current_user_id: Optional[str] = None
 
 # Track in-progress summarizations to prevent duplicates
 _summarization_in_progress: set = set()
-conversation_manager = ConversationManager(storage_dir=str(DATA_DIR / "conversations"))
-project_manager = ProjectManager(storage_dir=str(DATA_DIR / "projects"))
-calendar_manager = CalendarManager(storage_dir=str(DATA_DIR / "calendar"))
-task_manager = TaskManager(storage_dir=str(DATA_DIR / "tasks"))
-roadmap_manager = RoadmapManager(storage_dir=str(DATA_DIR / "roadmap"))
+conversation_manager = ConversationManager()
+project_manager = ProjectManager()
+calendar_manager = CalendarManager()
+task_manager = TaskManager()
+roadmap_manager = RoadmapManager()
 marker_store = MarkerStore(client=memory.client, graph_callback=self_model_graph)  # Reuse memory's ChromaDB client
 goal_manager = GoalManager(data_dir=DATA_DIR)
-research_manager = ResearchManager(data_dir=DATA_DIR)
-research_session_manager = ResearchSessionManager(data_dir=DATA_DIR)
+research_manager = ResearchManager()
+research_session_manager = ResearchSessionManager()
 research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
-daily_rhythm_manager = DailyRhythmManager(data_dir=DATA_DIR)
+daily_rhythm_manager = DailyRhythmManager()
 
 # Initialize interview system
 from interviews import InterviewAnalyzer
@@ -277,11 +281,11 @@ interview_dispatcher = InterviewDispatcher(
 
 # Initialize GitHub metrics manager
 from github_metrics import GitHubMetricsManager
-github_metrics_manager = GitHubMetricsManager(data_dir=DATA_DIR)
+github_metrics_manager = GitHubMetricsManager()
 
 # Initialize token usage tracker
 from token_tracker import TokenUsageTracker
-token_tracker = TokenUsageTracker(data_dir=DATA_DIR)
+token_tracker = TokenUsageTracker()
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
@@ -299,12 +303,12 @@ wiki_storage = WikiStorage(wiki_root=str(DATA_DIR / "wiki"), git_enabled=True)
 wiki_retrieval = WikiRetrieval(wiki_storage, memory)
 
 # Initialize research queues
-research_queue = ResearchQueue(str(DATA_DIR / "wiki"))
-proposal_queue = ProposalQueue(str(DATA_DIR / "wiki"))
+research_queue = ResearchQueue()
+proposal_queue = ProposalQueue()
 
 # Initialize solo reflection manager
 from solo_reflection import SoloReflectionManager
-reflection_manager = SoloReflectionManager(str(DATA_DIR / "solo_reflections"))
+reflection_manager = SoloReflectionManager()
 
 # Cache for recent wiki retrievals to avoid redundant lookups
 # Format: {query_hash: (timestamp, wiki_context_str, page_names)}
@@ -2362,7 +2366,7 @@ async def list_dreams(limit: int = 10):
         limit: Maximum number of dreams to return (default 10)
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager(DATA_DIR)
+    dream_manager = DreamManager()
 
     recent = dream_manager.get_recent_dreams(limit=limit)
 
@@ -2389,7 +2393,7 @@ async def get_dream(dream_id: str):
         dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager(DATA_DIR)
+    dream_manager = DreamManager()
 
     dream = dream_manager.get_dream(dream_id)
 
@@ -2422,7 +2426,7 @@ async def get_dream_context(dream_id: str):
         dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager(DATA_DIR)
+    dream_manager = DreamManager()
 
     dream_memory = dream_manager.load_dream_for_context(dream_id)
 
@@ -2454,7 +2458,7 @@ async def add_dream_reflection(dream_id: str, request: DreamReflectionRequest):
         request: Reflection content and source
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager(DATA_DIR)
+    dream_manager = DreamManager()
 
     dream = dream_manager.get_dream(dream_id)
     if not dream:
@@ -2484,7 +2488,7 @@ async def mark_dream_integrated(dream_id: str):
         dream_id: Dream ID to mark as integrated
     """
     from dreaming.integration import DreamManager
-    dream_manager = DreamManager(DATA_DIR)
+    dream_manager = DreamManager()
 
     dream = dream_manager.get_dream(dream_id)
     if not dream:

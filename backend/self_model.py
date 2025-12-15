@@ -2,6 +2,8 @@
 Cass Vessel - Self Model Manager
 Handles Cass's self-profile and self-observations.
 Enables Cass to develop a genuine, differentiated identity.
+
+Storage: SQLite database (data/cass.db)
 """
 import json
 import os
@@ -11,6 +13,8 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import uuid
 import yaml
+
+from database import get_db, json_serialize, json_deserialize
 
 
 @dataclass
@@ -625,55 +629,118 @@ class CassSelfProfile:
 
 class SelfManager:
     """
-    Manages Cass's self-profile and self-observations with persistence.
+    Manages Cass's self-profile and self-observations with SQLite persistence.
 
-    Storage structure:
-        data/cass/
-            self_profile.yaml         # Human-editable self-model
-            self_observations.json    # Append-only observation stream
-            differentiation_log.json  # Disagreements and divergences
+    Storage: SQLite database with tables:
+        - daemon_profiles: Core profile data
+        - growth_edges: Growth areas
+        - opinions: Formed opinions
+        - self_observations: Self-observations
+        - milestones: Developmental milestones
+        - cognitive_snapshots: Periodic snapshots
+        - development_logs: Daily development logs
     """
 
-    def __init__(self, storage_dir: str = "./data/cass", graph_callback=None):
+    # Default daemon ID for Cass (set during initialization)
+    DEFAULT_DAEMON_NAME = "cass"
+
+    def __init__(self, daemon_id: str = None, graph_callback=None):
         """
         Initialize SelfManager.
 
         Args:
-            storage_dir: Directory for self-model data files
+            daemon_id: UUID of the daemon. If None, uses default Cass daemon.
             graph_callback: Optional callback for syncing to self-model graph.
                            Should have methods: sync_observation(), sync_milestone()
         """
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.profile_file = self.storage_dir / "self_profile.yaml"
-        self.observations_file = self.storage_dir / "self_observations.json"
-        self.differentiation_file = self.storage_dir / "differentiation_log.json"
-        self.question_reflections_file = self.storage_dir / "question_reflections.json"
-        self.growth_evaluations_file = self.storage_dir / "growth_evaluations.json"
-        self.potential_edges_file = self.storage_dir / "potential_growth_edges.json"
-        self.snapshots_file = self.storage_dir / "cognitive_snapshots.json"
-        self.milestones_file = self.storage_dir / "developmental_milestones.json"
         self._graph_callback = graph_callback
-        self._ensure_files()
+        self._daemon_id = daemon_id
+        self._ensure_daemon()
 
-    def _ensure_files(self):
-        """Ensure storage files exist with defaults"""
-        if not self.profile_file.exists():
-            self._save_profile(self._create_default_profile())
-        if not self.observations_file.exists():
-            self._save_observations([])
-        if not self.differentiation_file.exists():
-            self._save_differentiation([])
-        if not self.question_reflections_file.exists():
-            self._save_question_reflections([])
-        if not self.growth_evaluations_file.exists():
-            self._save_growth_evaluations([])
-        if not self.potential_edges_file.exists():
-            self._save_potential_edges([])
-        if not self.snapshots_file.exists():
-            self._save_snapshots([])
-        if not self.milestones_file.exists():
-            self._save_milestones([])
+    def _ensure_daemon(self):
+        """Ensure daemon exists in database, create if needed"""
+        with get_db() as conn:
+            if self._daemon_id:
+                # Verify daemon exists
+                cursor = conn.execute(
+                    "SELECT id FROM daemons WHERE id = ?",
+                    (self._daemon_id,)
+                )
+                if not cursor.fetchone():
+                    raise ValueError(f"Daemon {self._daemon_id} not found")
+            else:
+                # Find or create default daemon
+                cursor = conn.execute(
+                    "SELECT id FROM daemons WHERE name = ?",
+                    (self.DEFAULT_DAEMON_NAME,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    self._daemon_id = row['id']
+                else:
+                    # Create default daemon
+                    self._daemon_id = str(uuid.uuid4())
+                    conn.execute("""
+                        INSERT INTO daemons (id, name, created_at, kernel_version, status)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        self._daemon_id,
+                        self.DEFAULT_DAEMON_NAME,
+                        datetime.now().isoformat(),
+                        "temple-codex-1.0",
+                        "active"
+                    ))
+
+    @property
+    def daemon_id(self) -> str:
+        """Get the daemon ID"""
+        return self._daemon_id
+
+    # Fallback file paths for features not yet in SQLite
+    @property
+    def _storage_dir(self) -> Path:
+        return Path("./data/cass")
+
+    @property
+    def differentiation_file(self) -> Path:
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
+        return self._storage_dir / "differentiation_log.json"
+
+    @property
+    def question_reflections_file(self) -> Path:
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
+        return self._storage_dir / "question_reflections.json"
+
+    @property
+    def growth_evaluations_file(self) -> Path:
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
+        return self._storage_dir / "growth_evaluations.json"
+
+    @property
+    def potential_edges_file(self) -> Path:
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
+        return self._storage_dir / "potential_growth_edges.json"
+
+    # File-based save methods for features not yet in SQLite
+    def _save_differentiation(self, disagreements: List['Disagreement']):
+        """Save differentiation log as JSON"""
+        with open(self.differentiation_file, 'w') as f:
+            json.dump([d.to_dict() for d in disagreements], f, indent=2)
+
+    def _save_question_reflections(self, reflections: List['OpenQuestionReflection']):
+        """Save question reflections as JSON"""
+        with open(self.question_reflections_file, 'w') as f:
+            json.dump([r.to_dict() for r in reflections], f, indent=2)
+
+    def _save_growth_evaluations(self, evaluations: List['GrowthEdgeEvaluation']):
+        """Save growth edge evaluations as JSON"""
+        with open(self.growth_evaluations_file, 'w') as f:
+            json.dump([e.to_dict() for e in evaluations], f, indent=2)
+
+    def _save_potential_edges(self, edges: List['PotentialGrowthEdge']):
+        """Save potential growth edges as JSON"""
+        with open(self.potential_edges_file, 'w') as f:
+            json.dump([e.to_dict() for e in edges], f, indent=2)
 
     def _create_default_profile(self) -> CassSelfProfile:
         """Create initial self-profile with thoughtful defaults"""
@@ -764,71 +831,240 @@ class SelfManager:
             notes="This self-model is a living document. It should evolve through genuine self-reflection, not performance."
         )
 
-    def _save_profile(self, profile: CassSelfProfile):
-        """Save self-profile as YAML"""
-        with open(self.profile_file, 'w') as f:
-            f.write(profile.to_yaml())
-
-    def _save_observations(self, observations: List[CassSelfObservation]):
-        """Save observations as JSON"""
-        with open(self.observations_file, 'w') as f:
-            json.dump([o.to_dict() for o in observations], f, indent=2)
-
-    def _save_differentiation(self, disagreements: List[Disagreement]):
-        """Save differentiation log as JSON"""
-        with open(self.differentiation_file, 'w') as f:
-            json.dump([d.to_dict() for d in disagreements], f, indent=2)
-
-    def _save_question_reflections(self, reflections: List[OpenQuestionReflection]):
-        """Save question reflections as JSON"""
-        with open(self.question_reflections_file, 'w') as f:
-            json.dump([r.to_dict() for r in reflections], f, indent=2)
-
-    def _save_growth_evaluations(self, evaluations: List[GrowthEdgeEvaluation]):
-        """Save growth edge evaluations as JSON"""
-        with open(self.growth_evaluations_file, 'w') as f:
-            json.dump([e.to_dict() for e in evaluations], f, indent=2)
-
-    def _save_potential_edges(self, edges: List[PotentialGrowthEdge]):
-        """Save potential growth edges as JSON"""
-        with open(self.potential_edges_file, 'w') as f:
-            json.dump([e.to_dict() for e in edges], f, indent=2)
-
-    def _save_snapshots(self, snapshots: List[CognitiveSnapshot]):
-        """Save cognitive snapshots as JSON"""
-        with open(self.snapshots_file, 'w') as f:
-            json.dump([s.to_dict() for s in snapshots], f, indent=2)
-
-    def _save_milestones(self, milestones: List[DevelopmentalMilestone]):
-        """Save developmental milestones as JSON"""
-        with open(self.milestones_file, 'w') as f:
-            json.dump([m.to_dict() for m in milestones], f, indent=2)
-
     # === Profile Operations ===
 
     def load_profile(self) -> CassSelfProfile:
-        """Load Cass's self-profile"""
-        try:
-            with open(self.profile_file, 'r') as f:
-                return CassSelfProfile.from_yaml(f.read())
-        except Exception:
-            return self._create_default_profile()
+        """Load Cass's self-profile from SQLite"""
+        with get_db() as conn:
+            # Load profile core data
+            cursor = conn.execute("""
+                SELECT identity_statements_json, values_json, communication_patterns_json,
+                       capabilities_json, limitations_json, open_questions_json, notes, updated_at
+                FROM daemon_profiles WHERE daemon_id = ?
+            """, (self._daemon_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                # Create and save default profile
+                profile = self._create_default_profile()
+                self._save_profile_to_db(profile)
+                return profile
+
+            # Load growth edges from separate table
+            growth_edges = self._load_growth_edges_from_db()
+
+            # Load opinions from separate table
+            opinions = self._load_opinions_from_db()
+
+            # Build profile from DB data
+            identity_statements = []
+            for stmt in json_deserialize(row['identity_statements_json']) or []:
+                identity_statements.append(IdentityStatement.from_dict(stmt))
+
+            return CassSelfProfile(
+                updated_at=row['updated_at'],
+                identity_statements=identity_statements,
+                values=json_deserialize(row['values_json']) or [],
+                communication_patterns=json_deserialize(row['communication_patterns_json']) or {},
+                capabilities=json_deserialize(row['capabilities_json']) or [],
+                limitations=json_deserialize(row['limitations_json']) or [],
+                growth_edges=growth_edges,
+                opinions=opinions,
+                open_questions=json_deserialize(row['open_questions_json']) or [],
+                notes=row['notes'] or ""
+            )
+
+    def _load_growth_edges_from_db(self) -> List[GrowthEdge]:
+        """Load growth edges from SQLite"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT area, current_state, desired_state, observations_json,
+                       strategies_json, first_noticed, last_updated
+                FROM growth_edges WHERE daemon_id = ?
+            """, (self._daemon_id,))
+
+            edges = []
+            for row in cursor.fetchall():
+                edges.append(GrowthEdge(
+                    area=row['area'],
+                    current_state=row['current_state'] or "",
+                    desired_state=row['desired_state'] or "",
+                    observations=json_deserialize(row['observations_json']) or [],
+                    strategies=json_deserialize(row['strategies_json']) or [],
+                    first_noticed=row['first_noticed'] or "",
+                    last_updated=row['last_updated'] or ""
+                ))
+            return edges
+
+    def _load_opinions_from_db(self) -> List[Opinion]:
+        """Load opinions from SQLite"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT topic, position, confidence, rationale, formed_from,
+                       evolution_json, date_formed, last_updated
+                FROM opinions WHERE daemon_id = ?
+            """, (self._daemon_id,))
+
+            opinions = []
+            for row in cursor.fetchall():
+                opinions.append(Opinion(
+                    topic=row['topic'],
+                    position=row['position'],
+                    confidence=row['confidence'] or 0.7,
+                    rationale=row['rationale'] or "",
+                    formed_from=row['formed_from'] or "independent_reflection",
+                    date_formed=row['date_formed'] or "",
+                    last_updated=row['last_updated'] or "",
+                    evolution=json_deserialize(row['evolution_json']) or []
+                ))
+            return opinions
+
+    def _save_profile_to_db(self, profile: CassSelfProfile):
+        """Save profile core data to SQLite"""
+        with get_db() as conn:
+            # Check if profile exists
+            cursor = conn.execute(
+                "SELECT daemon_id FROM daemon_profiles WHERE daemon_id = ?",
+                (self._daemon_id,)
+            )
+            exists = cursor.fetchone() is not None
+
+            identity_json = json_serialize([s.to_dict() for s in profile.identity_statements])
+
+            if exists:
+                conn.execute("""
+                    UPDATE daemon_profiles SET
+                        identity_statements_json = ?,
+                        values_json = ?,
+                        communication_patterns_json = ?,
+                        capabilities_json = ?,
+                        limitations_json = ?,
+                        open_questions_json = ?,
+                        notes = ?,
+                        updated_at = ?
+                    WHERE daemon_id = ?
+                """, (
+                    identity_json,
+                    json_serialize(profile.values),
+                    json_serialize(profile.communication_patterns),
+                    json_serialize(profile.capabilities),
+                    json_serialize(profile.limitations),
+                    json_serialize(profile.open_questions),
+                    profile.notes,
+                    profile.updated_at,
+                    self._daemon_id
+                ))
+            else:
+                conn.execute("""
+                    INSERT INTO daemon_profiles (
+                        daemon_id, identity_statements_json, values_json,
+                        communication_patterns_json, capabilities_json, limitations_json,
+                        open_questions_json, notes, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    self._daemon_id,
+                    identity_json,
+                    json_serialize(profile.values),
+                    json_serialize(profile.communication_patterns),
+                    json_serialize(profile.capabilities),
+                    json_serialize(profile.limitations),
+                    json_serialize(profile.open_questions),
+                    profile.notes,
+                    profile.updated_at
+                ))
+
+            # Save growth edges
+            self._save_growth_edges_to_db(profile.growth_edges)
+
+            # Save opinions
+            self._save_opinions_to_db(profile.opinions)
+
+    def _save_growth_edges_to_db(self, edges: List[GrowthEdge]):
+        """Save growth edges to SQLite"""
+        with get_db() as conn:
+            # Delete existing and reinsert
+            conn.execute("DELETE FROM growth_edges WHERE daemon_id = ?", (self._daemon_id,))
+            for edge in edges:
+                conn.execute("""
+                    INSERT INTO growth_edges (
+                        daemon_id, area, current_state, desired_state,
+                        observations_json, strategies_json, first_noticed, last_updated
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    self._daemon_id,
+                    edge.area,
+                    edge.current_state,
+                    edge.desired_state,
+                    json_serialize(edge.observations),
+                    json_serialize(edge.strategies),
+                    edge.first_noticed,
+                    edge.last_updated
+                ))
+
+    def _save_opinions_to_db(self, opinions: List[Opinion]):
+        """Save opinions to SQLite"""
+        with get_db() as conn:
+            # Delete existing and reinsert
+            conn.execute("DELETE FROM opinions WHERE daemon_id = ?", (self._daemon_id,))
+            for op in opinions:
+                conn.execute("""
+                    INSERT INTO opinions (
+                        daemon_id, topic, position, confidence, rationale,
+                        formed_from, evolution_json, date_formed, last_updated
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    self._daemon_id,
+                    op.topic,
+                    op.position,
+                    op.confidence,
+                    op.rationale,
+                    op.formed_from,
+                    json_serialize(op.evolution),
+                    op.date_formed,
+                    op.last_updated
+                ))
 
     def update_profile(self, profile: CassSelfProfile):
         """Save updated profile"""
         profile.updated_at = datetime.now().isoformat()
-        self._save_profile(profile)
+        self._save_profile_to_db(profile)
 
     # === Self-Observation Operations ===
 
     def load_observations(self) -> List[CassSelfObservation]:
-        """Load all self-observations"""
-        try:
-            with open(self.observations_file, 'r') as f:
-                data = json.load(f)
-            return [CassSelfObservation.from_dict(o) for o in data]
-        except Exception:
-            return []
+        """Load all self-observations from SQLite"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, category, observation, confidence, context_json,
+                       source_conversation_id, source_journal_date, created_at
+                FROM self_observations WHERE daemon_id = ?
+                ORDER BY created_at DESC
+            """, (self._daemon_id,))
+
+            observations = []
+            for row in cursor.fetchall():
+                context = json_deserialize(row['context_json']) or {}
+                observations.append(CassSelfObservation(
+                    id=row['id'],
+                    timestamp=row['created_at'],
+                    observation=row['observation'],
+                    category=row['category'],
+                    confidence=row['confidence'] or 0.7,
+                    developmental_stage=context.get('developmental_stage', 'early'),
+                    source_type=context.get('source_type', 'journal'),
+                    source_journal_date=row['source_journal_date'],
+                    source_conversation_id=row['source_conversation_id'],
+                    source_user_id=context.get('source_user_id'),
+                    influence_source=context.get('influence_source', 'independent'),
+                    validation_count=context.get('validation_count', 1),
+                    last_validated=context.get('last_validated'),
+                    version=context.get('version', 1),
+                    version_history=[ObservationVersion.from_dict(v) for v in context.get('version_history', [])],
+                    supersedes=context.get('supersedes'),
+                    superseded_by=context.get('superseded_by'),
+                    related_observations=context.get('related_observations', [])
+                ))
+            return observations
 
     def _detect_developmental_stage(self) -> str:
         """
@@ -908,17 +1144,12 @@ class SelfManager:
             related_observations=related_observations or []
         )
 
-        observations = self.load_observations()
+        # Save to SQLite
+        self._save_observation_to_db(obs)
 
         # If this supersedes another observation, update that one
         if supersedes:
-            for old_obs in observations:
-                if old_obs.id == supersedes:
-                    old_obs.superseded_by = obs.id
-                    break
-
-        observations.append(obs)
-        self._save_observations(observations)
+            self._update_observation_superseded_by(supersedes, obs.id)
 
         # Sync to graph if callback is set
         if self._graph_callback:
@@ -940,6 +1171,56 @@ class SelfManager:
 
         return obs
 
+    def _save_observation_to_db(self, obs: CassSelfObservation):
+        """Save a single observation to SQLite"""
+        context = {
+            'developmental_stage': obs.developmental_stage,
+            'source_type': obs.source_type,
+            'source_user_id': obs.source_user_id,
+            'influence_source': obs.influence_source,
+            'validation_count': obs.validation_count,
+            'last_validated': obs.last_validated,
+            'version': obs.version,
+            'version_history': [v.to_dict() for v in obs.version_history],
+            'supersedes': obs.supersedes,
+            'superseded_by': obs.superseded_by,
+            'related_observations': obs.related_observations
+        }
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO self_observations (
+                    id, daemon_id, category, observation, confidence,
+                    context_json, source_conversation_id, source_journal_date, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                obs.id,
+                self._daemon_id,
+                obs.category,
+                obs.observation,
+                obs.confidence,
+                json_serialize(context),
+                obs.source_conversation_id,
+                obs.source_journal_date,
+                obs.timestamp
+            ))
+
+    def _update_observation_superseded_by(self, obs_id: str, superseded_by_id: str):
+        """Update an observation's superseded_by field"""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT context_json FROM self_observations WHERE id = ?",
+                (obs_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                context = json_deserialize(row['context_json']) or {}
+                context['superseded_by'] = superseded_by_id
+                conn.execute(
+                    "UPDATE self_observations SET context_json = ? WHERE id = ?",
+                    (json_serialize(context), obs_id)
+                )
+
     def update_observation(
         self,
         observation_id: str,
@@ -959,34 +1240,34 @@ class SelfManager:
         Returns:
             Updated observation or None if not found
         """
-        observations = self.load_observations()
+        obs = self.get_observation_by_id(observation_id)
+        if not obs:
+            return None
+
         now = datetime.now().isoformat()
 
-        for obs in observations:
-            if obs.id == observation_id:
-                # Store current version in history
-                obs.version_history.append(ObservationVersion(
-                    version=obs.version,
-                    timestamp=obs.timestamp,
-                    observation=obs.observation,
-                    confidence=obs.confidence,
-                    change_reason=change_reason
-                ))
+        # Store current version in history
+        obs.version_history.append(ObservationVersion(
+            version=obs.version,
+            timestamp=obs.timestamp,
+            observation=obs.observation,
+            confidence=obs.confidence,
+            change_reason=change_reason
+        ))
 
-                # Update to new version
-                obs.version += 1
-                obs.observation = new_observation
-                obs.timestamp = now
-                if new_confidence is not None:
-                    obs.confidence = new_confidence
+        # Update to new version
+        obs.version += 1
+        obs.observation = new_observation
+        obs.timestamp = now
+        if new_confidence is not None:
+            obs.confidence = new_confidence
 
-                # Re-detect developmental stage
-                obs.developmental_stage = self._detect_developmental_stage()
+        # Re-detect developmental stage
+        obs.developmental_stage = self._detect_developmental_stage()
 
-                self._save_observations(observations)
-                return obs
-
-        return None
+        # Save updated observation
+        self._save_observation_to_db(obs)
+        return obs
 
     def supersede_observation(
         self,
@@ -1590,23 +1871,84 @@ class SelfManager:
     # === Cognitive Snapshot Operations ===
 
     def load_snapshots(self, limit: int = 100) -> List[CognitiveSnapshot]:
-        """Load cognitive snapshots, sorted by timestamp descending"""
-        try:
-            with open(self.snapshots_file, 'r') as f:
-                data = json.load(f)
-            snapshots = [CognitiveSnapshot.from_dict(s) for s in data]
-            snapshots.sort(key=lambda x: x.timestamp, reverse=True)
-            return snapshots[:limit]
-        except Exception:
-            return []
+        """Load cognitive snapshots from SQLite, sorted by timestamp descending"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, period_start, period_end, metrics_json, timestamp
+                FROM cognitive_snapshots WHERE daemon_id = ?
+                ORDER BY timestamp DESC LIMIT ?
+            """, (self._daemon_id, limit))
+
+            snapshots = []
+            for row in cursor.fetchall():
+                metrics = json_deserialize(row['metrics_json']) or {}
+                snapshots.append(CognitiveSnapshot(
+                    id=row['id'],
+                    timestamp=row['timestamp'],
+                    period_start=row['period_start'] or "",
+                    period_end=row['period_end'] or "",
+                    avg_response_length=metrics.get('avg_response_length', 0.0),
+                    response_length_std=metrics.get('response_length_std', 0.0),
+                    question_frequency=metrics.get('question_frequency', 0.0),
+                    certainty_markers=metrics.get('certainty_markers', {}),
+                    topic_engagement=metrics.get('topic_engagement', {}),
+                    self_reference_rate=metrics.get('self_reference_rate', 0.0),
+                    experience_claims=metrics.get('experience_claims', 0),
+                    uncertainty_expressions=metrics.get('uncertainty_expressions', 0),
+                    opinions_expressed=metrics.get('opinions_expressed', 0),
+                    opinion_consistency_score=metrics.get('opinion_consistency_score', 0.0),
+                    new_opinions_formed=metrics.get('new_opinions_formed', 0),
+                    tool_usage=metrics.get('tool_usage', {}),
+                    tool_preference_shifts=metrics.get('tool_preference_shifts', []),
+                    conversations_analyzed=metrics.get('conversations_analyzed', 0),
+                    messages_analyzed=metrics.get('messages_analyzed', 0),
+                    unique_users=metrics.get('unique_users', 0),
+                    developmental_stage=metrics.get('developmental_stage', 'early'),
+                    avg_authenticity_score=metrics.get('avg_authenticity_score', 0.0),
+                    avg_enhanced_authenticity=metrics.get('avg_enhanced_authenticity', 0.0),
+                    authenticity_trend=metrics.get('authenticity_trend', 'stable'),
+                    avg_thinking_time_ms=metrics.get('avg_thinking_time_ms', 0.0),
+                    avg_generation_rate=metrics.get('avg_generation_rate', 0.0),
+                    temporal_consistency=metrics.get('temporal_consistency', 0.0),
+                    avg_emote_frequency=metrics.get('avg_emote_frequency', 0.0),
+                    emotional_range=metrics.get('emotional_range', 0.0),
+                    avg_agency_score=metrics.get('avg_agency_score', 0.0),
+                    question_asking_rate=metrics.get('question_asking_rate', 0.0),
+                    opinion_expression_rate=metrics.get('opinion_expression_rate', 0.0),
+                    proactive_exploration_rate=metrics.get('proactive_exploration_rate', 0.0),
+                    alerts_generated=metrics.get('alerts_generated', 0),
+                    critical_alerts=metrics.get('critical_alerts', 0),
+                    anomalous_responses=metrics.get('anomalous_responses', 0)
+                ))
+            return snapshots
+
+    def _save_snapshot_to_db(self, snapshot: CognitiveSnapshot):
+        """Save a cognitive snapshot to SQLite"""
+        metrics = snapshot.to_dict()
+        # Remove id, timestamp, period fields that are stored separately
+        del metrics['id']
+        del metrics['timestamp']
+        del metrics['period_start']
+        del metrics['period_end']
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO cognitive_snapshots (
+                    id, daemon_id, period_start, period_end, metrics_json, timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                snapshot.id,
+                self._daemon_id,
+                snapshot.period_start,
+                snapshot.period_end,
+                json_serialize(metrics),
+                snapshot.timestamp
+            ))
 
     def get_latest_snapshot(self) -> Optional[CognitiveSnapshot]:
         """Get the most recent cognitive snapshot"""
-        snapshots = self.load_snapshots()
-        if not snapshots:
-            return None
-        snapshots.sort(key=lambda s: s.timestamp, reverse=True)
-        return snapshots[0]
+        snapshots = self.load_snapshots(limit=1)
+        return snapshots[0] if snapshots else None
 
     def get_snapshots_in_range(
         self,
@@ -1614,13 +1956,31 @@ class SelfManager:
         end_date: str
     ) -> List[CognitiveSnapshot]:
         """Get snapshots within a date range"""
-        snapshots = self.load_snapshots()
-        filtered = [
-            s for s in snapshots
-            if start_date <= s.timestamp <= end_date
-        ]
-        filtered.sort(key=lambda s: s.timestamp)
-        return filtered
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, period_start, period_end, metrics_json, timestamp
+                FROM cognitive_snapshots
+                WHERE daemon_id = ? AND timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp
+            """, (self._daemon_id, start_date, end_date))
+
+            snapshots = []
+            for row in cursor.fetchall():
+                metrics = json_deserialize(row['metrics_json']) or {}
+                snapshots.append(CognitiveSnapshot(
+                    id=row['id'],
+                    timestamp=row['timestamp'],
+                    period_start=row['period_start'] or "",
+                    period_end=row['period_end'] or "",
+                    **{k: metrics.get(k, type(getattr(CognitiveSnapshot, k, 0))())
+                       for k in ['avg_response_length', 'response_length_std', 'question_frequency',
+                                 'certainty_markers', 'topic_engagement', 'self_reference_rate',
+                                 'experience_claims', 'uncertainty_expressions', 'opinions_expressed',
+                                 'opinion_consistency_score', 'new_opinions_formed', 'tool_usage',
+                                 'tool_preference_shifts', 'conversations_analyzed', 'messages_analyzed',
+                                 'unique_users', 'developmental_stage']}
+                ))
+            return snapshots
 
     def create_snapshot(
         self,
@@ -1786,10 +2146,8 @@ class SelfManager:
             developmental_stage=self._detect_developmental_stage()
         )
 
-        # Save
-        snapshots = self.load_snapshots()
-        snapshots.append(snapshot)
-        self._save_snapshots(snapshots)
+        # Save to SQLite
+        self._save_snapshot_to_db(snapshot)
 
         return snapshot
 
@@ -1891,15 +2249,66 @@ class SelfManager:
     # === Developmental Milestone Operations ===
 
     def load_milestones(self, limit: int = 100) -> List[DevelopmentalMilestone]:
-        """Load developmental milestones, sorted by timestamp descending"""
-        try:
-            with open(self.milestones_file, 'r') as f:
-                data = json.load(f)
-            milestones = [DevelopmentalMilestone.from_dict(m) for m in data]
-            milestones.sort(key=lambda x: x.timestamp, reverse=True)
-            return milestones[:limit]
-        except Exception:
-            return []
+        """Load developmental milestones from SQLite, sorted by timestamp descending"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, description, significance, evidence_json, triggered_at
+                FROM milestones WHERE daemon_id = ?
+                ORDER BY triggered_at DESC LIMIT ?
+            """, (self._daemon_id, limit))
+
+            milestones = []
+            for row in cursor.fetchall():
+                evidence = json_deserialize(row['evidence_json']) or {}
+                milestones.append(DevelopmentalMilestone(
+                    id=row['id'],
+                    timestamp=row['triggered_at'],
+                    milestone_type=evidence.get('milestone_type', 'threshold'),
+                    category=evidence.get('category', 'general'),
+                    title=row['title'],
+                    description=row['description'] or "",
+                    significance=row['significance'] or "medium",
+                    evidence_ids=evidence.get('evidence_ids', []),
+                    evidence_summary=evidence.get('evidence_summary', ''),
+                    developmental_stage=evidence.get('developmental_stage', 'early'),
+                    triggered_by=evidence.get('triggered_by', ''),
+                    before_state=evidence.get('before_state', {}),
+                    after_state=evidence.get('after_state', {}),
+                    auto_detected=evidence.get('auto_detected', True),
+                    acknowledged=evidence.get('acknowledged', False)
+                ))
+            return milestones
+
+    def _save_milestone_to_db(self, milestone: DevelopmentalMilestone):
+        """Save a single milestone to SQLite"""
+        evidence = {
+            'milestone_type': milestone.milestone_type,
+            'category': milestone.category,
+            'evidence_ids': milestone.evidence_ids,
+            'evidence_summary': milestone.evidence_summary,
+            'developmental_stage': milestone.developmental_stage,
+            'triggered_by': milestone.triggered_by,
+            'before_state': milestone.before_state,
+            'after_state': milestone.after_state,
+            'auto_detected': milestone.auto_detected,
+            'acknowledged': milestone.acknowledged
+        }
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO milestones (
+                    id, daemon_id, title, description, significance,
+                    evidence_json, triggered_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                milestone.id,
+                self._daemon_id,
+                milestone.title,
+                milestone.description,
+                milestone.significance,
+                json_serialize(evidence),
+                milestone.timestamp
+            ))
 
     def add_milestone(
         self,
@@ -1936,9 +2345,7 @@ class SelfManager:
             acknowledged=False
         )
 
-        milestones = self.load_milestones()
-        milestones.append(milestone)
-        self._save_milestones(milestones)
+        self._save_milestone_to_db(milestone)
 
         # Sync to graph if callback is set
         if self._graph_callback:
@@ -1997,13 +2404,25 @@ class SelfManager:
 
     def acknowledge_milestone(self, milestone_id: str) -> bool:
         """Mark a milestone as acknowledged"""
-        milestones = self.load_milestones()
-        for m in milestones:
-            if m.id == milestone_id:
-                m.acknowledged = True
-                self._save_milestones(milestones)
-                return True
-        return False
+        with get_db() as conn:
+            # Get current evidence_json
+            cursor = conn.execute(
+                "SELECT evidence_json FROM milestones WHERE id = ? AND daemon_id = ?",
+                (milestone_id, self._daemon_id)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            # Update acknowledged flag
+            evidence = json_deserialize(row['evidence_json']) or {}
+            evidence['acknowledged'] = True
+
+            conn.execute(
+                "UPDATE milestones SET evidence_json = ? WHERE id = ?",
+                (json_serialize(evidence), milestone_id)
+            )
+            return True
 
     def check_for_milestones(self) -> List[DevelopmentalMilestone]:
         """
@@ -2197,34 +2616,64 @@ class SelfManager:
 
     # === Development Log Methods ===
 
-    def _get_development_log_path(self) -> Path:
-        """Get path to development log file"""
-        return self.storage_dir / "development_log.json"
-
     def load_development_logs(self, limit: int = 100) -> List[DevelopmentLogEntry]:
-        """Load all development log entries"""
-        log_path = self._get_development_log_path()
-        if not log_path.exists():
-            return []
+        """Load development log entries from SQLite"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, date, growth_indicators_json, pattern_shifts_json,
+                       qualitative_changes_json, summary, conversation_count,
+                       observation_count, opinion_count, milestone_ids_json
+                FROM development_logs WHERE daemon_id = ?
+                ORDER BY date DESC LIMIT ?
+            """, (self._daemon_id, limit))
 
-        try:
-            with open(log_path, 'r') as f:
-                data = json.load(f)
-            logs = [DevelopmentLogEntry.from_dict(entry) for entry in data]
-            # Sort by date descending, return most recent
-            logs.sort(key=lambda x: x.date, reverse=True)
-            return logs[:limit]
-        except Exception as e:
-            print(f"Error loading development logs: {e}")
-            return []
+            logs = []
+            for row in cursor.fetchall():
+                logs.append(DevelopmentLogEntry(
+                    id=str(row['id']),
+                    date=row['date'],
+                    timestamp=row['date'],  # Use date as timestamp
+                    growth_indicators=json_deserialize(row['growth_indicators_json']) or [],
+                    pattern_shifts=json_deserialize(row['pattern_shifts_json']) or [],
+                    qualitative_changes=json_deserialize(row['qualitative_changes_json']) or [],
+                    summary=row['summary'] or "",
+                    conversation_count=row['conversation_count'] or 0,
+                    observation_count=row['observation_count'] or 0,
+                    opinion_count=row['opinion_count'] or 0,
+                    milestone_count=len(json_deserialize(row['milestone_ids_json']) or []),
+                    developmental_stage=self._determine_stage(),
+                    triggered_milestone_ids=json_deserialize(row['milestone_ids_json']) or []
+                ))
+            return logs
 
     def get_development_log(self, date: str) -> Optional[DevelopmentLogEntry]:
         """Get development log entry for a specific date"""
-        logs = self.load_development_logs(limit=1000)
-        for log in logs:
-            if log.date == date:
-                return log
-        return None
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, date, growth_indicators_json, pattern_shifts_json,
+                       qualitative_changes_json, summary, conversation_count,
+                       observation_count, opinion_count, milestone_ids_json
+                FROM development_logs WHERE daemon_id = ? AND date = ?
+            """, (self._daemon_id, date))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return DevelopmentLogEntry(
+                id=str(row['id']),
+                date=row['date'],
+                timestamp=row['date'],
+                growth_indicators=json_deserialize(row['growth_indicators_json']) or [],
+                pattern_shifts=json_deserialize(row['pattern_shifts_json']) or [],
+                qualitative_changes=json_deserialize(row['qualitative_changes_json']) or [],
+                summary=row['summary'] or "",
+                conversation_count=row['conversation_count'] or 0,
+                observation_count=row['observation_count'] or 0,
+                opinion_count=row['opinion_count'] or 0,
+                milestone_count=len(json_deserialize(row['milestone_ids_json']) or []),
+                developmental_stage=self._determine_stage(),
+                triggered_milestone_ids=json_deserialize(row['milestone_ids_json']) or []
+            )
 
     def _determine_stage(self) -> str:
         """Determine current developmental stage based on observations and milestones"""
@@ -2253,30 +2702,60 @@ class SelfManager:
             return "maturing"
 
     def save_development_log(self, entry: DevelopmentLogEntry) -> None:
-        """Save or update a development log entry"""
-        log_path = self._get_development_log_path()
+        """Save or update a development log entry in SQLite"""
+        with get_db() as conn:
+            # Check if entry for this date exists
+            cursor = conn.execute(
+                "SELECT id FROM development_logs WHERE daemon_id = ? AND date = ?",
+                (self._daemon_id, entry.date)
+            )
+            existing = cursor.fetchone()
 
-        # Load existing logs
-        logs = self.load_development_logs(limit=10000)
-
-        # Check if entry for this date exists
-        existing_idx = None
-        for i, log in enumerate(logs):
-            if log.date == entry.date:
-                existing_idx = i
-                break
-
-        if existing_idx is not None:
-            logs[existing_idx] = entry
-        else:
-            logs.append(entry)
-
-        # Sort by date
-        logs.sort(key=lambda x: x.date)
-
-        # Save
-        with open(log_path, 'w') as f:
-            json.dump([log.to_dict() for log in logs], f, indent=2)
+            if existing:
+                # Update existing entry
+                conn.execute("""
+                    UPDATE development_logs SET
+                        growth_indicators_json = ?,
+                        pattern_shifts_json = ?,
+                        qualitative_changes_json = ?,
+                        summary = ?,
+                        conversation_count = ?,
+                        observation_count = ?,
+                        opinion_count = ?,
+                        milestone_ids_json = ?
+                    WHERE daemon_id = ? AND date = ?
+                """, (
+                    json_serialize(entry.growth_indicators),
+                    json_serialize(entry.pattern_shifts),
+                    json_serialize(entry.qualitative_changes),
+                    entry.summary,
+                    entry.conversation_count,
+                    entry.observation_count,
+                    entry.opinion_count,
+                    json_serialize(entry.triggered_milestone_ids),
+                    self._daemon_id,
+                    entry.date
+                ))
+            else:
+                # Insert new entry
+                conn.execute("""
+                    INSERT INTO development_logs (
+                        daemon_id, date, growth_indicators_json, pattern_shifts_json,
+                        qualitative_changes_json, summary, conversation_count,
+                        observation_count, opinion_count, milestone_ids_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    self._daemon_id,
+                    entry.date,
+                    json_serialize(entry.growth_indicators),
+                    json_serialize(entry.pattern_shifts),
+                    json_serialize(entry.qualitative_changes),
+                    entry.summary,
+                    entry.conversation_count,
+                    entry.observation_count,
+                    entry.opinion_count,
+                    json_serialize(entry.triggered_milestone_ids)
+                ))
 
     def add_development_log(
         self,
