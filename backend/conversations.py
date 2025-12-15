@@ -636,6 +636,38 @@ class ConversationManager:
             row = cursor.fetchone()
             return row['working_summary'] if row else None
 
+    def get_idle_conversations_needing_summary(
+        self,
+        idle_minutes: int = 30,
+        min_unsummarized: int = 5
+    ) -> list:
+        """
+        Get conversations that have unsummarized messages and have been idle.
+
+        Args:
+            idle_minutes: Minutes since last message to consider "idle"
+            min_unsummarized: Minimum unsummarized messages to warrant summarization
+
+        Returns:
+            List of conversation IDs needing summarization
+        """
+        from datetime import datetime, timedelta
+
+        cutoff_time = (datetime.now() - timedelta(minutes=idle_minutes)).isoformat()
+
+        with get_db() as conn:
+            # Find conversations where:
+            # 1. messages_since_last_summary >= min_unsummarized
+            # 2. Most recent message is older than cutoff_time
+            cursor = conn.execute("""
+                SELECT c.id
+                FROM conversations c
+                WHERE c.messages_since_last_summary >= ?
+                  AND (SELECT MAX(m.timestamp) FROM messages m WHERE m.conversation_id = c.id) < ?
+            """, (min_unsummarized, cutoff_time))
+
+            return [row['id'] for row in cursor.fetchall()]
+
     def exclude_message(
         self,
         conversation_id: str,

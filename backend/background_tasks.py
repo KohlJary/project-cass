@@ -129,6 +129,57 @@ async def github_metrics_task(github_metrics_manager):
             logger.error(f"Scheduled GitHub metrics fetch failed: {e}")
 
 
+async def idle_summarization_task(conversation_manager, memory, token_tracker=None):
+    """
+    Background task that summarizes idle conversations hourly.
+
+    Finds conversations with unsummarized messages that haven't had
+    activity in 30+ minutes and triggers summarization.
+
+    Args:
+        conversation_manager: ConversationManager instance
+        memory: MemoryStore instance
+        token_tracker: Optional TokenTracker instance
+    """
+    from summary_generation import generate_and_store_summary
+
+    # Wait for startup to complete
+    await asyncio.sleep(60)
+    logger.info("Idle summarization task started (runs hourly)")
+
+    while True:
+        try:
+            # Find idle conversations needing summarization
+            idle_conversations = conversation_manager.get_idle_conversations_needing_summary(
+                idle_minutes=30,
+                min_unsummarized=5
+            )
+
+            if idle_conversations:
+                logger.info(f"Found {len(idle_conversations)} idle conversations needing summarization")
+
+                for conv_id in idle_conversations:
+                    try:
+                        logger.info(f"Summarizing idle conversation {conv_id[:8]}...")
+                        await generate_and_store_summary(
+                            conversation_id=conv_id,
+                            memory=memory,
+                            conversation_manager=conversation_manager,
+                            token_tracker=token_tracker,
+                            force=False  # Let evaluation decide
+                        )
+                        # Small delay between summarizations
+                        await asyncio.sleep(5)
+                    except Exception as e:
+                        logger.error(f"Failed to summarize conversation {conv_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"Idle summarization task error: {e}")
+
+        # Run every hour
+        await asyncio.sleep(60 * 60)
+
+
 async def autonomous_research_task():
     """
     Background task that runs autonomous research based on scheduler mode.

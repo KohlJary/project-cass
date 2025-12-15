@@ -756,6 +756,13 @@ async def startup_event():
     # Start background task for GitHub metrics collection
     asyncio.create_task(github_metrics_task(github_metrics_manager))
 
+    # Start background task for idle conversation summarization
+    asyncio.create_task(idle_summarization_task(
+        conversation_manager=conversation_manager,
+        memory=memory,
+        token_tracker=token_tracker
+    ))
+
     # Start background task for rhythm-triggered autonomous sessions
     asyncio.create_task(rhythm_phase_monitor_task(
         daily_rhythm_manager,
@@ -2820,7 +2827,7 @@ from journal_tasks import _create_development_log_entry, daily_journal_task
 from context_helpers import process_inline_tags, get_automatic_wiki_context
 from research_integration import _integrate_research_into_self_model, _extract_and_store_opinions, _extract_and_queue_new_red_links
 from summary_generation import generate_and_store_summary, generate_conversation_title
-from background_tasks import autonomous_research_task, github_metrics_task, rhythm_phase_monitor_task
+from background_tasks import autonomous_research_task, github_metrics_task, rhythm_phase_monitor_task, idle_summarization_task
 
 # Initialize the runner (lazy - created when needed)
 _reflection_runner: Optional[SoloReflectionRunner] = None
