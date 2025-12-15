@@ -922,6 +922,7 @@ async def chat(request: ChatRequest):
         )
 
         # Add user context if we have a current user
+        intro_guidance = None
         if current_user_id:
             user_context_entries = memory.retrieve_user_context(
                 query=request.message,
@@ -930,6 +931,10 @@ async def chat(request: ChatRequest):
             user_context = memory.format_user_context(user_context_entries)
             if user_context:
                 memory_context = user_context + "\n\n" + memory_context
+
+            # Check if user model is sparse and add intro guidance
+            sparseness = user_manager.check_user_model_sparseness(current_user_id)
+            intro_guidance = sparseness.get("intro_guidance")
 
         # Add project context if conversation is in a project
         if project_id:
@@ -995,6 +1000,10 @@ async def chat(request: ChatRequest):
         )
         if patterns_context:
             memory_context = patterns_context + "\n\n" + memory_context
+
+        # Add intro guidance for new/sparse user models (at end so it's prominent)
+        if intro_guidance:
+            memory_context = memory_context + "\n\n" + intro_guidance
 
     # Get unsummarized message count to determine if summarization is available
     unsummarized_count = 0
@@ -4879,6 +4888,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 # Add user context if we have a connection user
                 user_context_count = 0
+                intro_guidance = None
                 if ws_user_id:
                     user_context_entries = memory.retrieve_user_context(
                         query=user_message,
@@ -4888,6 +4898,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     user_context = memory.format_user_context(user_context_entries)
                     if user_context:
                         memory_context = user_context + "\n\n" + memory_context
+
+                    # Check if user model is sparse and add intro guidance
+                    sparseness = user_manager.check_user_model_sparseness(ws_user_id)
+                    intro_guidance = sparseness.get("intro_guidance")
 
                 # Add project context if conversation is in a project
                 project_docs_count = 0
@@ -4961,6 +4975,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 )
                 if patterns_context:
                     memory_context = patterns_context + "\n\n" + memory_context
+
+                # Add intro guidance for new/sparse user models (at end so it's prominent)
+                if intro_guidance:
+                    memory_context = memory_context + "\n\n" + intro_guidance
 
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0

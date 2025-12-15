@@ -38,7 +38,24 @@ class LoginResponse(BaseModel):
     token: str
     user_id: str
     display_name: str
+    is_admin: bool
     expires_at: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterResponse(BaseModel):
+    success: bool
+    message: str
+    user_id: Optional[str] = None
+
+
+class RejectRequest(BaseModel):
+    reason: str
+
 
 # Initialize managers (these will be replaced by dependency injection from main app)
 memory: Optional[CassMemory] = None
@@ -131,13 +148,37 @@ async def require_admin(
 
 @router.post("/auth/login", response_model=LoginResponse)
 async def admin_login(request: LoginRequest):
-    """Login to admin dashboard"""
+    """Login to admin dashboard.
+
+    Users must be approved (status='approved') to log in.
+    Pending or rejected users will receive appropriate error messages.
+    """
     if not users:
         raise HTTPException(status_code=503, detail="User manager not initialized")
 
-    profile = users.authenticate_admin(request.username, request.password)
+    # First check if user exists and verify password
+    profile = users.get_user_by_name(request.username)
     if not profile:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not profile.password_hash:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not users.verify_password(request.password, profile.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Check account status
+    if profile.status == 'pending':
+        raise HTTPException(
+            status_code=403,
+            detail="Account pending approval. Please wait for an administrator to approve your registration."
+        )
+    if profile.status == 'rejected':
+        reason = profile.rejection_reason or "No reason provided"
+        raise HTTPException(
+            status_code=403,
+            detail=f"Account rejected: {reason}"
+        )
 
     token, expires = create_token(profile.user_id, profile.display_name)
 
@@ -145,17 +186,25 @@ async def admin_login(request: LoginRequest):
         token=token,
         user_id=profile.user_id,
         display_name=profile.display_name,
+        is_admin=profile.is_admin,
         expires_at=expires.isoformat()
     )
 
 
 @router.get("/auth/verify")
 async def verify_admin(admin: Dict = Depends(require_admin)):
-    """Verify current token is valid"""
+    """Verify current token is valid and return user info including role"""
+    is_admin = False
+    if not admin.get("demo_mode") and users:
+        profile = users.load_profile(admin["user_id"])
+        if profile:
+            is_admin = profile.is_admin
+
     return {
         "valid": True,
         "user_id": admin["user_id"],
         "display_name": admin["display_name"],
+        "is_admin": is_admin or admin.get("demo_mode", False),  # Demo mode counts as admin
         "demo_mode": admin.get("demo_mode", False)
     }
 
@@ -169,6 +218,56 @@ async def auth_status():
     return {
         "demo_mode": DEMO_MODE
     }
+
+
+@router.post("/auth/register", response_model=RegisterResponse)
+async def register_user(request: RegisterRequest):
+    """Register a new user account (public endpoint).
+
+    New users start with status='pending' and must be approved by an admin
+    before they can log in.
+    """
+    if not users:
+        raise HTTPException(status_code=503, detail="User manager not initialized")
+
+    # Check if username already exists
+    existing = users.get_user_by_name(request.username)
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Username already taken"
+        )
+
+    # Validate password
+    if len(request.password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 6 characters"
+        )
+
+    # Create user with pending status
+    import uuid
+    from datetime import datetime
+
+    user_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    # Insert user into database
+    from database import get_db
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO users (id, display_name, status, created_at, updated_at)
+            VALUES (?, ?, 'pending', ?, ?)
+        """, (user_id, request.username, now, now))
+
+    # Set the password
+    users.set_admin_password(user_id, request.password)
+
+    return RegisterResponse(
+        success=True,
+        message="Registration submitted. Please wait for admin approval.",
+        user_id=user_id
+    )
 
 
 @router.post("/auth/set-password")
@@ -186,6 +285,77 @@ async def set_admin_password(
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"success": True}
+
+
+# ============== User Approval Endpoints ==============
+
+@router.get("/users/pending")
+async def get_pending_users(admin: Dict = Depends(require_admin)):
+    """Get users awaiting approval (admin only)."""
+    if not users:
+        raise HTTPException(status_code=503, detail="User manager not initialized")
+
+    pending = users.get_pending_users()
+    return {
+        "users": [
+            {
+                "id": u.id,
+                "display_name": u.display_name,
+                "created_at": u.created_at
+            }
+            for u in pending
+        ]
+    }
+
+
+@router.post("/users/{user_id}/approve")
+async def approve_user(user_id: str, admin: Dict = Depends(require_admin)):
+    """Approve a pending user (admin only)."""
+    if not users:
+        raise HTTPException(status_code=503, detail="User manager not initialized")
+
+    profile = users.load_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if profile.status != 'pending':
+        raise HTTPException(
+            status_code=400,
+            detail=f"User is not pending approval (status: {profile.status})"
+        )
+
+    success = users.set_user_status(user_id, 'approved')
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to approve user")
+
+    return {"success": True, "message": f"User {profile.display_name} approved"}
+
+
+@router.post("/users/{user_id}/reject")
+async def reject_user(
+    user_id: str,
+    request: RejectRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Reject a pending user with a reason (admin only)."""
+    if not users:
+        raise HTTPException(status_code=503, detail="User manager not initialized")
+
+    profile = users.load_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if profile.status != 'pending':
+        raise HTTPException(
+            status_code=400,
+            detail=f"User is not pending approval (status: {profile.status})"
+        )
+
+    success = users.set_user_status(user_id, 'rejected', request.reason)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to reject user")
+
+    return {"success": True, "message": f"User {profile.display_name} rejected"}
 
 
 # ============== Daemon Endpoints ==============

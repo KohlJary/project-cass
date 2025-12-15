@@ -1,0 +1,49 @@
+/* Register-specific styles (extends Login.css) */
+
+.register-success {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.register-success .success-icon {
+  width: 64px;
+  height: 64px;
+  background: #89ddff20;
+  border: 2px solid #89ddff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.5rem;
+  font-size: 2rem;
+  color: #89ddff;
+}
+
+.register-success h2 {
+  color: #e0e0e0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.register-success p {
+  color: #888;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0 0 1.5rem;
+}
+
+.register-success .back-link {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+
+.register-link {
+  color: #c792ea;
+  text-decoration: none;
+}
+
+.register-link:hover {
+  text-decoration: underline;
+}

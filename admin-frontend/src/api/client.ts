@@ -71,6 +71,16 @@ export const memoryApi = {
     api.get('/admin/memory/vectors', { params }),
 };
 
+// Auth endpoints
+export const authApi = {
+  register: (data: { username: string; password: string }) =>
+    api.post('/admin/auth/register', data),
+  login: (username: string, password: string) =>
+    api.post('/admin/auth/login', { username, password }),
+  verify: () => api.get('/admin/auth/verify'),
+  status: () => api.get('/admin/auth/status'),
+};
+
 // User endpoints
 export const usersApi = {
   getAll: () => api.get('/admin/users'),
@@ -84,6 +94,11 @@ export const usersApi = {
     api.post(`/admin/users/${id}/admin-status`, { is_admin: isAdmin }),
   setPassword: (id: string, password: string) =>
     api.post(`/admin/users/${id}/set-password`, { password }),
+  // User approval
+  getPending: () => api.get('/admin/users/pending'),
+  approveUser: (id: string) => api.post(`/admin/users/${id}/approve`),
+  rejectUser: (id: string, reason: string) =>
+    api.post(`/admin/users/${id}/reject`, { reason }),
 };
 
 // Journal endpoints
@@ -690,6 +705,12 @@ export const sessionsApi = {
   // Get session details in unified format regardless of activity type
   getSession: (sessionId: string, sessionType: string) =>
     api.get(`/admin/sessions/${sessionId}`, { params: { session_type: sessionType } }),
+};
+
+// LLM Settings endpoints
+export const settingsApi = {
+  getLLMProvider: () => api.get('/settings/llm-provider'),
+  setLLMProvider: (provider: string) => api.post('/settings/llm-provider', { provider }),
 };
 
 // Dreams API - The Dreaming system
