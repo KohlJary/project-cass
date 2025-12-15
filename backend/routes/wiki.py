@@ -2219,9 +2219,8 @@ async def get_research_dashboard() -> Dict:
     # === Self-Model Integration ===
     try:
         from self_model import SelfManager
-        from config import DATA_DIR
 
-        self_manager = SelfManager(str(DATA_DIR / "cass"))
+        self_manager = SelfManager()  # Uses default daemon from database
         profile = self_manager.load_profile()
 
         # Growth edges
