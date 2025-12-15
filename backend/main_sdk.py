@@ -9,7 +9,8 @@ This version leverages Anthropic's official Agent SDK for:
 """
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -869,8 +870,17 @@ class ProjectDocumentUpdateRequest(BaseModel):
 # === REST Endpoints ===
 
 @app.get("/")
-async def root():
-    """Health check and info"""
+async def root(request: Request):
+    """Root endpoint - serve SPA for browsers, JSON for API clients"""
+    # Check if request is from a browser (wants HTML)
+    accept = request.headers.get("accept", "")
+    frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "admin-frontend", "dist")
+
+    if "text/html" in accept and os.path.exists(os.path.join(frontend_dir, "index.html")):
+        # Browser request - serve the SPA
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
+
+    # API request - return health check JSON
     return {
         "status": "online",
         "entity": "Cass",
@@ -5788,6 +5798,31 @@ async def decline_architectural_request(request_id: str):
         return {"success": True, "message": f"Request {request_id} declined"}
     else:
         raise HTTPException(status_code=404, detail=f"Request {request_id} not found")
+
+
+# === Static Frontend Serving ===
+# Serve admin-frontend for Railway/production deployment
+
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "admin-frontend", "dist")
+
+if os.path.exists(FRONTEND_DIR):
+    # Serve static assets (js, css, images)
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="static-assets")
+
+    # Catch-all route for SPA - must be last
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the SPA for any non-API routes"""
+        # Don't intercept API routes
+        if full_path.startswith(("admin/", "ws", "api/", "health", "settings/", "export/", "wiki/", "projects", "roadmap/", "conversations/", "research/")):
+            raise HTTPException(status_code=404, detail="Not found")
+
+        index_path = os.path.join(FRONTEND_DIR, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Frontend not built")
+else:
+    logger.info(f"Frontend dist not found at {FRONTEND_DIR} - API-only mode")
 
 
 # === Run Server ===

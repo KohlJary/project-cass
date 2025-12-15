@@ -1,0 +1,19 @@
+[build]
+builder = "nixpacks"
+
+[build.nixpacks]
+# Install both Python and Node.js
+aptPkgs = ["ffmpeg"]  # For audio processing if needed
+
+# Build command: install Python deps, build frontend, then ready
+buildCommand = """
+cd backend && pip install -r requirements.txt && cd .. && \
+cd admin-frontend && npm install && npm run build && cd ..
+"""
+
+[deploy]
+startCommand = "cd backend && python main_sdk.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
