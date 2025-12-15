@@ -119,6 +119,8 @@ CREATE TABLE IF NOT EXISTS users (
     preferences_json TEXT,
     password_hash TEXT,
     is_admin INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'approved',
+    rejection_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -762,6 +764,7 @@ def init_database():
     # Run schema migrations before applying schema updates
     # This handles renaming columns in existing tables
     migrate_daemon_schema()
+    migrate_user_status()
 
     with get_db() as conn:
         # Check if schema_version table exists
@@ -898,6 +901,27 @@ def migrate_daemon_schema():
         finally:
             # Re-enable foreign keys
             conn.execute("PRAGMA foreign_keys = ON")
+
+
+def migrate_user_status():
+    """
+    Add status and rejection_reason columns to users table for approval-gated registration.
+    """
+    with get_db() as conn:
+        cursor = conn.execute("PRAGMA table_info(users)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'status' not in columns:
+            print("Migrating users table: adding status column...")
+            conn.execute("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'approved'")
+            conn.commit()
+            print("Added status column to users table")
+
+        if 'rejection_reason' not in columns:
+            print("Migrating users table: adding rejection_reason column...")
+            conn.execute("ALTER TABLE users ADD COLUMN rejection_reason TEXT")
+            conn.commit()
+            print("Added rejection_reason column to users table")
 
 
 def get_or_create_daemon(label: str = "cass", kernel_version: str = "temple-codex-1.0", name: str = "Cass") -> str:

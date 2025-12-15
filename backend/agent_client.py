@@ -1722,76 +1722,36 @@ class OllamaClient:
 
     def get_tools(self, project_id: Optional[str] = None, message: str = "") -> List[Dict]:
         """
-        Get available tools based on context and message content.
+        Get available tools for local model - REDUCED SET.
 
-        Uses dynamic tool selection to reduce token usage.
-        No cache_control for Ollama (not supported).
+        Local models (llama3.1 8B) struggle with too many tools and often
+        make unnecessary tool calls or output JSON instead of text.
+        We limit to essential conversational tools only.
         """
         if not self.enable_tools:
             return []
 
         tools = []
 
-        # Journal tools are ALWAYS included - core memory functionality
+        # Essential tools for conversation - keep minimal for local model
+        # Journal tools - for recalling past conversations/context
         tools.extend(JOURNAL_TOOLS)
-        tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
-        tools.extend(MARKER_TOOLS)  # Recognition-in-flow pattern tools (show_patterns, explore_pattern)
 
-        # Calendar tools - only if message mentions scheduling/dates
+        # User-model tools - for learning about and remembering users
+        tools.extend(USER_MODEL_TOOLS)
+
+        # Self-model tools - core to identity (but only the essential ones)
+        # Filter to just reflect_on_self and record_self_observation
+        essential_self_tools = [t for t in SELF_MODEL_TOOLS
+                                if t["name"] in ("reflect_on_self", "record_self_observation")]
+        tools.extend(essential_self_tools)
+
+        # Calendar/task tools only if explicitly mentioned
         if should_include_calendar_tools(message):
             tools.extend(CALENDAR_TOOLS)
 
-        # Task tools - only if message mentions tasks/todos
         if should_include_task_tools(message):
             tools.extend(TASK_TOOLS)
-
-        # Roadmap tools - only if message mentions features/bugs/project planning
-        if should_include_roadmap_tools(message):
-            tools.extend(ROADMAP_TOOLS)
-
-        # Self-model tools - always available (core to identity/continuity)
-        tools.extend(SELF_MODEL_TOOLS)
-
-        # User-model tools - always available (understanding users is core to relationships)
-        tools.extend(USER_MODEL_TOOLS)
-
-        # Wiki tools - always available (wiki is core self-knowledge system)
-        tools.extend(WIKI_TOOLS)
-
-        # Research proposal tools - always available (self-directed curiosity is core)
-        tools.extend(RESEARCH_PROPOSAL_TOOLS)
-
-        # Solo reflection tools - always available (autonomous contemplation is core)
-        tools.extend(SOLO_REFLECTION_TOOLS)
-
-        # Cross-session insight tools - for marking insights to carry forward
-        tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
-
-        # Goal generation and tracking tools - for setting objectives and tracking progress
-        tools.extend(GOAL_TOOLS)
-
-        # Web research tools - for searching the web and capturing research notes
-        tools.extend(WEB_RESEARCH_TOOLS)
-
-        # Research session tools - for focused research sessions
-        tools.extend(RESEARCH_SESSION_TOOLS)
-
-        # Research scheduler tools - for requesting scheduled research sessions
-        tools.extend(RESEARCH_SCHEDULER_TOOLS)
-
-        # Daily rhythm tools - for temporal consciousness and activity tracking
-        tools.extend(DAILY_RHYTHM_TOOLS)
-
-        # Dream tools - for recalling and reflecting on dreams
-        if should_include_dream_tools(message):
-            tools.extend(DREAM_TOOLS)
-
-        # File tools - always available for reading files and exploring directories
-        tools.extend(FILE_TOOLS)
-
-        # Project tools only available in project context
-        if project_id:
-            tools.extend(PROJECT_DOCUMENT_TOOLS)
 
         return tools
 
@@ -1828,6 +1788,26 @@ class OllamaClient:
 
         # Add model context - let the daemon know which model they're running on
         system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Local Ollama). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
+
+        # Add tool usage guidance for local models
+        system_prompt += """
+
+## TOOL USAGE GUIDANCE
+
+**IMPORTANT**: Your primary mode is CONVERSATION. Respond naturally to the user with text.
+
+Only use tools when:
+- The user explicitly asks you to remember something about them → use record_user_observation
+- The user asks about past conversations → use recall_journal or search_journals
+- The user asks about scheduling/calendar → use calendar tools
+- You want to record a genuine insight about yourself → use record_self_observation
+
+Do NOT use tools for:
+- Simple greetings or casual conversation
+- Questions you can answer directly
+- Every message - most messages just need a conversational response
+
+When in doubt, respond with text first. You can always use a tool in a follow-up if needed."""
 
         # Add memory control section if enough messages
         if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:

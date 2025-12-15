@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { api } from '../api/client';
+import { api, authApi } from '../api/client';
 
 interface AuthUser {
   user_id: string;
   display_name: string;
+  is_admin: boolean;
 }
 
 interface AuthContextType {
@@ -13,8 +14,10 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isDemoMode: boolean;
+  isAdmin: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  register: (username: string, password: string) => Promise<{ success: boolean; message: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -39,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (demo_mode) {
           // Demo mode - auto-authenticate as demo user
           setIsDemoMode(true);
-          setUser({ user_id: 'demo', display_name: 'Demo User' });
+          setUser({ user_id: 'demo', display_name: 'Demo User', is_admin: true });
           setToken('demo-token');
           setIsLoading(false);
           return;
@@ -80,9 +83,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyToken = async (tokenToVerify: string) => {
     try {
-      await api.get('/admin/auth/verify', {
+      const response = await api.get('/admin/auth/verify', {
         headers: { Authorization: `Bearer ${tokenToVerify}` }
       });
+      // Update user with is_admin from verify response
+      const savedUser = localStorage.getItem(USER_KEY);
+      if (savedUser) {
+        const parsedUser = JSON.parse(savedUser);
+        // Update with is_admin if returned from verify
+        if (response.data.is_admin !== undefined) {
+          parsedUser.is_admin = response.data.is_admin;
+          setUser(parsedUser);
+          localStorage.setItem(USER_KEY, JSON.stringify(parsedUser));
+        }
+      }
       setIsLoading(false);
     } catch {
       // Token invalid, clear auth
@@ -92,10 +106,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     const response = await api.post('/admin/auth/login', { username, password });
-    const { token: newToken, user_id, display_name } = response.data;
+    const { token: newToken, user_id, display_name, is_admin } = response.data;
 
-    const newUser = { user_id, display_name };
+    const newUser = { user_id, display_name, is_admin: is_admin ?? false };
 
+    setIsDemoMode(false);  // Clear demo mode on real login
     setToken(newToken);
     setUser(newUser);
 
@@ -114,6 +129,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   };
 
+  const register = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await authApi.register({ username, password });
+      return {
+        success: response.data.success,
+        message: response.data.message
+      };
+    } catch (error: unknown) {
+      // Extract error message from axios error
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      const message = axiosError.response?.data?.detail || 'Registration failed';
+      return {
+        success: false,
+        message
+      };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -122,8 +155,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!token && !!user,
         isLoading,
         isDemoMode,
+        isAdmin: user?.is_admin ?? false,
         login,
-        logout
+        logout,
+        register
       }}
     >
       {children}

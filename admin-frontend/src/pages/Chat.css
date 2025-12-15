@@ -54,6 +54,26 @@
   border-color: #89ddff40;
 }
 
+.show-all-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #888;
+  cursor: pointer;
+  margin-left: auto;
+  margin-right: 0.5rem;
+}
+
+.show-all-toggle input {
+  cursor: pointer;
+  accent-color: #89ddff;
+}
+
+.show-all-toggle:hover {
+  color: #aaa;
+}
+
 .conversation-list {
   flex: 1;
   overflow-y: auto;
@@ -178,6 +198,54 @@
 .connection-status.disconnected {
   background: #4a2d2d;
   color: #ee9090;
+}
+
+/* Model Picker */
+.model-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.model-select {
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #e0e0e0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.model-select:hover:not(:disabled) {
+  border-color: #c792ea60;
+}
+
+.model-select:focus {
+  outline: none;
+  border-color: #c792ea;
+}
+
+.model-select:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.model-select option {
+  background: #1a1a1a;
+  color: #e0e0e0;
+}
+
+.current-model {
+  font-size: 0.6875rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: #666;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Messages */

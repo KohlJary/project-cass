@@ -3,7 +3,15 @@ import { useAuth } from '../context/AuthContext';
 import { useDaemon } from '../context/DaemonContext';
 import './Layout.css';
 
-const navItems = [
+// Nav items available to all authenticated users
+const userNavItems = [
+  { path: '/chat', label: 'Chat', icon: 'C' },
+  { path: '/self-development', label: 'Self-Dev', icon: '%' },
+  { path: '/profile', label: 'My Profile', icon: '@' },
+];
+
+// Nav items only available to admins
+const adminNavItems = [
   { path: '/', label: 'Dashboard', icon: '~' },
   { path: '/chat', label: 'Chat', icon: 'C' },
   { path: '/memory', label: 'Memory', icon: '*' },
@@ -19,33 +27,38 @@ const navItems = [
 ];
 
 export function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const { currentDaemon, availableDaemons, isLoading: daemonLoading, setDaemon } = useDaemon();
+
+  // Use appropriate nav items based on role
+  const navItems = isAdmin ? adminNavItems : userNavItems;
 
   return (
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
           <h1>Cass Admin</h1>
-          <div className="daemon-selector">
-            {daemonLoading ? (
-              <span className="daemon-loading">Loading...</span>
-            ) : availableDaemons.length > 1 ? (
-              <select
-                value={currentDaemon?.id || ''}
-                onChange={(e) => setDaemon(e.target.value)}
-                className="daemon-select"
-              >
-                {availableDaemons.map((daemon) => (
-                  <option key={daemon.id} value={daemon.id}>
-                    {daemon.label} ({daemon.name})
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="daemon-name">{currentDaemon?.label || currentDaemon?.name || 'No daemon'}</span>
-            )}
-          </div>
+          {isAdmin && (
+            <div className="daemon-selector">
+              {daemonLoading ? (
+                <span className="daemon-loading">Loading...</span>
+              ) : availableDaemons.length > 1 ? (
+                <select
+                  value={currentDaemon?.id || ''}
+                  onChange={(e) => setDaemon(e.target.value)}
+                  className="daemon-select"
+                >
+                  {availableDaemons.map((daemon) => (
+                    <option key={daemon.id} value={daemon.id}>
+                      {daemon.label} ({daemon.name})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="daemon-name">{currentDaemon?.label || currentDaemon?.name || 'No daemon'}</span>
+              )}
+            </div>
+          )}
         </div>
         <nav className="nav">
           {navItems.map((item) => (
@@ -55,6 +68,7 @@ export function Layout() {
               className={({ isActive }) =>
                 `nav-item ${isActive ? 'active' : ''}`
               }
+              end={item.path === '/'}
             >
               <span className="nav-icon">{item.icon}</span>
               <span className="nav-label">{item.label}</span>
@@ -64,6 +78,7 @@ export function Layout() {
         <div className="sidebar-footer">
           <div className="user-info">
             <span className="user-name">{user?.display_name}</span>
+            {isAdmin && <span className="admin-badge">Admin</span>}
             <button className="logout-btn" onClick={logout}>
               Logout
             </button>

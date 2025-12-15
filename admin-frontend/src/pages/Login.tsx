@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './Login.css';
+import './Register.css';  // For the register-link style
 
 export function Login() {
   const [username, setUsername] = useState('');
@@ -73,7 +74,7 @@ export function Login() {
         </form>
 
         <div className="login-footer">
-          <p>Admin access required</p>
+          <p>Don't have an account? <Link to="/register" className="register-link">Register</Link></p>
         </div>
       </div>
     </div>

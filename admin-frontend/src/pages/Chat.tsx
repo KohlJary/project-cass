@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { conversationsApi } from '../api/client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { conversationsApi, settingsApi } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
 import type { ChatMessage } from '../hooks/useWebSocket';
 import { parseGestureTags, formatTokens } from '../utils/gestures';
@@ -28,13 +29,24 @@ interface PendingImage {
   preview: string;  // data URL for preview
 }
 
+interface LLMProviderInfo {
+  current: string;
+  available: string[];
+  anthropic_model: string;
+  openai_model: string;
+  local_model: string;
+}
+
 export function Chat() {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
+  const [showAllConversations, setShowAllConversations] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isAdmin, user, isDemoMode } = useAuth();
+  const queryClient = useQueryClient();
 
   const {
     isConnected,
@@ -53,10 +65,18 @@ export function Chat() {
   } = useWebSocket();
 
   // Fetch conversation list
+  // - Demo mode: see all conversations
+  // - Admins: toggle between all or just their own
+  // - Regular users: only see their own conversations
   const { data: conversations, refetch: refetchConversations } = useQuery({
-    queryKey: ['chat-conversations'],
-    queryFn: () => conversationsApi.getAll({ limit: 50 }).then((r) => r.data.conversations),
+    queryKey: ['chat-conversations', isDemoMode, isAdmin, showAllConversations, user?.user_id],
+    queryFn: () => {
+      const filterUserId = isDemoMode ? undefined : (isAdmin && showAllConversations) ? undefined : user?.user_id;
+      return conversationsApi.getAll({ user_id: filterUserId, limit: 50 }).then((r) => r.data.conversations);
+    },
+    enabled: isDemoMode || !!user?.user_id,
     retry: false,
+    staleTime: 0,  // Always refetch when key changes
   });
 
   // Fetch messages when conversation is selected
@@ -91,6 +111,23 @@ export function Chat() {
         : Promise.resolve(null),
     enabled: !!selectedConversationId,
     retry: false,
+  });
+
+  // Fetch LLM provider info (admin only)
+  const { data: llmProviderData } = useQuery<LLMProviderInfo>({
+    queryKey: ['llm-provider'],
+    queryFn: () => settingsApi.getLLMProvider().then((r) => r.data),
+    enabled: isAdmin,
+    retry: false,
+    refetchInterval: 30000, // Refresh every 30s
+  });
+
+  // Mutation to change LLM provider
+  const setProviderMutation = useMutation({
+    mutationFn: (provider: string) => settingsApi.setLLMProvider(provider),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['llm-provider'] });
+    },
   });
 
   // Populate recognition from historical observations
@@ -246,6 +283,16 @@ export function Chat() {
       <aside className="chat-sidebar">
         <div className="sidebar-header">
           <h2>Conversations</h2>
+          {isAdmin && (
+            <label className="show-all-toggle" title="Show all users' conversations">
+              <input
+                type="checkbox"
+                checked={showAllConversations}
+                onChange={(e) => setShowAllConversations(e.target.checked)}
+              />
+              <span>All</span>
+            </label>
+          )}
           <button className="new-chat-btn" onClick={handleNewConversation} title="New conversation">
             +
           </button>
@@ -283,6 +330,32 @@ export function Chat() {
               : 'New Conversation'}
           </div>
           <div className="header-right">
+            {/* Model Picker (Admin only) */}
+            {isAdmin && llmProviderData && (
+              <div className="model-picker">
+                <select
+                  value={llmProviderData.current}
+                  onChange={(e) => setProviderMutation.mutate(e.target.value)}
+                  disabled={setProviderMutation.isPending}
+                  className="model-select"
+                >
+                  {llmProviderData.available.map((provider) => (
+                    <option key={provider} value={provider}>
+                      {provider === 'anthropic' ? 'Claude' : provider === 'openai' ? 'OpenAI' : provider === 'local' ? 'Ollama' : provider}
+                    </option>
+                  ))}
+                </select>
+                <span className="current-model" title={
+                  llmProviderData.current === 'anthropic' ? llmProviderData.anthropic_model :
+                  llmProviderData.current === 'openai' ? llmProviderData.openai_model :
+                  llmProviderData.local_model
+                }>
+                  {llmProviderData.current === 'anthropic' ? llmProviderData.anthropic_model :
+                   llmProviderData.current === 'openai' ? llmProviderData.openai_model :
+                   llmProviderData.local_model}
+                </span>
+              </div>
+            )}
             <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
               {isConnected ? 'Connected' : 'Disconnected'}
             </div>

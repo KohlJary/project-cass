@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { DaemonProvider } from './context/DaemonContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 import { Dashboard } from './pages/Dashboard';
 import { Chat } from './pages/Chat';
 // Consolidated views
@@ -15,6 +16,7 @@ import { Activity } from './pages/Activity';
 import { Knowledge } from './pages/Knowledge';
 // Remaining standalone views
 import { Users } from './pages/Users';
+import { UserProfile } from './pages/UserProfile';
 import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
 import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
@@ -55,15 +57,33 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <DaemonProvider>{children}</DaemonProvider>;
 }
 
+// Admin-only route wrapper - redirects non-admins to /chat
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useAuth();
+
+  if (!isAdmin) {
+    return <Navigate to="/chat" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 function AppRoutes() {
   const { isAuthenticated } = useAuth();
 
   return (
     <Routes>
+      {/* Public routes */}
       <Route
         path="/login"
         element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
       />
+      <Route
+        path="/register"
+        element={isAuthenticated ? <Navigate to="/" replace /> : <Register />}
+      />
+
+      {/* Protected routes */}
       <Route
         path="/"
         element={
@@ -72,41 +92,36 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
+        {/* Dashboard - admin only */}
+        <Route index element={<AdminRoute><Dashboard /></AdminRoute>} />
+
+        {/* Non-admin accessible routes */}
         <Route path="chat" element={<Chat />} />
-        {/* Consolidated: Memory System (Memory + Retrieval + Vectors) */}
-        <Route path="memory" element={<MemorySystem />} />
-        {/* Redirects for old routes */}
-        <Route path="retrieval" element={<Navigate to="/memory?tab=retrieval" replace />} />
-        <Route path="vectors" element={<Navigate to="/memory?tab=vectors" replace />} />
-        {/* Consolidated: Self-Development (Self-Model + Development) */}
         <Route path="self-development" element={<SelfDevelopment />} />
-        {/* Redirects for old routes */}
+        <Route path="profile" element={<UserProfile />} />
+
+        {/* Admin-only routes */}
+        <Route path="memory" element={<AdminRoute><MemorySystem /></AdminRoute>} />
+        <Route path="retrieval" element={<AdminRoute><Navigate to="/memory?tab=retrieval" replace /></AdminRoute>} />
+        <Route path="vectors" element={<AdminRoute><Navigate to="/memory?tab=vectors" replace /></AdminRoute>} />
         <Route path="self-model" element={<Navigate to="/self-development?tab=identity" replace />} />
         <Route path="development" element={<Navigate to="/self-development?tab=timeline" replace />} />
-        {/* Consolidated: Activity (Conversations + Journals + Reflection) */}
-        <Route path="activity" element={<Activity />} />
-        {/* Redirects for old routes */}
-        <Route path="conversations" element={<Navigate to="/activity?tab=conversations" replace />} />
-        <Route path="journals" element={<Navigate to="/activity?tab=journals" replace />} />
-        <Route path="reflection" element={<Navigate to="/activity?tab=reflection" replace />} />
-        {/* Remaining views */}
-        <Route path="users" element={<Users />} />
-        {/* Consolidated: Knowledge (Wiki + Research + Goals) */}
-        <Route path="knowledge" element={<Knowledge />} />
-        {/* Redirects for old routes */}
-        <Route path="wiki" element={<Navigate to="/knowledge?tab=wiki" replace />} />
-        <Route path="research" element={<Navigate to="/knowledge?tab=research" replace />} />
-        <Route path="goals" element={<Navigate to="/knowledge?tab=goals" replace />} />
-        {/* Consolidated: Settings (System + Data) */}
-        <Route path="settings" element={<Settings />} />
-        {/* Redirects for old routes */}
-        <Route path="system" element={<Navigate to="/settings?tab=health" replace />} />
-        <Route path="data" element={<Navigate to="/settings?tab=export" replace />} />
-        <Route path="consciousness" element={<ConsciousnessHealth />} />
-        <Route path="dreams" element={<Dreams />} />
-        <Route path="metrics" element={<Metrics />} />
-        <Route path="projects" element={<Projects />} />
+        <Route path="activity" element={<AdminRoute><Activity /></AdminRoute>} />
+        <Route path="conversations" element={<AdminRoute><Navigate to="/activity?tab=conversations" replace /></AdminRoute>} />
+        <Route path="journals" element={<AdminRoute><Navigate to="/activity?tab=journals" replace /></AdminRoute>} />
+        <Route path="reflection" element={<AdminRoute><Navigate to="/activity?tab=reflection" replace /></AdminRoute>} />
+        <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
+        <Route path="knowledge" element={<AdminRoute><Knowledge /></AdminRoute>} />
+        <Route path="wiki" element={<AdminRoute><Navigate to="/knowledge?tab=wiki" replace /></AdminRoute>} />
+        <Route path="research" element={<AdminRoute><Navigate to="/knowledge?tab=research" replace /></AdminRoute>} />
+        <Route path="goals" element={<AdminRoute><Navigate to="/knowledge?tab=goals" replace /></AdminRoute>} />
+        <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
+        <Route path="system" element={<AdminRoute><Navigate to="/settings?tab=health" replace /></AdminRoute>} />
+        <Route path="data" element={<AdminRoute><Navigate to="/settings?tab=export" replace /></AdminRoute>} />
+        <Route path="consciousness" element={<AdminRoute><ConsciousnessHealth /></AdminRoute>} />
+        <Route path="dreams" element={<AdminRoute><Dreams /></AdminRoute>} />
+        <Route path="metrics" element={<AdminRoute><Metrics /></AdminRoute>} />
+        <Route path="projects" element={<AdminRoute><Projects /></AdminRoute>} />
       </Route>
     </Routes>
   );

@@ -10,6 +10,13 @@ interface User {
   created_at: string;
   is_admin: boolean;
   has_password: boolean;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+interface PendingUser {
+  id: string;
+  display_name: string;
+  created_at: string;
 }
 
 interface Observation {
@@ -112,6 +119,8 @@ interface RelationshipModel {
 
 export function Users() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [rejectModalUser, setRejectModalUser] = useState<PendingUser | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const queryClient = useQueryClient();
 
@@ -119,6 +128,33 @@ export function Users() {
     queryKey: ['users'],
     queryFn: () => usersApi.getAll().then((r) => r.data),
     retry: false,
+  });
+
+  const { data: pendingData } = useQuery({
+    queryKey: ['pending-users'],
+    queryFn: () => usersApi.getPending().then((r) => r.data),
+    retry: false,
+  });
+
+  const pendingUsers = pendingData?.users as PendingUser[] | undefined;
+
+  const approveMutation = useMutation({
+    mutationFn: (userId: string) => usersApi.approveUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-users'] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ userId, reason }: { userId: string; reason: string }) =>
+      usersApi.rejectUser(userId, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-users'] });
+      setRejectModalUser(null);
+      setRejectReason('');
+    },
   });
 
   const selectedUser = data?.users?.find((u: User) => u.id === selectedUserId);
@@ -163,6 +199,77 @@ export function Users() {
         <h1>Users</h1>
         <p className="subtitle">Manage user profiles and observations</p>
       </header>
+
+      {/* Pending Approval Section */}
+      {pendingUsers && pendingUsers.length > 0 && (
+        <div className="pending-users-section">
+          <div className="pending-header">
+            <h2>Pending Approval ({pendingUsers.length})</h2>
+          </div>
+          <div className="pending-list">
+            {pendingUsers.map((user) => (
+              <div key={user.id} className="pending-user-item">
+                <div className="pending-user-info">
+                  <span className="pending-user-name">{user.display_name}</span>
+                  <span className="pending-user-date">
+                    Registered {new Date(user.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="pending-user-actions">
+                  <button
+                    className="approve-btn"
+                    onClick={() => approveMutation.mutate(user.id)}
+                    disabled={approveMutation.isPending}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    className="reject-btn"
+                    onClick={() => setRejectModalUser(user)}
+                    disabled={rejectMutation.isPending}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reject Modal */}
+      {rejectModalUser && (
+        <div className="modal-overlay" onClick={() => setRejectModalUser(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Reject User</h3>
+            <p>Provide a reason for rejecting {rejectModalUser.display_name}'s registration.</p>
+            <textarea
+              placeholder="Reason for rejection..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={3}
+            />
+            <div className="modal-actions">
+              <button
+                className="cancel-btn"
+                onClick={() => {
+                  setRejectModalUser(null);
+                  setRejectReason('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="reject-confirm-btn"
+                onClick={() => rejectMutation.mutate({ userId: rejectModalUser.id, reason: rejectReason })}
+                disabled={!rejectReason || rejectMutation.isPending}
+              >
+                {rejectMutation.isPending ? 'Rejecting...' : 'Reject User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="users-layout">
         {/* User list */}
