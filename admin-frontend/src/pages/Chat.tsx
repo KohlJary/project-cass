@@ -67,6 +67,18 @@ export function Chat() {
     retry: false,
   });
 
+  // Fetch summaries for current conversation
+  const { data: summaryData } = useQuery({
+    queryKey: ['chat-summaries', selectedConversationId],
+    queryFn: () =>
+      selectedConversationId
+        ? conversationsApi.getSummaries(selectedConversationId).then((r) => r.data)
+        : Promise.resolve(null),
+    enabled: !!selectedConversationId,
+    retry: false,
+    refetchInterval: 30000, // Refresh every 30s
+  });
+
   // Load history when conversation messages are fetched
   useEffect(() => {
     if (conversationMessages && conversationMessages.length > 0) {
@@ -233,20 +245,6 @@ export function Chat() {
               : 'New Conversation'}
           </div>
           <div className="header-right">
-            {memoryContext && (
-              <div className="memory-context">
-                <span className="memory-label">Memory:</span>
-                <span className="memory-stat" title="Summaries loaded">
-                  {memoryContext.summaries_count} summaries
-                </span>
-                <span className="memory-stat" title="Recent messages loaded">
-                  {memoryContext.details_count} details
-                </span>
-                {memoryContext.has_context && (
-                  <span className="memory-indicator" title="Context active">*</span>
-                )}
-              </div>
-            )}
             <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
               {isConnected ? 'Connected' : 'Disconnected'}
             </div>
@@ -361,6 +359,80 @@ export function Chat() {
           </div>
         </div>
       </main>
+
+      {/* Memory Sidebar (Right) */}
+      <aside className="memory-sidebar">
+        <div className="memory-sidebar-header">
+          <h3>Memory Context</h3>
+        </div>
+        <div className="memory-sidebar-content">
+          {/* Live memory stats from WebSocket */}
+          {memoryContext && (
+            <div className="memory-stats">
+              <div className="memory-stat-row">
+                <span className="memory-stat-label">Summaries loaded</span>
+                <span className="memory-stat-value">{memoryContext.summaries_count}</span>
+              </div>
+              <div className="memory-stat-row">
+                <span className="memory-stat-label">Recent messages</span>
+                <span className="memory-stat-value">{memoryContext.details_count}</span>
+              </div>
+              <div className="memory-stat-row">
+                <span className="memory-stat-label">Context active</span>
+                <span className={`memory-stat-value ${memoryContext.has_context ? 'active' : ''}`}>
+                  {memoryContext.has_context ? 'Yes' : 'No'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Working Summary */}
+          {summaryData?.working_summary && (
+            <div className="memory-section">
+              <div className="memory-section-header">
+                <span className="memory-section-title">Working Summary</span>
+              </div>
+              <div className="memory-section-items">
+                <div className="memory-item">
+                  <div className="memory-item-content">{summaryData.working_summary}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Summary Chunks */}
+          <div className="memory-section">
+            <div className="memory-section-header">
+              <span className="memory-section-title">Summaries</span>
+              <span className="memory-section-count">{summaryData?.count || 0}</span>
+            </div>
+            <div className="memory-section-items">
+              {summaryData?.summaries && summaryData.summaries.length > 0 ? (
+                summaryData.summaries.slice(0, 10).map((summary: { id: string; content: string; metadata?: { timestamp?: string } }, idx: number) => (
+                  <div key={summary.id || idx} className="memory-item">
+                    {summary.metadata?.timestamp && (
+                      <div className="memory-item-timestamp">
+                        {new Date(summary.metadata.timestamp).toLocaleString()}
+                      </div>
+                    )}
+                    <div className="memory-item-content">
+                      {summary.content.length > 200
+                        ? summary.content.substring(0, 200) + '...'
+                        : summary.content}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="memory-empty">
+                  {selectedConversationId
+                    ? 'No summaries yet'
+                    : 'Select a conversation'}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }
