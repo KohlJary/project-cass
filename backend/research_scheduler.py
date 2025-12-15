@@ -73,7 +73,7 @@ class ScheduledSession:
 
 class ResearchScheduler:
     """
-    Manages scheduled research sessions.
+    Manages scheduled research sessions using SQLite.
 
     Flow:
     1. Cass requests session via propose_research_session tool
@@ -82,9 +82,11 @@ class ResearchScheduler:
     4. Session runs through ResearchSessionManager
     """
 
-    def __init__(self, data_dir: Path):
-        self.data_dir = data_dir / "research" / "schedules"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, daemon_id: str = None, data_dir: Path = None):
+        # data_dir kept for backwards compatibility but not used
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
         # Callback for triggering sessions (set by main app)
         self._session_trigger: Optional[Callable] = None
@@ -93,33 +95,77 @@ class ResearchScheduler:
         self.schedules: Dict[str, ScheduledSession] = {}
         self._load_schedules()
 
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
+
     def _load_schedules(self):
-        """Load all schedules from disk"""
-        for schedule_file in self.data_dir.glob("*.json"):
-            try:
-                with open(schedule_file) as f:
-                    data = json.load(f)
-                data["status"] = ScheduleStatus(data["status"])
-                data["recurrence"] = ScheduleRecurrence(data["recurrence"])
-                # Handle session_type (default to reflection for backwards compatibility)
-                if "session_type" in data:
-                    data["session_type"] = SessionType(data["session_type"])
-                else:
-                    data["session_type"] = SessionType.REFLECTION
-                schedule = ScheduledSession(**data)
-                self.schedules[schedule.schedule_id] = schedule
-            except Exception as e:
-                logger.error(f"Error loading schedule {schedule_file}: {e}")
+        """Load all schedules from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, created_at, status, requested_by, focus_description,
+                       focus_item_id, session_type, recurrence, preferred_time,
+                       duration_minutes, mode, approved_by, approved_at,
+                       rejection_reason, last_run, next_run, run_count,
+                       last_session_id, notes
+                FROM research_schedules
+                WHERE daemon_id = ?
+            """, (self._daemon_id,))
+
+            for row in cursor.fetchall():
+                try:
+                    schedule = ScheduledSession(
+                        schedule_id=row[0],
+                        created_at=row[1],
+                        status=ScheduleStatus(row[2]),
+                        requested_by=row[3],
+                        focus_description=row[4],
+                        focus_item_id=row[5],
+                        session_type=SessionType(row[6]) if row[6] else SessionType.REFLECTION,
+                        recurrence=ScheduleRecurrence(row[7]) if row[7] else ScheduleRecurrence.ONCE,
+                        preferred_time=row[8],
+                        duration_minutes=row[9] or 30,
+                        mode=row[10] or "explore",
+                        approved_by=row[11],
+                        approved_at=row[12],
+                        rejection_reason=row[13],
+                        last_run=row[14],
+                        next_run=row[15],
+                        run_count=row[16] or 0,
+                        last_session_id=row[17],
+                        notes=row[18] or ""
+                    )
+                    self.schedules[schedule.schedule_id] = schedule
+                except Exception as e:
+                    logger.error(f"Error loading schedule {row[0]}: {e}")
 
     def _save_schedule(self, schedule: ScheduledSession):
-        """Save a schedule to disk"""
-        path = self.data_dir / f"{schedule.schedule_id}.json"
-        data = asdict(schedule)
-        data["status"] = schedule.status.value
-        data["recurrence"] = schedule.recurrence.value
-        data["session_type"] = schedule.session_type.value
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
+        """Save a schedule to database"""
+        from database import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO research_schedules (
+                    id, daemon_id, created_at, status, requested_by, focus_description,
+                    focus_item_id, session_type, recurrence, preferred_time,
+                    duration_minutes, mode, approved_by, approved_at, rejection_reason,
+                    last_run, next_run, run_count, last_session_id, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                schedule.schedule_id, self._daemon_id, schedule.created_at,
+                schedule.status.value, schedule.requested_by, schedule.focus_description,
+                schedule.focus_item_id, schedule.session_type.value, schedule.recurrence.value,
+                schedule.preferred_time, schedule.duration_minutes, schedule.mode,
+                schedule.approved_by, schedule.approved_at, schedule.rejection_reason,
+                schedule.last_run, schedule.next_run, schedule.run_count,
+                schedule.last_session_id, schedule.notes
+            ))
+            conn.commit()
         self.schedules[schedule.schedule_id] = schedule
 
     def set_session_trigger(self, trigger: Callable):
@@ -331,11 +377,15 @@ class ResearchScheduler:
         if not schedule:
             return {"success": False, "error": "Schedule not found"}
 
-        # Remove from memory and disk
+        # Remove from memory and database
         del self.schedules[schedule_id]
-        path = self.data_dir / f"{schedule_id}.json"
-        if path.exists():
-            path.unlink()
+        from database import get_db
+        with get_db() as conn:
+            conn.execute("""
+                DELETE FROM research_schedules
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, schedule_id))
+            conn.commit()
 
         return {"success": True, "message": "Schedule deleted"}
 

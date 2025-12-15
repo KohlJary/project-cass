@@ -51,20 +51,14 @@ class GitHubMetricsManager:
     """
     Manages GitHub metrics fetching and historical storage.
 
-    Storage structure:
-        data/github/
-            current.json          - Latest snapshot
-            historical/
-                2025-12-09.json   - Daily snapshots
+    Storage: SQLite github_metrics table with daemon_id support.
     """
 
-    def __init__(self, data_dir: Path):
-        self.data_dir = data_dir / "github"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.historical_dir = self.data_dir / "historical"
-        self.historical_dir.mkdir(exist_ok=True)
-
-        self.current_file = self.data_dir / "current.json"
+    def __init__(self, daemon_id: str = None, data_dir: Path = None):
+        # data_dir kept for backwards compatibility but not used
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
         # GitHub API config
         self.token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_KEY")
@@ -74,6 +68,15 @@ class GitHubMetricsManager:
         self.base_url = "https://api.github.com"
         self.last_fetch: Optional[datetime] = None
         self.rate_limit_remaining: Optional[int] = None
+
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
 
     def _get_headers(self, token: Optional[str] = None) -> Dict[str, str]:
         """
@@ -189,32 +192,27 @@ class GitHubMetricsManager:
         return snapshot
 
     def save_snapshot(self, snapshot: MetricsSnapshot):
-        """Save snapshot to current.json and daily historical file."""
-        data = asdict(snapshot)
+        """Save snapshot to SQLite database."""
+        from database import get_db, json_serialize
 
-        # Save current
-        with open(self.current_file, 'w') as f:
-            json.dump(data, f, indent=2)
-
-        # Save to historical (one file per day)
+        timestamp = snapshot.timestamp
         date_str = datetime.now().strftime("%Y-%m-%d")
-        historical_file = self.historical_dir / f"{date_str}.json"
 
-        # Append to or create daily file
-        daily_data = []
-        if historical_file.exists():
-            try:
-                with open(historical_file, 'r') as f:
-                    daily_data = json.load(f)
-                    if not isinstance(daily_data, list):
-                        daily_data = [daily_data]
-            except:
-                daily_data = []
-
-        daily_data.append(data)
-
-        with open(historical_file, 'w') as f:
-            json.dump(daily_data, f, indent=2)
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO github_metrics (
+                    daemon_id, timestamp, date, repos_json,
+                    api_calls_remaining, error
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                self._daemon_id,
+                timestamp,
+                date_str,
+                json_serialize(snapshot.repos),
+                snapshot.api_calls_remaining,
+                snapshot.error
+            ))
+            conn.commit()
 
         logger.info(f"Saved GitHub metrics snapshot at {snapshot.timestamp}")
 
@@ -226,15 +224,27 @@ class GitHubMetricsManager:
 
     def get_current_metrics(self) -> Optional[Dict[str, Any]]:
         """Get the most recent metrics snapshot."""
-        if not self.current_file.exists():
-            return None
+        from database import get_db, json_deserialize
 
-        try:
-            with open(self.current_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading current metrics: {e}")
-            return None
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT timestamp, repos_json, api_calls_remaining, error
+                FROM github_metrics
+                WHERE daemon_id = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """, (self._daemon_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                "timestamp": row[0],
+                "repos": json_deserialize(row[1]) or {},
+                "api_calls_remaining": row[2],
+                "error": row[3]
+            }
 
     def get_historical_metrics(
         self,
@@ -249,59 +259,50 @@ class GitHubMetricsManager:
             repo: Optional specific repo to filter for
 
         Returns:
-            List of snapshots, oldest first
+            List of snapshots, oldest first (one per day, latest snapshot of each day)
         """
-        results = []
-        today = datetime.now()
+        from database import get_db, json_deserialize
 
-        for i in range(days):
-            date = today - timedelta(days=i)
-            date_str = date.strftime("%Y-%m-%d")
-            historical_file = self.historical_dir / f"{date_str}.json"
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-            if historical_file.exists():
-                try:
-                    with open(historical_file, 'r') as f:
-                        daily_data = json.load(f)
-                        if isinstance(daily_data, list):
-                            # Take the last snapshot of each day for summary
-                            if daily_data:
-                                snapshot = daily_data[-1]
-                                if repo:
-                                    # Filter to specific repo
-                                    if repo in snapshot.get("repos", {}):
-                                        results.append({
-                                            "timestamp": snapshot["timestamp"],
-                                            "date": date_str,
-                                            "metrics": snapshot["repos"][repo]
-                                        })
-                                else:
-                                    results.append({
-                                        "timestamp": snapshot["timestamp"],
-                                        "date": date_str,
-                                        "repos": snapshot["repos"]
-                                    })
-                        else:
-                            # Legacy single-snapshot format
-                            if repo:
-                                if repo in daily_data.get("repos", {}):
-                                    results.append({
-                                        "timestamp": daily_data["timestamp"],
-                                        "date": date_str,
-                                        "metrics": daily_data["repos"][repo]
-                                    })
-                            else:
-                                results.append({
-                                    "timestamp": daily_data["timestamp"],
-                                    "date": date_str,
-                                    "repos": daily_data["repos"]
-                                })
-                except Exception as e:
-                    logger.error(f"Error loading historical data for {date_str}: {e}")
+        with get_db() as conn:
+            # Get the latest snapshot per day using GROUP BY
+            # We use a subquery to get max timestamp per date, then join back
+            cursor = conn.execute("""
+                SELECT g.timestamp, g.date, g.repos_json
+                FROM github_metrics g
+                INNER JOIN (
+                    SELECT date, MAX(timestamp) as max_ts
+                    FROM github_metrics
+                    WHERE daemon_id = ? AND date >= ?
+                    GROUP BY date
+                ) latest ON g.date = latest.date AND g.timestamp = latest.max_ts
+                WHERE g.daemon_id = ?
+                ORDER BY g.date ASC
+            """, (self._daemon_id, cutoff_date, self._daemon_id))
 
-        # Return oldest first
-        results.reverse()
-        return results
+            results = []
+            for row in cursor.fetchall():
+                repos_data = json_deserialize(row[2]) or {}
+                date_str = row[1]
+                timestamp = row[0]
+
+                if repo:
+                    # Filter to specific repo
+                    if repo in repos_data:
+                        results.append({
+                            "timestamp": timestamp,
+                            "date": date_str,
+                            "metrics": repos_data[repo]
+                        })
+                else:
+                    results.append({
+                        "timestamp": timestamp,
+                        "date": date_str,
+                        "repos": repos_data
+                    })
+
+            return results
 
     def get_aggregate_stats(self) -> Dict[str, Any]:
         """Get aggregate statistics across all repos and history."""

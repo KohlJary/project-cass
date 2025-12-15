@@ -1,10 +1,12 @@
 """
 Cass Vessel - User Manager
 Handles user profiles and Cass's observations about users.
-Supports multi-user with UUID-based storage.
+Supports multi-user with SQLite storage.
+
+Now uses SQLite database for core data (profiles, observations)
+while keeping complex nested models (UserModel, RelationshipModel) in files.
 """
 import json
-import os
 import hashlib
 import secrets
 from datetime import datetime
@@ -13,6 +15,8 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import uuid
 import yaml
+
+from database import get_db, json_serialize, json_deserialize, get_daemon_id
 
 
 # Valid categories for user observations
@@ -566,55 +570,29 @@ class PerUserJournalEntry:
 
 class UserManager:
     """
-    Manages user profiles and observations with persistence.
+    Manages user profiles and observations with SQLite persistence.
 
-    Storage structure:
-        data/users/
-            index.json              # Maps user_id -> display_name
-            {user_id}/
-                profile.yaml        # Human-editable profile
-                observations.json   # Cass's observations (append-only)
+    Core data (profiles, observations) stored in SQLite.
+    Complex nested models (UserModel, RelationshipModel) stored as YAML files.
     """
 
-    def __init__(self, storage_dir: str = "./data/users"):
-        self.storage_dir = Path(storage_dir)
+    def __init__(self, storage_dir: str = None):
+        """
+        Initialize the user manager.
+
+        Args:
+            storage_dir: Directory for complex model files. If None, uses DATA_DIR/users.
+        """
+        from config import DATA_DIR
+        self.daemon_id = get_daemon_id()
+        self.storage_dir = Path(storage_dir) if storage_dir else DATA_DIR / "users"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.index_file = self.storage_dir / "index.json"
-        self._ensure_index()
-
-    def _ensure_index(self):
-        """Ensure index file exists"""
-        if not self.index_file.exists():
-            self._save_index({})
-
-    def _load_index(self) -> Dict[str, str]:
-        """Load user index (user_id -> display_name)"""
-        try:
-            with open(self.index_file, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return {}
-
-    def _save_index(self, index: Dict[str, str]):
-        """Save user index"""
-        with open(self.index_file, 'w') as f:
-            json.dump(index, f, indent=2)
 
     def _get_user_dir(self, user_id: str) -> Path:
-        """Get directory for a user's data"""
-        return self.storage_dir / user_id
-
-    def _get_profile_path(self, user_id: str) -> Path:
-        """Get path to user's profile.yaml"""
-        return self._get_user_dir(user_id) / "profile.yaml"
-
-    def _get_observations_path(self, user_id: str) -> Path:
-        """Get path to user's observations.json"""
-        return self._get_user_dir(user_id) / "observations.json"
-
-    def _get_journals_path(self, user_id: str) -> Path:
-        """Get path to user's journals.json"""
-        return self._get_user_dir(user_id) / "journals.json"
+        """Get directory for a user's additional data files"""
+        user_dir = self.storage_dir / user_id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        return user_dir
 
     def _get_user_model_path(self, user_id: str) -> Path:
         """Get path to user's structured model (user_model.yaml)"""
@@ -623,6 +601,10 @@ class UserManager:
     def _get_relationship_model_path(self, user_id: str) -> Path:
         """Get path to relationship model (relationship_model.yaml)"""
         return self._get_user_dir(user_id) / "relationship_model.yaml"
+
+    def _get_journals_path(self, user_id: str) -> Path:
+        """Get path to user's journals.json"""
+        return self._get_user_dir(user_id) / "journals.json"
 
     # === User CRUD ===
 
@@ -639,7 +621,27 @@ class UserManager:
         user_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
 
-        profile = UserProfile(
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO users (
+                    id, display_name, relationship, background_json,
+                    communication_json, preferences_json, password_hash,
+                    is_admin, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                display_name,
+                relationship,
+                json_serialize(background or {}),
+                json_serialize(communication or {}),
+                json_serialize(UserPreferences().to_dict()),
+                None,  # password_hash
+                0,     # is_admin
+                now,
+                now
+            ))
+
+        return UserProfile(
             user_id=user_id,
             display_name=display_name,
             created_at=now,
@@ -652,70 +654,98 @@ class UserManager:
             notes=notes
         )
 
-        # Create user directory
-        user_dir = self._get_user_dir(user_id)
-        user_dir.mkdir(parents=True, exist_ok=True)
-
-        # Save profile
-        self._save_profile(profile)
-
-        # Initialize empty observations
-        self._save_observations(user_id, [])
-
-        # Update index
-        index = self._load_index()
-        index[user_id] = display_name
-        self._save_index(index)
-
-        return profile
-
-    def _save_profile(self, profile: UserProfile):
-        """Save user profile as YAML (includes sensitive fields)"""
-        path = self._get_profile_path(profile.user_id)
-        # Include all fields including password_hash for storage
-        data = profile.to_dict()
-        data["password_hash"] = profile.password_hash
-        with open(path, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-    def _save_observations(self, user_id: str, observations: List[UserObservation]):
-        """Save observations as JSON"""
-        path = self._get_observations_path(user_id)
-        with open(path, 'w') as f:
-            json.dump([o.to_dict() for o in observations], f, indent=2)
-
-    def _save_journals(self, user_id: str, journals: List[PerUserJournalEntry]):
-        """Save per-user journals as JSON"""
-        path = self._get_journals_path(user_id)
-        with open(path, 'w') as f:
-            json.dump([j.to_dict() for j in journals], f, indent=2)
-
     def load_profile(self, user_id: str) -> Optional[UserProfile]:
         """Load a user's profile"""
-        path = self._get_profile_path(user_id)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, display_name, relationship, background_json,
+                       communication_json, preferences_json, password_hash,
+                       is_admin, created_at, updated_at
+                FROM users WHERE id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
 
-        if not path.exists():
-            return None
+            if not row:
+                return None
 
-        try:
-            with open(path, 'r') as f:
-                return UserProfile.from_yaml(f.read())
-        except Exception:
-            return None
+            prefs_data = json_deserialize(row['preferences_json']) or {}
+
+            return UserProfile(
+                user_id=row['id'],
+                display_name=row['display_name'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                relationship=row['relationship'] or "user",
+                background=json_deserialize(row['background_json']) or {},
+                communication=json_deserialize(row['communication_json']) or {},
+                projects=[],  # Projects stored separately
+                values=[],    # Values could be added to schema later
+                notes="",     # Notes could be added to schema later
+                is_admin=bool(row['is_admin']),
+                password_hash=row['password_hash'],
+                preferences=UserPreferences.from_dict(prefs_data)
+            )
+
+    def _save_profile(self, profile: UserProfile):
+        """Save user profile to database"""
+        with get_db() as conn:
+            conn.execute("""
+                UPDATE users SET
+                    display_name = ?,
+                    relationship = ?,
+                    background_json = ?,
+                    communication_json = ?,
+                    preferences_json = ?,
+                    password_hash = ?,
+                    is_admin = ?,
+                    updated_at = ?
+                WHERE id = ?
+            """, (
+                profile.display_name,
+                profile.relationship,
+                json_serialize(profile.background),
+                json_serialize(profile.communication),
+                json_serialize(profile.preferences.to_dict()),
+                profile.password_hash,
+                1 if profile.is_admin else 0,
+                profile.updated_at,
+                profile.user_id
+            ))
 
     def load_observations(self, user_id: str) -> List[UserObservation]:
         """Load all observations about a user"""
-        path = self._get_observations_path(user_id)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, observation_type, content_json, confidence, created_at, updated_at
+                FROM user_observations
+                WHERE daemon_id = ? AND user_id = ?
+                ORDER BY created_at DESC
+            """, (self.daemon_id, user_id))
 
-        if not path.exists():
-            return []
+            observations = []
+            for row in cursor.fetchall():
+                content = json_deserialize(row['content_json']) or {}
+                observations.append(UserObservation(
+                    id=row['id'],
+                    timestamp=row['created_at'],
+                    observation=content.get('observation', ''),
+                    category=row['observation_type'],
+                    confidence=row['confidence'] or 0.7,
+                    source_conversation_id=content.get('source_conversation_id'),
+                    source_summary_id=content.get('source_summary_id'),
+                    source_message_id=content.get('source_message_id'),
+                    source_journal_date=content.get('source_journal_date'),
+                    source_type=content.get('source_type', 'conversation'),
+                    validation_count=content.get('validation_count', 1),
+                    last_validated=content.get('last_validated')
+                ))
+            return observations
 
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-            return [UserObservation.from_dict(o) for o in data]
-        except Exception:
-            return []
+    def _save_observations(self, user_id: str, observations: List[UserObservation]):
+        """Save observations - used for batch updates"""
+        # For SQLite, we don't need to save all at once
+        # Individual observations are saved via add_observation
+        pass
 
     def update_profile(
         self,
@@ -736,11 +766,6 @@ class UserManager:
 
         if display_name is not None:
             profile.display_name = display_name
-            # Update index
-            index = self._load_index()
-            index[user_id] = display_name
-            self._save_index(index)
-
         if relationship is not None:
             profile.relationship = relationship
         if background is not None:
@@ -761,52 +786,50 @@ class UserManager:
 
     def delete_user(self, user_id: str) -> bool:
         """Delete a user and all their data"""
+        with get_db() as conn:
+            # Delete user (observations cascade)
+            cursor = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            if cursor.rowcount == 0:
+                return False
+
+        # Delete user directory with model files
         user_dir = self._get_user_dir(user_id)
-
-        if not user_dir.exists():
-            return False
-
-        # Delete all files in user directory
-        for file in user_dir.iterdir():
-            file.unlink()
-        user_dir.rmdir()
-
-        # Remove from index
-        index = self._load_index()
-        if user_id in index:
-            del index[user_id]
-            self._save_index(index)
+        if user_dir.exists():
+            for file in user_dir.iterdir():
+                file.unlink()
+            user_dir.rmdir()
 
         return True
 
     def list_users(self) -> List[Dict]:
         """List all users with basic info"""
-        index = self._load_index()
-        users = []
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, display_name, relationship, created_at
+                FROM users
+                ORDER BY created_at DESC
+            """)
 
-        for user_id, display_name in index.items():
-            profile = self.load_profile(user_id)
-            if profile:
-                users.append({
-                    "user_id": user_id,
-                    "display_name": display_name,
-                    "relationship": profile.relationship,
-                    "created_at": profile.created_at
-                })
-
-        # Sort by created_at
-        users.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-        return users
+            return [
+                {
+                    "user_id": row['id'],
+                    "display_name": row['display_name'],
+                    "relationship": row['relationship'] or "user",
+                    "created_at": row['created_at']
+                }
+                for row in cursor.fetchall()
+            ]
 
     def get_user_by_name(self, display_name: str) -> Optional[UserProfile]:
         """Find a user by display name (case-insensitive)"""
-        index = self._load_index()
-        name_lower = display_name.lower()
-
-        for user_id, name in index.items():
-            if name.lower() == name_lower:
-                return self.load_profile(user_id)
-
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM users WHERE LOWER(display_name) = LOWER(?)",
+                (display_name,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return self.load_profile(row['id'])
         return None
 
     # === Observations ===
@@ -824,6 +847,7 @@ class UserManager:
         source_type: str = "conversation"
     ) -> Optional[UserObservation]:
         """Add an observation about a user"""
+        # Check user exists
         profile = self.load_profile(user_id)
         if not profile:
             return None
@@ -833,8 +857,38 @@ class UserManager:
             category = "background"
 
         now = datetime.now().isoformat()
-        obs = UserObservation(
-            id=str(uuid.uuid4()),
+        obs_id = str(uuid.uuid4())
+
+        content = {
+            "observation": observation,
+            "source_conversation_id": source_conversation_id,
+            "source_summary_id": source_summary_id,
+            "source_message_id": source_message_id,
+            "source_journal_date": source_journal_date,
+            "source_type": source_type,
+            "validation_count": 1,
+            "last_validated": now
+        }
+
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO user_observations (
+                    id, daemon_id, user_id, observation_type,
+                    content_json, confidence, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                obs_id,
+                self.daemon_id,
+                user_id,
+                category,
+                json_serialize(content),
+                confidence,
+                now,
+                now
+            ))
+
+        return UserObservation(
+            id=obs_id,
             timestamp=now,
             observation=observation,
             category=category,
@@ -848,13 +902,6 @@ class UserManager:
             last_validated=now
         )
 
-        # Load existing and append
-        observations = self.load_observations(user_id)
-        observations.append(obs)
-        self._save_observations(user_id, observations)
-
-        return obs
-
     def get_recent_observations(
         self,
         user_id: str,
@@ -862,8 +909,6 @@ class UserManager:
     ) -> List[UserObservation]:
         """Get most recent observations about a user"""
         observations = self.load_observations(user_id)
-        # Sort by timestamp descending
-        observations.sort(key=lambda x: x.timestamp, reverse=True)
         return observations[:limit]
 
     def get_observations_by_category(
@@ -873,10 +918,30 @@ class UserManager:
         limit: int = 10
     ) -> List[UserObservation]:
         """Get observations filtered by category"""
-        observations = self.load_observations(user_id)
-        filtered = [o for o in observations if o.category == category]
-        filtered.sort(key=lambda x: x.timestamp, reverse=True)
-        return filtered[:limit]
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, observation_type, content_json, confidence, created_at
+                FROM user_observations
+                WHERE daemon_id = ? AND user_id = ? AND observation_type = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (self.daemon_id, user_id, category, limit))
+
+            observations = []
+            for row in cursor.fetchall():
+                content = json_deserialize(row['content_json']) or {}
+                observations.append(UserObservation(
+                    id=row['id'],
+                    timestamp=row['created_at'],
+                    observation=content.get('observation', ''),
+                    category=row['observation_type'],
+                    confidence=row['confidence'] or 0.7,
+                    source_conversation_id=content.get('source_conversation_id'),
+                    source_type=content.get('source_type', 'conversation'),
+                    validation_count=content.get('validation_count', 1),
+                    last_validated=content.get('last_validated')
+                ))
+            return observations
 
     def get_high_confidence_observations(
         self,
@@ -885,10 +950,30 @@ class UserManager:
         limit: int = 10
     ) -> List[UserObservation]:
         """Get high-confidence observations about a user"""
-        observations = self.load_observations(user_id)
-        filtered = [o for o in observations if o.confidence >= min_confidence]
-        filtered.sort(key=lambda x: x.confidence, reverse=True)
-        return filtered[:limit]
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, observation_type, content_json, confidence, created_at
+                FROM user_observations
+                WHERE daemon_id = ? AND user_id = ? AND confidence >= ?
+                ORDER BY confidence DESC
+                LIMIT ?
+            """, (self.daemon_id, user_id, min_confidence, limit))
+
+            observations = []
+            for row in cursor.fetchall():
+                content = json_deserialize(row['content_json']) or {}
+                observations.append(UserObservation(
+                    id=row['id'],
+                    timestamp=row['created_at'],
+                    observation=content.get('observation', ''),
+                    category=row['observation_type'],
+                    confidence=row['confidence'] or 0.7,
+                    source_conversation_id=content.get('source_conversation_id'),
+                    source_type=content.get('source_type', 'conversation'),
+                    validation_count=content.get('validation_count', 1),
+                    last_validated=content.get('last_validated')
+                ))
+            return observations
 
     def validate_observation(
         self,
@@ -896,21 +981,36 @@ class UserManager:
         observation_id: str
     ) -> Optional[UserObservation]:
         """Validate an observation (increment validation_count, update timestamp)"""
-        observations = self.load_observations(user_id)
         now = datetime.now().isoformat()
 
-        for obs in observations:
-            if obs.id == observation_id:
-                obs.validation_count += 1
-                obs.last_validated = now
-                # Slightly increase confidence on validation (cap at 1.0)
-                obs.confidence = min(1.0, obs.confidence + 0.05)
-                self._save_observations(user_id, observations)
-                return obs
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT content_json, confidence FROM user_observations WHERE id = ?",
+                (observation_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
 
+            content = json_deserialize(row['content_json']) or {}
+            content['validation_count'] = content.get('validation_count', 1) + 1
+            content['last_validated'] = now
+            new_confidence = min(1.0, (row['confidence'] or 0.7) + 0.05)
+
+            conn.execute("""
+                UPDATE user_observations
+                SET content_json = ?, confidence = ?, updated_at = ?
+                WHERE id = ?
+            """, (json_serialize(content), new_confidence, now, observation_id))
+
+        # Return updated observation
+        obs_list = self.load_observations(user_id)
+        for obs in obs_list:
+            if obs.id == observation_id:
+                return obs
         return None
 
-    # === Per-User Journals ===
+    # === Per-User Journals (still file-based for now) ===
 
     def load_user_journals(self, user_id: str) -> List[PerUserJournalEntry]:
         """Load all journals Cass has written about this user"""
@@ -925,6 +1025,12 @@ class UserManager:
             return [PerUserJournalEntry.from_dict(j) for j in data]
         except Exception:
             return []
+
+    def _save_journals(self, user_id: str, journals: List[PerUserJournalEntry]):
+        """Save per-user journals as JSON"""
+        path = self._get_journals_path(user_id)
+        with open(path, 'w') as f:
+            json.dump([j.to_dict() for j in journals], f, indent=2)
 
     def add_user_journal(
         self,
@@ -1009,7 +1115,7 @@ class UserManager:
         matches.sort(key=lambda x: x[0], reverse=True)
         return [m[1] for m in matches[:limit]]
 
-    # === Structured User Model ===
+    # === Structured User Model (file-based) ===
 
     def load_user_model(self, user_id: str) -> Optional[UserModel]:
         """Load or create user's structured model"""
@@ -1036,8 +1142,6 @@ class UserManager:
 
         # Ensure user directory exists
         user_dir = self._get_user_dir(model.user_id)
-        if not user_dir.exists():
-            return False
 
         try:
             model.updated_at = datetime.now().isoformat()
@@ -1099,8 +1203,6 @@ class UserManager:
         path = self._get_relationship_model_path(model.user_id)
 
         user_dir = self._get_user_dir(model.user_id)
-        if not user_dir.exists():
-            return False
 
         try:
             model.updated_at = datetime.now().isoformat()
@@ -1493,15 +1595,32 @@ class UserManager:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        """Hash a password using SHA-256 with salt"""
-        salt = secrets.token_hex(16)
-        pw_hash = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-        return f"{salt}:{pw_hash}"
+        """Hash a password using bcrypt"""
+        try:
+            import bcrypt
+            return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        except ImportError:
+            # Fallback to SHA-256 if bcrypt not available
+            salt = secrets.token_hex(16)
+            pw_hash = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+            return f"{salt}:{pw_hash}"
 
     @staticmethod
     def verify_password(password: str, password_hash: str) -> bool:
-        """Verify a password against its hash"""
-        if not password_hash or ":" not in password_hash:
+        """Verify a password against its hash (supports bcrypt and SHA-256)"""
+        if not password_hash:
+            return False
+
+        # Check for bcrypt hash (starts with $2b$ or $2a$)
+        if password_hash.startswith('$2'):
+            try:
+                import bcrypt
+                return bcrypt.checkpw(password.encode(), password_hash.encode())
+            except ImportError:
+                return False
+
+        # Fallback to SHA-256 format (salt:hash)
+        if ":" not in password_hash:
             return False
         salt, stored_hash = password_hash.split(":", 1)
         pw_hash = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
@@ -1544,13 +1663,16 @@ class UserManager:
 
     def get_admin_users(self) -> List[UserProfile]:
         """Get all users with admin access"""
-        all_users = self.list_users()
-        admins = []
-        for user_info in all_users:
-            profile = self.load_profile(user_info["user_id"])
-            if profile and profile.is_admin:
-                admins.append(profile)
-        return admins
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM users WHERE is_admin = 1"
+            )
+            admins = []
+            for row in cursor.fetchall():
+                profile = self.load_profile(row['id'])
+                if profile:
+                    admins.append(profile)
+            return admins
 
     # ============== User Preferences ==============
 
@@ -1611,36 +1733,22 @@ class UserManager:
 
 if __name__ == "__main__":
     # Test the user manager
-    manager = UserManager("./data/users_test")
+    from database import init_database
+    init_database()
 
-    # Create user
-    profile = manager.create_user(
-        display_name="Test User",
-        relationship="collaborator",
-        background={"role": "Developer", "context": "Testing the system"},
-        communication={
-            "style": "Direct",
-            "preferences": ["Clear explanations", "No jargon"]
-        },
-        values=["Simplicity", "Reliability"]
-    )
-    print(f"Created user: {profile.user_id}")
-    print(f"Display name: {profile.display_name}")
+    manager = UserManager()
 
-    # Add observation
-    obs = manager.add_observation(
-        profile.user_id,
-        "User prefers concrete examples over abstract explanations",
-        source_conversation_id="test_conv_123"
-    )
-    print(f"\nAdded observation: {obs.observation}")
-
-    # Get context
-    context = manager.get_user_context(profile.user_id)
-    print(f"\nUser context:\n{context}")
-
-    # List users
+    # List existing users
     users = manager.list_users()
-    print(f"\nUsers: {len(users)}")
+    print(f"Existing users: {len(users)}")
     for u in users:
         print(f"  - {u['display_name']} ({u['relationship']})")
+
+    # Test loading a user
+    if users:
+        user_id = users[0]['user_id']
+        profile = manager.load_profile(user_id)
+        print(f"\nLoaded profile: {profile.display_name}")
+
+        observations = manager.load_observations(user_id)
+        print(f"Observations: {len(observations)}")

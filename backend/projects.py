@@ -1,6 +1,8 @@
 """
 Cass Vessel - Project Manager
 Handles project workspaces with working directories and associated files
+
+Storage: SQLite database (data/cass.db)
 """
 import json
 import os
@@ -9,6 +11,8 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 import uuid
+
+from database import get_db, json_serialize, json_deserialize
 
 
 class PathTraversalError(Exception):
@@ -111,39 +115,50 @@ class Project:
 
 class ProjectManager:
     """
-    Manages project workspaces with persistence.
+    Manages project workspaces with SQLite persistence.
 
-    Each project is stored as a separate JSON file.
-    Metadata index tracks all projects for listing.
+    Storage:
+        - projects table: Core project metadata
+        - project_files table: Files associated with projects
+        - project_documents table: Markdown documents within projects
     """
 
-    def __init__(self, storage_dir: str = "./data/projects"):
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.index_file = self.storage_dir / "index.json"
-        self._ensure_index()
+    # Default daemon ID for Cass
+    DEFAULT_DAEMON_ID = None  # Will be loaded from database
 
-    def _ensure_index(self):
-        """Ensure index file exists"""
-        if not self.index_file.exists():
-            self._save_index([])
+    def __init__(self, daemon_id: str = None):
+        """
+        Initialize ProjectManager.
 
-    def _load_index(self) -> List[Dict]:
-        """Load project index"""
-        try:
-            with open(self.index_file, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
+        Args:
+            daemon_id: UUID of the daemon. If None, uses default Cass daemon.
+        """
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
-    def _save_index(self, index: List[Dict]):
-        """Save project index"""
-        with open(self.index_file, 'w') as f:
-            json.dump(index, f, indent=2)
-
-    def _get_project_path(self, project_id: str) -> Path:
-        """Get file path for a project"""
-        return self.storage_dir / f"{project_id}.json"
+    def _load_default_daemon(self):
+        """Load the default daemon ID from database"""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM daemons WHERE name = 'cass' LIMIT 1"
+            )
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row['id']
+            else:
+                # Create default daemon if not exists
+                self._daemon_id = str(uuid.uuid4())
+                conn.execute("""
+                    INSERT INTO daemons (id, name, created_at, kernel_version, status)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    self._daemon_id,
+                    'cass',
+                    datetime.now().isoformat(),
+                    'temple-codex-1.0',
+                    'active'
+                ))
 
     def create_project(
         self,
@@ -166,48 +181,102 @@ class ProjectManager:
             created_at=now,
             updated_at=now,
             files=[],
+            documents=[],
             description=description,
             user_id=user_id
         )
 
-        # Save project
-        self._save_project(project)
-
-        # Update index
-        index = self._load_index()
-        index.append({
-            "id": project_id,
-            "name": name,
-            "working_directory": working_dir,
-            "created_at": now,
-            "updated_at": now,
-            "file_count": 0,
-            "user_id": user_id,
-            "github_repo": None,  # Include github_repo in index
-        })
-        self._save_index(index)
+        # Save to database
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO projects (
+                    id, daemon_id, user_id, name, working_directory,
+                    description, github_repo, github_token, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                project_id,
+                self._daemon_id,
+                user_id,
+                name,
+                working_dir,
+                description,
+                None,
+                None,
+                now,
+                now
+            ))
 
         return project
 
-    def _save_project(self, project: Project):
-        """Save a project to disk"""
-        path = self._get_project_path(project.id)
-        with open(path, 'w') as f:
-            json.dump(project.to_dict(), f, indent=2)
+    def _load_project_files(self, project_id: str) -> List[ProjectFile]:
+        """Load project files from database"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT path, description, embedded, added_at
+                FROM project_files WHERE project_id = ?
+            """, (project_id,))
+
+            files = []
+            for row in cursor.fetchall():
+                files.append(ProjectFile(
+                    path=row['path'],
+                    added_at=row['added_at'],
+                    description=row['description'],
+                    embedded=bool(row['embedded'])
+                ))
+            return files
+
+    def _load_project_documents(self, project_id: str) -> List[ProjectDocument]:
+        """Load project documents from database"""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, content, created_at, updated_at, created_by, embedded
+                FROM project_documents WHERE project_id = ?
+            """, (project_id,))
+
+            docs = []
+            for row in cursor.fetchall():
+                docs.append(ProjectDocument(
+                    id=row['id'],
+                    title=row['title'],
+                    content=row['content'],
+                    created_at=row['created_at'],
+                    updated_at=row['updated_at'],
+                    created_by=row['created_by'] or 'cass',
+                    embedded=bool(row['embedded'])
+                ))
+            return docs
 
     def load_project(self, project_id: str) -> Optional[Project]:
         """Load a project by ID"""
-        path = self._get_project_path(project_id)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, name, working_directory, created_at, updated_at,
+                       description, user_id, github_repo, github_token
+                FROM projects WHERE id = ?
+            """, (project_id,))
+            row = cursor.fetchone()
 
-        if not path.exists():
-            return None
+            if not row:
+                return None
 
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-            return Project.from_dict(data)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return None
+            # Load files and documents
+            files = self._load_project_files(project_id)
+            documents = self._load_project_documents(project_id)
+
+            return Project(
+                id=row['id'],
+                name=row['name'],
+                working_directory=row['working_directory'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                files=files,
+                documents=documents,
+                description=row['description'],
+                user_id=row['user_id'],
+                github_repo=row['github_repo'],
+                github_token=row['github_token']
+            )
 
     def update_project(
         self,
@@ -232,46 +301,45 @@ class ProjectManager:
             clear_github_token: If True, removes the project-specific token (will use system default)
         """
         project = self.load_project(project_id)
-
         if not project:
             return None
 
-        if name is not None:
-            project.name = name
-        if working_directory is not None:
-            project.working_directory = os.path.abspath(
-                os.path.expanduser(working_directory)
-            )
-        if description is not None:
-            project.description = description
-        if github_repo is not None:
-            project.github_repo = github_repo if github_repo else None
-        if github_token is not None:
-            project.github_token = github_token
-        if clear_github_token:
-            project.github_token = None
+        now = datetime.now().isoformat()
 
-        project.updated_at = datetime.now().isoformat()
+        with get_db() as conn:
+            updates = []
+            params = []
 
-        self._save_project(project)
-        self._update_index_entry(project)
+            if name is not None:
+                updates.append("name = ?")
+                params.append(name)
+            if working_directory is not None:
+                updates.append("working_directory = ?")
+                params.append(os.path.abspath(os.path.expanduser(working_directory)))
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            if github_repo is not None:
+                updates.append("github_repo = ?")
+                params.append(github_repo if github_repo else None)
+            if github_token is not None:
+                updates.append("github_token = ?")
+                params.append(github_token)
+            if clear_github_token:
+                updates.append("github_token = ?")
+                params.append(None)
 
-        return project
+            updates.append("updated_at = ?")
+            params.append(now)
+            params.append(project_id)
 
-    def _update_index_entry(self, project: Project):
-        """Update a project's entry in the index"""
-        index = self._load_index()
+            if updates:
+                conn.execute(
+                    f"UPDATE projects SET {', '.join(updates)} WHERE id = ?",
+                    params
+                )
 
-        for entry in index:
-            if entry["id"] == project.id:
-                entry["name"] = project.name
-                entry["working_directory"] = project.working_directory
-                entry["updated_at"] = project.updated_at
-                entry["file_count"] = len(project.files)
-                entry["github_repo"] = project.github_repo  # Keep github_repo in sync
-                break
-
-        self._save_index(index)
+        return self.load_project(project_id)
 
     def list_projects(self, user_id: Optional[str] = None) -> List[Dict]:
         """
@@ -281,30 +349,48 @@ class ProjectManager:
         Args:
             user_id: If provided, only return projects for this user
         """
-        index = self._load_index()
+        with get_db() as conn:
+            if user_id:
+                cursor = conn.execute("""
+                    SELECT p.id, p.name, p.working_directory, p.created_at, p.updated_at,
+                           p.description, p.user_id, p.github_repo,
+                           (SELECT COUNT(*) FROM project_files WHERE project_id = p.id) as file_count
+                    FROM projects p
+                    WHERE p.daemon_id = ? AND p.user_id = ?
+                    ORDER BY p.updated_at DESC
+                """, (self._daemon_id, user_id))
+            else:
+                cursor = conn.execute("""
+                    SELECT p.id, p.name, p.working_directory, p.created_at, p.updated_at,
+                           p.description, p.user_id, p.github_repo,
+                           (SELECT COUNT(*) FROM project_files WHERE project_id = p.id) as file_count
+                    FROM projects p
+                    WHERE p.daemon_id = ?
+                    ORDER BY p.updated_at DESC
+                """, (self._daemon_id,))
 
-        # Filter by user_id if provided
-        if user_id:
-            index = [p for p in index if p.get("user_id") == user_id]
-
-        # Sort by updated_at descending
-        index.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
-
-        return index
+            return [
+                {
+                    "id": row['id'],
+                    "name": row['name'],
+                    "working_directory": row['working_directory'],
+                    "created_at": row['created_at'],
+                    "updated_at": row['updated_at'],
+                    "description": row['description'],
+                    "user_id": row['user_id'],
+                    "github_repo": row['github_repo'],
+                    "file_count": row['file_count']
+                }
+                for row in cursor.fetchall()
+            ]
 
     def delete_project(self, project_id: str) -> bool:
-        """Delete a project"""
-        path = self._get_project_path(project_id)
-
-        # Delete file
-        if path.exists():
-            path.unlink()
-
-        # Remove from index
-        index = self._load_index()
-        index = [entry for entry in index if entry["id"] != project_id]
-        self._save_index(index)
-
+        """Delete a project and its associated files/documents"""
+        with get_db() as conn:
+            # Delete files and documents first (foreign key constraint)
+            conn.execute("DELETE FROM project_files WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM project_documents WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
         return True
 
     def add_file(
@@ -315,7 +401,6 @@ class ProjectManager:
     ) -> Optional[ProjectFile]:
         """Add a file to a project"""
         project = self.load_project(project_id)
-
         if not project:
             return None
 
@@ -329,30 +414,43 @@ class ProjectManager:
         if not os.path.isfile(abs_path):
             raise FileNotFoundError(f"File not found: {abs_path}")
 
-        # Check if already added
-        for f in project.files:
-            if f.path == abs_path:
-                return f  # Already exists
+        now = datetime.now().isoformat()
 
-        # Add file
-        project_file = ProjectFile(
+        # Check if already added
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM project_files WHERE project_id = ? AND path = ?",
+                (project_id, abs_path)
+            )
+            if cursor.fetchone():
+                # Already exists, return existing file
+                for f in project.files:
+                    if f.path == abs_path:
+                        return f
+                return ProjectFile(path=abs_path, added_at=now, description=description)
+
+            # Add file
+            conn.execute("""
+                INSERT INTO project_files (project_id, path, description, embedded, added_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (project_id, abs_path, description, 0, now))
+
+            # Update project timestamp
+            conn.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (now, project_id)
+            )
+
+        return ProjectFile(
             path=abs_path,
-            added_at=datetime.now().isoformat(),
+            added_at=now,
             description=description,
             embedded=False
         )
-        project.files.append(project_file)
-        project.updated_at = datetime.now().isoformat()
-
-        self._save_project(project)
-        self._update_index_entry(project)
-
-        return project_file
 
     def remove_file(self, project_id: str, file_path: str) -> bool:
         """Remove a file from a project"""
         project = self.load_project(project_id)
-
         if not project:
             return False
 
@@ -360,19 +458,23 @@ class ProjectManager:
         abs_path = os.path.abspath(os.path.expanduser(file_path))
         abs_path = validate_path_within_directory(abs_path, project.working_directory)
 
-        # Find and remove
-        project.files = [f for f in project.files if f.path != abs_path]
-        project.updated_at = datetime.now().isoformat()
+        now = datetime.now().isoformat()
 
-        self._save_project(project)
-        self._update_index_entry(project)
+        with get_db() as conn:
+            conn.execute(
+                "DELETE FROM project_files WHERE project_id = ? AND path = ?",
+                (project_id, abs_path)
+            )
+            conn.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (now, project_id)
+            )
 
         return True
 
     def mark_file_embedded(self, project_id: str, file_path: str) -> bool:
         """Mark a file as having been embedded"""
         project = self.load_project(project_id)
-
         if not project:
             return False
 
@@ -380,27 +482,41 @@ class ProjectManager:
         abs_path = os.path.abspath(os.path.expanduser(file_path))
         abs_path = validate_path_within_directory(abs_path, project.working_directory)
 
-        for f in project.files:
-            if f.path == abs_path:
-                f.embedded = True
-                break
+        now = datetime.now().isoformat()
 
-        project.updated_at = datetime.now().isoformat()
-        self._save_project(project)
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE project_files SET embedded = 1 WHERE project_id = ? AND path = ?",
+                (project_id, abs_path)
+            )
+            conn.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (now, project_id)
+            )
 
         return True
 
     def get_files(self, project_id: str) -> List[ProjectFile]:
         """Get all files for a project"""
-        project = self.load_project(project_id)
-        return project.files if project else []
+        return self._load_project_files(project_id)
 
     def get_unembedded_files(self, project_id: str) -> List[ProjectFile]:
         """Get files that haven't been embedded yet"""
-        project = self.load_project(project_id)
-        if not project:
-            return []
-        return [f for f in project.files if not f.embedded]
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT path, description, embedded, added_at
+                FROM project_files WHERE project_id = ? AND embedded = 0
+            """, (project_id,))
+
+            return [
+                ProjectFile(
+                    path=row['path'],
+                    added_at=row['added_at'],
+                    description=row['description'],
+                    embedded=bool(row['embedded'])
+                )
+                for row in cursor.fetchall()
+            ]
 
     # === Document Management ===
 
@@ -423,6 +539,7 @@ class ProjectManager:
         Returns:
             The created ProjectDocument, or None if project not found
         """
+        # Verify project exists
         project = self.load_project(project_id)
         if not project:
             return None
@@ -430,7 +547,19 @@ class ProjectManager:
         now = datetime.now().isoformat()
         doc_id = str(uuid.uuid4())
 
-        document = ProjectDocument(
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO project_documents (
+                    id, project_id, title, content, created_by, embedded, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (doc_id, project_id, title, content, created_by, 0, now, now))
+
+            conn.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (now, project_id)
+            )
+
+        return ProjectDocument(
             id=doc_id,
             title=title,
             content=content,
@@ -439,13 +568,6 @@ class ProjectManager:
             created_by=created_by,
             embedded=False
         )
-
-        project.documents.append(document)
-        project.updated_at = now
-        self._save_project(project)
-        self._update_index_entry(project)
-
-        return document
 
     def update_document(
         self,
@@ -466,24 +588,36 @@ class ProjectManager:
         Returns:
             The updated ProjectDocument, or None if not found
         """
-        project = self.load_project(project_id)
-        if not project:
-            return None
+        now = datetime.now().isoformat()
 
-        for doc in project.documents:
-            if doc.id == document_id:
-                if title is not None:
-                    doc.title = title
-                if content is not None:
-                    doc.content = content
-                    doc.embedded = False  # Mark for re-embedding
-                doc.updated_at = datetime.now().isoformat()
+        with get_db() as conn:
+            updates = []
+            params = []
 
-                project.updated_at = doc.updated_at
-                self._save_project(project)
-                return doc
+            if title is not None:
+                updates.append("title = ?")
+                params.append(title)
+            if content is not None:
+                updates.append("content = ?")
+                params.append(content)
+                updates.append("embedded = 0")  # Mark for re-embedding
 
-        return None
+            updates.append("updated_at = ?")
+            params.append(now)
+            params.append(document_id)
+            params.append(project_id)
+
+            if updates:
+                conn.execute(
+                    f"UPDATE project_documents SET {', '.join(updates)} WHERE id = ? AND project_id = ?",
+                    params
+                )
+                conn.execute(
+                    "UPDATE projects SET updated_at = ? WHERE id = ?",
+                    (now, project_id)
+                )
+
+        return self.get_document(project_id, document_id)
 
     def get_document(
         self,
@@ -491,15 +625,25 @@ class ProjectManager:
         document_id: str
     ) -> Optional[ProjectDocument]:
         """Get a specific document by ID"""
-        project = self.load_project(project_id)
-        if not project:
-            return None
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, content, created_at, updated_at, created_by, embedded
+                FROM project_documents WHERE id = ? AND project_id = ?
+            """, (document_id, project_id))
+            row = cursor.fetchone()
 
-        for doc in project.documents:
-            if doc.id == document_id:
-                return doc
+            if not row:
+                return None
 
-        return None
+            return ProjectDocument(
+                id=row['id'],
+                title=row['title'],
+                content=row['content'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                created_by=row['created_by'] or 'cass',
+                embedded=bool(row['embedded'])
+            )
 
     def get_document_by_title(
         self,
@@ -507,61 +651,82 @@ class ProjectManager:
         title: str
     ) -> Optional[ProjectDocument]:
         """Get a document by title (case-insensitive)"""
-        project = self.load_project(project_id)
-        if not project:
-            return None
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, content, created_at, updated_at, created_by, embedded
+                FROM project_documents WHERE project_id = ? AND LOWER(title) = LOWER(?)
+            """, (project_id, title))
+            row = cursor.fetchone()
 
-        title_lower = title.lower()
-        for doc in project.documents:
-            if doc.title.lower() == title_lower:
-                return doc
+            if not row:
+                return None
 
-        return None
+            return ProjectDocument(
+                id=row['id'],
+                title=row['title'],
+                content=row['content'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                created_by=row['created_by'] or 'cass',
+                embedded=bool(row['embedded'])
+            )
 
     def list_documents(self, project_id: str) -> List[ProjectDocument]:
         """Get all documents for a project"""
-        project = self.load_project(project_id)
-        return project.documents if project else []
+        return self._load_project_documents(project_id)
 
     def delete_document(self, project_id: str, document_id: str) -> bool:
         """Delete a document from a project"""
-        project = self.load_project(project_id)
-        if not project:
-            return False
+        now = datetime.now().isoformat()
 
-        original_count = len(project.documents)
-        project.documents = [d for d in project.documents if d.id != document_id]
-
-        if len(project.documents) < original_count:
-            project.updated_at = datetime.now().isoformat()
-            self._save_project(project)
-            self._update_index_entry(project)
-            return True
-
+        with get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM project_documents WHERE id = ? AND project_id = ?",
+                (document_id, project_id)
+            )
+            if cursor.rowcount > 0:
+                conn.execute(
+                    "UPDATE projects SET updated_at = ? WHERE id = ?",
+                    (now, project_id)
+                )
+                return True
         return False
 
     def mark_document_embedded(self, project_id: str, document_id: str) -> bool:
         """Mark a document as having been embedded"""
-        project = self.load_project(project_id)
-        if not project:
-            return False
+        now = datetime.now().isoformat()
 
-        for doc in project.documents:
-            if doc.id == document_id:
-                doc.embedded = True
-                break
-
-        project.updated_at = datetime.now().isoformat()
-        self._save_project(project)
-
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE project_documents SET embedded = 1 WHERE id = ? AND project_id = ?",
+                (document_id, project_id)
+            )
+            conn.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (now, project_id)
+            )
         return True
 
     def get_unembedded_documents(self, project_id: str) -> List[ProjectDocument]:
         """Get documents that haven't been embedded yet"""
-        project = self.load_project(project_id)
-        if not project:
-            return []
-        return [d for d in project.documents if not d.embedded]
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, title, content, created_at, updated_at, created_by, embedded
+                FROM project_documents WHERE project_id = ? AND embedded = 0
+            """, (project_id,))
+
+            return [
+                ProjectDocument(
+                    id=row['id'],
+                    title=row['title'],
+                    content=row['content'],
+                    created_at=row['created_at'],
+                    updated_at=row['updated_at'],
+                    created_by=row['created_by'] or 'cass',
+                    embedded=bool(row['embedded'])
+                )
+                for row in cursor.fetchall()
+            ]
 
 
 if __name__ == "__main__":

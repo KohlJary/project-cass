@@ -14,6 +14,8 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, asdict, field
 import logging
 
+from database import get_db, json_serialize, json_deserialize
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,39 +104,67 @@ class DailyRhythmManager:
         ),
     ]
 
-    def __init__(self, data_dir: Path):
-        self.data_dir = data_dir / "rhythm"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.config_path = self.data_dir / "config.json"
-        self.records_dir = self.data_dir / "records"
-        self.records_dir.mkdir(exist_ok=True)
+    def __init__(self, daemon_id: str = None):
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
         self.phases: List[RhythmPhase] = self._load_config()
 
+    def _load_default_daemon(self):
+        """Load default daemon ID from database."""
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
+
     def _load_config(self) -> List[RhythmPhase]:
-        """Load rhythm configuration from disk, or create defaults."""
-        if self.config_path.exists():
-            try:
-                with open(self.config_path) as f:
-                    data = json.load(f)
-                return [RhythmPhase(**p) for p in data.get("phases", [])]
-            except Exception as e:
-                logger.error(f"Error loading rhythm config: {e}")
+        """Load rhythm configuration from database, or create defaults."""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, name, activity_type, start_time, end_time, description, days_json
+                FROM rhythm_phases
+                WHERE daemon_id = ?
+                ORDER BY start_time
+            """, (self._daemon_id,))
+            rows = cursor.fetchall()
+
+            if rows:
+                return [
+                    RhythmPhase(
+                        id=row[0],
+                        name=row[1],
+                        activity_type=row[2],
+                        start_time=row[3],
+                        end_time=row[4],
+                        description=row[5] or "",
+                        days=json_deserialize(row[6])
+                    )
+                    for row in rows
+                ]
 
         # Create default config
         self._save_config(self.DEFAULT_PHASES)
         return self.DEFAULT_PHASES
 
     def _save_config(self, phases: List[RhythmPhase]):
-        """Save rhythm configuration to disk."""
-        data = {"phases": [asdict(p) for p in phases]}
-        with open(self.config_path, "w") as f:
-            json.dump(data, f, indent=2)
+        """Save rhythm configuration to database."""
+        with get_db() as conn:
+            # Clear existing phases for this daemon
+            conn.execute("DELETE FROM rhythm_phases WHERE daemon_id = ?", (self._daemon_id,))
 
-    def _get_today_record_path(self) -> Path:
-        """Get path for today's record file."""
-        today = datetime.now().strftime("%Y-%m-%d")
-        return self.records_dir / f"{today}.json"
+            # Insert new phases
+            for phase in phases:
+                conn.execute("""
+                    INSERT INTO rhythm_phases (id, daemon_id, name, activity_type, start_time, end_time, description, days_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    phase.id, self._daemon_id, phase.name, phase.activity_type,
+                    phase.start_time, phase.end_time, phase.description,
+                    json_serialize(phase.days)
+                ))
+            conn.commit()
 
     def _load_today_record(self) -> DailyRecord:
         """Load today's activity record."""
@@ -143,35 +173,88 @@ class DailyRhythmManager:
 
     def _load_record_for_date(self, date_str: str) -> DailyRecord:
         """Load activity record for a specific date (YYYY-MM-DD format)."""
-        path = self.records_dir / f"{date_str}.json"
+        with get_db() as conn:
+            # Load completed phases
+            cursor = conn.execute("""
+                SELECT phase_id, completed_at, session_id, session_type,
+                       duration_minutes, summary, findings_json, notes_created_json
+                FROM rhythm_records
+                WHERE daemon_id = ? AND date = ?
+            """, (self._daemon_id, date_str))
 
-        if path.exists():
-            try:
-                with open(path) as f:
-                    data = json.load(f)
-                completed = [CompletedPhase(**c) for c in data.get("completed_phases", [])]
-                return DailyRecord(
-                    date=date_str,
-                    completed_phases=completed,
-                    daily_summary=data.get("daily_summary"),
-                    daily_summary_updated_at=data.get("daily_summary_updated_at")
+            completed = [
+                CompletedPhase(
+                    phase_id=row[0],
+                    completed_at=row[1],
+                    session_id=row[2],
+                    session_type=row[3],
+                    duration_minutes=row[4],
+                    summary=row[5],
+                    findings=json_deserialize(row[6]),
+                    notes_created=json_deserialize(row[7])
                 )
-            except Exception as e:
-                logger.error(f"Error loading daily record for {date_str}: {e}")
+                for row in cursor.fetchall()
+            ]
 
-        return DailyRecord(date=date_str, completed_phases=[])
+            # Load daily summary
+            cursor = conn.execute("""
+                SELECT daily_summary, daily_summary_updated_at
+                FROM rhythm_daily_summaries
+                WHERE daemon_id = ? AND date = ?
+            """, (self._daemon_id, date_str))
+            summary_row = cursor.fetchone()
 
-    def _save_today_record(self, record: DailyRecord):
-        """Save today's activity record."""
-        path = self._get_today_record_path()
-        data = {
-            "date": record.date,
-            "completed_phases": [asdict(c) for c in record.completed_phases],
-            "daily_summary": record.daily_summary,
-            "daily_summary_updated_at": record.daily_summary_updated_at,
-        }
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
+            return DailyRecord(
+                date=date_str,
+                completed_phases=completed,
+                daily_summary=summary_row[0] if summary_row else None,
+                daily_summary_updated_at=summary_row[1] if summary_row else None
+            )
+
+    def _save_completed_phase(self, date_str: str, completed: CompletedPhase):
+        """Save or update a completed phase record."""
+        with get_db() as conn:
+            # Check if exists
+            cursor = conn.execute("""
+                SELECT id FROM rhythm_records
+                WHERE daemon_id = ? AND date = ? AND phase_id = ?
+            """, (self._daemon_id, date_str, completed.phase_id))
+            existing = cursor.fetchone()
+
+            if existing:
+                conn.execute("""
+                    UPDATE rhythm_records
+                    SET completed_at = ?, session_id = ?, session_type = ?,
+                        duration_minutes = ?, summary = ?, findings_json = ?, notes_created_json = ?
+                    WHERE daemon_id = ? AND date = ? AND phase_id = ?
+                """, (
+                    completed.completed_at, completed.session_id, completed.session_type,
+                    completed.duration_minutes, completed.summary,
+                    json_serialize(completed.findings), json_serialize(completed.notes_created),
+                    self._daemon_id, date_str, completed.phase_id
+                ))
+            else:
+                conn.execute("""
+                    INSERT INTO rhythm_records (
+                        daemon_id, date, phase_id, completed_at, session_id, session_type,
+                        duration_minutes, summary, findings_json, notes_created_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    self._daemon_id, date_str, completed.phase_id, completed.completed_at,
+                    completed.session_id, completed.session_type, completed.duration_minutes,
+                    completed.summary, json_serialize(completed.findings),
+                    json_serialize(completed.notes_created)
+                ))
+            conn.commit()
+
+    def _save_daily_summary(self, date_str: str, summary: str, updated_at: str):
+        """Save or update daily summary."""
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO rhythm_daily_summaries (daemon_id, date, daily_summary, daily_summary_updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (self._daemon_id, date_str, summary, updated_at))
+            conn.commit()
 
     def _parse_time(self, time_str: str) -> time:
         """Parse HH:MM string to time object."""
@@ -276,13 +359,7 @@ class DailyRhythmManager:
         if not phase:
             return {"success": False, "error": f"Unknown phase: {phase_id}"}
 
-        record = self._load_today_record()
-
-        # Check if already completed - if so, update it instead of adding new
-        existing_idx = next(
-            (i for i, c in enumerate(record.completed_phases) if c.phase_id == phase_id),
-            None
-        )
+        today = datetime.now().strftime("%Y-%m-%d")
 
         completed = CompletedPhase(
             phase_id=phase_id,
@@ -292,13 +369,7 @@ class DailyRhythmManager:
             duration_minutes=duration_minutes,
         )
 
-        if existing_idx is not None:
-            # Update existing completion (for force re-trigger)
-            record.completed_phases[existing_idx] = completed
-        else:
-            record.completed_phases.append(completed)
-
-        self._save_today_record(record)
+        self._save_completed_phase(today, completed)
 
         return {"success": True, "completed": asdict(completed)}
 
@@ -315,18 +386,19 @@ class DailyRhythmManager:
         Called after a research/reflection session completes to record
         what was accomplished during that phase.
         """
+        today = datetime.now().strftime("%Y-%m-%d")
         record = self._load_today_record()
 
         # Find the completed phase
-        for i, completed in enumerate(record.completed_phases):
+        for completed in record.completed_phases:
             if completed.phase_id == phase_id:
-                record.completed_phases[i].summary = summary
+                completed.summary = summary
                 if findings:
-                    record.completed_phases[i].findings = findings
+                    completed.findings = findings
                 if notes_created:
-                    record.completed_phases[i].notes_created = notes_created
+                    completed.notes_created = notes_created
 
-                self._save_today_record(record)
+                self._save_completed_phase(today, completed)
                 return {"success": True, "phase_id": phase_id}
 
         return {"success": False, "error": f"Phase {phase_id} not found in today's completed phases"}
@@ -338,12 +410,11 @@ class DailyRhythmManager:
         Called after each phase completes to provide an integrated view
         of the day's activities so far.
         """
-        record = self._load_today_record()
-        record.daily_summary = summary
-        record.daily_summary_updated_at = datetime.now().isoformat()
-        self._save_today_record(record)
+        today = datetime.now().strftime("%Y-%m-%d")
+        updated_at = datetime.now().isoformat()
+        self._save_daily_summary(today, summary, updated_at)
 
-        return {"success": True, "updated_at": record.daily_summary_updated_at}
+        return {"success": True, "updated_at": updated_at}
 
     def get_daily_summary(self) -> Optional[str]:
         """Get the current rolling daily summary."""
@@ -486,6 +557,8 @@ class DailyRhythmManager:
 
     def get_stats(self, days: int = 7) -> Dict[str, Any]:
         """Get rhythm statistics over recent days."""
+        from datetime import timedelta
+
         stats = {
             "days_analyzed": 0,
             "total_completions": 0,
@@ -497,26 +570,28 @@ class DailyRhythmManager:
         for phase in self.phases:
             stats["completion_by_phase"][phase.id] = 0
 
-        # Analyze recent days
-        from datetime import timedelta
+        # Calculate date range
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
 
-        for i in range(days):
-            date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-            path = self.records_dir / f"{date}.json"
+        with get_db() as conn:
+            # Get all completions in date range
+            cursor = conn.execute("""
+                SELECT date, phase_id, COUNT(*) as count
+                FROM rhythm_records
+                WHERE daemon_id = ? AND date >= ? AND date <= ?
+                GROUP BY date, phase_id
+            """, (self._daemon_id, start_date, end_date))
 
-            if path.exists():
-                try:
-                    with open(path) as f:
-                        data = json.load(f)
-                    stats["days_analyzed"] += 1
+            dates_seen = set()
+            for row in cursor.fetchall():
+                date, phase_id, count = row
+                dates_seen.add(date)
+                if phase_id in stats["completion_by_phase"]:
+                    stats["completion_by_phase"][phase_id] += count
+                    stats["total_completions"] += count
 
-                    for completed in data.get("completed_phases", []):
-                        phase_id = completed.get("phase_id")
-                        if phase_id in stats["completion_by_phase"]:
-                            stats["completion_by_phase"][phase_id] += 1
-                            stats["total_completions"] += 1
-                except:
-                    pass
+            stats["days_analyzed"] = len(dates_seen)
 
         if stats["days_analyzed"] > 0:
             stats["average_completions_per_day"] = round(

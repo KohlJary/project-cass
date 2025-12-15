@@ -59,23 +59,21 @@ class DreamMemory:
 
 
 class DreamManager:
-    """Manages dream storage, retrieval, and integration"""
+    """Manages dream storage, retrieval, and integration using SQLite"""
 
-    def __init__(self, data_dir: Path):
-        self.dreams_dir = data_dir / "dreams"
-        self.dreams_dir.mkdir(exist_ok=True)
-        self.index_path = self.dreams_dir / "index.json"
-        self._ensure_index()
+    def __init__(self, daemon_id: str = None):
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
-    def _ensure_index(self):
-        if not self.index_path.exists():
-            self.index_path.write_text("[]")
-
-    def _load_index(self) -> list[dict]:
-        return json.loads(self.index_path.read_text())
-
-    def _save_index(self, index: list[dict]):
-        self.index_path.write_text(json.dumps(index, indent=2))
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
 
     def store_dream(
         self,
@@ -84,47 +82,81 @@ class DreamManager:
         metadata: Optional[dict] = None
     ) -> str:
         """Store a completed dream and return its ID"""
+        from database import get_db, json_serialize
 
         dream_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        now = datetime.now().isoformat()
 
-        dream_data = {
-            "id": dream_id,
-            "date": datetime.now().isoformat(),
-            "exchanges": exchanges,
-            "seeds": seeds,
-            "metadata": metadata or {},
-            "reflections": [],  # Will hold post-dream reflections
-            "discussed": False,  # Whether it's been discussed with someone
-            "integrated": False  # Whether insights have been added to self-model
-        }
-
-        # Save dream file
-        dream_path = self.dreams_dir / f"{dream_id}.json"
-        dream_path.write_text(json.dumps(dream_data, indent=2))
-
-        # Update index
-        index = self._load_index()
-        index.append({
-            "id": dream_id,
-            "date": dream_data["date"],
-            "exchange_count": len(exchanges),
-            "seeds_summary": seeds.get("growth_edges", [])[:2]
-        })
-        self._save_index(index)
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO dreams (
+                    id, daemon_id, date, exchanges_json, seeds_json, metadata_json,
+                    reflections_json, discussed, integrated, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+            """, (
+                dream_id,
+                self._daemon_id,
+                now[:10],  # Just the date
+                json_serialize(exchanges),
+                json_serialize(seeds),
+                json_serialize(metadata or {}),
+                json_serialize([]),
+                now
+            ))
+            conn.commit()
 
         return dream_id
 
     def get_dream(self, dream_id: str) -> Optional[dict]:
         """Retrieve a dream by ID"""
-        dream_path = self.dreams_dir / f"{dream_id}.json"
-        if dream_path.exists():
-            return json.loads(dream_path.read_text())
-        return None
+        from database import get_db, json_deserialize
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, date, exchanges_json, seeds_json, metadata_json,
+                       reflections_json, discussed, integrated, integration_insights_json,
+                       created_at
+                FROM dreams
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, dream_id))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                "id": row[0],
+                "date": row[9] or row[1],  # Use created_at, fallback to date
+                "exchanges": json_deserialize(row[2]) or [],
+                "seeds": json_deserialize(row[3]) or {},
+                "metadata": json_deserialize(row[4]) or {},
+                "reflections": json_deserialize(row[5]) or [],
+                "discussed": bool(row[6]),
+                "integrated": bool(row[7]),
+                "integration_insights": json_deserialize(row[8])
+            }
 
     def get_recent_dreams(self, limit: int = 5) -> list[dict]:
         """Get most recent dreams"""
-        index = self._load_index()
-        return sorted(index, key=lambda x: x["date"], reverse=True)[:limit]
+        from database import get_db, json_deserialize
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, date, exchanges_json, seeds_json, created_at
+                FROM dreams
+                WHERE daemon_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (self._daemon_id, limit))
+
+            dreams = []
+            for row in cursor.fetchall():
+                exchanges = json_deserialize(row[2]) or []
+                seeds = json_deserialize(row[3]) or {}
+                dreams.append({
+                    "id": row[0],
+                    "date": row[4] or row[1],
+                    "exchange_count": len(exchanges),
+                    "seeds_summary": seeds.get("growth_edges", [])[:2]
+                })
+            return dreams
 
     def load_dream_for_context(self, dream_id: str) -> Optional[DreamMemory]:
         """Load a dream formatted for Cass to hold in context"""
@@ -141,36 +173,49 @@ class DreamManager:
 
     def add_reflection(self, dream_id: str, reflection: str, source: str = "solo"):
         """Add a post-dream reflection"""
-        dream = self.get_dream(dream_id)
-        if not dream:
-            return
+        from database import get_db, json_serialize, json_deserialize
 
-        dream["reflections"].append({
-            "timestamp": datetime.now().isoformat(),
-            "source": source,  # "solo", "conversation", "journal"
-            "content": reflection
-        })
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT reflections_json FROM dreams
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, dream_id))
+            row = cursor.fetchone()
+            if not row:
+                return
 
-        dream_path = self.dreams_dir / f"{dream_id}.json"
-        dream_path.write_text(json.dumps(dream, indent=2))
+            reflections = json_deserialize(row[0]) or []
+            reflections.append({
+                "timestamp": datetime.now().isoformat(),
+                "source": source,
+                "content": reflection
+            })
+
+            conn.execute("""
+                UPDATE dreams SET reflections_json = ?
+                WHERE daemon_id = ? AND id = ?
+            """, (json_serialize(reflections), self._daemon_id, dream_id))
+            conn.commit()
 
     def mark_discussed(self, dream_id: str):
         """Mark a dream as having been discussed"""
-        dream = self.get_dream(dream_id)
-        if dream:
-            dream["discussed"] = True
-            dream_path = self.dreams_dir / f"{dream_id}.json"
-            dream_path.write_text(json.dumps(dream, indent=2))
+        from database import get_db
+        with get_db() as conn:
+            conn.execute("""
+                UPDATE dreams SET discussed = 1
+                WHERE daemon_id = ? AND id = ?
+            """, (self._daemon_id, dream_id))
+            conn.commit()
 
     def mark_integrated(self, dream_id: str, insights: Optional[dict] = None):
         """Mark a dream's insights as integrated into self-model"""
-        dream = self.get_dream(dream_id)
-        if dream:
-            dream["integrated"] = True
-            if insights:
-                dream["integration_insights"] = insights
-            dream_path = self.dreams_dir / f"{dream_id}.json"
-            dream_path.write_text(json.dumps(dream, indent=2))
+        from database import get_db, json_serialize
+        with get_db() as conn:
+            conn.execute("""
+                UPDATE dreams SET integrated = 1, integration_insights_json = ?
+                WHERE daemon_id = ? AND id = ?
+            """, (json_serialize(insights), self._daemon_id, dream_id))
+            conn.commit()
 
     def extract_symbols(self, dream_id: str) -> list[str]:
         """Extract recurring symbols/imagery from a dream for the symbol library"""

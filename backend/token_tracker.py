@@ -90,10 +90,10 @@ class UsageContext:
 
 class TokenUsageTracker:
     """
-    Centralized token usage tracking service.
+    Centralized token usage tracking service using SQLite.
 
     Usage:
-        tracker = TokenUsageTracker(data_dir)
+        tracker = TokenUsageTracker()
 
         # Option 1: Context manager (preferred)
         async with tracker.track("chat", "initial_message", provider="anthropic", model="claude-sonnet-4"):
@@ -112,46 +112,23 @@ class TokenUsageTracker:
         )
     """
 
-    def __init__(self, data_dir: Path):
-        self.data_dir = data_dir / "usage"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, daemon_id: str = None, data_dir: Path = None):
+        # data_dir kept for backwards compatibility but not used
+        self._daemon_id = daemon_id
+        if not self._daemon_id:
+            self._load_default_daemon()
 
         # Current tracking context (for context manager pattern)
         self._current_context: Optional[UsageContext] = None
 
-    def _get_daily_file(self, date: Optional[datetime] = None) -> Path:
-        """Get the file path for a specific date's usage records."""
-        if date is None:
-            date = datetime.now()
-        date_str = date.strftime("%Y-%m-%d")
-        return self.data_dir / f"{date_str}.json"
-
-    def _load_daily_records(self, date: Optional[datetime] = None) -> Dict[str, Any]:
-        """Load records for a specific date."""
-        file_path = self._get_daily_file(date)
-        if not file_path.exists():
-            return {
-                "date": (date or datetime.now()).strftime("%Y-%m-%d"),
-                "records": []
-            }
-        try:
-            with open(file_path, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading usage records: {e}")
-            return {
-                "date": (date or datetime.now()).strftime("%Y-%m-%d"),
-                "records": []
-            }
-
-    def _save_daily_records(self, data: Dict[str, Any], date: Optional[datetime] = None):
-        """Save records for a specific date."""
-        file_path = self._get_daily_file(date)
-        try:
-            with open(file_path, 'w') as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving usage records: {e}")
+    def _load_default_daemon(self):
+        """Load default daemon ID from database"""
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            if row:
+                self._daemon_id = row[0]
 
     def _estimate_cost(
         self,
@@ -221,10 +198,24 @@ class TokenUsageTracker:
             )
         )
 
-        # Save to daily file
-        daily_data = self._load_daily_records()
-        daily_data["records"].append(asdict(record))
-        self._save_daily_records(daily_data)
+        # Save to database
+        from database import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO token_usage_records (
+                    id, daemon_id, timestamp, provider, model, category, operation,
+                    input_tokens, output_tokens, total_tokens, cache_read_tokens,
+                    cache_write_tokens, conversation_id, user_id, tool_name,
+                    duration_ms, estimated_cost_usd
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                record.id, self._daemon_id, record.timestamp, provider, model,
+                category, operation, input_tokens, output_tokens,
+                input_tokens + output_tokens, cache_read_tokens, cache_write_tokens,
+                conversation_id, user_id, tool_name, duration_ms,
+                record.estimated_cost_usd
+            ))
+            conn.commit()
 
         logger.debug(
             f"Token usage: {category}/{operation} - "
@@ -373,30 +364,63 @@ class TokenUsageTracker:
         limit: int = 1000
     ) -> List[Dict[str, Any]]:
         """Query usage records with filters."""
+        from database import get_db
+
         if end_date is None:
             end_date = datetime.now()
         if start_date is None:
             start_date = end_date - timedelta(days=7)
 
-        results = []
-        current = start_date
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
 
-        while current <= end_date:
-            daily_data = self._load_daily_records(current)
-            for record in daily_data.get("records", []):
-                # Apply filters
-                if category and record.get("category") != category:
-                    continue
-                if operation and record.get("operation") != operation:
-                    continue
-                if provider and record.get("provider") != provider:
-                    continue
-                results.append(record)
-                if len(results) >= limit:
-                    return results
-            current += timedelta(days=1)
+        # Build query with optional filters
+        query = """
+            SELECT id, timestamp, provider, model, category, operation,
+                   input_tokens, output_tokens, total_tokens, cache_read_tokens,
+                   cache_write_tokens, conversation_id, user_id, tool_name,
+                   duration_ms, estimated_cost_usd
+            FROM token_usage_records
+            WHERE daemon_id = ? AND timestamp >= ? AND timestamp <= ?
+        """
+        params = [self._daemon_id, start_str, end_str]
 
-        return results
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+        if operation:
+            query += " AND operation = ?"
+            params.append(operation)
+        if provider:
+            query += " AND provider = ?"
+            params.append(provider)
+
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+
+        with get_db() as conn:
+            cursor = conn.execute(query, params)
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    "id": row[0],
+                    "timestamp": row[1],
+                    "provider": row[2],
+                    "model": row[3],
+                    "category": row[4],
+                    "operation": row[5],
+                    "input_tokens": row[6],
+                    "output_tokens": row[7],
+                    "total_tokens": row[8],
+                    "cache_read_tokens": row[9],
+                    "cache_write_tokens": row[10],
+                    "conversation_id": row[11],
+                    "user_id": row[12],
+                    "tool_name": row[13],
+                    "duration_ms": row[14],
+                    "estimated_cost_usd": row[15]
+                })
+            return results
 
     def get_summary(
         self,

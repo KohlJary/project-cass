@@ -1,14 +1,16 @@
 """
 Cass Vessel - Conversation Manager
 Handles conversation history, switching, and persistence
+
+Now uses SQLite database instead of JSON files.
 """
 import json
-import os
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
-from pathlib import Path
 import uuid
+
+from database import get_db, json_serialize, json_deserialize, get_daemon_id
 
 
 @dataclass
@@ -32,6 +34,8 @@ class Message:
     marks: Optional[List[Dict]] = None
     # Narration metrics (for assistant messages)
     narration_metrics: Optional[Dict] = None
+    # Database ID (internal, not part of original API)
+    id: Optional[int] = None
 
 
 @dataclass
@@ -83,39 +87,19 @@ class Conversation:
 
 class ConversationManager:
     """
-    Manages multiple conversations with persistence.
+    Manages multiple conversations with SQLite persistence.
 
-    Each conversation is stored as a separate JSON file.
-    Metadata index tracks all conversations for listing.
+    Conversations and messages are stored in the SQLite database.
     """
 
-    def __init__(self, storage_dir: str = "./data/conversations"):
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.index_file = self.storage_dir / "index.json"
-        self._ensure_index()
+    def __init__(self, storage_dir: str = None):
+        """
+        Initialize the conversation manager.
 
-    def _ensure_index(self):
-        """Ensure index file exists"""
-        if not self.index_file.exists():
-            self._save_index([])
-
-    def _load_index(self) -> List[Dict]:
-        """Load conversation index"""
-        try:
-            with open(self.index_file, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return []
-
-    def _save_index(self, index: List[Dict]):
-        """Save conversation index"""
-        with open(self.index_file, 'w') as f:
-            json.dump(index, f, indent=2)
-
-    def _get_conversation_path(self, conversation_id: str) -> Path:
-        """Get file path for a conversation"""
-        return self.storage_dir / f"{conversation_id}.json"
+        Args:
+            storage_dir: Ignored - kept for API compatibility. Database path is in config.
+        """
+        self.daemon_id = get_daemon_id()
 
     def create_conversation(
         self,
@@ -127,7 +111,27 @@ class ConversationManager:
         conversation_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
 
-        conversation = Conversation(
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO conversations (
+                    id, daemon_id, user_id, project_id, title,
+                    working_summary, last_summary_timestamp,
+                    messages_since_last_summary, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                conversation_id,
+                self.daemon_id,
+                user_id,
+                project_id,
+                title or "New Conversation",
+                None,  # working_summary
+                None,  # last_summary_timestamp
+                0,     # messages_since_last_summary
+                now,
+                now
+            ))
+
+        return Conversation(
             id=conversation_id,
             title=title or "New Conversation",
             created_at=now,
@@ -137,43 +141,63 @@ class ConversationManager:
             user_id=user_id
         )
 
-        # Save conversation
-        self._save_conversation(conversation)
-
-        # Update index
-        index = self._load_index()
-        index.append({
-            "id": conversation_id,
-            "title": conversation.title,
-            "created_at": now,
-            "updated_at": now,
-            "message_count": 0,
-            "project_id": project_id,
-            "user_id": user_id
-        })
-        self._save_index(index)
-
-        return conversation
-
-    def _save_conversation(self, conversation: Conversation):
-        """Save a conversation to disk"""
-        path = self._get_conversation_path(conversation.id)
-        with open(path, 'w') as f:
-            json.dump(conversation.to_dict(), f, indent=2)
-
     def load_conversation(self, conversation_id: str) -> Optional[Conversation]:
         """Load a conversation by ID"""
-        path = self._get_conversation_path(conversation_id)
+        with get_db() as conn:
+            # Load conversation metadata
+            cursor = conn.execute("""
+                SELECT id, title, created_at, updated_at, user_id, project_id,
+                       working_summary, last_summary_timestamp, messages_since_last_summary
+                FROM conversations WHERE id = ?
+            """, (conversation_id,))
+            row = cursor.fetchone()
 
-        if not path.exists():
-            return None
+            if not row:
+                return None
 
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-            return Conversation.from_dict(data)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return None
+            # Load messages
+            cursor = conn.execute("""
+                SELECT id, role, content, timestamp, excluded, user_id,
+                       provider, model, input_tokens, output_tokens,
+                       animations_json, self_observations_json,
+                       user_observations_json, marks_json, narration_metrics_json
+                FROM messages
+                WHERE conversation_id = ?
+                ORDER BY timestamp ASC
+            """, (conversation_id,))
+
+            messages = []
+            for msg_row in cursor.fetchall():
+                messages.append(Message(
+                    id=msg_row['id'],
+                    role=msg_row['role'],
+                    content=msg_row['content'],
+                    timestamp=msg_row['timestamp'],
+                    excluded=bool(msg_row['excluded']),
+                    user_id=msg_row['user_id'],
+                    provider=msg_row['provider'],
+                    model=msg_row['model'],
+                    input_tokens=msg_row['input_tokens'],
+                    output_tokens=msg_row['output_tokens'],
+                    animations=json_deserialize(msg_row['animations_json']),
+                    self_observations=json_deserialize(msg_row['self_observations_json']),
+                    user_observations=json_deserialize(msg_row['user_observations_json']),
+                    marks=json_deserialize(msg_row['marks_json']),
+                    narration_metrics=json_deserialize(msg_row['narration_metrics_json'])
+                ))
+
+            return Conversation(
+                id=row['id'],
+                title=row['title'],
+                created_at=row['created_at'],
+                updated_at=row['updated_at'],
+                messages=messages,
+                last_summary_timestamp=row['last_summary_timestamp'],
+                messages_since_last_summary=row['messages_since_last_summary'] or 0,
+                project_id=row['project_id'],
+                working_summary=row['working_summary'],
+                user_id=row['user_id']
+            )
 
     def add_message(
         self,
@@ -192,50 +216,73 @@ class ConversationManager:
         narration_metrics: Optional[Dict] = None
     ) -> bool:
         """Add a message to a conversation"""
-        conversation = self.load_conversation(conversation_id)
+        now = datetime.now().isoformat()
 
-        if not conversation:
-            return False
+        with get_db() as conn:
+            # Check conversation exists
+            cursor = conn.execute(
+                "SELECT id, title FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            conv_row = cursor.fetchone()
+            if not conv_row:
+                return False
 
-        # Add message
-        message = Message(
-            role=role,
-            content=content,
-            timestamp=datetime.now().isoformat(),
-            animations=animations,
-            user_id=user_id if role == "user" else None,  # Only set for user messages
-            input_tokens=input_tokens if role == "assistant" else None,
-            output_tokens=output_tokens if role == "assistant" else None,
-            provider=provider if role == "assistant" else None,
-            model=model if role == "assistant" else None,
-            self_observations=self_observations if role == "assistant" else None,
-            user_observations=user_observations if role == "assistant" else None,
-            marks=marks if role == "assistant" else None,
-            narration_metrics=narration_metrics if role == "assistant" else None
-        )
-        conversation.messages.append(message)
+            # Insert message
+            conn.execute("""
+                INSERT INTO messages (
+                    conversation_id, role, content, timestamp, excluded, user_id,
+                    provider, model, input_tokens, output_tokens,
+                    animations_json, self_observations_json,
+                    user_observations_json, marks_json, narration_metrics_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                conversation_id,
+                role,
+                content,
+                now,
+                0,  # excluded
+                user_id if role == "user" else None,
+                provider if role == "assistant" else None,
+                model if role == "assistant" else None,
+                input_tokens if role == "assistant" else None,
+                output_tokens if role == "assistant" else None,
+                json_serialize(animations),
+                json_serialize(self_observations) if role == "assistant" else None,
+                json_serialize(user_observations) if role == "assistant" else None,
+                json_serialize(marks) if role == "assistant" else None,
+                json_serialize(narration_metrics) if role == "assistant" else None
+            ))
 
-        # Update title if this is the first user message
-        if role == "user" and len([m for m in conversation.messages if m.role == "user"]) == 1:
-            conversation.title = self._generate_title(content)
+            # Check if this is the first user message for auto-title
+            new_title = None
+            if role == "user":
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id = ? AND role = 'user'",
+                    (conversation_id,)
+                )
+                user_msg_count = cursor.fetchone()[0]
+                if user_msg_count == 1:  # Just inserted the first user message
+                    new_title = self._generate_title(content)
 
-        # Increment messages since last summary
-        conversation.messages_since_last_summary += 1
-
-        # Update timestamp
-        conversation.updated_at = datetime.now().isoformat()
-
-        # Save
-        self._save_conversation(conversation)
-
-        # Update index
-        self._update_index_entry(conversation)
+            # Update conversation metadata
+            if new_title:
+                conn.execute("""
+                    UPDATE conversations
+                    SET updated_at = ?, messages_since_last_summary = messages_since_last_summary + 1, title = ?
+                    WHERE id = ?
+                """, (now, new_title, conversation_id))
+            else:
+                conn.execute("""
+                    UPDATE conversations
+                    SET updated_at = ?, messages_since_last_summary = messages_since_last_summary + 1
+                    WHERE id = ?
+                """, (now, conversation_id))
 
         return True
 
     def _generate_title(self, first_message: str, max_length: int = 50) -> str:
         """Generate a title from the first message"""
-        # Take first line or first N characters
         lines = first_message.strip().split('\n')
         title = lines[0]
 
@@ -243,20 +290,6 @@ class ConversationManager:
             title = title[:max_length - 3] + "..."
 
         return title or "New Conversation"
-
-    def _update_index_entry(self, conversation: Conversation):
-        """Update a conversation's entry in the index"""
-        index = self._load_index()
-
-        for entry in index:
-            if entry["id"] == conversation.id:
-                entry["title"] = conversation.title
-                entry["updated_at"] = conversation.updated_at
-                entry["message_count"] = len(conversation.messages)
-                entry["project_id"] = conversation.project_id
-                break
-
-        self._save_index(index)
 
     def list_conversations(
         self,
@@ -266,58 +299,73 @@ class ConversationManager:
         """
         List conversations with metadata.
         Returns most recently updated first.
-
-        Args:
-            limit: Maximum number of conversations to return
-            user_id: If provided, only return conversations for this user
         """
-        index = self._load_index()
+        with get_db() as conn:
+            if user_id:
+                # Include conversations for this user OR with no user_id (shared/legacy)
+                cursor = conn.execute("""
+                    SELECT c.id, c.title, c.created_at, c.updated_at, c.project_id, c.user_id,
+                           COUNT(m.id) as message_count
+                    FROM conversations c
+                    LEFT JOIN messages m ON m.conversation_id = c.id
+                    WHERE c.daemon_id = ? AND (c.user_id = ? OR c.user_id IS NULL)
+                    GROUP BY c.id
+                    ORDER BY c.updated_at DESC
+                    LIMIT ?
+                """, (self.daemon_id, user_id, limit or 1000))
+            else:
+                cursor = conn.execute("""
+                    SELECT c.id, c.title, c.created_at, c.updated_at, c.project_id, c.user_id,
+                           COUNT(m.id) as message_count
+                    FROM conversations c
+                    LEFT JOIN messages m ON m.conversation_id = c.id
+                    WHERE c.daemon_id = ?
+                    GROUP BY c.id
+                    ORDER BY c.updated_at DESC
+                    LIMIT ?
+                """, (self.daemon_id, limit or 1000))
 
-        # Filter by user_id if provided
-        # Include conversations belonging to the user OR with no user_id (shared/legacy)
-        if user_id:
-            index = [c for c in index if c.get("user_id") == user_id or c.get("user_id") is None]
-
-        # Sort by updated_at descending
-        index.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
-
-        if limit:
-            index = index[:limit]
-
-        return index
+            return [
+                {
+                    "id": row['id'],
+                    "title": row['title'],
+                    "created_at": row['created_at'],
+                    "updated_at": row['updated_at'],
+                    "message_count": row['message_count'],
+                    "project_id": row['project_id'],
+                    "user_id": row['user_id']
+                }
+                for row in cursor.fetchall()
+            ]
 
     def delete_conversation(self, conversation_id: str) -> bool:
-        """Delete a conversation"""
-        path = self._get_conversation_path(conversation_id)
-
-        # Delete file
-        if path.exists():
-            path.unlink()
-
-        # Remove from index
-        index = self._load_index()
-        index = [entry for entry in index if entry["id"] != conversation_id]
-        self._save_index(index)
-
+        """Delete a conversation (messages cascade automatically)"""
+        with get_db() as conn:
+            conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
         return True
 
     def get_message_count(self, conversation_id: str) -> int:
         """Get number of messages in a conversation"""
-        conversation = self.load_conversation(conversation_id)
-        return len(conversation.messages) if conversation else 0
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
+                (conversation_id,)
+            )
+            return cursor.fetchone()[0]
 
     def update_title(self, conversation_id: str, new_title: str) -> bool:
         """Update a conversation's title"""
-        conversation = self.load_conversation(conversation_id)
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            if not cursor.fetchone():
+                return False
 
-        if not conversation:
-            return False
-
-        conversation.title = new_title
-        conversation.updated_at = datetime.now().isoformat()
-
-        self._save_conversation(conversation)
-        self._update_index_entry(conversation)
+            conn.execute("""
+                UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?
+            """, (new_title, datetime.now().isoformat(), conversation_id))
 
         return True
 
@@ -326,26 +374,18 @@ class ConversationManager:
         conversation_id: str,
         project_id: Optional[str]
     ) -> bool:
-        """
-        Assign a conversation to a project, or remove from project.
+        """Assign a conversation to a project, or remove from project."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            if not cursor.fetchone():
+                return False
 
-        Args:
-            conversation_id: Conversation to update
-            project_id: Project ID to assign to, or None to remove from project
-
-        Returns:
-            True if successful
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation:
-            return False
-
-        conversation.project_id = project_id
-        conversation.updated_at = datetime.now().isoformat()
-
-        self._save_conversation(conversation)
-        self._update_index_entry(conversation)
+            conn.execute("""
+                UPDATE conversations SET project_id = ?, updated_at = ? WHERE id = ?
+            """, (project_id, datetime.now().isoformat(), conversation_id))
 
         return True
 
@@ -354,61 +394,99 @@ class ConversationManager:
         project_id: Optional[str],
         limit: Optional[int] = None
     ) -> List[Dict]:
-        """
-        List conversations for a specific project (or unassigned).
+        """List conversations for a specific project (or unassigned)."""
+        with get_db() as conn:
+            if project_id is None:
+                cursor = conn.execute("""
+                    SELECT c.id, c.title, c.created_at, c.updated_at, c.project_id, c.user_id,
+                           COUNT(m.id) as message_count
+                    FROM conversations c
+                    LEFT JOIN messages m ON m.conversation_id = c.id
+                    WHERE c.daemon_id = ? AND c.project_id IS NULL
+                    GROUP BY c.id
+                    ORDER BY c.updated_at DESC
+                    LIMIT ?
+                """, (self.daemon_id, limit or 1000))
+            else:
+                cursor = conn.execute("""
+                    SELECT c.id, c.title, c.created_at, c.updated_at, c.project_id, c.user_id,
+                           COUNT(m.id) as message_count
+                    FROM conversations c
+                    LEFT JOIN messages m ON m.conversation_id = c.id
+                    WHERE c.daemon_id = ? AND c.project_id = ?
+                    GROUP BY c.id
+                    ORDER BY c.updated_at DESC
+                    LIMIT ?
+                """, (self.daemon_id, project_id, limit or 1000))
 
-        Args:
-            project_id: Project ID to filter by, or None for unassigned
-            limit: Max results
-
-        Returns:
-            List of conversation metadata dicts
-        """
-        index = self._load_index()
-
-        # Filter by project
-        filtered = [
-            entry for entry in index
-            if entry.get("project_id") == project_id
-        ]
-
-        # Sort by updated_at descending
-        filtered.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
-
-        if limit:
-            filtered = filtered[:limit]
-
-        return filtered
+            return [
+                {
+                    "id": row['id'],
+                    "title": row['title'],
+                    "created_at": row['created_at'],
+                    "updated_at": row['updated_at'],
+                    "message_count": row['message_count'],
+                    "project_id": row['project_id'],
+                    "user_id": row['user_id']
+                }
+                for row in cursor.fetchall()
+            ]
 
     def search_conversations(self, query: str, limit: int = 10) -> List[Dict]:
-        """
-        Search conversations by title or message content.
-        Returns matching conversations sorted by relevance.
-        """
-        query_lower = query.lower()
+        """Search conversations by title or message content."""
         results = []
+        query_pattern = f"%{query}%"
 
-        index = self._load_index()
+        with get_db() as conn:
+            # Search titles
+            cursor = conn.execute("""
+                SELECT c.id, c.title, c.created_at, c.updated_at, c.project_id, c.user_id,
+                       COUNT(m.id) as message_count
+                FROM conversations c
+                LEFT JOIN messages m ON m.conversation_id = c.id
+                WHERE c.daemon_id = ? AND c.title LIKE ?
+                GROUP BY c.id
+                ORDER BY c.updated_at DESC
+            """, (self.daemon_id, query_pattern))
 
-        for entry in index:
-            # Check title match
-            if query_lower in entry["title"].lower():
+            for row in cursor.fetchall():
                 results.append({
-                    **entry,
+                    "id": row['id'],
+                    "title": row['title'],
+                    "created_at": row['created_at'],
+                    "updated_at": row['updated_at'],
+                    "message_count": row['message_count'],
+                    "project_id": row['project_id'],
+                    "user_id": row['user_id'],
                     "relevance": "title"
                 })
-                continue
 
-            # Check message content
-            conversation = self.load_conversation(entry["id"])
-            if conversation:
-                for message in conversation.messages:
-                    if query_lower in message.content.lower():
-                        results.append({
-                            **entry,
-                            "relevance": "message"
-                        })
-                        break
+            # Search message content (for conversations not already found)
+            found_ids = {r['id'] for r in results}
+            cursor = conn.execute("""
+                SELECT DISTINCT c.id, c.title, c.created_at, c.updated_at, c.project_id, c.user_id
+                FROM conversations c
+                JOIN messages m ON m.conversation_id = c.id
+                WHERE c.daemon_id = ? AND m.content LIKE ?
+            """, (self.daemon_id, query_pattern))
+
+            for row in cursor.fetchall():
+                if row['id'] not in found_ids:
+                    # Get message count
+                    count_cursor = conn.execute(
+                        "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
+                        (row['id'],)
+                    )
+                    results.append({
+                        "id": row['id'],
+                        "title": row['title'],
+                        "created_at": row['created_at'],
+                        "updated_at": row['updated_at'],
+                        "message_count": count_cursor.fetchone()[0],
+                        "project_id": row['project_id'],
+                        "user_id": row['user_id'],
+                        "relevance": "message"
+                    })
 
         return results[:limit]
 
@@ -417,82 +495,72 @@ class ConversationManager:
         conversation_id: str,
         count: int = 10
     ) -> List[Dict]:
-        """
-        Get the most recent messages from a conversation (chronological order).
+        """Get the most recent messages from a conversation (chronological order)."""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT role, content, timestamp
+                FROM messages
+                WHERE conversation_id = ? AND excluded = 0
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (conversation_id, count))
 
-        Args:
-            conversation_id: Conversation ID
-            count: Number of recent messages to return
-
-        Returns:
-            List of message dicts, most recent last
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation or not conversation.messages:
-            return []
-
-        # Get last N messages, excluding system/excluded messages
-        recent = [
-            {
-                "role": m.role,
-                "content": m.content,
-                "timestamp": m.timestamp,
-            }
-            for m in conversation.messages[-count:]
-            if not m.excluded
-        ]
-
-        return recent
+            # Reverse to get chronological order
+            messages = [
+                {
+                    "role": row['role'],
+                    "content": row['content'],
+                    "timestamp": row['timestamp']
+                }
+                for row in cursor.fetchall()
+            ]
+            messages.reverse()
+            return messages
 
     def get_unsummarized_messages(
         self,
         conversation_id: str,
         max_messages: int = 30
     ) -> List[Dict]:
-        """
-        Get messages that need summarization.
+        """Get messages that need summarization."""
+        with get_db() as conn:
+            # Get last_summary_timestamp
+            cursor = conn.execute(
+                "SELECT last_summary_timestamp FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return []
 
-        Args:
-            conversation_id: Conversation ID
-            max_messages: Maximum messages to return
+            last_summary = row['last_summary_timestamp']
 
-        Returns:
-            List of message dicts (up to max_messages oldest unsummarized)
-        """
-        conversation = self.load_conversation(conversation_id)
+            if last_summary:
+                cursor = conn.execute("""
+                    SELECT role, content, timestamp, animations_json
+                    FROM messages
+                    WHERE conversation_id = ? AND timestamp > ? AND excluded = 0
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """, (conversation_id, last_summary, max_messages))
+            else:
+                cursor = conn.execute("""
+                    SELECT role, content, timestamp, animations_json
+                    FROM messages
+                    WHERE conversation_id = ? AND excluded = 0
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """, (conversation_id, max_messages))
 
-        if not conversation:
-            return []
-
-        # Find messages after last_summary_timestamp, excluding flagged messages
-        if conversation.last_summary_timestamp:
-            # Get messages newer than last summary
-            unsummarized = [
+            return [
                 {
-                    "role": m.role,
-                    "content": m.content,
-                    "timestamp": m.timestamp,
-                    "animations": m.animations
+                    "role": row['role'],
+                    "content": row['content'],
+                    "timestamp": row['timestamp'],
+                    "animations": json_deserialize(row['animations_json'])
                 }
-                for m in conversation.messages
-                if m.timestamp > conversation.last_summary_timestamp and not m.excluded
+                for row in cursor.fetchall()
             ]
-        else:
-            # No summaries yet, get all messages (except excluded)
-            unsummarized = [
-                {
-                    "role": m.role,
-                    "content": m.content,
-                    "timestamp": m.timestamp,
-                    "animations": m.animations
-                }
-                for m in conversation.messages
-                if not m.excluded
-            ]
-
-        # Return up to max_messages (oldest first)
-        return unsummarized[:max_messages]
 
     def mark_messages_summarized(
         self,
@@ -500,32 +568,23 @@ class ConversationManager:
         last_message_timestamp: str,
         messages_summarized: int
     ) -> bool:
-        """
-        Mark messages as summarized.
+        """Mark messages as summarized."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT messages_since_last_summary FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
 
-        Args:
-            conversation_id: Conversation ID
-            last_message_timestamp: Timestamp of last message in summary
-            messages_summarized: Number of messages that were summarized
+            new_count = max(0, (row['messages_since_last_summary'] or 0) - messages_summarized)
 
-        Returns:
-            True if successful
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation:
-            return False
-
-        # Update tracking
-        conversation.last_summary_timestamp = last_message_timestamp
-        conversation.messages_since_last_summary = max(
-            0,
-            conversation.messages_since_last_summary - messages_summarized
-        )
-
-        # Save
-        self._save_conversation(conversation)
-        self._update_index_entry(conversation)
+            conn.execute("""
+                UPDATE conversations
+                SET last_summary_timestamp = ?, messages_since_last_summary = ?
+                WHERE id = ?
+            """, (last_message_timestamp, new_count, conversation_id))
 
         return True
 
@@ -534,67 +593,48 @@ class ConversationManager:
         conversation_id: str,
         threshold: int
     ) -> bool:
-        """
-        Check if conversation needs automatic summarization.
+        """Check if conversation needs automatic summarization."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT messages_since_last_summary FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
 
-        Args:
-            conversation_id: Conversation ID
-            threshold: Message threshold for auto-summary
-
-        Returns:
-            True if needs summary
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation:
-            return False
-
-        return conversation.messages_since_last_summary >= threshold
+            return (row['messages_since_last_summary'] or 0) >= threshold
 
     def update_working_summary(
         self,
         conversation_id: str,
         working_summary: str
     ) -> bool:
-        """
-        Update the working summary for a conversation.
+        """Update the working summary for a conversation."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            if not cursor.fetchone():
+                return False
 
-        The working summary is a token-optimized consolidation of all
-        summary chunks, used for prompt context instead of individual chunks.
-
-        Args:
-            conversation_id: Conversation ID
-            working_summary: The new working summary text
-
-        Returns:
-            True if updated successfully
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation:
-            return False
-
-        conversation.working_summary = working_summary
-        self._save_conversation(conversation)
+            conn.execute(
+                "UPDATE conversations SET working_summary = ? WHERE id = ?",
+                (working_summary, conversation_id)
+            )
 
         return True
 
     def get_working_summary(self, conversation_id: str) -> Optional[str]:
-        """
-        Get the working summary for a conversation.
-
-        Args:
-            conversation_id: Conversation ID
-
-        Returns:
-            Working summary text or None
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation:
-            return None
-
-        return conversation.working_summary
+        """Get the working summary for a conversation."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT working_summary FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            row = cursor.fetchone()
+            return row['working_summary'] if row else None
 
     def exclude_message(
         self,
@@ -602,67 +642,60 @@ class ConversationManager:
         message_timestamp: str,
         exclude: bool = True
     ) -> bool:
-        """
-        Mark a message as excluded (or un-exclude it).
+        """Mark a message as excluded (or un-exclude it)."""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                UPDATE messages SET excluded = ?
+                WHERE conversation_id = ? AND timestamp = ?
+            """, (1 if exclude else 0, conversation_id, message_timestamp))
 
-        Excluded messages are skipped during summarization and context retrieval.
-
-        Args:
-            conversation_id: Conversation ID
-            message_timestamp: Timestamp of the message to exclude
-            exclude: True to exclude, False to un-exclude
-
-        Returns:
-            True if message was found and updated
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation:
-            return False
-
-        # Find and update the message
-        found = False
-        for msg in conversation.messages:
-            if msg.timestamp == message_timestamp:
-                msg.excluded = exclude
-                found = True
-                break
-
-        if found:
-            self._save_conversation(conversation)
-
-        return found
+            return cursor.rowcount > 0
 
     def get_message_by_timestamp(
         self,
         conversation_id: str,
         message_timestamp: str
     ) -> Optional[Message]:
-        """
-        Get a specific message by timestamp.
+        """Get a specific message by timestamp."""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id, role, content, timestamp, excluded, user_id,
+                       provider, model, input_tokens, output_tokens,
+                       animations_json, self_observations_json,
+                       user_observations_json, marks_json, narration_metrics_json
+                FROM messages
+                WHERE conversation_id = ? AND timestamp = ?
+            """, (conversation_id, message_timestamp))
 
-        Args:
-            conversation_id: Conversation ID
-            message_timestamp: Timestamp of the message
+            row = cursor.fetchone()
+            if not row:
+                return None
 
-        Returns:
-            Message if found, None otherwise
-        """
-        conversation = self.load_conversation(conversation_id)
-
-        if not conversation:
-            return None
-
-        for msg in conversation.messages:
-            if msg.timestamp == message_timestamp:
-                return msg
-
-        return None
+            return Message(
+                id=row['id'],
+                role=row['role'],
+                content=row['content'],
+                timestamp=row['timestamp'],
+                excluded=bool(row['excluded']),
+                user_id=row['user_id'],
+                provider=row['provider'],
+                model=row['model'],
+                input_tokens=row['input_tokens'],
+                output_tokens=row['output_tokens'],
+                animations=json_deserialize(row['animations_json']),
+                self_observations=json_deserialize(row['self_observations_json']),
+                user_observations=json_deserialize(row['user_observations_json']),
+                marks=json_deserialize(row['marks_json']),
+                narration_metrics=json_deserialize(row['narration_metrics_json'])
+            )
 
 
 if __name__ == "__main__":
     # Test the conversation manager
-    manager = ConversationManager("./data/conversations_test")
+    from database import init_database
+    init_database()
+
+    manager = ConversationManager()
 
     # Create conversation
     conv = manager.create_conversation()
@@ -683,3 +716,7 @@ if __name__ == "__main__":
     print(f"\nLoaded conversation: {loaded.title}")
     for msg in loaded.messages:
         print(f"  [{msg.role}]: {msg.content}")
+
+    # Clean up test conversation
+    manager.delete_conversation(conv.id)
+    print("\nTest conversation deleted")
