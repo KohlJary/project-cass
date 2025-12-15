@@ -24,6 +24,23 @@ interface MemoryContext {
   has_context: boolean;
 }
 
+export interface RecognitionMark {
+  category: string;
+  description: string;
+}
+
+export interface SelfObservation {
+  observation: string;
+  category: string;
+  confidence: number;
+}
+
+export interface UserObservation {
+  observation: string;
+  category: string;
+  confidence: number;
+}
+
 interface WebSocketMessage {
   type: string;
   message?: string;
@@ -39,6 +56,16 @@ interface WebSocketMessage {
   model?: string;
   audio?: string;
   audio_format?: string;
+  // Recognition-in-flow markers
+  marks?: RecognitionMark[];
+  self_observations?: SelfObservation[];
+  user_observations?: UserObservation[];
+}
+
+interface RecognitionData {
+  marks: RecognitionMark[];
+  selfObservations: SelfObservation[];
+  userObservations: UserObservation[];
 }
 
 interface UseWebSocketReturn {
@@ -52,6 +79,8 @@ interface UseWebSocketReturn {
   error: string | null;
   currentConversationId: string | null;
   conversationTitle: string | null;
+  recognition: RecognitionData;
+  clearRecognition: () => void;
 }
 
 export function useWebSocket(): UseWebSocketReturn {
@@ -70,6 +99,15 @@ export function useWebSocket(): UseWebSocketReturn {
   const [error, setError] = useState<string | null>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
+  const [recognition, setRecognition] = useState<RecognitionData>({
+    marks: [],
+    selfObservations: [],
+    userObservations: [],
+  });
+
+  const clearRecognition = useCallback(() => {
+    setRecognition({ marks: [], selfObservations: [], userObservations: [] });
+  }, []);
 
   // Use ref for message handler to avoid stale closures
   const handleMessageRef = useRef<(msg: WebSocketMessage) => void>(() => {});
@@ -112,6 +150,14 @@ export function useWebSocket(): UseWebSocketReturn {
         }
         if (msg.conversation_id) {
           setCurrentConversationId(msg.conversation_id);
+        }
+        // Capture recognition-in-flow markers
+        if (msg.marks || msg.self_observations || msg.user_observations) {
+          setRecognition(prev => ({
+            marks: msg.marks ? [...prev.marks, ...msg.marks] : prev.marks,
+            selfObservations: msg.self_observations ? [...prev.selfObservations, ...msg.self_observations] : prev.selfObservations,
+            userObservations: msg.user_observations ? [...prev.userObservations, ...msg.user_observations] : prev.userObservations,
+          }));
         }
         break;
 
@@ -321,5 +367,7 @@ export function useWebSocket(): UseWebSocketReturn {
     error,
     currentConversationId,
     conversationTitle,
+    recognition,
+    clearRecognition,
   };
 }

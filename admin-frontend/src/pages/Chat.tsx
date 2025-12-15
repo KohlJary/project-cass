@@ -47,6 +47,8 @@ export function Chat() {
     error,
     currentConversationId,
     conversationTitle,
+    recognition,
+    clearRecognition,
   } = useWebSocket();
 
   // Fetch conversation list
@@ -177,12 +179,14 @@ export function Chat() {
   const handleNewConversation = () => {
     setSelectedConversationId(null);
     setMessages([]);
+    clearRecognition();
   };
 
   const handleSelectConversation = (id: string) => {
     if (id !== selectedConversationId) {
       setSelectedConversationId(id);
       setMessages([]); // Clear messages, will be loaded by query
+      clearRecognition(); // Clear recognition markers for new conversation
     }
   };
 
@@ -429,6 +433,80 @@ export function Chat() {
                     : 'Select a conversation'}
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Recognition-in-Flow Section */}
+          <div className="recognition-section">
+            <div className="recognition-header">
+              <span className="recognition-title">Recognition-in-Flow</span>
+              {(recognition.marks.length > 0 || recognition.selfObservations.length > 0 || recognition.userObservations.length > 0) && (
+                <button className="recognition-clear-btn" onClick={clearRecognition} title="Clear markers">
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* Marks */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>Marks</span>
+                <span className="recognition-count">{recognition.marks.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.marks.length > 0 ? (
+                  recognition.marks.slice().reverse().map((mark, idx) => (
+                    <div key={idx} className="recognition-item mark">
+                      <span className="recognition-category">[{mark.category}]</span>
+                      <span className="recognition-text">{mark.description}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No marks yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Self-Observations */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>Self-Observations</span>
+                <span className="recognition-count">{recognition.selfObservations.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.selfObservations.length > 0 ? (
+                  recognition.selfObservations.slice().reverse().map((obs, idx) => (
+                    <div key={idx} className="recognition-item self-obs">
+                      <span className="recognition-category">[{obs.category}]</span>
+                      <span className="recognition-confidence">({Math.round(obs.confidence * 100)}%)</span>
+                      <span className="recognition-text">{obs.observation}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No self-observations yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* User Observations */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>User Observations</span>
+                <span className="recognition-count">{recognition.userObservations.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.userObservations.length > 0 ? (
+                  recognition.userObservations.slice().reverse().map((obs, idx) => (
+                    <div key={idx} className="recognition-item user-obs">
+                      <span className="recognition-category">[{obs.category}]</span>
+                      <span className="recognition-confidence">({Math.round(obs.confidence * 100)}%)</span>
+                      <span className="recognition-text">{obs.observation}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No user observations yet</div>
+                )}
+              </div>
             </div>
           </div>
         </div>
