@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { exportApi } from '../api/client';
+import { exportApi, daemonsApi } from '../api/client';
+import { useDaemon } from '../context/DaemonContext';
 import './DataManagement.css';
 
 type ExportType = 'wiki' | 'research' | 'self-model' | 'conversations' | 'dataset' | 'backup';
@@ -27,13 +28,13 @@ interface ImportPreview {
 }
 
 export function DataManagement() {
-  const [activeTab, setActiveTab] = useState<'export' | 'import' | 'backups'>('export');
+  const [activeTab, setActiveTab] = useState<'export' | 'import' | 'backups' | 'daemons'>('export');
 
   return (
     <div className="data-management-page">
       <header className="page-header">
         <h1>Data Management</h1>
-        <p className="subtitle">Export research data, create backups, and import datasets</p>
+        <p className="subtitle">Export research data, create backups, and manage daemon instances</p>
       </header>
 
       <div className="dm-tabs">
@@ -55,12 +56,19 @@ export function DataManagement() {
         >
           💾 Backups
         </button>
+        <button
+          className={`tab ${activeTab === 'daemons' ? 'active' : ''}`}
+          onClick={() => setActiveTab('daemons')}
+        >
+          🔮 Daemons
+        </button>
       </div>
 
       <div className="dm-content">
         {activeTab === 'export' && <ExportPanel />}
         {activeTab === 'import' && <ImportPanel />}
         {activeTab === 'backups' && <BackupsPanel />}
+        {activeTab === 'daemons' && <DaemonsPanel />}
       </div>
     </div>
   );
@@ -552,6 +560,331 @@ function BackupsPanel() {
 sudo systemctl daemon-reload
 sudo systemctl enable --now cass-backup.timer`}
         </pre>
+      </div>
+    </div>
+  );
+}
+
+interface SeedExport {
+  filename: string;
+  path: string;
+  size_mb: number;
+  daemon_label: string;  // Display label (e.g., "cass")
+  daemon_name: string;   // Entity name for prompts (e.g., "Cass")
+  daemon_id: string;
+  exported_at: string;
+  stats: Record<string, number>;
+  error?: string;
+}
+
+interface ImportPreviewData {
+  daemon_label: string;  // Display label
+  daemon_name: string;   // Entity name
+  daemon_id: string;
+  exported_at: string;
+  export_version: string;
+  stats: Record<string, number>;
+  tables: string[];
+}
+
+function DaemonsPanel() {
+  const { currentDaemon, refreshDaemons } = useDaemon();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [importName, setImportName] = useState('');
+  const [skipEmbeddings, setSkipEmbeddings] = useState(false);
+  const [preview, setPreview] = useState<ImportPreviewData | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importingSeed, setImportingSeed] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch daemon details with stats
+  const { data: daemonDetails } = useQuery({
+    queryKey: ['daemon', currentDaemon?.id],
+    queryFn: () => currentDaemon ? daemonsApi.getById(currentDaemon.id).then(r => r.data) : null,
+    enabled: !!currentDaemon,
+  });
+
+  // Fetch seed exports
+  const { data: seedData, isLoading: loadingSeeds, refetch: refetchSeeds } = useQuery({
+    queryKey: ['seedExports'],
+    queryFn: () => daemonsApi.listSeedExports().then(r => r.data),
+  });
+
+  const seedExports: SeedExport[] = seedData?.exports || [];
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCurrent = async () => {
+    if (!currentDaemon) return;
+    try {
+      const { data } = await daemonsApi.exportDaemon(currentDaemon.id);
+      // Use label for filename (e.g., "cass.anima")
+      downloadBlob(data, `${currentDaemon.label || currentDaemon.name}.anima`);
+    } catch (e) {
+      console.error('Export failed:', e);
+      alert('Export failed. Check console for details.');
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSelectedFile(file);
+    setPreview(null);
+    setPreviewError(null);
+
+    try {
+      const { data } = await daemonsApi.previewImport(file);
+      setPreview(data);
+    } catch (e) {
+      setPreviewError('Failed to preview file. Make sure it is a valid .anima file.');
+      console.error('Preview error:', e);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!selectedFile) return;
+
+    setImporting(true);
+    try {
+      await daemonsApi.importDaemon(selectedFile, importName || undefined, skipEmbeddings);
+      alert('Import completed successfully!');
+      clearSelection();
+      await refreshDaemons();
+      refetchSeeds();
+    } catch (e) {
+      console.error('Import failed:', e);
+      alert('Import failed. Check console for details.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleImportSeed = async (seed: SeedExport) => {
+    setImportingSeed(seed.filename);
+    try {
+      await daemonsApi.importSeed(seed.filename, undefined, false);
+      alert(`Imported daemon "${seed.daemon_label}" (entity: ${seed.daemon_name}) successfully!`);
+      await refreshDaemons();
+    } catch (e) {
+      console.error('Seed import failed:', e);
+      alert('Import failed. Check console for details.');
+    } finally {
+      setImportingSeed(null);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedFile(null);
+    setPreview(null);
+    setPreviewError(null);
+    setImportName('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const formatNumber = (num: number) => num.toLocaleString();
+
+  return (
+    <div className="daemons-panel">
+      <p className="panel-intro">
+        Export and import complete daemon instances. Each <code>.anima</code> file contains
+        the full cognitive state of a daemon including conversations, memories, wiki, and identity.
+      </p>
+
+      {/* Export Current Daemon */}
+      <div className="daemon-section">
+        <h3>Export Current Daemon</h3>
+        {currentDaemon ? (
+          <div className="daemon-export-card">
+            <div className="daemon-info">
+              <span className="daemon-icon">🔮</span>
+              <div className="daemon-details">
+                <span className="daemon-name">
+                  {currentDaemon.label || currentDaemon.name}
+                  {currentDaemon.name && <span className="entity-name"> ({currentDaemon.name})</span>}
+                </span>
+                <span className="daemon-stats">
+                  {daemonDetails?.stats?.conversations || 0} conversations •{' '}
+                  {daemonDetails?.stats?.wiki_pages || 0} wiki pages •{' '}
+                  {daemonDetails?.stats?.journals || 0} journals
+                </span>
+              </div>
+            </div>
+            <button className="btn-primary" onClick={handleExportCurrent}>
+              Export as .anima
+            </button>
+          </div>
+        ) : (
+          <div className="no-daemon">No daemon selected</div>
+        )}
+      </div>
+
+      {/* Seed Exports */}
+      <div className="daemon-section">
+        <h3>Available Seed Exports</h3>
+        {loadingSeeds ? (
+          <div className="loading">Loading seed exports...</div>
+        ) : seedExports.length === 0 ? (
+          <div className="no-seeds">
+            No seed exports found in the <code>seed/</code> folder.
+          </div>
+        ) : (
+          <div className="seed-exports-list">
+            {seedExports.map((seed) => (
+              <div key={seed.filename} className="seed-export-item">
+                <div className="seed-info">
+                  <span className="seed-filename">{seed.filename}</span>
+                  {seed.error ? (
+                    <span className="seed-error">Error: {seed.error}</span>
+                  ) : (
+                    <span className="seed-meta">
+                      {seed.daemon_label} ({seed.daemon_name}) • {seed.size_mb} MB •{' '}
+                      {formatNumber(seed.stats?.total_rows || 0)} rows
+                    </span>
+                  )}
+                </div>
+                <button
+                  className="btn-secondary"
+                  onClick={() => handleImportSeed(seed)}
+                  disabled={!!seed.error || importingSeed === seed.filename}
+                >
+                  {importingSeed === seed.filename ? 'Importing...' : 'Import'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Custom Import */}
+      <div className="daemon-section">
+        <h3>Import from File</h3>
+
+        <div className="file-upload-area">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".anima,.zip"
+            onChange={handleFileSelect}
+            id="daemon-import-file"
+          />
+          <label htmlFor="daemon-import-file" className="file-upload-label">
+            {selectedFile ? (
+              <>
+                <span className="file-name">{selectedFile.name}</span>
+                <span className="file-size">({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+              </>
+            ) : (
+              <>
+                <span className="upload-icon">📁</span>
+                <span>Click to select an .anima file</span>
+              </>
+            )}
+          </label>
+          {selectedFile && (
+            <button className="clear-file-btn" onClick={clearSelection}>
+              ✕
+            </button>
+          )}
+        </div>
+
+        {previewError && (
+          <div className="import-error">
+            <span className="error-icon">⚠️</span>
+            {previewError}
+          </div>
+        )}
+
+        {preview && (
+          <div className="import-preview daemon-import-preview">
+            <h4>Import Preview</h4>
+            <div className="preview-daemon-info">
+              <div className="preview-field">
+                <span className="field-label">Label:</span>
+                <span className="field-value">{preview.daemon_label}</span>
+              </div>
+              <div className="preview-field">
+                <span className="field-label">Entity Name:</span>
+                <span className="field-value">{preview.daemon_name}</span>
+              </div>
+              <div className="preview-field">
+                <span className="field-label">Exported:</span>
+                <span className="field-value">{new Date(preview.exported_at).toLocaleString()}</span>
+              </div>
+              <div className="preview-field">
+                <span className="field-label">Total Rows:</span>
+                <span className="field-value">{formatNumber(preview.stats?.total_rows || 0)}</span>
+              </div>
+            </div>
+
+            <div className="preview-stats">
+              {Object.entries(preview.stats)
+                .filter(([key]) => key !== 'total_rows')
+                .slice(0, 6)
+                .map(([key, value]) => (
+                  <div key={key} className="preview-stat">
+                    <span className="stat-value">{formatNumber(value)}</span>
+                    <span className="stat-label">{key.replace(/_/g, ' ')}</span>
+                  </div>
+                ))}
+            </div>
+
+            <div className="import-options">
+              <div className="import-option">
+                <label htmlFor="import-name">New daemon label (optional):</label>
+                <input
+                  id="import-name"
+                  type="text"
+                  value={importName}
+                  onChange={(e) => setImportName(e.target.value)}
+                  placeholder={preview.daemon_label}
+                />
+              </div>
+              <div className="import-option checkbox">
+                <input
+                  id="skip-embeddings"
+                  type="checkbox"
+                  checked={skipEmbeddings}
+                  onChange={(e) => setSkipEmbeddings(e.target.checked)}
+                />
+                <label htmlFor="skip-embeddings">
+                  Skip embedding regeneration (faster, but search won't work)
+                </label>
+              </div>
+            </div>
+
+            <div className="import-actions">
+              <button
+                className="btn-primary"
+                onClick={handleImport}
+                disabled={importing}
+              >
+                {importing ? 'Importing...' : 'Import Daemon'}
+              </button>
+              <button className="btn-secondary" onClick={clearSelection}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="import-note">
+          <strong>Note:</strong> Imports create new daemon instances with new IDs.
+          Existing daemons are not affected.
+        </div>
       </div>
     </div>
   );

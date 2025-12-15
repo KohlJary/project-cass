@@ -305,8 +305,8 @@ def process_dream_for_integration(
     from dreaming.integration import DreamManager
     from self_model import SelfManager
 
-    # Load dream
-    dream_manager = DreamManager(data_dir)
+    # Load dream (DreamManager uses SQLite, daemon_id defaults to current)
+    dream_manager = DreamManager()
     dream = dream_manager.get_dream(dream_id)
 
     if not dream:
@@ -321,8 +321,8 @@ def process_dream_for_integration(
         print(f"[DreamIntegration] Failed to extract insights from {dream_id}")
         return None
 
-    # Integrate into self-model
-    self_manager = SelfManager(storage_dir=str(data_dir / "cass"))
+    # Integrate into self-model (SelfManager uses SQLite, daemon_id defaults to current)
+    self_manager = SelfManager()
     updates = integrate_dream_insights(
         dream_id=dream_id,
         insights=insights,

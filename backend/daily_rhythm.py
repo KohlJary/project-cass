@@ -33,9 +33,11 @@ class RhythmPhase:
 
 @dataclass
 class CompletedPhase:
-    """Record of a completed phase"""
+    """Record of a completed or in-progress phase"""
     phase_id: str
-    completed_at: str  # ISO timestamp
+    completed_at: Optional[str] = None  # ISO timestamp (None if in_progress)
+    started_at: Optional[str] = None  # ISO timestamp when session started
+    status: str = "completed"  # "in_progress" or "completed"
     session_id: Optional[str] = None
     session_type: Optional[str] = None
     duration_minutes: Optional[int] = None
@@ -174,10 +176,11 @@ class DailyRhythmManager:
     def _load_record_for_date(self, date_str: str) -> DailyRecord:
         """Load activity record for a specific date (YYYY-MM-DD format)."""
         with get_db() as conn:
-            # Load completed phases
+            # Load phases (completed or in-progress)
             cursor = conn.execute("""
                 SELECT phase_id, completed_at, session_id, session_type,
-                       duration_minutes, summary, findings_json, notes_created_json
+                       duration_minutes, summary, findings_json, notes_created_json,
+                       status, started_at
                 FROM rhythm_records
                 WHERE daemon_id = ? AND date = ?
             """, (self._daemon_id, date_str))
@@ -191,7 +194,9 @@ class DailyRhythmManager:
                     duration_minutes=row[4],
                     summary=row[5],
                     findings=json_deserialize(row[6]),
-                    notes_created=json_deserialize(row[7])
+                    notes_created=json_deserialize(row[7]),
+                    status=row[8] or "completed",
+                    started_at=row[9]
                 )
                 for row in cursor.fetchall()
             ]
@@ -212,7 +217,7 @@ class DailyRhythmManager:
             )
 
     def _save_completed_phase(self, date_str: str, completed: CompletedPhase):
-        """Save or update a completed phase record."""
+        """Save or update a phase record (in_progress or completed)."""
         with get_db() as conn:
             # Check if exists
             cursor = conn.execute("""
@@ -225,25 +230,29 @@ class DailyRhythmManager:
                 conn.execute("""
                     UPDATE rhythm_records
                     SET completed_at = ?, session_id = ?, session_type = ?,
-                        duration_minutes = ?, summary = ?, findings_json = ?, notes_created_json = ?
+                        duration_minutes = ?, summary = ?, findings_json = ?, notes_created_json = ?,
+                        status = ?, started_at = ?
                     WHERE daemon_id = ? AND date = ? AND phase_id = ?
                 """, (
                     completed.completed_at, completed.session_id, completed.session_type,
                     completed.duration_minutes, completed.summary,
                     json_serialize(completed.findings), json_serialize(completed.notes_created),
+                    completed.status, completed.started_at,
                     self._daemon_id, date_str, completed.phase_id
                 ))
             else:
                 conn.execute("""
                     INSERT INTO rhythm_records (
                         daemon_id, date, phase_id, completed_at, session_id, session_type,
-                        duration_minutes, summary, findings_json, notes_created_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        duration_minutes, summary, findings_json, notes_created_json,
+                        status, started_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     self._daemon_id, date_str, completed.phase_id, completed.completed_at,
                     completed.session_id, completed.session_type, completed.duration_minutes,
                     completed.summary, json_serialize(completed.findings),
-                    json_serialize(completed.notes_created)
+                    json_serialize(completed.notes_created),
+                    completed.status, completed.started_at
                 ))
             conn.commit()
 
@@ -346,14 +355,13 @@ class DailyRhythmManager:
 
         return pending
 
-    def mark_phase_completed(
+    def mark_phase_in_progress(
         self,
         phase_id: str,
         session_id: Optional[str] = None,
         session_type: Optional[str] = None,
-        duration_minutes: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Mark a rhythm phase as completed."""
+        """Mark a rhythm phase as in-progress (session started but not finished)."""
         # Verify phase exists
         phase = next((p for p in self.phases if p.id == phase_id), None)
         if not phase:
@@ -361,12 +369,53 @@ class DailyRhythmManager:
 
         today = datetime.now().strftime("%Y-%m-%d")
 
-        completed = CompletedPhase(
+        in_progress = CompletedPhase(
             phase_id=phase_id,
-            completed_at=datetime.now().isoformat(),
+            started_at=datetime.now().isoformat(),
+            completed_at=None,
+            status="in_progress",
             session_id=session_id,
             session_type=session_type,
+        )
+
+        self._save_completed_phase(today, in_progress)
+
+        return {"success": True, "phase": asdict(in_progress)}
+
+    def mark_phase_completed(
+        self,
+        phase_id: str,
+        session_id: Optional[str] = None,
+        session_type: Optional[str] = None,
+        duration_minutes: Optional[int] = None,
+        summary: Optional[str] = None,
+        findings: Optional[List[str]] = None,
+        notes_created: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Mark a rhythm phase as completed (with optional summary from session)."""
+        # Verify phase exists
+        phase = next((p for p in self.phases if p.id == phase_id), None)
+        if not phase:
+            return {"success": False, "error": f"Unknown phase: {phase_id}"}
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # Check if there's an existing in_progress record to preserve started_at
+        record = self._load_today_record()
+        existing = next((p for p in record.completed_phases if p.phase_id == phase_id), None)
+        started_at = existing.started_at if existing else datetime.now().isoformat()
+
+        completed = CompletedPhase(
+            phase_id=phase_id,
+            started_at=started_at,
+            completed_at=datetime.now().isoformat(),
+            status="completed",
+            session_id=session_id or (existing.session_id if existing else None),
+            session_type=session_type or (existing.session_type if existing else None),
             duration_minutes=duration_minutes,
+            summary=summary,
+            findings=findings,
+            notes_created=notes_created,
         )
 
         self._save_completed_phase(today, completed)
@@ -456,9 +505,16 @@ class DailyRhythmManager:
         for phase in todays_phases:
             if phase.id in completed_ids:
                 completed = completed_ids[phase.id]
-                completed_time = datetime.fromisoformat(completed.completed_at)
-                time_str = completed_time.strftime("%H:%M")
-                lines.append(f"✓ {phase.name} - completed at {time_str}")
+                if completed.status == "in_progress":
+                    started_time = datetime.fromisoformat(completed.started_at) if completed.started_at else datetime.now()
+                    time_str = started_time.strftime("%H:%M")
+                    lines.append(f"▶ {phase.name} - in progress (started {time_str})")
+                elif completed.completed_at:
+                    completed_time = datetime.fromisoformat(completed.completed_at)
+                    time_str = completed_time.strftime("%H:%M")
+                    lines.append(f"✓ {phase.name} - completed at {time_str}")
+                else:
+                    lines.append(f"✓ {phase.name} - completed")
             else:
                 # Check if we're past this phase's window
                 end_time = self._parse_time(phase.end_time)
@@ -505,6 +561,7 @@ class DailyRhythmManager:
         phases_status = []
         for phase in applicable_phases:
             status = "pending"
+            started_at = None
             completed_at = None
             summary = None
             findings = None
@@ -512,13 +569,15 @@ class DailyRhythmManager:
             notes_created = None
 
             if phase.id in completed_ids:
-                completed = completed_ids[phase.id]
-                status = "completed"
-                completed_at = completed.completed_at
-                summary = completed.summary
-                findings = completed.findings
-                session_id = completed.session_id
-                notes_created = completed.notes_created
+                phase_record = completed_ids[phase.id]
+                # Use the actual status from the record (in_progress or completed)
+                status = phase_record.status
+                started_at = phase_record.started_at
+                completed_at = phase_record.completed_at
+                summary = phase_record.summary
+                findings = phase_record.findings
+                session_id = phase_record.session_id
+                notes_created = phase_record.notes_created
             elif is_today and current_time > self._parse_time(phase.end_time):
                 # Only mark as "missed" for today
                 status = "missed"
@@ -532,6 +591,7 @@ class DailyRhythmManager:
                 "activity_type": phase.activity_type,
                 "window": f"{phase.start_time}-{phase.end_time}",
                 "status": status,
+                "started_at": started_at,
                 "completed_at": completed_at,
                 "summary": summary,
                 "findings": findings,
@@ -628,3 +688,13 @@ class DailyRhythmManager:
             "phases": [asdict(p) for p in self.phases],
             "day_index_reference": {name: i for i, name in enumerate(day_names)},
         }
+
+    def get_dates_with_records(self) -> List[str]:
+        """Get list of dates that have rhythm records in the database."""
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT date FROM rhythm_records
+                WHERE daemon_id = ?
+                ORDER BY date DESC
+            """, (self._daemon_id,))
+            return [row[0] for row in cursor.fetchall()]

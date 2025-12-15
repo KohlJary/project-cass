@@ -20,6 +20,8 @@ except ImportError:
 # Import shared components from agent_client
 from agent_client import (
     TEMPLE_CODEX_KERNEL,
+    get_temple_codex_kernel,
+    DEFAULT_DAEMON_NAME,
     MEMORY_CONTROL_SECTION,
     MIN_MESSAGES_FOR_SUMMARY,
     JOURNAL_TOOLS,
@@ -69,6 +71,8 @@ class OpenAIClient:
         working_dir: str = "./workspace",
         enable_tools: bool = True,
         enable_memory_tools: bool = True,
+        daemon_name: str = None,
+        daemon_id: str = None,
     ):
         if not OPENAI_AVAILABLE:
             raise RuntimeError("OpenAI SDK not available")
@@ -76,6 +80,8 @@ class OpenAIClient:
         self.working_dir = working_dir
         self.enable_tools = enable_tools
         self.enable_memory_tools = enable_memory_tools
+        self.daemon_name = daemon_name or DEFAULT_DAEMON_NAME
+        self.daemon_id = daemon_id
 
         # Initialize OpenAI client
         from config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_MAX_TOKENS
@@ -146,7 +152,7 @@ class OpenAIClient:
             dream_context: Optional dream context to hold in memory during conversation
         """
         # Build system prompt with memory context if provided
-        system_prompt = TEMPLE_CODEX_KERNEL
+        system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
 
         # OpenAI models tend toward brevity - encourage fuller responses
         system_prompt += """
@@ -159,7 +165,7 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
         from temporal import format_system_prompt_section
         system_prompt += format_system_prompt_section(rhythm_manager, memory)
 
-        # Add model context - let Cass know which model she's running on
+        # Add model context - let the daemon know which model they're running on
         system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (OpenAI). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
 
         # Add memory control section only if there are enough messages to summarize

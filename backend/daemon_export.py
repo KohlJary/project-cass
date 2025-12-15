@@ -18,6 +18,9 @@ from database import get_db, json_serialize, json_deserialize
 
 logger = logging.getLogger("cass-vessel")
 
+# File extension for daemon exports (.anima = Latin for soul/spirit)
+ANIMA_EXTENSION = ".anima"
+
 
 # Tables that contain daemon-specific data (with daemon_id column)
 DAEMON_TABLES = [
@@ -35,10 +38,8 @@ DAEMON_TABLES = [
     "conversations",
     "messages",
 
-    # Projects
-    "projects",
-    "project_files",
-    "project_documents",
+    # Note: projects are shared across daemons (no daemon_id)
+    # project_files and project_documents are linked to projects, not daemons
 
     # User observations (daemon's observations about users)
     "user_observations",
@@ -54,6 +55,7 @@ DAEMON_TABLES = [
     "research_tasks",
     "research_task_history",
     "research_proposals",
+    "research_queue",
 
     # Wiki
     "wiki_pages",
@@ -62,6 +64,7 @@ DAEMON_TABLES = [
     "goals",
 
     # Operational
+    "roadmap_epics",
     "roadmap_items",
     "calendar_events",
     "tasks",
@@ -74,13 +77,14 @@ DAEMON_TABLES = [
     "token_usage_records",
     "github_metrics",
     "research_schedules",
+
+    # Identity snippets (auto-generated identity narratives)
+    "daemon_identity_snippets",
 ]
 
 # Tables that need special handling (foreign keys to other daemon tables)
 DEPENDENT_TABLES = {
     "messages": "conversations",  # messages.conversation_id -> conversations.id
-    "project_files": "projects",  # project_files.project_id -> projects.id
-    "project_documents": "projects",
     "research_notes": "research_sessions",  # research_notes.session_id -> research_sessions.id
     "roadmap_links": "roadmap_items",  # both source_id and target_id -> roadmap_items.id
 }
@@ -111,7 +115,7 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
     with get_db() as conn:
         # Get daemon info
         cursor = conn.execute(
-            "SELECT id, name, created_at, kernel_version, status FROM daemons WHERE id = ?",
+            "SELECT id, label, name, created_at, kernel_version, status FROM daemons WHERE id = ?",
             (daemon_id,)
         )
         daemon_row = cursor.fetchone()
@@ -120,21 +124,28 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
 
         export_data["daemon"] = {
             "id": daemon_row[0],
-            "name": daemon_row[1],
-            "created_at": daemon_row[2],
-            "kernel_version": daemon_row[3],
-            "status": daemon_row[4],
+            "label": daemon_row[1],
+            "name": daemon_row[2],  # Entity name for prompts
+            "created_at": daemon_row[3],
+            "kernel_version": daemon_row[4],
+            "status": daemon_row[5],
         }
 
         # Export each table
         total_rows = 0
+        parent_ids = {}  # Track IDs for dependent table lookups
+
         for table in DAEMON_TABLES:
-            rows = _export_table(conn, table, daemon_id)
+            rows = _export_table(conn, table, daemon_id, parent_ids)
             if rows:
                 export_data["tables"][table] = rows
                 export_data["stats"][table] = len(rows)
                 total_rows += len(rows)
                 logger.info(f"Exported {len(rows)} rows from {table}")
+
+                # Track IDs for tables that have dependents
+                if table in DEPENDENT_TABLES.values():
+                    parent_ids[table] = [r.get("id") for r in rows if r.get("id")]
 
         # Export roadmap_links (special case - no daemon_id, but linked to roadmap_items)
         roadmap_item_ids = [r["id"] for r in export_data["tables"].get("roadmap_items", [])]
@@ -144,6 +155,44 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
                 export_data["tables"]["roadmap_links"] = links
                 export_data["stats"]["roadmap_links"] = len(links)
                 total_rows += len(links)
+
+        # Export projects (shared across daemons - no daemon_id)
+        cursor = conn.execute("SELECT * FROM projects")
+        columns = [desc[0] for desc in cursor.description]
+        projects = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        if projects:
+            export_data["tables"]["projects"] = projects
+            export_data["stats"]["projects"] = len(projects)
+            total_rows += len(projects)
+            logger.info(f"Exported {len(projects)} projects")
+
+            # Export project_documents and project_files (linked to projects)
+            project_ids = [p["id"] for p in projects]
+            placeholders = ",".join("?" * len(project_ids))
+
+            cursor = conn.execute(
+                f"SELECT * FROM project_documents WHERE project_id IN ({placeholders})",
+                project_ids
+            )
+            columns = [desc[0] for desc in cursor.description]
+            docs = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            if docs:
+                export_data["tables"]["project_documents"] = docs
+                export_data["stats"]["project_documents"] = len(docs)
+                total_rows += len(docs)
+                logger.info(f"Exported {len(docs)} project documents")
+
+            cursor = conn.execute(
+                f"SELECT * FROM project_files WHERE project_id IN ({placeholders})",
+                project_ids
+            )
+            columns = [desc[0] for desc in cursor.description]
+            files = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            if files:
+                export_data["tables"]["project_files"] = files
+                export_data["stats"]["project_files"] = len(files)
+                total_rows += len(files)
+                logger.info(f"Exported {len(files)} project files")
 
         # Optionally include users
         if include_users:
@@ -160,7 +209,7 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
     if output_path:
         output_path = Path(output_path)
 
-        if output_path.suffix == ".zip":
+        if output_path.suffix in (".zip", ANIMA_EXTENSION):
             # Create ZIP archive with JSON + wiki markdown
             _create_export_archive(export_data, output_path, daemon_id)
         else:
@@ -171,6 +220,7 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
 
         return {
             "success": True,
+            "daemon_label": export_data["daemon"]["label"],
             "daemon_name": export_data["daemon"]["name"],
             "output_path": str(output_path),
             "total_rows": total_rows,
@@ -180,8 +230,15 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
     return export_data
 
 
-def _export_table(conn, table: str, daemon_id: str) -> List[Dict]:
-    """Export all rows from a table for a specific daemon."""
+def _export_table(conn, table: str, daemon_id: str, parent_ids: Dict[str, List[str]] = None) -> List[Dict]:
+    """Export all rows from a table for a specific daemon.
+
+    Args:
+        conn: Database connection
+        table: Table name to export
+        daemon_id: Daemon ID to filter by
+        parent_ids: Dict mapping parent table names to list of IDs for dependent tables
+    """
     try:
         # Check if table exists
         cursor = conn.execute(
@@ -198,8 +255,27 @@ def _export_table(conn, table: str, daemon_id: str) -> List[Dict]:
         # Check if table has daemon_id column
         if "daemon_id" in columns:
             cursor = conn.execute(f"SELECT * FROM {table} WHERE daemon_id = ?", (daemon_id,))
+        elif table in DEPENDENT_TABLES and parent_ids:
+            # Handle dependent tables (e.g., messages -> conversations)
+            parent_table = DEPENDENT_TABLES[table]
+            ids = parent_ids.get(parent_table, [])
+            if not ids:
+                return []
+
+            # Determine the foreign key column name
+            if table == "messages":
+                fk_column = "conversation_id"
+            elif table == "project_files" or table == "project_documents":
+                fk_column = "project_id"
+            elif table == "research_notes":
+                fk_column = "session_id"
+            else:
+                fk_column = f"{parent_table[:-1]}_id"  # e.g., conversations -> conversation_id
+
+            placeholders = ",".join("?" * len(ids))
+            cursor = conn.execute(f"SELECT * FROM {table} WHERE {fk_column} IN ({placeholders})", ids)
         else:
-            # Table doesn't have daemon_id (shouldn't happen for DAEMON_TABLES)
+            # Table doesn't have daemon_id and no parent IDs provided
             return []
 
         rows = []
@@ -260,13 +336,15 @@ modified: {page.get('updated_at', 'unknown')}
 
         # Create README
         readme_path = Path(tmpdir) / "README.md"
+        daemon_label = export_data["daemon"]["label"]
         daemon_name = export_data["daemon"]["name"]
         stats = export_data["stats"]
 
-        readme = f"""# {daemon_name} Export
+        readme = f"""# {daemon_label} Export
 
-Exported: {export_data['exported_at']}
-Export Version: {export_data['export_version']}
+**Entity Name:** {daemon_name}
+**Exported:** {export_data['exported_at']}
+**Export Version:** {export_data['export_version']}
 
 ## Contents
 
@@ -322,7 +400,7 @@ def import_daemon(
     input_path = Path(input_path)
 
     # Load export data
-    if input_path.suffix == ".zip":
+    if input_path.suffix in (".zip", ANIMA_EXTENSION):
         with ZipFile(input_path, 'r') as zf:
             with zf.open("daemon_data.json") as f:
                 export_data = json.load(f)
@@ -342,17 +420,20 @@ def import_daemon(
             # Create new daemon with new ID
             import uuid
             new_daemon_id = str(uuid.uuid4())
+            # Use new_daemon_name as label, derive entity name from original or default to label
+            entity_name = original_daemon.get("name", new_daemon_name.capitalize())
             conn.execute("""
-                INSERT INTO daemons (id, name, created_at, kernel_version, status)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO daemons (id, label, name, created_at, kernel_version, status)
+                VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 new_daemon_id,
                 new_daemon_name,
+                entity_name,
                 datetime.now().isoformat(),
                 original_daemon.get("kernel_version", "temple-codex-1.0"),
                 "active"
             ))
-            logger.info(f"Created new daemon '{new_daemon_name}' with ID {new_daemon_id}")
+            logger.info(f"Created new daemon '{new_daemon_name}' (entity: {entity_name}) with ID {new_daemon_id}")
             target_daemon_id = new_daemon_id
         elif merge_existing:
             # Use original daemon_id (must exist)
@@ -376,11 +457,12 @@ def import_daemon(
                 )
 
             conn.execute("""
-                INSERT INTO daemons (id, name, created_at, kernel_version, status)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO daemons (id, label, name, created_at, kernel_version, status)
+                VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 original_daemon["id"],
-                original_daemon["name"],
+                original_daemon.get("label", original_daemon.get("name", "daemon")),  # Handle old exports that don't have label
+                original_daemon.get("name", "Cass"),  # Entity name
                 original_daemon["created_at"],
                 original_daemon.get("kernel_version"),
                 original_daemon.get("status", "active")
@@ -393,14 +475,14 @@ def import_daemon(
 
         # Import in order (independent tables first)
         import_order = [
-            # Core identity (no dependencies)
+            # Core identity (no dependencies on other daemon tables)
             "daemon_profiles",
+            "daemon_identity_snippets",
             "growth_edges",
             "opinions",
             "cognitive_snapshots",
             "milestones",
             "development_logs",
-            "self_observations",
             "journals",
 
             # Projects (needed before project_files/documents)
@@ -422,6 +504,7 @@ def import_daemon(
             "research_tasks",
             "research_task_history",
             "research_proposals",
+            "research_queue",
 
             # Wiki
             "wiki_pages",
@@ -429,11 +512,15 @@ def import_daemon(
             # Goals
             "goals",
 
-            # Conversations (needed before messages)
+            # Conversations (needed before messages and self_observations)
             "conversations",
             "messages",
 
+            # Self observations (has FK to conversations.id via source_conversation_id)
+            "self_observations",
+
             # Operational
+            "roadmap_epics",
             "roadmap_items",
             "calendar_events",
             "tasks",
@@ -448,20 +535,43 @@ def import_daemon(
             "research_schedules",
         ]
 
+        # Track old->new ID mappings for FK relationships
+        id_mapping = {}
+
         for table in import_order:
             rows = tables_data.get(table, [])
             if not rows:
                 continue
 
-            count = _import_table(conn, table, rows, target_daemon_id, original_daemon["id"])
+            count = _import_table(conn, table, rows, target_daemon_id, original_daemon["id"], id_mapping)
             imported_counts[table] = count
             logger.info(f"Imported {count} rows into {table}")
 
-        # Import roadmap_links
+        # Import roadmap_links (needs id_mapping for source_id/target_id)
         links = tables_data.get("roadmap_links", [])
         if links:
-            count = _import_roadmap_links(conn, links)
+            count = _import_roadmap_links(conn, links, id_mapping)
             imported_counts["roadmap_links"] = count
+
+        # Import projects (shared - no daemon_id remapping)
+        projects = tables_data.get("projects", [])
+        if projects:
+            count = _import_projects(conn, projects)
+            imported_counts["projects"] = count
+            logger.info(f"Imported {count} projects")
+
+            # Import project_documents and project_files
+            docs = tables_data.get("project_documents", [])
+            if docs:
+                count = _import_project_items(conn, "project_documents", docs)
+                imported_counts["project_documents"] = count
+                logger.info(f"Imported {count} project documents")
+
+            files = tables_data.get("project_files", [])
+            if files:
+                count = _import_project_items(conn, "project_files", files)
+                imported_counts["project_files"] = count
+                logger.info(f"Imported {count} project files")
 
         # Import users if present
         users = tables_data.get("users", [])
@@ -491,10 +601,31 @@ def import_daemon(
     }
 
 
-def _import_table(conn, table: str, rows: List[Dict], target_daemon_id: str, original_daemon_id: str) -> int:
-    """Import rows into a table, updating daemon_id as needed."""
+def _import_table(
+    conn,
+    table: str,
+    rows: List[Dict],
+    target_daemon_id: str,
+    original_daemon_id: str,
+    id_mapping: Dict[str, str] = None
+) -> int:
+    """Import rows into a table, generating new IDs and updating daemon_id.
+
+    Args:
+        conn: Database connection
+        table: Table name
+        rows: Rows to import
+        target_daemon_id: New daemon ID to assign
+        original_daemon_id: Original daemon ID (unused but kept for signature)
+        id_mapping: Dict to track old_id -> new_id mappings across tables
+    """
+    import uuid
+
     if not rows:
         return 0
+
+    if id_mapping is None:
+        id_mapping = {}
 
     # Check if table exists
     cursor = conn.execute(
@@ -505,15 +636,46 @@ def _import_table(conn, table: str, rows: List[Dict], target_daemon_id: str, ori
         logger.warning(f"Table {table} does not exist, skipping")
         return 0
 
-    # Get column info
+    # Get column info including type
     cursor = conn.execute(f"PRAGMA table_info({table})")
-    columns = [row[1] for row in cursor.fetchall()]
+    column_info = {row[1]: row[2] for row in cursor.fetchall()}  # name -> type
+    columns = list(column_info.keys())
+
+    # Check if id is INTEGER PRIMARY KEY (auto-increment)
+    id_is_autoincrement = column_info.get("id", "").upper() == "INTEGER"
+
+    # FK columns that need remapping
+    fk_columns = {
+        "conversation_id": True,
+        "source_conversation_id": True,
+        "session_id": True,
+        "project_id": True,
+        "epic_id": True,
+    }
 
     imported = 0
     for row in rows:
+        old_id = row.get("id")
+
+        if id_is_autoincrement:
+            # Let SQLite auto-generate the ID, but track mapping after insert
+            row.pop("id", None)
+        elif old_id and "id" in columns:
+            # Generate new UUID for TEXT primary keys
+            new_id = str(uuid.uuid4())
+            id_mapping[old_id] = new_id
+            row["id"] = new_id
+
         # Update daemon_id if needed
         if "daemon_id" in row:
             row["daemon_id"] = target_daemon_id
+
+        # Remap FK columns to new IDs
+        for fk_col in fk_columns:
+            if fk_col in row and row[fk_col]:
+                old_fk = row[fk_col]
+                if old_fk in id_mapping:
+                    row[fk_col] = id_mapping[old_fk]
 
         # Filter to only columns that exist in table
         filtered_row = {k: v for k, v in row.items() if k in columns}
@@ -527,7 +689,7 @@ def _import_table(conn, table: str, rows: List[Dict], target_daemon_id: str, ori
 
         try:
             conn.execute(
-                f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
+                f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})",
                 list(filtered_row.values())
             )
             imported += 1
@@ -537,18 +699,89 @@ def _import_table(conn, table: str, rows: List[Dict], target_daemon_id: str, ori
     return imported
 
 
-def _import_roadmap_links(conn, links: List[Dict]) -> int:
-    """Import roadmap links."""
+def _import_roadmap_links(conn, links: List[Dict], id_mapping: Dict[str, str] = None) -> int:
+    """Import roadmap links with ID remapping."""
+    if id_mapping is None:
+        id_mapping = {}
+
     imported = 0
     for link in links:
         try:
+            # Remap source_id and target_id to new IDs
+            source_id = id_mapping.get(link["source_id"], link["source_id"])
+            target_id = id_mapping.get(link["target_id"], link["target_id"])
+
             conn.execute("""
                 INSERT OR IGNORE INTO roadmap_links (source_id, target_id, link_type)
                 VALUES (?, ?, ?)
-            """, (link["source_id"], link["target_id"], link["link_type"]))
+            """, (source_id, target_id, link["link_type"]))
             imported += 1
         except Exception as e:
             logger.warning(f"Error importing roadmap link: {e}")
+    return imported
+
+
+def _import_projects(conn, projects: List[Dict]) -> int:
+    """Import projects (shared across daemons - no daemon_id)."""
+    imported = 0
+    for proj in projects:
+        try:
+            conn.execute("""
+                INSERT OR REPLACE INTO projects (
+                    id, name, working_directory, created_at, updated_at, user_id, github_repo
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                proj["id"],
+                proj["name"],
+                proj.get("working_directory"),
+                proj["created_at"],
+                proj["updated_at"],
+                proj.get("user_id"),
+                proj.get("github_repo"),
+            ))
+            imported += 1
+        except Exception as e:
+            logger.warning(f"Error importing project: {e}")
+    return imported
+
+
+def _import_project_items(conn, table: str, items: List[Dict]) -> int:
+    """Import project_documents or project_files."""
+    imported = 0
+    for item in items:
+        try:
+            if table == "project_documents":
+                conn.execute("""
+                    INSERT OR REPLACE INTO project_documents (
+                        id, project_id, title, content, created_by, embedded, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item["id"],
+                    item["project_id"],
+                    item["title"],
+                    item["content"],
+                    item.get("created_by"),
+                    item.get("embedded", 0),
+                    item["created_at"],
+                    item["updated_at"],
+                ))
+            elif table == "project_files":
+                conn.execute("""
+                    INSERT OR REPLACE INTO project_files (
+                        id, project_id, path, content, embedded, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item["id"],
+                    item["project_id"],
+                    item["path"],
+                    item.get("content", ""),
+                    item.get("embedded", 0),
+                    item["created_at"],
+                    item["updated_at"],
+                ))
+            imported += 1
+        except Exception as e:
+            logger.warning(f"Error importing {table} item: {e}")
     return imported
 
 
@@ -769,7 +1002,7 @@ def list_daemons() -> List[Dict[str, Any]]:
     """List all daemons in the database."""
     with get_db() as conn:
         cursor = conn.execute("""
-            SELECT id, name, created_at, kernel_version, status
+            SELECT id, label, name, created_at, kernel_version, status
             FROM daemons
             ORDER BY created_at DESC
         """)
@@ -778,13 +1011,156 @@ def list_daemons() -> List[Dict[str, Any]]:
         for row in cursor.fetchall():
             daemons.append({
                 "id": row[0],
-                "name": row[1],
-                "created_at": row[2],
-                "kernel_version": row[3],
-                "status": row[4],
+                "label": row[1],
+                "name": row[2],  # Entity name for prompts
+                "created_at": row[3],
+                "kernel_version": row[4],
+                "status": row[5],
             })
 
         return daemons
+
+
+def preview_daemon_import(input_path: Path) -> Dict[str, Any]:
+    """
+    Preview a daemon import without applying it.
+
+    Args:
+        input_path: Path to JSON file or ZIP/anima archive
+
+    Returns:
+        Dict with daemon info and stats
+    """
+    input_path = Path(input_path)
+
+    # Load export data
+    if input_path.suffix in (".zip", ANIMA_EXTENSION):
+        with ZipFile(input_path, 'r') as zf:
+            with zf.open("daemon_data.json") as f:
+                export_data = json.load(f)
+    else:
+        with open(input_path, 'r') as f:
+            export_data = json.load(f)
+
+    if export_data.get("export_type") != "daemon":
+        raise ValueError("Not a daemon export file")
+
+    daemon = export_data["daemon"]
+    return {
+        "daemon_label": daemon.get("label", daemon.get("name", "daemon")),  # Handle old exports
+        "daemon_name": daemon.get("name", "Cass"),  # Entity name
+        "daemon_id": daemon["id"],
+        "exported_at": export_data.get("exported_at"),
+        "export_version": export_data.get("export_version"),
+        "stats": export_data.get("stats", {}),
+        "tables": list(export_data.get("tables", {}).keys()),
+    }
+
+
+def list_seed_exports(seed_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """
+    List available .anima exports from seed folder.
+
+    Args:
+        seed_dir: Optional path to seed directory. Defaults to ../seed from backend.
+
+    Returns:
+        List of export info dicts
+    """
+    if seed_dir is None:
+        seed_dir = Path(__file__).parent.parent / "seed"
+
+    if not seed_dir.exists():
+        return []
+
+    exports = []
+    for file_path in seed_dir.glob(f"*{ANIMA_EXTENSION}"):
+        try:
+            preview = preview_daemon_import(file_path)
+            exports.append({
+                "filename": file_path.name,
+                "path": str(file_path),
+                "size_bytes": file_path.stat().st_size,
+                "size_mb": round(file_path.stat().st_size / (1024 * 1024), 2),
+                **preview,
+            })
+        except Exception as e:
+            logger.warning(f"Could not read {file_path}: {e}")
+            exports.append({
+                "filename": file_path.name,
+                "path": str(file_path),
+                "size_bytes": file_path.stat().st_size,
+                "size_mb": round(file_path.stat().st_size / (1024 * 1024), 2),
+                "error": str(e),
+            })
+
+    return sorted(exports, key=lambda x: x.get("exported_at", ""), reverse=True)
+
+
+def delete_daemon(daemon_id: str, confirm: bool = False) -> Dict[str, Any]:
+    """
+    Delete a daemon and all its associated data.
+
+    Args:
+        daemon_id: The daemon ID to delete
+        confirm: Must be True to actually delete (safety check)
+
+    Returns:
+        Dict with deletion results
+    """
+    if not confirm:
+        raise ValueError("Must set confirm=True to delete a daemon")
+
+    with get_db() as conn:
+        # Check daemon exists
+        cursor = conn.execute("SELECT label, name FROM daemons WHERE id = ?", (daemon_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError(f"Daemon {daemon_id} not found")
+
+        daemon_label = row[0]
+        daemon_name = row[1]
+        deleted_counts = {}
+
+        # Delete from all daemon tables (order matters for FK constraints)
+        # Messages first (depends on conversations)
+        cursor = conn.execute("""
+            DELETE FROM messages WHERE conversation_id IN
+            (SELECT id FROM conversations WHERE daemon_id = ?)
+        """, (daemon_id,))
+        deleted_counts["messages"] = cursor.rowcount
+
+        # Research notes (depends on research_sessions)
+        cursor = conn.execute("""
+            DELETE FROM research_notes WHERE session_id IN
+            (SELECT id FROM research_sessions WHERE daemon_id = ?)
+        """, (daemon_id,))
+        deleted_counts["research_notes"] = cursor.rowcount
+
+        # Delete from all other daemon tables
+        for table in DAEMON_TABLES:
+            if table in ("messages", "research_notes"):
+                continue  # Already handled above
+
+            try:
+                cursor = conn.execute(f"DELETE FROM {table} WHERE daemon_id = ?", (daemon_id,))
+                if cursor.rowcount > 0:
+                    deleted_counts[table] = cursor.rowcount
+            except Exception as e:
+                logger.warning(f"Could not delete from {table}: {e}")
+
+        # Finally delete the daemon itself
+        conn.execute("DELETE FROM daemons WHERE id = ?", (daemon_id,))
+        conn.commit()
+
+        return {
+            "success": True,
+            "daemon_id": daemon_id,
+            "daemon_label": daemon_label,
+            "daemon_name": daemon_name,
+            "deleted_counts": deleted_counts,
+            "total_deleted": sum(deleted_counts.values()),
+        }
 
 
 # CLI interface
@@ -794,11 +1170,15 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage:")
         print("  python daemon_export.py list                    - List all daemons")
+        print("  python daemon_export.py seeds                   - List seed exports in ../seed/")
         print("  python daemon_export.py export <daemon_id> [output_path]")
         print("  python daemon_export.py import <input_path> [new_name] [--skip-embeddings]")
+        print("  python daemon_export.py preview <input_path>    - Preview import without applying")
         print("")
         print("Options:")
         print("  --skip-embeddings   Skip ChromaDB embedding regeneration during import")
+        print("")
+        print(f"Note: Default export format is {ANIMA_EXTENSION} (also accepts .zip)")
         sys.exit(1)
 
     command = sys.argv[1]
@@ -807,11 +1187,46 @@ if __name__ == "__main__":
         daemons = list_daemons()
         print(f"\nFound {len(daemons)} daemon(s):\n")
         for d in daemons:
-            print(f"  {d['name']} ({d['id'][:8]}...)")
+            print(f"  {d['label']} ({d['id'][:8]}...)")
+            print(f"    Entity name: {d['name']}")
             print(f"    Created: {d['created_at']}")
             print(f"    Kernel: {d['kernel_version']}")
             print(f"    Status: {d['status']}")
             print()
+
+    elif command == "seeds":
+        exports = list_seed_exports()
+        if not exports:
+            print("\nNo seed exports found in ../seed/")
+        else:
+            print(f"\nFound {len(exports)} seed export(s):\n")
+            for e in exports:
+                print(f"  {e['filename']}")
+                if "error" in e:
+                    print(f"    Error: {e['error']}")
+                else:
+                    print(f"    Label: {e['daemon_label']} | Entity: {e['daemon_name']} ({e['daemon_id'][:8]}...)")
+                    print(f"    Size: {e['size_mb']} MB")
+                    print(f"    Total rows: {e['stats'].get('total_rows', 0)}")
+                print()
+
+    elif command == "preview":
+        if len(sys.argv) < 3:
+            print("Error: input_path required")
+            sys.exit(1)
+
+        input_path = sys.argv[2]
+        preview = preview_daemon_import(Path(input_path))
+        print(f"\nPreview of {input_path}:\n")
+        print(f"  Label: {preview['daemon_label']} ({preview['daemon_id'][:8]}...)")
+        print(f"  Entity name: {preview['daemon_name']}")
+        print(f"  Exported: {preview['exported_at']}")
+        print(f"  Version: {preview['export_version']}")
+        print(f"\n  Tables:")
+        for table, count in sorted(preview['stats'].items()):
+            if table != 'total_rows':
+                print(f"    {table}: {count}")
+        print(f"\n  Total rows: {preview['stats'].get('total_rows', 0)}")
 
     elif command == "export":
         if len(sys.argv) < 3:
@@ -819,11 +1234,12 @@ if __name__ == "__main__":
             sys.exit(1)
 
         daemon_id = sys.argv[2]
-        output_path = sys.argv[3] if len(sys.argv) > 3 else f"exports/{daemon_id[:8]}_export.zip"
+        output_path = sys.argv[3] if len(sys.argv) > 3 else f"exports/{daemon_id[:8]}_export{ANIMA_EXTENSION}"
 
         result = export_daemon(daemon_id, Path(output_path))
         print(f"\nExport complete!")
-        print(f"  Daemon: {result['daemon_name']}")
+        print(f"  Label: {result['daemon_label']}")
+        print(f"  Entity name: {result['daemon_name']}")
         print(f"  Output: {result['output_path']}")
         print(f"  Total rows: {result['total_rows']}")
 

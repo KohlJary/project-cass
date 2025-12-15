@@ -326,8 +326,11 @@ async def rhythm_phase_monitor_task(rhythm_manager, runners: dict, self_model_gr
                         findings = findings[:5]
 
             if summary:
-                rhythm_manager.update_phase_summary(
+                # Mark phase as completed with summary (transitions from in_progress)
+                rhythm_manager.mark_phase_completed(
                     phase_id=phase_id,
+                    session_id=session_id,
+                    session_type=session_type,
                     summary=summary,
                     findings=findings if findings else None,
                     notes_created=notes if notes else None,
@@ -338,7 +341,7 @@ async def rhythm_phase_monitor_task(rhythm_manager, runners: dict, self_model_gr
                     "knowledge_building": "📖", "writing": "✎", "curiosity": "✨",
                     "world_state": "🌍", "creative": "🎨"
                 }.get(session_type, "📝")
-                print(f"   {emoji} Updated phase '{phase_id}' with {session_type.replace('_', ' ')} summary")
+                print(f"   {emoji} Completed phase '{phase_id}' with {session_type.replace('_', ' ')} summary")
 
             # Generate rolling daily summary
             await generate_daily_summary(rhythm_manager)

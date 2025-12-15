@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 -- Daemon identity (multi-daemon support)
 CREATE TABLE IF NOT EXISTS daemons (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
+    label TEXT NOT NULL,              -- Display label (e.g., "cass", "test-daemon")
+    name TEXT DEFAULT 'Cass',         -- Entity name for prompts (e.g., "Cass", "Aria")
     created_at TEXT NOT NULL,
     kernel_version TEXT,
     status TEXT DEFAULT 'active'
@@ -159,10 +160,9 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 
--- Projects
+-- Projects (shared across all daemons - no daemon_id)
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
-    daemon_id TEXT NOT NULL REFERENCES daemons(id),
     user_id TEXT REFERENCES users(id),
     name TEXT NOT NULL,
     working_directory TEXT,
@@ -211,6 +211,21 @@ CREATE TABLE IF NOT EXISTS daemon_profiles (
     notes TEXT,
     updated_at TEXT NOT NULL
 );
+
+-- Daemon identity snippets (version-controlled auto-generated identity text)
+CREATE TABLE IF NOT EXISTS daemon_identity_snippets (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    version INTEGER NOT NULL,
+    snippet_text TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    is_active INTEGER DEFAULT 0,
+    generated_at TEXT NOT NULL,
+    generated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_identity_snippets_daemon ON daemon_identity_snippets(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_identity_snippets_active ON daemon_identity_snippets(daemon_id, is_active);
 
 -- Growth edges
 CREATE TABLE IF NOT EXISTS growth_edges (
@@ -597,11 +612,25 @@ CREATE INDEX IF NOT EXISTS idx_goals_daemon ON goals(daemon_id);
 -- OPERATIONAL TABLES
 -- =============================================================================
 
+-- Roadmap epics (grouping for roadmap items)
+CREATE TABLE IF NOT EXISTS roadmap_epics (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    project_id TEXT REFERENCES projects(id),
+    title TEXT NOT NULL,
+    description TEXT,
+    target_date TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- Roadmap items
 CREATE TABLE IF NOT EXISTS roadmap_items (
     id TEXT PRIMARY KEY,
     daemon_id TEXT NOT NULL REFERENCES daemons(id),
     project_id TEXT REFERENCES projects(id),
+    epic_id TEXT REFERENCES roadmap_epics(id),
     title TEXT NOT NULL,
     description TEXT,
     status TEXT DEFAULT 'backlog',
@@ -616,6 +645,7 @@ CREATE TABLE IF NOT EXISTS roadmap_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_roadmap_status ON roadmap_items(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_roadmap_epic ON roadmap_items(epic_id);
 
 -- Roadmap links
 CREATE TABLE IF NOT EXISTS roadmap_links (
@@ -729,6 +759,10 @@ def init_database():
     """Initialize the database with schema if needed."""
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+    # Run schema migrations before applying schema updates
+    # This handles renaming columns in existing tables
+    migrate_daemon_schema()
+
     with get_db() as conn:
         # Check if schema_version table exists
         cursor = conn.execute(
@@ -796,17 +830,92 @@ def init_database_with_migrations(daemon_name: str = "cass") -> str:
     return daemon_id
 
 
-def get_or_create_daemon(name: str = "cass", kernel_version: str = "temple-codex-1.0") -> str:
+def migrate_daemon_schema():
     """
-    Get existing daemon by name or create if doesn't exist.
+    Migrate daemons table from old schema (name) to new schema (label + name).
+
+    Old schema: name was used as a display label (e.g., "cass")
+    New schema: label = display label, name = entity name for prompts (e.g., "Cass")
+    """
+    with get_db() as conn:
+        # Check if we have the old schema (name column but no label column)
+        cursor = conn.execute("PRAGMA table_info(daemons)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'label' in columns:
+            # Already migrated
+            return
+
+        if 'name' not in columns:
+            # Fresh schema, nothing to migrate
+            return
+
+        print("Migrating daemons table schema: name -> label, adding entity name...")
+
+        # Temporarily disable foreign keys for the migration
+        conn.execute("PRAGMA foreign_keys = OFF")
+
+        try:
+            # Clean up any leftover temp table from failed migration
+            conn.execute("DROP TABLE IF EXISTS daemons_new")
+
+            # SQLite doesn't support RENAME COLUMN in older versions, so we recreate the table
+            # 1. Create temp table with new schema
+            conn.execute("""
+                CREATE TABLE daemons_new (
+                    id TEXT PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    name TEXT DEFAULT 'Cass',
+                    created_at TEXT NOT NULL,
+                    kernel_version TEXT,
+                    status TEXT DEFAULT 'active'
+                )
+            """)
+
+            # 2. Copy data, using old 'name' as 'label' and deriving entity name
+            conn.execute("""
+                INSERT INTO daemons_new (id, label, name, created_at, kernel_version, status)
+                SELECT
+                    id,
+                    name as label,
+                    CASE
+                        WHEN lower(name) = 'cass' THEN 'Cass'
+                        WHEN lower(name) = 'cass-prime' THEN 'Cass'
+                        ELSE 'Cass'
+                    END as name,
+                    created_at,
+                    kernel_version,
+                    status
+                FROM daemons
+            """)
+
+            # 3. Drop old table and rename new one
+            conn.execute("DROP TABLE daemons")
+            conn.execute("ALTER TABLE daemons_new RENAME TO daemons")
+
+            conn.commit()
+            print("Schema migration complete: daemons table updated")
+        finally:
+            # Re-enable foreign keys
+            conn.execute("PRAGMA foreign_keys = ON")
+
+
+def get_or_create_daemon(label: str = "cass", kernel_version: str = "temple-codex-1.0", name: str = "Cass") -> str:
+    """
+    Get existing daemon by label or create if doesn't exist.
     Returns the daemon ID.
+
+    Args:
+        label: Display label for the daemon (e.g., "cass", "test-daemon")
+        kernel_version: The cognitive kernel version
+        name: Entity name used in prompts (e.g., "Cass", "Aria")
     """
     import uuid
 
     with get_db() as conn:
         cursor = conn.execute(
-            "SELECT id FROM daemons WHERE name = ?",
-            (name,)
+            "SELECT id FROM daemons WHERE label = ?",
+            (label,)
         )
         row = cursor.fetchone()
 
@@ -816,11 +925,11 @@ def get_or_create_daemon(name: str = "cass", kernel_version: str = "temple-codex
         # Create new daemon
         daemon_id = str(uuid.uuid4())
         conn.execute(
-            """INSERT INTO daemons (id, name, created_at, kernel_version, status)
-               VALUES (?, ?, ?, ?, 'active')""",
-            (daemon_id, name, datetime.now().isoformat(), kernel_version)
+            """INSERT INTO daemons (id, label, name, created_at, kernel_version, status)
+               VALUES (?, ?, ?, ?, ?, 'active')""",
+            (daemon_id, label, name, datetime.now().isoformat(), kernel_version)
         )
-        print(f"Created daemon '{name}' with ID {daemon_id}")
+        print(f"Created daemon '{label}' (entity: {name}) with ID {daemon_id}")
         return daemon_id
 
 
@@ -848,6 +957,32 @@ def get_row_count(table_name: str) -> int:
 def get_daemon_id() -> str:
     """Get the default daemon ID (Cass)."""
     return get_or_create_daemon("cass")
+
+
+def get_daemon_info(daemon_id: str) -> dict:
+    """Get daemon info by ID."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT id, label, name, created_at, kernel_version, status FROM daemons WHERE id = ?",
+            (daemon_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "id": row[0],
+                "label": row[1],
+                "name": row[2],  # Entity name for prompts
+                "created_at": row[3],
+                "kernel_version": row[4],
+                "status": row[5],
+            }
+        return None
+
+
+def get_daemon_entity_name(daemon_id: str) -> str:
+    """Get the entity name for a daemon (used in system prompts)."""
+    info = get_daemon_info(daemon_id)
+    return info["name"] if info else "Cass"
 
 
 if __name__ == "__main__":

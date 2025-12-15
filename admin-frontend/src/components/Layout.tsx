@@ -38,12 +38,12 @@ export function Layout() {
               >
                 {availableDaemons.map((daemon) => (
                   <option key={daemon.id} value={daemon.id}>
-                    {daemon.name}
+                    {daemon.label} ({daemon.name})
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="daemon-name">{currentDaemon?.name || 'No daemon'}</span>
+              <span className="daemon-name">{currentDaemon?.label || currentDaemon?.name || 'No daemon'}</span>
             )}
           </div>
         </div>

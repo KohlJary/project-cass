@@ -5,7 +5,8 @@ import { api } from '../api/client';
 
 export interface Daemon {
   id: string;
-  name: string;
+  label: string;           // Display label (e.g., "cass")
+  name: string;            // Entity name for prompts (e.g., "Cass")
   created_at: string;
   kernel_version: string | null;
   status: string;

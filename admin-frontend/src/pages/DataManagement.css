@@ -534,3 +534,208 @@
   background: var(--bg-primary);
   color: var(--text-primary);
 }
+
+/* Daemons Panel */
+.daemons-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.daemons-panel code {
+  background: var(--bg-primary);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--accent-cyan);
+}
+
+.daemon-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.daemon-section h3 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Export Card */
+.daemon-export-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+}
+
+.daemon-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.daemon-icon {
+  font-size: 1.75rem;
+}
+
+.daemon-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.daemon-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.daemon-name .entity-name {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.daemon-stats {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.no-daemon, .no-seeds {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 1rem;
+}
+
+/* Seed Exports List */
+.seed-exports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.seed-export-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+}
+
+.seed-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.seed-filename {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--accent-cyan);
+}
+
+.seed-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.seed-error {
+  font-size: 0.8rem;
+  color: var(--accent-red);
+  margin-top: 0.25rem;
+}
+
+/* Daemon Import Preview */
+.daemon-import-preview h4 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.preview-daemon-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.preview-field {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.field-label {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.field-value {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+/* Import Options */
+.import-options {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.import-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.import-option label {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.import-option input[type="text"] {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  max-width: 300px;
+}
+
+.import-option input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent-purple);
+}
+
+.import-option input[type="text"]::placeholder {
+  color: var(--text-muted);
+}
+
+.import-option.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.import-option.checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-purple);
+}
+
+.import-option.checkbox label {
+  margin: 0;
+}

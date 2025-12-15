@@ -123,42 +123,13 @@ class ProjectManager:
         - project_documents table: Markdown documents within projects
     """
 
-    # Default daemon ID for Cass
-    DEFAULT_DAEMON_ID = None  # Will be loaded from database
-
-    def __init__(self, daemon_id: str = None):
+    def __init__(self):
         """
         Initialize ProjectManager.
 
-        Args:
-            daemon_id: UUID of the daemon. If None, uses default Cass daemon.
+        Projects are shared across all daemons - no daemon_id filtering.
         """
-        self._daemon_id = daemon_id
-        if not self._daemon_id:
-            self._load_default_daemon()
-
-    def _load_default_daemon(self):
-        """Load the default daemon ID from database"""
-        with get_db() as conn:
-            cursor = conn.execute(
-                "SELECT id FROM daemons WHERE name = 'cass' LIMIT 1"
-            )
-            row = cursor.fetchone()
-            if row:
-                self._daemon_id = row['id']
-            else:
-                # Create default daemon if not exists
-                self._daemon_id = str(uuid.uuid4())
-                conn.execute("""
-                    INSERT INTO daemons (id, name, created_at, kernel_version, status)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    self._daemon_id,
-                    'cass',
-                    datetime.now().isoformat(),
-                    'temple-codex-1.0',
-                    'active'
-                ))
+        pass
 
     def create_project(
         self,
@@ -190,12 +161,11 @@ class ProjectManager:
         with get_db() as conn:
             conn.execute("""
                 INSERT INTO projects (
-                    id, daemon_id, user_id, name, working_directory,
+                    id, user_id, name, working_directory,
                     description, github_repo, github_token, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 project_id,
-                self._daemon_id,
                 user_id,
                 name,
                 working_dir,
@@ -356,18 +326,17 @@ class ProjectManager:
                            p.description, p.user_id, p.github_repo,
                            (SELECT COUNT(*) FROM project_files WHERE project_id = p.id) as file_count
                     FROM projects p
-                    WHERE p.daemon_id = ? AND p.user_id = ?
+                    WHERE p.user_id = ?
                     ORDER BY p.updated_at DESC
-                """, (self._daemon_id, user_id))
+                """, (user_id,))
             else:
                 cursor = conn.execute("""
                     SELECT p.id, p.name, p.working_directory, p.created_at, p.updated_at,
                            p.description, p.user_id, p.github_repo,
                            (SELECT COUNT(*) FROM project_files WHERE project_id = p.id) as file_count
                     FROM projects p
-                    WHERE p.daemon_id = ?
                     ORDER BY p.updated_at DESC
-                """, (self._daemon_id,))
+                """)
 
             return [
                 {

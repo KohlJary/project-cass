@@ -12,6 +12,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isDemoMode: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -25,22 +26,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
-  // Load saved auth on mount
+  // Check for demo mode and load saved auth on mount
   useEffect(() => {
-    const savedToken = localStorage.getItem(TOKEN_KEY);
-    const savedUser = localStorage.getItem(USER_KEY);
+    const initAuth = async () => {
+      try {
+        // Check if demo mode is enabled
+        const statusResponse = await api.get('/admin/auth/status');
+        const { demo_mode } = statusResponse.data;
 
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
-      // Set default auth header
-      api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
-      // Verify token is still valid
-      verifyToken(savedToken);
-    } else {
-      setIsLoading(false);
-    }
+        if (demo_mode) {
+          // Demo mode - auto-authenticate as demo user
+          setIsDemoMode(true);
+          setUser({ user_id: 'demo', display_name: 'Demo User' });
+          setToken('demo-token');
+          setIsLoading(false);
+          return;
+        }
+
+        // Normal mode - check for saved token
+        const savedToken = localStorage.getItem(TOKEN_KEY);
+        const savedUser = localStorage.getItem(USER_KEY);
+
+        if (savedToken && savedUser) {
+          setToken(savedToken);
+          setUser(JSON.parse(savedUser));
+          // Set default auth header
+          api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
+          // Verify token is still valid
+          await verifyToken(savedToken);
+        } else {
+          setIsLoading(false);
+        }
+      } catch {
+        // If status check fails, continue with normal auth flow
+        const savedToken = localStorage.getItem(TOKEN_KEY);
+        const savedUser = localStorage.getItem(USER_KEY);
+
+        if (savedToken && savedUser) {
+          setToken(savedToken);
+          setUser(JSON.parse(savedUser));
+          api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
+          await verifyToken(savedToken);
+        } else {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    initAuth();
   }, []);
 
   const verifyToken = async (tokenToVerify: string) => {
@@ -86,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         isAuthenticated: !!token && !!user,
         isLoading,
+        isDemoMode,
         login,
         logout
       }}

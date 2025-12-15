@@ -669,23 +669,24 @@ class SelfManager:
                 if not cursor.fetchone():
                     raise ValueError(f"Daemon {self._daemon_id} not found")
             else:
-                # Find or create default daemon
+                # Find or create default daemon (search by label)
                 cursor = conn.execute(
-                    "SELECT id FROM daemons WHERE name = ?",
+                    "SELECT id FROM daemons WHERE label = ?",
                     (self.DEFAULT_DAEMON_NAME,)
                 )
                 row = cursor.fetchone()
                 if row:
                     self._daemon_id = row['id']
                 else:
-                    # Create default daemon
+                    # Create default daemon with both label and entity name
                     self._daemon_id = str(uuid.uuid4())
                     conn.execute("""
-                        INSERT INTO daemons (id, name, created_at, kernel_version, status)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO daemons (id, label, name, created_at, kernel_version, status)
+                        VALUES (?, ?, ?, ?, ?, ?)
                     """, (
                         self._daemon_id,
                         self.DEFAULT_DAEMON_NAME,
+                        "Cass",  # Entity name
                         datetime.now().isoformat(),
                         "temple-codex-1.0",
                         "active"

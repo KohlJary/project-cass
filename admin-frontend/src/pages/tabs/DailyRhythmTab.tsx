@@ -312,6 +312,13 @@ export function DailyRhythmTab() {
     },
   });
 
+  const regenerateSummaryMutation = useMutation({
+    mutationFn: () => rhythmApi.regenerateSummary(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rhythm-status'] });
+    },
+  });
+
   const handleTriggerClick = (phaseId: string, activityType: string) => {
     // Types that can use agenda items for focus
     const agendaFocusTypes = ['research', 'any', 'knowledge_building', 'curiosity'];
@@ -761,11 +768,35 @@ export function DailyRhythmTab() {
                   <div className="summary-content markdown-content">
                     <ReactMarkdown>{status.daily_summary}</ReactMarkdown>
                   </div>
-                  {status.daily_summary_updated_at && (
-                    <span className="summary-updated">
-                      Last updated: {new Date(status.daily_summary_updated_at).toLocaleTimeString()}
-                    </span>
-                  )}
+                  <div className="summary-footer">
+                    {status.daily_summary_updated_at && (
+                      <span className="summary-updated">
+                        Last updated: {new Date(status.daily_summary_updated_at).toLocaleTimeString()}
+                      </span>
+                    )}
+                    {status.is_today && status.completed_count > 0 && (
+                      <button
+                        className="regenerate-btn"
+                        onClick={() => regenerateSummaryMutation.mutate()}
+                        disabled={regenerateSummaryMutation.isPending}
+                        title="Regenerate daily summary from completed phases"
+                      >
+                        {regenerateSummaryMutation.isPending ? 'Regenerating...' : '↻ Regenerate'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : status?.is_today && status?.completed_count > 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon">*</div>
+                  <p>Summary not generated yet</p>
+                  <button
+                    className="regenerate-btn"
+                    onClick={() => regenerateSummaryMutation.mutate()}
+                    disabled={regenerateSummaryMutation.isPending}
+                  >
+                    {regenerateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
+                  </button>
                 </div>
               ) : (
                 <div className="empty-state">
