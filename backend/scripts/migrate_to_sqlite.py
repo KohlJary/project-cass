@@ -907,6 +907,99 @@ def migrate_rhythm(conn, daemon_id: str):
     print(f"  Migrated {phase_count} phases, {record_count} records")
 
 
+def migrate_research_queue(conn, daemon_id: str):
+    """Migrate research queue and history from flat files"""
+    print("\n=== Migrating Research Queue/History ===")
+
+    queue_file = DATA_DIR / "research_queue.json"
+    history_file = DATA_DIR / "research_history.json"
+
+    queue_count = 0
+    history_count = 0
+
+    # Migrate research_queue.json
+    if queue_file.exists():
+        queue_data = load_json(queue_file)
+        if queue_data:
+            for task in queue_data.get("tasks", []):
+                task_id = task.get("task_id")
+                if not task_id:
+                    continue
+
+                if record_exists(conn, "research_tasks", "id", task_id):
+                    continue
+
+                conn.execute("""
+                    INSERT INTO research_tasks (
+                        id, daemon_id, task_type, target, context, priority, status,
+                        rationale_json, source_page, source_type, estimated_duration,
+                        scheduled_for, started_at, completed_at, result_json, exploration_json,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    task_id,
+                    daemon_id,
+                    task.get("task_type"),
+                    task.get("target"),
+                    task.get("context"),
+                    task.get("priority"),
+                    task.get("status", "queued"),
+                    json_serialize(task.get("rationale")),
+                    task.get("source_page"),
+                    task.get("source_type", "auto"),
+                    task.get("estimated_duration", "5m"),
+                    task.get("scheduled_for"),
+                    task.get("started_at"),
+                    task.get("completed_at"),
+                    json_serialize(task.get("result")),
+                    json_serialize(task.get("exploration")),
+                    task.get("created_at", datetime.now().isoformat())
+                ))
+                queue_count += 1
+
+    # Migrate research_history.json
+    if history_file.exists():
+        history_data = load_json(history_file)
+        if history_data:
+            for task in history_data.get("history", []):
+                task_id = task.get("task_id")
+                if not task_id:
+                    continue
+
+                if record_exists(conn, "research_task_history", "id", task_id):
+                    continue
+
+                conn.execute("""
+                    INSERT INTO research_task_history (
+                        id, daemon_id, task_type, target, context, priority, status,
+                        rationale_json, source_page, source_type, estimated_duration,
+                        started_at, completed_at, result_json, exploration_json,
+                        created_at, archived_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    task_id,
+                    daemon_id,
+                    task.get("task_type"),
+                    task.get("target"),
+                    task.get("context"),
+                    task.get("priority"),
+                    task.get("status", "completed"),
+                    json_serialize(task.get("rationale")),
+                    task.get("source_page"),
+                    task.get("source_type", "auto"),
+                    task.get("estimated_duration", "5m"),
+                    task.get("started_at"),
+                    task.get("completed_at"),
+                    json_serialize(task.get("result")),
+                    json_serialize(task.get("exploration")),
+                    task.get("created_at", datetime.now().isoformat()),
+                    task.get("completed_at", datetime.now().isoformat())  # Use completed_at as archived_at
+                ))
+                history_count += 1
+
+    print(f"  Migrated {queue_count} queue tasks, {history_count} history tasks")
+
+
 def migrate_usage(conn, daemon_id: str):
     """Migrate token usage logs"""
     print("\n=== Migrating Token Usage ===")
@@ -985,6 +1078,7 @@ def run_migration():
         migrate_wiki(conn, daemon_id)
         migrate_goals(conn, daemon_id)
         migrate_rhythm(conn, daemon_id)
+        migrate_research_queue(conn, daemon_id)
         migrate_usage(conn, daemon_id)
 
         # Re-enable foreign keys and verify
@@ -1010,7 +1104,8 @@ def run_migration():
             "cognitive_snapshots", "milestones", "self_observations",
             "user_observations", "dreams", "solo_reflections",
             "roadmap_items", "wiki_pages", "goals",
-            "rhythm_phases", "rhythm_records", "token_usage"
+            "rhythm_phases", "rhythm_records",
+            "research_tasks", "research_task_history", "token_usage"
         ]
 
         print("\nRecord counts:")

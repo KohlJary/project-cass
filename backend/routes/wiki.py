@@ -1740,9 +1740,8 @@ def _get_scheduler():
     if _research_scheduler is None and _wiki_storage is not None:
         from wiki import ResearchQueue, ResearchScheduler, SchedulerConfig
         import wiki as wiki_module
-        # Use data directory for queue persistence
-        queue_dir = _data_dir if _data_dir else "."
-        _research_queue = ResearchQueue(queue_dir)
+        # ResearchQueue now uses SQLite database (data_dir no longer needed)
+        _research_queue = ResearchQueue()
         _research_scheduler = ResearchScheduler(
             _wiki_storage,
             _research_queue,
