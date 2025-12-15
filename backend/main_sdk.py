@@ -4825,6 +4825,16 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 user_message = data.get("message", "")
                 conversation_id = data.get("conversation_id")
+
+                # Auto-create conversation if none provided
+                if not conversation_id:
+                    new_conv = conversation_manager.create_conversation(
+                        title=None,  # Will be auto-generated after first exchange
+                        user_id=ws_user_id
+                    )
+                    conversation_id = new_conv.id
+                    print(f"[WebSocket] Auto-created conversation {conversation_id} for user {ws_user_id}")
+
                 image_data = data.get("image")  # Base64 encoded image
                 image_media_type = data.get("image_media_type")  # e.g., "image/png"
                 if image_data:
