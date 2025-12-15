@@ -62,7 +62,7 @@ interface WebSocketMessage {
   user_observations?: UserObservation[];
 }
 
-interface RecognitionData {
+export interface RecognitionData {
   marks: RecognitionMark[];
   selfObservations: SelfObservation[];
   userObservations: UserObservation[];
@@ -80,6 +80,7 @@ interface UseWebSocketReturn {
   currentConversationId: string | null;
   conversationTitle: string | null;
   recognition: RecognitionData;
+  setRecognition: React.Dispatch<React.SetStateAction<RecognitionData>>;
   clearRecognition: () => void;
 }
 
@@ -368,6 +369,7 @@ export function useWebSocket(): UseWebSocketReturn {
     currentConversationId,
     conversationTitle,
     recognition,
+    setRecognition,
     clearRecognition,
   };
 }

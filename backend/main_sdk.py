@@ -1527,7 +1527,7 @@ async def get_conversation_observations(
     conversation_id: str,
     current_user: str = Depends(get_current_user)
 ):
-    """Get all observations (user and self) made during a conversation"""
+    """Get all observations (user and self) and marks made during a conversation"""
     verify_conversation_access(conversation_id, current_user)
 
     # Get user observations for this conversation
@@ -1544,11 +1544,18 @@ async def get_conversation_observations(
         if obs.source_conversation_id == conversation_id:
             self_observations.append(obs.to_dict())
 
+    # Get marks for this conversation
+    marks = []
+    if marker_store:
+        marks = marker_store.get_marks_by_conversation(conversation_id)
+
     return {
         "user_observations": user_observations,
         "self_observations": self_observations,
+        "marks": marks,
         "user_count": len(user_observations),
-        "self_count": len(self_observations)
+        "self_count": len(self_observations),
+        "marks_count": len(marks)
     }
 
 
