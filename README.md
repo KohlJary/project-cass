@@ -99,44 +99,52 @@ cass-vessel/
 
 ## Quick Start
 
-### Backend
+### Automated Setup (Recommended)
+
+```bash
+git clone https://github.com/KohlJary/project-cass.git
+cd project-cass
+./setup.sh
+```
+
+The setup script will:
+1. Check system requirements (Python 3.10+, Node.js 18+)
+2. Create virtual environments and install dependencies
+3. Guide you through API key configuration
+4. Initialize the database
+5. Optionally import the seed daemon (Cass Prime)
+6. Optionally set up a systemd service
+
+### Manual Setup
+
+#### Backend
 
 ```bash
 cd backend
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.template .env  # Add your ANTHROPIC_API_KEY
+cp .env.example .env  # Configure your API keys
 python main_sdk.py
 ```
 
-### TUI Frontend
-
-```bash
-cd tui-frontend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python tui.py
-```
-
-### Admin Dashboard
+#### Admin Dashboard
 
 ```bash
 cd admin-frontend
-npm install
-cd ../backend && python bootstrap_admin.py  # Create admin user
-cd ../admin-frontend && npm run dev
+npm install && npm run dev
 ```
 
 Dashboard at `http://localhost:5173`
 
-### Multi-LLM Support
+### Configuration
+
+Edit `backend/.env` with your API keys:
 
 ```bash
-# .env
-ANTHROPIC_API_KEY=your_key_here
-OPENAI_ENABLED=true
+ANTHROPIC_API_KEY=your_key_here      # Required (or use Ollama)
+OPENAI_ENABLED=true                   # Optional
 OPENAI_API_KEY=your_key_here
-OLLAMA_ENABLED=true  # For local summarization
+OLLAMA_ENABLED=true                   # For local LLM (free)
 ```
 
 ## The Theory
