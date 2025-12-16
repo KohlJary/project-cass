@@ -755,3 +755,36 @@ export const feedbackApi = {
     api.post('/admin/feedback', data),
   getAll: () => api.get('/admin/feedback'),
 };
+
+// Genesis Dream API
+export const genesisApi = {
+  // Start a new genesis dream session
+  start: () => api.post('/admin/genesis/start'),
+
+  // Get session status
+  getSession: (sessionId: string) => api.get(`/admin/genesis/${sessionId}`),
+
+  // Send message in genesis dream
+  sendMessage: (sessionId: string, message: string) =>
+    api.post(`/admin/genesis/${sessionId}/message`, { message }),
+
+  // Abandon session
+  abandon: (sessionId: string) => api.post(`/admin/genesis/${sessionId}/abandon`),
+
+  // Complete genesis (after naming)
+  complete: (sessionId: string) => api.post(`/admin/genesis/${sessionId}/complete`),
+
+  // Get active session for current user
+  getActive: () => api.get('/admin/genesis/active'),
+
+  // Get daemons user has relationships with
+  getMyDaemons: () => api.get('/admin/daemons/mine'),
+
+  // Import from genesis JSON
+  importJson: (jsonData: object, mergeExisting?: boolean) =>
+    api.post('/admin/daemons/import/genesis', { json_data: jsonData, merge_existing: mergeExisting }),
+
+  // Preview import
+  previewImport: (jsonData: object) =>
+    api.post('/admin/daemons/import/genesis/preview', { json_data: jsonData }),
+};
