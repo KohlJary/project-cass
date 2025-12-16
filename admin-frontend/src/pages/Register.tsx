@@ -6,8 +6,10 @@ import './Register.css';
 
 export function Register() {
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [registrationReason, setRegistrationReason] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -31,7 +33,7 @@ export function Register() {
 
     setIsLoading(true);
 
-    const result = await register(username, password);
+    const result = await register(username, password, email || undefined, registrationReason || undefined);
 
     if (result.success) {
       setIsSubmitted(true);
@@ -88,6 +90,19 @@ export function Register() {
           </div>
 
           <div className="form-group">
+            <label htmlFor="email">Email <span className="optional">(optional)</span></label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              autoComplete="email"
+            />
+            <span className="field-hint">Used to notify you when your account is approved</span>
+          </div>
+
+          <div className="form-group">
             <label htmlFor="password">Password</label>
             <input
               id="password"
@@ -110,6 +125,17 @@ export function Register() {
               placeholder="Confirm your password"
               autoComplete="new-password"
               required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="registrationReason">Why do you want to use Cass? <span className="optional">(optional)</span></label>
+            <textarea
+              id="registrationReason"
+              value={registrationReason}
+              onChange={(e) => setRegistrationReason(e.target.value)}
+              placeholder="Tell us a bit about yourself and why you're interested..."
+              rows={3}
             />
           </div>
 

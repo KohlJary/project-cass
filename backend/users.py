@@ -490,6 +490,10 @@ class UserProfile:
     status: str = "approved"  # 'pending', 'approved', 'rejected'
     rejection_reason: Optional[str] = None
 
+    # Registration fields
+    email: Optional[str] = None
+    registration_reason: Optional[str] = None
+
     # User preferences (TUI settings, etc.)
     preferences: UserPreferences = field(default_factory=UserPreferences)
 
@@ -508,6 +512,8 @@ class UserProfile:
             "is_admin": self.is_admin,
             "status": self.status,
             "rejection_reason": self.rejection_reason,
+            "email": self.email,
+            "registration_reason": self.registration_reason,
             "preferences": self.preferences.to_dict(),
             # Don't include password_hash in to_dict for security
         }
@@ -533,6 +539,8 @@ class UserProfile:
             password_hash=data.get("password_hash"),
             status=data.get("status", "approved"),
             rejection_reason=data.get("rejection_reason"),
+            email=data.get("email"),
+            registration_reason=data.get("registration_reason"),
             preferences=preferences
         )
 
@@ -668,7 +676,8 @@ class UserManager:
             cursor = conn.execute("""
                 SELECT id, display_name, relationship, background_json,
                        communication_json, preferences_json, password_hash,
-                       is_admin, status, rejection_reason, created_at, updated_at
+                       is_admin, status, rejection_reason, email, registration_reason,
+                       created_at, updated_at
                 FROM users WHERE id = ?
             """, (user_id,))
             row = cursor.fetchone()
@@ -693,6 +702,8 @@ class UserManager:
                 password_hash=row['password_hash'],
                 status=row['status'] or 'approved',
                 rejection_reason=row['rejection_reason'],
+                email=row['email'],
+                registration_reason=row['registration_reason'],
                 preferences=UserPreferences.from_dict(prefs_data)
             )
 

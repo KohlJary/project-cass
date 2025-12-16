@@ -45,6 +45,8 @@ class LoginResponse(BaseModel):
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    email: Optional[str] = None
+    registration_reason: Optional[str] = None
 
 
 class RegisterResponse(BaseModel):
@@ -80,12 +82,13 @@ def init_managers(
 
 # ============== Authentication ==============
 
-def create_token(user_id: str, display_name: str) -> tuple[str, datetime]:
+def create_token(user_id: str, display_name: str, is_admin: bool = False) -> tuple[str, datetime]:
     """Create a JWT token for an admin user"""
     expires = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
     payload = {
         "user_id": user_id,
         "display_name": display_name,
+        "is_admin": is_admin,
         "exp": expires,
         "iat": datetime.utcnow()
     }
@@ -186,10 +189,10 @@ class BootstrapRequest(BaseModel):
 
 @router.post("/auth/bootstrap")
 async def bootstrap_admin(request: BootstrapRequest):
-    """One-time bootstrap: set password for an admin user that has no password.
+    """One-time bootstrap: set up first admin user.
 
-    Only works if the user exists, is an admin, and has no password_hash set.
-    This allows initial setup of seeded admin accounts.
+    If no admin users exist, promotes the specified user to admin, approves them,
+    and sets their password. Otherwise, only sets password for existing passwordless admins.
     """
     if not users:
         raise HTTPException(status_code=503, detail="User manager not initialized")
@@ -198,17 +201,35 @@ async def bootstrap_admin(request: BootstrapRequest):
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not profile.is_admin:
-        raise HTTPException(status_code=403, detail="User is not an admin")
+    # Check if any admin users exist
+    from database import get_db
+    with get_db() as conn:
+        cursor = conn.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
+        admin_count = cursor.fetchone()[0]
 
-    if profile.password_hash:
+    # If no admins exist, promote this user to admin
+    if admin_count == 0:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET is_admin = 1, status = 'approved' WHERE id = ?",
+                (profile.user_id,)
+            )
+        # Reload profile
+        profile = users.get_user_by_name(request.username)
+    elif not profile.is_admin:
+        raise HTTPException(status_code=403, detail="User is not an admin")
+    elif profile.password_hash:
         raise HTTPException(status_code=400, detail="User already has a password set")
 
     # Set the password
-    hashed = users.hash_password(request.password)
-    users.update_user_profile(profile.id, {"password_hash": hashed, "status": "approved"})
+    try:
+        result = users.set_admin_password(profile.user_id, request.password)
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to set password (returned False)")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set password: {str(e)}")
 
-    return {"status": "ok", "message": f"Password set for {request.username}"}
+    return {"status": "ok", "message": f"Password set for {request.username} (admin: {profile.is_admin})"}
 
 
 @router.post("/auth/login", response_model=LoginResponse)
@@ -245,7 +266,7 @@ async def admin_login(request: LoginRequest):
             detail=f"Account rejected: {reason}"
         )
 
-    token, expires = create_token(profile.user_id, profile.display_name)
+    token, expires = create_token(profile.user_id, profile.display_name, profile.is_admin)
 
     return LoginResponse(
         token=token,
@@ -321,9 +342,9 @@ async def register_user(request: RegisterRequest):
     from database import get_db
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO users (id, display_name, status, created_at, updated_at)
-            VALUES (?, ?, 'pending', ?, ?)
-        """, (user_id, request.username, now, now))
+            INSERT INTO users (id, display_name, status, email, registration_reason, created_at, updated_at)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?)
+        """, (user_id, request.username, request.email, request.registration_reason, now, now))
 
     # Set the password
     users.set_admin_password(user_id, request.password)
@@ -364,8 +385,10 @@ async def get_pending_users(admin: Dict = Depends(require_admin)):
     return {
         "users": [
             {
-                "id": u.id,
+                "id": u.user_id,
                 "display_name": u.display_name,
+                "email": u.email,
+                "registration_reason": u.registration_reason,
                 "created_at": u.created_at
             }
             for u in pending
@@ -393,7 +416,17 @@ async def approve_user(user_id: str, admin: Dict = Depends(require_admin)):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to approve user")
 
-    return {"success": True, "message": f"User {profile.display_name} approved"}
+    # Send approval email if email is configured and user has an email
+    email_sent = False
+    if profile.email:
+        from email_service import send_approval_email
+        email_sent = send_approval_email(profile.email, profile.display_name)
+
+    return {
+        "success": True,
+        "message": f"User {profile.display_name} approved",
+        "email_sent": email_sent
+    }
 
 
 @router.post("/users/{user_id}/reject")
@@ -420,7 +453,17 @@ async def reject_user(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to reject user")
 
-    return {"success": True, "message": f"User {profile.display_name} rejected"}
+    # Send rejection email if email is configured and user has an email
+    email_sent = False
+    if profile.email:
+        from email_service import send_rejection_email
+        email_sent = send_rejection_email(profile.email, profile.display_name, request.reason)
+
+    return {
+        "success": True,
+        "message": f"User {profile.display_name} rejected",
+        "email_sent": email_sent
+    }
 
 
 # ============== Daemon Endpoints ==============
@@ -489,6 +532,27 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
         }
 
     return daemon
+
+
+@router.delete("/daemons/{daemon_id}")
+async def delete_daemon_endpoint(
+    daemon_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Delete a daemon and all its associated data. Admin only."""
+    from daemon_export import delete_daemon
+
+    # Extra safety: require is_admin flag
+    if not admin.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required to delete daemons")
+
+    try:
+        result = delete_daemon(daemon_id, confirm=True)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete daemon: {str(e)}")
 
 
 @router.get("/daemons/exports/seeds")

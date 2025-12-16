@@ -16,6 +16,8 @@ interface User {
 interface PendingUser {
   id: string;
   display_name: string;
+  email?: string;
+  registration_reason?: string;
   created_at: string;
 }
 
@@ -210,10 +212,19 @@ export function Users() {
             {pendingUsers.map((user) => (
               <div key={user.id} className="pending-user-item">
                 <div className="pending-user-info">
-                  <span className="pending-user-name">{user.display_name}</span>
+                  <div className="pending-user-header">
+                    <span className="pending-user-name">{user.display_name}</span>
+                    {user.email && <span className="pending-user-email">{user.email}</span>}
+                  </div>
                   <span className="pending-user-date">
                     Registered {new Date(user.created_at).toLocaleDateString()}
                   </span>
+                  {user.registration_reason && (
+                    <div className="pending-user-reason">
+                      <span className="reason-label">Why they want to join:</span>
+                      <p className="reason-text">{user.registration_reason}</p>
+                    </div>
+                  )}
                 </div>
                 <div className="pending-user-actions">
                   <button

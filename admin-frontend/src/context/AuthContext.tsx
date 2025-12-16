@@ -17,7 +17,7 @@ interface AuthContextType {
   isAdmin: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
-  register: (username: string, password: string) => Promise<{ success: boolean; message: string }>;
+  register: (username: string, password: string, email?: string, registrationReason?: string) => Promise<{ success: boolean; message: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -129,9 +129,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   };
 
-  const register = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
+  const register = async (
+    username: string,
+    password: string,
+    email?: string,
+    registrationReason?: string
+  ): Promise<{ success: boolean; message: string }> => {
     try {
-      const response = await authApi.register({ username, password });
+      const response = await authApi.register({
+        username,
+        password,
+        email: email || undefined,
+        registration_reason: registrationReason || undefined
+      });
       return {
         success: response.data.success,
         message: response.data.message

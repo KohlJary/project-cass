@@ -26,6 +26,7 @@ def run_migrations(daemon_id: str):
 
     # Ensure new tables exist (schema additions)
     ensure_identity_snippets_table()
+    ensure_user_registration_columns()
 
     migrations = [
         ("token_usage", migrate_token_usage),
@@ -435,6 +436,24 @@ def ensure_identity_snippets_table():
             CREATE INDEX IF NOT EXISTS idx_identity_snippets_active ON daemon_identity_snippets(daemon_id, is_active);
         ''')
         logger.info("Ensured daemon_identity_snippets table exists")
+
+
+def ensure_user_registration_columns():
+    """Ensure the users table has email and registration_reason columns."""
+    from database import get_db
+
+    with get_db() as conn:
+        # Check if columns exist
+        cursor = conn.execute("PRAGMA table_info(users)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'email' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+            logger.info("Added email column to users table")
+
+        if 'registration_reason' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN registration_reason TEXT")
+            logger.info("Added registration_reason column to users table")
 
 
 async def generate_initial_identity_snippet(daemon_id: str):

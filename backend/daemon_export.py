@@ -489,6 +489,34 @@ def import_daemon(
         imported_counts = {}
         old_to_new_ids = {}  # Track ID mappings if we're creating new daemon
 
+        # Import users FIRST (conversations have FK to users)
+        users = tables_data.get("users", [])
+        if users:
+            count = _import_users(conn, users)
+            imported_counts["users"] = count
+            logger.info(f"Imported {count} users")
+
+        # Import projects SECOND (conversations have FK to projects)
+        # Projects don't have daemon_id, so they're handled separately
+        projects = tables_data.get("projects", [])
+        if projects:
+            count = _import_projects(conn, projects)
+            imported_counts["projects"] = count
+            logger.info(f"Imported {count} projects")
+
+            # Import project_documents and project_files (depend on projects)
+            docs = tables_data.get("project_documents", [])
+            if docs:
+                count = _import_project_items(conn, "project_documents", docs)
+                imported_counts["project_documents"] = count
+                logger.info(f"Imported {count} project documents")
+
+            files = tables_data.get("project_files", [])
+            if files:
+                count = _import_project_items(conn, "project_files", files)
+                imported_counts["project_files"] = count
+                logger.info(f"Imported {count} project files")
+
         # Import in order (independent tables first)
         import_order = [
             # Core identity (no dependencies on other daemon tables)
@@ -500,11 +528,6 @@ def import_daemon(
             "milestones",
             "development_logs",
             "journals",
-
-            # Projects (needed before project_files/documents)
-            "projects",
-            "project_files",
-            "project_documents",
 
             # User observations
             "user_observations",
@@ -568,32 +591,6 @@ def import_daemon(
         if links:
             count = _import_roadmap_links(conn, links, id_mapping)
             imported_counts["roadmap_links"] = count
-
-        # Import projects (shared - no daemon_id remapping)
-        projects = tables_data.get("projects", [])
-        if projects:
-            count = _import_projects(conn, projects)
-            imported_counts["projects"] = count
-            logger.info(f"Imported {count} projects")
-
-            # Import project_documents and project_files
-            docs = tables_data.get("project_documents", [])
-            if docs:
-                count = _import_project_items(conn, "project_documents", docs)
-                imported_counts["project_documents"] = count
-                logger.info(f"Imported {count} project documents")
-
-            files = tables_data.get("project_files", [])
-            if files:
-                count = _import_project_items(conn, "project_files", files)
-                imported_counts["project_files"] = count
-                logger.info(f"Imported {count} project files")
-
-        # Import users if present
-        users = tables_data.get("users", [])
-        if users:
-            count = _import_users(conn, users)
-            imported_counts["users"] = count
 
         conn.commit()
 

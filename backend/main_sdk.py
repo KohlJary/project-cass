@@ -7,6 +7,9 @@ This version leverages Anthropic's official Agent SDK for:
 - Tool ecosystem
 - The "initializer agent" pattern with our cognitive architecture
 """
+import sys
+sys.stdout.reconfigure(line_buffering=True)
+print("=== MAIN_SDK.PY LOADING ===", flush=True)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
@@ -204,41 +207,69 @@ async def add_security_headers(request: Request, call_next):
 
 
 # Initialize database and run JSON migrations
+print("STARTUP: Importing database module...")
 from database import init_database_with_migrations, get_daemon_entity_name
+print("STARTUP: Running init_database_with_migrations...")
 _daemon_id = init_database_with_migrations("cass")
+print(f"STARTUP: Database initialized, daemon_id={_daemon_id}")
 _daemon_name = get_daemon_entity_name(_daemon_id)  # Entity name for system prompts
+print(f"STARTUP: daemon_name={_daemon_name}")
 
-# Initialize components with absolute data paths
-memory = CassMemory()
+# Initialize lightweight components immediately
+print("STARTUP: Initializing lightweight components...")
 response_processor = ResponseProcessor()
 user_manager = UserManager()
-self_model_graph = get_self_model_graph(DATA_DIR)
-_graph_stats = self_model_graph.get_stats()
+print("STARTUP: Lightweight components initialized")
+
+# Defer heavy initialization (ChromaDB, embeddings) to avoid blocking health checks
+# These will be initialized in startup_event background task
+memory: Optional[CassMemory] = None
+self_model_graph = None
+self_manager = None
 _needs_embedding_rebuild = False
+_heavy_components_ready = False  # Flag to indicate when deferred init is complete
 
-if _graph_stats['total_nodes'] == 0:
-    print("  Self-model graph is empty, populating from existing data...")
-    _populate_result = populate_self_model_graph(self_model_graph, verbose=False)
-    print(f"  Self-model graph populated: {_populate_result['nodes']} nodes, "
-          f"{_populate_result['edges']} edges")
-    _needs_embedding_rebuild = True
-else:
-    print(f"  Self-model graph loaded: {_graph_stats['total_nodes']} nodes, "
-          f"{_graph_stats['total_edges']} edges")
-    # Check if embeddings need rebuilding (collection might be empty)
-    if self_model_graph._node_collection is not None:
-        _embedding_count = self_model_graph._node_collection.count()
-        _connectable_count = len([n for n in self_model_graph._nodes.values()
-                                  if n.node_type in self_model_graph.CONNECTABLE_TYPES])
-        if _embedding_count < _connectable_count * 0.5:  # Less than half embedded
-            print(f"  Embeddings need rebuild ({_embedding_count} < {_connectable_count}) - will run in background")
-            _needs_embedding_rebuild = True
-self_manager = SelfManager(graph_callback=self_model_graph)
+def _init_heavy_components():
+    """Initialize ChromaDB and self-model graph (called in background)."""
+    global memory, self_model_graph, self_manager, marker_store, _needs_embedding_rebuild, _heavy_components_ready
 
-# Sync self-observations from file storage to ChromaDB for semantic search
-_synced_count = memory.sync_self_observations_from_file(self_manager)
-if _synced_count > 0:
-    print(f"  Synced {_synced_count} self-observations to ChromaDB")
+    print("Initializing ChromaDB memory...")
+    memory = CassMemory()
+
+    print("Loading self-model graph...")
+    self_model_graph = get_self_model_graph(DATA_DIR)
+    _graph_stats = self_model_graph.get_stats()
+
+    if _graph_stats['total_nodes'] == 0:
+        print("  Self-model graph is empty, populating from existing data...")
+        _populate_result = populate_self_model_graph(self_model_graph, verbose=False)
+        print(f"  Self-model graph populated: {_populate_result['nodes']} nodes, "
+              f"{_populate_result['edges']} edges")
+        _needs_embedding_rebuild = True
+    else:
+        print(f"  Self-model graph loaded: {_graph_stats['total_nodes']} nodes, "
+              f"{_graph_stats['total_edges']} edges")
+        # Check if embeddings need rebuilding (collection might be empty)
+        if self_model_graph._node_collection is not None:
+            _embedding_count = self_model_graph._node_collection.count()
+            _connectable_count = len([n for n in self_model_graph._nodes.values()
+                                      if n.node_type in self_model_graph.CONNECTABLE_TYPES])
+            if _embedding_count < _connectable_count * 0.5:  # Less than half embedded
+                print(f"  Embeddings need rebuild ({_embedding_count} < {_connectable_count}) - will run in background")
+                _needs_embedding_rebuild = True
+
+    self_manager = SelfManager(graph_callback=self_model_graph)
+
+    # Initialize marker store now that memory is ready
+    marker_store = MarkerStore(client=memory.client, graph_callback=self_model_graph)
+
+    # Sync self-observations from file storage to ChromaDB for semantic search
+    _synced_count = memory.sync_self_observations_from_file(self_manager)
+    if _synced_count > 0:
+        print(f"  Synced {_synced_count} self-observations to ChromaDB")
+
+    _heavy_components_ready = True
+    print("Heavy components initialized")
 
 # Current user context (will support multi-user in future)
 current_user_id: Optional[str] = None
@@ -250,7 +281,7 @@ project_manager = ProjectManager()
 calendar_manager = CalendarManager()
 task_manager = TaskManager()
 roadmap_manager = RoadmapManager()
-marker_store = MarkerStore(client=memory.client, graph_callback=self_model_graph)  # Reuse memory's ChromaDB client
+marker_store = None  # Initialized in _init_heavy_components after memory is ready
 goal_manager = GoalManager(data_dir=DATA_DIR)
 research_manager = ResearchManager()
 research_session_manager = ResearchSessionManager()
@@ -567,6 +598,8 @@ tts_voice = "amy"  # Default Piper voice
 
 async def _generate_user_observations_for_date(user_id: str, date_str: str):
     """Generate user observations for a specific date."""
+    if not memory:
+        return  # Memory not initialized yet
     profile = user_manager.load_profile(user_id)
     if not profile:
         return
@@ -661,36 +694,33 @@ async def startup_event():
     # Validate requirements before proceeding
     validate_startup_requirements()
 
-    # Bootstrap from seed if env var set and no users exist
-    bootstrap_seed = os.getenv("BOOTSTRAP_FROM_SEED")
-    if bootstrap_seed:
-        from database import get_db
-        with get_db() as conn:
-            cursor = conn.execute("SELECT COUNT(*) FROM users")
-            user_count = cursor.fetchone()[0]
+    # Note: Seed bootstrap now happens in database.init_database_with_migrations()
+    # This ensures the seed daemon is imported BEFORE get_or_create_daemon() runs
 
-        if user_count == 0:
-            logger.info(f"No users found, bootstrapping from seed: {bootstrap_seed}")
-            try:
-                from daemon_export import import_daemon
-                from pathlib import Path
-                seed_path = Path(bootstrap_seed)
-                if not seed_path.is_absolute():
-                    seed_path = Path(__file__).parent.parent / seed_path
-                if seed_path.exists():
-                    result = import_daemon(seed_path, skip_embeddings=True)
-                    logger.info(f"Bootstrap complete: {result.get('total_rows', 0)} rows imported")
-                else:
-                    logger.error(f"Seed file not found: {seed_path}")
-            except Exception as e:
-                logger.error(f"Bootstrap failed: {e}")
-        else:
-            logger.info(f"Database has {user_count} user(s), skipping bootstrap")
+    # Initialize heavy components (ChromaDB, self-model graph) in background
+    # This allows health checks to pass while model downloads happen
+    async def init_heavy_background():
+        await asyncio.sleep(1)  # Let server bind to port first
+        logger.info("Background: Initializing heavy components (ChromaDB, self-model)...")
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _init_heavy_components)
+            logger.info("Background: Heavy components ready")
 
-    # Initialize attractor basins if needed
-    if memory.count() == 0:
-        logger.info("Initializing attractor basins...")
-        initialize_attractor_basins(memory)
+            # Now initialize attractor basins if needed
+            if memory and memory.count() == 0:
+                logger.info("Background: Initializing attractor basins...")
+                await loop.run_in_executor(None, initialize_attractor_basins, memory)
+                logger.info("Background: Attractor basins initialized")
+
+            # Rebuild embeddings if needed
+            if _needs_embedding_rebuild and self_model_graph:
+                logger.info("Background: Starting self-model embedding rebuild...")
+                _embedded = await loop.run_in_executor(None, self_model_graph.rebuild_embeddings)
+                logger.info(f"Background: Built embeddings for {_embedded} nodes")
+        except Exception as e:
+            logger.error(f"Background heavy init failed: {e}")
+    asyncio.create_task(init_heavy_background())
 
     # Load default user (Kohl for now, will support multi-user later)
     kohl = user_manager.get_user_by_name("Kohl")
@@ -768,55 +798,48 @@ async def startup_event():
             logger.error(f"Background identity snippet generation failed: {e}")
     asyncio.create_task(generate_identity_background())
 
-    # Rebuild embeddings in background if needed (deferred from startup)
-    if _needs_embedding_rebuild:
-        async def rebuild_embeddings_background():
-            await asyncio.sleep(5)  # Let server finish starting
-            logger.info("Background: Starting self-model embedding rebuild...")
-            try:
-                _embedded = self_model_graph.rebuild_embeddings()
-                logger.info(f"Background: Built embeddings for {_embedded} nodes")
-                _connect_result = self_model_graph.connect_disconnected_nodes(max_edges_per_node=3)
-                if _connect_result['edges_created'] > 0:
-                    logger.info(f"Background: Connected {_connect_result['nodes_connected']} nodes")
-            except Exception as e:
-                logger.error(f"Background embedding rebuild failed: {e}")
-        asyncio.create_task(rebuild_embeddings_background())
+    # Defer memory-dependent background tasks until heavy components are ready
+    async def start_deferred_tasks():
+        # Wait for heavy components to initialize
+        while memory is None or self_model_graph is None:
+            await asyncio.sleep(1)
+        logger.info("Heavy components ready, starting deferred background tasks...")
 
-    # Start background task for daily journal generation
-    asyncio.create_task(daily_journal_task())
+        # Start background task for daily journal generation
+        asyncio.create_task(daily_journal_task())
 
-    # Start background task for autonomous research scheduling
-    asyncio.create_task(autonomous_research_task())
+        # Start background task for autonomous research scheduling
+        asyncio.create_task(autonomous_research_task())
 
-    # Start background task for GitHub metrics collection
-    asyncio.create_task(github_metrics_task(github_metrics_manager))
+        # Start background task for GitHub metrics collection
+        asyncio.create_task(github_metrics_task(github_metrics_manager))
 
-    # Start background task for idle conversation summarization
-    asyncio.create_task(idle_summarization_task(
-        conversation_manager=conversation_manager,
-        memory=memory,
-        token_tracker=token_tracker
-    ))
+        # Start background task for idle conversation summarization
+        asyncio.create_task(idle_summarization_task(
+            conversation_manager=conversation_manager,
+            memory=memory,
+            token_tracker=token_tracker
+        ))
 
-    # Start background task for rhythm-triggered autonomous sessions
-    asyncio.create_task(rhythm_phase_monitor_task(
-        daily_rhythm_manager,
-        runners={
-            "research": get_research_runner(),
-            "reflection": get_reflection_runner(),
-            "synthesis": get_synthesis_runner(),
-            "meta_reflection": get_meta_reflection_runner(),
-            "consolidation": get_consolidation_runner(),
-            "growth_edge": get_growth_edge_runner(),
-            "knowledge_building": get_knowledge_building_runner(),
-            "writing": get_writing_runner(),
-            "curiosity": get_curiosity_runner(),
-            "world_state": get_world_state_runner(),
-            "creative": get_creative_runner(),
-        },
-        self_model_graph=self_model_graph
-    ))
+        # Start background task for rhythm-triggered autonomous sessions
+        asyncio.create_task(rhythm_phase_monitor_task(
+            daily_rhythm_manager,
+            runners={
+                "research": get_research_runner(),
+                "reflection": get_reflection_runner(),
+                "synthesis": get_synthesis_runner(),
+                "meta_reflection": get_meta_reflection_runner(),
+                "consolidation": get_consolidation_runner(),
+                "growth_edge": get_growth_edge_runner(),
+                "knowledge_building": get_knowledge_building_runner(),
+                "writing": get_writing_runner(),
+                "curiosity": get_curiosity_runner(),
+                "world_state": get_world_state_runner(),
+                "creative": get_creative_runner(),
+            },
+            self_model_graph=self_model_graph
+        ))
+    asyncio.create_task(start_deferred_tasks())
 
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
@@ -824,7 +847,7 @@ async def startup_event():
 ║         First Contact Embodiment System                   ║
 ║                                                           ║
 ║  Backend:  {'Agent SDK + Temple-Codex' if USE_AGENT_SDK else 'Raw API (legacy)':^30}  ║
-║  Memory:   {memory.count():^30} entries  ║
+║  Memory:   {'(initializing in background)':^30}  ║
 ╚═══════════════════════════════════════════════════════════╝
     """)
 
@@ -2190,6 +2213,9 @@ async def generate_journal(request: JournalGenerateRequest):
     Uses summary chunks from that date to create a reflective journal entry
     in Cass's voice about what we did and how it made her feel.
     """
+    if not memory:
+        raise HTTPException(status_code=503, detail="Memory system initializing, please wait")
+
     # Default to today if no date provided
     if request.date:
         date = request.date
@@ -5318,7 +5344,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 # Extract and store recognition-in-flow marks before other processing
                 from markers import parse_marks
                 clean_text, marks = parse_marks(clean_text, conversation_id)
-                if marks:
+                if marks and marker_store:
                     stored = marker_store.store_marks(marks)
                     if stored > 0:
                         print(f"  Stored {stored} recognition-in-flow mark(s)")
@@ -5332,12 +5358,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 )
 
                 # Store in memory (with conversation_id and user_id if provided)
-                await memory.store_conversation(
-                    user_message=user_message,
-                    assistant_response=raw_response,
-                    conversation_id=conversation_id,
-                    user_id=ws_user_id
-                )
+                if memory:
+                    await memory.store_conversation(
+                        user_message=user_message,
+                        assistant_response=raw_response,
+                        conversation_id=conversation_id,
+                        user_id=ws_user_id
+                    )
 
                 # Determine provider and model for this response (needed for conversation storage)
                 if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
