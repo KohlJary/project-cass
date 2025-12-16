@@ -1,0 +1,133 @@
+.feedback-page {
+  min-height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.feedback-container {
+  width: 100%;
+  max-width: 500px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.feedback-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.feedback-header h1 {
+  color: #c792ea;
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.feedback-header .subtitle {
+  color: #666;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.feedback-error {
+  background: #f0717820;
+  border: 1px solid #f07178;
+  color: #f07178;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.feedback-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.feedback-form .form-group label {
+  color: #888;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.feedback-form .form-group input,
+.feedback-form .form-group textarea {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  padding: 0.75rem;
+  transition: border-color 0.15s ease;
+  resize: vertical;
+}
+
+.feedback-form .form-group input:focus,
+.feedback-form .form-group textarea:focus {
+  outline: none;
+  border-color: #c792ea;
+}
+
+.feedback-form .form-group input::placeholder,
+.feedback-form .form-group textarea::placeholder {
+  color: #555;
+}
+
+.feedback-btn {
+  background: #1f1f2e;
+  border: 1px solid #c792ea;
+  border-radius: 6px;
+  color: #c792ea;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 0.5rem;
+}
+
+.feedback-btn:hover:not(:disabled) {
+  background: #2a2a3e;
+}
+
+.feedback-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Success state */
+.feedback-success {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.feedback-success .success-icon {
+  font-size: 3rem;
+  color: #89ddff;
+  margin-bottom: 1rem;
+}
+
+.feedback-success h2 {
+  color: #e0e0e0;
+  font-size: 1.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.feedback-success p {
+  color: #888;
+  font-size: 0.9375rem;
+  margin: 0 0 1.5rem;
+  line-height: 1.5;
+}

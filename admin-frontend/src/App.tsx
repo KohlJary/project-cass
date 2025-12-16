@@ -21,6 +21,7 @@ import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
 import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
 import { Dreams } from './pages/Dreams';
+import { Feedback } from './pages/Feedback';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -99,6 +100,7 @@ function AppRoutes() {
         <Route path="chat" element={<Chat />} />
         <Route path="self-development" element={<SelfDevelopment />} />
         <Route path="profile" element={<UserProfile />} />
+        <Route path="feedback" element={<Feedback />} />
 
         {/* Admin-only routes */}
         <Route path="memory" element={<AdminRoute><MemorySystem /></AdminRoute>} />

@@ -8,6 +8,7 @@ const userNavItems = [
   { path: '/chat', label: 'Chat', icon: 'C' },
   { path: '/self-development', label: 'Self-Dev', icon: '%' },
   { path: '/profile', label: 'My Profile', icon: '@' },
+  { path: '/feedback', label: 'Feedback', icon: '?' },
 ];
 
 // Nav items only available to admins
@@ -24,6 +25,7 @@ const adminNavItems = [
   { path: '/users', label: 'Users', icon: '@' },
   { path: '/metrics', label: 'Metrics', icon: 'M' },
   { path: '/settings', label: 'Settings', icon: '!' },
+  { path: '/feedback', label: 'Feedback', icon: '?' },
 ];
 
 export function Layout() {

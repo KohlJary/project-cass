@@ -765,6 +765,16 @@ CREATE TABLE IF NOT EXISTS token_usage (
 );
 
 CREATE INDEX IF NOT EXISTS idx_usage_date ON token_usage(daemon_id, date);
+
+-- User feedback
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT REFERENCES users(id),
+    username TEXT NOT NULL,
+    heard_from TEXT,
+    message TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 
