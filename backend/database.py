@@ -908,6 +908,14 @@ def migrate_user_status():
     Add status and rejection_reason columns to users table for approval-gated registration.
     """
     with get_db() as conn:
+        # Check if users table exists (fresh database won't have it yet)
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )
+        if cursor.fetchone() is None:
+            # Fresh database - table will be created with correct schema
+            return
+
         cursor = conn.execute("PRAGMA table_info(users)")
         columns = {row[1] for row in cursor.fetchall()}
 
