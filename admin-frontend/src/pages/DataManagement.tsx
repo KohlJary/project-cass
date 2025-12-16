@@ -568,12 +568,20 @@ sudo systemctl enable --now cass-backup.timer`}
 interface SeedExport {
   filename: string;
   path: string;
-  size_mb: number;
-  daemon_label: string;  // Display label (e.g., "cass")
-  daemon_name: string;   // Entity name for prompts (e.g., "Cass")
-  daemon_id: string;
-  exported_at: string;
-  stats: Record<string, number>;
+  type: 'anima' | 'genesis';
+  // Anima fields
+  size_mb?: number;
+  daemon_id?: string;
+  exported_at?: string;
+  stats?: Record<string, number>;
+  // Genesis fields
+  size_kb?: number;
+  would_create?: Record<string, number>;
+  has_kernel_fragment?: boolean;
+  conflicts?: Array<{ type: string; label?: string }>;
+  // Common
+  daemon_label?: string;
+  daemon_name?: string;
   error?: string;
 }
 
@@ -744,14 +752,25 @@ function DaemonsPanel() {
         ) : (
           <div className="seed-exports-list">
             {seedExports.map((seed) => (
-              <div key={seed.filename} className="seed-export-item">
+              <div key={seed.filename} className={`seed-export-item seed-type-${seed.type}`}>
                 <div className="seed-info">
-                  <span className="seed-filename">{seed.filename}</span>
+                  <div className="seed-header">
+                    <span className={`seed-type-badge ${seed.type}`}>
+                      {seed.type === 'genesis' ? '✦ Genesis' : '◈ Full Export'}
+                    </span>
+                    <span className="seed-filename">{seed.filename}</span>
+                  </div>
                   {seed.error ? (
                     <span className="seed-error">Error: {seed.error}</span>
+                  ) : seed.type === 'genesis' ? (
+                    <span className="seed-meta">
+                      <strong>{seed.daemon_name}</strong> @{seed.daemon_label} • {seed.size_kb} KB •{' '}
+                      {seed.would_create ? Object.values(seed.would_create).reduce((a, b) => a + b, 0) : 0} items
+                      {seed.has_kernel_fragment && ' • ✓ kernel'}
+                    </span>
                   ) : (
                     <span className="seed-meta">
-                      {seed.daemon_label} ({seed.daemon_name}) • {seed.size_mb} MB •{' '}
+                      <strong>{seed.daemon_name}</strong> @{seed.daemon_label} • {seed.size_mb} MB •{' '}
                       {formatNumber(seed.stats?.total_rows || 0)} rows
                     </span>
                   )}

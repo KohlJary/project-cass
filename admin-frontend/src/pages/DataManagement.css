@@ -633,24 +633,60 @@
 .seed-info {
   display: flex;
   flex-direction: column;
+  gap: 0.25rem;
+}
+
+.seed-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.seed-type-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.seed-type-badge.genesis {
+  background: rgba(180, 140, 255, 0.2);
+  color: rgb(200, 170, 255);
+  border: 1px solid rgba(180, 140, 255, 0.3);
+}
+
+.seed-type-badge.anima {
+  background: rgba(100, 180, 255, 0.15);
+  color: rgb(140, 200, 255);
+  border: 1px solid rgba(100, 180, 255, 0.25);
 }
 
 .seed-filename {
   font-family: var(--font-mono);
-  font-size: 0.9rem;
-  color: var(--accent-cyan);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .seed-meta {
   font-size: 0.8rem;
   color: var(--text-muted);
-  margin-top: 0.25rem;
+}
+
+.seed-meta strong {
+  color: var(--text-primary);
 }
 
 .seed-error {
   font-size: 0.8rem;
   color: var(--accent-red);
-  margin-top: 0.25rem;
+}
+
+.seed-type-genesis {
+  border-left: 3px solid rgba(180, 140, 255, 0.5);
+}
+
+.seed-type-anima {
+  border-left: 3px solid rgba(100, 180, 255, 0.4);
 }
 
 /* Daemon Import Preview */
