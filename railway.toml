@@ -7,7 +7,8 @@ providers = ["python", "node"]
 aptPkgs = ["ffmpeg"]  # For audio processing if needed
 
 # Build frontend after Python deps are installed
-buildCommand = "cd admin-frontend && npm install && npm run build"
+# Use full paths and verify output
+buildCommand = "cd /app/admin-frontend && npm install && npm run build && ls -la dist/"
 
 [deploy]
 startCommand = "cd backend && python main_sdk.py"
