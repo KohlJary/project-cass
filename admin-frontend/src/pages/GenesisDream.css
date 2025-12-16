@@ -644,6 +644,120 @@
   margin-top: 0.5rem;
 }
 
+/* Alternatives section */
+.genesis-alternatives {
+  width: 100%;
+  margin-top: 1.5rem;
+}
+
+.alternatives-divider {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.alternatives-divider::before,
+.alternatives-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(100, 80, 140, 0.3);
+}
+
+.alternatives-divider span {
+  padding: 0 1rem;
+  color: rgba(150, 140, 180, 0.5);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+/* Single-shot prompt specific */
+.single-shot-prompt {
+  max-height: 300px;
+}
+
+/* JSON import section */
+.json-import-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(80, 60, 120, 0.3);
+}
+
+.json-import-label {
+  display: block;
+  color: rgba(180, 170, 210, 0.7);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.json-import-input {
+  width: 100%;
+  background: rgba(20, 15, 35, 0.6);
+  border: 1px solid rgba(80, 60, 120, 0.4);
+  color: rgba(200, 190, 230, 0.9);
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  font-family: monospace;
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 100px;
+}
+
+.json-import-input::placeholder {
+  color: rgba(120, 110, 150, 0.5);
+}
+
+.json-import-input:focus {
+  outline: none;
+  border-color: rgba(140, 100, 200, 0.5);
+}
+
+.json-import-error {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(200, 60, 60, 0.15);
+  border: 1px solid rgba(200, 80, 80, 0.3);
+  color: rgba(255, 150, 150, 0.9);
+  font-size: 0.85rem;
+  border-radius: 4px;
+}
+
+.json-import-preview {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(60, 100, 60, 0.15);
+  border: 1px solid rgba(80, 140, 80, 0.3);
+  border-radius: 4px;
+}
+
+.preview-name {
+  color: rgba(180, 220, 180, 0.9);
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.preview-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.preview-stat {
+  color: rgba(160, 200, 160, 0.7);
+  font-size: 0.8rem;
+}
+
+.json-import-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.json-import-actions .genesis-back-btn,
+.json-import-actions .genesis-begin-btn {
+  flex: 1;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .genesis-welcome h1 {
