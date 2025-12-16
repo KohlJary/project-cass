@@ -754,13 +754,16 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Journal check failed: {e}")
 
-    # Generate initial identity snippet if none exists
-    logger.info("Checking identity snippet...")
-    try:
-        from migrations import generate_initial_identity_snippet
-        await generate_initial_identity_snippet(_daemon_id)
-    except Exception as e:
-        logger.error(f"Identity snippet generation failed: {e}")
+    # Generate initial identity snippet in background (makes LLM calls)
+    async def generate_identity_background():
+        await asyncio.sleep(10)  # Let server finish starting
+        logger.info("Background: Checking identity snippet...")
+        try:
+            from migrations import generate_initial_identity_snippet
+            await generate_initial_identity_snippet(_daemon_id)
+        except Exception as e:
+            logger.error(f"Background identity snippet generation failed: {e}")
+    asyncio.create_task(generate_identity_background())
 
     # Rebuild embeddings in background if needed (deferred from startup)
     if _needs_embedding_rebuild:
