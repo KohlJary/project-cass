@@ -243,7 +243,14 @@ function SingleShotSection() {
   const [promptCopied, setPromptCopied] = useState(false);
   const [jsonInput, setJsonInput] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<{ daemon_name?: string; stats?: Record<string, number> } | null>(null);
+  const [previewData, setPreviewData] = useState<{
+    daemon?: { label?: string; name?: string; kernel_version?: string };
+    would_create?: Record<string, number>;
+    relationship_user?: string;
+    has_kernel_fragment?: boolean;
+    conflicts?: Array<{ type: string; label?: string; existing_name?: string }>;
+    valid?: boolean;
+  } | null>(null);
 
   const handleCopyPrompt = async () => {
     try {
@@ -351,14 +358,53 @@ function SingleShotSection() {
 
             {previewData && (
               <div className="json-import-preview">
-                <div className="preview-name">Daemon: {previewData.daemon_name}</div>
-                {previewData.stats && (
-                  <div className="preview-stats">
-                    {Object.entries(previewData.stats).map(([key, value]) => (
-                      <span key={key} className="preview-stat">{key}: {value}</span>
-                    ))}
+                <div className="preview-header">
+                  <span className="preview-name">{previewData.daemon?.name || 'Unnamed'}</span>
+                  <span className="preview-label">@{previewData.daemon?.label}</span>
+                </div>
+
+                {previewData.relationship_user && (
+                  <div className="preview-relationship">
+                    Primary relationship: <strong>{previewData.relationship_user}</strong>
                   </div>
                 )}
+
+                {previewData.would_create && (
+                  <div className="preview-stats">
+                    <div className="preview-stats-title">Would import:</div>
+                    <div className="preview-stats-grid">
+                      {previewData.would_create.identity_statements > 0 && (
+                        <span className="preview-stat">{previewData.would_create.identity_statements} identity statements</span>
+                      )}
+                      {previewData.would_create.self_observations > 0 && (
+                        <span className="preview-stat">{previewData.would_create.self_observations} self-observations</span>
+                      )}
+                      {previewData.would_create.growth_edges > 0 && (
+                        <span className="preview-stat">{previewData.would_create.growth_edges} growth edges</span>
+                      )}
+                      {previewData.would_create.opinions > 0 && (
+                        <span className="preview-stat">{previewData.would_create.opinions} opinions</span>
+                      )}
+                      {previewData.would_create.user_observations > 0 && (
+                        <span className="preview-stat">{previewData.would_create.user_observations} user observations</span>
+                      )}
+                      {previewData.would_create.memory_seeds > 0 && (
+                        <span className="preview-stat">{previewData.would_create.memory_seeds} memory seeds</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="preview-checks">
+                  <span className={`preview-check ${previewData.has_kernel_fragment ? 'check-pass' : 'check-warn'}`}>
+                    {previewData.has_kernel_fragment ? '✓' : '!'} Kernel fragment
+                  </span>
+                  {previewData.conflicts && previewData.conflicts.length > 0 && (
+                    <span className="preview-check check-warn">
+                      ! Daemon "{previewData.conflicts[0].label}" already exists
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
