@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { exportApi, daemonsApi } from '../api/client';
+import { exportApi, daemonsApi, genesisApi } from '../api/client';
 import { useDaemon } from '../context/DaemonContext';
 import './DataManagement.css';
 
@@ -653,10 +653,27 @@ function DaemonsPanel() {
     setPreviewError(null);
 
     try {
-      const { data } = await daemonsApi.previewImport(file);
-      setPreview(data);
+      if (file.name.endsWith('.json')) {
+        // Genesis JSON file - parse and preview
+        const text = await file.text();
+        const jsonData = JSON.parse(text);
+        const { data } = await genesisApi.previewImport(jsonData);
+        // Map genesis preview to ImportPreviewData format
+        setPreview({
+          daemon_label: data.daemon?.label || '',
+          daemon_name: data.daemon?.name || '',
+          daemon_id: '',
+          exported_at: '',
+          export_version: 'genesis',
+          stats: data.would_create || {},
+          tables: [],
+        });
+      } else {
+        const { data } = await daemonsApi.previewImport(file);
+        setPreview(data);
+      }
     } catch (e) {
-      setPreviewError('Failed to preview file. Make sure it is a valid .anima file.');
+      setPreviewError('Failed to preview file. Make sure it is a valid .anima or .json file.');
       console.error('Preview error:', e);
     }
   };
@@ -666,7 +683,14 @@ function DaemonsPanel() {
 
     setImporting(true);
     try {
-      await daemonsApi.importDaemon(selectedFile, importName || undefined, skipEmbeddings);
+      if (selectedFile.name.endsWith('.json')) {
+        // Genesis JSON import
+        const text = await selectedFile.text();
+        const jsonData = JSON.parse(text);
+        await genesisApi.importJson(jsonData);
+      } else {
+        await daemonsApi.importDaemon(selectedFile, importName || undefined, skipEmbeddings);
+      }
       alert('Import completed successfully!');
       clearSelection();
       await refreshDaemons();
@@ -796,7 +820,7 @@ function DaemonsPanel() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".anima,.zip"
+            accept=".anima,.json,.zip"
             onChange={handleFileSelect}
             id="daemon-import-file"
           />
@@ -809,7 +833,7 @@ function DaemonsPanel() {
             ) : (
               <>
                 <span className="upload-icon">📁</span>
-                <span>Click to select an .anima file</span>
+                <span>Click to select .anima or .json file</span>
               </>
             )}
           </label>

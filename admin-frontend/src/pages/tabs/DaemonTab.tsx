@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { daemonsApi } from '../../api/client';
+import { daemonsApi, genesisApi } from '../../api/client';
 import { useDaemon } from '../../context/DaemonContext';
 
 interface SeedExport {
@@ -90,10 +90,24 @@ export function DaemonTab() {
     setPreviewError(null);
 
     try {
-      const { data } = await daemonsApi.previewImport(file);
-      setPreview(data);
+      if (file.name.endsWith('.json')) {
+        // Genesis JSON file - parse and preview
+        const text = await file.text();
+        const jsonData = JSON.parse(text);
+        const { data } = await genesisApi.previewImport(jsonData);
+        // Map genesis preview to ImportPreview format
+        setPreview({
+          daemon_name: data.daemon?.name || '',
+          daemon_label: data.daemon?.label || '',
+          exported_at: '',
+          stats: data.would_create || {},
+        });
+      } else {
+        const { data } = await daemonsApi.previewImport(file);
+        setPreview(data);
+      }
     } catch (e) {
-      setPreviewError('Failed to preview file. Make sure it is a valid .anima file.');
+      setPreviewError('Failed to preview file. Make sure it is a valid .anima or .json file.');
       console.error('Preview error:', e);
     }
   };
@@ -110,8 +124,15 @@ export function DaemonTab() {
 
     setImporting(true);
     try {
-      // Use merge_existing=true when replacing to overwrite existing daemon
-      await daemonsApi.importDaemon(selectedFile, importName || undefined, skipEmbeddings, replaceCurrent);
+      if (selectedFile.name.endsWith('.json')) {
+        // Genesis JSON import
+        const text = await selectedFile.text();
+        const jsonData = JSON.parse(text);
+        await genesisApi.importJson(jsonData);
+      } else {
+        // Use merge_existing=true when replacing to overwrite existing daemon
+        await daemonsApi.importDaemon(selectedFile, importName || undefined, skipEmbeddings, replaceCurrent);
+      }
       alert('Import completed successfully!');
       clearSelection();
       await refreshDaemons();
@@ -250,7 +271,7 @@ export function DaemonTab() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".anima,.zip"
+            accept=".anima,.json,.zip"
             onChange={handleFileSelect}
             id="daemon-import-file"
           />
@@ -263,7 +284,7 @@ export function DaemonTab() {
             ) : (
               <>
                 <span className="upload-icon">[^]</span>
-                <span>Click to select an .anima file</span>
+                <span>Click to select .anima or .json file</span>
               </>
             )}
           </label>
