@@ -86,7 +86,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 4  # Bumped for rhythm_records status/started_at columns
+SCHEMA_VERSION = 5  # Added genesis_dreams table, daemon birth_type/genesis_dream_id
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -859,6 +859,11 @@ def _apply_schema_updates(conn, from_version: int):
         if 'started_at' not in columns:
             conn.execute("ALTER TABLE rhythm_records ADD COLUMN started_at TEXT")
             print("Added started_at column to rhythm_records")
+
+    # v4 -> v5: genesis_dreams table, daemon birth_type/genesis_dream_id columns
+    # (New table is created by SCHEMA_SQL, daemon columns by migrate_daemon_genesis)
+    if from_version < 5:
+        print("Adding genesis dream support (v5)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
