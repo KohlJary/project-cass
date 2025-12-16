@@ -1,7 +1,13 @@
 import axios from 'axios';
 
-// In dev with proxy, use relative URLs. In production, use VITE_API_URL or default.
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+// In dev, use localhost. In production (same origin), use relative URLs.
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (window.location.hostname === 'localhost') return 'http://localhost:8000';
+  // Production: same origin, use relative URLs
+  return '';
+};
+const API_BASE = getApiBase();
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -30,16 +36,18 @@ api.interceptors.request.use((config) => {
 export const daemonsApi = {
   getAll: () => api.get('/admin/daemons'),
   getById: (id: string) => api.get(`/admin/daemons/${id}`),
+  deleteDaemon: (id: string) => api.delete(`/admin/daemons/${id}`),
 
   // Daemon export/import endpoints
   listSeedExports: () => api.get('/admin/daemons/exports/seeds'),
   exportDaemon: (daemonId: string) =>
     api.post(`/admin/daemons/${daemonId}/export`, {}, { responseType: 'blob' }),
-  importDaemon: (file: File, daemonName?: string, skipEmbeddings?: boolean) => {
+  importDaemon: (file: File, daemonName?: string, skipEmbeddings?: boolean, mergeExisting?: boolean) => {
     const formData = new FormData();
     formData.append('file', file);
     if (daemonName) formData.append('daemon_name', daemonName);
     if (skipEmbeddings) formData.append('skip_embeddings', 'true');
+    if (mergeExisting) formData.append('merge_existing', 'true');
     return api.post('/admin/daemons/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -51,11 +59,12 @@ export const daemonsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  importSeed: (filename: string, daemonName?: string, skipEmbeddings?: boolean) =>
+  importSeed: (filename: string, daemonName?: string, skipEmbeddings?: boolean, mergeExisting?: boolean) =>
     api.post(`/admin/daemons/import/seed/${encodeURIComponent(filename)}`, null, {
       params: {
         daemon_name: daemonName,
         skip_embeddings: skipEmbeddings,
+        merge_existing: mergeExisting,
       },
     }),
 };
@@ -73,7 +82,7 @@ export const memoryApi = {
 
 // Auth endpoints
 export const authApi = {
-  register: (data: { username: string; password: string }) =>
+  register: (data: { username: string; password: string; email?: string; registration_reason?: string }) =>
     api.post('/admin/auth/register', data),
   login: (username: string, password: string) =>
     api.post('/admin/auth/login', { username, password }),

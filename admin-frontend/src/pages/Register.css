@@ -47,3 +47,40 @@
 .register-link:hover {
   text-decoration: underline;
 }
+
+/* Form field styling */
+.login-form .optional {
+  color: #666;
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.login-form .field-hint {
+  display: block;
+  color: #666;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.login-form textarea {
+  width: 100%;
+  padding: 0.75rem;
+  background: #1e1e2e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-family: inherit;
+  font-size: 0.875rem;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.login-form textarea:focus {
+  outline: none;
+  border-color: #c792ea;
+  box-shadow: 0 0 0 2px rgba(199, 146, 234, 0.15);
+}
+
+.login-form textarea::placeholder {
+  color: #555;
+}

@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin INTEGER DEFAULT 0,
     status TEXT DEFAULT 'approved',
     rejection_reason TEXT,
+    email TEXT,
+    registration_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -850,18 +852,63 @@ def init_database_with_migrations(daemon_name: str = "cass") -> str:
     Full database initialization including JSON data migration.
 
     1. Initialize schema
-    2. Get or create daemon
-    3. Migrate any existing JSON data to SQLite
+    2. Bootstrap from seed if configured (BEFORE creating daemon)
+    3. Get or create daemon
+    4. Migrate any existing JSON data to SQLite
 
     Returns the daemon_id.
     """
-    # Step 1: Initialize schema
-    init_database()
+    import os
 
-    # Step 2: Get or create daemon
+    # Step 1: Initialize schema
+    print("Step 1: Initializing database schema...")
+    init_database()
+    print("Step 1: Schema initialized")
+
+    # Step 2: Bootstrap from seed BEFORE get_or_create_daemon
+    # This ensures the seed's daemon ID is used instead of creating a new one
+    bootstrap_seed = os.getenv("BOOTSTRAP_FROM_SEED")
+    print(f"Step 2: BOOTSTRAP_FROM_SEED = {bootstrap_seed}")
+    if bootstrap_seed:
+        print("Step 2: Checking daemon count...")
+        with get_db() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM daemons")
+            daemon_count = cursor.fetchone()[0]
+        print(f"Step 2: daemon_count = {daemon_count}")
+
+        if daemon_count == 0:
+            print(f"Step 2: No daemons found, bootstrapping from seed: {bootstrap_seed}")
+            try:
+                from daemon_export import import_daemon
+                from pathlib import Path
+                seed_path = Path(bootstrap_seed)
+                if not seed_path.is_absolute():
+                    # Relative to project root (parent of backend/)
+                    seed_path = Path(__file__).parent.parent / seed_path
+                if seed_path.exists():
+                    result = import_daemon(seed_path, skip_embeddings=True)
+                    print(f"Seed bootstrap complete: {result.get('total_rows', 0)} rows imported")
+                    # Return the imported daemon's ID
+                    if result.get("daemon_id"):
+                        daemon_id = result["daemon_id"]
+                        # Still run migrations
+                        try:
+                            from migrations import run_migrations
+                            run_migrations(daemon_id)
+                        except Exception as e:
+                            print(f"Warning: JSON migration failed: {e}")
+                        return daemon_id
+                else:
+                    print(f"Seed file not found: {seed_path}")
+            except Exception as e:
+                print(f"Seed bootstrap failed: {e}")
+                import traceback
+                traceback.print_exc()
+
+    # Step 3: Get or create daemon (only if seed didn't provide one)
     daemon_id = get_or_create_daemon(daemon_name)
 
-    # Step 3: Run JSON -> SQLite migrations
+    # Step 4: Run JSON -> SQLite migrations
     try:
         from migrations import run_migrations
         run_migrations(daemon_id)

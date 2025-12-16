@@ -4,10 +4,11 @@ import { SystemHealthTab } from './tabs/SystemHealthTab';
 import { DataExportTab } from './tabs/DataExportTab';
 import { DataImportTab } from './tabs/DataImportTab';
 import { DataBackupsTab } from './tabs/DataBackupsTab';
+import { DaemonTab } from './tabs/DaemonTab';
 import { ArchitecturalRequestsTab } from './tabs/ArchitecturalRequestsTab';
 import './Settings.css';
 
-type TabId = 'health' | 'export' | 'import' | 'backups' | 'requests';
+type TabId = 'health' | 'export' | 'import' | 'backups' | 'daemon' | 'requests';
 
 interface TabConfig {
   id: TabId;
@@ -17,10 +18,11 @@ interface TabConfig {
 
 const tabs: TabConfig[] = [
   { id: 'health', label: 'System Health', icon: '!' },
+  { id: 'daemon', label: 'Daemon', icon: '*' },
   { id: 'export', label: 'Export', icon: '^' },
   { id: 'import', label: 'Import', icon: 'v' },
   { id: 'backups', label: 'Backups', icon: 'B' },
-  { id: 'requests', label: 'Cass Requests', icon: '⚙' },
+  { id: 'requests', label: 'Cass Requests', icon: '@' },
 ];
 
 export function Settings() {
@@ -59,6 +61,7 @@ export function Settings() {
 
       <div className="settings-content">
         {activeTab === 'health' && <SystemHealthTab />}
+        {activeTab === 'daemon' && <DaemonTab />}
         {activeTab === 'export' && <DataExportTab />}
         {activeTab === 'import' && <DataImportTab />}
         {activeTab === 'backups' && <DataBackupsTab />}

@@ -31,9 +31,10 @@
 .pending-user-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #2a2a3e;
+  gap: 1rem;
 }
 
 .pending-user-item:last-child {
@@ -57,9 +58,46 @@
   font-size: 0.75rem;
 }
 
+.pending-user-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pending-user-email {
+  color: #89ddff;
+  font-size: 0.8125rem;
+}
+
+.pending-user-reason {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #1a1a2e;
+  border-radius: 4px;
+  border-left: 2px solid #c792ea;
+}
+
+.pending-user-reason .reason-label {
+  display: block;
+  color: #888;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
+}
+
+.pending-user-reason .reason-text {
+  color: #b0b0b0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .pending-user-actions {
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .approve-btn {

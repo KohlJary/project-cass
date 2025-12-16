@@ -11,7 +11,7 @@ aptPkgs = ["ffmpeg"]  # For audio processing if needed
 buildCommand = "cd /app/admin-frontend && npm install && npm run build && ls -la dist/"
 
 [deploy]
-startCommand = "cd backend && python main_sdk.py"
+startCommand = "cd backend && PYTHONUNBUFFERED=1 python main_sdk.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 600
 restartPolicyType = "on_failure"

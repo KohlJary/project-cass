@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (window.location.hostname === 'localhost') return 'http://localhost:8000';
+  return window.location.origin;
+};
+const API_BASE = getApiBase();
 const WS_BASE = API_BASE.replace(/^http/, 'ws');
 
 export interface ChatMessage {
