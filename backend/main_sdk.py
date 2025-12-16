@@ -4955,6 +4955,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     query=user_message,
                     conversation_id=conversation_id
                 )
+                # Track context source sizes for diagnostics
+                context_sizes = {}
+
                 # Use working summary if available (token-optimized)
                 working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
                 # Get actual recent messages for chronological context (not semantic search)
@@ -4964,10 +4967,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     working_summary=working_summary,
                     recent_messages=recent_messages
                 )
+                context_sizes["hierarchical"] = len(memory_context)
 
                 # Add user context if we have a connection user
                 user_context_count = 0
                 intro_guidance = None
+                user_context = ""
                 if ws_user_id:
                     user_context_entries = memory.retrieve_user_context(
                         query=user_message,
@@ -4981,9 +4986,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     # Check if user model is sparse and add intro guidance
                     sparseness = user_manager.check_user_model_sparseness(ws_user_id)
                     intro_guidance = sparseness.get("intro_guidance")
+                context_sizes["user"] = len(user_context)
 
                 # Add project context if conversation is in a project
                 project_docs_count = 0
+                project_context = ""
                 if project_id:
                     project_docs = memory.retrieve_project_context(
                         query=user_message,
@@ -4993,23 +5000,28 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     project_context = memory.format_project_context(project_docs)
                     if project_context:
                         memory_context = project_context + "\n\n" + memory_context
+                context_sizes["project"] = len(project_context)
 
                 # Add Cass's self-model context (flat profile - identity/values/edges)
                 # Note: observations now handled by graph context with message-relevance
-                self_context = self_manager.get_self_context(include_observations=False)
+                self_context = self_manager.get_self_context(include_observations=False) if self_manager else ""
                 if self_context:
                     memory_context = self_context + "\n\n" + memory_context
+                context_sizes["self_model"] = len(self_context)
 
                 # Add self-model graph context (message-relevant observations, marks, changes)
-                graph_context = self_model_graph.get_graph_context(
-                    message=user_message,
-                    include_contradictions=True,
-                    include_recent=True,
-                    include_stats=True,
-                    max_related=5
-                )
-                if graph_context:
-                    memory_context = graph_context + "\n\n" + memory_context
+                graph_context = ""
+                if self_model_graph:
+                    graph_context = self_model_graph.get_graph_context(
+                        message=user_message,
+                        include_contradictions=True,
+                        include_recent=True,
+                        include_stats=True,
+                        max_related=5
+                    )
+                    if graph_context:
+                        memory_context = graph_context + "\n\n" + memory_context
+                context_sizes["graph"] = len(graph_context)
 
                 # Tier 1: Automatic wiki context retrieval
                 # Inject high-relevance wiki pages without explicit tool call
@@ -5024,6 +5036,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     memory_context = wiki_context_str + "\n\n" + memory_context
                     if wiki_retrieval_ms > 0:
                         print(f"[Wiki] Auto-injected {wiki_pages_count} pages in {wiki_retrieval_ms}ms: {wiki_page_names}")
+                context_sizes["wiki"] = len(wiki_context_str) if wiki_context_str else 0
 
                 # Add cross-session insights relevant to this message
                 cross_session_insights = memory.retrieve_cross_session_insights(
@@ -5034,16 +5047,19 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     exclude_conversation_id=conversation_id
                 )
                 cross_session_insights_count = len(cross_session_insights)
+                insights_context = ""
                 if cross_session_insights:
                     insights_context = memory.format_cross_session_context(cross_session_insights)
                     if insights_context:
                         memory_context = insights_context + "\n\n" + memory_context
                         print(f"[CrossSession] Surfaced {cross_session_insights_count} insights for query")
+                context_sizes["insights"] = len(insights_context)
 
                 # Add active goals context
                 active_goals_context = goal_manager.get_active_summary()
                 if active_goals_context:
                     memory_context = active_goals_context + "\n\n" + memory_context
+                context_sizes["goals"] = len(active_goals_context) if active_goals_context else 0
 
                 # Add recognition-in-flow patterns (between-session surfacing)
                 from pattern_aggregation import get_pattern_summary_for_surfacing
@@ -5054,10 +5070,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 )
                 if patterns_context:
                     memory_context = patterns_context + "\n\n" + memory_context
+                context_sizes["patterns"] = len(patterns_context) if patterns_context else 0
 
                 # Add intro guidance for new/sparse user models (at end so it's prominent)
                 if intro_guidance:
                     memory_context = memory_context + "\n\n" + intro_guidance
+                context_sizes["intro"] = len(intro_guidance) if intro_guidance else 0
+
+                # Total context size
+                context_sizes["total"] = len(memory_context)
 
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
@@ -5074,7 +5095,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "wiki_pages_count": wiki_pages_count,
                     "cross_session_insights_count": cross_session_insights_count,
                     "pattern_count": pattern_count,
-                    "has_context": bool(memory_context)
+                    "has_context": bool(memory_context),
+                    "context_sizes": context_sizes  # Character counts per source
                 }
                 await websocket.send_json({
                     "type": "thinking",
