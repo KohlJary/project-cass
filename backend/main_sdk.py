@@ -672,16 +672,16 @@ async def startup_event():
     # Validate requirements before proceeding
     validate_startup_requirements()
 
-    # Bootstrap from seed if env var set and database is empty
+    # Bootstrap from seed if env var set and no users exist
     bootstrap_seed = os.getenv("BOOTSTRAP_FROM_SEED")
     if bootstrap_seed:
         from database import get_db
         with get_db() as conn:
-            cursor = conn.execute("SELECT COUNT(*) FROM daemons")
-            daemon_count = cursor.fetchone()[0]
+            cursor = conn.execute("SELECT COUNT(*) FROM users")
+            user_count = cursor.fetchone()[0]
 
-        if daemon_count == 0:
-            logger.info(f"Database empty, bootstrapping from seed: {bootstrap_seed}")
+        if user_count == 0:
+            logger.info(f"No users found, bootstrapping from seed: {bootstrap_seed}")
             try:
                 from daemon_export import import_daemon
                 from pathlib import Path
@@ -696,7 +696,7 @@ async def startup_event():
             except Exception as e:
                 logger.error(f"Bootstrap failed: {e}")
         else:
-            logger.info(f"Database has {daemon_count} daemon(s), skipping bootstrap")
+            logger.info(f"Database has {user_count} user(s), skipping bootstrap")
 
     # Initialize attractor basins if needed
     if memory.count() == 0:
