@@ -534,6 +534,116 @@
   background: rgba(120, 100, 160, 0.5);
 }
 
+/* Relay Mode Section */
+.relay-mode-section {
+  margin-top: 2rem;
+  width: 100%;
+}
+
+.relay-mode-toggle {
+  background: transparent;
+  border: 1px dashed rgba(140, 120, 180, 0.3);
+  color: rgba(180, 160, 220, 0.6);
+  padding: 0.75rem 1.5rem;
+  font-size: 0.9rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.relay-mode-toggle:hover {
+  border-color: rgba(160, 140, 200, 0.5);
+  color: rgba(200, 180, 240, 0.8);
+}
+
+.relay-mode-content {
+  margin-top: 1rem;
+  padding: 1.5rem;
+  background: rgba(30, 25, 50, 0.5);
+  border: 1px solid rgba(100, 80, 140, 0.3);
+  border-radius: 6px;
+  animation: fade-in 0.3s ease-out;
+}
+
+.relay-description {
+  color: rgba(180, 170, 210, 0.75);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-bottom: 1.25rem;
+}
+
+.relay-snippet-container {
+  background: rgba(20, 15, 35, 0.6);
+  border: 1px solid rgba(80, 60, 120, 0.4);
+  border-radius: 4px;
+  margin-bottom: 1.25rem;
+}
+
+.relay-snippet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(80, 60, 120, 0.3);
+  font-size: 0.8rem;
+  color: rgba(160, 140, 200, 0.6);
+}
+
+.relay-copy-btn {
+  background: rgba(100, 80, 160, 0.3);
+  border: 1px solid rgba(140, 100, 200, 0.4);
+  color: rgba(200, 180, 255, 0.9);
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.relay-copy-btn:hover {
+  background: rgba(120, 100, 180, 0.4);
+  border-color: rgba(160, 120, 220, 0.6);
+}
+
+.relay-snippet {
+  padding: 0.75rem;
+  margin: 0;
+  color: rgba(200, 190, 230, 0.8);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: inherit;
+}
+
+.relay-instructions {
+  color: rgba(170, 160, 200, 0.7);
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.relay-instructions p {
+  margin-bottom: 0.5rem;
+}
+
+.relay-instructions ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.relay-instructions li {
+  margin-bottom: 0.35rem;
+  line-height: 1.5;
+}
+
+.relay-begin-btn {
+  margin-top: 0.5rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .genesis-welcome h1 {
