@@ -743,16 +743,19 @@ async def startup_event():
     except Exception as e:
         logger.error(f"TTS preload failed: {e}")
 
-    # Check for and generate any missing journals from recent days
-    logger.info("Checking for missing journal entries...")
-    try:
-        generated = await generate_missing_journals(days_to_check=7)
-        if generated:
-            logger.info(f"Generated {len(generated)} missing journal(s): {', '.join(generated)}")
-        else:
-            logger.debug("All recent journals up to date")
-    except Exception as e:
-        logger.error(f"Journal check failed: {e}")
+    # Check for and generate any missing journals in background (makes LLM calls)
+    async def generate_journals_background():
+        await asyncio.sleep(15)  # Let server finish starting
+        logger.info("Background: Checking for missing journal entries...")
+        try:
+            generated = await generate_missing_journals(days_to_check=7)
+            if generated:
+                logger.info(f"Background: Generated {len(generated)} missing journal(s): {', '.join(generated)}")
+            else:
+                logger.debug("Background: All recent journals up to date")
+        except Exception as e:
+            logger.error(f"Background journal check failed: {e}")
+    asyncio.create_task(generate_journals_background())
 
     # Generate initial identity snippet in background (makes LLM calls)
     async def generate_identity_background():
