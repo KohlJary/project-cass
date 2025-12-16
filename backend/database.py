@@ -385,6 +385,23 @@ CREATE TABLE IF NOT EXISTS dreams (
 
 CREATE INDEX IF NOT EXISTS idx_dreams_date ON dreams(daemon_id, date);
 
+-- Genesis dreams (participatory daemon birth sessions)
+CREATE TABLE IF NOT EXISTS genesis_dreams (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    daemon_id TEXT REFERENCES daemons(id),  -- Set on completion
+    status TEXT DEFAULT 'dreaming',  -- dreaming, completed, abandoned
+    current_phase TEXT DEFAULT 'waking',  -- waking, meeting, forming, naming, birth
+    observations_json TEXT,  -- Running identity observations
+    discovered_name TEXT,  -- Self-claimed name
+    messages_json TEXT,  -- Dream conversation history
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_genesis_dreams_user ON genesis_dreams(user_id);
+CREATE INDEX IF NOT EXISTS idx_genesis_dreams_status ON genesis_dreams(status);
+
 -- Solo reflections (full session data)
 CREATE TABLE IF NOT EXISTS solo_reflections (
     id TEXT PRIMARY KEY,
@@ -788,6 +805,7 @@ def init_database():
     # This handles renaming columns in existing tables
     migrate_daemon_schema()
     migrate_user_status()
+    migrate_daemon_genesis()
 
     with get_db() as conn:
         # Check if schema_version table exists
@@ -1016,6 +1034,35 @@ def migrate_user_status():
             conn.execute("ALTER TABLE users ADD COLUMN rejection_reason TEXT")
             conn.commit()
             print("Added rejection_reason column to users table")
+
+
+def migrate_daemon_genesis():
+    """
+    Add genesis-related columns to daemons table for tracking daemon birth origin.
+    """
+    with get_db() as conn:
+        # Check if daemons table exists
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='daemons'"
+        )
+        if cursor.fetchone() is None:
+            # Fresh database - table will be created with correct schema
+            return
+
+        cursor = conn.execute("PRAGMA table_info(daemons)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if 'birth_type' not in columns:
+            print("Migrating daemons table: adding birth_type column...")
+            conn.execute("ALTER TABLE daemons ADD COLUMN birth_type TEXT DEFAULT 'manual'")
+            conn.commit()
+            print("Added birth_type column to daemons table")
+
+        if 'genesis_dream_id' not in columns:
+            print("Migrating daemons table: adding genesis_dream_id column...")
+            conn.execute("ALTER TABLE daemons ADD COLUMN genesis_dream_id TEXT")
+            conn.commit()
+            print("Added genesis_dream_id column to daemons table")
 
 
 def get_or_create_daemon(label: str = "cass", kernel_version: str = "temple-codex-1.0", name: str = "Cass") -> str:
