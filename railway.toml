@@ -6,11 +6,8 @@ builder = "nixpacks"
 providers = ["python", "node"]
 aptPkgs = ["ffmpeg"]  # For audio processing if needed
 
-# Build command: install Python deps, build admin-frontend only
-buildCommand = """
-cd backend && pip install -r requirements.txt && cd .. && \
-cd admin-frontend && npm install && npm run build && cd ..
-"""
+# Build frontend after Python deps are installed
+buildCommand = "cd admin-frontend && npm install && npm run build"
 
 [deploy]
 startCommand = "cd backend && python main_sdk.py"
