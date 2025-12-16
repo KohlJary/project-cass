@@ -67,6 +67,10 @@ export const daemonsApi = {
         merge_existing: mergeExisting,
       },
     }),
+
+  // Activity mode management
+  updateActivityMode: (daemonId: string, activityMode: 'active' | 'dormant') =>
+    api.patch(`/admin/daemons/${daemonId}/activity-mode`, { activity_mode: activityMode }),
 };
 
 // Memory endpoints
@@ -557,13 +561,16 @@ export const githubApi = {
   // Aggregate statistics
   getStats: () => api.get('/admin/github/metrics/stats'),
 
-  // Historical data
+  // Historical data (days=0 for all time)
   getHistory: (params?: { days?: number; repo?: string }) =>
     api.get('/admin/github/metrics/history', { params }),
 
-  // Time series for specific metric
+  // Time series for specific metric (days=0 for all time)
   getTimeSeries: (metric: string, params?: { days?: number; repo?: string }) =>
     api.get(`/admin/github/metrics/timeseries/${metric}`, { params }),
+
+  // All-time aggregate stats per repo
+  getAllTimeStats: () => api.get('/admin/github/metrics/alltime'),
 
   // Force refresh (admin only)
   refresh: () => api.post('/admin/github/metrics/refresh'),

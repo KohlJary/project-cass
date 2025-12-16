@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { daemonsApi, genesisApi } from '../../api/client';
 import { useDaemon } from '../../context/DaemonContext';
+import type { Daemon } from '../../context/DaemonContext';
 
 interface SeedExport {
   filename: string;
@@ -19,7 +20,7 @@ interface ImportPreview {
 }
 
 export function DaemonTab() {
-  const { currentDaemon, refreshDaemons } = useDaemon();
+  const { currentDaemon, availableDaemons, refreshDaemons, setDaemon } = useDaemon();
   const [seedExports, setSeedExports] = useState<SeedExport[]>([]);
   const [loadingSeeds, setLoadingSeeds] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -30,7 +31,8 @@ export function DaemonTab() {
   const [importName, setImportName] = useState('');
   const [skipEmbeddings, setSkipEmbeddings] = useState(false);
   const [replaceCurrent, setReplaceCurrent] = useState(false);
-  const [daemonDetails, setDaemonDetails] = useState<{ stats?: Record<string, number> } | null>(null);
+  const [daemonStats, setDaemonStats] = useState<Record<string, Record<string, number>>>({});
+  const [updatingActivityMode, setUpdatingActivityMode] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchSeeds = useCallback(async () => {
@@ -44,33 +46,39 @@ export function DaemonTab() {
     }
   }, []);
 
-  const fetchDaemonDetails = useCallback(async () => {
-    if (!currentDaemon?.id) return;
-    try {
-      const { data } = await daemonsApi.getById(currentDaemon.id);
-      setDaemonDetails(data);
-    } catch (e) {
-      console.error('Failed to fetch daemon details:', e);
+  const fetchAllDaemonStats = useCallback(async () => {
+    const stats: Record<string, Record<string, number>> = {};
+    for (const daemon of availableDaemons) {
+      try {
+        const { data } = await daemonsApi.getById(daemon.id);
+        if (data.stats) {
+          stats[daemon.id] = data.stats;
+        }
+      } catch (e) {
+        console.error(`Failed to fetch stats for daemon ${daemon.id}:`, e);
+      }
     }
-  }, [currentDaemon?.id]);
+    setDaemonStats(stats);
+  }, [availableDaemons]);
 
   useEffect(() => {
     fetchSeeds();
   }, [fetchSeeds]);
 
   useEffect(() => {
-    fetchDaemonDetails();
-  }, [fetchDaemonDetails]);
+    if (availableDaemons.length > 0) {
+      fetchAllDaemonStats();
+    }
+  }, [availableDaemons, fetchAllDaemonStats]);
 
-  const handleExportCurrent = async () => {
-    if (!currentDaemon?.id) return;
+  const handleExportDaemon = async (daemon: Daemon) => {
     try {
-      const response = await daemonsApi.exportDaemon(currentDaemon.id);
+      const response = await daemonsApi.exportDaemon(daemon.id);
       const blob = new Blob([response.data], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const label = currentDaemon.label || currentDaemon.name || 'daemon';
+      const label = daemon.label || daemon.name || 'daemon';
       const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
       a.download = `${label}_export_${date}.anima`;
       a.click();
@@ -78,6 +86,22 @@ export function DaemonTab() {
     } catch (e) {
       console.error('Export failed:', e);
       alert('Export failed. Check console for details.');
+    }
+  };
+
+  const handleToggleActivityMode = async (daemon: Daemon) => {
+    const currentMode = daemon.activity_mode || 'active';
+    const newMode = currentMode === 'active' ? 'dormant' : 'active';
+
+    setUpdatingActivityMode(daemon.id);
+    try {
+      await daemonsApi.updateActivityMode(daemon.id, newMode);
+      await refreshDaemons();
+    } catch (e) {
+      console.error('Failed to update activity mode:', e);
+      alert('Failed to update activity mode');
+    } finally {
+      setUpdatingActivityMode(null);
     }
   };
 
@@ -186,31 +210,67 @@ export function DaemonTab() {
         the full cognitive state including conversations, memories, wiki, and identity.
       </p>
 
-      {/* Export Current Daemon */}
+      {/* Daemon Management */}
       <div className="daemon-section">
-        <h3>Export Current Daemon</h3>
-        {currentDaemon ? (
-          <div className="daemon-export-card">
-            <div className="daemon-info">
-              <span className="daemon-icon">*</span>
-              <div className="daemon-details">
-                <span className="daemon-name">
-                  {currentDaemon.label || currentDaemon.name}
-                  {currentDaemon.name && <span className="entity-name"> ({currentDaemon.name})</span>}
-                </span>
-                <span className="daemon-stats">
-                  {daemonDetails?.stats?.conversations || 0} conversations |{' '}
-                  {daemonDetails?.stats?.wiki_pages || 0} wiki pages |{' '}
-                  {daemonDetails?.stats?.journals || 0} journals
-                </span>
-              </div>
-            </div>
-            <button className="btn-primary" onClick={handleExportCurrent}>
-              Export .anima
-            </button>
-          </div>
+        <h3>Daemon Management</h3>
+        {availableDaemons.length === 0 ? (
+          <div className="no-daemon">No daemons found</div>
         ) : (
-          <div className="no-daemon">No daemon selected</div>
+          <div className="daemon-list">
+            {availableDaemons.map((daemon) => {
+              const isSelected = currentDaemon?.id === daemon.id;
+              const stats = daemonStats[daemon.id];
+              const activityMode = daemon.activity_mode || 'active';
+              return (
+                <div key={daemon.id} className={`daemon-export-card ${isSelected ? 'selected' : ''}`}>
+                  <div className="daemon-info">
+                    <span className="daemon-icon">{activityMode === 'active' ? '☀' : '☽'}</span>
+                    <div className="daemon-details">
+                      <span className="daemon-name">
+                        {daemon.label || daemon.name}
+                        {daemon.name && <span className="entity-name"> ({daemon.name})</span>}
+                        {isSelected && <span className="selected-badge">(selected)</span>}
+                      </span>
+                      <span className="daemon-stats">
+                        {stats?.conversations || 0} conversations |{' '}
+                        {stats?.wiki_pages || 0} wiki pages |{' '}
+                        {stats?.journals || 0} journals
+                      </span>
+                    </div>
+                  </div>
+                  <div className="daemon-actions">
+                    <div className="activity-mode-toggle">
+                      <span className="toggle-label">
+                        {activityMode === 'active' ? 'Active' : 'Dormant'}
+                      </span>
+                      <button
+                        className={`toggle-btn ${activityMode === 'dormant' ? 'dormant' : ''}`}
+                        onClick={() => handleToggleActivityMode(daemon)}
+                        disabled={updatingActivityMode === daemon.id}
+                        title={
+                          activityMode === 'active'
+                            ? 'Click to put daemon to sleep (no daily rhythm/journals)'
+                            : 'Click to wake daemon (full temporal awareness)'
+                        }
+                      >
+                        <span className="toggle-track">
+                          <span className="toggle-thumb" />
+                        </span>
+                      </button>
+                    </div>
+                    {!isSelected && (
+                      <button className="btn-secondary" onClick={() => setDaemon(daemon.id)}>
+                        Select
+                      </button>
+                    )}
+                    <button className="btn-primary" onClick={() => handleExportDaemon(daemon)}>
+                      Export
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 

@@ -2,7 +2,7 @@
 Cass Vessel - Admin API Router
 Endpoints for the admin dashboard to explore memory, users, conversations, and system stats.
 """
-from fastapi import APIRouter, HTTPException, Query, Depends, Header, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Query, Depends, Header, UploadFile, File, Form, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse
 from typing import Optional, List, Dict, Any
@@ -486,12 +486,12 @@ async def list_daemons(admin: Dict = Depends(require_admin)):
 
     with get_db() as conn:
         cursor = conn.execute("""
-            SELECT id, label, name, created_at, kernel_version, status
+            SELECT id, label, name, created_at, kernel_version, status, activity_mode
             FROM daemons
             ORDER BY label
         """)
 
-        columns = ["id", "label", "name", "created_at", "kernel_version", "status"]
+        columns = ["id", "label", "name", "created_at", "kernel_version", "status", "activity_mode"]
         daemons = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
     return {"daemons": daemons}
@@ -504,7 +504,7 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
 
     with get_db() as conn:
         cursor = conn.execute("""
-            SELECT id, label, name, created_at, kernel_version, status
+            SELECT id, label, name, created_at, kernel_version, status, activity_mode
             FROM daemons
             WHERE id = ?
         """, (daemon_id,))
@@ -513,7 +513,7 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
         if not row:
             raise HTTPException(status_code=404, detail="Daemon not found")
 
-        columns = ["id", "label", "name", "created_at", "kernel_version", "status"]
+        columns = ["id", "label", "name", "created_at", "kernel_version", "status", "activity_mode"]
         daemon = dict(zip(columns, row))
 
         # Get some stats for this daemon
@@ -534,6 +534,40 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
         }
 
     return daemon
+
+
+@router.patch("/daemons/{daemon_id}/activity-mode")
+async def update_daemon_activity_mode(
+    daemon_id: str,
+    request: Request,
+    admin: Dict = Depends(require_admin)
+):
+    """Update a daemon's activity mode (active/dormant)."""
+    from database import get_db
+
+    body = await request.json()
+    activity_mode = body.get("activity_mode")
+
+    if activity_mode not in ("active", "dormant"):
+        raise HTTPException(
+            status_code=400,
+            detail="activity_mode must be 'active' or 'dormant'"
+        )
+
+    with get_db() as conn:
+        # Verify daemon exists
+        cursor = conn.execute("SELECT id FROM daemons WHERE id = ?", (daemon_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Daemon not found")
+
+        # Update activity mode
+        conn.execute(
+            "UPDATE daemons SET activity_mode = ? WHERE id = ?",
+            (activity_mode, daemon_id)
+        )
+        conn.commit()
+
+    return {"success": True, "daemon_id": daemon_id, "activity_mode": activity_mode}
 
 
 @router.delete("/daemons/{daemon_id}")
@@ -4848,14 +4882,18 @@ async def get_github_stats():
 
 @router.get("/github/metrics/history")
 async def get_github_history(
-    days: int = Query(default=30, le=180),
+    days: int = Query(default=30, ge=0),
     repo: Optional[str] = Query(default=None)
 ):
-    """Get historical GitHub metrics"""
+    """Get historical GitHub metrics. Use days=0 for all time."""
     if not github_metrics_manager:
         raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
 
-    history = github_metrics_manager.get_historical_metrics(days=days, repo=repo)
+    # days=0 means all time
+    history = github_metrics_manager.get_historical_metrics(
+        days=days if days > 0 else None,
+        repo=repo
+    )
     return {
         "days": days,
         "repo": repo,
@@ -4867,10 +4905,10 @@ async def get_github_history(
 @router.get("/github/metrics/timeseries/{metric}")
 async def get_github_timeseries(
     metric: str,
-    days: int = Query(default=14, le=90),
+    days: int = Query(default=14, ge=0),
     repo: Optional[str] = Query(default=None)
 ):
-    """Get time series data for a specific metric"""
+    """Get time series data for a specific metric. Use days=0 for all time."""
     if not github_metrics_manager:
         raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
 
@@ -4881,13 +4919,27 @@ async def get_github_timeseries(
             detail=f"Invalid metric. Must be one of: {valid_metrics}"
         )
 
-    series = github_metrics_manager.get_time_series(metric=metric, days=days, repo=repo)
+    # days=0 means all time
+    series = github_metrics_manager.get_time_series(
+        metric=metric,
+        days=days if days > 0 else None,
+        repo=repo
+    )
     return {
         "metric": metric,
         "days": days,
         "repo": repo,
         "data": series
     }
+
+
+@router.get("/github/metrics/alltime")
+async def get_github_alltime_stats():
+    """Get all-time aggregate statistics per repository"""
+    if not github_metrics_manager:
+        raise HTTPException(status_code=503, detail="GitHub metrics not initialized")
+
+    return github_metrics_manager.get_all_time_repo_stats()
 
 
 @router.post("/github/metrics/refresh")

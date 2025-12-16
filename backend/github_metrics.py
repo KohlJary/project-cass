@@ -216,10 +216,47 @@ class GitHubMetricsManager:
 
         logger.info(f"Saved GitHub metrics snapshot at {snapshot.timestamp}")
 
+    def cleanup_duplicate_snapshots(self) -> int:
+        """
+        Remove duplicate snapshots, keeping only the most recent per day.
+
+        This saves storage while preserving all historical data, since each
+        snapshot contains 14 days of daily breakdown from GitHub. As long as
+        we snapshot at least once per day, no data is lost.
+
+        Returns:
+            Number of rows deleted
+        """
+        from database import get_db
+
+        with get_db() as conn:
+            # Delete all snapshots except the most recent per day
+            # We keep the row with the MAX(timestamp) for each date
+            cursor = conn.execute("""
+                DELETE FROM github_metrics
+                WHERE daemon_id = ? AND id NOT IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (
+                            PARTITION BY date ORDER BY timestamp DESC
+                        ) as rn
+                        FROM github_metrics
+                        WHERE daemon_id = ?
+                    ) WHERE rn = 1
+                )
+            """, (self._daemon_id, self._daemon_id))
+            deleted = cursor.rowcount
+            conn.commit()
+
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} duplicate GitHub metrics snapshots")
+
+        return deleted
+
     async def refresh_metrics(self) -> MetricsSnapshot:
-        """Fetch and save fresh metrics."""
+        """Fetch and save fresh metrics, then cleanup duplicates."""
         snapshot = await self.fetch_all_metrics()
         self.save_snapshot(snapshot)
+        self.cleanup_duplicate_snapshots()
         return snapshot
 
     def get_current_metrics(self) -> Optional[Dict[str, Any]]:
@@ -248,14 +285,14 @@ class GitHubMetricsManager:
 
     def get_historical_metrics(
         self,
-        days: int = 30,
+        days: Optional[int] = 30,
         repo: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get historical metrics for the specified number of days.
 
         Args:
-            days: Number of days of history to retrieve
+            days: Number of days of history to retrieve. None or 0 = all time.
             repo: Optional specific repo to filter for
 
         Returns:
@@ -263,7 +300,11 @@ class GitHubMetricsManager:
         """
         from database import get_db, json_deserialize
 
-        cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        # None or 0 means all time
+        if days is None or days == 0:
+            cutoff_date = "1970-01-01"
+        else:
+            cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         with get_db() as conn:
             # Get the latest snapshot per day using GROUP BY
@@ -338,7 +379,7 @@ class GitHubMetricsManager:
     def get_time_series(
         self,
         metric: str,
-        days: int = 14,
+        days: Optional[int] = 14,
         repo: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
@@ -346,7 +387,7 @@ class GitHubMetricsManager:
 
         Args:
             metric: One of 'clones', 'clones_uniques', 'views', 'views_uniques', 'stars', 'forks'
-            days: Number of days
+            days: Number of days. None or 0 = all time.
             repo: Optional specific repo (if None, sums across all repos)
 
         Returns:
@@ -379,6 +420,87 @@ class GitHubMetricsManager:
             })
 
         return series
+
+    def get_all_time_repo_stats(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all-time aggregate statistics per repository.
+
+        Strategy: Start with the current 14-day totals from GitHub (which are
+        authoritative), then add any historical daily data from dates that have
+        rolled out of the current 14-day window.
+
+        Stars, forks, watchers, and issues are point-in-time values from the
+        most recent snapshot.
+
+        Returns:
+            Dict mapping repo names to their all-time stats
+        """
+        from database import get_db, json_deserialize
+
+        # Get current snapshot as baseline (authoritative 14-day totals)
+        current = self.get_current_metrics()
+        if not current:
+            return {}
+
+        # Calculate the cutoff date - dates before this have rolled out of
+        # GitHub's current 14-day window and need to be added from history
+        cutoff_date = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
+
+        # Initialize results with current 14-day totals
+        result: Dict[str, Dict[str, Any]] = {}
+        for repo_name, repo_data in (current.get("repos", {}) or {}).items():
+            result[repo_name] = {
+                "repo": repo_name,
+                "clones_count": repo_data.get("clones_count", 0),
+                "clones_uniques": repo_data.get("clones_uniques", 0),
+                "views_count": repo_data.get("views_count", 0),
+                "views_uniques": repo_data.get("views_uniques", 0),
+                "stars": repo_data.get("stars", 0),
+                "forks": repo_data.get("forks", 0),
+                "watchers": repo_data.get("watchers", 0),
+                "open_issues": repo_data.get("open_issues", 0),
+            }
+
+        # Now add historical data from dates BEFORE the current 14-day window
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT date, repos_json
+                FROM github_metrics
+                WHERE daemon_id = ?
+                ORDER BY date ASC
+            """, (self._daemon_id,))
+
+            # Track which historical dates we've already counted
+            seen_dates: Dict[str, set] = {repo: set() for repo in result}
+
+            for row in cursor.fetchall():
+                repos_data = json_deserialize(row[1]) or {}
+
+                for repo_name, repo_data in repos_data.items():
+                    if repo_name not in result:
+                        continue
+                    if repo_name not in seen_dates:
+                        seen_dates[repo_name] = set()
+
+                    # Process daily clones data - only add dates before cutoff
+                    for daily in repo_data.get("clones_daily", []):
+                        daily_date = daily.get("timestamp", "")[:10]
+                        if daily_date < cutoff_date and daily_date not in seen_dates[repo_name]:
+                            seen_dates[repo_name].add(daily_date)
+                            result[repo_name]["clones_count"] += daily.get("count", 0)
+                            result[repo_name]["clones_uniques"] += daily.get("uniques", 0)
+
+                    # Process daily views data - only add dates before cutoff
+                    for daily in repo_data.get("views_daily", []):
+                        daily_date = daily.get("timestamp", "")[:10]
+                        # Use different key to track views vs clones separately
+                        views_key = f"v_{daily_date}"
+                        if daily_date < cutoff_date and views_key not in seen_dates[repo_name]:
+                            seen_dates[repo_name].add(views_key)
+                            result[repo_name]["views_count"] += daily.get("count", 0)
+                            result[repo_name]["views_uniques"] += daily.get("uniques", 0)
+
+        return result
 
     async def fetch_project_metrics(
         self,

@@ -898,6 +898,12 @@ code.info-value {
   color: var(--text-primary);
 }
 
+.daemon-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
 .daemon-export-card {
   display: flex;
   justify-content: space-between;
@@ -906,6 +912,19 @@ code.info-value {
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: 8px;
+  transition: border-color 0.2s ease;
+}
+
+.daemon-export-card.selected {
+  border-color: var(--accent-purple);
+  background: rgba(138, 43, 226, 0.05);
+}
+
+.selected-badge {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--accent-purple);
+  font-weight: 500;
 }
 
 .daemon-info {
@@ -938,6 +957,67 @@ code.info-value {
 .daemon-stats {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.daemon-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.activity-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.activity-mode-toggle .toggle-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  min-width: 5.5rem;
+}
+
+.toggle-btn {
+  position: relative;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-track {
+  display: block;
+  width: 40px;
+  height: 22px;
+  background: #4a9eff;
+  border-radius: 11px;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.toggle-btn.dormant .toggle-track {
+  background: #6b5b95;
+}
+
+.toggle-thumb {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.toggle-btn.dormant .toggle-thumb {
+  transform: translateX(18px);
 }
 
 .no-daemon,

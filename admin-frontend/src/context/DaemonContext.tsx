@@ -10,6 +10,7 @@ export interface Daemon {
   created_at: string;
   kernel_version: string | null;
   status: string;
+  activity_mode?: 'active' | 'dormant';  // Active = full temporal awareness, Dormant = sleeps until interaction
 }
 
 interface DaemonContextType {

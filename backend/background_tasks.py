@@ -15,6 +15,21 @@ import anthropic
 
 logger = logging.getLogger("cass-vessel")
 
+
+def get_active_daemon_activity_mode() -> str:
+    """Get the activity_mode of the active daemon. Returns 'active' or 'dormant'."""
+    try:
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT activity_mode FROM daemons WHERE status = 'active' LIMIT 1"
+            )
+            row = cursor.fetchone()
+            return row["activity_mode"] if row and row["activity_mode"] else "active"
+    except Exception:
+        return "active"  # Default to active if we can't check
+
+
 # API key for generating narrative summaries
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
@@ -205,6 +220,11 @@ async def autonomous_research_task():
 
     while True:
         try:
+            # Check if daemon is dormant - skip autonomous research if so
+            if get_active_daemon_activity_mode() == "dormant":
+                await asyncio.sleep(300)  # Check again in 5 minutes
+                continue
+
             mode = scheduler.config.mode
 
             if mode == SchedulerMode.SUPERVISED:
@@ -518,6 +538,11 @@ async def rhythm_phase_monitor_task(rhythm_manager, runners: dict, self_model_gr
 
     while True:
         try:
+            # Check if daemon is dormant - skip rhythm processing if so
+            if get_active_daemon_activity_mode() == "dormant":
+                await asyncio.sleep(300)  # Check again in 5 minutes
+                continue
+
             # Check if an active session has completed
             if active_session:
                 phase_id, session_id, session_type = active_session
