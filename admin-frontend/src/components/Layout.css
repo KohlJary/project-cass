@@ -131,6 +131,25 @@
   border-top: 1px solid #2a2a2a;
 }
 
+.social-links {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.social-links a {
+  color: #666;
+  transition: color 0.15s ease;
+  display: flex;
+  align-items: center;
+}
+
+.social-links a:hover {
+  color: #c792ea;
+}
+
 .user-info {
   display: flex;
   align-items: center;
