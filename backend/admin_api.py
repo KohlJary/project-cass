@@ -119,6 +119,7 @@ async def require_admin(
         return {
             "user_id": "demo",
             "display_name": "Demo User",
+            "is_admin": True,
             "demo_mode": True
         }
 
@@ -161,6 +162,7 @@ async def require_auth(
         return {
             "user_id": "demo",
             "display_name": "Demo User",
+            "is_admin": True,
             "demo_mode": True
         }
 
