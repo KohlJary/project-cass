@@ -44,8 +44,25 @@ ALLOWED_ORIGINS=https://your-domain.railway.app
 | `PORT` | No | Server port (default: 8000) |
 | `DEBUG` | No | Enable debug logging (default: false) |
 | `ALLOWED_ORIGINS` | No | CORS origins (comma-separated) |
+| `BOOTSTRAP_FROM_SEED` | No | Path to .anima seed file to import on first boot |
 
 *At least one LLM API key required
+
+### Bootstrap from Seed
+
+To initialize a fresh deployment with existing data, set `BOOTSTRAP_FROM_SEED` to the path of an `.anima` export file. On startup, if the database is empty, the seed data will be imported automatically.
+
+```bash
+# Example: bootstrap from seed in the repository
+BOOTSTRAP_FROM_SEED=seed/cass_export_20251215.anima
+```
+
+This is useful for:
+- Friends & family demos with pre-existing Cass data
+- Restoring from backup after data loss
+- Setting up test environments with known state
+
+The import runs with `skip_embeddings=True` for faster startup - ChromaDB embeddings will be regenerated as needed.
 
 ### Data Persistence
 
