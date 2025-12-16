@@ -179,6 +179,38 @@ async def require_auth(
     return payload
 
 
+class BootstrapRequest(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/auth/bootstrap")
+async def bootstrap_admin(request: BootstrapRequest):
+    """One-time bootstrap: set password for an admin user that has no password.
+
+    Only works if the user exists, is an admin, and has no password_hash set.
+    This allows initial setup of seeded admin accounts.
+    """
+    if not users:
+        raise HTTPException(status_code=503, detail="User manager not initialized")
+
+    profile = users.get_user_by_name(request.username)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not profile.is_admin:
+        raise HTTPException(status_code=403, detail="User is not an admin")
+
+    if profile.password_hash:
+        raise HTTPException(status_code=400, detail="User already has a password set")
+
+    # Set the password
+    hashed = users.hash_password(request.password)
+    users.update_user_profile(profile.id, {"password_hash": hashed, "status": "approved"})
+
+    return {"status": "ok", "message": f"Password set for {request.username}"}
+
+
 @router.post("/auth/login", response_model=LoginResponse)
 async def admin_login(request: LoginRequest):
     """Login to admin dashboard.
