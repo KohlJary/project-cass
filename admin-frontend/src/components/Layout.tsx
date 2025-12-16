@@ -1,11 +1,13 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDaemon } from '../context/DaemonContext';
+import { GenesisNotification } from './GenesisNotification';
 import './Layout.css';
 
 // Nav items available to all authenticated users
 const userNavItems = [
   { path: '/chat', label: 'Chat', icon: 'C' },
+  { path: '/genesis', label: 'Genesis', icon: '*' },
   { path: '/self-development', label: 'Self-Dev', icon: '%' },
   { path: '/profile', label: 'My Profile', icon: '@' },
   { path: '/feedback', label: 'Feedback', icon: '?' },
@@ -15,7 +17,8 @@ const userNavItems = [
 const adminNavItems = [
   { path: '/', label: 'Dashboard', icon: '~' },
   { path: '/chat', label: 'Chat', icon: 'C' },
-  { path: '/memory', label: 'Memory', icon: '*' },
+  { path: '/genesis', label: 'Genesis', icon: '*' },
+  { path: '/memory', label: 'Memory', icon: 'M' },
   { path: '/self-development', label: 'Self-Dev', icon: '%' },
   { path: '/activity', label: 'Activity', icon: '>' },
   { path: '/knowledge', label: 'Knowledge', icon: 'K' },
@@ -99,6 +102,7 @@ export function Layout() {
         </div>
       </aside>
       <main className="main-content">
+        <GenesisNotification />
         <Outlet />
       </main>
     </div>

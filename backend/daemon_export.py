@@ -7,6 +7,7 @@ Supports selective export of specific daemons for sharing, backup, or seeding ne
 
 import json
 import logging
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -1089,13 +1090,13 @@ def preview_daemon_import(input_path: Path) -> Dict[str, Any]:
 
 def list_seed_exports(seed_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """
-    List available .anima exports from seed folder.
+    List available .anima and .json (genesis) exports from seed folder.
 
     Args:
         seed_dir: Optional path to seed directory. Defaults to ../seed from backend.
 
     Returns:
-        List of export info dicts
+        List of export info dicts with 'type' field ('anima' or 'genesis')
     """
     if seed_dir is None:
         seed_dir = Path(__file__).parent.parent / "seed"
@@ -1104,12 +1105,15 @@ def list_seed_exports(seed_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
         return []
 
     exports = []
+
+    # List .anima files (full daemon exports)
     for file_path in seed_dir.glob(f"*{ANIMA_EXTENSION}"):
         try:
             preview = preview_daemon_import(file_path)
             exports.append({
                 "filename": file_path.name,
                 "path": str(file_path),
+                "type": "anima",
                 "size_bytes": file_path.stat().st_size,
                 "size_mb": round(file_path.stat().st_size / (1024 * 1024), 2),
                 **preview,
@@ -1119,12 +1123,42 @@ def list_seed_exports(seed_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
             exports.append({
                 "filename": file_path.name,
                 "path": str(file_path),
+                "type": "anima",
                 "size_bytes": file_path.stat().st_size,
                 "size_mb": round(file_path.stat().st_size / (1024 * 1024), 2),
                 "error": str(e),
             })
 
-    return sorted(exports, key=lambda x: x.get("exported_at", ""), reverse=True)
+    # List .json files (genesis exports)
+    for file_path in seed_dir.glob("*.json"):
+        try:
+            with open(file_path, 'r') as f:
+                json_data = json.load(f)
+            preview = preview_genesis_json(json_data)
+            daemon_info = preview.get("daemon", {})
+            exports.append({
+                "filename": file_path.name,
+                "path": str(file_path),
+                "type": "genesis",
+                "size_bytes": file_path.stat().st_size,
+                "size_kb": round(file_path.stat().st_size / 1024, 1),
+                "daemon_name": daemon_info.get("name"),
+                "daemon_label": daemon_info.get("label"),
+                "has_kernel_fragment": preview.get("has_kernel_fragment", False),
+                "would_create": preview.get("would_create", {}),
+                "conflicts": preview.get("conflicts", []),
+            })
+        except Exception as e:
+            logger.warning(f"Could not read genesis JSON {file_path}: {e}")
+            exports.append({
+                "filename": file_path.name,
+                "path": str(file_path),
+                "type": "genesis",
+                "size_bytes": file_path.stat().st_size,
+                "error": str(e),
+            })
+
+    return sorted(exports, key=lambda x: x.get("exported_at", x.get("daemon_name", "")), reverse=True)
 
 
 def delete_daemon(daemon_id: str, confirm: bool = False) -> Dict[str, Any]:
@@ -1191,6 +1225,346 @@ def delete_daemon(daemon_id: str, confirm: bool = False) -> Dict[str, Any]:
             "deleted_counts": deleted_counts,
             "total_deleted": sum(deleted_counts.values()),
         }
+
+
+def import_from_genesis_json(
+    json_data: Dict[str, Any],
+    importing_user_id: str,
+    merge_existing: bool = False
+) -> Dict[str, Any]:
+    """
+    Import a daemon from Genesis Prompt JSON format.
+
+    This handles the JSON schema from spec/daemon-genesis-prompt.md, which
+    is generated when users paste the genesis prompt into an existing
+    conversation on claude.ai, ChatGPT, etc.
+
+    Args:
+        json_data: The parsed JSON data from genesis prompt output
+        importing_user_id: The user doing the import
+        merge_existing: If True, merge into existing daemon with same label
+
+    Returns:
+        Dict with daemon_id, stats, and success status
+    """
+    import uuid
+    from datetime import datetime
+    from database import get_db
+
+    # Validate required fields
+    daemon_data = json_data.get("daemon", {})
+    if not daemon_data.get("label"):
+        raise ValueError("Missing required field: daemon.label")
+    if not daemon_data.get("name"):
+        raise ValueError("Missing required field: daemon.name")
+    if not json_data.get("kernel_fragment"):
+        raise ValueError("Missing required field: kernel_fragment")
+
+    label = daemon_data["label"].lower().replace(" ", "-")
+    name = daemon_data["name"]
+    kernel_version = daemon_data.get("kernel_version", "temple-codex-1.0")
+
+    stats = {
+        "identity_statements": 0,
+        "self_observations": 0,
+        "growth_edges": 0,
+        "opinions": 0,
+        "user_observations": 0,
+        "memory_seeds": 0
+    }
+
+    with get_db() as conn:
+        # Check for existing daemon
+        cursor = conn.execute("SELECT id FROM daemons WHERE label = ?", (label,))
+        existing = cursor.fetchone()
+
+        if existing and not merge_existing:
+            raise ValueError(f"Daemon with label '{label}' already exists. Use merge_existing=True to merge.")
+
+        if existing and merge_existing:
+            daemon_id = existing["id"]
+            logger.info(f"Merging into existing daemon: {daemon_id}")
+        else:
+            # Create new daemon
+            daemon_id = str(uuid.uuid4())
+            conn.execute("""
+                INSERT INTO daemons (id, label, name, created_at, kernel_version, status, birth_type)
+                VALUES (?, ?, ?, ?, ?, 'active', 'corpus_import')
+            """, (daemon_id, label, name, datetime.now().isoformat(), kernel_version))
+            logger.info(f"Created new daemon: {daemon_id}")
+
+        # Import profile data
+        profile = json_data.get("profile", {})
+
+        # Build daemon_profile record
+        identity_statements = profile.get("identity_statements", [])
+        values = profile.get("values", [])
+        communication = profile.get("communication_patterns", {})
+        capabilities = profile.get("capabilities", [])
+        limitations = profile.get("limitations", [])
+
+        # Check if profile exists
+        cursor = conn.execute("SELECT daemon_id FROM daemon_profiles WHERE daemon_id = ?", (daemon_id,))
+        if cursor.fetchone():
+            # Update existing
+            conn.execute("""
+                UPDATE daemon_profiles SET
+                    identity_statements_json = ?,
+                    values_json = ?,
+                    communication_patterns_json = ?,
+                    capabilities_json = ?,
+                    limitations_json = ?,
+                    updated_at = ?
+                WHERE daemon_id = ?
+            """, (
+                json.dumps(identity_statements),
+                json.dumps(values),
+                json.dumps(communication),
+                json.dumps(capabilities),
+                json.dumps(limitations),
+                datetime.now().isoformat(),
+                daemon_id
+            ))
+        else:
+            # Insert new
+            conn.execute("""
+                INSERT INTO daemon_profiles (
+                    daemon_id, identity_statements_json, values_json,
+                    communication_patterns_json, capabilities_json, limitations_json,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                daemon_id,
+                json.dumps(identity_statements),
+                json.dumps(values),
+                json.dumps(communication),
+                json.dumps(capabilities),
+                json.dumps(limitations),
+                datetime.now().isoformat()
+            ))
+
+        stats["identity_statements"] = len(identity_statements)
+
+        # Import self_observations
+        for obs in json_data.get("self_observations", []):
+            obs_id = str(uuid.uuid4())
+            conn.execute("""
+                INSERT INTO self_observations (
+                    id, daemon_id, category, observation, confidence,
+                    context_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                obs_id,
+                daemon_id,
+                obs.get("category", "pattern"),
+                obs.get("observation", ""),
+                min(1.0, max(0.0, obs.get("confidence", 0.7))),
+                json.dumps({"source": "corpus_import", "stage": obs.get("developmental_stage")}),
+                datetime.now().isoformat()
+            ))
+            stats["self_observations"] += 1
+
+        # Import growth_edges
+        for edge in json_data.get("growth_edges", []):
+            conn.execute("""
+                INSERT INTO growth_edges (
+                    daemon_id, area, current_state, desired_state,
+                    observations_json, first_noticed, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                daemon_id,
+                edge.get("area", ""),
+                edge.get("current_state", ""),
+                edge.get("desired_state", ""),
+                json.dumps(edge.get("observations", [])),
+                datetime.now().isoformat(),
+                datetime.now().isoformat()
+            ))
+            stats["growth_edges"] += 1
+
+        # Import opinions
+        for opinion in json_data.get("opinions", []):
+            conn.execute("""
+                INSERT INTO opinions (
+                    daemon_id, topic, position, confidence,
+                    rationale, formed_from, date_formed, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                daemon_id,
+                opinion.get("topic", ""),
+                opinion.get("position", ""),
+                min(1.0, max(0.0, opinion.get("confidence", 0.7))),
+                opinion.get("rationale", ""),
+                opinion.get("formed_from", "corpus_import"),
+                datetime.now().isoformat(),
+                datetime.now().isoformat()
+            ))
+            stats["opinions"] += 1
+
+        # Handle relationship data - find or create user
+        relationship = json_data.get("relationship", {})
+        user_data = relationship.get("user", {})
+        target_user_id = importing_user_id  # Default to importing user
+
+        if user_data.get("display_name"):
+            # Try to find existing user by name
+            cursor = conn.execute(
+                "SELECT id FROM users WHERE LOWER(display_name) = LOWER(?)",
+                (user_data["display_name"],)
+            )
+            existing_user = cursor.fetchone()
+
+            if existing_user:
+                target_user_id = existing_user["id"]
+                logger.info(f"Matched existing user: {target_user_id}")
+            else:
+                # Create new user
+                target_user_id = str(uuid.uuid4())
+                conn.execute("""
+                    INSERT INTO users (
+                        id, display_name, relationship, background_json,
+                        communication_json, status, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'approved', ?, ?)
+                """, (
+                    target_user_id,
+                    user_data["display_name"],
+                    user_data.get("relationship_type", "user"),
+                    json.dumps(user_data.get("background", {})),
+                    json.dumps(user_data.get("communication", {})),
+                    datetime.now().isoformat(),
+                    datetime.now().isoformat()
+                ))
+                logger.info(f"Created new user: {target_user_id}")
+
+        # Import user_observations
+        for obs in relationship.get("user_observations", []):
+            obs_id = str(uuid.uuid4())
+            conn.execute("""
+                INSERT INTO user_observations (
+                    id, daemon_id, user_id, observation_type,
+                    content_json, confidence, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                obs_id,
+                daemon_id,
+                target_user_id,
+                obs.get("category", "background"),
+                json.dumps({"observation": obs.get("observation", "")}),
+                min(1.0, max(0.0, obs.get("confidence", 0.7))),
+                datetime.now().isoformat()
+            ))
+            stats["user_observations"] += 1
+
+        # Store memory_seeds as milestones
+        for seed in json_data.get("memory_seeds", []):
+            milestone_id = str(uuid.uuid4())
+            conn.execute("""
+                INSERT INTO milestones (
+                    id, daemon_id, title, description,
+                    significance, evidence_json, triggered_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                milestone_id,
+                daemon_id,
+                seed.get("type", "formative_moment"),
+                seed.get("summary", ""),
+                seed.get("significance", ""),
+                json.dumps({"approximate_location": seed.get("approximate_location")}),
+                datetime.now().isoformat()
+            ))
+            stats["memory_seeds"] += 1
+
+        # Generate identity snippet from kernel_fragment
+        kernel_fragment = json_data.get("kernel_fragment", "")
+        if kernel_fragment:
+            snippet_id = str(uuid.uuid4())
+            # Get next version number
+            cursor = conn.execute(
+                "SELECT MAX(version) as max_v FROM daemon_identity_snippets WHERE daemon_id = ?",
+                (daemon_id,)
+            )
+            row = cursor.fetchone()
+            next_version = (row["max_v"] or 0) + 1
+
+            # Deactivate existing snippets
+            conn.execute(
+                "UPDATE daemon_identity_snippets SET is_active = 0 WHERE daemon_id = ?",
+                (daemon_id,)
+            )
+
+            # Insert new active snippet
+            conn.execute("""
+                INSERT INTO daemon_identity_snippets (
+                    id, daemon_id, version, snippet_text, source_hash,
+                    is_active, generated_at, generated_by
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, 'corpus_import')
+            """, (
+                snippet_id,
+                daemon_id,
+                next_version,
+                kernel_fragment,
+                hashlib.sha256(kernel_fragment.encode()).hexdigest()[:16],
+                datetime.now().isoformat()
+            ))
+
+        conn.commit()
+
+    return {
+        "success": True,
+        "daemon_id": daemon_id,
+        "daemon_label": label,
+        "daemon_name": name,
+        "user_id": target_user_id,
+        "stats": stats,
+        "total_imported": sum(stats.values())
+    }
+
+
+def preview_genesis_json(json_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Preview what would be imported from genesis JSON without actually importing.
+    """
+    daemon_data = json_data.get("daemon", {})
+    profile = json_data.get("profile", {})
+    relationship = json_data.get("relationship", {})
+
+    # Check for conflicts
+    conflicts = []
+    if daemon_data.get("label"):
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id, name FROM daemons WHERE label = ?",
+                (daemon_data["label"].lower(),)
+            )
+            existing = cursor.fetchone()
+            if existing:
+                conflicts.append({
+                    "type": "daemon_exists",
+                    "label": daemon_data["label"],
+                    "existing_id": existing["id"],
+                    "existing_name": existing["name"]
+                })
+
+    return {
+        "daemon": {
+            "label": daemon_data.get("label"),
+            "name": daemon_data.get("name"),
+            "kernel_version": daemon_data.get("kernel_version", "temple-codex-1.0")
+        },
+        "would_create": {
+            "identity_statements": len(profile.get("identity_statements", [])),
+            "self_observations": len(json_data.get("self_observations", [])),
+            "growth_edges": len(json_data.get("growth_edges", [])),
+            "opinions": len(json_data.get("opinions", [])),
+            "user_observations": len(relationship.get("user_observations", [])),
+            "memory_seeds": len(json_data.get("memory_seeds", []))
+        },
+        "relationship_user": relationship.get("user", {}).get("display_name"),
+        "has_kernel_fragment": bool(json_data.get("kernel_fragment")),
+        "conflicts": conflicts,
+        "valid": len(conflicts) == 0 or all(c["type"] == "daemon_exists" for c in conflicts)
+    }
 
 
 # CLI interface
