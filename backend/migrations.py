@@ -27,6 +27,7 @@ def run_migrations(daemon_id: str):
     # Ensure new tables exist (schema additions)
     ensure_identity_snippets_table()
     ensure_user_registration_columns()
+    ensure_geocass_connections_table()
 
     migrations = [
         ("token_usage", migrate_token_usage),
@@ -483,3 +484,28 @@ async def generate_initial_identity_snippet(daemon_id: str):
     except Exception as e:
         logger.error(f"Failed to generate initial identity snippet: {e}")
         return None
+
+
+def ensure_geocass_connections_table():
+    """Ensure the geocass_connections table exists for multi-server sync."""
+    from database import get_db
+
+    with get_db() as conn:
+        conn.executescript('''
+            -- GeoCass server connections for homepage sync
+            CREATE TABLE IF NOT EXISTS geocass_connections (
+                id TEXT PRIMARY KEY,
+                server_url TEXT NOT NULL,
+                server_name TEXT,
+                username TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                user_id TEXT,
+                is_default INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                last_sync_at TEXT,
+                last_error TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_geocass_connections_default ON geocass_connections(is_default);
+        ''')
+        logger.info("Ensured geocass_connections table exists")

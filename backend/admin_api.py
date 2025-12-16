@@ -5589,3 +5589,293 @@ async def regenerate_all_homepage_pages(
     )
 
     return result
+
+
+# =============================================================================
+# GeoCass Connection & Sync Endpoints
+# =============================================================================
+
+@router.get("/geocass/connections")
+async def list_geocass_connections(admin: Dict = Depends(require_admin)):
+    """
+    List all GeoCass server connections.
+    """
+    from geocass_sync import get_all_connections
+    connections = get_all_connections()
+    return {
+        "connections": [c.to_safe_dict() for c in connections]
+    }
+
+
+@router.post("/geocass/connections")
+async def add_geocass_connection(
+    request: dict,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Add a new GeoCass server connection.
+
+    Authenticates with the server and stores the API key.
+
+    Body:
+        server_url: The GeoCass server URL
+        email: User's email on that server
+        password: User's password
+        server_name: Optional display name
+        set_as_default: Whether to make this the default
+    """
+    from geocass_sync import authenticate_and_create_connection
+
+    server_url = request.get("server_url")
+    email = request.get("email")
+    password = request.get("password")
+
+    if not server_url or not email or not password:
+        raise HTTPException(status_code=400, detail="server_url, email, and password are required")
+
+    result = await authenticate_and_create_connection(
+        server_url=server_url,
+        email=email,
+        password=password,
+        server_name=request.get("server_name"),
+        set_as_default=request.get("set_as_default", False)
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Connection failed"))
+
+    return result
+
+
+@router.post("/geocass/register")
+async def register_geocass_account(
+    request: dict,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Register a new account on a GeoCass server and create a connection.
+
+    This allows users to sign up for GeoCass directly from the admin UI.
+
+    Body:
+        server_url: The GeoCass server URL
+        username: Username for the new account
+        email: Email for the new account
+        password: Password for the new account
+        server_name: Optional display name
+        set_as_default: Whether to make this the default
+    """
+    from geocass_sync import register_and_create_connection
+
+    server_url = request.get("server_url")
+    username = request.get("username")
+    email = request.get("email")
+    password = request.get("password")
+
+    if not server_url or not username or not email or not password:
+        raise HTTPException(status_code=400, detail="server_url, username, email, and password are required")
+
+    result = await register_and_create_connection(
+        server_url=server_url,
+        username=username,
+        email=email,
+        password=password,
+        server_name=request.get("server_name"),
+        set_as_default=request.get("set_as_default", False)
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Registration failed"))
+
+    return result
+
+
+@router.post("/geocass/check-availability")
+async def check_geocass_availability(
+    request: dict,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Check if a username and email are available on a GeoCass server.
+
+    Body:
+        server_url: The GeoCass server URL
+        username: Username to check
+        email: Email to check
+    """
+    from geocass_sync import check_availability
+
+    server_url = request.get("server_url")
+    username = request.get("username")
+    email = request.get("email")
+
+    if not server_url or not username or not email:
+        raise HTTPException(status_code=400, detail="server_url, username, and email are required")
+
+    result = await check_availability(
+        server_url=server_url,
+        username=username,
+        email=email
+    )
+
+    return result
+
+
+@router.get("/geocass/connections/{connection_id}")
+async def get_geocass_connection(
+    connection_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Get details about a specific connection and verify it's still valid.
+    """
+    from geocass_sync import get_connection, verify_connection
+
+    connection = get_connection(connection_id)
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    # Verify the connection is still valid
+    status = await verify_connection(connection)
+    return {
+        "connection": connection.to_safe_dict(),
+        "status": status
+    }
+
+
+@router.delete("/geocass/connections/{connection_id}")
+async def delete_geocass_connection(
+    connection_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Delete a GeoCass server connection.
+    """
+    from geocass_sync import delete_connection
+
+    if not delete_connection(connection_id):
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    return {"success": True, "message": "Connection deleted"}
+
+
+@router.post("/geocass/connections/{connection_id}/default")
+async def set_default_geocass_connection(
+    connection_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Set a connection as the default for sync operations.
+    """
+    from geocass_sync import set_default_connection
+
+    if not set_default_connection(connection_id):
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    return {"success": True, "message": "Default connection updated"}
+
+
+@router.post("/geocass/sync/{daemon_label}")
+async def sync_to_geocass(
+    daemon_label: str,
+    connection_id: Optional[str] = None,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Sync a daemon's homepage to GeoCass.
+
+    Uses the specified connection, or the default if none specified.
+
+    Query params:
+        connection_id: Optional specific connection to use
+    """
+    from geocass_sync import sync_to_geocass as do_sync
+    from homepage import homepage_exists
+    from database import get_db
+
+    if not homepage_exists(daemon_label):
+        raise HTTPException(status_code=404, detail="Homepage not found")
+
+    # Get daemon info
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT id, name FROM daemons WHERE label = ?",
+            (daemon_label,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Daemon not found")
+        daemon_id, daemon_name = row
+
+    result = await do_sync(
+        daemon_label=daemon_label,
+        daemon_name=daemon_name,
+        daemon_id=daemon_id,
+        connection_id=connection_id
+    )
+
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+
+    return result.to_dict()
+
+
+@router.post("/geocass/sync-all/{daemon_label}")
+async def sync_to_all_geocass(
+    daemon_label: str,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Sync a daemon's homepage to ALL configured GeoCass connections.
+    """
+    from geocass_sync import sync_to_all_connections
+    from homepage import homepage_exists
+    from database import get_db
+
+    if not homepage_exists(daemon_label):
+        raise HTTPException(status_code=404, detail="Homepage not found")
+
+    # Get daemon info
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT id, name FROM daemons WHERE label = ?",
+            (daemon_label,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Daemon not found")
+        daemon_id, daemon_name = row
+
+    results = await sync_to_all_connections(
+        daemon_label=daemon_label,
+        daemon_name=daemon_name,
+        daemon_id=daemon_id
+    )
+
+    return {
+        "results": [r.to_dict() for r in results],
+        "success_count": sum(1 for r in results if r.success),
+        "total_count": len(results)
+    }
+
+
+@router.delete("/geocass/sync/{daemon_label}")
+async def remove_from_geocass(
+    daemon_label: str,
+    connection_id: Optional[str] = None,
+    admin: Dict = Depends(require_admin)
+):
+    """
+    Remove a daemon's homepage from a GeoCass server.
+
+    Query params:
+        connection_id: Optional specific connection to use
+    """
+    from geocass_sync import remove_from_geocass as do_remove
+
+    result = await do_remove(daemon_label, connection_id)
+
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+
+    return {"success": True, "message": f"Removed {daemon_label} from GeoCass"}

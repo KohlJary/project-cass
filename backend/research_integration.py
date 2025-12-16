@@ -14,10 +14,14 @@ import json
 
 def _get_dependencies():
     """
-    Lazily import dependencies from main_sdk to avoid circular imports.
-    These globals are defined in main_sdk.py and need to be accessed at runtime.
+    Lazily import dependencies from admin_api to avoid circular imports.
+
+    IMPORTANT: Import from admin_api, NOT main_sdk!
+    main_sdk runs as __main__, so importing from it causes a fresh module load
+    with all globals reset to None. admin_api's module-level variables are
+    populated by init_managers() and stay consistent.
     """
-    from main_sdk import memory, token_tracker, self_manager
+    from admin_api import memory, token_usage_tracker as token_tracker, self_manager
     return memory, token_tracker, self_manager
 
 
