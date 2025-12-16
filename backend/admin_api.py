@@ -146,6 +146,39 @@ async def require_admin(
     return payload
 
 
+async def require_auth(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> Dict:
+    """Dependency that requires valid authentication (any user, not just admin).
+
+    In demo mode, returns a demo user without requiring authentication.
+    """
+    # Demo mode bypasses authentication
+    if DEMO_MODE:
+        return {
+            "user_id": "demo",
+            "display_name": "Demo User",
+            "demo_mode": True
+        }
+
+    if not credentials:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    payload = verify_token(credentials.credentials)
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    return payload
+
+
 @router.post("/auth/login", response_model=LoginResponse)
 async def admin_login(request: LoginRequest):
     """Login to admin dashboard.
