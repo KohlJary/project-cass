@@ -466,7 +466,9 @@ app.include_router(auth_router)
 
 # Register admin routes
 from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager, init_research_manager, init_goal_manager
-init_admin_managers(memory, conversation_manager, user_manager, self_manager)
+# Note: init_admin_managers is called in background task after heavy components load
+# Conversation and user managers are passed immediately since they don't need ChromaDB
+init_admin_managers(None, conversation_manager, user_manager, None)  # memory/self_manager set in background
 init_research_session_manager(research_session_manager)
 init_research_scheduler(research_scheduler)
 init_github_metrics(github_metrics_manager)
@@ -706,6 +708,11 @@ async def startup_event():
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, _init_heavy_components)
             logger.info("Background: Heavy components ready")
+
+            # Re-initialize admin managers now that heavy components are ready
+            from admin_api import init_managers as init_admin_managers
+            init_admin_managers(memory, conversation_manager, user_manager, self_manager)
+            logger.info("Background: Admin managers updated with heavy components")
 
             # Now initialize attractor basins if needed
             if memory and memory.count() == 0:

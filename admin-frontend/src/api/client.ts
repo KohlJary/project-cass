@@ -796,6 +796,62 @@ export const genesisApi = {
     api.post('/admin/daemons/import/genesis/preview', { json_data: jsonData }),
 };
 
+// GeoCass Connection Management API
+export const geocassApi = {
+  // List all connections
+  getConnections: () => api.get('/admin/geocass/connections'),
+
+  // Add new connection (authenticates with existing GeoCass account)
+  addConnection: (data: {
+    server_url: string;
+    email: string;
+    password: string;
+    server_name?: string;
+    set_as_default?: boolean;
+  }) => api.post('/admin/geocass/connections', data),
+
+  // Register new GeoCass account and create connection
+  register: (data: {
+    server_url: string;
+    username: string;
+    email: string;
+    password: string;
+    server_name?: string;
+    set_as_default?: boolean;
+  }) => api.post('/admin/geocass/register', data),
+
+  // Check username and email availability
+  checkAvailability: (data: {
+    server_url: string;
+    username: string;
+    email: string;
+  }) => api.post('/admin/geocass/check-availability', data),
+
+  // Get connection details
+  getConnection: (id: string) => api.get(`/admin/geocass/connections/${id}`),
+
+  // Delete connection
+  deleteConnection: (id: string) => api.delete(`/admin/geocass/connections/${id}`),
+
+  // Set as default
+  setDefault: (id: string) => api.post(`/admin/geocass/connections/${id}/default`),
+
+  // Sync to a specific connection or default
+  sync: (daemonLabel: string, connectionId?: string) =>
+    api.post(`/admin/geocass/sync/${daemonLabel}`, null, {
+      params: connectionId ? { connection_id: connectionId } : undefined,
+    }),
+
+  // Sync to all connections
+  syncAll: (daemonLabel: string) => api.post(`/admin/geocass/sync-all/${daemonLabel}`),
+
+  // Remove from GeoCass
+  removeFromGeoCass: (daemonLabel: string, connectionId?: string) =>
+    api.delete(`/admin/geocass/sync/${daemonLabel}`, {
+      params: connectionId ? { connection_id: connectionId } : undefined,
+    }),
+};
+
 // GeoCass Homepage API
 export const homepageApi = {
   // List all homepages
