@@ -2,10 +2,11 @@
 builder = "nixpacks"
 
 [build.nixpacks]
-# Install both Python and Node.js
+# Explicitly set providers to avoid dotnet auto-detection from godot-frontend
+providers = ["python", "node"]
 aptPkgs = ["ffmpeg"]  # For audio processing if needed
 
-# Build command: install Python deps, build frontend, then ready
+# Build command: install Python deps, build admin-frontend only
 buildCommand = """
 cd backend && pip install -r requirements.txt && cd .. && \
 cd admin-frontend && npm install && npm run build && cd ..
