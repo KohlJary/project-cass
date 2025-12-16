@@ -86,7 +86,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 3  # Bumped for research_schedules schema update
+SCHEMA_VERSION = 4  # Bumped for rhythm_records status/started_at columns
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -730,13 +730,15 @@ CREATE TABLE IF NOT EXISTS rhythm_records (
     daemon_id TEXT NOT NULL REFERENCES daemons(id),
     date TEXT NOT NULL,
     phase_id TEXT NOT NULL,
-    completed_at TEXT NOT NULL,
+    completed_at TEXT,
     session_id TEXT,
     session_type TEXT,
     duration_minutes INTEGER,
     summary TEXT,
     findings_json TEXT,
-    notes_created_json TEXT
+    notes_created_json TEXT,
+    status TEXT DEFAULT 'completed',
+    started_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_rhythm_date ON rhythm_records(daemon_id, date);
@@ -815,6 +817,18 @@ def _apply_schema_updates(conn, from_version: int):
         # Drop old research_schedules table (schema was incompatible)
         conn.execute("DROP TABLE IF EXISTS research_schedules")
         print("Dropped old research_schedules table for schema v3 migration")
+
+    # v3 -> v4: rhythm_records needs status and started_at columns
+    if from_version < 4:
+        # Check if columns exist before adding
+        cursor = conn.execute("PRAGMA table_info(rhythm_records)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'status' not in columns:
+            conn.execute("ALTER TABLE rhythm_records ADD COLUMN status TEXT DEFAULT 'completed'")
+            print("Added status column to rhythm_records")
+        if 'started_at' not in columns:
+            conn.execute("ALTER TABLE rhythm_records ADD COLUMN started_at TEXT")
+            print("Added started_at column to rhythm_records")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
