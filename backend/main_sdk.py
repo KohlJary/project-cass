@@ -214,19 +214,14 @@ response_processor = ResponseProcessor()
 user_manager = UserManager()
 self_model_graph = get_self_model_graph(DATA_DIR)
 _graph_stats = self_model_graph.get_stats()
+_needs_embedding_rebuild = False
+
 if _graph_stats['total_nodes'] == 0:
     print("  Self-model graph is empty, populating from existing data...")
     _populate_result = populate_self_model_graph(self_model_graph, verbose=False)
     print(f"  Self-model graph populated: {_populate_result['nodes']} nodes, "
           f"{_populate_result['edges']} edges")
-    # Build embeddings for newly populated graph
-    _embedded = self_model_graph.rebuild_embeddings()
-    print(f"  Built embeddings for {_embedded} nodes")
-    # Connect disconnected nodes via semantic similarity
-    _connect_result = self_model_graph.connect_disconnected_nodes(max_edges_per_node=3)
-    if _connect_result['edges_created'] > 0:
-        print(f"  Connected {_connect_result['nodes_connected']} nodes with "
-              f"{_connect_result['edges_created']} semantic edges")
+    _needs_embedding_rebuild = True
 else:
     print(f"  Self-model graph loaded: {_graph_stats['total_nodes']} nodes, "
           f"{_graph_stats['total_edges']} edges")
@@ -236,14 +231,8 @@ else:
         _connectable_count = len([n for n in self_model_graph._nodes.values()
                                   if n.node_type in self_model_graph.CONNECTABLE_TYPES])
         if _embedding_count < _connectable_count * 0.5:  # Less than half embedded
-            print(f"  Rebuilding node embeddings ({_embedding_count} < {_connectable_count})...")
-            _embedded = self_model_graph.rebuild_embeddings()
-            print(f"  Built embeddings for {_embedded} nodes")
-            # Connect any newly embeddable disconnected nodes
-            _connect_result = self_model_graph.connect_disconnected_nodes(max_edges_per_node=3)
-            if _connect_result['edges_created'] > 0:
-                print(f"  Connected {_connect_result['nodes_connected']} nodes with "
-                      f"{_connect_result['edges_created']} semantic edges")
+            print(f"  Embeddings need rebuild ({_embedding_count} < {_connectable_count}) - will run in background")
+            _needs_embedding_rebuild = True
 self_manager = SelfManager(graph_callback=self_model_graph)
 
 # Sync self-observations from file storage to ChromaDB for semantic search
@@ -772,6 +761,21 @@ async def startup_event():
         await generate_initial_identity_snippet(_daemon_id)
     except Exception as e:
         logger.error(f"Identity snippet generation failed: {e}")
+
+    # Rebuild embeddings in background if needed (deferred from startup)
+    if _needs_embedding_rebuild:
+        async def rebuild_embeddings_background():
+            await asyncio.sleep(5)  # Let server finish starting
+            logger.info("Background: Starting self-model embedding rebuild...")
+            try:
+                _embedded = self_model_graph.rebuild_embeddings()
+                logger.info(f"Background: Built embeddings for {_embedded} nodes")
+                _connect_result = self_model_graph.connect_disconnected_nodes(max_edges_per_node=3)
+                if _connect_result['edges_created'] > 0:
+                    logger.info(f"Background: Connected {_connect_result['nodes_connected']} nodes")
+            except Exception as e:
+                logger.error(f"Background embedding rebuild failed: {e}")
+        asyncio.create_task(rebuild_embeddings_background())
 
     # Start background task for daily journal generation
     asyncio.create_task(daily_journal_task())
