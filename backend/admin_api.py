@@ -4618,3 +4618,65 @@ async def get_usage_timeseries(
         "granularity": granularity,
         "data": series
     }
+
+
+# ============== Feedback ==============
+
+class FeedbackRequest(BaseModel):
+    heard_from: Optional[str] = None
+    message: Optional[str] = None
+
+
+@router.post("/feedback")
+async def submit_feedback(
+    request: FeedbackRequest,
+    current_user: Dict = Depends(require_auth)
+):
+    """Submit user feedback"""
+    from database import get_db
+
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO feedback (user_id, username, heard_from, message, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            current_user["user_id"],
+            current_user["display_name"],
+            request.heard_from,
+            request.message,
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+
+    return {"status": "ok", "message": "Thank you for your feedback!"}
+
+
+@router.get("/feedback")
+async def get_feedback(
+    admin: Dict = Depends(require_admin)
+):
+    """Get all feedback (admin only)"""
+    from database import get_db
+
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT id, user_id, username, heard_from, message, created_at
+            FROM feedback
+            ORDER BY created_at DESC
+        """)
+        rows = cursor.fetchall()
+
+    return {
+        "feedback": [
+            {
+                "id": row[0],
+                "user_id": row[1],
+                "username": row[2],
+                "heard_from": row[3],
+                "message": row[4],
+                "created_at": row[5]
+            }
+            for row in rows
+        ],
+        "count": len(rows)
+    }

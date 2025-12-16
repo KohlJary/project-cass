@@ -739,3 +739,10 @@ export const dreamsApi = {
   integrate: (dreamId: string, dryRun: boolean = false) =>
     api.post(`/dreams/${dreamId}/integrate`, { dry_run: dryRun }),
 };
+
+// Feedback API
+export const feedbackApi = {
+  submit: (data: { heard_from?: string; message?: string }) =>
+    api.post('/admin/feedback', data),
+  getAll: () => api.get('/admin/feedback'),
+};
