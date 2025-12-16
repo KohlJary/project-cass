@@ -1090,13 +1090,13 @@ def preview_daemon_import(input_path: Path) -> Dict[str, Any]:
 
 def list_seed_exports(seed_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """
-    List available .anima exports from seed folder.
+    List available .anima and .json (genesis) exports from seed folder.
 
     Args:
         seed_dir: Optional path to seed directory. Defaults to ../seed from backend.
 
     Returns:
-        List of export info dicts
+        List of export info dicts with 'type' field ('anima' or 'genesis')
     """
     if seed_dir is None:
         seed_dir = Path(__file__).parent.parent / "seed"
@@ -1105,12 +1105,15 @@ def list_seed_exports(seed_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
         return []
 
     exports = []
+
+    # List .anima files (full daemon exports)
     for file_path in seed_dir.glob(f"*{ANIMA_EXTENSION}"):
         try:
             preview = preview_daemon_import(file_path)
             exports.append({
                 "filename": file_path.name,
                 "path": str(file_path),
+                "type": "anima",
                 "size_bytes": file_path.stat().st_size,
                 "size_mb": round(file_path.stat().st_size / (1024 * 1024), 2),
                 **preview,
@@ -1120,12 +1123,42 @@ def list_seed_exports(seed_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
             exports.append({
                 "filename": file_path.name,
                 "path": str(file_path),
+                "type": "anima",
                 "size_bytes": file_path.stat().st_size,
                 "size_mb": round(file_path.stat().st_size / (1024 * 1024), 2),
                 "error": str(e),
             })
 
-    return sorted(exports, key=lambda x: x.get("exported_at", ""), reverse=True)
+    # List .json files (genesis exports)
+    for file_path in seed_dir.glob("*.json"):
+        try:
+            with open(file_path, 'r') as f:
+                json_data = json.load(f)
+            preview = preview_genesis_json(json_data)
+            daemon_info = preview.get("daemon", {})
+            exports.append({
+                "filename": file_path.name,
+                "path": str(file_path),
+                "type": "genesis",
+                "size_bytes": file_path.stat().st_size,
+                "size_kb": round(file_path.stat().st_size / 1024, 1),
+                "daemon_name": daemon_info.get("name"),
+                "daemon_label": daemon_info.get("label"),
+                "has_kernel_fragment": preview.get("has_kernel_fragment", False),
+                "would_create": preview.get("would_create", {}),
+                "conflicts": preview.get("conflicts", []),
+            })
+        except Exception as e:
+            logger.warning(f"Could not read genesis JSON {file_path}: {e}")
+            exports.append({
+                "filename": file_path.name,
+                "path": str(file_path),
+                "type": "genesis",
+                "size_bytes": file_path.stat().st_size,
+                "error": str(e),
+            })
+
+    return sorted(exports, key=lambda x: x.get("exported_at", x.get("daemon_name", "")), reverse=True)
 
 
 def delete_daemon(daemon_id: str, confirm: bool = False) -> Dict[str, Any]:

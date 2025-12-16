@@ -673,9 +673,13 @@ async def import_seed_daemon(
     skip_embeddings: bool = False,
     admin: Dict = Depends(require_admin)
 ):
-    """Import a daemon from a seed file by filename."""
-    from daemon_export import import_daemon, list_seed_exports
+    """Import a daemon from a seed file by filename.
+
+    Supports both .anima (full export) and .json (genesis) files.
+    """
+    from daemon_export import import_daemon, import_from_genesis_json, list_seed_exports
     from pathlib import Path
+    import json
 
     # Find the seed file
     exports = list_seed_exports()
@@ -688,11 +692,24 @@ async def import_seed_daemon(
         raise HTTPException(status_code=400, detail=f"Seed file has errors: {seed_file['error']}")
 
     try:
-        result = import_daemon(
-            Path(seed_file["path"]),
-            new_daemon_name=daemon_name,
-            skip_embeddings=skip_embeddings
-        )
+        file_type = seed_file.get("type", "anima")
+
+        if file_type == "genesis":
+            # Import genesis JSON
+            with open(seed_file["path"], 'r') as f:
+                json_data = json.load(f)
+            result = import_from_genesis_json(
+                json_data=json_data,
+                importing_user_id=admin["user_id"],
+                merge_existing=False
+            )
+        else:
+            # Import anima file
+            result = import_daemon(
+                Path(seed_file["path"]),
+                new_daemon_name=daemon_name,
+                skip_embeddings=skip_embeddings
+            )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
