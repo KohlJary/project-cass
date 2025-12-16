@@ -86,7 +86,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 2  # Bumped for new tables: research_tasks, research_task_history, research_proposals, token_usage_records, github_metrics, research_schedules
+SCHEMA_VERSION = 3  # Bumped for research_schedules schema update
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -566,19 +566,28 @@ CREATE INDEX IF NOT EXISTS idx_github_metrics_date ON github_metrics(daemon_id, 
 CREATE TABLE IF NOT EXISTS research_schedules (
     id TEXT PRIMARY KEY,
     daemon_id TEXT NOT NULL REFERENCES daemons(id),
-    name TEXT NOT NULL,
-    session_type TEXT NOT NULL,
-    model TEXT,
-    duration_minutes INTEGER DEFAULT 15,
-    cron_expression TEXT,
-    enabled INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending_approval',
+    requested_by TEXT NOT NULL,
+    focus_description TEXT NOT NULL,
+    focus_item_id TEXT,
+    session_type TEXT NOT NULL DEFAULT 'reflection',
+    recurrence TEXT DEFAULT 'once',
+    preferred_time TEXT,
+    duration_minutes INTEGER DEFAULT 30,
+    mode TEXT DEFAULT 'explore',
+    approved_by TEXT,
+    approved_at TEXT,
+    rejection_reason TEXT,
     last_run TEXT,
     next_run TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    run_count INTEGER DEFAULT 0,
+    last_session_id TEXT,
+    notes TEXT DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_research_schedules_daemon ON research_schedules(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_research_schedules_status ON research_schedules(status);
 
 -- Wiki pages
 CREATE TABLE IF NOT EXISTS wiki_pages (
@@ -801,7 +810,13 @@ def init_database():
 
 def _apply_schema_updates(conn, from_version: int):
     """Apply incremental schema updates."""
-    # For now, just re-run the full schema - CREATE IF NOT EXISTS is idempotent
+    # v2 -> v3: research_schedules table was completely redesigned
+    if from_version < 3:
+        # Drop old research_schedules table (schema was incompatible)
+        conn.execute("DROP TABLE IF EXISTS research_schedules")
+        print("Dropped old research_schedules table for schema v3 migration")
+
+    # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)
 
