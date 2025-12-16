@@ -13,6 +13,6 @@ buildCommand = "cd /app/admin-frontend && npm install && npm run build && ls -la
 [deploy]
 startCommand = "cd backend && python main_sdk.py"
 healthcheckPath = "/health"
-healthcheckTimeout = 300
+healthcheckTimeout = 600
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
