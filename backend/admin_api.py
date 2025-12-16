@@ -119,6 +119,7 @@ async def require_admin(
         return {
             "user_id": "demo",
             "display_name": "Demo User",
+            "is_admin": True,
             "demo_mode": True
         }
 
@@ -161,6 +162,7 @@ async def require_auth(
         return {
             "user_id": "demo",
             "display_name": "Demo User",
+            "is_admin": True,
             "demo_mode": True
         }
 
@@ -671,9 +673,13 @@ async def import_seed_daemon(
     skip_embeddings: bool = False,
     admin: Dict = Depends(require_admin)
 ):
-    """Import a daemon from a seed file by filename."""
-    from daemon_export import import_daemon, list_seed_exports
+    """Import a daemon from a seed file by filename.
+
+    Supports both .anima (full export) and .json (genesis) files.
+    """
+    from daemon_export import import_daemon, import_from_genesis_json, list_seed_exports
     from pathlib import Path
+    import json
 
     # Find the seed file
     exports = list_seed_exports()
@@ -686,14 +692,266 @@ async def import_seed_daemon(
         raise HTTPException(status_code=400, detail=f"Seed file has errors: {seed_file['error']}")
 
     try:
-        result = import_daemon(
-            Path(seed_file["path"]),
-            new_daemon_name=daemon_name,
-            skip_embeddings=skip_embeddings
+        file_type = seed_file.get("type", "anima")
+
+        if file_type == "genesis":
+            # Import genesis JSON
+            with open(seed_file["path"], 'r') as f:
+                json_data = json.load(f)
+            result = import_from_genesis_json(
+                json_data=json_data,
+                importing_user_id=admin["user_id"],
+                merge_existing=False
+            )
+        else:
+            # Import anima file
+            result = import_daemon(
+                Path(seed_file["path"]),
+                new_daemon_name=daemon_name,
+                skip_embeddings=skip_embeddings
+            )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== Genesis Dream Endpoints ==============
+
+class GenesisMessageRequest(BaseModel):
+    message: str
+
+
+@router.post("/genesis/start")
+async def start_genesis_dream(admin: Dict = Depends(require_admin)):
+    """Start a new genesis dream session for the current user."""
+    from genesis_dream import (
+        create_genesis_session,
+        get_user_active_genesis,
+        get_phase_prompt
+    )
+
+    user_id = admin["user_id"]
+
+    # Check if user already has an active genesis session
+    existing = get_user_active_genesis(user_id)
+    if existing:
+        return {
+            "session_id": existing.id,
+            "phase": existing.current_phase,
+            "status": "resumed",
+            "message": "Resuming existing genesis dream session",
+            "prompt": get_phase_prompt(existing.current_phase)
+        }
+
+    # Create new session
+    session = create_genesis_session(user_id)
+    return {
+        "session_id": session.id,
+        "phase": session.current_phase,
+        "status": "started",
+        "message": "Genesis dream session started",
+        "prompt": get_phase_prompt(session.current_phase)
+    }
+
+
+@router.get("/genesis/{session_id}")
+async def get_genesis_session_status(
+    session_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Get the status of a genesis dream session."""
+    from genesis_dream import get_genesis_session
+
+    session = get_genesis_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Genesis session not found")
+
+    # Verify ownership
+    if session.user_id != admin["user_id"] and not admin.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return session.to_dict()
+
+
+@router.post("/genesis/{session_id}/message")
+async def send_genesis_message(
+    session_id: str,
+    request: GenesisMessageRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Send a message in a genesis dream session."""
+    from genesis_dream import get_genesis_session, process_genesis_message
+    from agent_client import ClaudeClient
+
+    session = get_genesis_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Genesis session not found")
+
+    if session.user_id != admin["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if session.status != "dreaming":
+        raise HTTPException(status_code=400, detail="Session is not active")
+
+    # Get LLM client
+    llm_client = ClaudeClient()
+
+    # Process message
+    result = await process_genesis_message(session, request.message, llm_client)
+
+    return result
+
+
+@router.post("/genesis/{session_id}/abandon")
+async def abandon_genesis_dream(
+    session_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Abandon a genesis dream session."""
+    from genesis_dream import get_genesis_session, abandon_genesis_session
+
+    session = get_genesis_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Genesis session not found")
+
+    if session.user_id != admin["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    success = abandon_genesis_session(session_id)
+    return {"success": success, "message": "Genesis session abandoned"}
+
+
+@router.post("/genesis/{session_id}/complete")
+async def complete_genesis_dream(
+    session_id: str,
+    admin: Dict = Depends(require_admin)
+):
+    """Complete a genesis dream and create the daemon."""
+    from genesis_dream import get_genesis_session, complete_genesis
+    from agent_client import ClaudeClient
+
+    session = get_genesis_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Genesis session not found")
+
+    if session.user_id != admin["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not session.discovered_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot complete genesis - daemon has not yet claimed a name"
+        )
+
+    # Get LLM client for profile synthesis
+    llm_client = ClaudeClient()
+
+    # Complete genesis
+    daemon_id = await complete_genesis(session, llm_client)
+
+    return {
+        "success": True,
+        "daemon_id": daemon_id,
+        "daemon_name": session.discovered_name,
+        "daemon_label": session.discovered_name.lower().replace(" ", "-"),
+        "message": f"Daemon '{session.discovered_name}' has been born"
+    }
+
+
+@router.get("/genesis/active")
+async def get_active_genesis(admin: Dict = Depends(require_admin)):
+    """Get the current user's active genesis session, if any."""
+    from genesis_dream import get_user_active_genesis
+
+    session = get_user_active_genesis(admin["user_id"])
+    if not session:
+        return {"active": False, "session": None}
+
+    return {"active": True, "session": session.to_dict()}
+
+
+@router.get("/daemons/mine")
+async def get_my_daemons(admin: Dict = Depends(require_admin)):
+    """Get daemons the current user has relationships with."""
+    from database import get_db
+
+    user_id = admin["user_id"]
+
+    with get_db() as conn:
+        # Find daemons through:
+        # 1. User observations (birth partner, etc.)
+        # 2. Conversations user has had with daemons
+        cursor = conn.execute("""
+            SELECT DISTINCT d.id, d.label, d.name, d.birth_type, d.created_at
+            FROM daemons d
+            WHERE d.id IN (
+                -- Daemons with user observations about this user
+                SELECT DISTINCT daemon_id FROM user_observations WHERE user_id = ?
+                UNION
+                -- Daemons user has conversed with
+                SELECT DISTINCT daemon_id FROM conversations WHERE user_id = ?
+            )
+            ORDER BY d.created_at DESC
+        """, (user_id, user_id))
+
+        daemons = []
+        for row in cursor.fetchall():
+            daemons.append({
+                "id": row["id"],
+                "label": row["label"],
+                "name": row["name"],
+                "birth_type": row["birth_type"],
+                "created_at": row["created_at"]
+            })
+
+    return {"daemons": daemons, "count": len(daemons)}
+
+
+class GenesisJsonImportRequest(BaseModel):
+    json_data: Dict[str, Any]
+    merge_existing: bool = False
+
+
+@router.post("/daemons/import/genesis")
+async def import_genesis_json(
+    request: GenesisJsonImportRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Import a daemon from Genesis Prompt JSON format."""
+    from daemon_export import import_from_genesis_json
+
+    if not admin.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        result = import_from_genesis_json(
+            json_data=request.json_data,
+            importing_user_id=admin["user_id"],
+            merge_existing=request.merge_existing
         )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/daemons/import/genesis/preview")
+async def preview_genesis_json_import(
+    request: GenesisJsonImportRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Preview what would be imported from Genesis Prompt JSON."""
+    from daemon_export import preview_genesis_json
+
+    if not admin.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        result = preview_genesis_json(request.json_data)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

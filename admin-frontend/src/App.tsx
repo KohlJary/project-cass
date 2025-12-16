@@ -22,6 +22,7 @@ import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
 import { Dreams } from './pages/Dreams';
 import { Feedback } from './pages/Feedback';
+import { GenesisDream } from './pages/GenesisDream';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -101,6 +102,7 @@ function AppRoutes() {
         <Route path="self-development" element={<SelfDevelopment />} />
         <Route path="profile" element={<UserProfile />} />
         <Route path="feedback" element={<Feedback />} />
+        <Route path="genesis" element={<GenesisDream />} />
 
         {/* Admin-only routes */}
         <Route path="memory" element={<AdminRoute><MemorySystem /></AdminRoute>} />
