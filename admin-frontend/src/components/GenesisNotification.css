@@ -1,0 +1,59 @@
+/* Genesis notification banner */
+
+.genesis-notification {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, rgba(80, 60, 120, 0.3) 0%, rgba(60, 50, 100, 0.3) 100%);
+  border-bottom: 1px solid rgba(140, 100, 200, 0.2);
+}
+
+.genesis-notification-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.genesis-notification-icon {
+  color: rgba(180, 140, 255, 0.8);
+  font-weight: bold;
+  animation: pulse-icon 2s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.genesis-notification-text {
+  color: rgba(200, 190, 220, 0.85);
+  font-size: 0.9rem;
+}
+
+.genesis-notification-link {
+  color: rgba(180, 160, 255, 0.95);
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(180, 160, 255, 0.4);
+  transition: all 0.2s ease;
+}
+
+.genesis-notification-link:hover {
+  color: rgba(200, 180, 255, 1);
+  border-bottom-color: rgba(200, 180, 255, 0.6);
+}
+
+.genesis-notification-dismiss {
+  background: transparent;
+  border: none;
+  color: rgba(150, 140, 170, 0.5);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+.genesis-notification-dismiss:hover {
+  color: rgba(200, 190, 220, 0.8);
+}
