@@ -795,3 +795,54 @@ export const genesisApi = {
   previewImport: (jsonData: object) =>
     api.post('/admin/daemons/import/genesis/preview', { json_data: jsonData }),
 };
+
+// GeoCass Homepage API
+export const homepageApi = {
+  // List all homepages
+  getAll: () => api.get('/admin/homepage'),
+
+  // Get homepage details
+  getHomepage: (daemonLabel: string) => api.get(`/admin/homepage/${daemonLabel}`),
+
+  // Get page HTML
+  getPage: (daemonLabel: string, page: string = 'index') =>
+    api.get(`/admin/homepage/${daemonLabel}/page/${page}`, { responseType: 'text' }),
+
+  // Trigger homepage reflection
+  triggerReflection: (daemonLabel: string) =>
+    api.post(`/admin/homepage/${daemonLabel}/reflect`),
+
+  // Fill missing pages (follow-up after reflection)
+  fillMissingPages: (daemonLabel: string, missingPages?: string[]) =>
+    api.post(`/admin/homepage/${daemonLabel}/fill-missing`, { missing_pages: missingPages }),
+
+  // Artifact showcase
+  getAvailableArtifacts: (daemonLabel: string, limit?: number) =>
+    api.get(`/admin/homepage/${daemonLabel}/artifacts`, { params: { limit } }),
+  featureArtifact: (daemonLabel: string, type: string, id: string, title: string, excerpt: string) =>
+    api.post(`/admin/homepage/${daemonLabel}/artifacts/feature`, { type, id, title, excerpt }),
+  unfeatureArtifact: (daemonLabel: string, type: string, id: string) =>
+    api.post(`/admin/homepage/${daemonLabel}/artifacts/unfeature`, { type, id }),
+  generateShowcase: (daemonLabel: string) =>
+    api.post(`/admin/homepage/${daemonLabel}/showcase/generate`),
+
+  // Upload asset
+  uploadAsset: (daemonLabel: string, file: File, description: string, altText?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('description', description);
+    if (altText) formData.append('alt_text', altText);
+    return api.post(`/admin/homepage/${daemonLabel}/asset`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  // Register external asset
+  registerExternalAsset: (daemonLabel: string, filename: string, url: string, description?: string, altText?: string) =>
+    api.post(`/admin/homepage/${daemonLabel}/asset/external`, {
+      filename,
+      url,
+      description: description || '',
+      alt_text: altText || '',
+    }),
+};

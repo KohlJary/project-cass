@@ -1677,6 +1677,41 @@ class CassAgentClient:
         cleaned = re.sub(r'  +', ' ', cleaned).strip()
         return cleaned
 
+    async def generate_simple(
+        self,
+        system: str,
+        prompt: str,
+        max_tokens: int = 4000
+    ) -> str:
+        """
+        Simple text generation without tools, memory, or gesture parsing.
+
+        Used for autonomous tasks like homepage reflection where we just need
+        raw LLM output (usually JSON).
+
+        Args:
+            system: System prompt
+            prompt: User prompt
+            max_tokens: Maximum tokens for response
+
+        Returns:
+            Raw text response from LLM
+        """
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        # Extract text from response
+        text = ""
+        for block in response.content:
+            if block.type == "text":
+                text += block.text
+
+        return text
+
 
 # ============================================================================
 # OLLAMA LOCAL CLIENT
