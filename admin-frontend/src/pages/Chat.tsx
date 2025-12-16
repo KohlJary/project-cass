@@ -494,6 +494,30 @@ export function Chat() {
                   {memoryContext.has_context ? 'Yes' : 'No'}
                 </span>
               </div>
+              {/* Context sizes breakdown */}
+              {memoryContext.context_sizes && (
+                <details className="context-sizes">
+                  <summary>
+                    <span>Context breakdown</span>
+                    <span className="context-total">
+                      {Math.round((memoryContext.context_sizes.total || 0) / 1000)}k chars
+                    </span>
+                  </summary>
+                  <div className="context-sizes-list">
+                    {Object.entries(memoryContext.context_sizes)
+                      .filter(([key]) => key !== 'total')
+                      .sort(([, a], [, b]) => b - a)
+                      .map(([key, value]) => (
+                        <div key={key} className="context-size-row">
+                          <span className="context-size-label">{key}</span>
+                          <span className={`context-size-value ${value > 5000 ? 'large' : ''}`}>
+                            {value > 1000 ? `${Math.round(value / 1000)}k` : value}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </details>
+              )}
             </div>
           )}
 

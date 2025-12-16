@@ -704,6 +704,67 @@
   color: #c792ea;
 }
 
+/* Context sizes breakdown */
+.context-sizes {
+  margin-top: 0.5rem;
+  border-top: 1px solid #2a2a2a;
+  padding-top: 0.5rem;
+}
+
+.context-sizes summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: #888;
+  user-select: none;
+}
+
+.context-sizes summary:hover {
+  color: #aaa;
+}
+
+.context-sizes summary::marker {
+  color: #555;
+}
+
+.context-total {
+  font-family: 'JetBrains Mono', monospace;
+  color: #c792ea;
+}
+
+.context-sizes-list {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.context-size-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.65rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+}
+
+.context-size-label {
+  color: #666;
+  text-transform: capitalize;
+}
+
+.context-size-value {
+  font-family: 'JetBrains Mono', monospace;
+  color: #89ddff;
+}
+
+.context-size-value.large {
+  color: #f78c6c;
+  font-weight: 500;
+}
+
 /* Scrollbar for memory sidebar */
 .memory-sidebar-content::-webkit-scrollbar,
 .memory-section-items::-webkit-scrollbar {

@@ -27,6 +27,7 @@ interface MemoryContext {
   summaries_count: number;
   details_count: number;
   has_context: boolean;
+  context_sizes?: Record<string, number>;  // Character counts per source
 }
 
 export interface RecognitionMark {
