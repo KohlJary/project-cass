@@ -86,7 +86,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 5  # Added genesis_dreams table, daemon birth_type/genesis_dream_id
+SCHEMA_VERSION = 6  # Added activity_mode to daemons (active/dormant)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -106,7 +106,8 @@ CREATE TABLE IF NOT EXISTS daemons (
     name TEXT DEFAULT 'Cass',         -- Entity name for prompts (e.g., "Cass", "Aria")
     created_at TEXT NOT NULL,
     kernel_version TEXT,
-    status TEXT DEFAULT 'active'
+    status TEXT DEFAULT 'active',
+    activity_mode TEXT DEFAULT 'active'  -- 'active' (full temporal awareness) or 'dormant' (no daily rhythm)
 );
 
 -- Users
@@ -864,6 +865,14 @@ def _apply_schema_updates(conn, from_version: int):
     # (New table is created by SCHEMA_SQL, daemon columns by migrate_daemon_genesis)
     if from_version < 5:
         print("Adding genesis dream support (v5)")
+
+    # v5 -> v6: activity_mode column on daemons
+    if from_version < 6:
+        cursor = conn.execute("PRAGMA table_info(daemons)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'activity_mode' not in columns:
+            conn.execute("ALTER TABLE daemons ADD COLUMN activity_mode TEXT DEFAULT 'active'")
+            print("Added activity_mode column to daemons (v6)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data

@@ -18,11 +18,44 @@ def _get_dependencies():
     return memory, token_tracker, self_manager, user_manager
 
 
+def _get_daemon_activity_mode() -> str:
+    """Get the activity_mode of the active daemon."""
+    try:
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT activity_mode FROM daemons WHERE status = 'active' LIMIT 1"
+            )
+            row = cursor.fetchone()
+            return row["activity_mode"] if row and row["activity_mode"] else "active"
+    except Exception:
+        return "active"
+
+
+def _had_interaction_on_date(date) -> bool:
+    """Check if there were any conversations on a given date."""
+    try:
+        from database import get_db
+        date_str = date.isoformat()
+        with get_db() as conn:
+            cursor = conn.execute(
+                """SELECT COUNT(*) FROM messages
+                   WHERE DATE(created_at) = ? AND role = 'user'""",
+                (date_str,)
+            )
+            count = cursor.fetchone()[0]
+            return count > 0
+    except Exception:
+        return True  # Default to True to not skip on errors
+
+
 async def generate_missing_journals(days_to_check: int = 7):
     """
     Check for and generate any missing journal entries from recent days.
     Enhanced with per-user journals, opinion extraction, growth edge evaluation,
     open question reflection, and research integration.
+
+    For dormant daemons, only generates journals for days with user interaction.
 
     Phases:
     1. Main Journal - Daily reflection on conversations
@@ -41,6 +74,10 @@ async def generate_missing_journals(days_to_check: int = 7):
     """
     # Get dependencies at runtime
     memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
+    # Check activity mode
+    activity_mode = _get_daemon_activity_mode()
+    is_dormant = activity_mode == "dormant"
 
     # Import these functions which may also need dependencies
     from journal_tasks import _create_development_log_entry
@@ -109,6 +146,10 @@ async def generate_missing_journals(days_to_check: int = 7):
     for days_ago in range(1, days_to_check + 1):  # Start from yesterday
         check_date = today - timedelta(days=days_ago)
         date_str = check_date.strftime("%Y-%m-%d")
+
+        # For dormant daemons, skip days without user interaction
+        if is_dormant and not _had_interaction_on_date(check_date):
+            continue
 
         # Check if journal already exists (use cache if available)
         if _all_journals_cache is not None:

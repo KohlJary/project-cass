@@ -49,7 +49,21 @@ interface TimeSeriesPoint {
   value: number;
 }
 
-type TimeRange = '7d' | '14d' | 'custom';
+type TimeRange = '7d' | '14d' | 'all' | 'custom';
+
+interface AllTimeRepoStats {
+  [key: string]: {
+    repo: string;
+    clones_count: number;
+    clones_uniques: number;
+    views_count: number;
+    views_uniques: number;
+    stars: number;
+    forks: number;
+    watchers: number;
+    open_issues: number;
+  };
+}
 
 function filterByDateRange(
   data: DailyData[],
@@ -57,6 +71,11 @@ function filterByDateRange(
   customStartDate: string,
   customEndDate: string
 ): DailyData[] {
+  // 'all' means no filtering
+  if (timeRange === 'all') {
+    return data;
+  }
+
   const now = new Date();
   let startDate: Date;
   let endDate: Date;
@@ -143,6 +162,13 @@ export function GitHubMetricsTab() {
     refetchInterval: 300000,
   });
 
+  // All-time stats for repository breakdown
+  const { data: allTimeStats } = useQuery<AllTimeRepoStats>({
+    queryKey: ['github-alltime-stats'],
+    queryFn: () => githubApi.getAllTimeStats().then((r) => r.data),
+    refetchInterval: 300000,
+  });
+
   const refreshMutation = useMutation({
     mutationFn: () => githubApi.refresh(),
     onSuccess: () => {
@@ -150,6 +176,7 @@ export function GitHubMetricsTab() {
       queryClient.invalidateQueries({ queryKey: ['github-stats'] });
       queryClient.invalidateQueries({ queryKey: ['github-timeseries-clones'] });
       queryClient.invalidateQueries({ queryKey: ['github-timeseries-views'] });
+      queryClient.invalidateQueries({ queryKey: ['github-alltime-stats'] });
     },
   });
 
@@ -392,6 +419,7 @@ export function GitHubMetricsTab() {
                   <button className={`toggle-btn ${timeRange === '7d' ? 'active' : ''}`} onClick={() => setTimeRange('7d')}>7 Days</button>
                   <button className={`toggle-btn ${timeRange === '14d' ? 'active' : ''}`} onClick={() => setTimeRange('14d')}>14 Days</button>
                   <button className={`toggle-btn ${timeRange === 'custom' ? 'active' : ''}`} onClick={() => setTimeRange('custom')}>Custom</button>
+                  <button className={`toggle-btn ${timeRange === 'all' ? 'active' : ''}`} onClick={() => setTimeRange('all')}>All-Time</button>
                 </div>
                 <div className="chart-toggle">
                   <button className={`toggle-btn ${chartMetric === 'clones' ? 'active' : ''}`} onClick={() => setChartMetric('clones')}>Clones</button>
@@ -432,9 +460,9 @@ export function GitHubMetricsTab() {
           </div>
 
           <div className="repos-section">
-            <h3>Repository Breakdown</h3>
+            <h3>Repository Breakdown (All-Time)</h3>
             <div className="repos-grid">
-              {Object.entries(metrics?.repos ?? {})
+              {Object.entries(allTimeStats ?? metrics?.repos ?? {})
                 .filter(([repoName]) => selectedRepo === 'all' || repoName === selectedRepo)
                 .map(([repoName, repo]) => (
                 <div key={repoName} className="repo-card">
