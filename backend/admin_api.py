@@ -1569,7 +1569,7 @@ async def get_system_conversations(limit: int = Query(default=50, le=200)):
 @router.get("/conversations/{conversation_id}")
 async def get_conversation_detail(
     conversation_id: str,
-    admin: Dict = Depends(require_admin)
+    user: Dict = Depends(require_auth)
 ):
     """Get conversation details"""
     if not conversations:
@@ -1617,7 +1617,7 @@ async def assign_conversation_user(
 @router.get("/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
     conversation_id: str,
-    admin: Dict = Depends(require_admin)
+    user: Dict = Depends(require_auth)
 ):
     """Get all messages in a conversation"""
     from database import get_db
@@ -1690,6 +1690,57 @@ async def get_conversation_summaries(conversation_id: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/conversations/{conversation_id}/observations")
+async def get_conversation_observations(
+    conversation_id: str,
+    user: Dict = Depends(require_auth)
+):
+    """Get all observations (user and self) and marks made during a conversation"""
+    from users import UserManager
+    from self_model import SelfModelManager
+    from handlers.metacognitive import marker_store
+
+    user_manager = UserManager()
+    self_manager = SelfModelManager()
+
+    # Get user observations for this conversation (across all users)
+    user_observations = []
+    # Get the conversation to find its user_id
+    from database import get_db
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT user_id FROM conversations WHERE id = ?",
+            (conversation_id,)
+        )
+        row = cursor.fetchone()
+        if row and row["user_id"]:
+            all_user_obs = user_manager.load_observations(row["user_id"])
+            for obs in all_user_obs:
+                if obs.source_conversation_id == conversation_id:
+                    user_observations.append(obs.to_dict())
+
+    # Get self-observations for this conversation
+    self_observations = []
+    all_self_obs = self_manager.load_observations()
+    for obs in all_self_obs:
+        if obs.source_conversation_id == conversation_id:
+            self_observations.append(obs.to_dict())
+
+    # Get marks for this conversation
+    marks = []
+    if marker_store:
+        marks = marker_store.get_marks_by_conversation(conversation_id)
+
+    return {
+        "user_observations": user_observations,
+        "self_observations": self_observations,
+        "marks": marks,
+        "user_count": len(user_observations),
+        "self_count": len(self_observations),
+        "marks_count": len(marks)
+    }
 
 
 # ============== System Endpoints ==============
