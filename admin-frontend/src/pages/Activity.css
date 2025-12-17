@@ -236,6 +236,27 @@
   cursor: not-allowed;
 }
 
+.user-select {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  color: #c792ea;
+  padding: 0.375rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 150px;
+}
+
+.user-select:hover {
+  border-color: #c792ea40;
+}
+
+.user-select:focus {
+  outline: none;
+  border-color: #c792ea;
+}
+
 .detail-id {
   color: #666;
   font-family: var(--font-mono);

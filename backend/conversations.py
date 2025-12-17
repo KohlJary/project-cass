@@ -391,6 +391,26 @@ class ConversationManager:
 
         return True
 
+    def assign_to_user(
+        self,
+        conversation_id: str,
+        user_id: Optional[str]
+    ) -> bool:
+        """Assign a conversation to a user, or remove user assignment."""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM conversations WHERE id = ?",
+                (conversation_id,)
+            )
+            if not cursor.fetchone():
+                return False
+
+            conn.execute("""
+                UPDATE conversations SET user_id = ?, updated_at = ? WHERE id = ?
+            """, (user_id, datetime.now().isoformat(), conversation_id))
+
+        return True
+
     def list_by_project(
         self,
         project_id: Optional[str],

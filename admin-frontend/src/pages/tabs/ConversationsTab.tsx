@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { conversationsApi } from '../../api/client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { conversationsApi, usersApi } from '../../api/client';
 
 interface Message {
   id: string;
@@ -176,7 +176,13 @@ function downloadMarkdown(content: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+interface User {
+  id: string;
+  display_name: string;
+}
+
 export function ConversationsTab() {
+  const queryClient = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -194,6 +200,23 @@ export function ConversationsTab() {
     enabled: !!selectedConvId,
     retry: false,
   });
+
+  const { data: usersData } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => usersApi.getAll().then((r) => r.data),
+    retry: false,
+  });
+
+  const assignUserMutation = useMutation({
+    mutationFn: ({ convId, userId }: { convId: string; userId: string | null }) =>
+      conversationsApi.assignUser(convId, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['conversation', selectedConvId] });
+    },
+  });
+
+  const users: User[] = usersData?.users || [];
 
   const conversations = data?.conversations || [];
   const filteredConversations = searchQuery
@@ -313,6 +336,22 @@ export function ConversationsTab() {
                     </div>
                   </div>
                   <div className="detail-actions">
+                    <select
+                      className="user-select"
+                      value={convDetail.user_id || ''}
+                      onChange={(e) => {
+                        const userId = e.target.value || null;
+                        assignUserMutation.mutate({ convId: convDetail.id, userId });
+                      }}
+                      title="Assign to user"
+                    >
+                      <option value="">Unassigned</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.display_name || user.id}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       className="export-btn"
                       onClick={handleExport}
