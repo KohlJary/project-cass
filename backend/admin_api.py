@@ -1567,7 +1567,10 @@ async def get_system_conversations(limit: int = Query(default=50, le=200)):
 
 
 @router.get("/conversations/{conversation_id}")
-async def get_conversation_detail(conversation_id: str):
+async def get_conversation_detail(
+    conversation_id: str,
+    admin: Dict = Depends(require_admin)
+):
     """Get conversation details"""
     if not conversations:
         raise HTTPException(status_code=503, detail="Conversations not initialized")
