@@ -999,7 +999,8 @@ async def preview_genesis_json_import(
 async def get_memories(
     type: Optional[str] = None,
     limit: int = Query(default=50, le=500),
-    offset: int = 0
+    offset: int = 0,
+    user: Dict = Depends(require_auth)
 ):
     """Get all memories, optionally filtered by type"""
     if not memory:
@@ -1040,7 +1041,8 @@ async def get_memories(
 @router.get("/memory/search")
 async def search_memories(
     query: str,
-    limit: int = Query(default=10, le=50)
+    limit: int = Query(default=10, le=50),
+    user: Dict = Depends(require_auth)
 ):
     """Semantic search across memories"""
     if not memory:
@@ -1077,7 +1079,8 @@ async def search_memories(
 @router.get("/memory/vectors")
 async def get_memory_vectors(
     limit: int = Query(default=100, le=500),
-    type: Optional[str] = None
+    type: Optional[str] = None,
+    user: Dict = Depends(require_auth)
 ):
     """Get memory embeddings for visualization (2D projection via PCA)"""
     if not memory:
@@ -1200,7 +1203,7 @@ async def get_memory_stats(
 # ============== User Endpoints ==============
 
 @router.get("/users")
-async def get_all_users():
+async def get_all_users(user: Dict = Depends(require_auth)):
     """Get all users with observation counts"""
     if not users:
         raise HTTPException(status_code=503, detail="Users not initialized")
@@ -1230,7 +1233,7 @@ async def get_all_users():
 
 
 @router.get("/users/{user_id}")
-async def get_user_detail(user_id: str):
+async def get_user_detail(user_id: str, user: Dict = Depends(require_auth)):
     """Get detailed user profile and observations"""
     if not users:
         raise HTTPException(status_code=503, detail="Users not initialized")
@@ -1257,7 +1260,7 @@ async def get_user_detail(user_id: str):
 
 
 @router.get("/users/{user_id}/observations")
-async def get_user_observations(user_id: str):
+async def get_user_observations(user_id: str, user: Dict = Depends(require_auth)):
     """Get observations for a specific user"""
     if not users:
         raise HTTPException(status_code=503, detail="Users not initialized")
@@ -1273,7 +1276,7 @@ async def get_user_observations(user_id: str):
 
 
 @router.get("/users/{user_id}/model")
-async def get_user_model(user_id: str):
+async def get_user_model(user_id: str, user: Dict = Depends(require_auth)):
     """Get the structured user model for a specific user"""
     if not users:
         raise HTTPException(status_code=503, detail="Users not initialized")
@@ -1289,7 +1292,7 @@ async def get_user_model(user_id: str):
 
 
 @router.get("/users/{user_id}/relationship")
-async def get_relationship_model(user_id: str):
+async def get_relationship_model(user_id: str, user: Dict = Depends(require_auth)):
     """Get the relationship model for a specific user"""
     if not users:
         raise HTTPException(status_code=503, detail="Users not initialized")
@@ -1363,7 +1366,8 @@ async def set_user_password(
 @router.get("/journals")
 async def get_all_journals(
     daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
-    limit: int = Query(default=30, le=100)
+    limit: int = Query(default=30, le=100),
+    user: Dict = Depends(require_auth)
 ):
     """Get all journal entries"""
     from database import get_db
@@ -1401,7 +1405,8 @@ async def get_all_journals(
 @router.get("/journals/{date}")
 async def get_journal_by_date(
     date: str,
-    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID")
+    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
+    user: Dict = Depends(require_auth)
 ):
     """Get a specific journal entry by date"""
     from database import get_db
@@ -1439,7 +1444,8 @@ async def get_journal_by_date(
 async def get_journal_calendar(
     year: int = Query(...),
     month: int = Query(...),
-    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID")
+    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
+    user: Dict = Depends(require_auth)
 ):
     """Get journal dates for a specific month (for calendar view)"""
     from database import get_db
@@ -1473,7 +1479,8 @@ async def get_journal_calendar(
 async def get_all_conversations(
     user_id: Optional[str] = None,
     daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
-    limit: int = Query(default=50, le=200)
+    limit: int = Query(default=50, le=200),
+    user: Dict = Depends(require_auth)
 ):
     """Get all conversations"""
     from database import get_db
@@ -1509,7 +1516,7 @@ async def get_all_conversations(
 
 
 @router.get("/conversations/system")
-async def get_system_conversations(limit: int = Query(default=50, le=200)):
+async def get_system_conversations(limit: int = Query(default=50, le=200), user: Dict = Depends(require_auth)):
     """Get conversations from system users (like Daedalus).
 
     Returns conversations where user_id belongs to a user with relationship='system'.
@@ -1659,7 +1666,7 @@ async def get_conversation_messages(
 
 
 @router.get("/conversations/{conversation_id}/summaries")
-async def get_conversation_summaries(conversation_id: str):
+async def get_conversation_summaries(conversation_id: str, user: Dict = Depends(require_auth)):
     """Get summaries generated for a conversation"""
     if not memory:
         raise HTTPException(status_code=503, detail="Memory not initialized")
@@ -2071,7 +2078,7 @@ class StartSessionRequest(BaseModel):
 
 
 @router.get("/research/sessions/current")
-async def get_current_research_session():
+async def get_current_research_session(user: Dict = Depends(require_auth)):
     """Get the current research session status"""
     if not research_session_manager:
         raise HTTPException(status_code=503, detail="Research session manager not initialized")
@@ -2150,7 +2157,8 @@ async def stop_current_session(
 @router.get("/research/sessions")
 async def list_research_sessions(
     limit: int = Query(default=20, le=100),
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    user: Dict = Depends(require_auth)
 ):
     """List past research sessions"""
     if not research_session_manager:
@@ -2161,7 +2169,7 @@ async def list_research_sessions(
 
 
 @router.get("/research/sessions/stats")
-async def get_research_session_stats():
+async def get_research_session_stats(user: Dict = Depends(require_auth)):
     """Get aggregate research session statistics"""
     if not research_session_manager:
         raise HTTPException(status_code=503, detail="Research session manager not initialized")
@@ -2170,7 +2178,7 @@ async def get_research_session_stats():
 
 
 @router.get("/research/sessions/{session_id}")
-async def get_research_session(session_id: str):
+async def get_research_session(session_id: str, user: Dict = Depends(require_auth)):
     """Get a specific research session by ID"""
     if not research_session_manager:
         raise HTTPException(status_code=503, detail="Research session manager not initialized")
@@ -2191,7 +2199,7 @@ class StartSynthesisRequest(BaseModel):
 
 
 @router.get("/synthesis/status")
-async def get_synthesis_status():
+async def get_synthesis_status(user: Dict = Depends(require_auth)):
     """Get the current synthesis session status"""
     if not synthesis_runner_getter:
         raise HTTPException(status_code=503, detail="Synthesis runner not initialized")
@@ -2270,7 +2278,7 @@ async def stop_synthesis_session():
 
 
 @router.get("/synthesis/sessions")
-async def list_synthesis_sessions(limit: int = Query(default=20, le=100)):
+async def list_synthesis_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past synthesis sessions"""
     if not synthesis_runner_getter:
         raise HTTPException(status_code=503, detail="Synthesis runner not initialized")
@@ -2310,7 +2318,7 @@ class StartMetaReflectionRequest(BaseModel):
 
 
 @router.get("/meta-reflection/status")
-async def get_meta_reflection_status():
+async def get_meta_reflection_status(user: Dict = Depends(require_auth)):
     """Get the current meta-reflection session status"""
     if not meta_reflection_runner_getter:
         raise HTTPException(status_code=503, detail="Meta-reflection runner not initialized")
@@ -2386,7 +2394,7 @@ async def stop_meta_reflection_session():
 
 
 @router.get("/meta-reflection/sessions")
-async def list_meta_reflection_sessions(limit: int = Query(default=20, le=100)):
+async def list_meta_reflection_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past meta-reflection sessions"""
     if not meta_reflection_runner_getter:
         raise HTTPException(status_code=503, detail="Meta-reflection runner not initialized")
@@ -2439,7 +2447,7 @@ def init_consolidation_runner(getter):
 
 
 @router.get("/consolidation/status")
-async def get_consolidation_status():
+async def get_consolidation_status(user: Dict = Depends(require_auth)):
     """Get the current consolidation session status"""
     if not consolidation_runner_getter:
         raise HTTPException(status_code=503, detail="Consolidation runner not initialized")
@@ -2519,7 +2527,7 @@ async def stop_consolidation_session():
 
 
 @router.get("/consolidation/sessions")
-async def list_consolidation_sessions(limit: int = Query(default=20, le=100)):
+async def list_consolidation_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past consolidation sessions"""
     if not consolidation_runner_getter:
         raise HTTPException(status_code=503, detail="Consolidation runner not initialized")
@@ -2572,7 +2580,7 @@ def init_growth_edge_runner(getter):
 
 
 @router.get("/growth-edge/status")
-async def get_growth_edge_status():
+async def get_growth_edge_status(user: Dict = Depends(require_auth)):
     """Get the current growth edge work session status"""
     if not growth_edge_runner_getter:
         raise HTTPException(status_code=503, detail="Growth edge runner not initialized")
@@ -2648,7 +2656,7 @@ async def stop_growth_edge_session():
 
 
 @router.get("/growth-edge/sessions")
-async def list_growth_edge_sessions(limit: int = Query(default=20, le=100)):
+async def list_growth_edge_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past growth edge work sessions"""
     if not growth_edge_runner_getter:
         raise HTTPException(status_code=503, detail="Growth edge runner not initialized")
@@ -2699,7 +2707,7 @@ def init_writing_runner(getter):
 
 
 @router.get("/writing/status")
-async def get_writing_status():
+async def get_writing_status(user: Dict = Depends(require_auth)):
     """Get the current writing session status"""
     if not writing_runner_getter:
         raise HTTPException(status_code=503, detail="Writing runner not initialized")
@@ -2775,7 +2783,7 @@ async def stop_writing_session():
 
 
 @router.get("/writing/sessions")
-async def list_writing_sessions(limit: int = Query(default=20, le=100)):
+async def list_writing_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past writing sessions"""
     if not writing_runner_getter:
         raise HTTPException(status_code=503, detail="Writing runner not initialized")
@@ -2810,7 +2818,7 @@ async def list_writing_sessions(limit: int = Query(default=20, le=100)):
 
 
 @router.get("/writing/projects")
-async def list_writing_projects(status: str = "all", project_type: str = "all"):
+async def list_writing_projects(status: str = "all", project_type: str = "all", user: Dict = Depends(require_auth)):
     """List all writing projects"""
     if not writing_runner_getter:
         raise HTTPException(status_code=503, detail="Writing runner not initialized")
@@ -2864,7 +2872,7 @@ def init_knowledge_building_runner(getter):
 
 
 @router.get("/knowledge-building/status")
-async def get_knowledge_building_status():
+async def get_knowledge_building_status(user: Dict = Depends(require_auth)):
     """Get the current knowledge building session status"""
     if not knowledge_building_runner_getter:
         raise HTTPException(status_code=503, detail="Knowledge building runner not initialized")
@@ -2940,7 +2948,7 @@ async def stop_knowledge_building_session():
 
 
 @router.get("/knowledge-building/sessions")
-async def list_knowledge_building_sessions(limit: int = Query(default=20, le=100)):
+async def list_knowledge_building_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past knowledge building sessions"""
     if not knowledge_building_runner_getter:
         raise HTTPException(status_code=503, detail="Knowledge building runner not initialized")
@@ -2978,7 +2986,8 @@ async def list_knowledge_building_sessions(limit: int = Query(default=20, le=100
 async def list_reading_queue(
     status: str = "all",
     source_type: str = "all",
-    priority: str = "all"
+    priority: str = "all",
+    user: Dict = Depends(require_auth)
 ):
     """List all reading queue items"""
     if not knowledge_building_runner_getter:
@@ -3024,7 +3033,7 @@ def init_curiosity_runner(getter):
 
 
 @router.get("/curiosity/status")
-async def get_curiosity_status():
+async def get_curiosity_status(user: Dict = Depends(require_auth)):
     """Get the current curiosity session status"""
     if not curiosity_runner_getter:
         raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
@@ -3097,7 +3106,7 @@ async def stop_curiosity_session():
 
 
 @router.get("/curiosity/sessions")
-async def list_curiosity_sessions(limit: int = Query(default=20, le=100)):
+async def list_curiosity_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past curiosity sessions"""
     if not curiosity_runner_getter:
         raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
@@ -3149,7 +3158,7 @@ def init_world_state_runner(getter):
 
 
 @router.get("/world-state/status")
-async def get_world_state_status():
+async def get_world_state_status(user: Dict = Depends(require_auth)):
     """Get the current world state session status"""
     if not world_state_runner_getter:
         raise HTTPException(status_code=503, detail="World state runner not initialized")
@@ -3225,7 +3234,7 @@ async def stop_world_state_session():
 
 
 @router.get("/world-state/sessions")
-async def list_world_state_sessions(limit: int = Query(default=20, le=100)):
+async def list_world_state_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past world state sessions"""
     if not world_state_runner_getter:
         raise HTTPException(status_code=503, detail="World state runner not initialized")
@@ -3258,7 +3267,7 @@ async def list_world_state_sessions(limit: int = Query(default=20, le=100)):
 
 
 @router.get("/world-state/observations")
-async def list_world_observations(limit: int = Query(default=50, le=200)):
+async def list_world_observations(limit: int = Query(default=50, le=200), user: Dict = Depends(require_auth)):
     """List recent world observations"""
     if not world_state_runner_getter:
         raise HTTPException(status_code=503, detail="World state runner not initialized")
@@ -3293,7 +3302,7 @@ def init_creative_runner(getter):
 
 
 @router.get("/creative/status")
-async def get_creative_status():
+async def get_creative_status(user: Dict = Depends(require_auth)):
     """Get the current creative session status"""
     if not creative_runner_getter:
         raise HTTPException(status_code=503, detail="Creative runner not initialized")
@@ -3369,7 +3378,7 @@ async def stop_creative_session():
 
 
 @router.get("/creative/sessions")
-async def list_creative_sessions(limit: int = Query(default=20, le=100)):
+async def list_creative_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past creative sessions"""
     if not creative_runner_getter:
         raise HTTPException(status_code=503, detail="Creative runner not initialized")
@@ -3404,7 +3413,8 @@ async def list_creative_sessions(limit: int = Query(default=20, le=100)):
 @router.get("/creative/projects")
 async def list_creative_projects(
     status: str = "all",
-    medium: str = "all"
+    medium: str = "all",
+    user: Dict = Depends(require_auth)
 ):
     """List all creative projects"""
     if not creative_runner_getter:
@@ -3448,7 +3458,7 @@ def init_user_model_synthesis_runner(getter):
 
 
 @router.get("/user-model-synthesis/status")
-async def get_user_model_synthesis_status():
+async def get_user_model_synthesis_status(user: Dict = Depends(require_auth)):
     """Get the current user model synthesis session status"""
     if not user_model_synthesis_runner_getter:
         raise HTTPException(status_code=503, detail="User model synthesis runner not initialized")
@@ -3513,7 +3523,7 @@ async def stop_user_model_synthesis_session():
 
 
 @router.get("/user-model-synthesis/sessions")
-async def list_user_model_synthesis_sessions(limit: int = Query(default=20, le=100)):
+async def list_user_model_synthesis_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
     """List past user model synthesis sessions"""
     if not user_model_synthesis_runner_getter:
         raise HTTPException(status_code=503, detail="User model synthesis runner not initialized")
