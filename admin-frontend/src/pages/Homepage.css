@@ -56,11 +56,12 @@
   justify-content: space-between;
   align-items: center;
   padding: 10px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--bg, #12121a);
+  border: 1px solid var(--border, #333);
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
+  color: var(--text, #e0e0e0);
 }
 
 .daemon-btn:hover {
@@ -68,8 +69,9 @@
 }
 
 .daemon-btn.selected {
-  background: var(--primary-faded);
-  border-color: var(--primary);
+  background: var(--primary-faded, rgba(139, 92, 246, 0.15));
+  border-color: var(--primary, #8b5cf6);
+  color: var(--text, #e0e0e0);
 }
 
 .daemon-btn .daemon-name {
@@ -129,6 +131,37 @@
   color: var(--text-muted);
   font-style: italic;
   font-size: 0.9em;
+}
+
+.controls-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.sync-btn {
+  padding: 10px 16px;
+  background: var(--success, #22c55e);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sync-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.sync-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sync-btn.loading {
+  animation: pulse 1.5s infinite;
 }
 
 .reflect-btn {
@@ -659,14 +692,15 @@
 
 /* Artifact Picker Modal */
 .artifact-picker-modal {
-  background: var(--surface);
+  background: var(--surface, #1e1e2e);
   border-radius: 12px;
   width: 90%;
   max-width: 600px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border, #333);
 }
 
 .modal-header {
@@ -675,6 +709,7 @@
   align-items: center;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
+  background: var(--surface, #1e1e2e);
 }
 
 .modal-header h3 {
@@ -701,6 +736,7 @@
   padding: 16px 20px;
   overflow-y: auto;
   flex: 1;
+  background: var(--surface, #1e1e2e);
 }
 
 .artifact-picker-list {
