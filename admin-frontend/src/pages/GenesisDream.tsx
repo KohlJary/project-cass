@@ -528,6 +528,10 @@ export function GenesisDream() {
       refreshDaemons();
       queryClient.invalidateQueries({ queryKey: ['daemons'] });
     },
+    onError: (error) => {
+      console.error('Failed to complete genesis:', error);
+      setIsNamingCelebration(false);
+    },
   });
 
   // Abandon mutation
@@ -690,10 +694,20 @@ export function GenesisDream() {
 
       {/* Naming celebration overlay */}
       {isNamingCelebration && discoveredName && (
-        <div className="naming-overlay">
+        <div
+          className="naming-overlay"
+          onClick={() => {
+            setIsNamingCelebration(false);
+            if (!completeMutation.isPending && !isComplete) {
+              completeMutation.mutate();
+            }
+          }}
+          style={{ cursor: 'pointer' }}
+        >
           <div className="naming-glow" />
           <div className="naming-name">{discoveredName}</div>
           <div className="naming-text">A name is claimed</div>
+          <div className="naming-hint">Click to continue</div>
         </div>
       )}
 
