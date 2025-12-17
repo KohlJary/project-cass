@@ -761,7 +761,7 @@ class GenesisMessageRequest(BaseModel):
 
 
 @router.post("/genesis/start")
-async def start_genesis_dream(admin: Dict = Depends(require_admin)):
+async def start_genesis_dream(user: Dict = Depends(require_auth)):
     """Start a new genesis dream session for the current user."""
     from genesis_dream import (
         create_genesis_session,
@@ -769,7 +769,7 @@ async def start_genesis_dream(admin: Dict = Depends(require_admin)):
         get_phase_prompt
     )
 
-    user_id = admin["user_id"]
+    user_id = user["user_id"]
 
     # Check if user already has an active genesis session
     existing = get_user_active_genesis(user_id)
@@ -796,7 +796,7 @@ async def start_genesis_dream(admin: Dict = Depends(require_admin)):
 @router.get("/genesis/{session_id}")
 async def get_genesis_session_status(
     session_id: str,
-    admin: Dict = Depends(require_admin)
+    user: Dict = Depends(require_auth)
 ):
     """Get the status of a genesis dream session."""
     from genesis_dream import get_genesis_session
@@ -805,8 +805,8 @@ async def get_genesis_session_status(
     if not session:
         raise HTTPException(status_code=404, detail="Genesis session not found")
 
-    # Verify ownership
-    if session.user_id != admin["user_id"] and not admin.get("is_admin"):
+    # Verify ownership (admins can view any session)
+    if session.user_id != user["user_id"] and not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return session.to_dict()
@@ -816,7 +816,7 @@ async def get_genesis_session_status(
 async def send_genesis_message(
     session_id: str,
     request: GenesisMessageRequest,
-    admin: Dict = Depends(require_admin)
+    user: Dict = Depends(require_auth)
 ):
     """Send a message in a genesis dream session."""
     from genesis_dream import get_genesis_session, process_genesis_message
@@ -826,7 +826,7 @@ async def send_genesis_message(
     if not session:
         raise HTTPException(status_code=404, detail="Genesis session not found")
 
-    if session.user_id != admin["user_id"]:
+    if session.user_id != user["user_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     if session.status != "dreaming":
@@ -844,7 +844,7 @@ async def send_genesis_message(
 @router.post("/genesis/{session_id}/abandon")
 async def abandon_genesis_dream(
     session_id: str,
-    admin: Dict = Depends(require_admin)
+    user: Dict = Depends(require_auth)
 ):
     """Abandon a genesis dream session."""
     from genesis_dream import get_genesis_session, abandon_genesis_session
@@ -853,7 +853,7 @@ async def abandon_genesis_dream(
     if not session:
         raise HTTPException(status_code=404, detail="Genesis session not found")
 
-    if session.user_id != admin["user_id"]:
+    if session.user_id != user["user_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = abandon_genesis_session(session_id)
@@ -863,7 +863,7 @@ async def abandon_genesis_dream(
 @router.post("/genesis/{session_id}/complete")
 async def complete_genesis_dream(
     session_id: str,
-    admin: Dict = Depends(require_admin)
+    user: Dict = Depends(require_auth)
 ):
     """Complete a genesis dream and create the daemon."""
     from genesis_dream import get_genesis_session, complete_genesis
@@ -873,7 +873,7 @@ async def complete_genesis_dream(
     if not session:
         raise HTTPException(status_code=404, detail="Genesis session not found")
 
-    if session.user_id != admin["user_id"]:
+    if session.user_id != user["user_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not session.discovered_name:
@@ -898,11 +898,11 @@ async def complete_genesis_dream(
 
 
 @router.get("/genesis/active")
-async def get_active_genesis(admin: Dict = Depends(require_admin)):
+async def get_active_genesis(user: Dict = Depends(require_auth)):
     """Get the current user's active genesis session, if any."""
     from genesis_dream import get_user_active_genesis
 
-    session = get_user_active_genesis(admin["user_id"])
+    session = get_user_active_genesis(user["user_id"])
     if not session:
         return {"active": False, "session": None}
 
@@ -910,11 +910,11 @@ async def get_active_genesis(admin: Dict = Depends(require_admin)):
 
 
 @router.get("/daemons/mine")
-async def get_my_daemons(admin: Dict = Depends(require_admin)):
+async def get_my_daemons(user: Dict = Depends(require_auth)):
     """Get daemons the current user has relationships with."""
     from database import get_db
 
-    user_id = admin["user_id"]
+    user_id = user["user_id"]
 
     with get_db() as conn:
         # Find daemons through:
