@@ -86,7 +86,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 6  # Added activity_mode to daemons (active/dormant)
+SCHEMA_VERSION = 7  # Added attachments table for message file/image storage
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -164,6 +164,21 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+
+-- Attachments (files/images associated with messages)
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT REFERENCES conversations(id),
+    message_id INTEGER REFERENCES messages(id),
+    filename TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    is_image INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_conversation ON attachments(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
 
 -- Projects (shared across all daemons - no daemon_id)
 CREATE TABLE IF NOT EXISTS projects (
@@ -874,6 +889,10 @@ def _apply_schema_updates(conn, from_version: int):
             conn.execute("ALTER TABLE daemons ADD COLUMN activity_mode TEXT DEFAULT 'active'")
             print("Added activity_mode column to daemons (v6)")
 
+    # v6 -> v7: attachments table (created by SCHEMA_SQL)
+    if from_version < 7:
+        print("Adding attachments table for message file/image storage (v7)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)
@@ -1162,6 +1181,90 @@ def get_daemon_entity_name(daemon_id: str) -> str:
     """Get the entity name for a daemon (used in system prompts)."""
     info = get_daemon_info(daemon_id)
     return info["name"] if info else "Cass"
+
+
+# =============================================================================
+# ATTACHMENT FUNCTIONS
+# =============================================================================
+
+def save_attachment(metadata) -> None:
+    """Save attachment metadata to database."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO attachments (id, conversation_id, message_id, filename, media_type, size, is_image, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                metadata.id,
+                metadata.conversation_id,
+                metadata.message_id,
+                metadata.filename,
+                metadata.media_type,
+                metadata.size,
+                1 if metadata.is_image else 0,
+                metadata.created_at,
+            )
+        )
+
+
+def get_attachment(attachment_id: str):
+    """Get attachment metadata by ID."""
+    from attachments import AttachmentMetadata
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT id, conversation_id, message_id, filename, media_type, size, is_image, created_at FROM attachments WHERE id = ?",
+            (attachment_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return AttachmentMetadata(
+                id=row[0],
+                conversation_id=row[1],
+                message_id=row[2],
+                filename=row[3],
+                media_type=row[4],
+                size=row[5],
+                is_image=bool(row[6]),
+                created_at=row[7],
+            )
+        return None
+
+
+def update_attachment_message(attachment_id: str, message_id: int) -> None:
+    """Link an attachment to a message."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE attachments SET message_id = ? WHERE id = ?",
+            (message_id, attachment_id)
+        )
+
+
+def delete_attachment(attachment_id: str) -> None:
+    """Delete attachment metadata from database."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM attachments WHERE id = ?", (attachment_id,))
+
+
+def get_attachments_for_message(message_id: int) -> list:
+    """Get all attachments for a message."""
+    from attachments import AttachmentMetadata
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT id, conversation_id, message_id, filename, media_type, size, is_image, created_at FROM attachments WHERE message_id = ?",
+            (message_id,)
+        )
+        return [
+            AttachmentMetadata(
+                id=row[0],
+                conversation_id=row[1],
+                message_id=row[2],
+                filename=row[3],
+                media_type=row[4],
+                size=row[5],
+                is_image=bool(row[6]),
+                created_at=row[7],
+            )
+            for row in cursor.fetchall()
+        ]
 
 
 if __name__ == "__main__":

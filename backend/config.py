@@ -169,3 +169,9 @@ TMUX_SOCKET = os.getenv("TMUX_SOCKET")
 # When enabled, admin dashboard requires no authentication (read-only browsing)
 # Set DEMO_MODE=true in .env or environment to enable
 DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
+
+# Attachment Storage Mode
+# When enabled, attachments are stored in temp directory and cleaned up on session disconnect
+# Use for demo sites where you don't want to persist user uploads
+# Set ATTACHMENTS_SESSION_ONLY=true in .env or environment to enable
+ATTACHMENTS_SESSION_ONLY = os.getenv("ATTACHMENTS_SESSION_ONLY", "false").lower() == "true"
