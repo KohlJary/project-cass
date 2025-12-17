@@ -518,7 +518,7 @@ async def complete_genesis(
     Returns the new daemon_id.
     """
     from database import get_or_create_daemon, get_db
-    from self_model import SelfModelManager
+    from self_model import SelfManager
 
     if not session.discovered_name:
         raise ValueError("Cannot complete genesis without a discovered name")
@@ -547,7 +547,7 @@ async def complete_genesis(
     profile_data = await synthesize_profile(session, llm_client)
 
     # Seed self-model
-    self_manager = SelfModelManager(daemon_id)
+    self_manager = SelfManager(daemon_id)
     if profile_data.get("identity_statements"):
         for stmt in profile_data["identity_statements"]:
             self_manager.add_identity_statement(
