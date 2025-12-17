@@ -820,7 +820,7 @@ async def send_genesis_message(
 ):
     """Send a message in a genesis dream session."""
     from genesis_dream import get_genesis_session, process_genesis_message
-    from agent_client import ClaudeClient
+    from agent_client import CassClient
 
     session = get_genesis_session(session_id)
     if not session:
@@ -833,7 +833,7 @@ async def send_genesis_message(
         raise HTTPException(status_code=400, detail="Session is not active")
 
     # Get LLM client
-    llm_client = ClaudeClient()
+    llm_client = CassClient()
 
     # Process message
     result = await process_genesis_message(session, request.message, llm_client)
@@ -867,7 +867,7 @@ async def complete_genesis_dream(
 ):
     """Complete a genesis dream and create the daemon."""
     from genesis_dream import get_genesis_session, complete_genesis
-    from agent_client import ClaudeClient
+    from agent_client import CassClient
 
     session = get_genesis_session(session_id)
     if not session:
@@ -883,7 +883,7 @@ async def complete_genesis_dream(
         )
 
     # Get LLM client for profile synthesis
-    llm_client = ClaudeClient()
+    llm_client = CassClient()
 
     # Complete genesis
     daemon_id = await complete_genesis(session, llm_client)
