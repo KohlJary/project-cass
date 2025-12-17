@@ -502,27 +502,32 @@ async def list_daemons(user: Dict = Depends(require_auth)):
 
 @router.get("/daemons/mine")
 async def get_my_daemons(user: Dict = Depends(require_auth)):
-    """Get daemons the current user has relationships with."""
+    """Get daemons available to the current user: Cass + their genesis daemons."""
     from database import get_db
 
     user_id = user["user_id"]
 
     with get_db() as conn:
-        # Find daemons through:
-        # 1. User observations (birth partner, etc.)
-        # 2. Conversations user has had with daemons
+        # Always include Cass (label='cass') and user's own daemons
         cursor = conn.execute("""
-            SELECT DISTINCT d.id, d.label, d.name, d.birth_type, d.created_at
+            SELECT DISTINCT d.id, d.label, d.name, d.birth_type, d.created_at,
+                   d.kernel_version, d.status, d.activity_mode
             FROM daemons d
-            WHERE d.id IN (
-                -- Daemons with user observations about this user
-                SELECT DISTINCT daemon_id FROM user_observations WHERE user_id = ?
-                UNION
-                -- Daemons user has conversed with
-                SELECT DISTINCT daemon_id FROM conversations WHERE user_id = ?
-            )
-            ORDER BY d.created_at DESC
-        """, (user_id, user_id))
+            WHERE d.label = 'cass'  -- Always include Cass
+               OR d.id IN (
+                   -- Daemons with user observations about this user
+                   SELECT DISTINCT daemon_id FROM user_observations WHERE user_id = ?
+                   UNION
+                   -- Daemons user has conversed with
+                   SELECT DISTINCT daemon_id FROM conversations WHERE user_id = ?
+                   UNION
+                   -- Daemons user created via genesis
+                   SELECT DISTINCT d2.id FROM daemons d2
+                   JOIN genesis_dreams g ON g.id = d2.genesis_dream_id
+                   WHERE g.user_id = ?
+               )
+            ORDER BY CASE WHEN d.label = 'cass' THEN 0 ELSE 1 END, d.created_at DESC
+        """, (user_id, user_id, user_id))
 
         daemons = []
         for row in cursor.fetchall():
@@ -531,7 +536,10 @@ async def get_my_daemons(user: Dict = Depends(require_auth)):
                 "label": row["label"],
                 "name": row["name"],
                 "birth_type": row["birth_type"],
-                "created_at": row["created_at"]
+                "created_at": row["created_at"],
+                "kernel_version": row["kernel_version"],
+                "status": row["status"],
+                "activity_mode": row["activity_mode"],
             })
 
     return {"daemons": daemons, "count": len(daemons)}

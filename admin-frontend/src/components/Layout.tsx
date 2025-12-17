@@ -44,27 +44,25 @@ export function Layout() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <h1>Cass Admin</h1>
-          {isAdmin && (
-            <div className="daemon-selector">
-              {daemonLoading ? (
-                <span className="daemon-loading">Loading...</span>
-              ) : availableDaemons.length > 1 ? (
-                <select
-                  value={currentDaemon?.id || ''}
-                  onChange={(e) => setDaemon(e.target.value)}
-                  className="daemon-select"
-                >
-                  {availableDaemons.map((daemon) => (
-                    <option key={daemon.id} value={daemon.id}>
-                      {daemon.label} ({daemon.name})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="daemon-name">{currentDaemon?.label || currentDaemon?.name || 'No daemon'}</span>
-              )}
-            </div>
-          )}
+          <div className="daemon-selector">
+            {daemonLoading ? (
+              <span className="daemon-loading">Loading...</span>
+            ) : availableDaemons.length > 1 ? (
+              <select
+                value={currentDaemon?.id || ''}
+                onChange={(e) => setDaemon(e.target.value)}
+                className="daemon-select"
+              >
+                {availableDaemons.map((daemon) => (
+                  <option key={daemon.id} value={daemon.id}>
+                    {daemon.label} ({daemon.name})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="daemon-name">{currentDaemon?.label || currentDaemon?.name || 'No daemon'}</span>
+            )}
+          </div>
         </div>
         <nav className="nav">
           {navItems.map((item) => (

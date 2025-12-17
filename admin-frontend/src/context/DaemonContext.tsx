@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { useAuth } from './AuthContext';
 
 export interface Daemon {
   id: string;
@@ -32,11 +33,14 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
 
   const fetchDaemons = useCallback(async () => {
     try {
       setError(null);
-      const response = await api.get('/admin/daemons');
+      // Admins see all daemons, non-admins see Cass + their own daemons
+      const endpoint = isAdmin ? '/admin/daemons' : '/admin/daemons/mine';
+      const response = await api.get(endpoint);
       const daemons: Daemon[] = response.data.daemons;
       setAvailableDaemons(daemons);
 
@@ -57,9 +61,9 @@ export function DaemonProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
-  // Load daemons on mount
+  // Load daemons on mount and when admin status changes
   useEffect(() => {
     fetchDaemons();
   }, [fetchDaemons]);
