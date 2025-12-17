@@ -48,12 +48,8 @@ class SummaryManager:
             Dict with 'should_summarize', 'reason', and 'confidence'
         """
         if not OLLAMA_ENABLED:
-            # If no local LLM, default to allowing summarization
-            return {
-                "should_summarize": True,
-                "reason": "Local LLM not available, using threshold-based trigger",
-                "confidence": 0.5
-            }
+            # Fall back to Haiku for evaluation
+            return await self._evaluate_with_haiku(messages)
 
         if not messages:
             return {
@@ -137,6 +133,93 @@ Respond with ONLY a JSON object (no other text):
                 "should_summarize": True,
                 "reason": f"Evaluation error: {str(e)[:50]}",
                 "confidence": 0.3
+            }
+
+    async def _evaluate_with_haiku(self, messages: List[Dict]) -> Dict:
+        """
+        Fallback evaluation using Claude Haiku when local LLM is not available.
+        """
+        import anthropic
+        import os
+        import json
+        import re
+
+        if not messages:
+            return {
+                "should_summarize": False,
+                "reason": "No messages to evaluate",
+                "confidence": 1.0
+            }
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            # If no API key either, fall back to threshold-based
+            return {
+                "should_summarize": True,
+                "reason": "No LLM available for evaluation, using threshold-based trigger",
+                "confidence": 0.5
+            }
+
+        # Format messages for evaluation
+        messages_text = "\n\n".join([
+            f"[{msg.get('role', 'unknown')}]: {msg.get('content', '')[:500]}"
+            for msg in messages[-10:]  # Only look at recent messages for evaluation
+        ])
+
+        prompt = f"""Review these recent conversation messages and determine if this is a good moment to consolidate memories into a summary.
+
+Good breakpoints for memory consolidation include:
+- Completing a significant topic, task, or decision
+- Reaching a natural pause or transition in conversation
+- Important context that should be preserved before moving on
+- Before shifting to an unrelated topic
+- After a meaningful exchange worth remembering
+
+Poor times to summarize:
+- Mid-discussion of an active topic
+- When context is still building
+- During rapid back-and-forth exchanges
+- When the conversation feels incomplete
+
+Recent messages:
+{messages_text}
+
+Respond with ONLY a JSON object (no other text):
+{{"should_summarize": true/false, "reason": "brief 1-sentence explanation", "confidence": 0.0-1.0}}"""
+
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=SUMMARIZER_MODEL_HAIKU,
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            result_text = response.content[0].text.strip()
+
+            # Parse JSON from response
+            json_match = re.search(r'\{[^}]+\}', result_text)
+            if json_match:
+                result = json.loads(json_match.group())
+                return {
+                    "should_summarize": bool(result.get("should_summarize", False)),
+                    "reason": str(result.get("reason", "No reason provided")),
+                    "confidence": float(result.get("confidence", 0.5))
+                }
+            else:
+                print(f"Could not parse JSON from Haiku evaluation: {result_text[:200]}")
+                return {
+                    "should_summarize": True,
+                    "reason": "Failed to parse evaluation, proceeding with summarization",
+                    "confidence": 0.6
+                }
+
+        except Exception as e:
+            print(f"Error in Haiku evaluation fallback: {e}")
+            return {
+                "should_summarize": True,
+                "reason": f"Haiku evaluation error: {str(e)[:50]}",
+                "confidence": 0.4
             }
 
     async def generate_summary_chunk(
