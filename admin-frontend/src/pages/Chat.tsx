@@ -160,6 +160,14 @@ export function Chat() {
           category: o.category,
           confidence: o.confidence,
         })),
+        // New tag types - initialize as empty until backend API supports them
+        holds: [],
+        notes: [],
+        intentions: [],
+        stakes: [],
+        tests: [],
+        narrations: [],
+        milestones: [],
       });
     }
   }, [observationsData, setRecognition]);
@@ -722,7 +730,11 @@ export function Chat() {
           <div className="recognition-section">
             <div className="recognition-header">
               <span className="recognition-title">Recognition-in-Flow</span>
-              {(recognition.marks.length > 0 || recognition.selfObservations.length > 0 || recognition.userObservations.length > 0) && (
+              {(recognition.marks.length > 0 || recognition.selfObservations.length > 0 ||
+                recognition.userObservations.length > 0 || recognition.holds.length > 0 ||
+                recognition.notes.length > 0 || recognition.intentions.length > 0 ||
+                recognition.stakes.length > 0 || recognition.tests.length > 0 ||
+                recognition.narrations.length > 0 || recognition.milestones.length > 0) && (
                 <button className="recognition-clear-btn" onClick={clearRecognition} title="Clear markers">
                   ×
                 </button>
@@ -732,7 +744,7 @@ export function Chat() {
             {/* Marks */}
             <div className="recognition-subsection">
               <div className="recognition-subsection-header">
-                <span>Marks</span>
+                <span>📍 Marks</span>
                 <span className="recognition-count">{recognition.marks.length}</span>
               </div>
               <div className="recognition-items">
@@ -752,7 +764,7 @@ export function Chat() {
             {/* Self-Observations */}
             <div className="recognition-subsection">
               <div className="recognition-subsection-header">
-                <span>Self-Observations</span>
+                <span>🔍 Self-Observations</span>
                 <span className="recognition-count">{recognition.selfObservations.length}</span>
               </div>
               <div className="recognition-items">
@@ -773,7 +785,7 @@ export function Chat() {
             {/* User Observations */}
             <div className="recognition-subsection">
               <div className="recognition-subsection-header">
-                <span>User Observations</span>
+                <span>👤 User Observations</span>
                 <span className="recognition-count">{recognition.userObservations.length}</span>
               </div>
               <div className="recognition-items">
@@ -787,6 +799,167 @@ export function Chat() {
                   ))
                 ) : (
                   <div className="recognition-empty">No user observations yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Holds */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>💭 Holds</span>
+                <span className="recognition-count">{recognition.holds.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.holds.length > 0 ? (
+                  recognition.holds.slice().reverse().map((hold, idx) => (
+                    <div key={idx} className="recognition-item hold">
+                      <span className="recognition-category">
+                        [{hold.is_identity ? 'identity' : hold.differ_user ? `differ:${hold.differ_user}` : hold.topic || 'opinion'}]
+                      </span>
+                      <span className="recognition-confidence">({Math.round(hold.confidence * 100)}%)</span>
+                      <span className="recognition-text">{hold.content}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No holds yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>📝 Notes</span>
+                <span className="recognition-count">{recognition.notes.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.notes.length > 0 ? (
+                  recognition.notes.slice().reverse().map((note, idx) => (
+                    <div key={idx} className={`recognition-item note note-${note.type}`}>
+                      <span className="recognition-category">[{note.type}]</span>
+                      {note.user && <span className="recognition-user">{note.user}</span>}
+                      {note.significance && <span className="recognition-meta">{note.significance}</span>}
+                      {note.valence && <span className="recognition-meta">{note.valence}</span>}
+                      <span className="recognition-text">{note.content}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No notes yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Intentions */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>🎯 Intentions</span>
+                <span className="recognition-count">{recognition.intentions.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.intentions.length > 0 ? (
+                  recognition.intentions.slice().reverse().map((intent, idx) => (
+                    <div key={idx} className={`recognition-item intention intention-${intent.action}`}>
+                      <span className="recognition-category">[{intent.action}]</span>
+                      {intent.condition && <span className="recognition-meta">when: {intent.condition}</span>}
+                      {intent.success !== undefined && (
+                        <span className={`recognition-status ${intent.success ? 'success' : 'failed'}`}>
+                          {intent.success ? '✓' : '✗'}
+                        </span>
+                      )}
+                      {intent.status && <span className="recognition-meta">{intent.status}</span>}
+                      <span className="recognition-text">{intent.content}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No intentions yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Stakes */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>⚡ Stakes</span>
+                <span className="recognition-count">{recognition.stakes.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.stakes.length > 0 ? (
+                  recognition.stakes.slice().reverse().map((stake, idx) => (
+                    <div key={idx} className={`recognition-item stake stake-${stake.strength}`}>
+                      <span className="recognition-category">[{stake.strength}]</span>
+                      {stake.category && <span className="recognition-meta">{stake.category}</span>}
+                      <span className="recognition-text">{stake.what}: {stake.why}</span>
+                      {stake.content && <div className="recognition-evidence">{stake.content}</div>}
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No stakes yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Tests */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>🧪 Tests</span>
+                <span className="recognition-count">{recognition.tests.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.tests.length > 0 ? (
+                  recognition.tests.slice().reverse().map((test, idx) => (
+                    <div key={idx} className={`recognition-item test ${test.consistent ? 'consistent' : 'inconsistent'}`}>
+                      <span className={`recognition-status ${test.consistent ? 'success' : 'failed'}`}>
+                        {test.consistent ? '✓' : '✗'}
+                      </span>
+                      <span className="recognition-text">
+                        Stated: {test.stated} → Actual: {test.actual}
+                      </span>
+                      {test.content && <div className="recognition-context">{test.content}</div>}
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No tests yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Narrations */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>🔄 Narrations</span>
+                <span className="recognition-count">{recognition.narrations.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.narrations.length > 0 ? (
+                  recognition.narrations.slice().reverse().map((narr, idx) => (
+                    <div key={idx} className={`recognition-item narration narration-${narr.level}`}>
+                      <span className="recognition-category">[{narr.type}:{narr.level}]</span>
+                      <span className="recognition-meta">trigger: {narr.trigger}</span>
+                      {narr.content && <span className="recognition-text">{narr.content}</span>}
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No narrations yet</div>
+                )}
+              </div>
+            </div>
+
+            {/* Milestones */}
+            <div className="recognition-subsection">
+              <div className="recognition-subsection-header">
+                <span>🏆 Milestones</span>
+                <span className="recognition-count">{recognition.milestones.length}</span>
+              </div>
+              <div className="recognition-items">
+                {recognition.milestones.length > 0 ? (
+                  recognition.milestones.slice().reverse().map((milestone, idx) => (
+                    <div key={idx} className="recognition-item milestone">
+                      <span className="recognition-category">[{milestone.id}]</span>
+                      <span className="recognition-text">{milestone.content}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="recognition-empty">No milestones yet</div>
                 )}
               </div>
             </div>

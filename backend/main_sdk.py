@@ -1340,10 +1340,11 @@ async def chat(request: ChatRequest):
             total_cache_read_tokens += response.cache_read_tokens
             tool_iterations += 1
 
-            # Update response data - accumulate text from before and after tool calls
+            # Update response data
             raw_response += "\n" + response.raw
+            # Only keep final text response - intermediate "let me check..." text wastes tokens
             if response.text:
-                clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
+                clean_text = response.text
             animations.extend(response.gestures)
             tool_uses = response.tool_uses
 
@@ -5454,8 +5455,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                         # Update response data
                         raw_response += "\n" + response.raw
+                        # Only keep final text response - intermediate "let me check..." text wastes tokens
+                        # when stored and loaded as context. Replace instead of accumulate.
                         if response.text:
-                            clean_text = clean_text + "\n\n" + response.text if clean_text else response.text
+                            clean_text = response.text
                         animations.extend(response.gestures)
                         tool_uses = response.tool_uses
 
@@ -5487,12 +5490,22 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         print(f"  Stored {stored} recognition-in-flow mark(s)")
 
                 # Process inline XML tags (observations, roadmap items) and strip them
-                # Returns (cleaned_text, self_observations, user_observations) for TUI display
-                clean_text, extracted_self_obs, extracted_user_obs = await process_inline_tags(
+                # Returns dict with cleaned text and all extracted metacognitive tags
+                processed_tags = await process_inline_tags(
                     text=clean_text,
                     conversation_id=conversation_id,
                     user_id=ws_user_id
                 )
+                clean_text = processed_tags["text"]
+                extracted_self_obs = processed_tags["self_observations"]
+                extracted_user_obs = processed_tags["user_observations"]
+                extracted_holds = processed_tags["holds"]
+                extracted_notes = processed_tags["notes"]
+                extracted_intentions = processed_tags["intentions"]
+                extracted_stakes = processed_tags["stakes"]
+                extracted_tests = processed_tags["tests"]
+                extracted_narrations = processed_tags["narrations"]
+                extracted_milestones = processed_tags["milestones"]
 
                 # Store in memory (with conversation_id and user_id if provided)
                 if memory:
@@ -5653,6 +5666,14 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "self_observations": extracted_self_obs,
                     "user_observations": extracted_user_obs,
                     "marks": marks_for_json,
+                    # Expanded metacognitive tags for frontend feedback
+                    "holds": extracted_holds if extracted_holds else None,
+                    "notes": extracted_notes if extracted_notes else None,
+                    "intentions": extracted_intentions if extracted_intentions else None,
+                    "stakes": extracted_stakes if extracted_stakes else None,
+                    "tests": extracted_tests if extracted_tests else None,
+                    "narrations": extracted_narrations if extracted_narrations else None,
+                    "milestones": extracted_milestones if extracted_milestones else None,
                 })
 
                 # Record timing metrics

@@ -301,8 +301,7 @@ class InsightManager:
         if not insights:
             return ""
 
-        lines = ["## CROSS-SESSION INSIGHTS", ""]
-        lines.append("*These insights from past conversations may be relevant:*\n")
+        lines = ["## Cross-Session Insights\n"]
 
         for insight in insights:
             content = insight["content"]
@@ -312,13 +311,16 @@ class InsightManager:
 
             # Format with importance indicator
             if importance >= 0.8:
-                prefix = "**[Important]**"
+                prefix = "[!]"
             elif importance >= 0.6:
-                prefix = f"[{insight_type.title()}]"
-            else:
                 prefix = f"[{insight_type}]"
+            else:
+                prefix = ""
 
-            lines.append(f"- {prefix} {content}")
+            if prefix:
+                lines.append(f"- {prefix} {content}")
+            else:
+                lines.append(f"- {content}")
 
         return "\n".join(lines)
 
