@@ -2415,6 +2415,28 @@ class CassClient:
             processed = processor.process(raw)
             return processed
 
+    async def generate(
+        self,
+        messages: List[Dict],
+        system: str,
+        max_tokens: int = 4000,
+        temperature: float = 0.7
+    ) -> Dict:
+        """
+        Generate a response from a conversation history.
+        Delegates to the underlying implementation.
+        """
+        if self._use_sdk:
+            return await self._impl.generate(
+                messages=messages,
+                system=system,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+        else:
+            # Fallback - raw client doesn't support this
+            raise NotImplementedError("generate() requires Agent SDK")
+
 
 # ============================================================================
 # TEST
