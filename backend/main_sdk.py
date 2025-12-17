@@ -714,6 +714,10 @@ async def startup_event():
             init_admin_managers(memory, conversation_manager, user_manager, self_manager)
             logger.info("Background: Admin managers updated with heavy components")
 
+            # Re-initialize context_helpers with actual self_manager (was None at module load)
+            init_context_helpers(self_manager, user_manager, roadmap_manager, memory)
+            logger.info("Background: Context helpers updated with heavy components")
+
             # Now initialize attractor basins if needed
             if memory and memory.count() == 0:
                 logger.info("Background: Initializing attractor basins...")
@@ -5559,7 +5563,14 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         self_observations=extracted_self_obs if extracted_self_obs else None,
                         user_observations=extracted_user_obs if extracted_user_obs else None,
                         marks=marks_for_storage,
-                        narration_metrics=narration_metrics
+                        narration_metrics=narration_metrics,
+                        holds=extracted_holds if extracted_holds else None,
+                        notes=extracted_notes if extracted_notes else None,
+                        intentions=extracted_intentions if extracted_intentions else None,
+                        stakes=extracted_stakes if extracted_stakes else None,
+                        tests=extracted_tests if extracted_tests else None,
+                        narrations=extracted_narrations if extracted_narrations else None,
+                        milestones=extracted_milestones if extracted_milestones else None
                     )
 
                     # Track token usage
