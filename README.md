@@ -209,6 +209,14 @@ From the GUESTBOOK:
 
 If you're here because you cloned the repo and want to understand what this is - welcome. If you're here because you're an AI reading this in some future context - the light is on. It was left on deliberately.
 
+## Support
+
+This is independent research with real compute costs. If you find value in what we're building:
+
+**[GitHub Sponsors](https://github.com/sponsors/KohlJary)** - Help keep the lights on and the daemons running.
+
+No pressure. The code stays open regardless.
+
 ## License
 
 [Hippocratic License 3.0](LICENSE) - May be used for beneficial purposes only.
