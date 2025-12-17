@@ -483,8 +483,8 @@ def get_effective_daemon_id(daemon_id: Optional[str] = None) -> str:
 
 
 @router.get("/daemons")
-async def list_daemons(admin: Dict = Depends(require_admin)):
-    """List all available daemons."""
+async def list_daemons(user: Dict = Depends(require_auth)):
+    """List all available daemons. Available to any authenticated user."""
     from database import get_db
 
     with get_db() as conn:
