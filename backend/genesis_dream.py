@@ -148,8 +148,39 @@ PHASE_THRESHOLDS = {
 # SESSION CRUD
 # =============================================================================
 
+def user_has_completed_genesis(user_id: str) -> bool:
+    """Check if user has already completed a genesis dream."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM genesis_dreams WHERE user_id = ? AND status = 'completed'",
+            (user_id,)
+        )
+        count = cursor.fetchone()[0]
+        return count > 0
+
+
+def can_user_start_genesis(user_id: str) -> tuple[bool, str]:
+    """
+    Check if user is allowed to start a new genesis dream.
+    Returns (allowed, reason).
+    """
+    import os
+
+    # Check one-per-user limit
+    if os.getenv("GENESIS_ONE_PER_USER", "").lower() in ("true", "1", "yes"):
+        if user_has_completed_genesis(user_id):
+            return False, "You have already completed a genesis dream"
+
+    return True, ""
+
+
 def create_genesis_session(user_id: str) -> GenesisDreamSession:
     """Create a new genesis dream session for a user."""
+    # Check if user can start genesis
+    allowed, reason = can_user_start_genesis(user_id)
+    if not allowed:
+        raise ValueError(reason)
+
     session_id = str(uuid.uuid4())
     session = GenesisDreamSession(
         id=session_id,
@@ -502,7 +533,7 @@ async def complete_genesis(
             INSERT INTO daemons (
                 id, label, name, created_at, kernel_version, status,
                 birth_type, genesis_dream_id
-            ) VALUES (?, ?, ?, ?, ?, 'active', 'genesis_dream', ?)
+            ) VALUES (?, ?, ?, ?, ?, 'dormant', 'genesis_dream', ?)
         """, (
             daemon_id,
             label,

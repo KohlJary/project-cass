@@ -831,7 +831,10 @@ async def start_genesis_dream(user: Dict = Depends(require_auth)):
         }
 
     # Create new session
-    session = create_genesis_session(user_id)
+    try:
+        session = create_genesis_session(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Generate the daemon's first message
     llm_client = CassClient()
@@ -874,6 +877,15 @@ async def get_active_genesis(user: Dict = Depends(require_auth)):
         return {"active": False, "session": None}
 
     return {"active": True, "session": session.to_dict()}
+
+
+@router.get("/genesis/eligible")
+async def check_genesis_eligible(user: Dict = Depends(require_auth)):
+    """Check if user is eligible to start a genesis dream."""
+    from genesis_dream import can_user_start_genesis
+
+    allowed, reason = can_user_start_genesis(user["user_id"])
+    return {"eligible": allowed, "reason": reason}
 
 
 @router.get("/genesis/{session_id}")
