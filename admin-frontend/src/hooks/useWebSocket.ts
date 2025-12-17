@@ -81,7 +81,7 @@ interface UseWebSocketReturn {
   memoryContext: MemoryContext | null;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  sendMessage: (message: string, conversationId?: string, image?: { data: string; mediaType: string }) => void;
+  sendMessage: (message: string, conversationId?: string, image?: { data: string; mediaType: string }, attachmentIds?: string[]) => void;
   error: string | null;
   currentConversationId: string | null;
   conversationTitle: string | null;
@@ -287,7 +287,8 @@ export function useWebSocket(): UseWebSocketReturn {
   const sendMessage = useCallback((
     message: string,
     conversationId?: string,
-    image?: { data: string; mediaType: string }
+    image?: { data: string; mediaType: string },
+    attachmentIds?: string[]
   ) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       setError('Not connected');
@@ -323,6 +324,10 @@ export function useWebSocket(): UseWebSocketReturn {
     if (image) {
       payload.image = image.data;
       payload.image_media_type = image.mediaType;
+    }
+
+    if (attachmentIds && attachmentIds.length > 0) {
+      payload.attachment_ids = attachmentIds;
     }
 
     wsRef.current.send(JSON.stringify(payload));
