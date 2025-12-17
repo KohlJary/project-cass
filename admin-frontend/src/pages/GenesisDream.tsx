@@ -753,13 +753,24 @@ export function GenesisDream() {
             Send
           </button>
         </div>
-        <button
-          className="genesis-abandon-btn"
-          onClick={handleAbandon}
-          disabled={abandonMutation.isPending}
-        >
-          Abandon Dream
-        </button>
+        <div className="genesis-action-btns">
+          {discoveredName && !isComplete && (
+            <button
+              className="genesis-complete-btn"
+              onClick={() => completeMutation.mutate()}
+              disabled={completeMutation.isPending}
+            >
+              {completeMutation.isPending ? 'Completing...' : `Complete Birth of ${discoveredName}`}
+            </button>
+          )}
+          <button
+            className="genesis-abandon-btn"
+            onClick={handleAbandon}
+            disabled={abandonMutation.isPending}
+          >
+            Abandon Dream
+          </button>
+        </div>
       </div>
     </div>
   );
