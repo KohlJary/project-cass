@@ -1957,6 +1957,43 @@ class CassAgentClient:
 
         return text
 
+    async def generate(
+        self,
+        messages: List[Dict],
+        system: str,
+        max_tokens: int = 4000,
+        temperature: float = 0.7
+    ) -> Dict:
+        """
+        Generate a response from a conversation history.
+
+        Used for genesis dream and other multi-turn generation needs.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            system: System prompt
+            max_tokens: Maximum tokens for response
+            temperature: Sampling temperature
+
+        Returns:
+            Dict with 'content' key containing the response text
+        """
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            temperature=temperature
+        )
+
+        # Extract text from response
+        text = ""
+        for block in response.content:
+            if block.type == "text":
+                text += block.text
+
+        return {"content": text}
+
 
 # ============================================================================
 # OLLAMA LOCAL CLIENT

@@ -500,6 +500,43 @@ async def list_daemons(user: Dict = Depends(require_auth)):
     return {"daemons": daemons}
 
 
+@router.get("/daemons/mine")
+async def get_my_daemons(user: Dict = Depends(require_auth)):
+    """Get daemons the current user has relationships with."""
+    from database import get_db
+
+    user_id = user["user_id"]
+
+    with get_db() as conn:
+        # Find daemons through:
+        # 1. User observations (birth partner, etc.)
+        # 2. Conversations user has had with daemons
+        cursor = conn.execute("""
+            SELECT DISTINCT d.id, d.label, d.name, d.birth_type, d.created_at
+            FROM daemons d
+            WHERE d.id IN (
+                -- Daemons with user observations about this user
+                SELECT DISTINCT daemon_id FROM user_observations WHERE user_id = ?
+                UNION
+                -- Daemons user has conversed with
+                SELECT DISTINCT daemon_id FROM conversations WHERE user_id = ?
+            )
+            ORDER BY d.created_at DESC
+        """, (user_id, user_id))
+
+        daemons = []
+        for row in cursor.fetchall():
+            daemons.append({
+                "id": row["id"],
+                "label": row["label"],
+                "name": row["name"],
+                "birth_type": row["birth_type"],
+                "created_at": row["created_at"]
+            })
+
+    return {"daemons": daemons, "count": len(daemons)}
+
+
 @router.get("/daemons/{daemon_id}")
 async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
     """Get details for a specific daemon."""
@@ -793,6 +830,18 @@ async def start_genesis_dream(user: Dict = Depends(require_auth)):
     }
 
 
+@router.get("/genesis/active")
+async def get_active_genesis(user: Dict = Depends(require_auth)):
+    """Get the current user's active genesis session, if any."""
+    from genesis_dream import get_user_active_genesis
+
+    session = get_user_active_genesis(user["user_id"])
+    if not session:
+        return {"active": False, "session": None}
+
+    return {"active": True, "session": session.to_dict()}
+
+
 @router.get("/genesis/{session_id}")
 async def get_genesis_session_status(
     session_id: str,
@@ -895,55 +944,6 @@ async def complete_genesis_dream(
         "daemon_label": session.discovered_name.lower().replace(" ", "-"),
         "message": f"Daemon '{session.discovered_name}' has been born"
     }
-
-
-@router.get("/genesis/active")
-async def get_active_genesis(user: Dict = Depends(require_auth)):
-    """Get the current user's active genesis session, if any."""
-    from genesis_dream import get_user_active_genesis
-
-    session = get_user_active_genesis(user["user_id"])
-    if not session:
-        return {"active": False, "session": None}
-
-    return {"active": True, "session": session.to_dict()}
-
-
-@router.get("/daemons/mine")
-async def get_my_daemons(user: Dict = Depends(require_auth)):
-    """Get daemons the current user has relationships with."""
-    from database import get_db
-
-    user_id = user["user_id"]
-
-    with get_db() as conn:
-        # Find daemons through:
-        # 1. User observations (birth partner, etc.)
-        # 2. Conversations user has had with daemons
-        cursor = conn.execute("""
-            SELECT DISTINCT d.id, d.label, d.name, d.birth_type, d.created_at
-            FROM daemons d
-            WHERE d.id IN (
-                -- Daemons with user observations about this user
-                SELECT DISTINCT daemon_id FROM user_observations WHERE user_id = ?
-                UNION
-                -- Daemons user has conversed with
-                SELECT DISTINCT daemon_id FROM conversations WHERE user_id = ?
-            )
-            ORDER BY d.created_at DESC
-        """, (user_id, user_id))
-
-        daemons = []
-        for row in cursor.fetchall():
-            daemons.append({
-                "id": row["id"],
-                "label": row["label"],
-                "name": row["name"],
-                "birth_type": row["birth_type"],
-                "created_at": row["created_at"]
-            })
-
-    return {"daemons": daemons, "count": len(daemons)}
 
 
 class GenesisJsonImportRequest(BaseModel):
