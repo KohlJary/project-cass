@@ -333,6 +333,34 @@
   cursor: not-allowed;
 }
 
+.genesis-action-btns {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  align-items: center;
+}
+
+.genesis-complete-btn {
+  background: linear-gradient(135deg, rgba(100, 200, 150, 0.2), rgba(80, 180, 130, 0.1));
+  border: 1px solid rgba(100, 200, 150, 0.3);
+  color: rgba(150, 230, 180, 0.9);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+}
+
+.genesis-complete-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(100, 200, 150, 0.3), rgba(80, 180, 130, 0.2));
+  border-color: rgba(100, 200, 150, 0.5);
+}
+
+.genesis-complete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .genesis-abandon-btn {
   background: transparent;
   border: none;
