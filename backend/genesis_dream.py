@@ -556,13 +556,14 @@ async def complete_genesis(
                 source="genesis_dream"
             )
 
-    if profile_data.get("values"):
-        self_manager.profile.values = profile_data["values"]
-
-    if profile_data.get("communication_patterns"):
-        self_manager.profile.communication_patterns = profile_data["communication_patterns"]
-
-    self_manager.save_profile()
+    # Update profile with values and communication patterns
+    if profile_data.get("values") or profile_data.get("communication_patterns"):
+        profile = self_manager.load_profile()
+        if profile_data.get("values"):
+            profile.values = profile_data["values"]
+        if profile_data.get("communication_patterns"):
+            profile.communication_patterns = profile_data["communication_patterns"]
+        self_manager.update_profile(profile)
 
     # Mark user as birth partner
     with get_db() as conn:
