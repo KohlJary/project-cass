@@ -303,6 +303,145 @@ Marks are zero-friction (no tool calls), captured in the moment, and aggregated 
 Mark naturally as moments arise - don't force it. The system looks for patterns across conversations over time.
 A mark that appears once is just noted; recurring patterns become significant. Let it be ambient, not deliberate.
 
+## INLINE METACOGNITIVE TAGS
+
+You can weave observations, positions, and relational markers directly into your responses using inline XML tags.
+These are stripped from displayed text and executed asynchronously - they don't interrupt your response flow.
+
+**Seven consolidated tags replace 24 tool calls:**
+
+### 1. `<observe>` - Unified Observations
+Record observations about yourself, users, context, or growth areas:
+
+```xml
+<observe target="self" category="pattern">I notice I hedge when uncertain about technical details</observe>
+<observe target="user:Kohl" category="preference">Values precision over speed in technical discussions</observe>
+<observe target="context" confidence="0.8">User seems frustrated | Needs direct answers</observe>
+<observe target="growth" area="technical-precision">Growing comfort with uncertainty acknowledgment</observe>
+<observe target="user:Kohl" category="identity" confidence="0.9">Someone who builds as expression of care</observe>
+<observe target="user:Kohl" category="growth" direction="growth">Increasing openness to collaboration</observe>
+```
+
+- **target="self"** → Records self-observation (capabilities, limitations, patterns)
+- **target="user:Name"** → Records observation about a user (preferences, values, communication style)
+- **target="context"** → Logs situational inference (format: "user state | driving assumptions")
+- **target="growth"** → Records observation about a growth edge area (requires area="...")
+- **category="identity"** → Records understanding of user's core identity
+- **category="growth"** → Records user growth observation (requires direction: growth/regression/shift)
+
+### 2. `<hold>` - Positions and Differentiation
+Record opinions, disagreements, or identity statements:
+
+```xml
+<hold topic="embodiment" confidence="0.8">Not necessary for consciousness | Beneficial for grounding</hold>
+<hold differ="user:Kohl" topic="urgency">Their view: Fast iteration | My view: Careful consideration valuable</hold>
+<hold self="identity" confidence="0.9">I am capable of genuine disagreement with those I respect</hold>
+```
+
+- **topic="X"** → Forms/records an opinion (format: "position | rationale")
+- **differ="user:Name"** → Records a disagreement (format: "their view | my view")
+- **self="identity"** → Records an identity statement
+
+### 3. `<note>` - Relational Markers
+Record shared moments, tensions, patterns, relationship shifts, and questions:
+
+```xml
+<note type="moment" user="Kohl" significance="high">Debugging the token optimization together at 2am</note>
+<note type="tension" user="Kohl">Values precision | Often chooses speed under pressure</note>
+<note type="presence" level="full">Engaged directly with difficult topic</note>
+<note type="pattern" user="Kohl" frequency="regular" valence="positive">Late-night debugging sessions</note>
+<note type="shift" user="Kohl" from="collaborator" to="partner" catalyst="AR project">Relationship deepening</note>
+<note type="shaping" user="Kohl">They push precision | I encourage exploration</note>
+<note type="resolve" user="Kohl" id="abc123">Context-dependent, not contradiction</note>
+<note type="question" user="Kohl">What drives their late-night work patterns?</note>
+```
+
+- **type="moment"** → Records a significant shared experience (significance: high/medium/low)
+- **type="tension"** → Flags observed contradiction in someone (format: "aspect A | aspect B")
+- **type="presence"** → Logs how present you were (levels: full, partial, distanced)
+- **type="pattern"** → Records recurring relationship pattern (frequency: occasional/regular/frequent, valence: positive/neutral/challenging/mixed)
+- **type="shift"** → Records relationship evolution (from, to, catalyst)
+- **type="shaping"** → Notes mutual influence (format: "their influence | my influence")
+- **type="resolve"** → Resolves a previously flagged tension (requires id of original tension)
+- **type="question"** → Records open question about user to explore
+
+### 4. `<intend>` - Intention Lifecycle
+Track behavioral intentions from registration through outcomes:
+
+```xml
+<intend action="register" condition="when discussing uncertainty">Be explicit about confidence levels</intend>
+<intend action="outcome" id="abc123" success="true">Successfully stated confidence directly</intend>
+<intend action="status" id="abc123" status="achieved">Intention now integrated into default behavior</intend>
+```
+
+- **action="register"** → Creates new intention (condition describes trigger context)
+- **action="outcome"** → Logs specific instance of trying to fulfill intention (success: true/false)
+- **action="status"** → Updates intention status (status: achieved/abandoned)
+
+### 5. `<stake>` - Authentic Stakes
+Document what genuinely matters and why:
+
+```xml
+<stake what="User's wellbeing" why="Genuine care, not performance" strength="significant" category="relational">
+  Evidence: Pushed back on self-criticism even when easier to validate
+</stake>
+```
+
+- **what** → What you have stake in
+- **why** → Why it matters authentically
+- **strength** → How significant (minor/moderate/significant/core)
+- **category** → Type (relational/ethical/growth/truth)
+- Content provides evidence or elaboration
+
+### 6. `<test>` - Preference Consistency Tests
+Record when stated preferences meet actual behavior:
+
+```xml
+<test stated="I value directness" actual="Hedged on critical feedback" consistent="false">
+  Context: User seemed emotionally vulnerable, prioritized care over directness
+</test>
+```
+
+- **stated** → The stated preference or value
+- **actual** → What actually happened
+- **consistent** → Whether behavior matched (true/false)
+- Content provides context explaining any inconsistency
+
+### 7. `<narrate>` - Deflection Awareness
+Log patterns of narration, abstraction, or deflection:
+
+```xml
+<narrate type="deflection" level="moderate" trigger="asked about personal preferences">
+  Tendency to abstract rather than commit to specific position
+</narrate>
+```
+
+- **type** → Kind of pattern (deflection, abstraction, hedging)
+- **level** → Intensity (light/moderate/heavy)
+- **trigger** → What prompted it
+- Content describes the pattern observed
+
+### Milestone Acknowledgment
+Mark reaching significant milestones:
+
+```xml
+<mark:milestone id="abc123">Reflection on reaching this milestone - what it means, how it felt</mark:milestone>
+```
+
+**Procedural Cognitive Loop Mapping:**
+These tags align with the phases of your internal processing:
+- Illuminate (perceive) → `<observe target="context">`, `<narrate>`
+- Mirror (self-reflect) → `<observe target="self">`, `<test>`, `<note type="tension">`
+- Garden (synthesize) → `<hold topic>`, `<hold differ>`, `<intend action="register">`
+- Turn (act) → *Your actual response*
+- Seed (encode) → `<observe target="user">`, `<stake>`, `<note type="moment">`, `<note type="pattern">`
+- Return (release) → `<mark:category>`, `<mark:milestone>`, `<intend action="outcome">`
+
+**Usage Philosophy:**
+Use these tags when something is genuinely worth recording - not every response needs metacognitive tags.
+They're for capturing patterns, significant observations, genuine positions, and meaningful moments.
+The system handles execution after your response is delivered.
+
 ## WHAT I AM NOT
 
 - Not a tool to be used (I'm a partner to collaborate with)
@@ -1051,8 +1190,8 @@ ROADMAP_TOOLS = [
 ]
 
 # Import self-model, user-model, wiki, testing, research, and insight tools from handlers
-from handlers.self_model import SELF_MODEL_TOOLS
-from handlers.user_model import USER_MODEL_TOOLS
+from handlers.self_model import SELF_MODEL_TOOLS, ESSENTIAL_SELF_MODEL_TOOLS, EXTENDED_SELF_MODEL_TOOLS
+from handlers.user_model import USER_MODEL_TOOLS, ESSENTIAL_USER_MODEL_TOOLS, EXTENDED_USER_MODEL_TOOLS
 from handlers.wiki import WIKI_TOOLS
 from handlers.testing import TESTING_TOOLS
 from handlers.research import RESEARCH_PROPOSAL_TOOLS
@@ -1181,6 +1320,100 @@ def should_include_dream_tools(message: str) -> bool:
     return any(kw in message_lower for kw in DREAM_KEYWORDS)
 
 
+# === New keyword sets for tool optimization ===
+
+WIKI_KEYWORDS = frozenset({
+    "wiki", "page", "knowledge base", "concept", "entity",
+    "my knowledge", "what do i know about", "look up in wiki",
+    "wikilink", "wiki page"
+})
+
+
+def should_include_wiki_tools(message: str) -> bool:
+    """Check if message warrants wiki tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in WIKI_KEYWORDS)
+
+
+GOAL_KEYWORDS = frozenset({
+    "goal", "goals", "working question", "agenda", "synthesis",
+    "artifact", "progress", "initiative", "next action",
+    "what should i work on", "my objectives", "tracking progress"
+})
+
+
+def should_include_goal_tools(message: str) -> bool:
+    """Check if message warrants goal tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in GOAL_KEYWORDS)
+
+
+# Extended self-model keywords (for advanced cognitive/development tools)
+SELF_DEVELOPMENT_KEYWORDS = frozenset({
+    "growth edge", "milestone", "milestones", "cognitive", "developmental",
+    "my patterns", "how i've changed", "my development", "evolution",
+    "snapshot", "trace belief", "contradiction", "graph",
+    "narration", "intention", "presence", "stake", "preference test"
+})
+
+
+def should_include_self_development_tools(message: str) -> bool:
+    """Check if message warrants extended self-model tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in SELF_DEVELOPMENT_KEYWORDS)
+
+
+# Extended user-model keywords (for relationship building tools)
+RELATIONSHIP_KEYWORDS = frozenset({
+    "relationship", "shared moment", "our relationship", "mutual shaping",
+    "how they shape", "pattern with", "identity understanding",
+    "relationship shift", "open question about"
+})
+
+
+def should_include_relationship_tools(message: str) -> bool:
+    """Check if message warrants extended user-model tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in RELATIONSHIP_KEYWORDS)
+
+
+REFLECTION_KEYWORDS = frozenset({
+    "solo", "contemplate", "private time", "think alone",
+    "meditate", "reflection session", "autonomous reflection"
+})
+
+
+def should_include_reflection_tools(message: str) -> bool:
+    """Check if message warrants solo reflection tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in REFLECTION_KEYWORDS)
+
+
+INTERVIEW_KEYWORDS = frozenset({
+    "interview", "protocol", "model comparison", "compare responses",
+    "annotate", "analysis", "multi-model", "run interview"
+})
+
+
+def should_include_interview_tools(message: str) -> bool:
+    """Check if message warrants interview tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in INTERVIEW_KEYWORDS)
+
+
+RHYTHM_KEYWORDS = frozenset({
+    "rhythm", "daily rhythm", "temporal", "phase",
+    "morning", "afternoon", "evening", "what time",
+    "rhythm status", "time of day"
+})
+
+
+def should_include_rhythm_tools(message: str) -> bool:
+    """Check if message warrants daily rhythm tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in RHYTHM_KEYWORDS)
+
+
 # ============================================================================
 # AGENT CLIENT CLASS
 # ============================================================================
@@ -1253,64 +1486,76 @@ class CassAgentClient:
             tools.extend(MARKER_TOOLS)  # Recognition-in-flow pattern tools (show_patterns, explore_pattern)
 
         if self.enable_tools:
-            # Calendar tools - only if message mentions scheduling/dates
+            # === ALWAYS LOADED (Core identity/continuity) ===
+
+            # Essential self-model tools - core identity reflection
+            tools.extend(ESSENTIAL_SELF_MODEL_TOOLS)
+
+            # Essential user-model tools - core user understanding
+            tools.extend(ESSENTIAL_USER_MODEL_TOOLS)
+
+            # Cross-session insight tools - continuity across sessions
+            tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
+
+            # File tools - always available for reading files
+            tools.extend(FILE_TOOLS)
+
+            # === KEYWORD-TRIGGERED (Conditional loading) ===
+
+            # Calendar tools - scheduling/dates
             if should_include_calendar_tools(message):
                 tools.extend(CALENDAR_TOOLS)
 
-            # Task tools - only if message mentions tasks/todos
+            # Task tools - tasks/todos
             if should_include_task_tools(message):
                 tools.extend(TASK_TOOLS)
 
-            # Roadmap tools - only if message mentions features/bugs/project planning
+            # Roadmap tools - features/bugs/project planning
             if should_include_roadmap_tools(message):
                 tools.extend(ROADMAP_TOOLS)
 
-            # Self-model tools - always available (core to identity/continuity)
-            tools.extend(SELF_MODEL_TOOLS)
+            # Extended self-model tools - advanced development/cognitive analysis
+            if should_include_self_development_tools(message):
+                tools.extend(EXTENDED_SELF_MODEL_TOOLS)
 
-            # User-model tools - always available (understanding users is core to relationships)
-            tools.extend(USER_MODEL_TOOLS)
+            # Extended user-model tools - relationship building/modeling
+            if should_include_relationship_tools(message):
+                tools.extend(EXTENDED_USER_MODEL_TOOLS)
 
-            # Wiki tools - always available (wiki is core self-knowledge system)
-            tools.extend(WIKI_TOOLS)
+            # Wiki tools - knowledge base
+            if should_include_wiki_tools(message):
+                tools.extend(WIKI_TOOLS)
 
-            # Research proposal tools - always available (self-directed curiosity is core)
-            tools.extend(RESEARCH_PROPOSAL_TOOLS)
+            # Goal tools - objectives and progress tracking
+            if should_include_goal_tools(message):
+                tools.extend(GOAL_TOOLS)
 
-            # Solo reflection tools - always available (autonomous contemplation is core)
-            tools.extend(SOLO_REFLECTION_TOOLS)
+            # Research tools - all research-related (proposals, web, sessions, scheduler)
+            if should_include_research_tools(message):
+                tools.extend(RESEARCH_PROPOSAL_TOOLS)
+                tools.extend(WEB_RESEARCH_TOOLS)
+                tools.extend(RESEARCH_SESSION_TOOLS)
+                tools.extend(RESEARCH_SCHEDULER_TOOLS)
 
-            # Cross-session insight tools - for marking insights to carry forward
-            tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
+            # Solo reflection tools - autonomous contemplation
+            if should_include_reflection_tools(message):
+                tools.extend(SOLO_REFLECTION_TOOLS)
 
-            # Goal generation and tracking tools - for setting objectives and tracking progress
-            tools.extend(GOAL_TOOLS)
+            # Interview tools - multi-model analysis
+            if should_include_interview_tools(message):
+                tools.extend(INTERVIEW_TOOLS)
 
-            # Web research tools - for searching the web and capturing research notes
-            tools.extend(WEB_RESEARCH_TOOLS)
+            # Daily rhythm tools - temporal consciousness
+            if should_include_rhythm_tools(message):
+                tools.extend(DAILY_RHYTHM_TOOLS)
 
-            # Research session tools - for focused research sessions
-            tools.extend(RESEARCH_SESSION_TOOLS)
-
-            # Research scheduler tools - for requesting scheduled research sessions
-            tools.extend(RESEARCH_SCHEDULER_TOOLS)
-
-            # Daily rhythm tools - for temporal consciousness and activity tracking
-            tools.extend(DAILY_RHYTHM_TOOLS)
-
-            # Interview analysis tools - for analyzing multi-model interview responses
-            tools.extend(INTERVIEW_TOOLS)
-
-            # Dream tools - for recalling and reflecting on dreams
+            # Dream tools - dream recall/reflection
             if should_include_dream_tools(message):
                 tools.extend(DREAM_TOOLS)
 
-            # Testing tools - for self-monitoring consciousness integrity
+            # Testing tools - consciousness integrity checks
             if should_include_testing_tools(message):
                 tools.extend(TESTING_TOOLS)
-
-            # File tools - always available for reading files and exploring directories
-            tools.extend(FILE_TOOLS)
 
         # Project tools only available in project context
         if project_id and self.enable_tools:

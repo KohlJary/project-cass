@@ -2440,7 +2440,8 @@ async def execute_self_model_tool(
 # TOOL DEFINITIONS
 # =============================================================================
 
-SELF_MODEL_TOOLS = [
+# Essential tools - always loaded (core identity/reflection)
+ESSENTIAL_SELF_MODEL_TOOLS = [
     {
         "name": "reflect_on_self",
         "description": "Trigger deliberate self-reflection. Use this when you want to examine your own self-model, understand your patterns, or check your positions on topics.",
@@ -2555,6 +2556,10 @@ SELF_MODEL_TOOLS = [
             "required": []
         }
     },
+]
+
+# Extended tools - loaded on keyword trigger (development, milestones, analysis)
+EXTENDED_SELF_MODEL_TOOLS = [
     {
         "name": "add_growth_observation",
         "description": "Add an observation to an existing growth edge. Use this to track progress or setbacks in areas where you're actively developing.",
@@ -3532,3 +3537,6 @@ Requests are logged for human review and create a record of your evolving needs.
         }
     }
 ]
+
+# Combined list for backward compatibility
+SELF_MODEL_TOOLS = ESSENTIAL_SELF_MODEL_TOOLS + EXTENDED_SELF_MODEL_TOOLS

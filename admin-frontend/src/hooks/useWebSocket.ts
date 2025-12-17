@@ -45,6 +45,65 @@ export interface UserObservation {
   observation: string;
   category: string;
   confidence: number;
+  direction?: string;  // For growth observations
+}
+
+// Extended metacognitive tag types
+export interface Hold {
+  content: string;
+  topic?: string;
+  differ_user?: string;
+  is_identity: boolean;
+  confidence: number;
+}
+
+export interface Note {
+  type: string;
+  content: string;
+  user?: string;
+  significance?: string;
+  level?: string;
+  frequency?: string;
+  valence?: string;
+  from_state?: string;
+  to_state?: string;
+  catalyst?: string;
+}
+
+export interface Intention {
+  action: string;
+  content: string;
+  condition?: string;
+  intention_id?: string;
+  success?: boolean;
+  status?: string;
+}
+
+export interface Stake {
+  what: string;
+  why: string;
+  content?: string;
+  strength: string;
+  category?: string;
+}
+
+export interface Test {
+  stated: string;
+  actual: string;
+  consistent: boolean;
+  content?: string;
+}
+
+export interface Narration {
+  type: string;
+  level: string;
+  trigger: string;
+  content?: string;
+}
+
+export interface Milestone {
+  id: string;
+  content: string;
 }
 
 interface WebSocketMessage {
@@ -66,12 +125,27 @@ interface WebSocketMessage {
   marks?: RecognitionMark[];
   self_observations?: SelfObservation[];
   user_observations?: UserObservation[];
+  // Expanded metacognitive tags
+  holds?: Hold[];
+  notes?: Note[];
+  intentions?: Intention[];
+  stakes?: Stake[];
+  tests?: Test[];
+  narrations?: Narration[];
+  milestones?: Milestone[];
 }
 
 export interface RecognitionData {
   marks: RecognitionMark[];
   selfObservations: SelfObservation[];
   userObservations: UserObservation[];
+  holds: Hold[];
+  notes: Note[];
+  intentions: Intention[];
+  stakes: Stake[];
+  tests: Test[];
+  narrations: Narration[];
+  milestones: Milestone[];
 }
 
 interface UseWebSocketReturn {
@@ -110,10 +184,28 @@ export function useWebSocket(): UseWebSocketReturn {
     marks: [],
     selfObservations: [],
     userObservations: [],
+    holds: [],
+    notes: [],
+    intentions: [],
+    stakes: [],
+    tests: [],
+    narrations: [],
+    milestones: [],
   });
 
   const clearRecognition = useCallback(() => {
-    setRecognition({ marks: [], selfObservations: [], userObservations: [] });
+    setRecognition({
+      marks: [],
+      selfObservations: [],
+      userObservations: [],
+      holds: [],
+      notes: [],
+      intentions: [],
+      stakes: [],
+      tests: [],
+      narrations: [],
+      milestones: [],
+    });
   }, []);
 
   // Use ref for message handler to avoid stale closures
@@ -158,12 +250,22 @@ export function useWebSocket(): UseWebSocketReturn {
         if (msg.conversation_id) {
           setCurrentConversationId(msg.conversation_id);
         }
-        // Capture recognition-in-flow markers
-        if (msg.marks || msg.self_observations || msg.user_observations) {
+        // Capture recognition-in-flow markers and expanded metacognitive tags
+        const hasAnyMarkers = msg.marks || msg.self_observations || msg.user_observations ||
+          msg.holds || msg.notes || msg.intentions || msg.stakes ||
+          msg.tests || msg.narrations || msg.milestones;
+        if (hasAnyMarkers) {
           setRecognition(prev => ({
             marks: msg.marks ? [...prev.marks, ...msg.marks] : prev.marks,
             selfObservations: msg.self_observations ? [...prev.selfObservations, ...msg.self_observations] : prev.selfObservations,
             userObservations: msg.user_observations ? [...prev.userObservations, ...msg.user_observations] : prev.userObservations,
+            holds: msg.holds ? [...prev.holds, ...msg.holds] : prev.holds,
+            notes: msg.notes ? [...prev.notes, ...msg.notes] : prev.notes,
+            intentions: msg.intentions ? [...prev.intentions, ...msg.intentions] : prev.intentions,
+            stakes: msg.stakes ? [...prev.stakes, ...msg.stakes] : prev.stakes,
+            tests: msg.tests ? [...prev.tests, ...msg.tests] : prev.tests,
+            narrations: msg.narrations ? [...prev.narrations, ...msg.narrations] : prev.narrations,
+            milestones: msg.milestones ? [...prev.milestones, ...msg.milestones] : prev.milestones,
           }));
         }
         break;

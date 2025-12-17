@@ -1865,6 +1865,14 @@ class CassVesselTUI(App):
                 self_observations = data.get("self_observations", [])
                 user_observations = data.get("user_observations", [])
                 marks = data.get("marks", [])
+                # Expanded metacognitive tags
+                holds = data.get("holds") or []
+                notes = data.get("notes") or []
+                intentions = data.get("intentions") or []
+                stakes = data.get("stakes") or []
+                tests = data.get("tests") or []
+                narrations = data.get("narrations") or []
+                milestones = data.get("milestones") or []
                 await chat.add_message(
                     "cass",
                     data.get("text", ""),
@@ -1881,7 +1889,12 @@ class CassVesselTUI(App):
                 )
 
                 # Update recognition panel with markers
-                if self_observations or user_observations or marks:
+                has_any_markers = (
+                    self_observations or user_observations or marks or
+                    holds or notes or intentions or stakes or
+                    tests or narrations or milestones
+                )
+                if has_any_markers:
                     try:
                         recog_panel = self.query_one("#recognition-panel", RecognitionPanel)
                         if marks:
@@ -1890,6 +1903,20 @@ class CassVesselTUI(App):
                             recog_panel.add_self_observations(self_observations)
                         if user_observations:
                             recog_panel.add_user_observations(user_observations)
+                        if holds:
+                            recog_panel.add_holds(holds)
+                        if notes:
+                            recog_panel.add_notes(notes)
+                        if intentions:
+                            recog_panel.add_intentions(intentions)
+                        if stakes:
+                            recog_panel.add_stakes(stakes)
+                        if tests:
+                            recog_panel.add_tests(tests)
+                        if narrations:
+                            recog_panel.add_narrations(narrations)
+                        if milestones:
+                            recog_panel.add_milestones(milestones)
                     except Exception as e:
                         debug_log(f"Failed to update recognition panel: {e}", "error")
 

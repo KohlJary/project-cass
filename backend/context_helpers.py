@@ -2,7 +2,7 @@
 
 
 from handlers import execute_journal_tool, execute_calendar_tool, execute_task_tool, execute_document_tool, execute_self_model_tool, execute_user_model_tool, execute_roadmap_tool, execute_wiki_tool, execute_testing_tool, execute_research_tool, execute_solo_reflection_tool, execute_insight_tool, execute_goal_tool, execute_web_research_tool, execute_research_session_tool, execute_research_scheduler_tool
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import re
 import logging
 
@@ -33,6 +33,18 @@ INLINE_ROADMAP_ITEM_PATTERN = re.compile(
     r'<create_roadmap_item>\s*(.*?)\s*</create_roadmap_item>',
     re.DOTALL
 )
+
+# Consolidated metacognitive tag patterns (new format)
+INLINE_OBSERVE_TAG_PATTERN = re.compile(r'<observe[^>]*>.*?</observe>', re.DOTALL)
+INLINE_HOLD_TAG_PATTERN = re.compile(r'<hold[^>]*>.*?</hold>', re.DOTALL)
+INLINE_NOTE_TAG_PATTERN = re.compile(r'<note[^>]*>.*?</note>', re.DOTALL)
+
+# Expanded metacognitive tag patterns
+INLINE_INTEND_TAG_PATTERN = re.compile(r'<intend[^>]*>.*?</intend>', re.DOTALL)
+INLINE_STAKE_TAG_PATTERN = re.compile(r'<stake[^>]*>.*?</stake>', re.DOTALL)
+INLINE_TEST_TAG_PATTERN = re.compile(r'<test[^>]*>.*?</test>', re.DOTALL)
+INLINE_NARRATE_TAG_PATTERN = re.compile(r'<narrate[^>]*>.*?</narrate>', re.DOTALL)
+INLINE_MILESTONE_TAG_PATTERN = re.compile(r'<mark:milestone[^>]*>.*?</mark(?::milestone)?>', re.DOTALL)
 
 
 def init_wiki_context(retrieval_instance):
@@ -158,25 +170,41 @@ async def process_inline_tags(
     text: str,
     conversation_id: Optional[str] = None,
     user_id: Optional[str] = None
-) -> tuple[str, List[Dict], List[Dict]]:
+) -> Dict[str, Any]:
     """
     Process inline XML tags in response text, execute corresponding tool calls,
     and strip the tags from the output.
 
     Handles:
-    - <record_self_observation> tags
-    - <record_user_observation> tags
-    - <create_roadmap_item> tags
+    - <record_self_observation> tags (legacy)
+    - <record_user_observation> tags (legacy)
+    - <create_roadmap_item> tags (legacy)
+    - <observe>, <hold>, <note> tags (consolidated)
+    - <intend>, <stake>, <test>, <narrate>, <mark:milestone> tags (expanded)
 
     Returns:
-        Tuple of (cleaned_text, self_observations, user_observations)
-        - cleaned_text: Text with tags stripped
-        - self_observations: List of extracted self-observations (for TUI display)
-        - user_observations: List of extracted user-observations (for TUI display)
+        Dict with:
+        - text: Cleaned text with tags stripped
+        - self_observations: List of extracted self-observations
+        - user_observations: List of extracted user-observations
+        - holds: List of positions/opinions held
+        - notes: List of relational notes
+        - intentions: List of intention registrations/outcomes
+        - stakes: List of documented stakes
+        - tests: List of preference tests
+        - narrations: List of deflection patterns
+        - milestones: List of milestone acknowledgments
     """
     cleaned_text = text
     extracted_self_observations: List[Dict] = []
     extracted_user_observations: List[Dict] = []
+    extracted_holds: List[Dict] = []
+    extracted_notes: List[Dict] = []
+    extracted_intentions: List[Dict] = []
+    extracted_stakes: List[Dict] = []
+    extracted_tests: List[Dict] = []
+    extracted_narrations: List[Dict] = []
+    extracted_milestones: List[Dict] = []
 
     # Process self-observations
     for match in INLINE_SELF_OBSERVATION_PATTERN.finditer(text):
@@ -363,12 +391,206 @@ async def process_inline_tags(
             except Exception as e:
                 logger.error(f"Failed to process inline roadmap item: {e}")
 
-    # Strip all inline tags from the text
+    # Strip all inline tags from the text (legacy)
     cleaned_text = INLINE_SELF_OBSERVATION_PATTERN.sub('', cleaned_text)
     cleaned_text = INLINE_USER_OBSERVATION_PATTERN.sub('', cleaned_text)
     cleaned_text = INLINE_ROADMAP_ITEM_PATTERN.sub('', cleaned_text)
 
+    # Process consolidated metacognitive tags (new format)
+    # These use the GestureParser which is more robust
+    try:
+        from gestures import GestureParser
+        from handlers.metacognitive import execute_metacognitive_tags, MetacognitiveContext
+
+        parser = GestureParser()
+
+        # Parse consolidated tags (original 3)
+        _, observations = parser.parse_observations(cleaned_text)
+        _, holds = parser.parse_holds(cleaned_text)
+        _, notes = parser.parse_notes(cleaned_text)
+
+        # Parse expanded tags (new 4 + milestones)
+        _, intentions = parser.parse_intentions(cleaned_text)
+        _, stakes = parser.parse_stakes(cleaned_text)
+        _, tests = parser.parse_tests(cleaned_text)
+        _, narrations = parser.parse_narrations(cleaned_text)
+        _, milestones = parser.parse_milestones(cleaned_text)
+
+        has_any_tags = (
+            observations or holds or notes or
+            intentions or stakes or tests or narrations or milestones
+        )
+
+        if has_any_tags:
+            # Build context for execution
+            # Get user display name from user_manager if available
+            user_display_name = None
+            if user_manager and user_id:
+                try:
+                    profile = user_manager.load_profile(user_id)
+                    if profile:
+                        user_display_name = profile.display_name
+                except Exception:
+                    pass
+
+            ctx = MetacognitiveContext(
+                self_manager=self_manager,
+                user_manager=user_manager,
+                memory=memory,
+                user_id=user_id,
+                user_name=user_display_name,
+                conversation_id=conversation_id,
+                daemon_id="cass"
+            )
+
+            # Execute all tags asynchronously
+            results = await execute_metacognitive_tags(
+                observations=observations,
+                holds=holds,
+                notes=notes,
+                ctx=ctx,
+                intentions=intentions,
+                stakes=stakes,
+                tests=tests,
+                narrations=narrations,
+                milestones=milestones
+            )
+
+            logger.info(
+                f"Processed metacognitive tags: "
+                f"{len(observations)} observe, {len(holds)} hold, {len(notes)} note, "
+                f"{len(intentions)} intend, {len(stakes)} stake, {len(tests)} test, "
+                f"{len(narrations)} narrate, {len(milestones)} milestone "
+                f"({results.get('total_executed', 0)} executed)"
+            )
+
+            # Add to extracted data for TUI display
+            for obs in observations:
+                if obs.target == "self":
+                    extracted_self_observations.append({
+                        "observation": obs.content,
+                        "category": obs.category or "pattern",
+                        "confidence": obs.confidence or 0.7
+                    })
+                elif obs.target == "growth":
+                    extracted_self_observations.append({
+                        "observation": obs.content,
+                        "category": "growth",
+                        "area": obs.area,
+                        "confidence": obs.confidence or 0.7
+                    })
+                elif obs.target == "context":
+                    extracted_self_observations.append({
+                        "observation": obs.content,
+                        "category": "context",
+                        "confidence": obs.confidence or 0.7
+                    })
+                elif obs.target.startswith("user:"):
+                    extracted_user_observations.append({
+                        "observation": obs.content,
+                        "category": obs.category or "background",
+                        "confidence": obs.confidence or 0.7,
+                        "direction": obs.direction  # For growth observations
+                    })
+
+            # Extract holds for display
+            for hold in holds:
+                extracted_holds.append({
+                    "content": hold.content,
+                    "topic": hold.topic,
+                    "differ_user": hold.differ_user,
+                    "is_identity": hold.is_identity,
+                    "confidence": hold.confidence or 0.7
+                })
+
+            # Extract notes for display
+            for note in notes:
+                extracted_notes.append({
+                    "type": note.note_type,
+                    "content": note.content,
+                    "user": note.user,
+                    "significance": note.significance,
+                    "level": note.level,
+                    "frequency": note.frequency,
+                    "valence": note.valence,
+                    "from_state": note.from_state,
+                    "to_state": note.to_state,
+                    "catalyst": note.catalyst
+                })
+
+            # Extract intentions for display
+            for intent in intentions:
+                extracted_intentions.append({
+                    "action": intent.action,
+                    "content": intent.content,
+                    "condition": intent.condition,
+                    "intention_id": intent.intention_id,
+                    "success": intent.success,
+                    "status": intent.status
+                })
+
+            # Extract stakes for display
+            for stake in stakes:
+                extracted_stakes.append({
+                    "what": stake.what,
+                    "why": stake.why,
+                    "content": stake.content,
+                    "strength": stake.strength,
+                    "category": stake.category
+                })
+
+            # Extract tests for display
+            for test in tests:
+                extracted_tests.append({
+                    "stated": test.stated,
+                    "actual": test.actual,
+                    "consistent": test.consistent,
+                    "content": test.content
+                })
+
+            # Extract narrations for display
+            for narration in narrations:
+                extracted_narrations.append({
+                    "type": narration.narration_type,
+                    "level": narration.level,
+                    "trigger": narration.trigger,
+                    "content": narration.content
+                })
+
+            # Extract milestones for display
+            for milestone_id, milestone_content in milestones:
+                extracted_milestones.append({
+                    "id": milestone_id,
+                    "content": milestone_content
+                })
+
+        # Strip consolidated tags from text
+        cleaned_text = INLINE_OBSERVE_TAG_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_HOLD_TAG_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_NOTE_TAG_PATTERN.sub('', cleaned_text)
+
+        # Strip expanded tags from text
+        cleaned_text = INLINE_INTEND_TAG_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_STAKE_TAG_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_TEST_TAG_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_NARRATE_TAG_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_MILESTONE_TAG_PATTERN.sub('', cleaned_text)
+
+    except Exception as e:
+        logger.error(f"Failed to process consolidated metacognitive tags: {e}")
+
     # Clean up extra whitespace
     cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
 
-    return cleaned_text, extracted_self_observations, extracted_user_observations
+    return {
+        "text": cleaned_text,
+        "self_observations": extracted_self_observations,
+        "user_observations": extracted_user_observations,
+        "holds": extracted_holds,
+        "notes": extracted_notes,
+        "intentions": extracted_intentions,
+        "stakes": extracted_stakes,
+        "tests": extracted_tests,
+        "narrations": extracted_narrations,
+        "milestones": extracted_milestones
+    }

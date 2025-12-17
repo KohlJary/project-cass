@@ -727,7 +727,9 @@ async def execute_user_model_tool(
 
 
 # Tool definitions for agent_client.py
-USER_MODEL_TOOLS = [
+
+# Essential tools - always loaded (core user understanding)
+ESSENTIAL_USER_MODEL_TOOLS = [
     {
         "name": "reflect_on_user",
         "description": "Review what you know about a user. Use this to recall information about someone you're talking to or have talked to before.",
@@ -860,6 +862,10 @@ USER_MODEL_TOOLS = [
             "required": []
         }
     },
+]
+
+# Extended tools - loaded on keyword trigger (deeper relationship modeling)
+EXTENDED_USER_MODEL_TOOLS = [
     {
         "name": "record_identity_understanding",
         "description": "Record an understanding about who a user IS - their core identity, not just facts about them. Use for 'they are...' type insights.",
@@ -1094,3 +1100,6 @@ USER_MODEL_TOOLS = [
         }
     }
 ]
+
+# Combined list for backward compatibility
+USER_MODEL_TOOLS = ESSENTIAL_USER_MODEL_TOOLS + EXTENDED_USER_MODEL_TOOLS

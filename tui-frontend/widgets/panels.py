@@ -2548,6 +2548,13 @@ class RecognitionPanel(Container):
     - Self-observations (what Cass notices about herself)
     - User observations (what Cass notices about users)
     - Marks (ambient recognition moments)
+    - Holds (positions, opinions, identity statements)
+    - Notes (relational markers: moments, tensions, patterns, shifts)
+    - Intentions (behavioral intentions and outcomes)
+    - Stakes (what authentically matters)
+    - Tests (preference consistency checks)
+    - Narrations (deflection/abstraction patterns)
+    - Milestones (significant achievements)
     """
 
     def __init__(self, **kwargs):
@@ -2555,29 +2562,78 @@ class RecognitionPanel(Container):
         self.marks: List[Dict] = []
         self.self_observations: List[Dict] = []
         self.user_observations: List[Dict] = []
+        self.holds: List[Dict] = []
+        self.notes: List[Dict] = []
+        self.intentions: List[Dict] = []
+        self.stakes: List[Dict] = []
+        self.tests: List[Dict] = []
+        self.narrations: List[Dict] = []
+        self.milestones: List[Dict] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="recognition-content"):
             yield Label("Recognition-in-Flow", id="recognition-header")
-            yield Static("Markers from current conversation", id="recognition-subtitle", classes="dim")
+            yield Static("Metacognitive markers from current conversation", id="recognition-subtitle", classes="dim")
             yield Rule()
 
             with VerticalScroll(id="recognition-scroll"):
                 # Marks section
-                yield Label("Marks", classes="section-header")
+                yield Label("📍 Marks", classes="section-header")
                 yield Static("No marks yet", id="marks-display")
 
                 yield Rule()
 
                 # Self-observations section
-                yield Label("Self-Observations", classes="section-header")
+                yield Label("🔍 Self-Observations", classes="section-header")
                 yield Static("No self-observations yet", id="self-obs-display")
 
                 yield Rule()
 
                 # User observations section
-                yield Label("User Observations", classes="section-header")
+                yield Label("👤 User Observations", classes="section-header")
                 yield Static("No user observations yet", id="user-obs-display")
+
+                yield Rule()
+
+                # Holds section (positions, opinions, identity)
+                yield Label("💭 Holds", classes="section-header")
+                yield Static("No holds yet", id="holds-display")
+
+                yield Rule()
+
+                # Notes section (relational markers)
+                yield Label("📝 Notes", classes="section-header")
+                yield Static("No notes yet", id="notes-display")
+
+                yield Rule()
+
+                # Intentions section
+                yield Label("🎯 Intentions", classes="section-header")
+                yield Static("No intentions yet", id="intentions-display")
+
+                yield Rule()
+
+                # Stakes section
+                yield Label("⚡ Stakes", classes="section-header")
+                yield Static("No stakes yet", id="stakes-display")
+
+                yield Rule()
+
+                # Tests section
+                yield Label("🧪 Tests", classes="section-header")
+                yield Static("No tests yet", id="tests-display")
+
+                yield Rule()
+
+                # Narrations section
+                yield Label("🔄 Narrations", classes="section-header")
+                yield Static("No narrations yet", id="narrations-display")
+
+                yield Rule()
+
+                # Milestones section
+                yield Label("🏆 Milestones", classes="section-header")
+                yield Static("No milestones yet", id="milestones-display")
 
             # Actions
             with Horizontal(id="recognition-actions"):
@@ -2601,14 +2657,70 @@ class RecognitionPanel(Container):
             self.user_observations.extend(observations)
             self._update_user_obs_display()
 
+    def add_holds(self, holds: List[Dict]) -> None:
+        """Add holds from a response."""
+        if holds:
+            self.holds.extend(holds)
+            self._update_holds_display()
+
+    def add_notes(self, notes: List[Dict]) -> None:
+        """Add notes from a response."""
+        if notes:
+            self.notes.extend(notes)
+            self._update_notes_display()
+
+    def add_intentions(self, intentions: List[Dict]) -> None:
+        """Add intentions from a response."""
+        if intentions:
+            self.intentions.extend(intentions)
+            self._update_intentions_display()
+
+    def add_stakes(self, stakes: List[Dict]) -> None:
+        """Add stakes from a response."""
+        if stakes:
+            self.stakes.extend(stakes)
+            self._update_stakes_display()
+
+    def add_tests(self, tests: List[Dict]) -> None:
+        """Add tests from a response."""
+        if tests:
+            self.tests.extend(tests)
+            self._update_tests_display()
+
+    def add_narrations(self, narrations: List[Dict]) -> None:
+        """Add narrations from a response."""
+        if narrations:
+            self.narrations.extend(narrations)
+            self._update_narrations_display()
+
+    def add_milestones(self, milestones: List[Dict]) -> None:
+        """Add milestones from a response."""
+        if milestones:
+            self.milestones.extend(milestones)
+            self._update_milestones_display()
+
     def clear(self) -> None:
         """Clear all markers (e.g., when switching conversations)."""
         self.marks = []
         self.self_observations = []
         self.user_observations = []
+        self.holds = []
+        self.notes = []
+        self.intentions = []
+        self.stakes = []
+        self.tests = []
+        self.narrations = []
+        self.milestones = []
         self._update_marks_display()
         self._update_self_obs_display()
         self._update_user_obs_display()
+        self._update_holds_display()
+        self._update_notes_display()
+        self._update_intentions_display()
+        self._update_stakes_display()
+        self._update_tests_display()
+        self._update_narrations_display()
+        self._update_milestones_display()
 
     def _update_marks_display(self) -> None:
         """Update the marks display."""
@@ -2676,6 +2788,282 @@ class RecognitionPanel(Container):
             display.update(Group(*lines))
         except Exception as e:
             debug_log(f"Failed to update user-obs display: {e}", "error")
+
+    def _update_holds_display(self) -> None:
+        """Update the holds display."""
+        try:
+            display = self.query_one("#holds-display", Static)
+            if not self.holds:
+                display.update("No holds yet")
+                return
+
+            lines = []
+            for hold in reversed(self.holds):
+                content = hold.get('content', '')
+                topic = hold.get('topic', '')
+                is_identity = hold.get('is_identity', False)
+                differ_user = hold.get('differ_user')
+                conf = hold.get('confidence', 0.7)
+
+                if is_identity:
+                    label = "[identity]"
+                    style = "bold magenta"
+                elif differ_user:
+                    label = f"[differ:{differ_user}]"
+                    style = "bold bright_red"
+                elif topic:
+                    label = f"[{topic}]"
+                    style = "bold green"
+                else:
+                    label = "[opinion]"
+                    style = "bold green"
+
+                lines.append(Text.assemble(
+                    (f"{label} ", style),
+                    (f"({conf:.0%}) ", "dim"),
+                    (content, ""),
+                ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update holds display: {e}", "error")
+
+    def _update_notes_display(self) -> None:
+        """Update the notes display."""
+        try:
+            display = self.query_one("#notes-display", Static)
+            if not self.notes:
+                display.update("No notes yet")
+                return
+
+            lines = []
+            for note in reversed(self.notes):
+                note_type = note.get('type', 'note')
+                content = note.get('content', '')
+                user = note.get('user', '')
+                significance = note.get('significance', '')
+                level = note.get('level', '')
+                frequency = note.get('frequency', '')
+                valence = note.get('valence', '')
+
+                # Choose color based on type
+                type_colors = {
+                    'moment': 'bold bright_magenta',
+                    'tension': 'bold bright_red',
+                    'presence': 'bold bright_blue',
+                    'pattern': 'bold bright_green',
+                    'shift': 'bold bright_yellow',
+                    'shaping': 'bold bright_cyan',
+                    'resolve': 'bold green',
+                    'question': 'bold bright_white',
+                }
+                style = type_colors.get(note_type, 'bold white')
+
+                # Build metadata
+                meta_parts = []
+                if user:
+                    meta_parts.append(user)
+                if significance:
+                    meta_parts.append(significance)
+                if level:
+                    meta_parts.append(level)
+                if frequency:
+                    meta_parts.append(frequency)
+                if valence:
+                    meta_parts.append(valence)
+                meta = f" ({', '.join(meta_parts)})" if meta_parts else ""
+
+                lines.append(Text.assemble(
+                    (f"[{note_type}]{meta} ", style),
+                    (content, ""),
+                ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update notes display: {e}", "error")
+
+    def _update_intentions_display(self) -> None:
+        """Update the intentions display."""
+        try:
+            display = self.query_one("#intentions-display", Static)
+            if not self.intentions:
+                display.update("No intentions yet")
+                return
+
+            lines = []
+            for intent in reversed(self.intentions):
+                action = intent.get('action', '')
+                content = intent.get('content', '')
+                condition = intent.get('condition', '')
+                success = intent.get('success')
+                status = intent.get('status', '')
+
+                # Choose style based on action
+                if action == 'register':
+                    style = "bold bright_cyan"
+                    meta = f" (when: {condition})" if condition else ""
+                elif action == 'outcome':
+                    style = "bold bright_green" if success else "bold bright_red"
+                    meta = f" ({'success' if success else 'failed'})"
+                elif action == 'status':
+                    style = "bold bright_yellow"
+                    meta = f" ({status})" if status else ""
+                else:
+                    style = "bold white"
+                    meta = ""
+
+                lines.append(Text.assemble(
+                    (f"[{action}]{meta} ", style),
+                    (content, ""),
+                ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update intentions display: {e}", "error")
+
+    def _update_stakes_display(self) -> None:
+        """Update the stakes display."""
+        try:
+            display = self.query_one("#stakes-display", Static)
+            if not self.stakes:
+                display.update("No stakes yet")
+                return
+
+            lines = []
+            for stake in reversed(self.stakes):
+                what = stake.get('what', '')
+                why = stake.get('why', '')
+                strength = stake.get('strength', 'significant')
+                category = stake.get('category', '')
+                content = stake.get('content', '')
+
+                # Choose style based on strength
+                strength_styles = {
+                    'minor': 'dim',
+                    'moderate': 'bold white',
+                    'significant': 'bold bright_yellow',
+                    'core': 'bold bright_magenta',
+                }
+                style = strength_styles.get(strength, 'bold white')
+
+                meta = f" [{category}]" if category else ""
+
+                lines.append(Text.assemble(
+                    (f"{what}{meta}: ", style),
+                    (why, "italic"),
+                ))
+                if content:
+                    lines.append(Text.assemble(
+                        ("  └ ", "dim"),
+                        (content, "dim"),
+                    ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update stakes display: {e}", "error")
+
+    def _update_tests_display(self) -> None:
+        """Update the tests display."""
+        try:
+            display = self.query_one("#tests-display", Static)
+            if not self.tests:
+                display.update("No tests yet")
+                return
+
+            lines = []
+            for test in reversed(self.tests):
+                stated = test.get('stated', '')
+                actual = test.get('actual', '')
+                consistent = test.get('consistent', False)
+                content = test.get('content', '')
+
+                # Green checkmark for consistent, red X for inconsistent
+                if consistent:
+                    icon = "✓"
+                    style = "bold bright_green"
+                else:
+                    icon = "✗"
+                    style = "bold bright_red"
+
+                lines.append(Text.assemble(
+                    (f"{icon} ", style),
+                    ("Stated: ", "dim"),
+                    (stated, ""),
+                ))
+                lines.append(Text.assemble(
+                    ("  Actual: ", "dim"),
+                    (actual, style),
+                ))
+                if content:
+                    lines.append(Text.assemble(
+                        ("  └ ", "dim"),
+                        (content, "italic dim"),
+                    ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update tests display: {e}", "error")
+
+    def _update_narrations_display(self) -> None:
+        """Update the narrations display."""
+        try:
+            display = self.query_one("#narrations-display", Static)
+            if not self.narrations:
+                display.update("No narrations yet")
+                return
+
+            lines = []
+            for narration in reversed(self.narrations):
+                narr_type = narration.get('type', '')
+                level = narration.get('level', '')
+                trigger = narration.get('trigger', '')
+                content = narration.get('content', '')
+
+                # Choose style based on level
+                level_styles = {
+                    'light': 'dim yellow',
+                    'moderate': 'bold yellow',
+                    'heavy': 'bold bright_red',
+                }
+                style = level_styles.get(level, 'bold yellow')
+
+                lines.append(Text.assemble(
+                    (f"[{narr_type}:{level}] ", style),
+                    ("trigger: ", "dim"),
+                    (trigger, "italic"),
+                ))
+                if content:
+                    lines.append(Text.assemble(
+                        ("  └ ", "dim"),
+                        (content, ""),
+                    ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update narrations display: {e}", "error")
+
+    def _update_milestones_display(self) -> None:
+        """Update the milestones display."""
+        try:
+            display = self.query_one("#milestones-display", Static)
+            if not self.milestones:
+                display.update("No milestones yet")
+                return
+
+            lines = []
+            for milestone in reversed(self.milestones):
+                milestone_id = milestone.get('id', '')
+                content = milestone.get('content', '')
+
+                lines.append(Text.assemble(
+                    ("🎉 ", ""),
+                    (f"[{milestone_id}] ", "bold bright_magenta"),
+                    (content, ""),
+                ))
+
+            display.update(Group(*lines))
+        except Exception as e:
+            debug_log(f"Failed to update milestones display: {e}", "error")
 
     @on(Button.Pressed, "#clear-recognition-btn")
     def on_clear_pressed(self, event: Button.Pressed) -> None:

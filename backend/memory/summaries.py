@@ -742,17 +742,17 @@ Write in first person as yourself. This is your memory - make it feel like one, 
 
         # Use working summary if available (token-optimized), otherwise fall back to chunks
         if working_summary:
-            context_parts.append("=== Conversation Context ===")
-            context_parts.append(f"\n{working_summary}")
+            context_parts.append("## Conversation Context\n")
+            context_parts.append(working_summary)
         elif hierarchical["summaries"]:
-            context_parts.append("=== Memory Summaries (compressed history) ===")
+            context_parts.append("## Memory Summaries\n")
             for summary in hierarchical["summaries"]:
-                context_parts.append(f"\n{summary['content']}")
+                context_parts.append(summary['content'])
 
         # Add recent exchanges - prefer actual chronological messages over semantic search
         if recent_messages:
             # Use actual conversation messages (chronological order)
-            context_parts.append("\n=== Recent Exchanges (since last summary) ===")
+            context_parts.append("\n## Recent Exchanges\n")
             for msg in recent_messages:
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")
@@ -760,15 +760,14 @@ Write in first person as yourself. This is your memory - make it feel like one, 
                 if role == "assistant":
                     content = self._strip_thinking_blocks(content)
                 if role == "user":
-                    context_parts.append(f"\nUser: {content}")
+                    context_parts.append(f"User: {content}")
                 elif role == "assistant":
-                    context_parts.append(f"\nCass: {content}")
+                    context_parts.append(f"Cass: {content}")
         elif hierarchical["details"]:
             # Fall back to semantic search results (may be out of order)
-            context_parts.append("\n=== Recent Exchanges (since last summary) ===")
+            context_parts.append("\n## Recent Exchanges\n")
             for detail in hierarchical["details"]:
-                content = detail['content']
-                context_parts.append(f"\n{content}")
+                context_parts.append(detail['content'])
 
         return "\n".join(context_parts)
 

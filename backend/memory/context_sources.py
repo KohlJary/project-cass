@@ -359,10 +359,10 @@ class ContextSourceManager:
         if not documents:
             return ""
 
-        context_parts = ["=== Project Documents ==="]
+        context_parts = ["## Project Documents\n"]
 
         for doc in documents:
-            context_parts.append(f"\n{doc['content']}")
+            context_parts.append(doc['content'])
 
         return "\n".join(context_parts)
 
@@ -676,7 +676,7 @@ class ContextSourceManager:
         if not context_entries:
             return ""
 
-        parts = ["=== User Context ==="]
+        parts = ["## User Context\n"]
 
         # Separate profile from observations
         profile_entries = [c for c in context_entries if c["metadata"].get("type") == "user_profile"]
@@ -684,11 +684,11 @@ class ContextSourceManager:
 
         # Profile first
         for entry in profile_entries:
-            parts.append(f"\n{entry['content']}")
+            parts.append(entry['content'])
 
         # Then observations
         if observation_entries:
-            parts.append("\n--- Recent Observations ---")
+            parts.append("\n### Observations")
             for entry in observation_entries:
                 parts.append(f"- {entry['content']}")
 
