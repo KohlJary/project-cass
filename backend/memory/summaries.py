@@ -756,6 +756,9 @@ Write in first person as yourself. This is your memory - make it feel like one, 
             for msg in recent_messages:
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")
+                # Strip thinking blocks from assistant messages (can be very long)
+                if role == "assistant":
+                    content = self._strip_thinking_blocks(content)
                 if role == "user":
                     context_parts.append(f"\nUser: {content}")
                 elif role == "assistant":
@@ -768,3 +771,14 @@ Write in first person as yourself. This is your memory - make it feel like one, 
                 context_parts.append(f"\n{content}")
 
         return "\n".join(context_parts)
+
+    def _strip_thinking_blocks(self, content: str) -> str:
+        """Remove internal reasoning blocks from content to reduce token usage.
+
+        Matches any tag containing 'think' in the name (e.g., <thinking>, <gesture:think>).
+        """
+        import re
+        # Match any tag containing "think" in name, using backreference for closing tag
+        pattern = r'<([\w:]*think[\w:]*)>.*?</\1>\s*'
+        stripped = re.sub(pattern, '', content, flags=re.DOTALL | re.IGNORECASE)
+        return stripped.strip()

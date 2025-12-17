@@ -997,7 +997,7 @@ async def chat(request: ChatRequest):
         # Use working summary if available (token-optimized)
         working_summary = conversation_manager.get_working_summary(request.conversation_id) if request.conversation_id else None
         # Get actual recent messages for chronological context (not semantic search)
-        recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=10) if request.conversation_id else None
+        recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=6) if request.conversation_id else None
         memory_context = memory.format_hierarchical_context(
             hierarchical,
             working_summary=working_summary,
@@ -4968,7 +4968,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 # Use working summary if available (token-optimized)
                 working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
                 # Get actual recent messages for chronological context (not semantic search)
-                recent_messages = conversation_manager.get_recent_messages(conversation_id, count=10) if conversation_id else None
+                recent_messages = conversation_manager.get_recent_messages(conversation_id, count=6) if conversation_id else None
                 memory_context = memory.format_hierarchical_context(
                     hierarchical,
                     working_summary=working_summary,
@@ -5086,6 +5086,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 # Total context size
                 context_sizes["total"] = len(memory_context)
+
+                # Log context breakdown for debugging token usage
+                print(f"[Context] Breakdown: " + ", ".join(f"{k}={v}" for k, v in sorted(context_sizes.items(), key=lambda x: -x[1]) if v > 0))
 
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
