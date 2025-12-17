@@ -215,7 +215,14 @@ class ConversationManager:
         self_observations: Optional[List[Dict]] = None,
         user_observations: Optional[List[Dict]] = None,
         marks: Optional[List[Dict]] = None,
-        narration_metrics: Optional[Dict] = None
+        narration_metrics: Optional[Dict] = None,
+        holds: Optional[List[Dict]] = None,
+        notes: Optional[List[Dict]] = None,
+        intentions: Optional[List[Dict]] = None,
+        stakes: Optional[List[Dict]] = None,
+        tests: Optional[List[Dict]] = None,
+        narrations: Optional[List[Dict]] = None,
+        milestones: Optional[List[Dict]] = None
     ) -> bool:
         """Add a message to a conversation"""
         now = datetime.now().isoformat()
@@ -236,8 +243,10 @@ class ConversationManager:
                     conversation_id, role, content, timestamp, excluded, user_id,
                     provider, model, input_tokens, output_tokens,
                     animations_json, self_observations_json,
-                    user_observations_json, marks_json, narration_metrics_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    user_observations_json, marks_json, narration_metrics_json,
+                    holds_json, notes_json, intentions_json, stakes_json,
+                    tests_json, narrations_json, milestones_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 conversation_id,
                 role,
@@ -253,7 +262,14 @@ class ConversationManager:
                 json_serialize(self_observations) if role == "assistant" else None,
                 json_serialize(user_observations) if role == "assistant" else None,
                 json_serialize(marks) if role == "assistant" else None,
-                json_serialize(narration_metrics) if role == "assistant" else None
+                json_serialize(narration_metrics) if role == "assistant" else None,
+                json_serialize(holds) if role == "assistant" else None,
+                json_serialize(notes) if role == "assistant" else None,
+                json_serialize(intentions) if role == "assistant" else None,
+                json_serialize(stakes) if role == "assistant" else None,
+                json_serialize(tests) if role == "assistant" else None,
+                json_serialize(narrations) if role == "assistant" else None,
+                json_serialize(milestones) if role == "assistant" else None
             ))
 
             # Check if this is the first user message for auto-title
