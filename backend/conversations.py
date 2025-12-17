@@ -34,6 +34,8 @@ class Message:
     marks: Optional[List[Dict]] = None
     # Narration metrics (for assistant messages)
     narration_metrics: Optional[Dict] = None
+    # Attachments (files/images)
+    attachments: Optional[List[Dict]] = None  # [{id, filename, media_type, size, is_image, url}]
     # Database ID (internal, not part of original API)
     id: Optional[int] = None
 

@@ -3890,6 +3890,92 @@ async def delete_ollama_model(model_name: str):
         return {"status": "error", "message": str(e)}
 
 
+# === Attachment Endpoints ===
+
+from fastapi import File, UploadFile
+from fastapi.responses import Response
+
+# Initialize attachment manager
+from attachments import AttachmentManager
+attachment_manager = AttachmentManager()
+
+
+@app.post("/attachments/upload")
+async def upload_attachment(
+    file: UploadFile = File(...),
+    conversation_id: Optional[str] = None,
+    current_user: str = Depends(get_current_user)
+):
+    """
+    Upload a file/image attachment.
+
+    Returns attachment metadata including ID for later retrieval.
+    In session-only mode, attachments are cleaned up when session disconnects.
+    """
+    # Read file data
+    file_data = await file.read()
+
+    # Validate size (max 10MB)
+    if len(file_data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10MB.")
+
+    # Get media type
+    media_type = file.content_type or "application/octet-stream"
+
+    # Save attachment
+    metadata = attachment_manager.save(
+        file_data=file_data,
+        filename=file.filename or "upload",
+        media_type=media_type,
+        conversation_id=conversation_id,
+        session_id=current_user  # Use user ID as session ID for cleanup
+    )
+
+    return {
+        "id": metadata.id,
+        "filename": metadata.filename,
+        "media_type": metadata.media_type,
+        "size": metadata.size,
+        "is_image": metadata.is_image,
+        "url": f"/attachments/{metadata.id}"
+    }
+
+
+@app.get("/attachments/{attachment_id}")
+async def get_attachment(attachment_id: str):
+    """
+    Serve an attachment file.
+
+    Returns the file with appropriate Content-Type header.
+    """
+    result = attachment_manager.get(attachment_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    file_data, metadata = result
+
+    return Response(
+        content=file_data,
+        media_type=metadata.media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{metadata.filename}"',
+            "Cache-Control": "public, max-age=31536000"  # Cache for 1 year
+        }
+    )
+
+
+@app.delete("/attachments/{attachment_id}")
+async def delete_attachment(
+    attachment_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    """Delete an attachment."""
+    if attachment_manager.delete(attachment_id):
+        return {"status": "success", "message": "Attachment deleted"}
+    else:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+
 # === User Preferences Endpoints ===
 
 class PreferencesUpdateRequest(BaseModel):
@@ -4945,10 +5031,14 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 image_data = data.get("image")  # Base64 encoded image
                 image_media_type = data.get("image_media_type")  # e.g., "image/png"
+                attachment_ids = data.get("attachment_ids", [])  # Uploaded attachment IDs
+
                 if image_data:
                     print(f"[WebSocket] Received image: {image_media_type}, {len(image_data)} chars base64")
-                else:
-                    print("[WebSocket] No image in message")
+                if attachment_ids:
+                    print(f"[WebSocket] Received {len(attachment_ids)} attachment IDs: {attachment_ids}")
+                if not image_data and not attachment_ids:
+                    print("[WebSocket] No image or attachments in message")
 
                 # Check if conversation belongs to a project
                 project_id = None

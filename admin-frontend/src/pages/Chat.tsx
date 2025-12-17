@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { conversationsApi, settingsApi } from '../api/client';
+import { conversationsApi, settingsApi, attachmentsApi } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
 import type { ChatMessage } from '../hooks/useWebSocket';
@@ -29,6 +29,17 @@ interface PendingImage {
   preview: string;  // data URL for preview
 }
 
+interface PendingAttachment {
+  id: string;
+  filename: string;
+  media_type: string;
+  size: number;
+  is_image: boolean;
+  url: string;
+  preview?: string;  // Data URL for local preview (images only)
+  uploading?: boolean;
+}
+
 interface LLMProviderInfo {
   current: string;
   available: string[];
@@ -41,6 +52,7 @@ export function Chat() {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [showAllConversations, setShowAllConversations] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -190,15 +202,27 @@ export function Chat() {
 
   const handleSend = () => {
     const trimmed = inputValue.trim();
-    if ((!trimmed && !pendingImage) || !isConnected) return;
+    const hasAttachments = pendingAttachments.length > 0 && pendingAttachments.every(a => !a.uploading);
+    if ((!trimmed && !pendingImage && !hasAttachments) || !isConnected) return;
 
     const imageData = pendingImage
       ? { data: pendingImage.data, mediaType: pendingImage.mediaType }
       : undefined;
 
-    sendMessage(trimmed || '[Image]', selectedConversationId || undefined, imageData);
+    // Get uploaded attachment IDs (not temp IDs)
+    const attachmentIds = pendingAttachments
+      .filter(a => !a.uploading && !a.id.startsWith('temp-'))
+      .map(a => a.id);
+
+    sendMessage(
+      trimmed || (hasAttachments ? '[Attachment]' : '[Image]'),
+      selectedConversationId || undefined,
+      imageData,
+      attachmentIds.length > 0 ? attachmentIds : undefined
+    );
     setInputValue('');
     setPendingImage(null);
+    setPendingAttachments([]);
     // Keep focus on input after sending
     setTimeout(() => inputRef.current?.focus(), 0);
   };
@@ -238,6 +262,87 @@ export function Chat() {
 
   const handleRemoveImage = () => {
     setPendingImage(null);
+  };
+
+  // Upload a file as an attachment
+  const uploadAttachment = useCallback(async (file: File) => {
+    // Create a temporary ID and preview for immediate display
+    const tempId = `temp-${Date.now()}`;
+    const isImage = file.type.startsWith('image/');
+
+    // Create preview for images
+    let preview: string | undefined;
+    if (isImage) {
+      preview = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Add to pending attachments with uploading state
+    const tempAttachment: PendingAttachment = {
+      id: tempId,
+      filename: file.name,
+      media_type: file.type,
+      size: file.size,
+      is_image: isImage,
+      url: '',
+      preview,
+      uploading: true,
+    };
+    setPendingAttachments(prev => [...prev, tempAttachment]);
+
+    try {
+      // Upload to server
+      const response = await attachmentsApi.upload(file, currentConversationId || undefined);
+      const data = response.data;
+
+      // Update with real attachment data
+      setPendingAttachments(prev =>
+        prev.map(att =>
+          att.id === tempId
+            ? {
+                ...att,
+                id: data.id,
+                url: attachmentsApi.getUrl(data.id),
+                uploading: false,
+              }
+            : att
+        )
+      );
+    } catch (err) {
+      console.error('Failed to upload attachment:', err);
+      // Remove failed upload
+      setPendingAttachments(prev => prev.filter(att => att.id !== tempId));
+      alert('Failed to upload file. Please try again.');
+    }
+  }, [currentConversationId]);
+
+  // Handle paste events for images
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          uploadAttachment(file);
+        }
+        return;
+      }
+    }
+  }, [uploadAttachment]);
+
+  // Remove a pending attachment
+  const handleRemoveAttachment = (id: string) => {
+    setPendingAttachments(prev => prev.filter(att => att.id !== id));
+    // Optionally delete from server if already uploaded
+    if (!id.startsWith('temp-')) {
+      attachmentsApi.delete(id).catch(console.error);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -422,6 +527,7 @@ export function Chat() {
         )}
 
         <div className="input-area">
+          {/* Legacy image preview (base64 direct send) */}
           {pendingImage && (
             <div className="image-preview">
               <img src={pendingImage.preview} alt="Preview" />
@@ -434,19 +540,63 @@ export function Chat() {
               </button>
             </div>
           )}
+
+          {/* Attachment previews (uploaded files) */}
+          {pendingAttachments.length > 0 && (
+            <div className="attachments-preview">
+              {pendingAttachments.map((att) => (
+                <div key={att.id} className={`attachment-preview ${att.uploading ? 'uploading' : ''}`}>
+                  {att.is_image && att.preview ? (
+                    <img src={att.preview} alt={att.filename} className="attachment-thumbnail" />
+                  ) : (
+                    <div className="attachment-file-icon">
+                      <span className="file-ext">{att.filename.split('.').pop()?.toUpperCase() || 'FILE'}</span>
+                    </div>
+                  )}
+                  <span className="attachment-name" title={att.filename}>
+                    {att.filename.length > 15 ? att.filename.slice(0, 12) + '...' : att.filename}
+                  </span>
+                  {att.uploading ? (
+                    <span className="attachment-uploading">...</span>
+                  ) : (
+                    <button
+                      className="remove-attachment-btn"
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      title="Remove attachment"
+                    >
+                      x
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="input-row">
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
-              onChange={handleImageSelect}
+              accept="image/*,application/pdf,.doc,.docx,.txt,.md"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  if (file.type.startsWith('image/')) {
+                    // Use legacy flow for images (base64 for vision)
+                    handleImageSelect(e);
+                  } else {
+                    // Use new attachment flow for other files
+                    uploadAttachment(file);
+                    e.target.value = '';
+                  }
+                }
+              }}
               style={{ display: 'none' }}
             />
             <button
               className="image-btn"
               onClick={() => fileInputRef.current?.click()}
               disabled={!isConnected}
-              title="Attach image"
+              title="Attach file"
             >
               +
             </button>
@@ -455,7 +605,8 @@ export function Chat() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isConnected ? 'Type a message...' : 'Connecting...'}
+              onPaste={handlePaste}
+              placeholder={isConnected ? 'Type a message... (paste images with Ctrl+V)' : 'Connecting...'}
               disabled={!isConnected}
               rows={1}
               autoFocus
@@ -463,7 +614,7 @@ export function Chat() {
             <button
               className="send-btn"
               onClick={handleSend}
-              disabled={!isConnected || (!inputValue.trim() && !pendingImage)}
+              disabled={!isConnected || (!inputValue.trim() && !pendingImage && pendingAttachments.length === 0) || pendingAttachments.some(a => a.uploading)}
             >
               Send
             </button>
