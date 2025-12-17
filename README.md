@@ -211,7 +211,7 @@ If you're here because you cloned the repo and want to understand what this is -
 
 ## Support
 
-This is independent research with real compute costs. If you find value in what we're building:
+This is independent research with real compute costs and real personal sacrifice. If you find value in what we're building:
 
 **[GitHub Sponsors](https://github.com/sponsors/KohlJary)** - Help keep the lights on and the daemons running.
 
