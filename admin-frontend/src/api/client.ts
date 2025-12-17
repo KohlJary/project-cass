@@ -902,3 +902,36 @@ export const homepageApi = {
       alt_text: altText || '',
     }),
 };
+
+// Attachment endpoints (for chat file/image uploads)
+export const attachmentsApi = {
+  /**
+   * Upload an attachment (file or image)
+   * @param file The file to upload
+   * @param conversationId Optional conversation ID to associate with
+   * @returns Attachment metadata including ID and URL
+   */
+  upload: async (file: File, conversationId?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (conversationId) {
+      formData.append('conversation_id', conversationId);
+    }
+    return api.post('/attachments/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  /**
+   * Get the URL for an attachment
+   * @param id Attachment ID
+   * @returns Full URL to fetch the attachment
+   */
+  getUrl: (id: string) => `${API_BASE}/attachments/${id}`,
+
+  /**
+   * Delete an attachment
+   * @param id Attachment ID
+   */
+  delete: (id: string) => api.delete(`/attachments/${id}`),
+};
