@@ -26,14 +26,15 @@ export function parseGestureTags(content: string): ParsedMessage {
   const emotes: string[] = [];
   let thinking: string | null = null;
 
-  // Extract <gesture:think>...</gesture:think> content
-  const thinkMatch = content.match(/<gesture:think>([\s\S]*?)<\/gesture:think>/);
+  // Extract internal reasoning content - any tag containing "think" in name
+  // Matches: <thinking>, <gesture:think>, etc.
+  const thinkMatch = content.match(/<([\w:]*think[\w:]*)>([\s\S]*?)<\/\1>/i);
   if (thinkMatch) {
-    thinking = thinkMatch[1].trim();
+    thinking = thinkMatch[2].trim();
   }
 
-  // Remove thinking blocks from content
-  let cleanText = content.replace(/<gesture:think>[\s\S]*?<\/gesture:think>/g, '');
+  // Remove all thinking blocks from content
+  let cleanText = content.replace(/<([\w:]*think[\w:]*)>[\s\S]*?<\/\1>/gi, '');
 
   // Extract and remove inline gesture tags: <gesture:name>
   cleanText = cleanText.replace(/<gesture:(\w+)>/g, (_, name) => {

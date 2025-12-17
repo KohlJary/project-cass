@@ -92,8 +92,9 @@ class ChatMessage(Vertical):
     MEMORY_TAG_PATTERN = re.compile(r'<memory:(\w+)>')
     # Pattern to match code blocks: ```language\ncode\n```
     CODE_BLOCK_PATTERN = re.compile(r'```(\w*)\n(.*?)```', re.DOTALL)
-    # Pattern to match <gesture:think>...</gesture:think> blocks (internal processing)
-    THINK_BLOCK_PATTERN = re.compile(r'<gesture:think>(.*?)</gesture:think>', re.DOTALL)
+    # Pattern to match internal reasoning blocks - any tag containing "think" in name
+    # Uses backreference to match opening and closing tags (e.g., <thinking>, <gesture:think>)
+    THINK_BLOCK_PATTERN = re.compile(r'<([\w:]*think[\w:]*)>(.*?)</\1>', re.DOTALL | re.IGNORECASE)
     # Pattern to clean remaining gesture/emote tags (self-closing and block-style)
     GESTURE_EMOTE_TAG_PATTERN = re.compile(r'</?(?:gesture|emote):\w+(?::\d*\.?\d+)?/?>')
 
@@ -121,8 +122,9 @@ class ChatMessage(Vertical):
         self.memory_tags = self.MEMORY_TAG_PATTERN.findall(content)
         cleaned_content = self.MEMORY_TAG_PATTERN.sub('', content).strip()
 
-        # Extract thinking blocks (internal processing wrapped in <gesture:think>)
-        self.thinking_blocks = self.THINK_BLOCK_PATTERN.findall(cleaned_content)
+        # Extract thinking blocks - pattern returns (tag_name, content) tuples, keep just content
+        raw_blocks = self.THINK_BLOCK_PATTERN.findall(cleaned_content)
+        self.thinking_blocks = [content for _, content in raw_blocks]
         # Remove thinking blocks from main content
         self.content = self.THINK_BLOCK_PATTERN.sub('', cleaned_content).strip()
         # Clean remaining gesture/emote tags from response content

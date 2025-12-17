@@ -997,7 +997,7 @@ async def chat(request: ChatRequest):
         # Use working summary if available (token-optimized)
         working_summary = conversation_manager.get_working_summary(request.conversation_id) if request.conversation_id else None
         # Get actual recent messages for chronological context (not semantic search)
-        recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=10) if request.conversation_id else None
+        recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=6) if request.conversation_id else None
         memory_context = memory.format_hierarchical_context(
             hierarchical,
             working_summary=working_summary,
@@ -4968,7 +4968,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 # Use working summary if available (token-optimized)
                 working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
                 # Get actual recent messages for chronological context (not semantic search)
-                recent_messages = conversation_manager.get_recent_messages(conversation_id, count=10) if conversation_id else None
+                recent_messages = conversation_manager.get_recent_messages(conversation_id, count=6) if conversation_id else None
                 memory_context = memory.format_hierarchical_context(
                     hierarchical,
                     working_summary=working_summary,
@@ -5087,6 +5087,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 # Total context size
                 context_sizes["total"] = len(memory_context)
 
+                # Get tool count for context breakdown
+                # Tools add significant tokens (~20k for full set) but aren't part of the text context
+                tool_count = 0
+                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
+                    tool_count = len(ollama_client.get_tools(project_id, user_message))
+                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
+                    tool_count = len(openai_client.get_tools(project_id, user_message))
+                elif USE_AGENT_SDK and agent_client:
+                    tool_count = len(agent_client.get_tools(project_id, user_message))
+                context_sizes["tool_count"] = tool_count
+
+                # Log context breakdown for debugging token usage
+                print(f"[Context] Breakdown: " + ", ".join(f"{k}={v}" for k, v in sorted(context_sizes.items(), key=lambda x: -x[1]) if v > 0))
+
                 # Get unsummarized message count to determine if summarization is available
                 unsummarized_count = 0
                 if conversation_id:
@@ -5102,6 +5116,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "wiki_pages_count": wiki_pages_count,
                     "cross_session_insights_count": cross_session_insights_count,
                     "pattern_count": pattern_count,
+                    "tool_count": tool_count,  # Number of tools available (adds ~20k tokens)
                     "has_context": bool(memory_context),
                     "context_sizes": context_sizes  # Character counts per source
                 }
@@ -5140,6 +5155,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 tool_execution_total_ms = 0.0
                 tool_names_collected = []
                 tool_iterations_count = 0
+                total_cache_read_tokens = 0  # Track Anthropic prompt cache hits
 
                 # Check if using local LLM
                 if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
@@ -5288,6 +5304,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     # Track token usage (accumulates across tool calls)
                     total_input_tokens = response.input_tokens
                     total_output_tokens = response.output_tokens
+                    total_cache_read_tokens = getattr(response, 'cache_read_tokens', 0) or 0
 
                     # Handle tool calls
                     tool_iteration = 0
@@ -5355,6 +5372,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         # Accumulate token usage
                         total_input_tokens += response.input_tokens
                         total_output_tokens += response.output_tokens
+                        total_cache_read_tokens += getattr(response, 'cache_read_tokens', 0) or 0
 
                         # Track tool execution time
                         tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
@@ -5521,6 +5539,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     {"category": m.category, "description": m.description}
                     for m in marks
                 ] if marks else []
+                # Log cache stats for prompt caching visibility
+                if total_cache_read_tokens > 0:
+                    cache_hit_pct = (total_cache_read_tokens / total_input_tokens * 100) if total_input_tokens > 0 else 0
+                    print(f"[Cache] Prompt cache hit: {total_cache_read_tokens:,} tokens ({cache_hit_pct:.1f}% of input)")
+
                 await websocket.send_json({
                     "type": "response",
                     "text": clean_text,
@@ -5532,6 +5555,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "audio_format": "mp3" if audio_base64 else None,
                     "input_tokens": total_input_tokens,
                     "output_tokens": total_output_tokens,
+                    "cache_read_tokens": total_cache_read_tokens,  # Prompt cache hits (90% cost reduction)
                     "timestamp": datetime.now().isoformat(),
                     "provider": response_provider,
                     "model": response_model,
