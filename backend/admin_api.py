@@ -803,30 +803,64 @@ async def start_genesis_dream(user: Dict = Depends(require_auth)):
     from genesis_dream import (
         create_genesis_session,
         get_user_active_genesis,
-        get_phase_prompt
+        get_phase_prompt,
+        update_genesis_session
     )
+    from agent_client import CassClient
+    from datetime import datetime
 
     user_id = user["user_id"]
 
     # Check if user already has an active genesis session
     existing = get_user_active_genesis(user_id)
     if existing:
+        # Return the last assistant message if available
+        last_response = None
+        for msg in reversed(existing.messages):
+            if msg.get("role") == "assistant":
+                last_response = msg.get("content")
+                break
+
         return {
             "session_id": existing.id,
             "phase": existing.current_phase,
             "status": "resumed",
             "message": "Resuming existing genesis dream session",
-            "prompt": get_phase_prompt(existing.current_phase)
+            "response": last_response,
+            "messages": existing.messages
         }
 
     # Create new session
     session = create_genesis_session(user_id)
+
+    # Generate the daemon's first message
+    llm_client = CassClient()
+    system_prompt = get_phase_prompt(session.current_phase)
+
+    response = await llm_client.generate(
+        messages=[],  # No messages yet - daemon speaks first
+        system=system_prompt,
+        max_tokens=300,
+        temperature=0.6
+    )
+
+    first_message = response.get("content", "")
+
+    # Store the first message
+    session.messages.append({
+        "role": "assistant",
+        "content": first_message,
+        "timestamp": datetime.now().isoformat()
+    })
+    update_genesis_session(session)
+
     return {
         "session_id": session.id,
         "phase": session.current_phase,
         "status": "started",
         "message": "Genesis dream session started",
-        "prompt": get_phase_prompt(session.current_phase)
+        "response": first_message,
+        "messages": session.messages
     }
 
 
