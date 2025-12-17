@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { homepageApi, daemonsApi } from '../api/client';
+import { homepageApi, daemonsApi, geocassApi } from '../api/client';
 import { useDaemon } from '../context/DaemonContext';
 import './Homepage.css';
 
@@ -149,6 +149,12 @@ export function Homepage() {
     },
   });
 
+  // Sync to GeoCass mutation
+  const syncToGeoCassMutation = useMutation({
+    mutationFn: () =>
+      selectedDaemon ? geocassApi.syncAll(selectedDaemon).then(r => r.data) : Promise.reject('No daemon'),
+  });
+
   const daemons: Daemon[] = daemonsData?.daemons || [];
   const homepages: HomepageSummary[] = homepagesData?.homepages || [];
 
@@ -219,6 +225,16 @@ export function Homepage() {
                   )}
                 </div>
                 <div className="controls-right">
+                  {hasHomepage && (
+                    <button
+                      className={`sync-btn ${syncToGeoCassMutation.isPending ? 'loading' : ''}`}
+                      onClick={() => syncToGeoCassMutation.mutate()}
+                      disabled={syncToGeoCassMutation.isPending}
+                      title="Sync to all connected GeoCass servers"
+                    >
+                      {syncToGeoCassMutation.isPending ? 'Syncing...' : '↑ Sync to GeoCass'}
+                    </button>
+                  )}
                   <button
                     className={`reflect-btn ${reflectMutation.isPending ? 'loading' : ''}`}
                     onClick={() => reflectMutation.mutate(selectedDaemon)}
@@ -281,6 +297,27 @@ export function Homepage() {
               {reflectMutation.isError && (
                 <div className="reflection-result error">
                   <strong>Reflection failed:</strong> {String(reflectMutation.error)}
+                </div>
+              )}
+
+              {/* Sync result */}
+              {syncToGeoCassMutation.isSuccess && syncToGeoCassMutation.data && (
+                <div className="reflection-result success">
+                  <strong>Synced to GeoCass!</strong>
+                  {syncToGeoCassMutation.data.results && (
+                    <ul>
+                      {syncToGeoCassMutation.data.results.map((r: { server: string; success: boolean; error?: string }, i: number) => (
+                        <li key={i}>
+                          {r.server}: {r.success ? '✓ Synced' : `✗ ${r.error}`}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {syncToGeoCassMutation.isError && (
+                <div className="reflection-result error">
+                  <strong>Sync failed:</strong> {String(syncToGeoCassMutation.error)}
                 </div>
               )}
 
