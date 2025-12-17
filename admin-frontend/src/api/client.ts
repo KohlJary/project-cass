@@ -131,7 +131,7 @@ export const conversationsApi = {
   getSummaries: (id: string) => api.get(`/admin/conversations/${id}/summaries`),
   getObservations: (id: string) => api.get(`/conversations/${id}/observations`),
   assignUser: (id: string, userId: string | null) =>
-    api.put(`/conversations/${id}/user`, { user_id: userId }),
+    api.put(`/admin/conversations/${id}/user`, { user_id: userId }),
 };
 
 // System endpoints

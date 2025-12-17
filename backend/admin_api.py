@@ -58,6 +58,9 @@ class RegisterResponse(BaseModel):
 class RejectRequest(BaseModel):
     reason: str
 
+class AssignUserRequest(BaseModel):
+    user_id: Optional[str] = None
+
 
 # Initialize managers (these will be replaced by dependency injection from main app)
 memory: Optional[CassMemory] = None
@@ -1575,6 +1578,32 @@ async def get_conversation_detail(conversation_id: str):
             raise HTTPException(status_code=404, detail="Conversation not found")
 
         return conv.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/conversations/{conversation_id}/user")
+async def assign_conversation_user(
+    conversation_id: str,
+    request: AssignUserRequest,
+    admin: Dict = Depends(require_admin)
+):
+    """Assign a conversation to a different user (admin action)"""
+    if not conversations:
+        raise HTTPException(status_code=503, detail="Conversations not initialized")
+
+    try:
+        conv = conversations.load_conversation(conversation_id)
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        success = conversations.assign_to_user(conversation_id, request.user_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update conversation")
+        return {"status": "updated", "id": conversation_id, "user_id": request.user_id}
 
     except HTTPException:
         raise

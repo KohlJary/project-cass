@@ -908,9 +908,6 @@ class ConversationUpdateTitleRequest(BaseModel):
 class ConversationAssignProjectRequest(BaseModel):
     project_id: Optional[str] = None  # None to unassign
 
-class ConversationAssignUserRequest(BaseModel):
-    user_id: Optional[str] = None  # None to unassign
-
 class ProjectCreateRequest(BaseModel):
     name: str
     working_directory: str
@@ -1587,23 +1584,6 @@ async def update_conversation_title(
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "updated", "id": conversation_id, "title": request.title}
-
-@app.put("/conversations/{conversation_id}/user")
-async def assign_conversation_user(
-    conversation_id: str,
-    request: ConversationAssignUserRequest,
-    current_user: str = Depends(get_current_user)
-):
-    """Assign a conversation to a different user (admin action)"""
-    # Note: This is an admin action - we verify the conversation exists but allow reassignment
-    conversation = conversation_manager.load_conversation(conversation_id)
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    success = conversation_manager.assign_to_user(conversation_id, request.user_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update conversation")
-    return {"status": "updated", "id": conversation_id, "user_id": request.user_id}
 
 @app.get("/conversations/search/{query}")
 async def search_conversations(
