@@ -2996,3 +2996,6 @@ if __name__ == "__main__":
     # Get context
     context = manager.get_self_context()
     print(f"\nSelf context:\n{context}")
+
+# Alias for backwards compatibility
+SelfModelManager = SelfManager
