@@ -913,8 +913,21 @@ async def _retrieve_memory_context(
         goal_manager = main_sdk_module.goal_manager
         marker_store = main_sdk_module.marker_store
         conversation_manager = main_sdk_module.conversation_manager
+        user_manager = main_sdk_module.user_manager
         get_automatic_wiki_context = main_sdk_module.get_automatic_wiki_context
         from pattern_aggregation import get_pattern_summary_for_surfacing
+
+        # 0. User context (intro guidance based on relationship sparseness)
+        if user_id and user_manager:
+            try:
+                sparseness = user_manager.check_user_model_sparseness(user_id)
+                print(f"[Preview] User sparseness for {user_id}: level={sparseness.get('sparseness_level')}, has_intro={bool(sparseness.get('intro_guidance'))}")
+                if sparseness and sparseness.get("intro_guidance"):
+                    result["intro_guidance"] = sparseness["intro_guidance"]
+            except Exception as e:
+                print(f"[Preview] User context error: {e}")
+        else:
+            print(f"[Preview] No user context: user_id={user_id}, has_manager={bool(user_manager)}")
 
         # 1. Self-model profile (growth-focused: positions, edges, open questions)
         # Semantically filtered based on message relevance
@@ -976,27 +989,32 @@ async def _retrieve_memory_context(
                 result["patterns"] = patterns_context
 
         # 7. Hierarchical memory (summaries + working summary + recent messages)
-        if memory:
+        # Only retrieve if conversation_id is provided - otherwise there's no context
+        if memory and conversation_id:
             hierarchical = memory.retrieve_hierarchical(
                 query=test_message,
-                conversation_id=conversation_id or "preview"
+                conversation_id=conversation_id
             )
+            print(f"[Preview] Hierarchical: summaries={len(hierarchical.get('summaries', []))}, details={len(hierarchical.get('details', []))}")
 
             working_summary = None
-            if conversation_id:
-                working_summary = memory.get_working_summary(conversation_id)
+            if conversation_id and conversation_manager:
+                working_summary = conversation_manager.get_working_summary(conversation_id)
+                print(f"[Preview] Working summary: {len(working_summary) if working_summary else 0} chars")
 
             recent_messages = []
             if conversation_id and conversation_manager:
                 recent_messages = conversation_manager.get_recent_messages(
                     conversation_id, count=6
                 )
+                print(f"[Preview] Recent messages: {len(recent_messages)}")
 
             formatted = memory.format_hierarchical_context(
                 hierarchical,
                 working_summary=working_summary,
                 recent_messages=recent_messages
             )
+            print(f"[Preview] Formatted memory context: {len(formatted) if formatted else 0} chars")
             if formatted:
                 result["memories"] = formatted
 

@@ -1760,11 +1760,11 @@ async def get_conversation_observations(
 ):
     """Get all observations (user and self) and marks made during a conversation"""
     from users import UserManager
-    from self_model import SelfModelManager
+    from self_model import SelfManager
     from handlers.metacognitive import marker_store
 
     user_manager = UserManager()
-    self_manager = SelfModelManager()
+    self_manager = SelfManager()
 
     # Get user observations for this conversation (across all users)
     user_observations = []
