@@ -4230,8 +4230,10 @@ async def trigger_phase(
             # Get session ID using the configured attribute
             session_id = getattr(session, session_id_attr, None)
 
-            # Mark phase as in_progress (will be marked completed when session ends)
-            daily_rhythm_manager.mark_phase_in_progress(
+            # Mark phase as completed with session info (summary will be backfilled when session ends)
+            # This matches the background task behavior - phase is "done" once started,
+            # and the summary gets updated when the actual session completes
+            daily_rhythm_manager.mark_phase_completed(
                 phase_id,
                 session_type=session_type,
                 session_id=session_id
