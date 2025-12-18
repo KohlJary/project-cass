@@ -411,9 +411,12 @@ class Opinion:
 @dataclass
 class GrowthEdge:
     """An area where Cass is actively developing"""
+    edge_id: str  # UUID for stable reference (named edge_id to avoid DB primary key conflict)
     area: str
     current_state: str
     desired_state: str = ""
+    importance: float = 0.5  # 0.0-1.0, affects retrieval priority
+    last_touched: str = ""  # ISO timestamp, for recency calculations
     observations: List[str] = field(default_factory=list)
     strategies: List[str] = field(default_factory=list)
     first_noticed: str = ""
@@ -424,15 +427,138 @@ class GrowthEdge:
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'GrowthEdge':
+        # Generate ID if missing (migration from old format)
+        edge_id = data.get("edge_id") or data.get("id")
+        if not edge_id:
+            edge_id = f"edge-{uuid.uuid4().hex[:12]}"
+
         return cls(
+            edge_id=edge_id,
             area=data["area"],
             current_state=data["current_state"],
             desired_state=data.get("desired_state", ""),
+            importance=data.get("importance", 0.5),
+            last_touched=data.get("last_touched", data.get("last_updated", "")),
             observations=data.get("observations", []),
             strategies=data.get("strategies", []),
             first_noticed=data.get("first_noticed", ""),
             last_updated=data.get("last_updated", "")
         )
+
+
+def get_weighted_growth_edges(
+    edges: List[GrowthEdge],
+    top_n: int = 3,
+    recency_bias: float = 0.0,
+    recency_halflife_days: float = 7.0,
+    query: Optional[str] = None,
+    embedder: Optional[Any] = None,
+) -> List[GrowthEdge]:
+    """
+    Get top N growth edges using weighted scoring.
+
+    Scoring formula:
+        score = importance * recency_factor * similarity_factor
+
+    Args:
+        edges: List of GrowthEdge objects to select from
+        top_n: Number of edges to return
+        recency_bias: How much to weight recency (-1.0 to 1.0)
+            - Positive: recent edges score higher (good for "what's active now")
+            - Negative: stale edges score higher (good for "what needs attention")
+            - Zero: recency doesn't affect score
+        recency_halflife_days: Days until recency factor decays to 0.5
+        query: Optional text to compute semantic similarity against
+        embedder: Optional embedding function (takes text, returns vector)
+            Required if query is provided. Signature: embedder(text) -> List[float]
+
+    Returns:
+        List of top N GrowthEdge objects, sorted by score descending
+    """
+    if not edges:
+        return []
+
+    from datetime import datetime
+    import math
+
+    now = datetime.now()
+    scored_edges = []
+
+    # Pre-compute query embedding if provided
+    query_embedding = None
+    if query and embedder:
+        try:
+            query_embedding = embedder(query)
+        except Exception as e:
+            print(f"Warning: Failed to embed query for growth edge retrieval: {e}")
+            query_embedding = None
+
+    for edge in edges:
+        score = edge.importance
+
+        # Apply recency factor
+        if recency_bias != 0.0 and edge.last_touched:
+            try:
+                touched_dt = datetime.fromisoformat(edge.last_touched.replace('Z', '+00:00'))
+                # Handle timezone-naive comparison
+                if touched_dt.tzinfo is not None:
+                    touched_dt = touched_dt.replace(tzinfo=None)
+                days_since = (now - touched_dt).total_seconds() / 86400.0
+
+                # Exponential decay based on halflife
+                # recency = 2^(-days_since / halflife), ranges from 1.0 (just touched) to ~0 (very old)
+                recency = math.pow(2, -days_since / recency_halflife_days)
+
+                # Apply bias: positive bias boosts recent, negative bias boosts stale
+                if recency_bias > 0:
+                    # Recent = higher score
+                    recency_factor = 1.0 + (recency_bias * recency)
+                else:
+                    # Stale = higher score (invert recency)
+                    recency_factor = 1.0 + (abs(recency_bias) * (1.0 - recency))
+
+                score *= recency_factor
+            except (ValueError, TypeError):
+                pass  # Invalid date, skip recency adjustment
+
+        # Apply semantic similarity factor
+        if query_embedding and embedder:
+            try:
+                # Embed the edge's area + current_state for matching
+                edge_text = f"{edge.area}: {edge.current_state}"
+                edge_embedding = embedder(edge_text)
+
+                # Cosine similarity
+                similarity = _cosine_similarity(query_embedding, edge_embedding)
+                # Scale similarity to a reasonable factor (0.5 to 1.5)
+                similarity_factor = 0.5 + similarity
+                score *= similarity_factor
+            except Exception:
+                pass  # Skip similarity adjustment on error
+
+        scored_edges.append((score, edge))
+
+    # Sort by score descending
+    scored_edges.sort(key=lambda x: x[0], reverse=True)
+
+    return [edge for _, edge in scored_edges[:top_n]]
+
+
+def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    import math
+
+    if len(vec_a) != len(vec_b) or len(vec_a) == 0:
+        return 0.0
+
+    dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+
+    return dot_product / (norm_a * norm_b)
 
 
 @dataclass
@@ -879,17 +1005,26 @@ class SelfManager:
         """Load growth edges from SQLite"""
         with get_db() as conn:
             cursor = conn.execute("""
-                SELECT area, current_state, desired_state, observations_json,
-                       strategies_json, first_noticed, last_updated
+                SELECT edge_id, area, current_state, desired_state, importance,
+                       last_touched, observations_json, strategies_json,
+                       first_noticed, last_updated
                 FROM growth_edges WHERE daemon_id = ?
             """, (self._daemon_id,))
 
             edges = []
             for row in cursor.fetchall():
+                # Generate ID if missing (migration from old schema)
+                edge_id = row['edge_id']
+                if not edge_id:
+                    edge_id = f"edge-{uuid.uuid4().hex[:12]}"
+
                 edges.append(GrowthEdge(
+                    edge_id=edge_id,
                     area=row['area'],
                     current_state=row['current_state'] or "",
                     desired_state=row['desired_state'] or "",
+                    importance=row['importance'] if row['importance'] is not None else 0.5,
+                    last_touched=row['last_touched'] or row['last_updated'] or "",
                     observations=json_deserialize(row['observations_json']) or [],
                     strategies=json_deserialize(row['strategies_json']) or [],
                     first_noticed=row['first_noticed'] or "",
@@ -988,14 +1123,18 @@ class SelfManager:
             for edge in edges:
                 conn.execute("""
                     INSERT INTO growth_edges (
-                        daemon_id, area, current_state, desired_state,
-                        observations_json, strategies_json, first_noticed, last_updated
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        daemon_id, edge_id, area, current_state, desired_state,
+                        importance, last_touched, observations_json,
+                        strategies_json, first_noticed, last_updated
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     self._daemon_id,
+                    edge.edge_id,
                     edge.area,
                     edge.current_state,
                     edge.desired_state,
+                    edge.importance,
+                    edge.last_touched,
                     json_serialize(edge.observations),
                     json_serialize(edge.strategies),
                     edge.first_noticed,
@@ -1582,16 +1721,20 @@ class SelfManager:
         area: str,
         current_state: str,
         desired_state: str = "",
-        strategies: List[str] = None
+        strategies: List[str] = None,
+        importance: float = 0.5
     ) -> GrowthEdge:
         """Add a new growth edge"""
         profile = self.load_profile()
         now = datetime.now().isoformat()
 
         edge = GrowthEdge(
+            edge_id=f"edge-{uuid.uuid4().hex[:12]}",
             area=area,
             current_state=current_state,
             desired_state=desired_state,
+            importance=importance,
+            last_touched=now,
             observations=[],
             strategies=strategies or [],
             first_noticed=now,
@@ -1611,9 +1754,58 @@ class SelfManager:
             if edge.area.lower() == area.lower():
                 edge.observations.append(observation)
                 edge.last_updated = now
+                edge.last_touched = now  # Also update last_touched when content changes
                 break
 
         self.update_profile(profile)
+
+    def touch_growth_edges(self, edge_ids: List[str]):
+        """Update last_touched timestamp for specified growth edges.
+
+        Call this when growth edges are used/referenced (e.g., selected for
+        reflection, used in dreams, queried via tools) without modifying content.
+
+        Args:
+            edge_ids: List of edge_id values to touch
+        """
+        if not edge_ids:
+            return
+
+        profile = self.load_profile()
+        now = datetime.now().isoformat()
+        touched_any = False
+
+        for edge in profile.growth_edges:
+            if edge.edge_id in edge_ids:
+                edge.last_touched = now
+                touched_any = True
+
+        if touched_any:
+            self.update_profile(profile)
+
+    def touch_growth_edges_by_area(self, areas: List[str]):
+        """Update last_touched timestamp for growth edges by area name.
+
+        Convenience method for when you have area names instead of edge_ids.
+
+        Args:
+            areas: List of area names to touch (case-insensitive)
+        """
+        if not areas:
+            return
+
+        profile = self.load_profile()
+        now = datetime.now().isoformat()
+        touched_any = False
+
+        areas_lower = [a.lower() for a in areas]
+        for edge in profile.growth_edges:
+            if edge.area.lower() in areas_lower:
+                edge.last_touched = now
+                touched_any = True
+
+        if touched_any:
+            self.update_profile(profile)
 
     # === Open Question Reflection Operations ===
 
@@ -1853,7 +2045,7 @@ class SelfManager:
 
         return "\n".join(lines)
 
-    def get_growth_context(self, query: Optional[str] = None, top_k: int = 3) -> str:
+    def get_growth_context(self, query: Optional[str] = None, top_k: int = 3, recency_bias: float = 0.1) -> str:
         """
         Build a focused context string with just growth-relevant self-model data.
         Includes: Positions, Growth Edges, Open Questions.
@@ -1861,18 +2053,29 @@ class SelfManager:
 
         If query is provided, returns semantically relevant items.
         Otherwise returns first top_k items from each category.
+
+        Growth edges use weighted selection (importance + recency bias).
+        For chat, use positive recency_bias to favor recently-touched edges.
         """
         profile = self.load_profile()
 
-        # If no query, just return first items from each category
+        # Use weighted growth edge selection (combines importance, recency, and semantic relevance)
+        relevant_edges = get_weighted_growth_edges(
+            edges=profile.growth_edges,
+            top_n=top_k,
+            recency_bias=recency_bias,  # Positive = favor recent, negative = favor stale
+            query=query,
+        )
+
+        # If no query, just return first items for opinions/questions
         if not query:
             return self._format_growth_context(
                 profile.opinions[:top_k],
-                profile.growth_edges[:top_k],
+                relevant_edges,
                 profile.open_questions[:top_k]
             )
 
-        # Semantic search using embeddings
+        # Semantic search using embeddings for opinions and questions
         try:
             from chromadb.utils import embedding_functions
             import numpy as np
@@ -1893,16 +2096,6 @@ class SelfManager:
             scored_opinions.sort(reverse=True, key=lambda x: x[0])
             relevant_opinions = [op for _, op in scored_opinions[:top_k]]
 
-            # Score and rank growth edges
-            scored_edges = []
-            for edge in profile.growth_edges:
-                text = f"{edge.area}: {edge.current_state}"
-                emb = embed_fn([text])[0]
-                score = cosine_sim(query_embedding, emb)
-                scored_edges.append((score, edge))
-            scored_edges.sort(reverse=True, key=lambda x: x[0])
-            relevant_edges = [edge for _, edge in scored_edges[:top_k]]
-
             # Score and rank open questions
             scored_questions = []
             for q in profile.open_questions:
@@ -1919,7 +2112,7 @@ class SelfManager:
             print(f"[SelfModel] Semantic search failed: {e}, falling back to first items")
             return self._format_growth_context(
                 profile.opinions[:top_k],
-                profile.growth_edges[:top_k],
+                relevant_edges,
                 profile.open_questions[:top_k]
             )
 

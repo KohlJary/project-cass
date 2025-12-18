@@ -11,6 +11,13 @@ interface ThoughtEntry {
   related_concepts: string[];
 }
 
+interface FocusEdge {
+  edge_id: string;
+  area: string;
+  current_state: string;
+  desired_state?: string;
+}
+
 interface ReflectionSession {
   session_id: string;
   started_at: string;
@@ -25,6 +32,7 @@ interface ReflectionSession {
   thought_stream: ThoughtEntry[];
   insights: string[];
   questions_raised: string[];
+  focus_edges?: FocusEdge[];
 }
 
 interface ReflectionStats {
@@ -284,6 +292,24 @@ export function SoloReflection() {
                     </button>
                   )}
                 </div>
+
+                {/* Focus Growth Edges */}
+                {sessionDetail.focus_edges && sessionDetail.focus_edges.length > 0 && (
+                  <div className="focus-edges-section">
+                    <h4>Focus Areas</h4>
+                    <div className="focus-edges-list">
+                      {sessionDetail.focus_edges.map((edge, i) => (
+                        <div key={edge.edge_id || i} className="focus-edge-item">
+                          <span className="edge-area">{edge.area}</span>
+                          <span className="edge-state">{edge.current_state}</span>
+                          {edge.desired_state && (
+                            <span className="edge-desired">→ {edge.desired_state}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Summary (if completed) */}
                 {sessionDetail.summary && (

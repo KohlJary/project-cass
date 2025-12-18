@@ -381,12 +381,22 @@ class BaseSessionRunner(ABC):
 
     # === Common functionality ===
 
-    def _build_self_context(self) -> str:
-        """Build context string from self-model for injection into prompt."""
+    def _build_self_context(self, query: Optional[str] = None, recency_bias: float = 0.1) -> str:
+        """Build context string from self-model for injection into prompt.
+
+        Args:
+            query: Optional query string for semantic similarity matching of growth edges
+            recency_bias: How to weight recency for growth edges
+                - Positive: recent edges score higher
+                - Negative: stale edges score higher (need attention)
+                - Default 0.1: slight preference for recently active edges
+        """
         if not self.self_manager:
             return ""
 
         try:
+            from self_model import get_weighted_growth_edges
+
             profile = self.self_manager.load_profile()
             if not profile:
                 return ""
@@ -405,10 +415,17 @@ class BaseSessionRunner(ABC):
                 for v in profile.values[:5]:
                     parts.append(f"- {v}")
 
-            # Growth edges
+            # Growth edges - use weighted retrieval
             if profile.growth_edges:
                 parts.append("\n## Current Growth Edges")
-                for edge in profile.growth_edges[:3]:
+                selected_edges = get_weighted_growth_edges(
+                    edges=profile.growth_edges,
+                    top_n=3,
+                    recency_bias=recency_bias,
+                    query=query,
+                    embedder=None,  # TODO: pass embedder for semantic matching
+                )
+                for edge in selected_edges:
                     if edge.desired_state:
                         parts.append(f"- **{edge.area}**: {edge.current_state} → {edge.desired_state}")
                     else:

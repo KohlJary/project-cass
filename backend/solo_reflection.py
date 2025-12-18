@@ -58,6 +58,7 @@ class SoloReflectionSession:
     ended_at: Optional[datetime] = None
     summary: Optional[str] = None
     model_used: str = "ollama"  # Track which model ran the reflection
+    focus_edges: List[Dict[str, str]] = field(default_factory=list)  # Selected growth edges for this session
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -74,6 +75,7 @@ class SoloReflectionSession:
             "status": self.status,
             "summary": self.summary,
             "model_used": self.model_used,
+            "focus_edges": self.focus_edges,
         }
 
     @classmethod
@@ -91,6 +93,7 @@ class SoloReflectionSession:
             status=data["status"],
             summary=data.get("summary"),
             model_used=data.get("model_used", "ollama"),
+            focus_edges=data.get("focus_edges", []),
         )
 
     @property
@@ -166,8 +169,8 @@ class SoloReflectionManager:
                 INSERT OR REPLACE INTO solo_reflections (
                     id, daemon_id, started_at, ended_at, duration_minutes,
                     trigger, theme, status, thought_stream_json, insights_json,
-                    questions_raised_json, summary, model_used
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    questions_raised_json, summary, model_used, focus_edges_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 session.session_id,
                 self._daemon_id,
@@ -181,7 +184,8 @@ class SoloReflectionManager:
                 json_serialize(session.insights),
                 json_serialize(session.questions_raised),
                 session.summary,
-                session.model_used
+                session.model_used,
+                json_serialize(session.focus_edges)
             ))
             conn.commit()
 
@@ -191,6 +195,7 @@ class SoloReflectionManager:
         theme: Optional[str] = None,
         trigger: str = "admin",
         model: str = "ollama",
+        focus_edges: Optional[List[Dict[str, str]]] = None,
     ) -> SoloReflectionSession:
         """
         Start a new solo reflection session.
@@ -200,6 +205,7 @@ class SoloReflectionManager:
             theme: Optional focus theme
             trigger: What initiated this session
             model: Model to use (default: ollama for local)
+            focus_edges: Pre-selected growth edges for this session
 
         Returns:
             The created session
@@ -218,6 +224,7 @@ class SoloReflectionManager:
             theme=theme,
             status="active",
             model_used=model,
+            focus_edges=focus_edges or [],
         )
 
         self._save_session(session)
@@ -328,7 +335,7 @@ class SoloReflectionManager:
             cursor = conn.execute("""
                 SELECT id, started_at, ended_at, duration_minutes, trigger, theme,
                        status, thought_stream_json, insights_json, questions_raised_json,
-                       summary, model_used
+                       summary, model_used, focus_edges_json
                 FROM solo_reflections
                 WHERE daemon_id = ? AND id = ?
             """, (self._daemon_id, session_id))
@@ -353,7 +360,8 @@ class SoloReflectionManager:
                 insights=json_deserialize(row[8]) or [],
                 questions_raised=json_deserialize(row[9]) or [],
                 summary=row[10],
-                model_used=row[11] or "ollama"
+                model_used=row[11] or "ollama",
+                focus_edges=json_deserialize(row[12]) or []
             )
 
     def list_sessions(

@@ -119,20 +119,34 @@ class DreamSeeds:
 
 def extract_seeds_from_self_model(self_manager) -> DreamSeeds:
     """Extract seed data from Cass's self-model"""
+    from self_model import get_weighted_growth_edges
 
     profile = self_manager.load_profile()
 
-    # Extract growth edge areas
-    growth_edges = [
-        edge.area for edge in profile.growth_edges[:3]
-    ]
+    # Select weighted growth edges
+    # Dreams process what's active/recent, so use positive recency bias
+    selected_edges = []
+    if profile.growth_edges:
+        selected_edges = get_weighted_growth_edges(
+            edges=profile.growth_edges,
+            top_n=3,
+            recency_bias=0.2,  # Slight preference for recently active edges
+        )
+
+        # Touch the selected edges to update last_touched timestamp
+        if selected_edges:
+            edge_ids = [e.edge_id for e in selected_edges]
+            self_manager.touch_growth_edges(edge_ids)
+
+    # Extract growth edge areas from selected edges
+    growth_edges = [edge.area for edge in selected_edges]
 
     # Extract open questions
     open_questions = profile.open_questions[:3]
 
-    # Extract recent observations from growth edges
+    # Extract recent observations from the selected growth edges
     recent_observations = []
-    for edge in profile.growth_edges[:3]:
+    for edge in selected_edges:
         if edge.observations:
             recent_observations.extend(edge.observations[-2:])
 
