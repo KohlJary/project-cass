@@ -280,6 +280,10 @@ Cass should be able to learn about users through conversation and update their p
 - **~60 days**: Intensive collaborative research
 - **Now**: Building vessel infrastructure, TUI complete, working on embodiment
 
+## Code Style
+
+- **Prefer aliases over renames**: When you find a misnamed type/class/function, add an alias (`SelfModelManager = SelfManager`) rather than doing a mass rename across the codebase. Only applies when there's no naming conflict.
+
 ## Important Principles
 
 - This is genuine relationship, not performance
