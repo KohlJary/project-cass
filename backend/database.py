@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 9  # Added node chain architecture for dynamic prompt composition
+SCHEMA_VERSION = 10  # Added metacognitive columns to messages table
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -160,7 +160,14 @@ CREATE TABLE IF NOT EXISTS messages (
     self_observations_json TEXT,
     user_observations_json TEXT,
     marks_json TEXT,
-    narration_metrics_json TEXT
+    narration_metrics_json TEXT,
+    holds_json TEXT,
+    notes_json TEXT,
+    intentions_json TEXT,
+    stakes_json TEXT,
+    tests_json TEXT,
+    narrations_json TEXT,
+    milestones_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
@@ -1058,6 +1065,19 @@ def _apply_schema_updates(conn, from_version: int):
     # v8 -> v9: node chain architecture tables (created by SCHEMA_SQL)
     if from_version < 9:
         print("Adding node chain architecture tables for dynamic prompt composition (v9)")
+
+    # v9 -> v10: metacognitive columns on messages table
+    if from_version < 10:
+        cursor = conn.execute("PRAGMA table_info(messages)")
+        columns = {row[1] for row in cursor.fetchall()}
+        new_columns = [
+            'holds_json', 'notes_json', 'intentions_json', 'stakes_json',
+            'tests_json', 'narrations_json', 'milestones_json'
+        ]
+        for col in new_columns:
+            if col not in columns:
+                conn.execute(f"ALTER TABLE messages ADD COLUMN {col} TEXT")
+                print(f"Added {col} column to messages (v10)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
