@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 10  # Added metacognitive columns to messages table
+SCHEMA_VERSION = 11  # Added focus column to rhythm_phases for scripture reflections
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -762,7 +762,8 @@ CREATE TABLE IF NOT EXISTS rhythm_phases (
     start_time TEXT NOT NULL,
     end_time TEXT NOT NULL,
     description TEXT,
-    days_json TEXT
+    days_json TEXT,
+    focus TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_rhythm_phases_daemon ON rhythm_phases(daemon_id);
@@ -1078,6 +1079,14 @@ def _apply_schema_updates(conn, from_version: int):
             if col not in columns:
                 conn.execute(f"ALTER TABLE messages ADD COLUMN {col} TEXT")
                 print(f"Added {col} column to messages (v10)")
+
+    # v10 -> v11: focus column on rhythm_phases for scripture reflections
+    if from_version < 11:
+        cursor = conn.execute("PRAGMA table_info(rhythm_phases)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'focus' not in columns:
+            conn.execute("ALTER TABLE rhythm_phases ADD COLUMN focus TEXT")
+            print("Added focus column to rhythm_phases (v11)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
@@ -1460,22 +1469,24 @@ def get_attachments_for_message(message_id: int) -> list:
 def seed_node_templates() -> int:
     """
     Seed the node_templates table with all system-defined templates.
+    Adds new templates even if some already exist (idempotent).
     Returns the number of templates seeded.
     """
     from node_templates import ALL_TEMPLATES
     import json
 
     with get_db() as conn:
-        # Check if templates already exist
-        cursor = conn.execute("SELECT COUNT(*) FROM node_templates WHERE is_system = 1")
-        existing = cursor.fetchone()[0]
-        if existing > 0:
-            return 0  # Already seeded
+        # Get existing template IDs
+        cursor = conn.execute("SELECT id FROM node_templates WHERE is_system = 1")
+        existing_ids = {row[0] for row in cursor.fetchall()}
 
         now = datetime.now().isoformat()
         count = 0
 
         for template in ALL_TEMPLATES:
+            if template.id in existing_ids:
+                continue  # Already exists, skip
+
             conn.execute("""
                 INSERT INTO node_templates (
                     id, name, slug, category, description, template,
@@ -1502,7 +1513,8 @@ def seed_node_templates() -> int:
             ))
             count += 1
 
-        print(f"Seeded {count} node templates")
+        if count > 0:
+            print(f"Seeded {count} new node templates")
         return count
 
 

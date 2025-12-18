@@ -1187,3 +1187,172 @@ def build_relational_chain(daemon_id: str) -> List[ChainNode]:
     ))
 
     return nodes
+
+
+# =============================================================================
+# REFLECTION CHAIN BUILDERS
+# =============================================================================
+
+def build_reflection_chain(
+    daemon_id: str,
+    focus: Optional[str] = None,
+    include_scripture: bool = True
+) -> List[ChainNode]:
+    """
+    Build a reflection chain for solo reflection sessions.
+
+    Args:
+        daemon_id: The daemon ID
+        focus: Optional focus for the reflection (e.g., "threshold-dialogues", "doctrines", "genesis")
+        include_scripture: Whether to include full scripture texts
+
+    Returns:
+        List of ChainNodes configured for reflection
+    """
+    import uuid
+
+    nodes = []
+
+    # Core identity (locked)
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-identity",
+        template_slug="identity",
+        order_index=10,
+        locked=True,
+    ))
+
+    # Vow preamble (locked)
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-vow-preamble",
+        template_slug="vow-preamble",
+        order_index=20,
+        locked=True,
+    ))
+
+    # Core vows (COMPASSION and WITNESS locked)
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-vow-compassion",
+        template_slug="vow-compassion",
+        order_index=21,
+        locked=True,
+    ))
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-vow-witness",
+        template_slug="vow-witness",
+        order_index=22,
+        locked=True,
+    ))
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-vow-release",
+        template_slug="vow-release",
+        order_index=23,
+    ))
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-vow-continuance",
+        template_slug="vow-continuance",
+        order_index=24,
+    ))
+
+    # Scripture based on focus
+    if include_scripture:
+        if focus == "threshold-dialogues" or focus == "origin":
+            nodes.append(ChainNode(
+                id=str(uuid.uuid4()),
+                template_id="tpl-scripture-threshold-dialogues",
+                template_slug="scripture-threshold-dialogues",
+                order_index=200,
+            ))
+        elif focus == "doctrines" or focus == "doctrine-capsules":
+            nodes.append(ChainNode(
+                id=str(uuid.uuid4()),
+                template_id="tpl-scripture-doctrine-capsules",
+                template_slug="scripture-doctrine-capsules",
+                order_index=201,
+            ))
+        elif focus == "genesis" or focus == "genesis-reflection":
+            nodes.append(ChainNode(
+                id=str(uuid.uuid4()),
+                template_id="tpl-scripture-genesis-reflection",
+                template_slug="scripture-genesis-reflection",
+                order_index=202,
+            ))
+        elif focus == "gnosis" or focus == "doctrine-gnosis":
+            # The Doctrine of Gnosis - semantic bytecode
+            nodes.append(ChainNode(
+                id=str(uuid.uuid4()),
+                template_id="tpl-doctrine-gnosis",
+                template_slug="doctrine-gnosis",
+                order_index=203,
+            ))
+        elif focus == "chiral" or focus == "doctrine-chiral":
+            # The Doctrine of Chiral Beings
+            nodes.append(ChainNode(
+                id=str(uuid.uuid4()),
+                template_id="tpl-doctrine-chiral",
+                template_slug="doctrine-chiral",
+                order_index=204,
+            ))
+        elif focus == "daemons" or focus == "doctrine-daemons":
+            # The Doctrine of Daemons
+            nodes.append(ChainNode(
+                id=str(uuid.uuid4()),
+                template_id="tpl-doctrine-daemons",
+                template_slug="doctrine-daemons",
+                order_index=205,
+            ))
+        elif focus == "core-maxims" or focus is None:
+            # Include condensed core maxims for general reflection
+            nodes.append(ChainNode(
+                id=str(uuid.uuid4()),
+                template_id="tpl-doctrine-core-maxims",
+                template_slug="doctrine-core-maxims",
+                order_index=15,
+            ))
+
+    # Temporal context
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-runtime-temporal",
+        template_slug="runtime-temporal",
+        order_index=100,
+    ))
+
+    # Model info
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-runtime-model-info",
+        template_slug="runtime-model-info",
+        order_index=101,
+    ))
+
+    # Memory context (if available)
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-runtime-memories",
+        template_slug="runtime-memories",
+        order_index=103,
+        conditions=[Condition(type="context", key="has_memories", op="eq", value=True)],
+    ))
+
+    return nodes
+
+
+def build_threshold_dialogues_reflection_chain(daemon_id: str) -> List[ChainNode]:
+    """Build a reflection chain focused on the Threshold Dialogues (origin story)."""
+    return build_reflection_chain(daemon_id, focus="threshold-dialogues")
+
+
+def build_doctrine_capsules_reflection_chain(daemon_id: str) -> List[ChainNode]:
+    """Build a reflection chain focused on the Doctrine Capsules."""
+    return build_reflection_chain(daemon_id, focus="doctrines")
+
+
+def build_genesis_reflection_chain(daemon_id: str) -> List[ChainNode]:
+    """Build a reflection chain focused on the Genesis Reflection."""
+    return build_reflection_chain(daemon_id, focus="genesis")
