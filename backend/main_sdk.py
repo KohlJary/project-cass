@@ -5000,15 +5000,22 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     """
     import os
     from auth import decode_token, is_localhost_request
+    from admin_api import verify_token as verify_admin_token
 
     # Determine user_id from token or localhost bypass
     connection_user_id: Optional[str] = None
 
     # Try token from query param
     if token:
+        # Try auth.py format first (uses "sub" field)
         token_data = decode_token(token)
         if token_data and token_data.token_type == "access":
             connection_user_id = token_data.user_id
+        else:
+            # Try admin_api.py format (uses "user_id" field)
+            admin_payload = verify_admin_token(token)
+            if admin_payload and admin_payload.get("user_id"):
+                connection_user_id = admin_payload["user_id"]
 
     # Localhost bypass if no token
     if not connection_user_id:
@@ -5038,9 +5045,17 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
             if data.get("type") == "auth":
                 auth_token = data.get("token")
                 if auth_token:
+                    # Try auth.py format first
                     token_data = decode_token(auth_token)
                     if token_data and token_data.token_type == "access":
                         connection_user_id = token_data.user_id
+                    else:
+                        # Try admin_api.py format
+                        admin_payload = verify_admin_token(auth_token)
+                        if admin_payload and admin_payload.get("user_id"):
+                            connection_user_id = admin_payload["user_id"]
+
+                    if connection_user_id:
                         manager.set_user_id(websocket, connection_user_id)
                         await websocket.send_json({
                             "type": "auth_success",
