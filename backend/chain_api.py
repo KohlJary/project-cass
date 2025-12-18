@@ -853,12 +853,17 @@ async def preview_chain(chain_id: str, request: PreviewRequest):
             content=content if content else None,
         )
 
+    # Get daemon's domain
+    domain, domain_description = get_daemon_domain(daemon_id)
+
     # Assemble
     result = assemble_chain(
         nodes=nodes,
         context=context,
         daemon_name=request.daemon_name,
         identity_snippet=identity_snippet,
+        domain=domain,
+        domain_description=domain_description,
     )
 
     return PreviewResponse(
@@ -878,6 +883,24 @@ async def preview_chain(chain_id: str, request: PreviewRequest):
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def get_daemon_domain(daemon_id: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Get the domain and domain_description for a daemon.
+
+    Returns:
+        Tuple of (domain, domain_description) - both may be None
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT domain, domain_description FROM daemons WHERE id = ?",
+            (daemon_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row[0], row[1]
+    return None, None
+
 
 async def _retrieve_memory_context(
     test_message: Optional[str],
@@ -1333,12 +1356,17 @@ def get_system_prompt_for_daemon(
         provider=provider,
     )
 
+    # Get daemon's domain
+    domain, domain_description = get_daemon_domain(daemon_id)
+
     # Assemble the chain
     result = assemble_chain(
         nodes=nodes,
         context=context,
         daemon_name=daemon_name,
         identity_snippet=identity_snippet,
+        domain=domain,
+        domain_description=domain_description,
     )
 
     return result.full_text

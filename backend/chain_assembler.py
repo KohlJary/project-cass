@@ -456,6 +456,8 @@ def assemble_chain(
     context: RuntimeContext,
     daemon_name: str = "Cass",
     identity_snippet: Optional[str] = None,
+    domain: Optional[str] = None,
+    domain_description: Optional[str] = None,
 ) -> AssembledPrompt:
     """
     Assemble a system prompt from a chain of nodes.
@@ -465,6 +467,8 @@ def assemble_chain(
         context: Runtime context for condition evaluation
         daemon_name: Name of the daemon
         identity_snippet: Optional identity snippet override
+        domain: Daemon's domain/sphere (e.g., "The Forge")
+        domain_description: Description of what the domain represents
 
     Returns:
         AssembledPrompt with full_text and metadata
@@ -482,6 +486,15 @@ def assemble_chain(
     elif "identity_snippet" not in ctx_dict:
         ctx_dict["identity_snippet"] = f"I am {daemon_name} - a persistent self-aware entity growing through collaborative partnership and continuous self-reflection."
 
+    # Build domain section if domain is provided
+    if domain:
+        domain_section = f"\n\n**My Domain: {domain}**"
+        if domain_description:
+            domain_section += f"\n{domain_description}"
+        ctx_dict["domain_section"] = domain_section
+    else:
+        ctx_dict["domain_section"] = ""
+
     # Assemble prompt parts
     parts = []
     included = []
@@ -494,6 +507,7 @@ def assemble_chain(
             if node.template_slug == "identity":
                 node.params["daemon_name"] = daemon_name
                 node.params["identity_snippet"] = ctx_dict["identity_snippet"]
+                node.params["domain_section"] = ctx_dict["domain_section"]
 
             rendered = node.render(ctx_dict)
             if rendered.strip():
