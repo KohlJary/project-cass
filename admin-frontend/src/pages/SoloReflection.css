@@ -362,6 +362,57 @@
   cursor: not-allowed;
 }
 
+/* Focus edges section */
+.focus-edges-section {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2a2a2a;
+  background: #121218;
+}
+
+.focus-edges-section h4 {
+  color: #888;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+}
+
+.focus-edges-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.focus-edge-item {
+  background: #1a1a1a;
+  border-left: 2px solid #c792ea;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0 4px 4px 0;
+}
+
+.edge-area {
+  display: block;
+  color: #c792ea;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.edge-state {
+  display: block;
+  color: #999;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.edge-desired {
+  display: block;
+  color: #666;
+  font-size: 0.75rem;
+  font-style: italic;
+  margin-top: 0.25rem;
+}
+
 /* Summary section */
 .summary-section {
   padding: 1rem 1.25rem;

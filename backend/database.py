@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 12  # Added scripture reflection phases to existing schedules
+SCHEMA_VERSION = 14  # Added focus_edges_json to solo_reflections
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -259,9 +259,12 @@ CREATE INDEX IF NOT EXISTS idx_identity_snippets_active ON daemon_identity_snipp
 CREATE TABLE IF NOT EXISTS growth_edges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    edge_id TEXT,
     area TEXT NOT NULL,
     current_state TEXT,
     desired_state TEXT,
+    importance REAL DEFAULT 0.5,
+    last_touched TEXT,
     observations_json TEXT,
     strategies_json TEXT,
     first_noticed TEXT,
@@ -269,6 +272,7 @@ CREATE TABLE IF NOT EXISTS growth_edges (
 );
 
 CREATE INDEX IF NOT EXISTS idx_growth_edges_daemon ON growth_edges(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_growth_edges_edge_id ON growth_edges(edge_id);
 
 -- Opinions
 CREATE TABLE IF NOT EXISTS opinions (
@@ -1125,6 +1129,51 @@ def _apply_schema_updates(conn, from_version: int):
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (phase_id, daemon_id, phase[1], phase[2], phase[3], phase[4], phase[5], phase[6], phase[7]))
                     print(f"Added {phase_id} phase for daemon {daemon_id} (v12)")
+
+    # v12 -> v13: Add edge_id, importance, last_touched to growth_edges
+    if from_version < 13:
+        # Check if columns exist before adding
+        cursor = conn.execute("PRAGMA table_info(growth_edges)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+
+        if 'edge_id' not in existing_cols:
+            conn.execute("ALTER TABLE growth_edges ADD COLUMN edge_id TEXT")
+            print("Added edge_id column to growth_edges (v13)")
+
+        if 'importance' not in existing_cols:
+            conn.execute("ALTER TABLE growth_edges ADD COLUMN importance REAL DEFAULT 0.5")
+            print("Added importance column to growth_edges (v13)")
+
+        if 'last_touched' not in existing_cols:
+            conn.execute("ALTER TABLE growth_edges ADD COLUMN last_touched TEXT")
+            print("Added last_touched column to growth_edges (v13)")
+
+        # Generate edge_ids for existing rows that don't have one
+        import uuid as uuid_mod
+        cursor = conn.execute("SELECT id, area FROM growth_edges WHERE edge_id IS NULL")
+        rows = cursor.fetchall()
+        for row in rows:
+            new_edge_id = f"edge-{uuid_mod.uuid4().hex[:12]}"
+            conn.execute(
+                "UPDATE growth_edges SET edge_id = ?, last_touched = last_updated WHERE id = ?",
+                (new_edge_id, row[0])
+            )
+        if rows:
+            print(f"Generated edge_ids for {len(rows)} existing growth edges (v13)")
+
+        # Create index on edge_id if it doesn't exist
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_growth_edges_edge_id ON growth_edges(edge_id)")
+        except Exception:
+            pass  # Index may already exist
+
+    # v13 -> v14: Add focus_edges_json to solo_reflections
+    if from_version < 14:
+        cursor = conn.execute("PRAGMA table_info(solo_reflections)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'focus_edges_json' not in columns:
+            conn.execute("ALTER TABLE solo_reflections ADD COLUMN focus_edges_json TEXT")
+            print("Added focus_edges_json column to solo_reflections (v14)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
