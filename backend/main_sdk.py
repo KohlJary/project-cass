@@ -1047,15 +1047,17 @@ async def chat(request: ChatRequest):
         )
 
         # Add user context if we have a current user
+        # NOTE: user_context and intro_guidance are passed separately to send_message
+        # for proper chain system support, not merged into memory_context
         intro_guidance = None
+        user_context = ""
         if current_user_id:
             user_context_entries = memory.retrieve_user_context(
                 query=request.message,
                 user_id=current_user_id
             )
             user_context = memory.format_user_context(user_context_entries)
-            if user_context:
-                memory_context = user_context + "\n\n" + memory_context
+            # Don't merge into memory_context - pass separately for chain support
 
             # Check if user model is sparse and add intro guidance
             sparseness = user_manager.check_user_model_sparseness(current_user_id)
@@ -1126,9 +1128,8 @@ async def chat(request: ChatRequest):
         if patterns_context:
             memory_context = patterns_context + "\n\n" + memory_context
 
-        # Add intro guidance for new/sparse user models (at end so it's prominent)
-        if intro_guidance:
-            memory_context = memory_context + "\n\n" + intro_guidance
+        # NOTE: intro_guidance is NOT merged into memory_context here
+        # It's passed separately to send_message for proper chain system support
 
     # Get unsummarized message count to determine if summarization is available
     unsummarized_count = 0
@@ -1152,7 +1153,10 @@ async def chat(request: ChatRequest):
             project_id=project_id,
             unsummarized_count=unsummarized_count,
             image=request.image,
-            image_media_type=request.image_media_type
+            image_media_type=request.image_media_type,
+            conversation_id=request.conversation_id,
+            user_context=user_context if user_context else None,
+            intro_guidance=intro_guidance,
         )
 
         raw_response = response.raw
@@ -5125,9 +5129,13 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 context_sizes["hierarchical"] = len(memory_context)
 
                 # Add user context if we have a connection user
+                # NOTE: user_context and intro_guidance are passed separately to send_message
+                # for proper chain system support, not merged into memory_context
                 user_context_count = 0
                 intro_guidance = None
                 user_context = ""
+                user_model_context = None
+                relationship_context = None
                 if ws_user_id:
                     user_context_entries = memory.retrieve_user_context(
                         query=user_message,
@@ -5135,12 +5143,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     )
                     user_context_count = len(user_context_entries)
                     user_context = memory.format_user_context(user_context_entries)
-                    if user_context:
-                        memory_context = user_context + "\n\n" + memory_context
+                    # Don't merge into memory_context - pass separately for chain support
 
                     # Check if user model is sparse and add intro guidance
                     sparseness = user_manager.check_user_model_sparseness(ws_user_id)
                     intro_guidance = sparseness.get("intro_guidance")
+
+                    # Get enhanced user modeling contexts (identity, values, relationship dynamics)
+                    user_model_context = user_manager.get_rich_user_context(ws_user_id)
+                    relationship_context = user_manager.get_relationship_context(ws_user_id)
                 context_sizes["user"] = len(user_context)
 
                 # Add project context if conversation is in a project
@@ -5227,9 +5238,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     memory_context = patterns_context + "\n\n" + memory_context
                 context_sizes["patterns"] = len(patterns_context) if patterns_context else 0
 
-                # Add intro guidance for new/sparse user models (at end so it's prominent)
-                if intro_guidance:
-                    memory_context = memory_context + "\n\n" + intro_guidance
+                # NOTE: intro_guidance is NOT merged into memory_context here
+                # It's passed separately to send_message for proper chain system support
                 context_sizes["intro"] = len(intro_guidance) if intro_guidance else 0
 
                 # Total context size
@@ -5312,7 +5322,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         message=user_message,
                         memory_context=memory_context,
                         project_id=project_id,
-                        unsummarized_count=unsummarized_count
+                        unsummarized_count=unsummarized_count,
+                        conversation_id=conversation_id,
+                        user_context=user_context if user_context else None,
+                        intro_guidance=intro_guidance,
+                        user_model_context=user_model_context,
+                        relationship_context=relationship_context,
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -5375,7 +5390,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         message=user_message,
                         memory_context=memory_context,
                         project_id=project_id,
-                        unsummarized_count=unsummarized_count
+                        unsummarized_count=unsummarized_count,
+                        conversation_id=conversation_id,
+                        user_context=user_context if user_context else None,
+                        intro_guidance=intro_guidance,
+                        user_model_context=user_model_context,
+                        relationship_context=relationship_context,
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -5442,7 +5462,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         image=image_data,
                         image_media_type=image_media_type,
                         rhythm_manager=daily_rhythm_manager,
-                        memory=memory
+                        memory=memory,
+                        conversation_id=conversation_id,
+                        user_context=user_context if user_context else None,
+                        intro_guidance=intro_guidance,
+                        user_model_context=user_model_context,
+                        relationship_context=relationship_context,
                     )
                     raw_response = response.raw
                     clean_text = response.text

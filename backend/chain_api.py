@@ -820,6 +820,11 @@ async def preview_chain(chain_id: str, request: PreviewRequest):
         patterns_context=retrieved_context.get("patterns"),
         has_intro_guidance=bool(retrieved_context.get("intro_guidance")),
         intro_guidance=retrieved_context.get("intro_guidance"),
+        # Enhanced user modeling
+        has_user_model=bool(retrieved_context.get("user_model")),
+        user_model_context=retrieved_context.get("user_model"),
+        has_relationship_model=bool(retrieved_context.get("relationship")),
+        relationship_context=retrieved_context.get("relationship"),
         current_time=now,
         hour=now.hour,
         temporal_context=temporal_ctx,
@@ -837,6 +842,8 @@ async def preview_chain(chain_id: str, request: PreviewRequest):
         ("goals", "Active Goals"),
         ("patterns", "Recognition Patterns"),
         ("intro_guidance", "User Intro Guidance"),
+        ("user_model", "User Understanding"),
+        ("relationship", "Relationship Context"),
     ]:
         content = retrieved_context.get(key, "")
         context_sections[key] = ContextSection(
@@ -917,6 +924,16 @@ async def _retrieve_memory_context(
         get_automatic_wiki_context = main_sdk_module.get_automatic_wiki_context
         from pattern_aggregation import get_pattern_summary_for_surfacing
 
+        # Look up user_id from conversation if not provided directly
+        if not user_id and conversation_id and conversation_manager:
+            try:
+                conversation = conversation_manager.load_conversation(conversation_id)
+                if conversation and conversation.user_id:
+                    user_id = conversation.user_id
+                    print(f"[Preview] Resolved user_id from conversation: {user_id}")
+            except Exception as e:
+                print(f"[Preview] Could not resolve user_id from conversation: {e}")
+
         # 0. User context (intro guidance based on relationship sparseness)
         if user_id and user_manager:
             try:
@@ -924,6 +941,18 @@ async def _retrieve_memory_context(
                 print(f"[Preview] User sparseness for {user_id}: level={sparseness.get('sparseness_level')}, has_intro={bool(sparseness.get('intro_guidance'))}")
                 if sparseness and sparseness.get("intro_guidance"):
                     result["intro_guidance"] = sparseness["intro_guidance"]
+
+                # Enhanced user modeling - deep understanding of user
+                user_model_ctx = user_manager.get_rich_user_context(user_id)
+                if user_model_ctx:
+                    result["user_model"] = user_model_ctx
+                    print(f"[Preview] User model context: {len(user_model_ctx)} chars")
+
+                # Relationship context - patterns, shared moments, mutual shaping
+                relationship_ctx = user_manager.get_relationship_context(user_id)
+                if relationship_ctx:
+                    result["relationship"] = relationship_ctx
+                    print(f"[Preview] Relationship context: {len(relationship_ctx)} chars")
             except Exception as e:
                 print(f"[Preview] User context error: {e}")
         else:
@@ -1153,3 +1182,163 @@ def _copy_chain_nodes(source_chain_id: str, target_chain_id: str, conn):
             now,
             now,
         ))
+
+
+# =============================================================================
+# PUBLIC HELPER FOR AGENT_CLIENT INTEGRATION
+# =============================================================================
+
+def get_system_prompt_for_daemon(
+    daemon_id: str,
+    daemon_name: str = "Cass",
+    # Context flags
+    project_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    message_count: int = 0,
+    unsummarized_count: int = 0,
+    has_dream_context: bool = False,
+    # Memory context strings (pre-formatted)
+    memory_context: Optional[str] = None,
+    user_context: Optional[str] = None,
+    self_model_context: Optional[str] = None,
+    graph_context: Optional[str] = None,
+    wiki_context: Optional[str] = None,
+    cross_session_context: Optional[str] = None,
+    goals_context: Optional[str] = None,
+    patterns_context: Optional[str] = None,
+    intro_guidance: Optional[str] = None,
+    # Enhanced user/relationship modeling
+    user_model_context: Optional[str] = None,
+    relationship_context: Optional[str] = None,
+    # Model info
+    model: str = "unknown",
+    provider: str = "unknown",
+) -> Optional[str]:
+    """
+    Get the assembled system prompt for a daemon using the active chain.
+
+    This is the main integration point for agent_client.py to use chain-based
+    prompts instead of the hardcoded Temple-Codex kernel.
+
+    Args:
+        daemon_id: The daemon ID to get the prompt for
+        daemon_name: The daemon's display name
+        project_id: Active project ID if any
+        conversation_id: Current conversation ID
+        user_id: Current user ID for user-specific context
+        message_count: Total messages in conversation
+        unsummarized_count: Messages not yet summarized
+        has_dream_context: Whether dream context is available
+        memory_context: Pre-formatted memory context string
+        user_context: Pre-formatted user profile/observations
+        self_model_context: Pre-formatted self-model context
+        graph_context: Pre-formatted graph context
+        wiki_context: Pre-formatted wiki context
+        cross_session_context: Pre-formatted cross-session insights
+        goals_context: Pre-formatted goals context
+        patterns_context: Pre-formatted patterns context
+        intro_guidance: User intro guidance if sparse user model
+        user_model_context: Deep understanding of user (identity, values, growth)
+        relationship_context: Relationship dynamics (patterns, moments, shaping)
+        model: Current model name
+        provider: Current provider name
+
+    Returns:
+        Assembled system prompt string, or None if no active chain exists
+    """
+    # Get active chain for daemon
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT id, name FROM prompt_chains
+            WHERE daemon_id = ? AND is_active = 1
+        """, (daemon_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            return None  # No active chain, caller should fall back
+
+        chain_id = row[0]
+
+        # Get identity snippet if available
+        identity_snippet = None
+        snippet_row = conn.execute(
+            """SELECT snippet_text FROM daemon_identity_snippets
+               WHERE daemon_id = ? AND is_active = 1
+               ORDER BY generated_at DESC LIMIT 1""",
+            (daemon_id,)
+        ).fetchone()
+        if snippet_row:
+            identity_snippet = snippet_row[0]
+
+    # Get chain nodes
+    node_responses = _get_chain_nodes(chain_id)
+
+    # Convert to ChainNode objects
+    nodes = []
+    for nr in node_responses:
+        conditions = [
+            Condition.from_dict(c.dict())
+            for c in nr.conditions
+        ]
+        nodes.append(ChainNode(
+            id=nr.id,
+            template_id=nr.template_id,
+            template_slug=nr.template_slug,
+            params=nr.params or {},
+            order_index=nr.order_index,
+            enabled=nr.enabled,
+            locked=nr.locked,
+            conditions=conditions,
+        ))
+
+    # Build temporal context
+    temporal_ctx = get_temporal_context()
+    now = datetime.now()
+
+    # Build runtime context
+    context = RuntimeContext(
+        project_id=project_id,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        message_count=message_count,
+        unsummarized_count=unsummarized_count,
+        has_memories=bool(memory_context),
+        memory_context=memory_context,
+        has_dream_context=has_dream_context,
+        has_self_model=bool(self_model_context),
+        self_model_context=self_model_context,
+        has_graph_context=bool(graph_context),
+        graph_context=graph_context,
+        has_wiki_context=bool(wiki_context),
+        wiki_context=wiki_context,
+        has_cross_session=bool(cross_session_context),
+        cross_session_context=cross_session_context,
+        has_active_goals=bool(goals_context),
+        goals_context=goals_context,
+        has_patterns=bool(patterns_context),
+        patterns_context=patterns_context,
+        has_intro_guidance=bool(intro_guidance),
+        intro_guidance=intro_guidance,
+        has_user_context=bool(user_context),
+        user_context=user_context,
+        has_user_model=bool(user_model_context),
+        user_model_context=user_model_context,
+        has_relationship_model=bool(relationship_context),
+        relationship_context=relationship_context,
+        current_time=now,
+        hour=now.hour,
+        temporal_context=temporal_ctx,
+        model=model,
+        provider=provider,
+    )
+
+    # Assemble the chain
+    result = assemble_chain(
+        nodes=nodes,
+        context=context,
+        daemon_name=daemon_name,
+        identity_snippet=identity_snippet,
+    )
+
+    return result.full_text

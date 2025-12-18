@@ -74,6 +74,14 @@ class RuntimeContext:
     # User context
     user_id: Optional[str] = None
     is_admin: bool = False
+    has_user_context: bool = False
+    user_context: Optional[str] = None  # Formatted user profile/observations
+
+    # Enhanced user modeling (structured understanding)
+    has_user_model: bool = False
+    user_model_context: Optional[str] = None  # Deep understanding: identity, values, growth edges
+    has_relationship_model: bool = False
+    relationship_context: Optional[str] = None  # Relationship: patterns, shared moments, mutual shaping
 
     # Chain-level parameters
     chain_params: Dict[str, Any] = field(default_factory=dict)
@@ -114,6 +122,12 @@ class RuntimeContext:
             "provider": self.provider,
             "user_id": self.user_id,
             "is_admin": self.is_admin,
+            "has_user_context": self.has_user_context,
+            "user_context": self.user_context,
+            "has_user_model": self.has_user_model,
+            "user_model_context": self.user_model_context,
+            "has_relationship_model": self.has_relationship_model,
+            "relationship_context": self.relationship_context,
             **self.chain_params,
         }
 
