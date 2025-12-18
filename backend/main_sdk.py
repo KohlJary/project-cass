@@ -1152,7 +1152,8 @@ async def chat(request: ChatRequest):
             project_id=project_id,
             unsummarized_count=unsummarized_count,
             image=request.image,
-            image_media_type=request.image_media_type
+            image_media_type=request.image_media_type,
+            conversation_id=request.conversation_id,
         )
 
         raw_response = response.raw
@@ -5312,7 +5313,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         message=user_message,
                         memory_context=memory_context,
                         project_id=project_id,
-                        unsummarized_count=unsummarized_count
+                        unsummarized_count=unsummarized_count,
+                        conversation_id=conversation_id,
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -5375,7 +5377,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         message=user_message,
                         memory_context=memory_context,
                         project_id=project_id,
-                        unsummarized_count=unsummarized_count
+                        unsummarized_count=unsummarized_count,
+                        conversation_id=conversation_id,
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -5442,7 +5445,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         image=image_data,
                         image_media_type=image_media_type,
                         rhythm_manager=daily_rhythm_manager,
-                        memory=memory
+                        memory=memory,
+                        conversation_id=conversation_id,
                     )
                     raw_response = response.raw
                     clean_text = response.text

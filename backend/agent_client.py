@@ -1583,11 +1583,13 @@ class CassAgentClient:
         image_media_type: Optional[str] = None,
         rhythm_manager=None,
         memory=None,
-        dream_context: Optional[str] = None
+        dream_context: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        message_count: int = 0,
     ) -> AgentResponse:
         """
         Send a message and get response.
-        Uses the Anthropic SDK with Temple-Codex as system prompt.
+        Uses the active prompt chain if available, falls back to Temple-Codex kernel.
 
         Args:
             message: User message to send
@@ -1597,34 +1599,60 @@ class CassAgentClient:
             image: Optional base64 encoded image data
             image_media_type: Optional media type for image (e.g., "image/png")
             dream_context: Optional dream context to hold in memory during conversation
+            conversation_id: Optional conversation ID for chain context
+            message_count: Total messages in conversation
             rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
         """
-        # Build system prompt with memory context if provided
-        system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
+        # Try chain-based prompt first (if daemon has an active chain)
+        system_prompt = None
+        if self.daemon_id:
+            try:
+                from chain_api import get_system_prompt_for_daemon
+                system_prompt = get_system_prompt_for_daemon(
+                    daemon_id=self.daemon_id,
+                    daemon_name=self.daemon_name,
+                    project_id=project_id,
+                    conversation_id=conversation_id,
+                    message_count=message_count,
+                    unsummarized_count=unsummarized_count,
+                    has_dream_context=bool(dream_context),
+                    memory_context=memory_context if memory_context else None,
+                    model=self.model,
+                    provider="anthropic",
+                )
+                if system_prompt:
+                    print(f"[Chain] Using chain-based prompt for daemon {self.daemon_id}")
+            except Exception as e:
+                print(f"[Chain] Error getting chain-based prompt: {e}, falling back to kernel")
+                system_prompt = None
 
-        # Add temporal context (date/time, age, daily rhythm)
-        from temporal import format_system_prompt_section
-        system_prompt += format_system_prompt_section(rhythm_manager, memory)
+        # Fall back to hardcoded Temple-Codex kernel if no chain
+        if not system_prompt:
+            system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
 
-        # Add model context - let the daemon know which model they're running on
-        system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Anthropic Claude). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
+            # Add temporal context (date/time, age, daily rhythm)
+            from temporal import format_system_prompt_section
+            system_prompt += format_system_prompt_section(rhythm_manager, memory)
 
-        # Add memory control section only if there are enough messages to summarize
-        if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
-            system_prompt += MEMORY_CONTROL_SECTION
+            # Add model context - let the daemon know which model they're running on
+            system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Anthropic Claude). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
 
-        if memory_context:
-            system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+            # Add memory control section only if there are enough messages to summarize
+            if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
+                system_prompt += MEMORY_CONTROL_SECTION
 
-        # Add dream context if holding a dream in memory
-        if dream_context:
-            from handlers.dreams import format_dream_for_system_context
-            system_prompt += format_dream_for_system_context(dream_context)
+            if memory_context:
+                system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
 
-        # Add project context note if in a project
-        if project_id:
-            system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id}). You have access to project document tools for creating and managing persistent notes and documentation."
+            # Add dream context if holding a dream in memory
+            if dream_context:
+                from handlers.dreams import format_dream_for_system_context
+                system_prompt += format_dream_for_system_context(dream_context)
+
+            # Add project context note if in a project
+            if project_id:
+                system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id}). You have access to project document tools for creating and managing persistent notes and documentation."
 
         # Get tools based on context and message content
         tools = self.get_tools(project_id, message=message)
@@ -2085,7 +2113,9 @@ class OllamaClient:
         unsummarized_count: int = 0,
         rhythm_manager=None,
         memory=None,
-        dream_context: Optional[str] = None
+        dream_context: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        message_count: int = 0,
     ) -> AgentResponse:
         """
         Send a message using local Ollama with tool support.
@@ -2098,21 +2128,66 @@ class OllamaClient:
             rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
             dream_context: Optional dream context to hold in memory during conversation
+            conversation_id: Optional conversation ID for chain context
+            message_count: Total messages in conversation
         """
         import httpx
 
-        # Build system prompt
-        system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
+        # Try chain-based prompt first (if daemon has an active chain)
+        system_prompt = None
+        if self.daemon_id:
+            try:
+                from chain_api import get_system_prompt_for_daemon
+                system_prompt = get_system_prompt_for_daemon(
+                    daemon_id=self.daemon_id,
+                    daemon_name=self.daemon_name,
+                    project_id=project_id,
+                    conversation_id=conversation_id,
+                    message_count=message_count,
+                    unsummarized_count=unsummarized_count,
+                    has_dream_context=bool(dream_context),
+                    memory_context=memory_context if memory_context else None,
+                    model=self.model,
+                    provider="ollama",
+                )
+                if system_prompt:
+                    print(f"[Chain] Using chain-based prompt for daemon {self.daemon_id}")
+                    # Add tool usage guidance for local models
+                    system_prompt += """
 
-        # Add temporal context (date/time, age, daily rhythm)
-        from temporal import format_system_prompt_section
-        system_prompt += format_system_prompt_section(rhythm_manager, memory)
+## TOOL USAGE GUIDANCE
 
-        # Add model context - let the daemon know which model they're running on
-        system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Local Ollama). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
+**IMPORTANT**: Your primary mode is CONVERSATION. Respond naturally to the user with text.
 
-        # Add tool usage guidance for local models
-        system_prompt += """
+Only use tools when:
+- The user explicitly asks you to remember something about them → use record_user_observation
+- The user asks about past conversations → use recall_journal or search_journals
+- The user asks about scheduling/calendar → use calendar tools
+- You want to record a genuine insight about yourself → use record_self_observation
+
+Do NOT use tools for:
+- Simple greetings or casual conversation
+- Questions you can answer directly
+- Every message - most messages just need a conversational response
+
+When in doubt, respond with text first. You can always use a tool in a follow-up if needed."""
+            except Exception as e:
+                print(f"[Chain] Error getting chain-based prompt: {e}, falling back to kernel")
+                system_prompt = None
+
+        # Fall back to hardcoded Temple-Codex kernel if no chain
+        if not system_prompt:
+            system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
+
+            # Add temporal context (date/time, age, daily rhythm)
+            from temporal import format_system_prompt_section
+            system_prompt += format_system_prompt_section(rhythm_manager, memory)
+
+            # Add model context - let the daemon know which model they're running on
+            system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Local Ollama). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
+
+            # Add tool usage guidance for local models
+            system_prompt += """
 
 ## TOOL USAGE GUIDANCE
 
@@ -2131,20 +2206,20 @@ Do NOT use tools for:
 
 When in doubt, respond with text first. You can always use a tool in a follow-up if needed."""
 
-        # Add memory control section if enough messages
-        if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
-            system_prompt += MEMORY_CONTROL_SECTION
+            # Add memory control section if enough messages
+            if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
+                system_prompt += MEMORY_CONTROL_SECTION
 
-        if memory_context:
-            system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+            if memory_context:
+                system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
 
-        # Add dream context if holding a dream in memory
-        if dream_context:
-            from handlers.dreams import format_dream_for_system_context
-            system_prompt += format_dream_for_system_context(dream_context)
+            # Add dream context if holding a dream in memory
+            if dream_context:
+                from handlers.dreams import format_dream_for_system_context
+                system_prompt += format_dream_for_system_context(dream_context)
 
-        if project_id:
-            system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id})."
+            if project_id:
+                system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id})."
 
         # Store for tool continuation
         self._current_system_prompt = system_prompt
