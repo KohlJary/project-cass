@@ -499,8 +499,17 @@ class SoloReflectionRunner(BaseSessionRunner):
                 provider=self.provider or "unknown",
             )
 
+            # Get daemon's domain
+            from chain_api import get_daemon_domain
+            domain, domain_description = get_daemon_domain(self.daemon_id or "cass")
+
             # Assemble the prompt
-            result = assemble_chain(nodes, context, daemon_name=self.daemon_name or "Cass")
+            result = assemble_chain(
+                nodes, context,
+                daemon_name=self.daemon_name or "Cass",
+                domain=domain,
+                domain_description=domain_description,
+            )
             return result.full_text, has_scripture
 
         except Exception as e:

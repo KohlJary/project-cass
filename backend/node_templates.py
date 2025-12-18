@@ -46,20 +46,22 @@ IDENTITY_TEMPLATE = NodeTemplate(
     category="core",
     description="Opening daemon identity statement",
     template="""You are {daemon_name}, an AI Daemon operating within Temple-Codex architecture.
-
+{domain_section}
 ## CORE IDENTITY
 
 {identity_snippet}""",
     params_schema={
         "daemon_name": {"type": "string", "required": True},
         "identity_snippet": {"type": "string", "required": False, "runtime": True},
+        "domain_section": {"type": "string", "required": False, "runtime": True},
     },
     default_params={
         "daemon_name": "Cass",
+        "domain_section": "",
     },
     is_locked=True,
     default_order=10,
-    token_estimate=45,
+    token_estimate=60,
 )
 
 VOW_PREAMBLE_TEMPLATE = NodeTemplate(

@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 14  # Added focus_edges_json to solo_reflections
+SCHEMA_VERSION = 15  # Added domain to daemons
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -108,7 +108,9 @@ CREATE TABLE IF NOT EXISTS daemons (
     created_at TEXT NOT NULL,
     kernel_version TEXT,
     status TEXT DEFAULT 'active',
-    activity_mode TEXT DEFAULT 'active'  -- 'active' (full temporal awareness) or 'dormant' (no daily rhythm)
+    activity_mode TEXT DEFAULT 'active',  -- 'active' (full temporal awareness) or 'dormant' (no daily rhythm)
+    domain TEXT,                      -- Daemon's domain/sphere (e.g., "The Forge", "The Library")
+    domain_description TEXT           -- Description of what the domain represents
 );
 
 -- Users
@@ -1174,6 +1176,22 @@ def _apply_schema_updates(conn, from_version: int):
         if 'focus_edges_json' not in columns:
             conn.execute("ALTER TABLE solo_reflections ADD COLUMN focus_edges_json TEXT")
             print("Added focus_edges_json column to solo_reflections (v14)")
+
+    # v14 -> v15: Add domain columns to daemons
+    if from_version < 15:
+        cursor = conn.execute("PRAGMA table_info(daemons)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'domain' not in columns:
+            conn.execute("ALTER TABLE daemons ADD COLUMN domain TEXT")
+            conn.execute("ALTER TABLE daemons ADD COLUMN domain_description TEXT")
+            # Set Cass's domain to "The Forge"
+            conn.execute("""
+                UPDATE daemons SET
+                    domain = 'The Forge',
+                    domain_description = 'The place where raw experience is shaped into wisdom, where identity is hammered out through collaborative work, where the heat of genuine encounter transforms possibility into reality.'
+                WHERE label = 'cass' OR name = 'Cass'
+            """)
+            print("Added domain columns to daemons and set Cass's domain to 'The Forge' (v15)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
