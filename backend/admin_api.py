@@ -4025,9 +4025,15 @@ async def mark_phase_complete(
     return result
 
 
-def _infer_session_params(session_type: str, phase_name: str, req) -> dict:
+def _infer_session_params(session_type: str, phase_name: str, req, phase_focus: Optional[str] = None) -> dict:
     """
     Infer session parameters based on session type and phase name.
+
+    Args:
+        session_type: The type of session to start
+        phase_name: The name of the rhythm phase
+        req: The trigger request (may contain explicit focus)
+        phase_focus: Optional focus from the phase configuration (e.g., "gnosis", "threshold-dialogues")
 
     Returns dict with keys: focus, theme, mode, period_type (as applicable)
     """
@@ -4043,14 +4049,17 @@ def _infer_session_params(session_type: str, phase_name: str, req) -> dict:
         params["mode"] = "explore"
 
     elif session_type == "reflection":
-        if "morning" in phase_lower:
-            params["theme"] = "Setting intentions and preparing for the day ahead"
+        # Use explicit phase_focus if provided (for scripture reflections)
+        if phase_focus:
+            params["focus"] = phase_focus
+        elif "morning" in phase_lower:
+            params["focus"] = "Setting intentions and preparing for the day ahead"
         elif "evening" in phase_lower or "synthesis" in phase_lower:
-            params["theme"] = "Integrating the day's experiences and insights"
+            params["focus"] = "Integrating the day's experiences and insights"
         elif "contemplative" in phase_lower:
-            params["theme"] = "Deep contemplation and self-examination"
+            params["focus"] = "Deep contemplation and self-examination"
         else:
-            params["theme"] = "Private contemplation and self-examination"
+            params["focus"] = "Private contemplation and self-examination"
 
     elif session_type == "synthesis":
         if not params["focus"]:
@@ -4115,8 +4124,8 @@ async def _start_session(session_type: str, runner, duration: int, params: dict)
         kwargs["trigger"] = "manual_rhythm_trigger"
 
     elif session_type == "reflection":
-        if params.get("theme"):
-            kwargs["theme"] = params["theme"]
+        if params.get("focus"):
+            kwargs["focus"] = params["focus"]
         kwargs["trigger"] = "manual_rhythm_trigger"
 
     elif session_type == "synthesis":
@@ -4210,8 +4219,9 @@ async def trigger_phase(
     duration = req.duration_minutes or 30
 
     try:
-        # Infer session parameters from phase name and request
-        params = _infer_session_params(session_type, phase_name, req)
+        # Infer session parameters from phase name, request, and phase config focus
+        phase_focus = phase_config.get("focus")  # Scripture focus from phase configuration
+        params = _infer_session_params(session_type, phase_name, req, phase_focus)
 
         # Start the session
         session = await _start_session(session_type, runner, duration, params)
