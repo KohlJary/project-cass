@@ -26,6 +26,7 @@ const adminNavItems = [
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
   { path: '/dreams', label: 'Dreams', icon: 'D' },
   { path: '/homepage', label: 'GeoCass', icon: '~' },
+  { path: '/architecture', label: 'Architecture', icon: 'A' },
   { path: '/users', label: 'Users', icon: '@' },
   { path: '/metrics', label: 'Metrics', icon: 'M' },
   { path: '/settings', label: 'Settings', icon: '!' },

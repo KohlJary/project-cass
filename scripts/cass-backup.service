@@ -1,0 +1,11 @@
+[Unit]
+Description=Cass Database Backup
+After=cass-vessel.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/jaryk/cass/cass-vessel/scripts/backup-db.sh
+User=jaryk
+
+[Install]
+WantedBy=multi-user.target

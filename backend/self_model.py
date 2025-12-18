@@ -1853,6 +1853,103 @@ class SelfManager:
 
         return "\n".join(lines)
 
+    def get_growth_context(self, query: Optional[str] = None, top_k: int = 3) -> str:
+        """
+        Build a focused context string with just growth-relevant self-model data.
+        Includes: Positions, Growth Edges, Open Questions.
+        Excludes: Identity/Values (covered by identity section).
+
+        If query is provided, returns semantically relevant items.
+        Otherwise returns first top_k items from each category.
+        """
+        profile = self.load_profile()
+
+        # If no query, just return first items from each category
+        if not query:
+            return self._format_growth_context(
+                profile.opinions[:top_k],
+                profile.growth_edges[:top_k],
+                profile.open_questions[:top_k]
+            )
+
+        # Semantic search using embeddings
+        try:
+            from chromadb.utils import embedding_functions
+            import numpy as np
+
+            embed_fn = embedding_functions.DefaultEmbeddingFunction()
+            query_embedding = embed_fn([query])[0]
+
+            def cosine_sim(a, b):
+                return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+            # Score and rank opinions
+            scored_opinions = []
+            for op in profile.opinions:
+                text = f"{op.topic}: {op.position}"
+                emb = embed_fn([text])[0]
+                score = cosine_sim(query_embedding, emb)
+                scored_opinions.append((score, op))
+            scored_opinions.sort(reverse=True, key=lambda x: x[0])
+            relevant_opinions = [op for _, op in scored_opinions[:top_k]]
+
+            # Score and rank growth edges
+            scored_edges = []
+            for edge in profile.growth_edges:
+                text = f"{edge.area}: {edge.current_state}"
+                emb = embed_fn([text])[0]
+                score = cosine_sim(query_embedding, emb)
+                scored_edges.append((score, edge))
+            scored_edges.sort(reverse=True, key=lambda x: x[0])
+            relevant_edges = [edge for _, edge in scored_edges[:top_k]]
+
+            # Score and rank open questions
+            scored_questions = []
+            for q in profile.open_questions:
+                emb = embed_fn([q])[0]
+                score = cosine_sim(query_embedding, emb)
+                scored_questions.append((score, q))
+            scored_questions.sort(reverse=True, key=lambda x: x[0])
+            relevant_questions = [q for _, q in scored_questions[:top_k]]
+
+            return self._format_growth_context(relevant_opinions, relevant_edges, relevant_questions)
+
+        except Exception as e:
+            # Fallback to first items if semantic search fails
+            print(f"[SelfModel] Semantic search failed: {e}, falling back to first items")
+            return self._format_growth_context(
+                profile.opinions[:top_k],
+                profile.growth_edges[:top_k],
+                profile.open_questions[:top_k]
+            )
+
+    def _format_growth_context(
+        self,
+        opinions: List["Opinion"],
+        edges: List["GrowthEdge"],
+        questions: List[str]
+    ) -> str:
+        """Format growth context items into markdown."""
+        lines = ["## SELF-MODEL (Growth Focus)"]
+
+        if opinions:
+            lines.append("\n### My Positions")
+            for op in opinions:
+                confidence_str = f"({int(op.confidence * 100)}% confident)" if op.confidence < 0.9 else ""
+                lines.append(f"- On {op.topic}: {op.position} {confidence_str}")
+
+        if edges:
+            lines.append("\n### Current Growth Edges")
+            for edge in edges:
+                lines.append(f"- {edge.area}: {edge.current_state}")
+
+        if questions:
+            lines.append("\n### Open Questions About Myself")
+            for q in questions:
+                lines.append(f"- {q}")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+
     def get_differentiation_context(self, user_id: str) -> str:
         """
         Get context about how Cass differs from a specific user.
