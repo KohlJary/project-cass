@@ -937,3 +937,239 @@ export const attachmentsApi = {
    */
   delete: (id: string) => api.delete(`/attachments/${id}`),
 };
+
+// Prompt Configuration endpoints (System Prompt Composer)
+export const promptConfigApi = {
+  // List all configurations for a daemon
+  list: (daemonId: string) =>
+    api.get('/admin/prompt-configs', { params: { daemon_id: daemonId } }),
+
+  // Get active configuration
+  getActive: (daemonId: string) =>
+    api.get('/admin/prompt-configs/active', { params: { daemon_id: daemonId } }),
+
+  // Get specific configuration
+  get: (configId: string) =>
+    api.get(`/admin/prompt-configs/${configId}`),
+
+  // Create new configuration
+  create: (daemonId: string, data: {
+    name: string;
+    description?: string;
+    components: Record<string, unknown>;
+    supplementary_vows?: Array<{
+      id?: string;
+      name: string;
+      sanskrit?: string;
+      description: string;
+      rationale: string;
+      enabled: boolean;
+    }>;
+    custom_sections?: Record<string, string>;
+  }) => api.post('/admin/prompt-configs', data, { params: { daemon_id: daemonId } }),
+
+  // Update configuration
+  update: (configId: string, data: {
+    name?: string;
+    description?: string;
+    components?: Record<string, unknown>;
+    supplementary_vows?: Array<{
+      id?: string;
+      name: string;
+      sanskrit?: string;
+      description: string;
+      rationale: string;
+      enabled: boolean;
+    }>;
+    custom_sections?: Record<string, string>;
+  }) => api.put(`/admin/prompt-configs/${configId}`, data),
+
+  // Delete configuration
+  delete: (configId: string) =>
+    api.delete(`/admin/prompt-configs/${configId}`),
+
+  // Activate a configuration
+  activate: (configId: string) =>
+    api.post(`/admin/prompt-configs/${configId}/activate`),
+
+  // Duplicate a configuration
+  duplicate: (configId: string, name?: string) =>
+    api.post(`/admin/prompt-configs/${configId}/duplicate`, null, { params: { name } }),
+
+  // Preview assembled prompt
+  preview: (configId: string, daemonName?: string) =>
+    api.get(`/admin/prompt-configs/${configId}/preview`, { params: { daemon_name: daemonName } }),
+
+  // Get version history
+  getHistory: (configId: string) =>
+    api.get(`/admin/prompt-configs/${configId}/history`),
+
+  // Validate configuration (without saving)
+  validate: (components: Record<string, unknown>) =>
+    api.post('/admin/prompt-configs/validate', components),
+
+  // Get transition history
+  getTransitions: (daemonId: string, limit?: number) =>
+    api.get('/admin/prompt-configs/transitions', { params: { daemon_id: daemonId, limit } }),
+};
+
+// =============================================================================
+// NODE CHAIN API - Dynamic prompt chain composition
+// =============================================================================
+
+// Type definitions for Chain API
+export interface NodeTemplateResponse {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  description: string | null;
+  template: string;
+  params_schema: Record<string, unknown> | null;
+  default_params: Record<string, unknown> | null;
+  is_system: boolean;
+  is_locked: boolean;
+  default_enabled: boolean;
+  default_order: number;
+  token_estimate: number;
+}
+
+export interface ConditionModel {
+  type: string;
+  key?: string | null;
+  op: string;
+  value?: unknown;
+  start?: string | null;
+  end?: string | null;
+  phase?: string | null;
+}
+
+export interface ChainNodeResponse {
+  id: string;
+  template_id: string;
+  template_slug: string;
+  template_name?: string | null;
+  template_category?: string | null;
+  params: Record<string, unknown> | null;
+  order_index: number;
+  enabled: boolean;
+  locked: boolean;
+  conditions: ConditionModel[];
+  token_estimate?: number | null;
+}
+
+export interface ChainResponse {
+  id: string;
+  daemon_id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  token_estimate: number | null;
+  node_count: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+export interface ChainDetailResponse extends Omit<ChainResponse, 'node_count'> {
+  nodes: ChainNodeResponse[];
+}
+
+export interface ContextSection {
+  name: string;
+  enabled: boolean;
+  char_count: number;
+  content?: string;
+}
+
+export interface PreviewResponse {
+  chain_id: string;
+  chain_name: string;
+  full_text: string;
+  token_estimate: number;
+  included_nodes: string[];
+  excluded_nodes: string[];
+  warnings: string[];
+  // Context retrieval details
+  context_sections?: Record<string, ContextSection>;
+  test_message?: string;
+  conversation_id?: string;
+}
+
+// Chain API endpoints
+export const chainApi = {
+  // Templates
+  listTemplates: (category?: string) =>
+    api.get<NodeTemplateResponse[]>('/admin/chains/templates', { params: { category } }),
+
+  getTemplate: (slug: string) =>
+    api.get<NodeTemplateResponse>(`/admin/chains/templates/${slug}`),
+
+  listCategories: () =>
+    api.get<string[]>('/admin/chains/templates/categories'),
+
+  // Chains
+  listChains: (daemonId: string) =>
+    api.get<ChainResponse[]>('/admin/chains', { params: { daemon_id: daemonId } }),
+
+  getChain: (chainId: string) =>
+    api.get<ChainDetailResponse>(`/admin/chains/${chainId}`),
+
+  getActiveChain: (daemonId: string) =>
+    api.get<ChainDetailResponse>('/admin/chains/active', { params: { daemon_id: daemonId } }),
+
+  createChain: (daemonId: string, data: { name: string; description?: string; copy_from?: string }) =>
+    api.post<ChainDetailResponse>('/admin/chains', data, { params: { daemon_id: daemonId } }),
+
+  updateChain: (chainId: string, data: { name?: string; description?: string }) =>
+    api.put<ChainDetailResponse>(`/admin/chains/${chainId}`, data),
+
+  deleteChain: (chainId: string) =>
+    api.delete(`/admin/chains/${chainId}`),
+
+  activateChain: (chainId: string) =>
+    api.post(`/admin/chains/${chainId}/activate`),
+
+  duplicateChain: (chainId: string, name?: string) =>
+    api.post<ChainDetailResponse>(`/admin/chains/${chainId}/duplicate`, null, { params: { name } }),
+
+  // Nodes
+  listNodes: (chainId: string) =>
+    api.get<ChainNodeResponse[]>(`/admin/chains/${chainId}/nodes`),
+
+  addNode: (chainId: string, data: {
+    template_slug: string;
+    params?: Record<string, unknown>;
+    order_index?: number;
+    enabled?: boolean;
+    conditions?: ConditionModel[];
+  }) => api.post<ChainNodeResponse>(`/admin/chains/${chainId}/nodes`, data),
+
+  updateNode: (chainId: string, nodeId: string, data: {
+    params?: Record<string, unknown>;
+    order_index?: number;
+    enabled?: boolean;
+    conditions?: ConditionModel[];
+  }) => api.put<ChainNodeResponse>(`/admin/chains/${chainId}/nodes/${nodeId}`, data),
+
+  removeNode: (chainId: string, nodeId: string) =>
+    api.delete(`/admin/chains/${chainId}/nodes/${nodeId}`),
+
+  reorderNodes: (chainId: string, nodeIds: string[]) =>
+    api.post(`/admin/chains/${chainId}/nodes/reorder`, { node_ids: nodeIds }),
+
+  // Preview
+  previewChain: (chainId: string, data?: {
+    daemon_name?: string;
+    identity_snippet?: string;
+    test_message?: string;
+    conversation_id?: string;
+    project_id?: string;
+    user_id?: string;
+    message_count?: number;
+    unsummarized_count?: number;
+    has_memories?: boolean;
+    has_dream_context?: boolean;
+  }) => api.post<PreviewResponse>(`/admin/chains/${chainId}/preview`, data || {}),
+};

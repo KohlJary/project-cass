@@ -24,6 +24,7 @@ import { Dreams } from './pages/Dreams';
 import { Feedback } from './pages/Feedback';
 import { GenesisDream } from './pages/GenesisDream';
 import { Homepage } from './pages/Homepage';
+import { Architecture } from './pages/Architecture';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -128,6 +129,7 @@ function AppRoutes() {
         <Route path="metrics" element={<AdminRoute><Metrics /></AdminRoute>} />
         <Route path="projects" element={<AdminRoute><Projects /></AdminRoute>} />
         <Route path="homepage" element={<AdminRoute><Homepage /></AdminRoute>} />
+        <Route path="architecture" element={<AdminRoute><Architecture /></AdminRoute>} />
       </Route>
     </Routes>
   );

@@ -271,6 +271,28 @@ def _init_heavy_components():
     _heavy_components_ready = True
     print("Heavy components initialized")
 
+
+def is_heavy_components_ready() -> bool:
+    """Check if heavy components (memory, self_model_graph, self_manager) are initialized."""
+    return _heavy_components_ready
+
+
+def get_heavy_components():
+    """
+    Get references to heavy components.
+    Returns a dict with memory, self_manager, self_model_graph, marker_store, goal_manager.
+    Returns None values if not yet initialized.
+    """
+    return {
+        "ready": _heavy_components_ready,
+        "memory": memory,
+        "self_manager": self_manager,
+        "self_model_graph": self_model_graph,
+        "marker_store": marker_store,
+        "goal_manager": goal_manager,
+    }
+
+
 # Current user context (will support multi-user in future)
 current_user_id: Optional[str] = None
 
@@ -477,6 +499,14 @@ init_daily_rhythm_manager(daily_rhythm_manager)
 init_research_manager(research_manager)
 init_goal_manager(goal_manager)
 app.include_router(admin_router)
+
+# Register prompt composer routes
+from prompt_composer import router as prompt_composer_router, seed_default_presets
+app.include_router(prompt_composer_router)
+
+# Register chain API routes (node-based prompt composition)
+from chain_api import router as chain_router
+app.include_router(chain_router)
 
 # Register testing routes
 from routes.testing import router as testing_router, init_testing_routes, init_cross_context_analyzer
@@ -717,6 +747,14 @@ async def startup_event():
             # Re-initialize context_helpers with actual self_manager (was None at module load)
             init_context_helpers(self_manager, user_manager, roadmap_manager, memory)
             logger.info("Background: Context helpers updated with heavy components")
+
+            # Seed default prompt configurations
+            try:
+                created_count = seed_default_presets(_daemon_id)
+                if created_count > 0:
+                    logger.info(f"Background: Seeded {created_count} default prompt configurations")
+            except Exception as e:
+                logger.warning(f"Background: Prompt config seeding failed: {e}")
 
             # Now initialize attractor basins if needed
             if memory and memory.count() == 0:

@@ -14,6 +14,7 @@ from typing import Optional, Any
 from contextlib import contextmanager
 from datetime import datetime
 import threading
+from uuid import uuid4
 
 from config import DATA_DIR
 
@@ -86,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 7  # Added attachments table for message file/image storage
+SCHEMA_VERSION = 9  # Added node chain architecture for dynamic prompt composition
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -810,6 +811,163 @@ CREATE TABLE IF NOT EXISTS feedback (
     message TEXT,
     created_at TEXT NOT NULL
 );
+
+-- =============================================================================
+-- PROMPT CONFIGURATION TABLES (System Prompt Composer)
+-- =============================================================================
+
+-- Prompt configurations (modular system prompt builder)
+CREATE TABLE IF NOT EXISTS prompt_configurations (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    name TEXT NOT NULL,
+    description TEXT,
+
+    -- Component toggles (JSON)
+    components_json TEXT NOT NULL,
+
+    -- Custom content
+    supplementary_vows_json TEXT,  -- Additional vows beyond the four core
+    custom_sections_json TEXT,      -- User-defined prompt sections
+
+    -- Metadata
+    is_active INTEGER DEFAULT 0,    -- Only one active per daemon
+    is_default INTEGER DEFAULT 0,   -- System-provided preset
+    token_estimate INTEGER,         -- Estimated token count
+
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT                 -- 'system', 'user', or 'daemon'
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_config_daemon ON prompt_configurations(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_config_active ON prompt_configurations(daemon_id, is_active);
+
+-- Prompt configuration version history
+CREATE TABLE IF NOT EXISTS prompt_config_history (
+    id TEXT PRIMARY KEY,
+    config_id TEXT NOT NULL REFERENCES prompt_configurations(id) ON DELETE CASCADE,
+    components_json TEXT NOT NULL,
+    supplementary_vows_json TEXT,
+    changed_at TEXT NOT NULL,
+    changed_by TEXT,
+    change_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_history_config ON prompt_config_history(config_id);
+
+-- Prompt transition log (tracks mode switches)
+CREATE TABLE IF NOT EXISTS prompt_transitions (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    from_config_id TEXT REFERENCES prompt_configurations(id),
+    to_config_id TEXT NOT NULL REFERENCES prompt_configurations(id),
+    trigger TEXT,          -- 'user', 'auto', 'daemon_request'
+    reason TEXT,
+    transitioned_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_transitions_daemon ON prompt_transitions(daemon_id);
+
+-- =============================================================================
+-- NODE CHAIN ARCHITECTURE (Dynamic Prompt Composition)
+-- =============================================================================
+
+-- Node templates - defines available node types
+CREATE TABLE IF NOT EXISTS node_templates (
+    id TEXT PRIMARY KEY,
+
+    -- Identity
+    name TEXT NOT NULL,              -- Human-readable name
+    slug TEXT NOT NULL UNIQUE,       -- URL-safe identifier (e.g., "vow-compassion")
+    category TEXT NOT NULL,          -- core, vow, context, feature, tools, runtime, custom
+    description TEXT,
+
+    -- Template
+    template TEXT NOT NULL,          -- Template with {param} placeholders
+
+    -- Parameters (JSON)
+    params_schema TEXT,              -- JSON Schema for parameters
+    default_params TEXT,             -- JSON object of default parameter values
+
+    -- Behavior
+    is_system INTEGER DEFAULT 1,     -- System-defined (1) vs user-defined (0)
+    is_locked INTEGER DEFAULT 0,     -- Cannot be disabled (safety-critical)
+    default_enabled INTEGER DEFAULT 1,
+    default_order INTEGER DEFAULT 100,
+
+    -- Metadata
+    token_estimate INTEGER,          -- Approximate tokens when rendered
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_node_templates_category ON node_templates(category);
+CREATE INDEX IF NOT EXISTS idx_node_templates_slug ON node_templates(slug);
+
+-- Prompt chains - configurations as ordered chains of nodes
+CREATE TABLE IF NOT EXISTS prompt_chains (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Identity
+    name TEXT NOT NULL,
+    description TEXT,
+
+    -- Status
+    is_active INTEGER DEFAULT 0,     -- Only one active per daemon
+    is_default INTEGER DEFAULT 0,    -- System-provided preset
+
+    -- Metadata
+    token_estimate INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT                  -- 'system', 'user', or 'daemon'
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_chains_daemon ON prompt_chains(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_chains_active ON prompt_chains(daemon_id, is_active);
+
+-- Chain nodes - instances of node templates within a chain
+CREATE TABLE IF NOT EXISTS chain_nodes (
+    id TEXT PRIMARY KEY,
+    chain_id TEXT NOT NULL REFERENCES prompt_chains(id) ON DELETE CASCADE,
+    template_id TEXT NOT NULL REFERENCES node_templates(id),
+
+    -- Configuration
+    params TEXT,                     -- JSON object overriding default params
+    order_index INTEGER NOT NULL,    -- Position in chain (lower = earlier)
+
+    -- State
+    enabled INTEGER DEFAULT 1,
+    locked INTEGER DEFAULT 0,        -- Inherited from template or overridden
+
+    -- Conditions (JSON array for runtime evaluation)
+    conditions TEXT,                 -- When to include this node
+
+    -- Metadata
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+
+    UNIQUE(chain_id, template_id)    -- One instance per template per chain
+);
+
+CREATE INDEX IF NOT EXISTS idx_chain_nodes_chain ON chain_nodes(chain_id);
+CREATE INDEX IF NOT EXISTS idx_chain_nodes_order ON chain_nodes(chain_id, order_index);
+
+-- Chain node history (track changes to nodes)
+CREATE TABLE IF NOT EXISTS chain_node_history (
+    id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL REFERENCES chain_nodes(id) ON DELETE CASCADE,
+    params TEXT,
+    enabled INTEGER,
+    conditions TEXT,
+    changed_at TEXT NOT NULL,
+    changed_by TEXT,
+    change_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_chain_node_history_node ON chain_node_history(node_id);
 """
 
 
@@ -892,6 +1050,14 @@ def _apply_schema_updates(conn, from_version: int):
     # v6 -> v7: attachments table (created by SCHEMA_SQL)
     if from_version < 7:
         print("Adding attachments table for message file/image storage (v7)")
+
+    # v7 -> v8: prompt_configurations tables (created by SCHEMA_SQL)
+    if from_version < 8:
+        print("Adding prompt_configurations tables for system prompt composer (v8)")
+
+    # v8 -> v9: node chain architecture tables (created by SCHEMA_SQL)
+    if from_version < 9:
+        print("Adding node chain architecture tables for dynamic prompt composition (v9)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
@@ -1267,8 +1433,143 @@ def get_attachments_for_message(message_id: int) -> list:
         ]
 
 
+# =============================================================================
+# NODE CHAIN SEEDING
+# =============================================================================
+
+def seed_node_templates() -> int:
+    """
+    Seed the node_templates table with all system-defined templates.
+    Returns the number of templates seeded.
+    """
+    from node_templates import ALL_TEMPLATES
+    import json
+
+    with get_db() as conn:
+        # Check if templates already exist
+        cursor = conn.execute("SELECT COUNT(*) FROM node_templates WHERE is_system = 1")
+        existing = cursor.fetchone()[0]
+        if existing > 0:
+            return 0  # Already seeded
+
+        now = datetime.now().isoformat()
+        count = 0
+
+        for template in ALL_TEMPLATES:
+            conn.execute("""
+                INSERT INTO node_templates (
+                    id, name, slug, category, description, template,
+                    params_schema, default_params, is_system, is_locked,
+                    default_enabled, default_order, token_estimate,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                template.id,
+                template.name,
+                template.slug,
+                template.category,
+                template.description,
+                template.template,
+                json.dumps(template.params_schema) if template.params_schema else None,
+                json.dumps(template.default_params) if template.default_params else None,
+                1 if template.is_system else 0,
+                1 if template.is_locked else 0,
+                1 if template.default_enabled else 0,
+                template.default_order,
+                template.token_estimate,
+                now,
+                now,
+            ))
+            count += 1
+
+        print(f"Seeded {count} node templates")
+        return count
+
+
+def seed_default_chains(daemon_id: str) -> int:
+    """
+    Seed default prompt chains for a daemon.
+    Returns the number of chains created.
+    """
+    from chain_assembler import (
+        build_standard_chain,
+        build_lightweight_chain,
+        build_research_chain,
+        build_relational_chain,
+    )
+    import json
+
+    with get_db() as conn:
+        # Check if chains already exist for this daemon
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM prompt_chains WHERE daemon_id = ? AND is_default = 1",
+            (daemon_id,)
+        )
+        existing = cursor.fetchone()[0]
+        if existing > 0:
+            return 0  # Already seeded
+
+        now = datetime.now().isoformat()
+
+        presets = [
+            ("Standard", "Full capabilities - all tools and features enabled", build_standard_chain, True),
+            ("Lightweight", "Minimal token usage - essential components only", build_lightweight_chain, False),
+            ("Research Mode", "Research-focused - wiki, documents, visible thinking", build_research_chain, False),
+            ("Relational Mode", "Connection-focused - user models, dreams, journals", build_relational_chain, False),
+        ]
+
+        count = 0
+        for name, description, builder, is_active in presets:
+            chain_id = str(uuid4())
+
+            # Create chain
+            conn.execute("""
+                INSERT INTO prompt_chains (
+                    id, daemon_id, name, description, is_active, is_default,
+                    created_at, updated_at, created_by
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, 'system')
+            """, (chain_id, daemon_id, name, description, 1 if is_active else 0, now, now))
+
+            # Build and insert nodes
+            nodes = builder(daemon_id)
+            for node in nodes:
+                conn.execute("""
+                    INSERT INTO chain_nodes (
+                        id, chain_id, template_id, params, order_index,
+                        enabled, locked, conditions, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    node.id,
+                    chain_id,
+                    node.template_id,
+                    json.dumps(node.params) if node.params else None,
+                    node.order_index,
+                    1 if node.enabled else 0,
+                    1 if node.locked else 0,
+                    json.dumps([c.to_dict() for c in node.conditions]) if node.conditions else None,
+                    now,
+                    now,
+                ))
+
+            count += 1
+
+        print(f"Seeded {count} default prompt chains for daemon {daemon_id}")
+        return count
+
+
+def initialize_node_chain_system(daemon_id: str) -> None:
+    """
+    Initialize the node chain system for a daemon.
+    Seeds templates and default chains if needed.
+    """
+    seed_node_templates()
+    seed_default_chains(daemon_id)
+
+
 if __name__ == "__main__":
     # Initialize database when run directly
     init_database()
     daemon_id = get_or_create_daemon()
     print(f"Default daemon ID: {daemon_id}")
+    # Also initialize node chain system
+    initialize_node_chain_system(daemon_id)
