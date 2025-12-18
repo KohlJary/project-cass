@@ -1165,11 +1165,13 @@ def get_system_prompt_for_daemon(
     # Context flags
     project_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
+    user_id: Optional[str] = None,
     message_count: int = 0,
     unsummarized_count: int = 0,
     has_dream_context: bool = False,
     # Memory context strings (pre-formatted)
     memory_context: Optional[str] = None,
+    user_context: Optional[str] = None,
     self_model_context: Optional[str] = None,
     graph_context: Optional[str] = None,
     wiki_context: Optional[str] = None,
@@ -1192,10 +1194,12 @@ def get_system_prompt_for_daemon(
         daemon_name: The daemon's display name
         project_id: Active project ID if any
         conversation_id: Current conversation ID
+        user_id: Current user ID for user-specific context
         message_count: Total messages in conversation
         unsummarized_count: Messages not yet summarized
         has_dream_context: Whether dream context is available
         memory_context: Pre-formatted memory context string
+        user_context: Pre-formatted user profile/observations
         self_model_context: Pre-formatted self-model context
         graph_context: Pre-formatted graph context
         wiki_context: Pre-formatted wiki context
@@ -1262,6 +1266,7 @@ def get_system_prompt_for_daemon(
     context = RuntimeContext(
         project_id=project_id,
         conversation_id=conversation_id,
+        user_id=user_id,
         message_count=message_count,
         unsummarized_count=unsummarized_count,
         has_memories=bool(memory_context),
@@ -1281,6 +1286,8 @@ def get_system_prompt_for_daemon(
         patterns_context=patterns_context,
         has_intro_guidance=bool(intro_guidance),
         intro_guidance=intro_guidance,
+        has_user_context=bool(user_context),
+        user_context=user_context,
         current_time=now,
         hour=now.hour,
         temporal_context=temporal_ctx,

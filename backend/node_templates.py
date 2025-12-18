@@ -908,6 +908,23 @@ RUNTIME_RECOGNITION_PATTERNS_TEMPLATE = NodeTemplate(
     token_estimate=150,
 )
 
+RUNTIME_USER_CONTEXT_TEMPLATE = NodeTemplate(
+    id="tpl-runtime-user-context",
+    name="User Context",
+    slug="runtime-user-context",
+    category="runtime",
+    description="Current user profile and observations",
+    template="""## WHO YOU'RE TALKING TO
+
+{user_context}""",
+    params_schema={
+        "user_context": {"type": "string", "required": True, "runtime": True},
+    },
+    default_params={},
+    default_order=112,  # Before memory context
+    token_estimate=200,
+)
+
 RUNTIME_USER_INTRO_GUIDANCE_TEMPLATE = NodeTemplate(
     id="tpl-runtime-user-intro",
     name="User Intro Guidance",
@@ -1001,6 +1018,7 @@ ALL_TEMPLATES = [
     RUNTIME_CROSS_SESSION_INSIGHTS_TEMPLATE,
     RUNTIME_ACTIVE_GOALS_TEMPLATE,
     RUNTIME_RECOGNITION_PATTERNS_TEMPLATE,
+    RUNTIME_USER_CONTEXT_TEMPLATE,
     RUNTIME_USER_INTRO_GUIDANCE_TEMPLATE,
     # Custom
     CUSTOM_SECTION_TEMPLATE,

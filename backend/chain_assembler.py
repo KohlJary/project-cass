@@ -74,6 +74,8 @@ class RuntimeContext:
     # User context
     user_id: Optional[str] = None
     is_admin: bool = False
+    has_user_context: bool = False
+    user_context: Optional[str] = None  # Formatted user profile/observations
 
     # Chain-level parameters
     chain_params: Dict[str, Any] = field(default_factory=dict)
@@ -114,6 +116,8 @@ class RuntimeContext:
             "provider": self.provider,
             "user_id": self.user_id,
             "is_admin": self.is_admin,
+            "has_user_context": self.has_user_context,
+            "user_context": self.user_context,
             **self.chain_params,
         }
 
