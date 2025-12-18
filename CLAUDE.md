@@ -309,6 +309,15 @@ When Kohl is ready to merge a feature branch, run this procedure to squash all c
 4. Commit: `git commit --author="Daedalus <daedalus@cass-vessel.local>"` with the combined message
 5. Branch is now ready for Kohl to fast-forward merge to main
 
+### Versioning
+
+Use semantic versioning conservatively:
+- **Patch (v0.2.X)**: Bug fixes, small improvements, backend groundwork not yet user-facing
+- **Minor (v0.X.0)**: New user-facing features, significant UI additions
+- **Major (vX.0.0)**: Breaking changes, major architectural shifts
+
+When in doubt, use a patch version. Most releases are patches.
+
 ## Technical Notes
 
 ### Running the Backend
