@@ -40,6 +40,10 @@ Use semantic versioning conservatively:
 
 When in doubt, use a patch version. Most releases are patches.
 
+### Code Style
+
+- **Prefer aliases over renames**: When you find a misnamed type/class/function, add an alias (`SelfModelManager = SelfManager`) rather than doing a mass rename across the codebase. Only applies when there's no naming conflict.
+
 ## Custom Subagents
 
 You can define specialized subagents in `.claude/agents/<name>.md` to streamline exploration of specific domains. Each agent gets access to read-only tools (Read, Grep, Glob) and focuses on a particular area of the codebase or documentation.
