@@ -1759,12 +1759,16 @@ async def get_conversation_observations(
     user: Dict = Depends(require_auth)
 ):
     """Get all observations (user and self) and marks made during a conversation"""
+    import sys
     from users import UserManager
     from self_model import SelfManager
-    from handlers.metacognitive import marker_store
 
     user_manager = UserManager()
     self_manager = SelfManager()
+
+    # Get marker_store from main_sdk module (same pattern as chain_api.py)
+    main_sdk_module = sys.modules.get("main_sdk")
+    marker_store = main_sdk_module.marker_store if main_sdk_module else None
 
     # Get user observations for this conversation (across all users)
     user_observations = []
