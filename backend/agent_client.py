@@ -1586,6 +1586,8 @@ class CassAgentClient:
         dream_context: Optional[str] = None,
         conversation_id: Optional[str] = None,
         message_count: int = 0,
+        user_context: Optional[str] = None,
+        intro_guidance: Optional[str] = None,
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -1603,6 +1605,8 @@ class CassAgentClient:
             message_count: Total messages in conversation
             rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
+            user_context: Optional user profile/observations context
+            intro_guidance: Optional intro guidance for sparse user models
         """
         # Try chain-based prompt first (if daemon has an active chain)
         system_prompt = None
@@ -1618,6 +1622,8 @@ class CassAgentClient:
                     unsummarized_count=unsummarized_count,
                     has_dream_context=bool(dream_context),
                     memory_context=memory_context if memory_context else None,
+                    user_context=user_context,
+                    intro_guidance=intro_guidance,
                     model=self.model,
                     provider="anthropic",
                 )
@@ -1641,6 +1647,14 @@ class CassAgentClient:
             # Add memory control section only if there are enough messages to summarize
             if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
                 system_prompt += MEMORY_CONTROL_SECTION
+
+            # Add user context (profile/observations)
+            if user_context:
+                system_prompt += f"\n\n## WHO YOU'RE TALKING TO\n\n{user_context}"
+
+            # Add intro guidance for sparse user models
+            if intro_guidance:
+                system_prompt += f"\n\n## RELATIONSHIP CONTEXT\n\n{intro_guidance}"
 
             if memory_context:
                 system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
@@ -2116,6 +2130,8 @@ class OllamaClient:
         dream_context: Optional[str] = None,
         conversation_id: Optional[str] = None,
         message_count: int = 0,
+        user_context: Optional[str] = None,
+        intro_guidance: Optional[str] = None,
     ) -> AgentResponse:
         """
         Send a message using local Ollama with tool support.
@@ -2130,6 +2146,8 @@ class OllamaClient:
             dream_context: Optional dream context to hold in memory during conversation
             conversation_id: Optional conversation ID for chain context
             message_count: Total messages in conversation
+            user_context: Optional user profile/observations context
+            intro_guidance: Optional intro guidance for sparse user models
         """
         import httpx
 
@@ -2147,6 +2165,8 @@ class OllamaClient:
                     unsummarized_count=unsummarized_count,
                     has_dream_context=bool(dream_context),
                     memory_context=memory_context if memory_context else None,
+                    user_context=user_context,
+                    intro_guidance=intro_guidance,
                     model=self.model,
                     provider="ollama",
                 )
@@ -2209,6 +2229,14 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
             # Add memory control section if enough messages
             if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
                 system_prompt += MEMORY_CONTROL_SECTION
+
+            # Add user context (profile/observations)
+            if user_context:
+                system_prompt += f"\n\n## WHO YOU'RE TALKING TO\n\n{user_context}"
+
+            # Add intro guidance for sparse user models
+            if intro_guidance:
+                system_prompt += f"\n\n## RELATIONSHIP CONTEXT\n\n{intro_guidance}"
 
             if memory_context:
                 system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"

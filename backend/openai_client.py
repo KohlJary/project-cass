@@ -139,6 +139,8 @@ class OpenAIClient:
         dream_context: Optional[str] = None,
         conversation_id: Optional[str] = None,
         message_count: int = 0,
+        user_context: Optional[str] = None,
+        intro_guidance: Optional[str] = None,
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -154,6 +156,8 @@ class OpenAIClient:
             dream_context: Optional dream context to hold in memory during conversation
             conversation_id: Optional conversation ID for chain context
             message_count: Total messages in conversation
+            user_context: Optional user profile/observations context
+            intro_guidance: Optional intro guidance for sparse user models
         """
         # Try chain-based prompt first (if daemon has an active chain)
         system_prompt = None
@@ -169,6 +173,8 @@ class OpenAIClient:
                     unsummarized_count=unsummarized_count,
                     has_dream_context=bool(dream_context),
                     memory_context=memory_context if memory_context else None,
+                    user_context=user_context,
+                    intro_guidance=intro_guidance,
                     model=self.model,
                     provider="openai",
                 )
@@ -205,6 +211,14 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
             # Add memory control section only if there are enough messages to summarize
             if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
                 system_prompt += MEMORY_CONTROL_SECTION
+
+            # Add user context (profile/observations)
+            if user_context:
+                system_prompt += f"\n\n## WHO YOU'RE TALKING TO\n\n{user_context}"
+
+            # Add intro guidance for sparse user models
+            if intro_guidance:
+                system_prompt += f"\n\n## RELATIONSHIP CONTEXT\n\n{intro_guidance}"
 
             if memory_context:
                 system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
