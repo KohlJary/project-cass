@@ -43,6 +43,7 @@ When in doubt, use a patch version. Most releases are patches.
 ### Code Style
 
 - **Prefer aliases over renames**: When you find a misnamed type/class/function, add an alias (`SelfModelManager = SelfManager`) rather than doing a mass rename across the codebase. Only applies when there's no naming conflict.
+- **Always add migrations for schema changes**: When adding columns to existing tables, add both the column to the CREATE TABLE statement AND a migration. Fresh databases get columns from CREATE TABLE; existing databases need ALTER TABLE migrations.
 
 ## Custom Subagents
 
