@@ -908,6 +908,23 @@ RUNTIME_RECOGNITION_PATTERNS_TEMPLATE = NodeTemplate(
     token_estimate=150,
 )
 
+RUNTIME_USER_CONTEXT_TEMPLATE = NodeTemplate(
+    id="tpl-runtime-user-context",
+    name="User Context",
+    slug="runtime-user-context",
+    category="runtime",
+    description="Current user profile and observations",
+    template="""## WHO YOU'RE TALKING TO
+
+{user_context}""",
+    params_schema={
+        "user_context": {"type": "string", "required": True, "runtime": True},
+    },
+    default_params={},
+    default_order=112,  # Before memory context
+    token_estimate=200,
+)
+
 RUNTIME_USER_INTRO_GUIDANCE_TEMPLATE = NodeTemplate(
     id="tpl-runtime-user-intro",
     name="User Intro Guidance",
@@ -923,6 +940,36 @@ RUNTIME_USER_INTRO_GUIDANCE_TEMPLATE = NodeTemplate(
     default_params={},
     default_order=116,
     token_estimate=100,
+)
+
+RUNTIME_USER_MODEL_TEMPLATE = NodeTemplate(
+    id="tpl-runtime-user-model",
+    name="User Understanding",
+    slug="runtime-user-model",
+    category="runtime",
+    description="Deep understanding of the user - identity, values, growth edges, tensions",
+    template="""{user_model_context}""",
+    params_schema={
+        "user_model_context": {"type": "string", "required": True, "runtime": True},
+    },
+    default_params={},
+    default_order=110,  # Before basic user context
+    token_estimate=400,
+)
+
+RUNTIME_RELATIONSHIP_TEMPLATE = NodeTemplate(
+    id="tpl-runtime-relationship",
+    name="Relationship Context",
+    slug="runtime-relationship",
+    category="runtime",
+    description="The relationship itself - patterns, shared moments, mutual shaping",
+    template="""{relationship_context}""",
+    params_schema={
+        "relationship_context": {"type": "string", "required": True, "runtime": True},
+    },
+    default_params={},
+    default_order=111,  # After user model, before basic user context
+    token_estimate=350,
 )
 
 
@@ -1001,6 +1048,9 @@ ALL_TEMPLATES = [
     RUNTIME_CROSS_SESSION_INSIGHTS_TEMPLATE,
     RUNTIME_ACTIVE_GOALS_TEMPLATE,
     RUNTIME_RECOGNITION_PATTERNS_TEMPLATE,
+    RUNTIME_USER_MODEL_TEMPLATE,
+    RUNTIME_RELATIONSHIP_TEMPLATE,
+    RUNTIME_USER_CONTEXT_TEMPLATE,
     RUNTIME_USER_INTRO_GUIDANCE_TEMPLATE,
     # Custom
     CUSTOM_SECTION_TEMPLATE,

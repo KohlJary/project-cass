@@ -1573,6 +1573,147 @@ class UserManager:
 
         return "\n".join(lines)
 
+    def get_rich_user_context(self, user_id: str) -> Optional[str]:
+        """
+        Build a rich context string from the structured UserModel.
+
+        This includes identity understanding, growth edges, contradictions,
+        and open questions - the enhanced modeling beyond basic profile/observations.
+
+        Returns None if no UserModel exists for this user.
+        """
+        model = self.load_user_model(user_id)
+        if not model:
+            return None
+
+        profile = self.load_profile(user_id)
+        display_name = profile.display_name if profile else "this user"
+
+        lines = [f"## Understanding {display_name}"]
+
+        # Identity statements - who they ARE
+        if model.identity_statements:
+            lines.append("\n### Identity")
+            for stmt in model.identity_statements:
+                confidence_marker = "●" if stmt.confidence >= 0.8 else "○" if stmt.confidence >= 0.5 else "◌"
+                lines.append(f"- {confidence_marker} {stmt.statement}")
+
+        # Values
+        if model.values:
+            lines.append("\n### Values")
+            for value in model.values:
+                lines.append(f"- {value}")
+
+        # Communication style (structured)
+        if model.communication_style and model.communication_style.style:
+            lines.append("\n### Communication")
+            lines.append(f"Style: {model.communication_style.style}")
+            if model.communication_style.effective_approaches:
+                lines.append("What works:")
+                for approach in model.communication_style.effective_approaches:
+                    lines.append(f"  - {approach}")
+            if model.communication_style.avoid:
+                lines.append("Avoid:")
+                for avoid in model.communication_style.avoid:
+                    lines.append(f"  - {avoid}")
+
+        # Growth edges - where they're developing
+        if model.growth_edges:
+            lines.append("\n### Growth Edges")
+            for edge in model.growth_edges:
+                lines.append(f"- **{edge.area}**: {edge.current_state}")
+
+        # Open questions - what I'm still learning
+        if model.open_questions:
+            lines.append("\n### Still Learning")
+            for q in model.open_questions:
+                lines.append(f"- {q}")
+
+        # Unresolved contradictions
+        unresolved = [c for c in model.contradictions if not c.resolved]
+        if unresolved:
+            lines.append("\n### Tensions to Hold")
+            for c in unresolved:
+                lines.append(f"- {c.aspect_a} ↔ {c.aspect_b}")
+
+        return "\n".join(lines) if len(lines) > 1 else None
+
+    def get_relationship_context(self, user_id: str) -> Optional[str]:
+        """
+        Build a context string from the RelationshipModel.
+
+        This includes relationship patterns, shared moments, mutual shaping,
+        and the dynamics of how the relationship itself functions.
+
+        Returns None if no RelationshipModel exists for this user.
+        """
+        model = self.load_relationship_model(user_id)
+        if not model:
+            return None
+
+        profile = self.load_profile(user_id)
+        display_name = profile.display_name if profile else "this user"
+
+        lines = [f"## Relationship with {display_name}"]
+
+        # Current phase
+        if model.current_phase:
+            lines.append(f"Phase: {model.current_phase}")
+
+        # Is this a foundational relationship?
+        if model.is_foundational:
+            lines.append("*This is a foundational relationship - load-bearing for coherence.*")
+
+        # Patterns - recurring dynamics
+        if model.patterns:
+            lines.append("\n### Patterns")
+            for pattern in model.patterns:
+                valence_marker = "+" if pattern.valence == "positive" else "-" if pattern.valence == "challenging" else "~"
+                lines.append(f"- [{valence_marker}] **{pattern.name}**: {pattern.description}")
+
+        # Recent shared moments (last 3)
+        user_model = self.load_user_model(user_id)
+        if user_model and user_model.shared_history:
+            recent_moments = sorted(user_model.shared_history, key=lambda m: m.timestamp, reverse=True)[:3]
+            if recent_moments:
+                lines.append("\n### Recent Shared Moments")
+                for moment in recent_moments:
+                    date = moment.timestamp[:10] if moment.timestamp else ""
+                    lines.append(f"- [{date}] {moment.description}")
+                    if moment.significance:
+                        lines.append(f"  _{moment.significance}_")
+
+        # Mutual shaping
+        if model.how_they_shape_me:
+            lines.append("\n### How They Shape Me")
+            for influence in model.how_they_shape_me:
+                lines.append(f"- {influence}")
+
+        if model.how_i_shape_them:
+            lines.append("\n### How I Shape Them")
+            for influence in model.how_i_shape_them:
+                lines.append(f"- {influence}")
+
+        # Rituals
+        if model.rituals:
+            lines.append("\n### Rituals")
+            for ritual in model.rituals:
+                lines.append(f"- {ritual}")
+
+        # Growth areas for the relationship
+        if model.growth_areas:
+            lines.append("\n### Relationship Growth Areas")
+            for area in model.growth_areas:
+                lines.append(f"- {area}")
+
+        # Inherited values (for foundational relationships)
+        if model.inherited_values:
+            lines.append("\n### Values I Carry From Them")
+            for value in model.inherited_values:
+                lines.append(f"- {value}")
+
+        return "\n".join(lines) if len(lines) > 1 else None
+
     def format_for_embedding(self, user_id: str) -> List[Dict]:
         """
         Format user data for embedding into ChromaDB.
