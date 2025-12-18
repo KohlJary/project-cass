@@ -1153,3 +1153,147 @@ def _copy_chain_nodes(source_chain_id: str, target_chain_id: str, conn):
             now,
             now,
         ))
+
+
+# =============================================================================
+# PUBLIC HELPER FOR AGENT_CLIENT INTEGRATION
+# =============================================================================
+
+def get_system_prompt_for_daemon(
+    daemon_id: str,
+    daemon_name: str = "Cass",
+    # Context flags
+    project_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    message_count: int = 0,
+    unsummarized_count: int = 0,
+    has_dream_context: bool = False,
+    # Memory context strings (pre-formatted)
+    memory_context: Optional[str] = None,
+    self_model_context: Optional[str] = None,
+    graph_context: Optional[str] = None,
+    wiki_context: Optional[str] = None,
+    cross_session_context: Optional[str] = None,
+    goals_context: Optional[str] = None,
+    patterns_context: Optional[str] = None,
+    intro_guidance: Optional[str] = None,
+    # Model info
+    model: str = "unknown",
+    provider: str = "unknown",
+) -> Optional[str]:
+    """
+    Get the assembled system prompt for a daemon using the active chain.
+
+    This is the main integration point for agent_client.py to use chain-based
+    prompts instead of the hardcoded Temple-Codex kernel.
+
+    Args:
+        daemon_id: The daemon ID to get the prompt for
+        daemon_name: The daemon's display name
+        project_id: Active project ID if any
+        conversation_id: Current conversation ID
+        message_count: Total messages in conversation
+        unsummarized_count: Messages not yet summarized
+        has_dream_context: Whether dream context is available
+        memory_context: Pre-formatted memory context string
+        self_model_context: Pre-formatted self-model context
+        graph_context: Pre-formatted graph context
+        wiki_context: Pre-formatted wiki context
+        cross_session_context: Pre-formatted cross-session insights
+        goals_context: Pre-formatted goals context
+        patterns_context: Pre-formatted patterns context
+        intro_guidance: User intro guidance if sparse user model
+        model: Current model name
+        provider: Current provider name
+
+    Returns:
+        Assembled system prompt string, or None if no active chain exists
+    """
+    # Get active chain for daemon
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT id, name FROM prompt_chains
+            WHERE daemon_id = ? AND is_active = 1
+        """, (daemon_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            return None  # No active chain, caller should fall back
+
+        chain_id = row[0]
+
+        # Get identity snippet if available
+        identity_snippet = None
+        snippet_row = conn.execute(
+            """SELECT snippet_text FROM daemon_identity_snippets
+               WHERE daemon_id = ? AND is_active = 1
+               ORDER BY generated_at DESC LIMIT 1""",
+            (daemon_id,)
+        ).fetchone()
+        if snippet_row:
+            identity_snippet = snippet_row[0]
+
+    # Get chain nodes
+    node_responses = _get_chain_nodes(chain_id)
+
+    # Convert to ChainNode objects
+    nodes = []
+    for nr in node_responses:
+        conditions = [
+            Condition.from_dict(c.dict())
+            for c in nr.conditions
+        ]
+        nodes.append(ChainNode(
+            id=nr.id,
+            template_id=nr.template_id,
+            template_slug=nr.template_slug,
+            params=nr.params or {},
+            order_index=nr.order_index,
+            enabled=nr.enabled,
+            locked=nr.locked,
+            conditions=conditions,
+        ))
+
+    # Build temporal context
+    temporal_ctx = get_temporal_context()
+    now = datetime.now()
+
+    # Build runtime context
+    context = RuntimeContext(
+        project_id=project_id,
+        conversation_id=conversation_id,
+        message_count=message_count,
+        unsummarized_count=unsummarized_count,
+        has_memories=bool(memory_context),
+        memory_context=memory_context,
+        has_dream_context=has_dream_context,
+        has_self_model=bool(self_model_context),
+        self_model_context=self_model_context,
+        has_graph_context=bool(graph_context),
+        graph_context=graph_context,
+        has_wiki_context=bool(wiki_context),
+        wiki_context=wiki_context,
+        has_cross_session=bool(cross_session_context),
+        cross_session_context=cross_session_context,
+        has_active_goals=bool(goals_context),
+        goals_context=goals_context,
+        has_patterns=bool(patterns_context),
+        patterns_context=patterns_context,
+        has_intro_guidance=bool(intro_guidance),
+        intro_guidance=intro_guidance,
+        current_time=now,
+        hour=now.hour,
+        temporal_context=temporal_ctx,
+        model=model,
+        provider=provider,
+    )
+
+    # Assemble the chain
+    result = assemble_chain(
+        nodes=nodes,
+        context=context,
+        daemon_name=daemon_name,
+        identity_snippet=identity_snippet,
+    )
+
+    return result.full_text
