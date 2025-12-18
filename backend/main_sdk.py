@@ -5152,6 +5152,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     # Get enhanced user modeling contexts (identity, values, relationship dynamics)
                     user_model_context = user_manager.get_rich_user_context(ws_user_id)
                     relationship_context = user_manager.get_relationship_context(ws_user_id)
+                    print(f"[Context] User model context: {len(user_model_context) if user_model_context else 0} chars")
+                    print(f"[Context] Relationship context: {len(relationship_context) if relationship_context else 0} chars")
                 context_sizes["user"] = len(user_context)
 
                 # Add project context if conversation is in a project
