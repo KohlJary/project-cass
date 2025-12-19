@@ -233,7 +233,11 @@ user_manager = UserManager()
 from memory import ThreadManager, OpenQuestionManager
 thread_manager = ThreadManager(_daemon_id)
 question_manager = OpenQuestionManager(_daemon_id)
-print("STARTUP: Lightweight components initialized (including thread/question managers)")
+
+# Initialize global state bus (Cass's Locus of Self)
+from state_bus import get_state_bus
+global_state_bus = get_state_bus(_daemon_id)
+print("STARTUP: Lightweight components initialized (including thread/question managers, state bus)")
 
 # Defer heavy initialization (ChromaDB, embeddings) to avoid blocking health checks
 # These will be initialized in startup_event background task
@@ -2606,6 +2610,7 @@ def get_reflection_runner() -> SoloReflectionRunner:
             self_model_graph=self_model_graph,
             token_tracker=token_tracker,
             marker_store=marker_store,
+            state_bus=global_state_bus,
         )
     return _reflection_runner
 
@@ -2630,6 +2635,7 @@ def get_research_runner() -> ResearchSessionRunner:
             token_tracker=token_tracker,
             goal_manager=goal_manager,
             marker_store=marker_store,
+            state_bus=global_state_bus,
         )
     return _research_runner
 
@@ -2672,6 +2678,7 @@ def get_synthesis_runner() -> SynthesisSessionRunner:
             self_model_graph=self_model_graph,
             token_tracker=token_tracker,
             marker_store=marker_store,
+            state_bus=global_state_bus,
         )
     return _synthesis_runner
 
@@ -2695,6 +2702,7 @@ def get_meta_reflection_runner() -> MetaReflectionRunner:
             ollama_base_url=OLLAMA_BASE_URL,
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
+            state_bus=global_state_bus,
         )
     return _meta_reflection_runner
 
@@ -2720,6 +2728,7 @@ def get_consolidation_runner() -> ConsolidationRunner:
             token_tracker=token_tracker,
             data_dir=DATA_DIR,
             marker_store=marker_store,
+            state_bus=global_state_bus,
         )
     return _consolidation_runner
 
@@ -2741,6 +2750,7 @@ def get_growth_edge_runner() -> GrowthEdgeRunner:
             ollama_model=OLLAMA_CHAT_MODEL,
             token_tracker=token_tracker,
             marker_store=marker_store,
+            state_bus=global_state_bus,
         )
     return _growth_edge_runner
 

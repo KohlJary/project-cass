@@ -6,9 +6,10 @@ import { ReflectionTab } from './tabs/ReflectionTab';
 import { AutonomousResearchTab } from './tabs/AutonomousResearchTab';
 import { DailyRhythmTab } from './tabs/DailyRhythmTab';
 import { NarrativeTab } from './tabs/NarrativeTab';
+import { StateTab } from './tabs/StateTab';
 import './Activity.css';
 
-type TabId = 'conversations' | 'journals' | 'reflection' | 'autonomous' | 'rhythm' | 'narrative';
+type TabId = 'conversations' | 'journals' | 'reflection' | 'autonomous' | 'rhythm' | 'narrative' | 'state';
 
 interface TabConfig {
   id: TabId;
@@ -23,6 +24,7 @@ const tabs: TabConfig[] = [
   { id: 'autonomous', label: 'Autonomous Research', icon: '*' },
   { id: 'rhythm', label: 'Daily Rhythm', icon: '@' },
   { id: 'narrative', label: 'Threads', icon: '&' },
+  { id: 'state', label: 'State', icon: '%' },
 ];
 
 export function Activity() {
@@ -66,6 +68,7 @@ export function Activity() {
         {activeTab === 'autonomous' && <AutonomousResearchTab />}
         {activeTab === 'rhythm' && <DailyRhythmTab />}
         {activeTab === 'narrative' && <NarrativeTab />}
+        {activeTab === 'state' && <StateTab />}
       </div>
     </div>
   );
