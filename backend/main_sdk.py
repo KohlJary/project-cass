@@ -324,6 +324,16 @@ github_metrics_manager = GitHubMetricsManager()
 from token_tracker import TokenUsageTracker
 token_tracker = TokenUsageTracker()
 
+# Register queryable sources with the global state bus
+from sources import GitHubQueryableSource, TokenQueryableSource
+
+github_source = GitHubQueryableSource(_daemon_id, github_metrics_manager)
+token_source = TokenQueryableSource(_daemon_id, token_tracker)
+
+global_state_bus.register_source(github_source)
+global_state_bus.register_source(token_source)
+print("STARTUP: Queryable sources registered (github, tokens)")
+
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
 init_roadmap_routes(roadmap_manager)
@@ -696,6 +706,11 @@ async def startup_event():
 
     # Validate requirements before proceeding
     validate_startup_requirements()
+
+    # Start scheduled refresh loops for queryable sources
+    # (Sources were registered during module load, but async tasks need event loop)
+    global_state_bus.start_scheduled_refreshes()
+    logger.info("Started scheduled source refreshes")
 
     # Note: Seed bootstrap now happens in database.init_database_with_migrations()
     # This ensures the seed daemon is imported BEFORE get_or_create_daemon() runs
@@ -1290,6 +1305,13 @@ async def chat(request: ChatRequest):
                     tool_result = await execute_dream_tool(
                         tool_name=tool_name,
                         tool_input=tool_use["input"]
+                    )
+                elif tool_name == "query_state":
+                    from handlers.state_query import execute_state_query
+                    tool_result = await execute_state_query(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        state_bus=global_state_bus
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(

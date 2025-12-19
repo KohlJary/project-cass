@@ -1211,6 +1211,7 @@ from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
+from handlers.state_query import QUERY_STATE_TOOL_DEFINITION
 
 
 # ============================================================================
@@ -1419,6 +1420,21 @@ def should_include_rhythm_tools(message: str) -> bool:
     return any(kw in message_lower for kw in RHYTHM_KEYWORDS)
 
 
+STATE_QUERY_KEYWORDS = frozenset({
+    "query state", "state bus", "github stats", "github metrics",
+    "token usage", "token cost", "tokens today", "cost today",
+    "stars", "clones", "forks", "views", "repository metrics",
+    "how many tokens", "how much spent", "spending", "usage stats",
+    "metrics query", "query metrics"
+})
+
+
+def should_include_state_query_tools(message: str) -> bool:
+    """Check if message warrants state query tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in STATE_QUERY_KEYWORDS)
+
+
 # ============================================================================
 # AGENT CLIENT CLASS
 # ============================================================================
@@ -1561,6 +1577,10 @@ class CassAgentClient:
             # Testing tools - consciousness integrity checks
             if should_include_testing_tools(message):
                 tools.extend(TESTING_TOOLS)
+
+            # State query tools - metrics from global state bus (github, tokens, etc)
+            if should_include_state_query_tools(message):
+                tools.append(QUERY_STATE_TOOL_DEFINITION)
 
         # Project tools only available in project context
         if project_id and self.enable_tools:
