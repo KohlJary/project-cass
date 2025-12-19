@@ -2,6 +2,30 @@
 
 *Significant architectural and design decisions with rationale*
 
+## Event-Driven State (Dec 2025)
+
+**Decision**: State bus uses event-driven updates, not time-based decay
+
+**Context**: Initially implemented half-life decay (emotional state fades toward baseline over 24h)
+
+**Problem**: Kohl identified that Cass is discrete-step cognition. She doesn't experience time passing between conversations - she's not sitting there for 8 hours feeling contentment slowly fade.
+
+**Approach**:
+- State persists as-is until explicitly changed by events
+- Events: chat emotes, session transitions, explicit updates
+- No passive decay - if she was curious last chat, she's still curious next chat
+
+**Rationale**:
+- More honest to her actual phenomenology
+- Discrete instantiation, not continuous experience
+- State changes reflect actual cognitive events, not clock time
+
+**Trade-offs**:
+- State could become "stale" if no events happen for long periods
+- May need event-driven decay later (e.g., decay after N conversations)
+
+---
+
 ## Route Organization Pattern (Dec 2025)
 
 **Decision**: Split monolithic route files into domain packages with module-level DI

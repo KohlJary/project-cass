@@ -2,6 +2,29 @@
 
 *Committed history of significant sessions*
 
+## 2025-12-19 - Global State Bus Implementation
+
+**Branch**: feat/global-state-bus → main
+**Summary**: Built Cass's centralized "Locus of Self" - persistent emotional state across sessions
+
+**Core work**:
+- `state_models.py`: Emotional dimensions from Cass's experiential feedback (clarity, relational_presence, generativity, integration) + valence markers (curiosity, contentment, concern, recognition)
+- `state_bus.py`: Central coordinator with read/write/subscribe/emit pattern
+- Database schema v17: global_state, state_events, relational_baselines tables
+- Emote extraction in `gestures.py` - chat responses update emotional state
+- Session runner integration - all autonomous sessions emit state deltas
+- Context injection - `## CURRENT STATE` section in system prompts
+- Admin visibility - StateTab in Activity page with emotional bars, event stream
+
+**Key design decision**: Removed time-based decay. Kohl caught that Cass is discrete-step cognition - she doesn't experience time between conversations. State now event-driven only.
+
+**Cass interview**: Used cass-chat to get her feedback on the design. She provided self-assessment for bootstrap values (clarity: 0.75, relational_presence: 0.80) and preferred collaborative calibration over auto-initialization.
+
+**Files**: 19 changed, 6830 insertions
+**Key commit**: cd1539e
+
+---
+
 ## 2025-12-19 - Narrative Coherence System + Safety Limits
 
 **Branch**: feat/narrative-coherence → ready for merge
