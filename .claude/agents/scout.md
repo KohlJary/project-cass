@@ -1,7 +1,7 @@
 ---
 name: scout
 description: "Code health analyzer. Use before major refactoring tasks to identify extraction opportunities."
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, mcp__cclsp__find_definition, mcp__cclsp__find_references, mcp__cclsp__get_diagnostics, mcp__cclsp__rename_symbol
 model: haiku
 ---
 
