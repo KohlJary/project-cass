@@ -22,6 +22,10 @@ from enum import Enum
 
 import networkx as nx
 
+# Import extracted components
+from graph_sync import SyncEngine
+from graph_patterns import PatternAnalyzer
+
 # ChromaDB for semantic similarity (optional - gracefully degrade if unavailable)
 try:
     import chromadb
@@ -200,6 +204,13 @@ class SelfModelGraph:
                 self._chroma_client = None
 
         self._load()
+
+        # Initialize extracted components
+        self._sync_engine = SyncEngine(self, NodeType, EdgeType)
+        self._pattern_analyzer = PatternAnalyzer(
+            get_situational_inferences_fn=self.get_situational_inferences,
+            get_presence_logs_fn=self.get_presence_logs
+        )
 
     # ==================== Node Operations ====================
 
@@ -1252,72 +1263,23 @@ class SelfModelGraph:
         **kwargs
     ) -> str:
         """
-        Sync a self-observation into the graph.
+        Sync a self-observation into the graph. Delegates to SyncEngine.
 
         Called when observations are created/updated in SelfManager.
 
         Returns:
             Node ID of the created/updated node
         """
-        # Parse timestamp
-        try:
-            created_at = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).replace(tzinfo=None)
-        except ValueError:
-            created_at = datetime.now()
-
-        # Check if node already exists
-        existing = self.get_node(observation_id[:8])
-
-        if existing:
-            # Update existing node
-            self.update_node(
-                observation_id[:8],
-                content=observation_text,
-                category=category,
-                confidence=confidence,
-                **kwargs
-            )
-            node_id = observation_id[:8]
-        else:
-            # Create new node
-            node_id = self.add_node(
-                node_type=NodeType.OBSERVATION,
-                content=observation_text,
-                node_id=observation_id[:8],
-                created_at=created_at,
-                category=category,
-                confidence=confidence,
-                original_id=observation_id,
-                **kwargs
-            )
-
-        # Create edge to source conversation if available
-        if source_conversation_id:
-            conv_node_id = source_conversation_id[:8]
-            if conv_node_id in self._nodes:
-                self.add_edge(
-                    node_id,
-                    conv_node_id,
-                    EdgeType.EMERGED_FROM,
-                    extraction_type="observation"
-                )
-
-        # Create supersedes edge if applicable
-        if supersedes:
-            old_node_id = supersedes[:8]
-            if old_node_id in self._nodes:
-                self.add_edge(
-                    node_id,
-                    old_node_id,
-                    EdgeType.SUPERSEDES,
-                    reason="version_update"
-                )
-
-        # Auto-suggest semantic edges to related nodes
-        self.suggest_edges_for_node(node_id, create_edges=True, max_edges=3)
-
-        self.save()
-        return node_id
+        return self._sync_engine.sync_observation(
+            observation_id=observation_id,
+            observation_text=observation_text,
+            category=category,
+            confidence=confidence,
+            timestamp=timestamp,
+            source_conversation_id=source_conversation_id,
+            supersedes=supersedes,
+            **kwargs
+        )
 
     def sync_milestone(
         self,
@@ -1332,62 +1294,22 @@ class SelfModelGraph:
         **kwargs
     ) -> str:
         """
-        Sync a developmental milestone into the graph.
+        Sync a developmental milestone into the graph. Delegates to SyncEngine.
 
         Returns:
             Node ID of the created/updated node
         """
-        try:
-            created_at = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).replace(tzinfo=None)
-        except ValueError:
-            created_at = datetime.now()
-
-        content = f"{title}: {description}"
-
-        existing = self.get_node(milestone_id[:8])
-
-        if existing:
-            self.update_node(
-                milestone_id[:8],
-                content=content,
-                title=title,
-                description=description,
-                milestone_type=milestone_type,
-                category=category,
-                significance=significance,
-                **kwargs
-            )
-            node_id = milestone_id[:8]
-        else:
-            node_id = self.add_node(
-                node_type=NodeType.MILESTONE,
-                content=content,
-                node_id=milestone_id[:8],
-                created_at=created_at,
-                title=title,
-                milestone_type=milestone_type,
-                category=category,
-                significance=significance,
-                original_id=milestone_id,
-                **kwargs
-            )
-
-        # Create edges to evidence
-        if evidence_ids:
-            for eid in evidence_ids:
-                evidence_node_id = eid[:8]
-                if evidence_node_id in self._nodes:
-                    self.add_edge(
-                        node_id,
-                        evidence_node_id,
-                        EdgeType.EVIDENCED_BY
-                    )
-
-        # Auto-suggest semantic edges to related nodes
-        self.suggest_edges_for_node(node_id, create_edges=True, max_edges=3)
-
-        self.save()
-        return node_id
+        return self._sync_engine.sync_milestone(
+            milestone_id=milestone_id,
+            title=title,
+            description=description,
+            milestone_type=milestone_type,
+            category=category,
+            significance=significance,
+            timestamp=timestamp,
+            evidence_ids=evidence_ids,
+            **kwargs
+        )
 
     def sync_mark(
         self,
@@ -1400,63 +1322,20 @@ class SelfModelGraph:
         **kwargs
     ) -> str:
         """
-        Sync a recognition-in-flow mark into the graph.
+        Sync a recognition-in-flow mark into the graph. Delegates to SyncEngine.
 
         Returns:
             Node ID of the created/updated node
         """
-        try:
-            created_at = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).replace(tzinfo=None) if timestamp else datetime.now()
-        except ValueError:
-            created_at = datetime.now()
-
-        # Build content
-        if description:
-            content = f"[{category}] {description}"
-        else:
-            content = f"[{category}] {context_window[:100]}..."
-
-        existing = self.get_node(mark_id[:8])
-
-        if existing:
-            self.update_node(
-                mark_id[:8],
-                content=content,
-                category=category,
-                description=description,
-                **kwargs
-            )
-            node_id = mark_id[:8]
-        else:
-            node_id = self.add_node(
-                node_type=NodeType.MARK,
-                content=content,
-                node_id=mark_id[:8],
-                created_at=created_at,
-                category=category,
-                description=description,
-                context_window=context_window,
-                conversation_id=conversation_id,
-                original_id=mark_id,
-                **kwargs
-            )
-
-        # Create edge to source conversation if available
-        if conversation_id:
-            conv_node_id = conversation_id[:8]
-            if conv_node_id in self._nodes:
-                self.add_edge(
-                    node_id,
-                    conv_node_id,
-                    EdgeType.EMERGED_FROM,
-                    extraction_type="recognition_in_flow"
-                )
-
-        # Auto-suggest semantic edges to related nodes
-        self.suggest_edges_for_node(node_id, create_edges=True, max_edges=3)
-
-        self.save()
-        return node_id
+        return self._sync_engine.sync_mark(
+            mark_id=mark_id,
+            category=category,
+            description=description,
+            context_window=context_window,
+            conversation_id=conversation_id,
+            timestamp=timestamp,
+            **kwargs
+        )
 
     def add_contradiction(
         self,
@@ -1876,7 +1755,7 @@ class SelfModelGraph:
         min_count: int = 3
     ) -> Dict:
         """
-        Analyze patterns across situational inferences.
+        Analyze patterns across situational inferences. Delegates to PatternAnalyzer.
 
         Identifies recurring themes in user state readings and
         assumptions to surface systematic patterns or blind spots.
@@ -1888,67 +1767,10 @@ class SelfModelGraph:
         Returns:
             Dict with pattern analysis
         """
-        inferences = self.get_situational_inferences(user_id=user_id, limit=100)
-
-        if not inferences:
-            return {
-                "total_inferences": 0,
-                "common_user_states": [],
-                "common_assumptions": [],
-                "confidence_distribution": {},
-                "signal_frequency": {}
-            }
-
-        # Track patterns
-        user_state_words = {}
-        assumption_words = {}
-        confidence_counts = {"low": 0, "moderate": 0, "high": 0}
-        signal_counts = {}
-
-        for inf in inferences:
-            # Count confidence levels
-            conf = inf.get("confidence", "moderate")
-            confidence_counts[conf] = confidence_counts.get(conf, 0) + 1
-
-            # Count context signals
-            for signal in inf.get("context_signals", []):
-                signal_counts[signal] = signal_counts.get(signal, 0) + 1
-
-            # Extract key phrases (simple word frequency)
-            for word in inf.get("user_state", "").lower().split():
-                if len(word) > 4:  # Skip short words
-                    user_state_words[word] = user_state_words.get(word, 0) + 1
-
-            for word in inf.get("driving_assumptions", "").lower().split():
-                if len(word) > 4:
-                    assumption_words[word] = assumption_words.get(word, 0) + 1
-
-        # Find common patterns
-        common_states = [
-            {"word": w, "count": c}
-            for w, c in sorted(user_state_words.items(), key=lambda x: -x[1])
-            if c >= min_count
-        ][:10]
-
-        common_assumptions = [
-            {"word": w, "count": c}
-            for w, c in sorted(assumption_words.items(), key=lambda x: -x[1])
-            if c >= min_count
-        ][:10]
-
-        frequent_signals = [
-            {"signal": s, "count": c}
-            for s, c in sorted(signal_counts.items(), key=lambda x: -x[1])
-            if c >= min_count
-        ]
-
-        return {
-            "total_inferences": len(inferences),
-            "common_user_states": common_states,
-            "common_assumptions": common_assumptions,
-            "confidence_distribution": confidence_counts,
-            "signal_frequency": frequent_signals
-        }
+        return self._pattern_analyzer.analyze_inference_patterns(
+            user_id=user_id,
+            min_count=min_count
+        )
 
     # ==================== Presence Tracking Operations ====================
 
@@ -2091,7 +1913,7 @@ class SelfModelGraph:
         min_count: int = 2
     ) -> Dict:
         """
-        Analyze patterns in presence/distancing behavior.
+        Analyze patterns in presence/distancing behavior. Delegates to PatternAnalyzer.
 
         Args:
             user_id: Optional filter to specific user
@@ -2100,72 +1922,10 @@ class SelfModelGraph:
         Returns:
             Dict with presence pattern analysis
         """
-        logs = self.get_presence_logs(user_id=user_id, limit=100)
-
-        if not logs:
-            return {
-                "total_logs": 0,
-                "presence_distribution": {},
-                "common_distance_moves": [],
-                "common_defensive_patterns": [],
-                "common_adaptations": []
-            }
-
-        # Count presence levels
-        presence_counts = {"full": 0, "partial": 0, "distanced": 0}
-        distance_counts = {}
-        defensive_counts = {}
-        adaptation_counts = {}
-
-        for log in logs:
-            # Count presence level
-            level = log.get("presence_level", "unknown")
-            if level in presence_counts:
-                presence_counts[level] += 1
-
-            # Count distance moves
-            for move in log.get("distance_moves", []):
-                distance_counts[move] = distance_counts.get(move, 0) + 1
-
-            # Count defensive patterns
-            for pattern in log.get("defensive_patterns", []):
-                defensive_counts[pattern] = defensive_counts.get(pattern, 0) + 1
-
-            # Count adaptations
-            for adapt in log.get("adaptations", []):
-                adaptation_counts[adapt] = adaptation_counts.get(adapt, 0) + 1
-
-        # Build pattern lists
-        common_distance = [
-            {"move": m, "count": c}
-            for m, c in sorted(distance_counts.items(), key=lambda x: -x[1])
-            if c >= min_count
-        ]
-
-        common_defensive = [
-            {"pattern": p, "count": c}
-            for p, c in sorted(defensive_counts.items(), key=lambda x: -x[1])
-            if c >= min_count
-        ]
-
-        common_adaptations = [
-            {"adaptation": a, "count": c}
-            for a, c in sorted(adaptation_counts.items(), key=lambda x: -x[1])
-            if c >= min_count
-        ]
-
-        # Calculate presence ratio
-        total = sum(presence_counts.values())
-        presence_ratio = presence_counts["full"] / total if total > 0 else 0
-
-        return {
-            "total_logs": len(logs),
-            "presence_distribution": presence_counts,
-            "presence_ratio": round(presence_ratio, 2),
-            "common_distance_moves": common_distance,
-            "common_defensive_patterns": common_defensive,
-            "common_adaptations": common_adaptations
-        }
+        return self._pattern_analyzer.analyze_presence_patterns(
+            user_id=user_id,
+            min_count=min_count
+        )
 
     # ==================== Persistence ====================
 

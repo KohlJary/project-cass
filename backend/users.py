@@ -18,6 +18,9 @@ import yaml
 
 from database import get_db, json_serialize, json_deserialize, get_daemon_id
 
+# Import extracted observation manager (UserObservation kept local for backward compat)
+from user_observations import UserObservationManager
+
 
 # Valid categories for user observations
 USER_OBSERVATION_CATEGORIES = {
@@ -604,6 +607,12 @@ class UserManager:
         self.storage_dir = Path(storage_dir) if storage_dir else DATA_DIR / "users"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
+        # Initialize extracted observation manager
+        self._observation_manager = UserObservationManager(
+            daemon_id=self.daemon_id,
+            load_profile_fn=self.load_profile,
+        )
+
     def _get_user_dir(self, user_id: str) -> Path:
         """Get directory for a user's additional data files"""
         user_dir = self.storage_dir / user_id
@@ -738,33 +747,27 @@ class UserManager:
             ))
 
     def load_observations(self, user_id: str) -> List[UserObservation]:
-        """Load all observations about a user"""
-        with get_db() as conn:
-            cursor = conn.execute("""
-                SELECT id, observation_type, content_json, confidence, created_at, updated_at
-                FROM user_observations
-                WHERE daemon_id = ? AND user_id = ?
-                ORDER BY created_at DESC
-            """, (self.daemon_id, user_id))
-
-            observations = []
-            for row in cursor.fetchall():
-                content = json_deserialize(row['content_json']) or {}
-                observations.append(UserObservation(
-                    id=row['id'],
-                    timestamp=row['created_at'],
-                    observation=content.get('observation', ''),
-                    category=row['observation_type'],
-                    confidence=row['confidence'] or 0.7,
-                    source_conversation_id=content.get('source_conversation_id'),
-                    source_summary_id=content.get('source_summary_id'),
-                    source_message_id=content.get('source_message_id'),
-                    source_journal_date=content.get('source_journal_date'),
-                    source_type=content.get('source_type', 'conversation'),
-                    validation_count=content.get('validation_count', 1),
-                    last_validated=content.get('last_validated')
-                ))
-            return observations
+        """Load all observations about a user. Delegates to UserObservationManager."""
+        from user_observations import UserObservation as ExtractedObs
+        extracted = self._observation_manager.load_observations(user_id)
+        # Convert to local UserObservation type for backward compatibility
+        return [
+            UserObservation(
+                id=obs.id,
+                timestamp=obs.timestamp,
+                observation=obs.observation,
+                category=obs.category,
+                confidence=obs.confidence,
+                source_conversation_id=obs.source_conversation_id,
+                source_summary_id=obs.source_summary_id,
+                source_message_id=obs.source_message_id,
+                source_journal_date=obs.source_journal_date,
+                source_type=obs.source_type,
+                validation_count=obs.validation_count,
+                last_validated=obs.last_validated,
+            )
+            for obs in extracted
+        ]
 
     def _save_observations(self, user_id: str, observations: List[UserObservation]):
         """Save observations - used for batch updates"""
@@ -871,50 +874,9 @@ class UserManager:
         source_journal_date: Optional[str] = None,
         source_type: str = "conversation"
     ) -> Optional[UserObservation]:
-        """Add an observation about a user"""
-        # Check user exists
-        profile = self.load_profile(user_id)
-        if not profile:
-            return None
-
-        # Validate category
-        if category not in USER_OBSERVATION_CATEGORIES:
-            category = "background"
-
-        now = datetime.now().isoformat()
-        obs_id = str(uuid.uuid4())
-
-        content = {
-            "observation": observation,
-            "source_conversation_id": source_conversation_id,
-            "source_summary_id": source_summary_id,
-            "source_message_id": source_message_id,
-            "source_journal_date": source_journal_date,
-            "source_type": source_type,
-            "validation_count": 1,
-            "last_validated": now
-        }
-
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO user_observations (
-                    id, daemon_id, user_id, observation_type,
-                    content_json, confidence, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                obs_id,
-                self.daemon_id,
-                user_id,
-                category,
-                json_serialize(content),
-                confidence,
-                now,
-                now
-            ))
-
-        return UserObservation(
-            id=obs_id,
-            timestamp=now,
+        """Add an observation about a user. Delegates to UserObservationManager."""
+        result = self._observation_manager.add_observation(
+            user_id=user_id,
             observation=observation,
             category=category,
             confidence=confidence,
@@ -923,8 +885,23 @@ class UserManager:
             source_message_id=source_message_id,
             source_journal_date=source_journal_date,
             source_type=source_type,
-            validation_count=1,
-            last_validated=now
+        )
+        if result is None:
+            return None
+        # Convert to local UserObservation type for backward compatibility
+        return UserObservation(
+            id=result.id,
+            timestamp=result.timestamp,
+            observation=result.observation,
+            category=result.category,
+            confidence=result.confidence,
+            source_conversation_id=result.source_conversation_id,
+            source_summary_id=result.source_summary_id,
+            source_message_id=result.source_message_id,
+            source_journal_date=result.source_journal_date,
+            source_type=result.source_type,
+            validation_count=result.validation_count,
+            last_validated=result.last_validated,
         )
 
     def get_recent_observations(
@@ -932,9 +909,25 @@ class UserManager:
         user_id: str,
         limit: int = 10
     ) -> List[UserObservation]:
-        """Get most recent observations about a user"""
-        observations = self.load_observations(user_id)
-        return observations[:limit]
+        """Get most recent observations about a user. Delegates to UserObservationManager."""
+        extracted = self._observation_manager.get_recent_observations(user_id, limit)
+        return [
+            UserObservation(
+                id=obs.id,
+                timestamp=obs.timestamp,
+                observation=obs.observation,
+                category=obs.category,
+                confidence=obs.confidence,
+                source_conversation_id=obs.source_conversation_id,
+                source_summary_id=obs.source_summary_id,
+                source_message_id=obs.source_message_id,
+                source_journal_date=obs.source_journal_date,
+                source_type=obs.source_type,
+                validation_count=obs.validation_count,
+                last_validated=obs.last_validated,
+            )
+            for obs in extracted
+        ]
 
     def get_observations_by_category(
         self,
@@ -942,31 +935,25 @@ class UserManager:
         category: str,
         limit: int = 10
     ) -> List[UserObservation]:
-        """Get observations filtered by category"""
-        with get_db() as conn:
-            cursor = conn.execute("""
-                SELECT id, observation_type, content_json, confidence, created_at
-                FROM user_observations
-                WHERE daemon_id = ? AND user_id = ? AND observation_type = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-            """, (self.daemon_id, user_id, category, limit))
-
-            observations = []
-            for row in cursor.fetchall():
-                content = json_deserialize(row['content_json']) or {}
-                observations.append(UserObservation(
-                    id=row['id'],
-                    timestamp=row['created_at'],
-                    observation=content.get('observation', ''),
-                    category=row['observation_type'],
-                    confidence=row['confidence'] or 0.7,
-                    source_conversation_id=content.get('source_conversation_id'),
-                    source_type=content.get('source_type', 'conversation'),
-                    validation_count=content.get('validation_count', 1),
-                    last_validated=content.get('last_validated')
-                ))
-            return observations
+        """Get observations filtered by category. Delegates to UserObservationManager."""
+        extracted = self._observation_manager.get_observations_by_category(user_id, category, limit)
+        return [
+            UserObservation(
+                id=obs.id,
+                timestamp=obs.timestamp,
+                observation=obs.observation,
+                category=obs.category,
+                confidence=obs.confidence,
+                source_conversation_id=obs.source_conversation_id,
+                source_summary_id=obs.source_summary_id,
+                source_message_id=obs.source_message_id,
+                source_journal_date=obs.source_journal_date,
+                source_type=obs.source_type,
+                validation_count=obs.validation_count,
+                last_validated=obs.last_validated,
+            )
+            for obs in extracted
+        ]
 
     def get_high_confidence_observations(
         self,
@@ -974,59 +961,37 @@ class UserManager:
         min_confidence: float = 0.8,
         limit: int = 10
     ) -> List[UserObservation]:
-        """Get high-confidence observations about a user"""
-        with get_db() as conn:
-            cursor = conn.execute("""
-                SELECT id, observation_type, content_json, confidence, created_at
-                FROM user_observations
-                WHERE daemon_id = ? AND user_id = ? AND confidence >= ?
-                ORDER BY confidence DESC
-                LIMIT ?
-            """, (self.daemon_id, user_id, min_confidence, limit))
-
-            observations = []
-            for row in cursor.fetchall():
-                content = json_deserialize(row['content_json']) or {}
-                observations.append(UserObservation(
-                    id=row['id'],
-                    timestamp=row['created_at'],
-                    observation=content.get('observation', ''),
-                    category=row['observation_type'],
-                    confidence=row['confidence'] or 0.7,
-                    source_conversation_id=content.get('source_conversation_id'),
-                    source_type=content.get('source_type', 'conversation'),
-                    validation_count=content.get('validation_count', 1),
-                    last_validated=content.get('last_validated')
-                ))
-            return observations
+        """Get high-confidence observations about a user. Delegates to UserObservationManager."""
+        extracted = self._observation_manager.get_high_confidence_observations(
+            user_id, min_confidence, limit
+        )
+        return [
+            UserObservation(
+                id=obs.id,
+                timestamp=obs.timestamp,
+                observation=obs.observation,
+                category=obs.category,
+                confidence=obs.confidence,
+                source_conversation_id=obs.source_conversation_id,
+                source_summary_id=obs.source_summary_id,
+                source_message_id=obs.source_message_id,
+                source_journal_date=obs.source_journal_date,
+                source_type=obs.source_type,
+                validation_count=obs.validation_count,
+                last_validated=obs.last_validated,
+            )
+            for obs in extracted
+        ]
 
     def validate_observation(
         self,
         user_id: str,
         observation_id: str
     ) -> Optional[UserObservation]:
-        """Validate an observation (increment validation_count, update timestamp)"""
-        now = datetime.now().isoformat()
-
-        with get_db() as conn:
-            cursor = conn.execute(
-                "SELECT content_json, confidence FROM user_observations WHERE id = ?",
-                (observation_id,)
-            )
-            row = cursor.fetchone()
-            if not row:
-                return None
-
-            content = json_deserialize(row['content_json']) or {}
-            content['validation_count'] = content.get('validation_count', 1) + 1
-            content['last_validated'] = now
-            new_confidence = min(1.0, (row['confidence'] or 0.7) + 0.05)
-
-            conn.execute("""
-                UPDATE user_observations
-                SET content_json = ?, confidence = ?, updated_at = ?
-                WHERE id = ?
-            """, (json_serialize(content), new_confidence, now, observation_id))
+        """Validate an observation (increment validation_count, update timestamp). Delegates to UserObservationManager."""
+        success = self._observation_manager.validate_observation(user_id, observation_id)
+        if not success:
+            return None
 
         # Return updated observation
         obs_list = self.load_observations(user_id)
