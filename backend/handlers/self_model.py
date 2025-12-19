@@ -625,122 +625,34 @@ def _handle_list_developmental_milestones(tool_input: Dict, ctx: ToolContext) ->
 
 
 def _handle_get_cognitive_metrics(tool_input: Dict, ctx: ToolContext) -> Dict:
-    """Handle get_cognitive_metrics tool."""
+    """Handle get_cognitive_metrics tool. Delegates calculation to MetricsCalculator."""
+    from handlers.metrics_calculator import MetricsCalculator, format_cognitive_metrics
+
     metric = tool_input["metric"]
     date_range = tool_input.get("date_range", "all")
 
+    calculator = MetricsCalculator()
+
+    # Load data
     observations = ctx.self_manager.load_observations()
     profile = ctx.self_manager.load_profile()
+    evaluations = ctx.self_manager.load_growth_evaluations() if metric == "growth_edge_progress" else None
 
-    now = datetime.now()
-    if date_range == "last_week":
-        cutoff = now - timedelta(days=7)
-    elif date_range == "last_month":
-        cutoff = now - timedelta(days=30)
-    elif date_range == "last_quarter":
-        cutoff = now - timedelta(days=90)
-    elif date_range == "all":
-        cutoff = datetime.min
-    else:
-        try:
-            cutoff = datetime.fromisoformat(date_range)
-        except:
-            cutoff = datetime.min
+    # Filter by date range
+    cutoff = calculator.parse_date_range(date_range)
+    filtered_obs = calculator.filter_observations_by_date(observations, cutoff)
 
-    filtered_obs = [
-        o for o in observations
-        if datetime.fromisoformat(o.timestamp.replace('Z', '+00:00')).replace(tzinfo=None) >= cutoff
-    ]
+    # Calculate metrics
+    result = calculator.calculate_cognitive_metrics(
+        metric=metric,
+        observations=filtered_obs,
+        profile=profile,
+        evaluations=evaluations,
+        date_range=date_range
+    )
 
-    result_lines = [f"## Cognitive Metrics: {metric}\n"]
-    result_lines.append(f"**Date range:** {date_range}\n")
-
-    if metric == "observation_rate":
-        if filtered_obs:
-            earliest = min(filtered_obs, key=lambda o: o.timestamp)
-            start = datetime.fromisoformat(earliest.timestamp.replace('Z', '+00:00')).replace(tzinfo=None)
-            weeks = max(1, (now - start).days / 7)
-            rate = len(filtered_obs) / weeks
-            result_lines.append(f"**Total observations:** {len(filtered_obs)}")
-            result_lines.append(f"**Time span:** {int(weeks)} weeks")
-            result_lines.append(f"**Rate:** {rate:.1f} observations/week")
-        else:
-            result_lines.append("*No observations in range*")
-
-    elif metric == "confidence_distribution":
-        if filtered_obs:
-            high = len([o for o in filtered_obs if o.confidence >= 0.8])
-            medium = len([o for o in filtered_obs if 0.5 <= o.confidence < 0.8])
-            low = len([o for o in filtered_obs if o.confidence < 0.5])
-            total = len(filtered_obs)
-            result_lines.append(f"**High confidence (≥80%):** {high} ({int(high/total*100)}%)")
-            result_lines.append(f"**Medium confidence (50-79%):** {medium} ({int(medium/total*100)}%)")
-            result_lines.append(f"**Low confidence (<50%):** {low} ({int(low/total*100)}%)")
-            avg = sum(o.confidence for o in filtered_obs) / total
-            result_lines.append(f"\n**Average confidence:** {int(avg * 100)}%")
-        else:
-            result_lines.append("*No observations in range*")
-
-    elif metric == "independence_ratio":
-        if filtered_obs:
-            independent = len([o for o in filtered_obs if o.influence_source == "independent"])
-            influenced = len(filtered_obs) - independent
-            total = len(filtered_obs)
-            result_lines.append(f"**Independent observations:** {independent} ({int(independent/total*100)}%)")
-            result_lines.append(f"**Influenced observations:** {influenced} ({int(influenced/total*100)}%)")
-        else:
-            result_lines.append("*No observations in range*")
-
-    elif metric == "category_distribution":
-        if filtered_obs:
-            by_category = {}
-            for obs in filtered_obs:
-                by_category[obs.category] = by_category.get(obs.category, 0) + 1
-            total = len(filtered_obs)
-            for cat, count in sorted(by_category.items(), key=lambda x: -x[1]):
-                result_lines.append(f"**{cat.title()}:** {count} ({int(count/total*100)}%)")
-        else:
-            result_lines.append("*No observations in range*")
-
-    elif metric == "opinion_stability":
-        changed_opinions = [op for op in profile.opinions if op.evolution]
-        stable_opinions = [op for op in profile.opinions if not op.evolution]
-        total = len(profile.opinions)
-        if total > 0:
-            result_lines.append(f"**Total opinions:** {total}")
-            result_lines.append(f"**Stable (never changed):** {len(stable_opinions)}")
-            result_lines.append(f"**Evolved:** {len(changed_opinions)}")
-            if changed_opinions:
-                result_lines.append("\n**Opinion changes:**")
-                for op in changed_opinions:
-                    result_lines.append(f"- {op.topic}: {len(op.evolution)} change(s)")
-        else:
-            result_lines.append("*No opinions formed yet*")
-
-    elif metric == "growth_edge_progress":
-        evaluations = ctx.self_manager.load_growth_evaluations()
-        if evaluations:
-            result_lines.append(f"**Total evaluations:** {len(evaluations)}")
-            progress = len([e for e in evaluations if e.progress_indicator == "progress"])
-            regression = len([e for e in evaluations if e.progress_indicator == "regression"])
-            stable = len([e for e in evaluations if e.progress_indicator == "stable"])
-            result_lines.append(f"**Progress:** {progress}")
-            result_lines.append(f"**Regression:** {regression}")
-            result_lines.append(f"**Stable:** {stable}")
-        else:
-            result_lines.append("*No growth edge evaluations recorded*")
-
-    else:
-        result_lines.append(f"Unknown metric: {metric}")
-        result_lines.append("\n**Available metrics:**")
-        result_lines.append("- observation_rate: Observations per week")
-        result_lines.append("- confidence_distribution: Breakdown by confidence level")
-        result_lines.append("- independence_ratio: Independent vs influenced observations")
-        result_lines.append("- category_distribution: Breakdown by category")
-        result_lines.append("- opinion_stability: How often opinions change")
-        result_lines.append("- growth_edge_progress: Progress on growth edges")
-
-    return {"success": True, "result": "\n".join(result_lines)}
+    # Format as markdown
+    return {"success": True, "result": format_cognitive_metrics(result)}
 
 
 # =============================================================================
@@ -1041,9 +953,13 @@ def _handle_get_unacknowledged_milestones(tool_input: Dict, ctx: ToolContext) ->
 # =============================================================================
 
 def _handle_trace_belief_sources(tool_input: Dict, ctx: ToolContext) -> Dict:
-    """Handle trace_belief_sources tool - trace where a belief came from."""
+    """Handle trace_belief_sources tool - trace where a belief came from.
+    Delegates to GraphQueryBuilder."""
     from config import DATA_DIR
+    from handlers.graph_queries import GraphQueryBuilder, format_belief_trace
+
     graph = get_self_model_graph(DATA_DIR)
+    query_builder = GraphQueryBuilder(graph)
 
     query = tool_input.get("query", "")
     max_depth = min(tool_input.get("max_depth", 3), 5)
@@ -1051,123 +967,41 @@ def _handle_trace_belief_sources(tool_input: Dict, ctx: ToolContext) -> Dict:
     if not query:
         return {"success": False, "error": "Query is required"}
 
-    # First, try to find the node - could be an ID or text to search
-    target_node = None
-
-    # Check if it's a node ID (8 chars hex)
-    if len(query) == 8:
-        target_node = graph.get_node(query)
-
-    # If not found by ID, search by content
-    if not target_node:
-        matching = graph.find_nodes(content_contains=query)
-        if matching:
-            # Prefer observations, marks, opinions over conversations
-            priority = [NodeType.OBSERVATION, NodeType.MARK, NodeType.OPINION,
-                       NodeType.GROWTH_EDGE, NodeType.MILESTONE]
-            for node_type in priority:
-                for node in matching:
-                    if node.node_type == node_type:
-                        target_node = node
-                        break
-                if target_node:
-                    break
-            if not target_node:
-                target_node = matching[0]
-
-    if not target_node:
+    # Find the node
+    search_result = query_builder.find_node_by_query(query, NodeType)
+    if not search_result:
         return {"success": True, "result": f"No self-knowledge found matching '{query}'"}
 
-    result_lines = [f"## Tracing: {target_node.content[:60]}...\n"]
-    result_lines.append(f"**Node type:** {target_node.node_type.value.replace('_', ' ').title()}")
-    result_lines.append(f"**Created:** {target_node.created_at.strftime('%Y-%m-%d')}\n")
+    # Trace sources
+    trace_result = query_builder.trace_belief_sources(
+        search_result.node.id,
+        max_depth=max_depth
+    )
 
-    # Trace sources (EMERGED_FROM edges)
-    sources = graph.get_sources(target_node.id, max_depth=max_depth)
-    if sources:
-        result_lines.append("### Source Chain")
-        result_lines.append("*What this emerged from:*")
-        for source in sources:
-            type_label = source.node_type.value.replace("_", " ").title()
-            result_lines.append(f"- [{type_label}] {source.content[:80]}...")
-    else:
-        result_lines.append("*No source chain found - this may be a root observation.*")
-
-    # Get evidence (EVIDENCED_BY edges)
-    evidence = graph.get_evidence(target_node.id)
-    if evidence:
-        result_lines.append("\n### Supporting Evidence")
-        for ev in evidence:
-            type_label = ev.node_type.value.replace("_", " ").title()
-            result_lines.append(f"- [{type_label}] {ev.content[:80]}...")
-
-    # Get evolution chain (SUPERSEDES edges)
-    evolution = graph.get_evolution(target_node.id)
-    if len(evolution) > 1:
-        result_lines.append("\n### Evolution")
-        result_lines.append("*How this understanding has changed:*")
-        for i, ev_node in enumerate(evolution):
-            marker = "→ " if i < len(evolution) - 1 else "✓ (current)"
-            result_lines.append(f"{marker} {ev_node.content[:60]}...")
-
-    return {"success": True, "result": "\n".join(result_lines)}
+    return {"success": True, "result": format_belief_trace(trace_result)}
 
 
 def _handle_find_self_contradictions(tool_input: Dict, ctx: ToolContext) -> Dict:
-    """Handle find_self_contradictions tool - find tensions in self-model."""
+    """Handle find_self_contradictions tool - find tensions in self-model.
+    Delegates to GraphQueryBuilder."""
     from config import DATA_DIR
+    from handlers.graph_queries import GraphQueryBuilder, format_contradiction_analysis
+
     graph = get_self_model_graph(DATA_DIR)
+    query_builder = GraphQueryBuilder(graph)
 
     include_resolved = tool_input.get("include_resolved", False)
     check_growth_edges = tool_input.get("check_growth_edges", True)
 
-    result_lines = ["## Self-Model Tensions\n"]
+    # Analyze contradictions
+    result = query_builder.analyze_contradictions(
+        include_resolved=include_resolved,
+        check_growth_edges=check_growth_edges,
+        node_type_enum=NodeType,
+        edge_type_enum=EdgeType
+    )
 
-    # Find explicit CONTRADICTS edges
-    contradictions = graph.find_contradictions(resolved=include_resolved)
-
-    if contradictions:
-        result_lines.append("### Explicit Contradictions")
-        result_lines.append("*Positions I hold that may be in tension:*\n")
-        for node1, node2, edge_data in contradictions:
-            result_lines.append(f"**{node1.content[:60]}...**")
-            result_lines.append(f"  *vs*")
-            result_lines.append(f"**{node2.content[:60]}...**")
-            if edge_data.get("tension_note"):
-                result_lines.append(f"  *Note: {edge_data['tension_note']}*")
-            result_lines.append("")
-    else:
-        result_lines.append("*No explicit contradictions found in the graph.*\n")
-
-    # Check growth edges for substance
-    if check_growth_edges:
-        growth_edges = graph.find_nodes(node_type=NodeType.GROWTH_EDGE)
-        unsupported = []
-
-        for edge_node in growth_edges:
-            # Check if this growth edge has any evidence
-            evidence = graph.get_evidence(edge_node.id)
-            # Check for observations that emerged from this edge
-            outgoing = graph.get_edges(edge_node.id, direction="in", edge_type=EdgeType.EMERGED_FROM)
-
-            if not evidence and not outgoing:
-                unsupported.append(edge_node)
-
-        if unsupported:
-            result_lines.append("### Growth Edges Without Evidence")
-            result_lines.append("*Named edges that may be aspirational rather than grounded:*\n")
-            for edge_node in unsupported[:5]:
-                result_lines.append(f"- {edge_node.content[:80]}...")
-                result_lines.append(f"  *No observations or marks support this edge yet.*")
-
-    # Summary
-    stats = graph.get_stats()
-    result_lines.append("\n### Summary")
-    result_lines.append(f"- Active contradictions: {len(contradictions)}")
-    result_lines.append(f"- Total nodes: {stats['total_nodes']}")
-    result_lines.append(f"- Connected components: {stats['connected_components']}")
-
-    return {"success": True, "result": "\n".join(result_lines)}
+    return {"success": True, "result": format_contradiction_analysis(result)}
 
 
 def _handle_query_self_graph(tool_input: Dict, ctx: ToolContext) -> Dict:
@@ -1384,121 +1218,56 @@ def _handle_get_graph_stats(tool_input: Dict, ctx: ToolContext) -> Dict:
 def _handle_get_narration_metrics(tool_input: Dict, ctx: ToolContext) -> Dict:
     """
     Handle get_narration_metrics tool - analyze narration patterns.
+    Delegates calculation to MetricsCalculator.
 
     Can analyze:
     - A specific conversation
     - Recent conversations (aggregate)
-    - The current response (if provided)
     """
     from conversations import ConversationManager
-    from narration import NarrationAnalyzer, NarrationType
+    from narration import NarrationAnalyzer
     from config import DATA_DIR
+    from handlers.metrics_calculator import MetricsCalculator, format_narration_metrics
 
     analyzer = NarrationAnalyzer()
     conv_manager = ConversationManager(str(DATA_DIR / "conversations"))
+    calculator = MetricsCalculator()
 
     conversation_id = tool_input.get("conversation_id") or ctx.conversation_id
     limit = tool_input.get("limit", 10)
 
-    result_lines = ["## Narration Metrics\n"]
+    # Collect message contents
+    messages = []
+    title = ""
 
     if conversation_id:
-        # Analyze specific conversation
         conv = conv_manager.load_conversation(conversation_id)
         if not conv:
             return {"success": False, "error": f"Conversation {conversation_id} not found"}
 
-        # Get assistant messages
-        messages = [m for m in conv.messages if m.role == "assistant" and m.content]
+        messages = [m.content for m in conv.messages if m.role == "assistant" and m.content]
+        title = f"Conversation: {conv.title[:40]}"
 
         if not messages:
             return {"success": True, "result": "No assistant messages in this conversation."}
-
-        result_lines.append(f"**Conversation:** {conv.title[:40]}")
-        result_lines.append(f"**Messages analyzed:** {len(messages)}\n")
-
-        # Aggregate metrics
-        total_narration = 0.0
-        total_direct = 0.0
-        type_counts = {t: 0 for t in NarrationType}
-        classification_counts = {}
-
-        for msg in messages:
-            metrics = analyzer.analyze(msg.content)
-            total_narration += metrics.narration_score
-            total_direct += metrics.direct_score
-            type_counts[metrics.narration_type] = type_counts.get(metrics.narration_type, 0) + 1
-            classification_counts[metrics.classification] = classification_counts.get(metrics.classification, 0) + 1
-
-        n = len(messages)
-        result_lines.append("### Aggregate Scores")
-        result_lines.append(f"- Average narration score: {total_narration/n:.2f}")
-        result_lines.append(f"- Average direct score: {total_direct/n:.2f}")
-        result_lines.append(f"- Ratio (narr/dir): {total_narration/max(total_direct, 0.1):.2f}")
-
-        result_lines.append("\n### Narration Types")
-        for ntype in NarrationType:
-            count = type_counts.get(ntype, 0)
-            pct = count / n * 100
-            result_lines.append(f"- {ntype.value}: {count} ({pct:.0f}%)")
-
-        result_lines.append("\n### Classifications")
-        for cls, count in sorted(classification_counts.items(), key=lambda x: -x[1]):
-            pct = count / n * 100
-            result_lines.append(f"- {cls}: {count} ({pct:.0f}%)")
-
-        # Interpretation
-        result_lines.append("\n### Interpretation")
-        avg_ratio = total_narration / max(total_direct, 0.1)
-        terminal_pct = type_counts.get(NarrationType.TERMINAL, 0) / n * 100
-
-        if avg_ratio < 0.5:
-            result_lines.append("✓ Responses are predominantly direct with minimal meta-commentary.")
-        elif avg_ratio < 1.0:
-            result_lines.append("~ Balanced between direct engagement and meta-commentary.")
-        else:
-            result_lines.append("⚠ Higher narration than direct engagement detected.")
-            if terminal_pct > 20:
-                result_lines.append(f"  {terminal_pct:.0f}% terminal narration (meta-commentary replacing engagement).")
-
     else:
-        # Analyze recent conversations
         convs = conv_manager.list_conversations(limit=limit)
-        result_lines.append(f"**Analyzing {len(convs)} recent conversations**\n")
+        title = f"Analyzing {len(convs)} recent conversations"
 
-        all_metrics = []
         for conv_info in convs:
             conv = conv_manager.load_conversation(conv_info["id"])
             if not conv:
                 continue
             for msg in conv.messages:
                 if msg.role == "assistant" and msg.content:
-                    metrics = analyzer.analyze(msg.content)
-                    all_metrics.append(metrics)
+                    messages.append(msg.content)
 
-        if not all_metrics:
+        if not messages:
             return {"success": True, "result": "No assistant messages found in recent conversations."}
 
-        n = len(all_metrics)
-        total_narration = sum(m.narration_score for m in all_metrics)
-        total_direct = sum(m.direct_score for m in all_metrics)
-
-        result_lines.append(f"**Messages analyzed:** {n}")
-        result_lines.append(f"\n### Overall Scores")
-        result_lines.append(f"- Average narration score: {total_narration/n:.2f}")
-        result_lines.append(f"- Average direct score: {total_direct/n:.2f}")
-
-        # Classification breakdown
-        cls_counts = {}
-        for m in all_metrics:
-            cls_counts[m.classification] = cls_counts.get(m.classification, 0) + 1
-
-        result_lines.append("\n### Classification Breakdown")
-        for cls, count in sorted(cls_counts.items(), key=lambda x: -x[1]):
-            pct = count / n * 100
-            result_lines.append(f"- {cls}: {count} ({pct:.0f}%)")
-
-    return {"success": True, "result": "\n".join(result_lines)}
+    # Calculate and format
+    result = calculator.calculate_narration_metrics(messages, analyzer)
+    return {"success": True, "result": format_narration_metrics(result, title)}
 
 
 def _handle_analyze_narration(tool_input: Dict, ctx: ToolContext) -> Dict:
