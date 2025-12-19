@@ -102,6 +102,15 @@ from daily_rhythm import DailyRhythmManager
 from handlers.daily_rhythm import execute_daily_rhythm_tool
 import base64
 
+# Startup helpers (extracted for clarity)
+from startup import (
+    validate_startup_requirements,
+    init_heavy_components,
+    init_llm_clients,
+    preload_tts_voice,
+    print_startup_banner,
+)
+
 
 # Rate limiting configuration
 def get_user_or_ip(request: Request) -> str:
@@ -230,46 +239,21 @@ _needs_embedding_rebuild = False
 _heavy_components_ready = False  # Flag to indicate when deferred init is complete
 
 def _init_heavy_components():
-    """Initialize ChromaDB and self-model graph (called in background)."""
+    """Initialize ChromaDB and self-model graph (called in background).
+    Wrapper that calls startup.init_heavy_components and sets module globals.
+    """
     global memory, self_model_graph, self_manager, marker_store, _needs_embedding_rebuild, _heavy_components_ready
 
-    print("Initializing ChromaDB memory...")
-    memory = CassMemory()
+    # Call the extracted initialization function
+    components = init_heavy_components()
 
-    print("Loading self-model graph...")
-    self_model_graph = get_self_model_graph(DATA_DIR)
-    _graph_stats = self_model_graph.get_stats()
-
-    if _graph_stats['total_nodes'] == 0:
-        print("  Self-model graph is empty, populating from existing data...")
-        _populate_result = populate_self_model_graph(self_model_graph, verbose=False)
-        print(f"  Self-model graph populated: {_populate_result['nodes']} nodes, "
-              f"{_populate_result['edges']} edges")
-        _needs_embedding_rebuild = True
-    else:
-        print(f"  Self-model graph loaded: {_graph_stats['total_nodes']} nodes, "
-              f"{_graph_stats['total_edges']} edges")
-        # Check if embeddings need rebuilding (collection might be empty)
-        if self_model_graph._node_collection is not None:
-            _embedding_count = self_model_graph._node_collection.count()
-            _connectable_count = len([n for n in self_model_graph._nodes.values()
-                                      if n.node_type in self_model_graph.CONNECTABLE_TYPES])
-            if _embedding_count < _connectable_count * 0.5:  # Less than half embedded
-                print(f"  Embeddings need rebuild ({_embedding_count} < {_connectable_count}) - will run in background")
-                _needs_embedding_rebuild = True
-
-    self_manager = SelfManager(graph_callback=self_model_graph)
-
-    # Initialize marker store now that memory is ready
-    marker_store = MarkerStore(client=memory.client, graph_callback=self_model_graph)
-
-    # Sync self-observations from file storage to ChromaDB for semantic search
-    _synced_count = memory.sync_self_observations_from_file(self_manager)
-    if _synced_count > 0:
-        print(f"  Synced {_synced_count} self-observations to ChromaDB")
-
+    # Set module globals from returned dict
+    memory = components["memory"]
+    self_model_graph = components["self_model_graph"]
+    self_manager = components["self_manager"]
+    marker_store = components["marker_store"]
+    _needs_embedding_rebuild = components["needs_embedding_rebuild"]
     _heavy_components_ready = True
-    print("Heavy components initialized")
 
 
 def is_heavy_components_ready() -> bool:
@@ -474,6 +458,14 @@ app.include_router(files_router)
 # Register export routes
 from routes.export import router as export_router
 app.include_router(export_router)
+
+# Register memory routes (initialized in background after memory is ready)
+from routes.memory import router as memory_router, init_memory_routes
+app.include_router(memory_router)
+
+# Register conversation routes (initialized in background after heavy components ready)
+from routes.conversations import router as conversations_router, init_conversation_routes
+app.include_router(conversations_router)
 
 # Register terminal routes
 from routes.terminal import router as terminal_router
@@ -688,37 +680,6 @@ async def _generate_user_observations_for_date(user_id: str, date_str: str):
 
 
 
-def validate_startup_requirements():
-    """
-    Validate required configuration before starting.
-    Raises RuntimeError if critical requirements are not met.
-    """
-    errors = []
-
-    # Check for API key (required for Anthropic mode)
-    if not ANTHROPIC_API_KEY:
-        errors.append("ANTHROPIC_API_KEY not set - required for Claude API access")
-
-    # Check data directory is writable
-    try:
-        test_file = DATA_DIR / ".write_test"
-        test_file.touch()
-        test_file.unlink()
-    except Exception as e:
-        errors.append(f"DATA_DIR ({DATA_DIR}) is not writable: {e}")
-
-    # Log warnings for optional but recommended settings
-    if os.getenv("JWT_SECRET_KEY", "").startswith("CHANGE_ME"):
-        logger.warning("JWT_SECRET_KEY is using default value - change this in production!")
-
-    if errors:
-        for error in errors:
-            logger.error(f"Startup validation failed: {error}")
-        raise RuntimeError(f"Startup validation failed: {'; '.join(errors)}")
-
-    logger.info("Startup validation passed")
-
-
 @app.on_event("startup")
 async def startup_event():
     global agent_client, legacy_client, ollama_client, openai_client, current_user_id
@@ -743,6 +704,23 @@ async def startup_event():
             from admin_api import init_managers as init_admin_managers
             init_admin_managers(memory, conversation_manager, user_manager, self_manager)
             logger.info("Background: Admin managers updated with heavy components")
+
+            # Initialize memory routes now that memory is ready
+            init_memory_routes(memory)
+            logger.info("Background: Memory routes initialized")
+
+            # Initialize conversation routes now that heavy components are ready
+            init_conversation_routes(
+                conversation_manager=conversation_manager,
+                memory=memory,
+                user_manager=user_manager,
+                self_manager=self_manager,
+                marker_store=marker_store,
+                token_tracker=token_tracker,
+                summarization_in_progress=_summarization_in_progress,
+                generate_and_store_summary=generate_and_store_summary
+            )
+            logger.info("Background: Conversation routes initialized")
 
             # Re-initialize context_helpers with actual self_manager (was None at module load)
             init_context_helpers(self_manager, user_manager, roadmap_manager, memory)
@@ -779,62 +757,22 @@ async def startup_event():
     else:
         logger.warning("No default user found. Run init_kohl_profile.py to create.")
 
-    # Initialize appropriate client
-    if USE_AGENT_SDK:
-        logger.info("Using Claude Agent SDK with Temple-Codex kernel")
-        agent_client = CassAgentClient(
-            enable_tools=True,
-            enable_memory_tools=True,
-            daemon_name=_daemon_name,
-            daemon_id=_daemon_id
-        )
-    else:
-        logger.warning("Agent SDK not available, using raw API client")
-        legacy_client = ClaudeClient()
-
-    # Initialize Ollama client for local mode
-    from config import OLLAMA_ENABLED
-    if OLLAMA_ENABLED:
-        logger.info("Initializing Ollama client for local LLM...")
-        ollama_client = OllamaClient(daemon_name=_daemon_name, daemon_id=_daemon_id)
-        logger.info(f"Ollama ready (model: {ollama_client.model})")
-
-    # Initialize OpenAI client if enabled
-    from config import OPENAI_ENABLED
-    if OPENAI_ENABLED and OPENAI_AVAILABLE and OpenAIClient:
-        logger.info("Initializing OpenAI client...")
-        try:
-            openai_client = OpenAIClient(
-                enable_tools=True,
-                enable_memory_tools=True,
-                daemon_name=_daemon_name,
-                daemon_id=_daemon_id
-            )
-            logger.info(f"OpenAI ready (model: {openai_client.model})")
-        except Exception as e:
-            logger.error(f"OpenAI initialization failed: {e}")
+    # Initialize LLM clients (extracted to startup.py)
+    clients = init_llm_clients(
+        daemon_name=_daemon_name,
+        daemon_id=_daemon_id,
+        use_agent_sdk=USE_AGENT_SDK
+    )
+    agent_client = clients["agent_client"]
+    legacy_client = clients["legacy_client"]
+    ollama_client = clients["ollama_client"]
+    openai_client = clients["openai_client"]
 
     # Preload TTS voice for faster first response
-    logger.info("Preloading TTS voice...")
-    try:
-        preload_voice(tts_voice)
-        logger.info(f"Loaded voice: {tts_voice}")
-    except Exception as e:
-        logger.error(f"TTS preload failed: {e}")
+    preload_tts_voice(tts_voice)
 
-    # Check for and generate any missing journals in background (makes LLM calls)
-    async def generate_journals_background():
-        await asyncio.sleep(15)  # Let server finish starting
-        logger.info("Background: Checking for missing journal entries...")
-        try:
-            generated = await generate_missing_journals(days_to_check=7)
-            if generated:
-                logger.info(f"Background: Generated {len(generated)} missing journal(s): {', '.join(generated)}")
-            else:
-                logger.debug("Background: All recent journals up to date")
-        except Exception as e:
-            logger.error(f"Background journal check failed: {e}")
-    asyncio.create_task(generate_journals_background())
+    # NOTE: Removed automatic missing journal check on startup - was slow and caused
+    # excessive LLM calls. Users can manually trigger via POST /admin/journals/generate-missing
 
     # Generate initial identity snippet in background (makes LLM calls)
     async def generate_identity_background():
@@ -847,12 +785,23 @@ async def startup_event():
             logger.error(f"Background identity snippet generation failed: {e}")
     asyncio.create_task(generate_identity_background())
 
+    # Initialize websocket state now (heavy components may still be None, handler has guards)
+    _init_websocket_state()
+    logger.info("WebSocket handlers initialized")
+
     # Defer memory-dependent background tasks until heavy components are ready
     async def start_deferred_tasks():
         # Wait for heavy components to initialize
         while memory is None or self_model_graph is None:
             await asyncio.sleep(1)
         logger.info("Heavy components ready, starting deferred background tasks...")
+
+        # Update websocket state with now-ready heavy components
+        from websocket_handlers import _state
+        _state["memory"] = memory
+        _state["self_model_graph"] = self_model_graph
+        _state["marker_store"] = marker_store
+        _state["self_manager"] = self_manager
 
         # Start background task for daily journal generation
         asyncio.create_task(daily_journal_task())
@@ -890,15 +839,8 @@ async def startup_event():
         ))
     asyncio.create_task(start_deferred_tasks())
 
-    print(f"""
-╔═══════════════════════════════════════════════════════════╗
-║              CASS VESSEL SERVER v0.2.0                    ║
-║         First Contact Embodiment System                   ║
-║                                                           ║
-║  Backend:  {'Agent SDK + Temple-Codex' if USE_AGENT_SDK else 'Raw API (legacy)':^30}  ║
-║  Memory:   {'(initializing in background)':^30}  ║
-╚═══════════════════════════════════════════════════════════╝
-    """)
+    # Print startup banner (extracted to startup.py)
+    print_startup_banner(USE_AGENT_SDK)
 
 
 # === Summarization Helper ===
@@ -930,25 +872,9 @@ class ChatResponse(BaseModel):
     sdk_mode: bool = False
     conversation_id: Optional[str] = None
 
-class MemoryStoreRequest(BaseModel):
-    user_message: str
-    assistant_response: str
-    metadata: Optional[Dict] = None
-
-class MemoryQueryRequest(BaseModel):
-    query: str
-    n_results: int = 5
-
-class ConversationCreateRequest(BaseModel):
-    title: Optional[str] = None
-    project_id: Optional[str] = None
-    user_id: Optional[str] = None
-
-class ConversationUpdateTitleRequest(BaseModel):
-    title: str
-
-class ConversationAssignProjectRequest(BaseModel):
-    project_id: Optional[str] = None  # None to unassign
+# Note: MemoryStoreRequest, MemoryQueryRequest moved to routes/memory.py
+# Note: ConversationCreateRequest, ConversationUpdateTitleRequest, ConversationAssignProjectRequest,
+#       ExcludeMessageRequest moved to routes/conversations.py
 
 class ProjectCreateRequest(BaseModel):
     name: str
@@ -1011,7 +937,8 @@ async def status():
     return {
         "online": True,
         "sdk_mode": USE_AGENT_SDK,
-        "memory_entries": memory.count(),
+        "memory_entries": memory.count() if memory else 0,
+        "memory_ready": _heavy_components_ready,
         "timestamp": datetime.now().isoformat(),
         "kernel": "Temple-Codex" if USE_AGENT_SDK else "Legacy"
     }
@@ -1501,36 +1428,8 @@ async def chat(request: ChatRequest):
     )
 
 
-@app.post("/memory/store")
-async def store_memory(request: MemoryStoreRequest):
-    """Manually store conversation in memory"""
-    entry_id = memory.store_conversation(
-        user_message=request.user_message,
-        assistant_response=request.assistant_response,
-        metadata=request.metadata
-    )
-    return {"status": "stored", "id": entry_id}
+# Note: Memory endpoints moved to routes/memory.py
 
-@app.post("/memory/query")
-async def query_memory(request: MemoryQueryRequest):
-    """Query memory for relevant entries"""
-    results = memory.retrieve_relevant(
-        query=request.query,
-        n_results=request.n_results
-    )
-    return {"results": results, "count": len(results)}
-
-@app.get("/memory/recent")
-async def recent_memories(n: int = 10):
-    """Get recent memories"""
-    return {"memories": memory.get_recent(n)}
-
-@app.get("/memory/export")
-async def export_memories():
-    """Export all memories"""
-    filepath = f"./data/memory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    memory.export_memories(filepath)
-    return {"status": "exported", "filepath": filepath}
 
 @app.post("/conversation/clear")
 async def clear_conversation():
@@ -1547,277 +1446,7 @@ async def get_history():
     return {"history": [], "note": "Agent SDK manages history internally"}
 
 
-# === Conversation Management Endpoints ===
-
-@app.post("/conversations/new")
-@limiter.limit("30/minute")
-async def create_conversation(
-    request: Request,
-    body: ConversationCreateRequest,
-    current_user: str = Depends(get_current_user)
-):
-    """Create a new conversation"""
-    # Use authenticated user if not specified in body
-    user_id = body.user_id or current_user
-    conversation = conversation_manager.create_conversation(
-        title=body.title,
-        project_id=body.project_id,
-        user_id=user_id
-    )
-    return {
-        "id": conversation.id,
-        "title": conversation.title,
-        "created_at": conversation.created_at,
-        "message_count": 0,
-        "project_id": conversation.project_id,
-        "user_id": conversation.user_id
-    }
-
-@app.get("/conversations")
-@limiter.limit("60/minute")
-async def list_conversations(
-    request: Request,
-    limit: Optional[int] = None,
-    user_id: Optional[str] = None,
-    current_user: str = Depends(get_current_user)
-):
-    """List conversations for the authenticated user"""
-    # Use current user if no specific user_id requested
-    # This ensures users only see their own conversations by default
-    filter_user_id = user_id if user_id else current_user
-    # Only allow viewing own conversations (or if user_id matches current user)
-    if user_id and user_id != current_user:
-        raise HTTPException(status_code=403, detail="Cannot view other users' conversations")
-    conversations = conversation_manager.list_conversations(limit=limit, user_id=filter_user_id)
-    return {"conversations": conversations, "count": len(conversations)}
-
-def verify_conversation_access(conversation_id: str, current_user: str):
-    """Helper to verify user has access to a conversation"""
-    conversation = conversation_manager.load_conversation(conversation_id)
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    # Check ownership if conversation has a user_id
-    conv_user_id = conversation.user_id
-    if conv_user_id and conv_user_id != current_user:
-        raise HTTPException(status_code=403, detail="Not authorized to access this conversation")
-    return conversation
-
-
-@app.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str, current_user: str = Depends(get_current_user)):
-    """Get a specific conversation with full history"""
-    conversation = verify_conversation_access(conversation_id, current_user)
-    return conversation.to_dict()
-
-@app.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str, current_user: str = Depends(get_current_user)):
-    """Delete a conversation"""
-    verify_conversation_access(conversation_id, current_user)
-    success = conversation_manager.delete_conversation(conversation_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return {"status": "deleted", "id": conversation_id}
-
-@app.put("/conversations/{conversation_id}/title")
-async def update_conversation_title(
-    conversation_id: str,
-    request: ConversationUpdateTitleRequest,
-    current_user: str = Depends(get_current_user)
-):
-    """Update a conversation's title"""
-    verify_conversation_access(conversation_id, current_user)
-    success = conversation_manager.update_title(conversation_id, request.title)
-    if not success:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return {"status": "updated", "id": conversation_id, "title": request.title}
-
-@app.get("/conversations/search/{query}")
-async def search_conversations(
-    query: str,
-    limit: int = 10,
-    current_user: str = Depends(get_current_user)
-):
-    """Search conversations by title or content"""
-    # TODO: Add user_id filtering to search_conversations in conversations.py
-    # For now, search all and filter results
-    results = conversation_manager.search_conversations(query, limit=limit * 2)
-    # Filter to only user's conversations
-    filtered = [r for r in results if r.get("user_id") == current_user or r.get("user_id") is None]
-    return {"results": filtered[:limit], "count": len(filtered[:limit])}
-
-@app.get("/conversations/{conversation_id}/summaries")
-async def get_conversation_summaries(
-    conversation_id: str,
-    current_user: str = Depends(get_current_user)
-):
-    """Get all summary chunks for a conversation"""
-    verify_conversation_access(conversation_id, current_user)
-    summaries = memory.get_summaries_for_conversation(conversation_id)
-    working_summary = conversation_manager.get_working_summary(conversation_id)
-    return {
-        "summaries": summaries,
-        "count": len(summaries),
-        "working_summary": working_summary
-    }
-
-
-@app.get("/conversations/{conversation_id}/observations")
-async def get_conversation_observations(
-    conversation_id: str,
-    current_user: str = Depends(get_current_user)
-):
-    """Get all observations (user and self) and marks made during a conversation"""
-    verify_conversation_access(conversation_id, current_user)
-
-    # Get user observations for this conversation
-    user_observations = []
-    all_user_obs = user_manager.load_observations(current_user)
-    for obs in all_user_obs:
-        if obs.source_conversation_id == conversation_id:
-            user_observations.append(obs.to_dict())
-
-    # Get self-observations for this conversation
-    self_observations = []
-    all_self_obs = self_manager.load_observations()
-    for obs in all_self_obs:
-        if obs.source_conversation_id == conversation_id:
-            self_observations.append(obs.to_dict())
-
-    # Get marks for this conversation
-    marks = []
-    if marker_store:
-        marks = marker_store.get_marks_by_conversation(conversation_id)
-
-    return {
-        "user_observations": user_observations,
-        "self_observations": self_observations,
-        "marks": marks,
-        "user_count": len(user_observations),
-        "self_count": len(self_observations),
-        "marks_count": len(marks)
-    }
-
-
-@app.post("/conversations/{conversation_id}/summarize")
-async def trigger_summarization(
-    conversation_id: str,
-    current_user: str = Depends(get_current_user)
-):
-    """Manually trigger memory summarization for a conversation"""
-    # Verify access
-    verify_conversation_access(conversation_id, current_user)
-
-    # Check if already in progress
-    if conversation_id in _summarization_in_progress:
-        return {
-            "status": "in_progress",
-            "message": "Summarization already in progress for this conversation"
-        }
-
-    # Trigger summarization (force=True bypasses evaluation for manual trigger)
-    asyncio.create_task(generate_and_store_summary(
-        conversation_id,
-        memory=memory,
-        conversation_manager=conversation_manager,
-        token_tracker=token_tracker,
-        force=True
-    ))
-
-    return {
-        "status": "started",
-        "message": f"Summarization started for conversation {conversation_id}"
-    }
-
-
-class ExcludeMessageRequest(BaseModel):
-    message_timestamp: str
-    exclude: bool = True  # True to exclude, False to un-exclude
-
-
-@app.post("/conversations/{conversation_id}/exclude")
-async def exclude_message(conversation_id: str, request: ExcludeMessageRequest):
-    """
-    Exclude a message from summarization and context retrieval.
-
-    Also removes the message from ChromaDB embeddings if excluding,
-    preventing it from polluting memory retrieval.
-    """
-    # Check if conversation exists
-    conv = conversation_manager.load_conversation(conversation_id)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    # Find the message to get its content for ChromaDB removal
-    msg = conversation_manager.get_message_by_timestamp(conversation_id, request.message_timestamp)
-    if not msg:
-        raise HTTPException(status_code=404, detail="Message not found")
-
-    # Update the message exclusion status
-    success = conversation_manager.exclude_message(
-        conversation_id,
-        request.message_timestamp,
-        request.exclude
-    )
-
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update message")
-
-    # If excluding, try to remove from ChromaDB
-    embeddings_removed = 0
-    if request.exclude:
-        try:
-            # Search for matching entries in ChromaDB by content
-            # The stored format is "User: {msg}\nCass: {response}"
-            results = memory.collection.get(
-                where={
-                    "$and": [
-                        {"conversation_id": conversation_id},
-                        {"type": "conversation"}
-                    ]
-                },
-                include=["documents", "metadatas"]
-            )
-
-            # Find entries that contain this message's content
-            ids_to_remove = []
-            for i, doc in enumerate(results.get("documents", [])):
-                if msg.content[:100] in doc:  # Match on first 100 chars
-                    ids_to_remove.append(results["ids"][i])
-
-            if ids_to_remove:
-                memory.collection.delete(ids=ids_to_remove)
-                embeddings_removed = len(ids_to_remove)
-                print(f"Removed {embeddings_removed} embeddings for excluded message")
-
-        except Exception as e:
-            print(f"Warning: Could not remove embeddings: {e}")
-
-    action = "excluded" if request.exclude else "un-excluded"
-    return {
-        "status": action,
-        "conversation_id": conversation_id,
-        "message_timestamp": request.message_timestamp,
-        "embeddings_removed": embeddings_removed
-    }
-
-
-@app.put("/conversations/{conversation_id}/project")
-async def assign_conversation_to_project(
-    conversation_id: str,
-    request: ConversationAssignProjectRequest
-):
-    """Assign a conversation to a project or remove from project"""
-    success = conversation_manager.assign_to_project(
-        conversation_id,
-        request.project_id
-    )
-    if not success:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return {
-        "status": "updated",
-        "id": conversation_id,
-        "project_id": request.project_id
-    }
+# Note: Conversation Management Endpoints moved to routes/conversations.py
 
 
 # === Project Management Endpoints ===
@@ -2938,6 +2567,14 @@ async def get_tasks(
 
 from solo_reflection_runner import SoloReflectionRunner
 from connection_manager import ConnectionManager
+from websocket_handlers import (
+    init_websocket_state,
+    set_llm_provider,
+    set_use_agent_sdk,
+    set_tts_state,
+    update_llm_clients,
+    websocket_endpoint as ws_endpoint,
+)
 from journal_generation import generate_missing_journals, _generate_per_user_journal_for_date, _evaluate_and_store_growth_edges, _reflect_and_store_open_questions, _generate_research_journal
 from journal_tasks import _create_development_log_entry, daily_journal_task
 from context_helpers import process_inline_tags, get_automatic_wiki_context
@@ -3688,6 +3325,7 @@ async def set_llm_provider(request: LLMProviderRequest):
     # Clear conversation history when switching providers to prevent stale state
     old_provider = current_llm_provider
     current_llm_provider = request.provider
+    set_llm_provider(request.provider)  # Update websocket handler state
 
     if old_provider != request.provider:
         # Clear all clients' conversation histories on switch
@@ -4950,6 +4588,9 @@ async def set_tts_config(request: TTSConfigRequest):
         # Resolve voice alias or use directly
         tts_voice = VOICES.get(request.voice, request.voice)
 
+    # Update websocket handler state
+    set_tts_state(tts_enabled, tts_voice)
+
     return {
         "enabled": tts_enabled,
         "voice": tts_voice
@@ -4988,1011 +4629,63 @@ async def generate_tts(request: TTSRequest):
 
 
 # === WebSocket for Real-time Communication ===
-
+# Handler logic extracted to websocket_handlers.py for maintainability
 
 manager = ConnectionManager()
 
+# Register the extracted websocket endpoint
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
-    """
-    WebSocket for real-time bidirectional communication.
-
-    Authentication:
-    - Pass token as query parameter: ws://host/ws?token=<jwt>
-    - Or send {type: "auth", token: "<jwt>"} as first message
-    - Localhost connections fall back to DEFAULT_LOCALHOST_USER_ID
-    """
-    import os
-    from auth import decode_token, is_localhost_request
-    from admin_api import verify_token as verify_admin_token
-
-    # Determine user_id from token or localhost bypass
-    connection_user_id: Optional[str] = None
-
-    # Try token from query param
-    if token:
-        # Try auth.py format first (uses "sub" field)
-        token_data = decode_token(token)
-        if token_data and token_data.token_type == "access":
-            connection_user_id = token_data.user_id
-        else:
-            # Try admin_api.py format (uses "user_id" field)
-            admin_payload = verify_admin_token(token)
-            if admin_payload and admin_payload.get("user_id"):
-                connection_user_id = admin_payload["user_id"]
-
-    # Localhost bypass if no token
-    if not connection_user_id:
-        allow_localhost = os.getenv("ALLOW_LOCALHOST_BYPASS", "true").lower() == "true"
-        client_host = websocket.client.host if websocket.client else None
-        if allow_localhost and client_host in {"127.0.0.1", "::1", "localhost"}:
-            connection_user_id = os.getenv("DEFAULT_LOCALHOST_USER_ID")
-
-    await manager.connect(websocket, user_id=connection_user_id)
-
-    await websocket.send_json({
-        "type": "connected",
-        "message": "Cass vessel connected",
-        "sdk_mode": USE_AGENT_SDK,
-        "user_id": connection_user_id,
-        "timestamp": datetime.now().isoformat()
-    })
-    print(f"[WebSocket] Sent connected message, entering message loop for user {connection_user_id}")
-
-    try:
-        while True:
-            print("[WebSocket] Waiting for message...")
-            data = await websocket.receive_json()
-            print(f"[WebSocket] Received message type: {data.get('type')}")
-
-            # Handle auth message (alternative to query param)
-            if data.get("type") == "auth":
-                auth_token = data.get("token")
-                if auth_token:
-                    # Try auth.py format first
-                    token_data = decode_token(auth_token)
-                    if token_data and token_data.token_type == "access":
-                        connection_user_id = token_data.user_id
-                    else:
-                        # Try admin_api.py format
-                        admin_payload = verify_admin_token(auth_token)
-                        if admin_payload and admin_payload.get("user_id"):
-                            connection_user_id = admin_payload["user_id"]
-
-                    if connection_user_id:
-                        manager.set_user_id(websocket, connection_user_id)
-                        await websocket.send_json({
-                            "type": "auth_success",
-                            "user_id": connection_user_id
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "auth_error",
-                            "message": "Invalid token"
-                        })
-                continue
-
-            if data.get("type") == "chat":
-                import time
-                timing_start = time.time()
-
-                # Get connection-local user_id (may have been set via auth message)
-                ws_user_id = manager.get_user_id(websocket)
-
-                user_message = data.get("message", "")
-                conversation_id = data.get("conversation_id")
-
-                # Auto-create conversation if none provided
-                if not conversation_id:
-                    new_conv = conversation_manager.create_conversation(
-                        title=None,  # Will be auto-generated after first exchange
-                        user_id=ws_user_id
-                    )
-                    conversation_id = new_conv.id
-                    print(f"[WebSocket] Auto-created conversation {conversation_id} for user {ws_user_id}")
-
-                image_data = data.get("image")  # Base64 encoded image
-                image_media_type = data.get("image_media_type")  # e.g., "image/png"
-                attachment_ids = data.get("attachment_ids", [])  # Uploaded attachment IDs
-
-                if image_data:
-                    print(f"[WebSocket] Received image: {image_media_type}, {len(image_data)} chars base64")
-                if attachment_ids:
-                    print(f"[WebSocket] Received {len(attachment_ids)} attachment IDs: {attachment_ids}")
-                if not image_data and not attachment_ids:
-                    print("[WebSocket] No image or attachments in message")
-
-                # Check if conversation belongs to a project
-                project_id = None
-                if conversation_id:
-                    conversation = conversation_manager.load_conversation(conversation_id)
-                    if conversation:
-                        project_id = conversation.project_id
-
-                # Get memories (hierarchical: summaries first, then details)
-                hierarchical = memory.retrieve_hierarchical(
-                    query=user_message,
-                    conversation_id=conversation_id
-                )
-                # Track context source sizes for diagnostics
-                context_sizes = {}
-
-                # Use working summary if available (token-optimized)
-                working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
-                # Get actual recent messages for chronological context (not semantic search)
-                recent_messages = conversation_manager.get_recent_messages(conversation_id, count=6) if conversation_id else None
-                memory_context = memory.format_hierarchical_context(
-                    hierarchical,
-                    working_summary=working_summary,
-                    recent_messages=recent_messages
-                )
-                context_sizes["hierarchical"] = len(memory_context)
-
-                # Add user context if we have a connection user
-                # NOTE: user_context and intro_guidance are passed separately to send_message
-                # for proper chain system support, not merged into memory_context
-                user_context_count = 0
-                intro_guidance = None
-                user_context = ""
-                user_model_context = None
-                relationship_context = None
-                if ws_user_id:
-                    user_context_entries = memory.retrieve_user_context(
-                        query=user_message,
-                        user_id=ws_user_id
-                    )
-                    user_context_count = len(user_context_entries)
-                    user_context = memory.format_user_context(user_context_entries)
-                    # Don't merge into memory_context - pass separately for chain support
-
-                    # Check if user model is sparse and add intro guidance
-                    sparseness = user_manager.check_user_model_sparseness(ws_user_id)
-                    intro_guidance = sparseness.get("intro_guidance")
-
-                    # Get enhanced user modeling contexts (identity, values, relationship dynamics)
-                    user_model_context = user_manager.get_rich_user_context(ws_user_id)
-                    relationship_context = user_manager.get_relationship_context(ws_user_id)
-                    print(f"[Context] User model context: {len(user_model_context) if user_model_context else 0} chars")
-                    print(f"[Context] Relationship context: {len(relationship_context) if relationship_context else 0} chars")
-                context_sizes["user"] = len(user_context)
-
-                # Add project context if conversation is in a project
-                project_docs_count = 0
-                project_context = ""
-                if project_id:
-                    project_docs = memory.retrieve_project_context(
-                        query=user_message,
-                        project_id=project_id
-                    )
-                    project_docs_count = len(project_docs)
-                    project_context = memory.format_project_context(project_docs)
-                    if project_context:
-                        memory_context = project_context + "\n\n" + memory_context
-                context_sizes["project"] = len(project_context)
-
-                # Add Cass's self-model context (flat profile - identity/values/edges)
-                # Note: observations now handled by graph context with message-relevance
-                self_context = self_manager.get_self_context(include_observations=False) if self_manager else ""
-                if self_context:
-                    memory_context = self_context + "\n\n" + memory_context
-                context_sizes["self_model"] = len(self_context)
-
-                # Add self-model graph context (message-relevant observations, marks, changes)
-                graph_context = ""
-                if self_model_graph:
-                    graph_context = self_model_graph.get_graph_context(
-                        message=user_message,
-                        include_contradictions=True,
-                        include_recent=True,
-                        include_stats=True,
-                        max_related=5
-                    )
-                    if graph_context:
-                        memory_context = graph_context + "\n\n" + memory_context
-                context_sizes["graph"] = len(graph_context)
-
-                # Tier 1: Automatic wiki context retrieval
-                # Inject high-relevance wiki pages without explicit tool call
-                wiki_context_str, wiki_page_names, wiki_retrieval_ms = get_automatic_wiki_context(
-                    query=user_message,
-                    relevance_threshold=0.5,  # Only inject pages with 50%+ relevance
-                    max_pages=3,
-                    max_tokens=1500
-                )
-                wiki_pages_count = len(wiki_page_names)
-                if wiki_context_str:
-                    memory_context = wiki_context_str + "\n\n" + memory_context
-                    if wiki_retrieval_ms > 0:
-                        print(f"[Wiki] Auto-injected {wiki_pages_count} pages in {wiki_retrieval_ms}ms: {wiki_page_names}")
-                context_sizes["wiki"] = len(wiki_context_str) if wiki_context_str else 0
-
-                # Add cross-session insights relevant to this message
-                cross_session_insights = memory.retrieve_cross_session_insights(
-                    query=user_message,
-                    n_results=5,
-                    max_distance=1.2,
-                    min_importance=0.5,
-                    exclude_conversation_id=conversation_id
-                )
-                cross_session_insights_count = len(cross_session_insights)
-                insights_context = ""
-                if cross_session_insights:
-                    insights_context = memory.format_cross_session_context(cross_session_insights)
-                    if insights_context:
-                        memory_context = insights_context + "\n\n" + memory_context
-                        print(f"[CrossSession] Surfaced {cross_session_insights_count} insights for query")
-                context_sizes["insights"] = len(insights_context)
-
-                # Add active goals context
-                active_goals_context = goal_manager.get_active_summary()
-                if active_goals_context:
-                    memory_context = active_goals_context + "\n\n" + memory_context
-                context_sizes["goals"] = len(active_goals_context) if active_goals_context else 0
-
-                # Add recognition-in-flow patterns (between-session surfacing)
-                from pattern_aggregation import get_pattern_summary_for_surfacing
-                patterns_context, pattern_count = get_pattern_summary_for_surfacing(
-                    marker_store=marker_store,
-                    min_significance=0.5,
-                    limit=3
-                )
-                if patterns_context:
-                    memory_context = patterns_context + "\n\n" + memory_context
-                context_sizes["patterns"] = len(patterns_context) if patterns_context else 0
-
-                # NOTE: intro_guidance is NOT merged into memory_context here
-                # It's passed separately to send_message for proper chain system support
-                context_sizes["intro"] = len(intro_guidance) if intro_guidance else 0
-
-                # Total context size
-                context_sizes["total"] = len(memory_context)
-
-                # Get tool count for context breakdown
-                # Tools add significant tokens (~20k for full set) but aren't part of the text context
-                tool_count = 0
-                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-                    tool_count = len(ollama_client.get_tools(project_id, user_message))
-                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
-                    tool_count = len(openai_client.get_tools(project_id, user_message))
-                elif USE_AGENT_SDK and agent_client:
-                    tool_count = len(agent_client.get_tools(project_id, user_message))
-                context_sizes["tool_count"] = tool_count
-
-                # Log context breakdown for debugging token usage
-                print(f"[Context] Breakdown: " + ", ".join(f"{k}={v}" for k, v in sorted(context_sizes.items(), key=lambda x: -x[1]) if v > 0))
-
-                # Get unsummarized message count to determine if summarization is available
-                unsummarized_count = 0
-                if conversation_id:
-                    unsummarized_messages = conversation_manager.get_unsummarized_messages(conversation_id)
-                    unsummarized_count = len(unsummarized_messages)
-
-                # Send "thinking" status with memory info
-                memory_summary = {
-                    "summaries_count": len(hierarchical.get("summaries", [])),
-                    "details_count": len(hierarchical.get("details", [])),
-                    "project_docs_count": project_docs_count,
-                    "user_context_count": user_context_count,
-                    "wiki_pages_count": wiki_pages_count,
-                    "cross_session_insights_count": cross_session_insights_count,
-                    "pattern_count": pattern_count,
-                    "tool_count": tool_count,  # Number of tools available (adds ~20k tokens)
-                    "has_context": bool(memory_context),
-                    "context_sizes": context_sizes  # Character counts per source
-                }
-                await websocket.send_json({
-                    "type": "thinking",
-                    "status": "Retrieving memories..." if memory_context else "Processing...",
-                    "memories": memory_summary,
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                tool_uses = []
-
-                # Update status before calling LLM
-                # Determine provider label for status messages
-                if current_llm_provider == LLM_PROVIDER_LOCAL:
-                    provider_label = "local model"
-                elif current_llm_provider == LLM_PROVIDER_OPENAI:
-                    provider_label = "OpenAI"
-                else:
-                    provider_label = "Claude"
-                await websocket.send_json({
-                    "type": "thinking",
-                    "status": f"Generating response ({provider_label})...",
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                # Initialize timing data
-                timing_data = create_timing_data(
-                    conversation_id=conversation_id,
-                    provider=provider_label.lower().replace(" ", "_"),
-                    model=None  # Will be set after response
-                )
-                timing_data.start_time = timing_start
-                timing_data.message_length = len(user_message)
-                timing_first_token = time.time()
-                tool_execution_total_ms = 0.0
-                tool_names_collected = []
-                tool_iterations_count = 0
-                total_cache_read_tokens = 0  # Track Anthropic prompt cache hits
-
-                # Check if using local LLM
-                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-                    # Use local Ollama for response (with tool support for llama3.1+)
-                    response = await ollama_client.send_message(
-                        message=user_message,
-                        memory_context=memory_context,
-                        project_id=project_id,
-                        unsummarized_count=unsummarized_count,
-                        conversation_id=conversation_id,
-                        user_context=user_context if user_context else None,
-                        intro_guidance=intro_guidance,
-                        user_model_context=user_model_context,
-                        relationship_context=relationship_context,
-                    )
-                    raw_response = response.raw
-                    clean_text = response.text
-                    animations = response.gestures
-                    tool_uses = response.tool_uses
-                    total_input_tokens = response.input_tokens
-                    total_output_tokens = response.output_tokens
-
-                    # Handle tool calls for Ollama (same as Anthropic)
-                    tool_iteration = 0
-                    while response.stop_reason == "tool_use" and tool_uses:
-                        tool_iteration += 1
-                        tool_iterations_count += 1
-                        tool_names = [t['tool'] for t in tool_uses]
-                        tool_names_collected.extend(tool_names)
-                        tool_loop_start = time.time()
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Ollama Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "thinking",
-                            "status": f"Executing: {', '.join(tool_names)}...",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        # Get user name for self-model tools
-                        user_name = None
-                        if ws_user_id:
-                            user_profile = user_manager.load_profile(ws_user_id)
-                            user_name = user_profile.display_name if user_profile else None
-
-                        # Execute all tools via unified router
-                        tool_ctx = create_tool_context(
-                            user_id=ws_user_id,
-                            user_name=user_name,
-                            conversation_id=conversation_id,
-                            project_id=project_id
-                        )
-                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
-
-                        # Continue conversation with all tool results
-                        response = await ollama_client.continue_with_tool_results(all_tool_results)
-
-                        # Track tool execution time for this iteration
-                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
-
-                        # Update response data
-                        raw_response = response.raw
-                        clean_text = response.text
-                        animations = response.gestures
-                        tool_uses = response.tool_uses
-                        total_input_tokens += response.input_tokens
-                        total_output_tokens += response.output_tokens
-
-                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
-                    # Use OpenAI API
-                    response = await openai_client.send_message(
-                        message=user_message,
-                        memory_context=memory_context,
-                        project_id=project_id,
-                        unsummarized_count=unsummarized_count,
-                        conversation_id=conversation_id,
-                        user_context=user_context if user_context else None,
-                        intro_guidance=intro_guidance,
-                        user_model_context=user_model_context,
-                        relationship_context=relationship_context,
-                    )
-                    raw_response = response.raw
-                    clean_text = response.text
-                    animations = response.gestures
-                    tool_uses = response.tool_uses
-                    total_input_tokens = response.input_tokens
-                    total_output_tokens = response.output_tokens
-
-                    # Handle tool calls for OpenAI (same pattern as others)
-                    tool_iteration = 0
-                    while response.stop_reason == "tool_use" and tool_uses:
-                        tool_iteration += 1
-                        tool_iterations_count += 1
-                        tool_names = [t['tool'] for t in tool_uses]
-                        tool_names_collected.extend(tool_names)
-                        tool_loop_start = time.time()
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[OpenAI Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "thinking",
-                            "status": f"Executing: {', '.join(tool_names)}...",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        # Get user name for self-model tools
-                        user_name = None
-                        if ws_user_id:
-                            user_profile = user_manager.load_profile(ws_user_id)
-                            user_name = user_profile.display_name if user_profile else None
-
-                        # Execute all tools via unified router
-                        tool_ctx = create_tool_context(
-                            user_id=ws_user_id,
-                            user_name=user_name,
-                            conversation_id=conversation_id,
-                            project_id=project_id
-                        )
-                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
-
-                        # Continue conversation with all tool results
-                        response = await openai_client.continue_with_tool_results(all_tool_results)
-
-                        # Track tool execution time for this iteration
-                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
-
-                        # Update response data
-                        raw_response = response.raw
-                        clean_text = response.text
-                        animations = response.gestures
-                        tool_uses = response.tool_uses
-                        total_input_tokens += response.input_tokens
-                        total_output_tokens += response.output_tokens
-
-                elif USE_AGENT_SDK and agent_client:
-                    # Use Anthropic Claude API with Agent SDK
-                    response = await agent_client.send_message(
-                        message=user_message,
-                        memory_context=memory_context,
-                        project_id=project_id,
-                        unsummarized_count=unsummarized_count,
-                        image=image_data,
-                        image_media_type=image_media_type,
-                        rhythm_manager=daily_rhythm_manager,
-                        memory=memory,
-                        conversation_id=conversation_id,
-                        user_context=user_context if user_context else None,
-                        intro_guidance=intro_guidance,
-                        user_model_context=user_model_context,
-                        relationship_context=relationship_context,
-                    )
-                    raw_response = response.raw
-                    clean_text = response.text
-                    animations = response.gestures
-                    tool_uses = response.tool_uses
-
-                    # Track token usage (accumulates across tool calls)
-                    total_input_tokens = response.input_tokens
-                    total_output_tokens = response.output_tokens
-                    total_cache_read_tokens = getattr(response, 'cache_read_tokens', 0) or 0
-
-                    # Handle tool calls
-                    tool_iteration = 0
-                    while response.stop_reason == "tool_use" and tool_uses:
-                        tool_iteration += 1
-                        tool_iterations_count += 1
-                        # Send status update with debug info
-                        tool_names = [t['tool'] for t in tool_uses]
-                        tool_names_collected.extend(tool_names)
-                        tool_loop_start = time.time()
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "thinking",
-                            "status": f"Executing: {', '.join(tool_names)}...",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        # Get user name for self-model tools
-                        user_name = None
-                        if ws_user_id:
-                            user_profile = user_manager.load_profile(ws_user_id)
-                            user_name = user_profile.display_name if user_profile else None
-
-                        # Execute all tools via unified router
-                        tool_ctx = create_tool_context(
-                            user_id=ws_user_id,
-                            user_name=user_name,
-                            conversation_id=conversation_id,
-                            project_id=project_id
-                        )
-                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
-
-                        # Submit ALL results at once
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Submitting {len(all_tool_results)} tool results to Claude...]",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        response = await agent_client.continue_with_tool_results(all_tool_results)
-
-                        # Debug: log continuation response
-                        text_preview = response.text[:200] if response.text else "(empty)"
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Continuation] stop_reason={response.stop_reason}, has_text={bool(response.text)}, new_tools={len(response.tool_uses)}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Continuation text] {text_preview}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        # Update response data
-                        raw_response += "\n" + response.raw
-                        # Only keep final text response - intermediate "let me check..." text wastes tokens
-                        # when stored and loaded as context. Replace instead of accumulate.
-                        if response.text:
-                            clean_text = response.text
-                        animations.extend(response.gestures)
-                        tool_uses = response.tool_uses
-
-                        # Accumulate token usage
-                        total_input_tokens += response.input_tokens
-                        total_output_tokens += response.output_tokens
-                        total_cache_read_tokens += getattr(response, 'cache_read_tokens', 0) or 0
-
-                        # Track tool execution time
-                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
-                else:
-                    raw_response = legacy_client.send_message(
-                        user_message=user_message,
-                        memory_context=memory_context
-                    )
-                    processed = response_processor.process(raw_response)
-                    clean_text = processed["text"]
-                    animations = processed["animations"]
-                    # Legacy mode doesn't track tokens
-                    total_input_tokens = 0
-                    total_output_tokens = 0
-
-                # Extract and store recognition-in-flow marks before other processing
-                from markers import parse_marks
-                clean_text, marks = parse_marks(clean_text, conversation_id)
-                if marks and marker_store:
-                    stored = marker_store.store_marks(marks)
-                    if stored > 0:
-                        print(f"  Stored {stored} recognition-in-flow mark(s)")
-
-                # Process inline XML tags (observations, roadmap items) and strip them
-                # Returns dict with cleaned text and all extracted metacognitive tags
-                processed_tags = await process_inline_tags(
-                    text=clean_text,
-                    conversation_id=conversation_id,
-                    user_id=ws_user_id
-                )
-                clean_text = processed_tags["text"]
-                extracted_self_obs = processed_tags["self_observations"]
-                extracted_user_obs = processed_tags["user_observations"]
-                extracted_holds = processed_tags["holds"]
-                extracted_notes = processed_tags["notes"]
-                extracted_intentions = processed_tags["intentions"]
-                extracted_stakes = processed_tags["stakes"]
-                extracted_tests = processed_tags["tests"]
-                extracted_narrations = processed_tags["narrations"]
-                extracted_milestones = processed_tags["milestones"]
-
-                # Store in memory (with conversation_id and user_id if provided)
-                if memory:
-                    await memory.store_conversation(
-                        user_message=user_message,
-                        assistant_response=raw_response,
-                        conversation_id=conversation_id,
-                        user_id=ws_user_id
-                    )
-
-                # Determine provider and model for this response (needed for conversation storage)
-                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-                    response_provider = "local"
-                    response_model = ollama_client.model
-                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
-                    response_provider = "openai"
-                    response_model = openai_client.model if hasattr(openai_client, 'model') else "gpt-4o"
-                elif USE_AGENT_SDK and agent_client:
-                    response_provider = "anthropic"
-                    response_model = agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
-                else:
-                    response_provider = "anthropic"
-                    response_model = "claude-sonnet-4-20250514"
-
-                # Store in conversation if conversation_id provided
-                if conversation_id:
-                    conversation_manager.add_message(
-                        conversation_id=conversation_id,
-                        role="user",
-                        content=user_message,
-                        user_id=ws_user_id
-                    )
-                    # Convert marks to dicts for storage
-                    marks_for_storage = [
-                        {"category": m.category, "description": m.description}
-                        for m in marks
-                    ] if marks else None
-
-                    # Analyze narration patterns
-                    narration_metrics = get_narration_metrics(clean_text)
-
-                    conversation_manager.add_message(
-                        conversation_id=conversation_id,
-                        role="assistant",
-                        content=clean_text,
-                        animations=animations,
-                        input_tokens=total_input_tokens,
-                        output_tokens=total_output_tokens,
-                        provider=response_provider,
-                        model=response_model,
-                        self_observations=extracted_self_obs if extracted_self_obs else None,
-                        user_observations=extracted_user_obs if extracted_user_obs else None,
-                        marks=marks_for_storage,
-                        narration_metrics=narration_metrics,
-                        holds=extracted_holds if extracted_holds else None,
-                        notes=extracted_notes if extracted_notes else None,
-                        intentions=extracted_intentions if extracted_intentions else None,
-                        stakes=extracted_stakes if extracted_stakes else None,
-                        tests=extracted_tests if extracted_tests else None,
-                        narrations=extracted_narrations if extracted_narrations else None,
-                        milestones=extracted_milestones if extracted_milestones else None
-                    )
-
-                    # Track token usage
-                    operation = "tool_continuation" if tool_iterations_count > 0 else "initial_message"
-                    token_tracker.record(
-                        category="chat",
-                        operation=operation,
-                        provider=response_provider,
-                        model=response_model,
-                        input_tokens=total_input_tokens,
-                        output_tokens=total_output_tokens,
-                        conversation_id=conversation_id,
-                        user_id=ws_user_id
-                    )
-
-                    # Auto-generate title on first exchange
-                    message_count = conversation_manager.get_message_count(conversation_id)
-                    if message_count == 2:  # First user + first assistant message
-                        asyncio.create_task(generate_conversation_title(
-                            conversation_id, user_message, clean_text,
-                            conversation_manager=conversation_manager,
-                            token_tracker=token_tracker,
-                            websocket=websocket
-                        ))
-
-                    # Check if summarization is needed
-                    should_summarize = False
-
-                    # Check for <memory:summarize> tag
-                    if USE_AGENT_SDK and agent_client:
-                        # In Agent SDK mode, check raw_response directly
-                        if "<memory:summarize>" in raw_response:
-                            should_summarize = True
-                    else:
-                        # In legacy mode, check processed memory_tags
-                        if "memory_tags" in processed and processed["memory_tags"].get("summarize"):
-                            should_summarize = True
-
-                    # Check for auto-summary threshold
-                    if conversation_manager.needs_auto_summary(conversation_id, AUTO_SUMMARY_INTERVAL):
-                        should_summarize = True
-
-                    # Trigger summarization if needed
-                    if should_summarize:
-                        # Run summarization in background, pass websocket for status updates
-                        asyncio.create_task(generate_and_store_summary(
-                            conversation_id,
-                            memory=memory,
-                            conversation_manager=conversation_manager,
-                            token_tracker=token_tracker,
-                            websocket=websocket
-                        ))
-
-                # NOTE: Inline XML tags are now processed via process_inline_tags() above
-                # This handles both tool-based and tag-based observations/roadmap items
-
-                # Generate TTS audio if enabled
-                # Pass raw_response so emote tags can be extracted for tone adjustment
-                audio_base64 = None
-                if tts_enabled and clean_text:
-                    try:
-                        import concurrent.futures
-                        loop = asyncio.get_event_loop()
-                        with concurrent.futures.ThreadPoolExecutor() as pool:
-                            audio_bytes = await loop.run_in_executor(
-                                pool,
-                                lambda: text_to_speech(raw_response, voice=tts_voice)
-                            )
-                        if audio_bytes:
-                            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-                    except Exception as e:
-                        print(f"TTS generation failed: {e}")
-                        import traceback
-                        traceback.print_exc()
-
-                # Send combined response with text and audio
-                # (response_provider and response_model already determined above for conversation storage)
-                # Convert marks to dicts for JSON serialization
-                marks_for_json = [
-                    {"category": m.category, "description": m.description}
-                    for m in marks
-                ] if marks else []
-                # Log cache stats for prompt caching visibility
-                if total_cache_read_tokens > 0:
-                    cache_hit_pct = (total_cache_read_tokens / total_input_tokens * 100) if total_input_tokens > 0 else 0
-                    print(f"[Cache] Prompt cache hit: {total_cache_read_tokens:,} tokens ({cache_hit_pct:.1f}% of input)")
-
-                await websocket.send_json({
-                    "type": "response",
-                    "text": clean_text,
-                    "animations": animations,
-                    "raw": raw_response,
-                    "tool_uses": tool_uses,
-                    "conversation_id": conversation_id,
-                    "audio": audio_base64,
-                    "audio_format": "mp3" if audio_base64 else None,
-                    "input_tokens": total_input_tokens,
-                    "output_tokens": total_output_tokens,
-                    "cache_read_tokens": total_cache_read_tokens,  # Prompt cache hits (90% cost reduction)
-                    "timestamp": datetime.now().isoformat(),
-                    "provider": response_provider,
-                    "model": response_model,
-                    # Recognition-in-flow markers for TUI display
-                    "self_observations": extracted_self_obs,
-                    "user_observations": extracted_user_obs,
-                    "marks": marks_for_json,
-                    # Expanded metacognitive tags for frontend feedback
-                    "holds": extracted_holds if extracted_holds else None,
-                    "notes": extracted_notes if extracted_notes else None,
-                    "intentions": extracted_intentions if extracted_intentions else None,
-                    "stakes": extracted_stakes if extracted_stakes else None,
-                    "tests": extracted_tests if extracted_tests else None,
-                    "narrations": extracted_narrations if extracted_narrations else None,
-                    "milestones": extracted_milestones if extracted_milestones else None,
-                })
-
-                # Record timing metrics
-                timing_data.first_token_time = timing_first_token
-                timing_data.completion_time = time.time()
-                timing_data.input_tokens = total_input_tokens or 0
-                timing_data.output_tokens = total_output_tokens or 0
-                timing_data.tool_call_count = len(tool_uses) if tool_uses else 0
-                timing_data.tool_execution_ms = tool_execution_total_ms
-                timing_data.tool_names = tool_names_collected
-                timing_data.tool_iterations = tool_iterations_count
-                timing_data.response_length = len(clean_text.split()) if clean_text else 0
-                timing_data.model = response_model
-                timing_data.provider = response_provider
-                # Get conversation depth
-                if conversation_id:
-                    conv = conversation_manager.load_conversation(conversation_id)
-                    timing_data.conversation_depth = len(conv.messages) if conv else 0
-                temporal_metrics_tracker.record_response(timing_data)
-
-            elif data.get("type") == "ping":
-                await websocket.send_json({
-                    "type": "pong",
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-            elif data.get("type") == "status":
-                await websocket.send_json({
-                    "type": "status",
-                    "sdk_mode": USE_AGENT_SDK,
-                    "memory_count": memory.count(),
-                    "timestamp": datetime.now().isoformat()
-                })
-
-            elif data.get("type") == "onboarding_intro":
-                # Handle new user onboarding - Cass introduces herself
-                user_id = data.get("user_id")
-                conversation_id = data.get("conversation_id")
-
-                if not user_id or not conversation_id:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Missing user_id or conversation_id for onboarding"
-                    })
-                    continue
-
-                # Load user profile
-                profile = user_manager.load_profile(user_id)
-                if not profile:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "User not found"
-                    })
-                    continue
-
-                # Set as current user (both connection-local and global for backwards compat)
-                manager.set_user_id(websocket, user_id)
-                current_user_id = user_id  # TODO: Remove global once TUI uses auth
-
-                # Build profile context
-                profile_context = user_manager.get_user_context(user_id) or "No additional profile information provided."
-
-                # Format the onboarding prompt
-                from config import ONBOARDING_INTRO_PROMPT
-                intro_context = ONBOARDING_INTRO_PROMPT.format(
-                    display_name=profile.display_name,
-                    relationship=profile.relationship,
-                    profile_context=profile_context
-                )
-
-                # Send thinking status
-                await websocket.send_json({
-                    "type": "thinking",
-                    "status": "Cass is preparing to introduce herself...",
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                try:
-                    # Generate introduction using the LLM
-                    if USE_AGENT_SDK and agent_client:
-                        response = await agent_client.send_message(
-                            message="[New user just created their profile. Please introduce yourself warmly.]",
-                            memory_context=intro_context,
-                            project_id=None,
-                            unsummarized_count=0
-                        )
-                        raw_response = response.raw
-                        clean_text = response.text
-                        animations = response.gestures
-                        total_input_tokens = response.input_tokens
-                        total_output_tokens = response.output_tokens
-
-                        # Store in conversation
-                        narration_metrics = get_narration_metrics(clean_text)
-                        conversation_manager.add_message(
-                            conversation_id=conversation_id,
-                            role="assistant",
-                            content=clean_text,
-                            animations=animations,
-                            input_tokens=total_input_tokens,
-                            output_tokens=total_output_tokens,
-                            provider="anthropic",
-                            model=agent_client.model if hasattr(agent_client, 'model') else None,
-                            narration_metrics=narration_metrics
-                        )
-
-                        # Send response
-                        await websocket.send_json({
-                            "type": "response",
-                            "text": clean_text,
-                            "animations": animations,
-                            "raw": raw_response,
-                            "conversation_id": conversation_id,
-                            "input_tokens": total_input_tokens,
-                            "output_tokens": total_output_tokens,
-                            "timestamp": datetime.now().isoformat()
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "Agent client not available for onboarding"
-                        })
-                except Exception as e:
-                    print(f"Onboarding error: {e}")
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Failed to generate introduction: {str(e)}"
-                    })
-
-            elif data.get("type") == "onboarding_demo":
-                # Handle onboarding demo - Cass proposes a collaborative exercise
-                user_id = data.get("user_id")
-                profile_data = data.get("profile", {})  # Partial profile from preferences phase
-                message = data.get("message")  # Optional: user's response during demo
-
-                if not user_id:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Missing user_id for onboarding demo"
-                    })
-                    continue
-
-                # Load user profile
-                profile = user_manager.load_profile(user_id)
-                if not profile:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "User not found"
-                    })
-                    continue
-
-                # Set as current user
-                manager.set_user_id(websocket, user_id)
-
-                # Build profile context from both stored profile and passed preferences
-                profile_parts = []
-                if profile_data.get("relationship"):
-                    profile_parts.append(f"- Relationship: {profile_data['relationship']}")
-                if profile_data.get("background", {}).get("context"):
-                    profile_parts.append(f"- What's on their mind: {profile_data['background']['context']}")
-                if profile_data.get("communication", {}).get("style"):
-                    profile_parts.append(f"- Communication style: {profile_data['communication']['style']}")
-                if profile_data.get("values"):
-                    profile_parts.append(f"- Values: {', '.join(profile_data['values'])}")
-
-                profile_context = "\n".join(profile_parts) if profile_parts else "No additional profile information provided."
-
-                # Send thinking status
-                await websocket.send_json({
-                    "type": "thinking",
-                    "status": "Cass is thinking...",
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                try:
-                    if USE_AGENT_SDK and agent_client:
-                        if message:
-                            # User responded - continue the demo conversation
-                            response = await agent_client.send_message(
-                                message=message,
-                                memory_context=f"[Onboarding demo conversation with {profile.display_name}. Continue the collaborative exchange, showing genuine partnership.]",
-                                project_id=None,
-                                unsummarized_count=0
-                            )
-                        else:
-                            # Initial demo - Cass proposes a collaborative exercise
-                            from config import ONBOARDING_DEMO_PROMPT
-                            demo_context = ONBOARDING_DEMO_PROMPT.format(
-                                display_name=profile.display_name,
-                                relationship=profile_data.get("relationship", profile.relationship),
-                                profile_context=profile_context
-                            )
-                            response = await agent_client.send_message(
-                                message="[Start the onboarding demo by proposing a collaborative exercise based on what you know about this person.]",
-                                memory_context=demo_context,
-                                project_id=None,
-                                unsummarized_count=0
-                            )
-
-                        # Send response
-                        await websocket.send_json({
-                            "type": "response",
-                            "text": response.text,
-                            "animations": response.gestures,
-                            "input_tokens": response.input_tokens,
-                            "output_tokens": response.output_tokens,
-                            "timestamp": datetime.now().isoformat()
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "Agent client not available for onboarding demo"
-                        })
-                except Exception as e:
-                    print(f"Onboarding demo error: {e}")
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Failed to generate demo response: {str(e)}"
-                    })
-
-    except WebSocketDisconnect:
-        print(f"[WebSocket] Client disconnected normally")
-        manager.disconnect(websocket)
-    except Exception as e:
-        print(f"[WebSocket] Unexpected error: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        manager.disconnect(websocket)
+    """WebSocket endpoint - delegates to extracted handler in websocket_handlers.py"""
+    await ws_endpoint(websocket, token)
+
+
+# Initialize websocket state after all dependencies are ready
+def _init_websocket_state():
+    """Initialize websocket handlers with all dependencies. Called at startup."""
+    from handlers import ToolContext as create_tool_context_class, execute_tool_batch as exec_batch
+    from testing.temporal_metrics import create_timing_data as create_timing
+    from narration import get_metrics_dict as narration_metrics
+
+    # Create a tool context factory
+    def create_tool_ctx(user_id, user_name, conversation_id, project_id):
+        return create_tool_context_class(
+            user_id=user_id,
+            user_name=user_name,
+            conversation_id=conversation_id,
+            project_id=project_id
+        )
+
+    init_websocket_state(
+        memory=memory,
+        conversation_manager=conversation_manager,
+        user_manager=user_manager,
+        self_manager=self_manager,
+        self_model_graph=self_model_graph,
+        goal_manager=goal_manager,
+        marker_store=marker_store,
+        daily_rhythm_manager=daily_rhythm_manager,
+        token_tracker=token_tracker,
+        temporal_metrics_tracker=temporal_metrics_tracker,
+        connection_manager=manager,
+        agent_client=agent_client,
+        openai_client=openai_client,
+        ollama_client=ollama_client,
+        legacy_client=legacy_client,
+        response_processor=response_processor,
+        tool_executors=TOOL_EXECUTORS,
+        create_tool_context_fn=create_tool_ctx,
+        execute_tool_batch_fn=exec_batch,
+        create_timing_data_fn=create_timing,
+        get_automatic_wiki_context_fn=get_automatic_wiki_context,
+        process_inline_tags_fn=process_inline_tags,
+        generate_and_store_summary_fn=generate_and_store_summary,
+        generate_conversation_title_fn=generate_conversation_title,
+        get_narration_metrics_fn=narration_metrics,
+        auto_summary_interval=AUTO_SUMMARY_INTERVAL,
+    )
+    set_use_agent_sdk(USE_AGENT_SDK)
+    set_tts_state(tts_enabled, tts_voice)
 
 
 # === Gesture Library Endpoint ===
