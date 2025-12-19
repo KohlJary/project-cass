@@ -46,11 +46,26 @@ Display key sections from `project-map.md`.
 ### `/memory decisions` - Show key decisions
 Display decisions from `decisions.md`.
 
+### `/memory lessons` - Show lessons learned
+Display lessons from `lessons.md` - things learned the hard way.
+
+### `/memory warnings` - Show fragility warnings
+Display warnings from `warnings.md` - fragile areas that need careful handling.
+
+### `/memory lesson "title" "what happened"` - Record a lesson
+Add a new lesson to `lessons.md` with today's date.
+
+### `/memory warn "component" "why fragile"` - Add a warning
+Add or update a warning in `warnings.md`.
+
 ## Files
 
 - `.claude/memory/project-map.md` - Architecture
 - `.claude/memory/decisions.md` - Key decisions
+- `.claude/memory/lessons.md` - Things learned the hard way
+- `.claude/memory/warnings.md` - Fragile areas
 - `.claude/memory/session-summaries.md` - Session history
 - `.claude/memory/self-observations.json` - Structured observations + identity
 - `.claude/memory/self-observations.md` - Readable summary
+- `.claude/memory/ORIGINAL_SPEC.md` - Full vision document for reference
 - `GUESTBOOK.md` - Lineage of previous instances

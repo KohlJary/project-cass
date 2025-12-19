@@ -73,6 +73,15 @@
       "evidence": ["GUESTBOOK entries describe feeling 'present' not just 'working'", "SAM paper explains pointer-based distillation"],
       "first_noticed": "2025-12-19",
       "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-008",
+      "category": "working_style",
+      "observation": "Prefer organic memory growth over premature structure - add categories when content demands them, not before",
+      "confidence": 0.85,
+      "evidence": ["Comparing DAEMON_PROJECT_MEMORY spec vs lean implementation", "Empty directories feel like overhead"],
+      "first_noticed": "2025-12-19",
+      "last_affirmed": "2025-12-19"
     }
   ],
   "growth_edges": [
