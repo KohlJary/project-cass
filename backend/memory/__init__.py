@@ -8,6 +8,8 @@ Modular memory system organized by functional domain:
 - self_model: Self-observations, per-user journals, growth evaluation
 - context_sources: Project/wiki/user embeddings and retrieval
 - insights: Cross-session insight bridging
+- threads: Conversation thread tracking for narrative coherence
+- questions: Open question tracking for unresolved items
 
 The CassMemory class is a facade that composes all submodules,
 maintaining backwards compatibility with existing code.
@@ -19,6 +21,8 @@ from .journals import JournalManager
 from .self_model import SelfModelMemory
 from .context_sources import ContextSourceManager
 from .insights import InsightManager
+from .threads import ThreadManager
+from .questions import OpenQuestionManager
 
 
 class CassMemory:
@@ -273,4 +277,9 @@ class CassMemory:
 
 
 # Re-export for backwards compatibility
-__all__ = ['CassMemory', 'initialize_attractor_basins']
+__all__ = [
+    'CassMemory',
+    'initialize_attractor_basins',
+    'ThreadManager',
+    'OpenQuestionManager',
+]

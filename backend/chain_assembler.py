@@ -60,6 +60,12 @@ class RuntimeContext:
     has_intro_guidance: bool = False
     intro_guidance: Optional[str] = None
 
+    # Narrative coherence (threads + open questions)
+    has_threads: bool = False
+    threads_context: Optional[str] = None
+    has_questions: bool = False
+    questions_context: Optional[str] = None
+
     # Temporal context
     current_time: Optional[datetime] = None
     hour: int = 0
@@ -112,6 +118,11 @@ class RuntimeContext:
             "patterns_context": self.patterns_context,
             "has_intro_guidance": self.has_intro_guidance,
             "intro_guidance": self.intro_guidance,
+            # Narrative coherence
+            "has_threads": self.has_threads,
+            "threads_context": self.threads_context,
+            "has_questions": self.has_questions,
+            "questions_context": self.questions_context,
             # Temporal
             "current_time": self.current_time.isoformat() if self.current_time else None,
             "hour": self.hour,

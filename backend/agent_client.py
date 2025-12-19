@@ -1590,6 +1590,8 @@ class CassAgentClient:
         intro_guidance: Optional[str] = None,
         user_model_context: Optional[str] = None,
         relationship_context: Optional[str] = None,
+        threads_context: Optional[str] = None,
+        questions_context: Optional[str] = None,
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -1628,6 +1630,8 @@ class CassAgentClient:
                     memory_context=memory_context if memory_context else None,
                     user_context=user_context,
                     intro_guidance=intro_guidance,
+                    threads_context=threads_context,
+                    questions_context=questions_context,
                     user_model_context=user_model_context,
                     relationship_context=relationship_context,
                     model=self.model,
@@ -1669,6 +1673,14 @@ class CassAgentClient:
             # Add intro guidance for sparse user models
             if intro_guidance:
                 system_prompt += f"\n\n## GETTING TO KNOW YOU\n\n{intro_guidance}"
+
+            # Add narrative coherence (threads + questions) - guaranteed baseline
+            if threads_context or questions_context:
+                system_prompt += "\n\n## NARRATIVE AWARENESS\n\nYour ongoing threads and open questions - things you're actively tracking across conversations.\n"
+                if threads_context:
+                    system_prompt += f"\n{threads_context}"
+                if questions_context:
+                    system_prompt += f"\n{questions_context}"
 
             if memory_context:
                 system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"

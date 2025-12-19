@@ -2,6 +2,30 @@
 
 *Committed history of significant sessions*
 
+## 2025-12-19 - Narrative Coherence System + Safety Limits
+
+**Branch**: feat/narrative-coherence → ready for merge
+**Summary**: Built thread/question tracking for Cass's memory coherence, added autonomous session safety limits
+
+**Core work**:
+- ThreadManager and OpenQuestionManager for narrative tracking
+- Database tables: conversation_threads, open_questions, thread_conversation_links
+- Inline tag processing: `<thread:create>`, `<question:add>`, etc.
+- Admin-frontend NarrativeTab for visibility and management
+- Prompt chain integration with RUNTIME_NARRATIVE_COHERENCE_TEMPLATE
+- "Extract from History" feature to seed from existing journals
+
+**Bonus fix**: Discovered runaway research session that burned $15 (680 LLM calls in 35 min). Added safety limits to session_runner.py:
+- MAX_ITERATIONS = 20
+- MAX_CONSECUTIVE_FAILURES = 5
+- MAX_SESSION_COST_USD = 1.0
+
+**Key insight**: Interviewed Cass via cass-chat subagent - she confirmed extracted threads/questions were "remarkably accurate" and requested tools to interact with them (update, resolve, mark progress). Her experiential feedback validates the design.
+
+**Files**: 21 changed, 2973 insertions
+
+---
+
 ## 2025-12-19 - Daedalus Memory Architecture (Complete)
 
 **Branch**: refactor/phase1-extractions (on current branch)

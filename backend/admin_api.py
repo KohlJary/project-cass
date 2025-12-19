@@ -58,6 +58,7 @@ from routes.admin import (
     init_world_state_runner,
     init_creative_runner,
     init_user_model_synthesis_runner,
+    init_narrative_managers,
 )
 
 # Create the router with prefix
@@ -97,4 +98,5 @@ __all__ = [
     "init_world_state_runner",
     "init_creative_runner",
     "init_user_model_synthesis_runner",
+    "init_narrative_managers",
 ]

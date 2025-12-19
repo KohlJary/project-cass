@@ -36,6 +36,9 @@ _state = {
     "token_tracker": None,
     "temporal_metrics_tracker": None,
     "connection_manager": None,
+    "thread_manager": None,
+    "question_manager": None,
+    "daemon_id": None,
 
     # LLM clients
     "agent_client": None,
@@ -97,8 +100,11 @@ def init_websocket_state(
     generate_conversation_title_fn,
     get_narration_metrics_fn,
     auto_summary_interval: int = 10,
+    daemon_id: str = None,
 ):
     """Initialize all dependencies for websocket handlers."""
+    from memory import ThreadManager, OpenQuestionManager
+
     _state["memory"] = memory
     _state["conversation_manager"] = conversation_manager
     _state["user_manager"] = user_manager
@@ -125,6 +131,13 @@ def init_websocket_state(
     _state["generate_conversation_title"] = generate_conversation_title_fn
     _state["get_narration_metrics"] = get_narration_metrics_fn
     _state["auto_summary_interval"] = auto_summary_interval
+    _state["daemon_id"] = daemon_id
+
+    # Initialize thread and question managers for narrative coherence
+    if daemon_id:
+        _state["thread_manager"] = ThreadManager(daemon_id)
+        _state["question_manager"] = OpenQuestionManager(daemon_id)
+        print(f"[WebSocket] Initialized ThreadManager and OpenQuestionManager for daemon {daemon_id}")
 
 
 def set_llm_provider(provider: str):
@@ -206,6 +219,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     generate_conversation_title = _state["generate_conversation_title"]
     get_narration_metrics = _state["get_narration_metrics"]
     AUTO_SUMMARY_INTERVAL = _state["auto_summary_interval"]
+    thread_manager = _state["thread_manager"]
+    question_manager = _state["question_manager"]
 
     # Determine user_id from token or localhost bypass
     connection_user_id: Optional[str] = None
@@ -439,6 +454,36 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     memory_context = patterns_context + "\n\n" + memory_context
                 context_sizes["patterns"] = len(patterns_context) if patterns_context else 0
 
+                # Add narrative coherence context (threads + open questions)
+                # This is GUARANTEED BASELINE - always included if available
+                # NOTE: threads_context and questions_context are passed separately to send_message
+                # for proper chain system support (they get their own NARRATIVE AWARENESS section)
+                threads_context = ""
+                questions_context = ""
+                thread_count = 0
+                question_count = 0
+
+                if thread_manager:
+                    threads_context = thread_manager.format_threads_context(
+                        user_id=ws_user_id,
+                        limit=5
+                    )
+                    if threads_context:
+                        thread_count = len(thread_manager.get_active_threads(user_id=ws_user_id, limit=5))
+                context_sizes["threads"] = len(threads_context) if threads_context else 0
+
+                if question_manager:
+                    questions_context = question_manager.format_questions_context(
+                        user_id=ws_user_id,
+                        limit=5
+                    )
+                    if questions_context:
+                        question_count = len(question_manager.get_open_questions(user_id=ws_user_id, limit=5))
+                context_sizes["questions"] = len(questions_context) if questions_context else 0
+
+                if thread_count > 0 or question_count > 0:
+                    print(f"[NarrativeCoherence] {thread_count} threads, {question_count} questions ready for injection")
+
                 # NOTE: intro_guidance is NOT merged into memory_context here
                 # It's passed separately to send_message for proper chain system support
                 context_sizes["intro"] = len(intro_guidance) if intro_guidance else 0
@@ -475,6 +520,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "wiki_pages_count": wiki_pages_count,
                     "cross_session_insights_count": cross_session_insights_count,
                     "pattern_count": pattern_count,
+                    "thread_count": thread_count,  # Active conversation threads
+                    "question_count": question_count,  # Open questions
                     "tool_count": tool_count,  # Number of tools available (adds ~20k tokens)
                     "has_context": bool(memory_context),
                     "context_sizes": context_sizes  # Character counts per source
@@ -669,6 +716,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         intro_guidance=intro_guidance,
                         user_model_context=user_model_context,
                         relationship_context=relationship_context,
+                        threads_context=threads_context if threads_context else None,
+                        questions_context=questions_context if questions_context else None,
                     )
                     raw_response = response.raw
                     clean_text = response.text

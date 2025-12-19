@@ -228,7 +228,12 @@ print(f"STARTUP: daemon_name={_daemon_name}")
 print("STARTUP: Initializing lightweight components...")
 response_processor = ResponseProcessor()
 user_manager = UserManager()
-print("STARTUP: Lightweight components initialized")
+
+# Initialize narrative coherence managers (SQLite-based, lightweight)
+from memory import ThreadManager, OpenQuestionManager
+thread_manager = ThreadManager(_daemon_id)
+question_manager = OpenQuestionManager(_daemon_id)
+print("STARTUP: Lightweight components initialized (including thread/question managers)")
 
 # Defer heavy initialization (ChromaDB, embeddings) to avoid blocking health checks
 # These will be initialized in startup_event background task
@@ -347,7 +352,7 @@ _WIKI_CACHE_MAX_SIZE = 50
 # Initialize wiki context in context_helpers module
 from context_helpers import init_wiki_context, init_context_helpers
 init_wiki_context(wiki_retrieval)
-init_context_helpers(self_manager, user_manager, roadmap_manager, memory)
+init_context_helpers(self_manager, user_manager, roadmap_manager, memory, thread_manager, question_manager)
 
 # Tool executors dict for unified routing
 TOOL_EXECUTORS = {
@@ -479,7 +484,7 @@ init_auth_routes(auth_service)
 app.include_router(auth_router)
 
 # Register admin routes
-from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager, init_research_manager, init_goal_manager
+from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager, init_research_manager, init_goal_manager, init_narrative_managers
 # Note: init_admin_managers is called in background task after heavy components load
 # Conversation and user managers are passed immediately since they don't need ChromaDB
 init_admin_managers(None, conversation_manager, user_manager, None)  # memory/self_manager set in background
@@ -490,6 +495,7 @@ init_token_tracker(token_tracker)
 init_daily_rhythm_manager(daily_rhythm_manager)
 init_research_manager(research_manager)
 init_goal_manager(goal_manager)
+init_narrative_managers(thread_manager, question_manager, token_tracker=token_tracker)
 app.include_router(admin_router)
 
 # Register prompt composer routes
@@ -723,7 +729,7 @@ async def startup_event():
             logger.info("Background: Conversation routes initialized")
 
             # Re-initialize context_helpers with actual self_manager (was None at module load)
-            init_context_helpers(self_manager, user_manager, roadmap_manager, memory)
+            init_context_helpers(self_manager, user_manager, roadmap_manager, memory, thread_manager, question_manager)
             logger.info("Background: Context helpers updated with heavy components")
 
             # Seed default prompt configurations
@@ -4683,6 +4689,7 @@ def _init_websocket_state():
         generate_conversation_title_fn=generate_conversation_title,
         get_narration_metrics_fn=narration_metrics,
         auto_summary_interval=AUTO_SUMMARY_INTERVAL,
+        daemon_id=_daemon_id,
     )
     set_use_agent_sdk(USE_AGENT_SDK)
     set_tts_state(tts_enabled, tts_voice)
