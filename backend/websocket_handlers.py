@@ -38,6 +38,7 @@ _state = {
     "connection_manager": None,
     "thread_manager": None,
     "question_manager": None,
+    "state_bus": None,
     "daemon_id": None,
 
     # LLM clients
@@ -138,6 +139,12 @@ def init_websocket_state(
         _state["thread_manager"] = ThreadManager(daemon_id)
         _state["question_manager"] = OpenQuestionManager(daemon_id)
         print(f"[WebSocket] Initialized ThreadManager and OpenQuestionManager for daemon {daemon_id}")
+
+    # Initialize global state bus
+    if daemon_id:
+        from state_bus import get_state_bus
+        _state["state_bus"] = get_state_bus(daemon_id)
+        print(f"[WebSocket] Initialized GlobalStateBus for daemon {daemon_id}")
 
 
 def set_llm_provider(provider: str):
@@ -912,6 +919,26 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         conversation_id=conversation_id,
                         user_id=ws_user_id
                     )
+
+                    # Update global state bus with emotional state from emotes
+                    state_bus = _state.get("state_bus")
+                    if state_bus and animations:
+                        from gestures import extract_emotional_state, should_write_emotional_delta
+                        from state_models import StateDelta
+
+                        emotional_delta = extract_emotional_state(animations)
+                        if should_write_emotional_delta(emotional_delta):
+                            delta = StateDelta(
+                                source="chat",
+                                emotional_delta=emotional_delta,
+                                activity_delta={
+                                    "current_activity": "chat",
+                                    "active_session_id": conversation_id,
+                                    "active_user_id": ws_user_id,
+                                },
+                                reason=f"Chat response with emotes: {[a['name'] for a in animations if a.get('type') == 'emote']}"
+                            )
+                            state_bus.write_delta(delta)
 
                     # Auto-generate title on first exchange
                     message_count = conversation_manager.get_message_count(conversation_id)

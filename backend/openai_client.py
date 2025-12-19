@@ -214,6 +214,14 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
             # Add model context - let the daemon know which model they're running on
             system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (OpenAI). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
 
+            # Add global state context (Locus of Self)
+            if self.daemon_id:
+                from state_bus import get_state_bus
+                state_bus = get_state_bus(self.daemon_id)
+                state_context = state_bus.get_context_snapshot()
+                if state_context:
+                    system_prompt += f"\n\n## CURRENT STATE\n\n{state_context}"
+
             # Add memory control section only if there are enough messages to summarize
             if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
                 system_prompt += MEMORY_CONTROL_SECTION

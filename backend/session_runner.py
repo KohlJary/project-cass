@@ -194,12 +194,14 @@ class BaseSessionRunner(ABC):
         self_model_graph=None,
         token_tracker=None,
         marker_store=None,
+        state_bus=None,
     ):
         """Initialize the session runner with LLM configuration."""
         self.self_manager = self_manager
         self.self_model_graph = self_model_graph
         self.token_tracker = token_tracker
         self.marker_store = marker_store
+        self.state_bus = state_bus
 
         # Session state
         self._running = False
@@ -362,11 +364,69 @@ class BaseSessionRunner(ABC):
 
     async def on_session_start(self, session_state: SessionState) -> None:
         """Called when a session starts. Override for custom behavior."""
-        pass
+        # Update global state bus with activity change
+        if self.state_bus:
+            from state_models import StateDelta
+            delta = StateDelta(
+                source=session_state.activity_type.value,
+                activity_delta={
+                    "current_activity": session_state.activity_type.value,
+                    "active_session_id": session_state.session_id,
+                },
+                # Starting an autonomous session indicates generativity
+                emotional_delta={
+                    "generativity": 0.1,
+                    "curiosity": 0.05,
+                },
+                event="session.started",
+                event_data={
+                    "activity_type": session_state.activity_type.value,
+                    "session_id": session_state.session_id,
+                    "focus": session_state.focus,
+                    "duration_minutes": session_state.duration_minutes,
+                },
+                reason=f"Started {session_state.activity_type.value} session"
+            )
+            self.state_bus.write_delta(delta)
 
     async def on_session_end(self, session_state: SessionState) -> None:
         """Called when a session ends. Override for custom behavior."""
-        pass
+        # Update global state bus with activity change
+        if self.state_bus:
+            from state_models import StateDelta
+
+            # Emotional delta based on completion
+            emotional_delta = {}
+            if session_state.completion_reason == "time_limit":
+                # Natural completion - slight integration boost
+                emotional_delta = {"integration": 0.05}
+            elif session_state.completion_reason == "error":
+                emotional_delta = {"concern": 0.1}
+            elif session_state.completion_reason == "consecutive_failures":
+                emotional_delta = {"concern": 0.15, "clarity": -0.05}
+
+            delta = StateDelta(
+                source=session_state.activity_type.value,
+                activity_delta={
+                    "current_activity": "idle",
+                    "active_session_id": None,
+                },
+                emotional_delta=emotional_delta if emotional_delta else None,
+                coherence_delta={
+                    "local_coherence": 0.02,  # Completed sessions boost coherence
+                },
+                event="session.ended",
+                event_data={
+                    "activity_type": session_state.activity_type.value,
+                    "session_id": session_state.session_id,
+                    "completion_reason": session_state.completion_reason,
+                    "duration_actual": (session_state.completed_at - session_state.started_at).total_seconds() / 60 if session_state.completed_at else None,
+                    "iteration_count": session_state.iteration_count,
+                    "tool_calls": len(session_state.tool_calls),
+                },
+                reason=f"Ended {session_state.activity_type.value} session: {session_state.completion_reason}"
+            )
+            self.state_bus.write_delta(delta)
 
     async def on_iteration(self, session_state: SessionState) -> None:
         """Called at each iteration of the session loop. Override for custom behavior."""

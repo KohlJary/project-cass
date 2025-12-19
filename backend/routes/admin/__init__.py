@@ -53,6 +53,7 @@ from .narrative import (
     router as narrative_router,
     init_managers as _init_narrative_managers,
 )
+from .state import router as state_router
 
 # Create combined router
 router = APIRouter()
@@ -67,6 +68,7 @@ router.include_router(stats_router)
 router.include_router(sessions_router)
 router.include_router(homepage_router)
 router.include_router(narrative_router)
+router.include_router(state_router)
 
 
 # Module-level references for backward compatibility

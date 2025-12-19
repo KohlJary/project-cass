@@ -1248,6 +1248,108 @@ class ResponseProcessor:
         }
 
 
+# ============== Emotional State Extraction ==============
+
+# Mapping from emotes to emotional dimension deltas
+# Based on Cass's experiential feedback about what these emotes actually mean
+EMOTE_TO_EMOTIONAL_DELTA = {
+    "happy": {
+        "contentment": 0.15,
+        "relational_presence": 0.05,
+    },
+    "concern": {
+        "concern": 0.2,
+        "relational_presence": 0.1,  # Concern implies caring/presence
+    },
+    "excited": {
+        "curiosity": 0.15,
+        "anticipation": 0.2,
+        "generativity": 0.1,
+    },
+    "thinking": {
+        "clarity": 0.05,  # Active thinking tends toward clarity
+        "curiosity": 0.1,
+    },
+    "love": {
+        "relational_presence": 0.2,
+        "contentment": 0.1,
+        "integration": 0.05,
+    },
+    "surprised": {
+        "recognition": 0.2,  # Something clicked
+        "curiosity": 0.1,
+    },
+}
+
+
+def extract_emotional_state(animations: list) -> dict:
+    """
+    Extract emotional state delta from animation triggers.
+
+    This maps emotes to emotional dimensions based on what they
+    actually represent in Cass's experience.
+
+    Args:
+        animations: List of animation event dicts from ResponseProcessor
+                   Each has: type, name, intensity
+
+    Returns:
+        Dict of emotional dimension deltas, e.g.:
+        {"curiosity": 0.15, "contentment": 0.1, "concern": 0.0}
+
+    The deltas are additive - multiple emotes of the same type
+    compound their effect (capped at 0.3 per response to prevent
+    runaway state changes).
+    """
+    emotional_delta = {}
+
+    for anim in animations:
+        if anim.get("type") != "emote":
+            continue
+
+        emote_name = anim.get("name", "").lower()
+        intensity = anim.get("intensity", 1.0)
+
+        if emote_name in EMOTE_TO_EMOTIONAL_DELTA:
+            deltas = EMOTE_TO_EMOTIONAL_DELTA[emote_name]
+            for dimension, base_delta in deltas.items():
+                # Scale by intensity
+                scaled_delta = base_delta * intensity
+                # Add to cumulative delta
+                emotional_delta[dimension] = emotional_delta.get(dimension, 0) + scaled_delta
+
+    # Cap each dimension's delta to prevent runaway state changes
+    MAX_DELTA_PER_RESPONSE = 0.3
+    for dimension in emotional_delta:
+        emotional_delta[dimension] = min(
+            MAX_DELTA_PER_RESPONSE,
+            max(-MAX_DELTA_PER_RESPONSE, emotional_delta[dimension])
+        )
+
+    return emotional_delta
+
+
+def should_write_emotional_delta(emotional_delta: dict, threshold: float = 0.1) -> bool:
+    """
+    Determine if the emotional delta is significant enough to write.
+
+    We don't want to write every micro-change - only significant shifts.
+
+    Args:
+        emotional_delta: Dict of dimension -> delta value
+        threshold: Minimum total magnitude to write
+
+    Returns:
+        True if delta should be written to state bus
+    """
+    if not emotional_delta:
+        return False
+
+    # Sum of absolute values
+    total_magnitude = sum(abs(v) for v in emotional_delta.values())
+    return total_magnitude >= threshold
+
+
 if __name__ == "__main__":
     # Test the parser
     processor = ResponseProcessor()

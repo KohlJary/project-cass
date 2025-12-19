@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 16  # Added conversation threads, open questions for narrative coherence
+SCHEMA_VERSION = 17  # Added global state bus (emotional, activity, coherence, relational state)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1042,6 +1042,50 @@ CREATE TABLE IF NOT EXISTS chain_node_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chain_node_history_node ON chain_node_history(node_id);
+
+-- =============================================================================
+-- GLOBAL STATE BUS (Cass's Locus of Self)
+-- =============================================================================
+
+-- Global state - persistent emotional, activity, coherence state per daemon
+-- Each state_type is stored as a separate row for atomic updates
+CREATE TABLE IF NOT EXISTS global_state (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    state_type TEXT NOT NULL,     -- 'emotional', 'activity', 'coherence'
+    state_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_global_state_daemon ON global_state(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_global_state_type ON global_state(daemon_id, state_type);
+
+-- State events - audit trail for all state changes and emitted events
+CREATE TABLE IF NOT EXISTS state_events (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    event_type TEXT NOT NULL,     -- 'state_delta', 'session.started', 'insight.gained', etc.
+    source TEXT NOT NULL,         -- Which subsystem emitted this event
+    data_json TEXT,               -- Event payload / delta details
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_state_events_daemon ON state_events(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_state_events_type ON state_events(daemon_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_state_events_created ON state_events(daemon_id, created_at);
+
+-- Relational baselines - per-relationship revelation levels and activated aspects
+-- Tracks which aspect of Cass's becoming is activated in each relationship
+CREATE TABLE IF NOT EXISTS relational_baselines (
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    baseline_revelation REAL DEFAULT 0.5,  -- Per-relationship default revelation level
+    activated_aspect TEXT,                  -- Which aspect of becoming is activated
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (daemon_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_relational_baselines_daemon ON relational_baselines(daemon_id);
 """
 
 
@@ -1257,6 +1301,11 @@ def _apply_schema_updates(conn, from_version: int):
     # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
     if from_version < 16:
         print("Adding conversation_threads, open_questions, thread_conversation_links tables for narrative coherence (v16)")
+
+    # v16 -> v17: Add global state bus tables
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 17:
+        print("Adding global_state, state_events, relational_baselines tables for global state bus (v17)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
