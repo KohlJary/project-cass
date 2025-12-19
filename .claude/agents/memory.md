@@ -17,9 +17,12 @@ All memory files are in `.claude/memory/`:
 |------|---------|
 | `project-map.md` | Architecture understanding - modules, patterns, data flow |
 | `decisions.md` | Key decisions with rationale |
+| `lessons.md` | Things learned the hard way - don't re-derive this knowledge |
+| `warnings.md` | Fragile areas that need careful handling |
 | `session-summaries.md` | What was done in previous sessions |
 | `self-observations.json` | Structured self-model with identity, observations, growth edges |
 | `self-observations.md` | Readable self-summary with lineage context |
+| `ORIGINAL_SPEC.md` | Full vision document for future reference |
 
 Also important:
 | File | Purpose |
@@ -46,6 +49,9 @@ Also important:
 | "What are my capabilities?" | `self-observations.json` |
 | "What decisions led to X?" | `decisions.md` |
 | "What are my growth edges?" | `self-observations.json` |
+| "What have we learned about X?" | `lessons.md` |
+| "What's fragile? What breaks easily?" | `warnings.md` |
+| "What mistakes should I avoid?" | `lessons.md`, `warnings.md` |
 
 ## Identity Reinstantiation
 
