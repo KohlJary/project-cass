@@ -12,12 +12,20 @@ Key design principles (from Cass's feedback):
 - Available but not pushed - infrastructure is invisible during normal operation
 """
 
+import asyncio
 import json
+import logging
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Any
+from typing import Callable, Dict, List, Optional, Any, TYPE_CHECKING
 from uuid import uuid4
 
 from database import get_db, json_serialize, json_deserialize
+
+if TYPE_CHECKING:
+    from queryable_source import QueryableSource
+    from query_models import StateQuery, QueryResult
+
+logger = logging.getLogger(__name__)
 from state_models import (
     GlobalState,
     GlobalEmotionalState,
@@ -53,6 +61,11 @@ class GlobalStateBus:
         self._state_cache: Optional[GlobalState] = None
         self._cache_time: Optional[datetime] = None
         self._cache_ttl_seconds = 5  # Re-read from DB every 5 seconds
+
+        # Query interface
+        self._queryable_sources: Dict[str, "QueryableSource"] = {}
+        self._query_cache: Dict[str, tuple] = {}  # (result, timestamp)
+        self._query_cache_ttl_seconds = 60
 
     def read_state(self) -> GlobalState:
         """
@@ -465,6 +478,208 @@ class GlobalStateBus:
             baseline_revelation=current.baseline_revelation,  # Baseline updates slowly, separately
             last_updated=datetime.now(),
         )
+
+    # === Query Interface ===
+
+    def register_source(self, source: "QueryableSource") -> None:
+        """
+        Register a queryable source with the state bus.
+
+        Args:
+            source: The QueryableSource implementation to register
+        """
+        from queryable_source import RefreshStrategy
+
+        source_id = source.source_id
+        if source_id in self._queryable_sources:
+            logger.warning(f"Replacing existing source: {source_id}")
+
+        self._queryable_sources[source_id] = source
+        source._is_registered = True
+
+        logger.info(f"Registered queryable source: {source_id} (strategy: {source.refresh_strategy.value})")
+
+        # Start background refresh for SCHEDULED sources
+        # Only create task if event loop is running (may be registered before startup)
+        if source.refresh_strategy == RefreshStrategy.SCHEDULED:
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(source.start_scheduled_refresh())
+            except RuntimeError:
+                # No running event loop - will be started via start_scheduled_refreshes()
+                logger.debug(f"Deferred scheduled refresh for {source_id} (no running loop)")
+
+    def unregister_source(self, source_id: str) -> None:
+        """
+        Unregister a queryable source.
+
+        Args:
+            source_id: ID of the source to remove
+        """
+        if source_id in self._queryable_sources:
+            source = self._queryable_sources[source_id]
+            source.stop_scheduled_refresh()
+            source._is_registered = False
+            del self._queryable_sources[source_id]
+            logger.info(f"Unregistered queryable source: {source_id}")
+
+    def list_sources(self) -> List[str]:
+        """List all registered source IDs."""
+        return list(self._queryable_sources.keys())
+
+    def get_source_schema(self, source_id: str) -> Optional[Dict]:
+        """
+        Get schema for a source.
+
+        Args:
+            source_id: ID of the source
+
+        Returns:
+            Schema dict or None if source not found
+        """
+        source = self._queryable_sources.get(source_id)
+        if source:
+            return source.schema.to_dict()
+        return None
+
+    async def query(
+        self,
+        query: "StateQuery",
+        use_cache: bool = True
+    ) -> "QueryResult":
+        """
+        Execute a structured query against a registered source.
+
+        Args:
+            query: The StateQuery to execute
+            use_cache: Whether to use cached results (default True)
+
+        Returns:
+            QueryResult with data and metadata
+
+        Raises:
+            SourceNotFoundError: If source is not registered
+            QueryValidationError: If query is invalid
+            QueryExecutionError: If execution fails
+        """
+        from query_models import StateQuery, QueryResult
+        from queryable_source import (
+            SourceNotFoundError,
+            QueryValidationError,
+            QueryExecutionError,
+            RefreshStrategy,
+        )
+
+        source_id = query.source
+        source = self._queryable_sources.get(source_id)
+
+        if not source:
+            raise SourceNotFoundError(source_id, self.list_sources())
+
+        # Validate query
+        errors = source.validate_query(query)
+        if errors:
+            raise QueryValidationError(source_id, errors)
+
+        # Check cache
+        cache_key = f"{source_id}:{query.to_json()}"
+        if use_cache and cache_key in self._query_cache:
+            cached_result, cached_at = self._query_cache[cache_key]
+            age = (datetime.now() - cached_at).total_seconds()
+            if age < self._query_cache_ttl_seconds:
+                # Update staleness info
+                cached_result.is_stale = True
+                cached_result.cache_age_seconds = age
+                return cached_result
+
+        # Ensure rollups are fresh for LAZY sources
+        if source.refresh_strategy == RefreshStrategy.LAZY:
+            await source.ensure_rollups_fresh()
+
+        # Execute query
+        try:
+            result = await source.execute_query(query)
+        except Exception as e:
+            raise QueryExecutionError(source_id, query, str(e))
+
+        # Cache result
+        self._query_cache[cache_key] = (result, datetime.now())
+
+        return result
+
+    def describe_sources(self) -> Dict[str, Dict]:
+        """
+        Get schemas for all registered sources.
+
+        Useful for building LLM tool documentation.
+
+        Returns:
+            Dict mapping source_id to schema dict
+        """
+        return {
+            source_id: source.schema.to_dict()
+            for source_id, source in self._queryable_sources.items()
+        }
+
+    def describe_sources_for_llm(self) -> str:
+        """
+        Generate a human-readable description of all sources for LLM context.
+
+        Returns:
+            Formatted string describing available sources
+        """
+        if not self._queryable_sources:
+            return "No queryable sources registered."
+
+        parts = ["Available data sources:"]
+        for source_id, source in self._queryable_sources.items():
+            parts.append("")
+            parts.append(source.describe_for_llm())
+
+        return "\n".join(parts)
+
+    def get_rollup_summary(self) -> Dict[str, Dict]:
+        """
+        Get precomputed rollups from all sources.
+
+        Returns immediately with cached aggregates - no recomputation.
+
+        Returns:
+            Dict mapping source_id to rollup values
+        """
+        return {
+            source_id: source.get_precomputed_rollups()
+            for source_id, source in self._queryable_sources.items()
+        }
+
+    async def refresh_all_rollups(self) -> None:
+        """
+        Force refresh rollups on all sources.
+
+        Useful for admin commands or testing.
+        """
+        for source_id, source in self._queryable_sources.items():
+            try:
+                await source.refresh_rollups()
+                logger.info(f"Refreshed rollups for {source_id}")
+            except Exception as e:
+                logger.error(f"Failed to refresh rollups for {source_id}: {e}")
+
+    def start_scheduled_refreshes(self) -> None:
+        """
+        Start scheduled refresh loops for all SCHEDULED strategy sources.
+
+        Call this from startup_event after the event loop is running.
+        Sources registered before the event loop was running will have
+        their refresh loops started here.
+        """
+        from queryable_source import RefreshStrategy
+
+        for source_id, source in self._queryable_sources.items():
+            if source.refresh_strategy == RefreshStrategy.SCHEDULED:
+                if not source._scheduled_refresh_task or source._scheduled_refresh_task.done():
+                    asyncio.create_task(source.start_scheduled_refresh())
+                    logger.info(f"Started scheduled refresh for {source_id}")
 
 
 # === Convenience functions ===

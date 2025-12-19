@@ -1,14 +1,27 @@
 """
 Admin API routes for Global State Bus visibility.
 
-Provides real-time access to Cass's current state, event stream, and emotional arc.
+Provides real-time access to Cass's current state, event stream, emotional arc,
+and unified query interface for all registered queryable sources.
 """
 from datetime import datetime, timedelta
-from typing import Optional
-from fastapi import APIRouter, Query
+from typing import Any, Dict, Optional
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from database import get_db, json_deserialize
 from state_bus import get_state_bus
+
+
+# Pydantic model for query requests
+class StateQueryRequest(BaseModel):
+    """Request body for executing a state query."""
+    source: str
+    metric: Optional[str] = None
+    time_preset: Optional[str] = None
+    aggregation: Optional[str] = None
+    group_by: Optional[str] = None
+    filters: Optional[Dict[str, Any]] = None
 
 router = APIRouter()
 
@@ -208,4 +221,189 @@ async def get_relational_state(
         "user_id": user_id,
         "exists": True,
         "state": rel_state.to_dict(),
+    }
+
+
+# =============================================================================
+# Unified Query Interface Endpoints
+# =============================================================================
+
+
+@router.get("/state/sources")
+async def list_queryable_sources(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)")
+):
+    """
+    List all registered queryable sources with their schemas.
+
+    Returns available sources, their metrics, supported aggregations, and query options.
+    Useful for understanding what data can be queried through the unified interface.
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+    state_bus = get_state_bus(d_id)
+
+    schemas = state_bus.describe_sources()
+    source_list = state_bus.list_sources()
+
+    return {
+        "daemon_id": d_id,
+        "sources": source_list,
+        "schemas": schemas,
+        "total": len(source_list),
+        "llm_description": state_bus.describe_sources_for_llm(),
+    }
+
+
+@router.post("/state/query")
+async def execute_state_query(
+    request: StateQueryRequest,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)")
+):
+    """
+    Execute a structured query against a registered queryable source.
+
+    This provides a unified interface for querying any registered data source
+    (github, tokens, emotional, etc.) with consistent query semantics.
+
+    Example queries:
+    - {"source": "github", "metric": "stars", "time_preset": "last_7d"}
+    - {"source": "tokens", "metric": "cost_usd", "group_by": "day"}
+    - {"source": "github", "metric": "clones", "filters": {"repo": "KohlJary/Temple-Codex"}}
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+    state_bus = get_state_bus(d_id)
+
+    # Verify source exists
+    if request.source not in state_bus.list_sources():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source '{request.source}' not found. Available sources: {state_bus.list_sources()}"
+        )
+
+    # Build query from request
+    from query_models import StateQuery, TimeRange, Aggregation
+
+    time_range = None
+    if request.time_preset:
+        time_range = TimeRange(preset=request.time_preset)
+
+    aggregation = None
+    if request.aggregation:
+        aggregation = Aggregation(function=request.aggregation)
+
+    query = StateQuery(
+        source=request.source,
+        metric=request.metric,
+        time_range=time_range,
+        aggregation=aggregation,
+        group_by=request.group_by,
+        filters=request.filters,
+    )
+
+    try:
+        result = await state_bus.query(query)
+
+        return {
+            "daemon_id": d_id,
+            "query": {
+                "source": request.source,
+                "metric": request.metric,
+                "time_preset": request.time_preset,
+                "aggregation": request.aggregation,
+                "group_by": request.group_by,
+                "filters": request.filters,
+            },
+            "result": {
+                "data": result.data.to_dict() if result.data else None,
+                "formatted": result.format_for_llm(),
+                "timestamp": result.timestamp.isoformat(),
+                "is_stale": result.is_stale,
+            },
+            "metadata": result.metadata,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Query failed: {str(e)}"
+        )
+
+
+@router.get("/state/rollups")
+async def get_rollup_summary(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)")
+):
+    """
+    Get precomputed rollup aggregates from all registered sources.
+
+    Returns cached rollup data that provides quick access to common metrics
+    without requiring full queries. Useful for dashboards and status displays.
+
+    Each source maintains its own rollups based on its refresh strategy:
+    - SCHEDULED: Refreshed periodically in the background
+    - LAZY: Computed on first access, cached with TTL
+    - EVENT_DRIVEN: Refreshed when underlying data changes
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+    state_bus = get_state_bus(d_id)
+
+    rollups = state_bus.get_rollup_summary()
+
+    return {
+        "daemon_id": d_id,
+        "timestamp": datetime.now().isoformat(),
+        "rollups": rollups,
+        "sources_with_rollups": list(rollups.keys()),
+    }
+
+
+@router.post("/state/rollups/refresh")
+async def refresh_all_rollups(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)")
+):
+    """
+    Force refresh of all source rollups.
+
+    Triggers an immediate recomputation of rollup aggregates for all sources.
+    Useful after manual data updates or for debugging.
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+    state_bus = get_state_bus(d_id)
+
+    await state_bus.refresh_all_rollups()
+
+    return {
+        "daemon_id": d_id,
+        "status": "refreshed",
+        "timestamp": datetime.now().isoformat(),
+        "sources_refreshed": state_bus.list_sources(),
+    }
+
+
+@router.post("/state/rollups/{source_id}/refresh")
+async def refresh_source_rollups(
+    source_id: str,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)")
+):
+    """
+    Force refresh of rollups for a specific source.
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+    state_bus = get_state_bus(d_id)
+
+    if source_id not in state_bus.list_sources():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source '{source_id}' not found. Available sources: {state_bus.list_sources()}"
+        )
+
+    # Get the source and refresh its rollups
+    source = state_bus._queryable_sources.get(source_id)
+    if source:
+        await source.refresh_rollups()
+
+    return {
+        "daemon_id": d_id,
+        "source": source_id,
+        "status": "refreshed",
+        "timestamp": datetime.now().isoformat(),
     }

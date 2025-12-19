@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 17  # Added global state bus (emotional, activity, coherence, relational state)
+SCHEMA_VERSION = 18  # Added source_rollups table for unified query interface
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1086,6 +1086,24 @@ CREATE TABLE IF NOT EXISTS relational_baselines (
 );
 
 CREATE INDEX IF NOT EXISTS idx_relational_baselines_daemon ON relational_baselines(daemon_id);
+
+-- Source rollups - precomputed aggregates for queryable sources
+-- Each source can store daily/weekly/monthly rollups for fast query responses
+CREATE TABLE IF NOT EXISTS source_rollups (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    source_id TEXT NOT NULL,          -- 'github', 'tokens', 'emotional', etc.
+    rollup_type TEXT NOT NULL,        -- 'daily', 'weekly', 'monthly'
+    rollup_key TEXT NOT NULL,         -- Date or period identifier (e.g., '2025-12-19')
+    metrics_json TEXT NOT NULL,       -- {metric_name: value}
+    computed_at TEXT NOT NULL,
+    UNIQUE(daemon_id, source_id, rollup_type, rollup_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_rollups_lookup
+    ON source_rollups(daemon_id, source_id, rollup_type);
+CREATE INDEX IF NOT EXISTS idx_source_rollups_date
+    ON source_rollups(daemon_id, rollup_key);
 """
 
 
@@ -1306,6 +1324,9 @@ def _apply_schema_updates(conn, from_version: int):
     # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
     if from_version < 17:
         print("Adding global_state, state_events, relational_baselines tables for global state bus (v17)")
+
+    if from_version < 18:
+        print("Adding source_rollups table for unified query interface (v18)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
