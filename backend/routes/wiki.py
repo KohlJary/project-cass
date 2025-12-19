@@ -934,8 +934,7 @@ async def research_and_create_page(request: ResearchPageRequest) -> Dict:
     """
     Research a topic via web search and create a wiki page.
 
-    Uses web search to gather information about the topic,
-    then synthesizes it into a wiki page with Cass's perspective.
+    Delegates to PageResearcher for the actual research and creation logic.
     """
     if _wiki_storage is None:
         raise HTTPException(status_code=503, detail="Wiki storage not initialized")
@@ -945,156 +944,19 @@ async def research_and_create_page(request: ResearchPageRequest) -> Dict:
     if existing:
         raise HTTPException(status_code=409, detail=f"Page '{request.name}' already exists")
 
-    import httpx
-    import os
-    import json
+    from wiki.page_enricher import PageResearcher
 
-    # Step 1: Web search for the topic
-    search_results = []
-    try:
-        # Use DuckDuckGo instant answer API (no API key needed)
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                "https://api.duckduckgo.com/",
-                params={
-                    "q": request.name,
-                    "format": "json",
-                    "no_html": 1,
-                    "skip_disambig": 1,
-                }
-            )
-            if response.status_code == 200:
-                data = response.json()
-                # Get abstract if available
-                if data.get("Abstract"):
-                    search_results.append({
-                        "source": data.get("AbstractSource", "DuckDuckGo"),
-                        "url": data.get("AbstractURL", ""),
-                        "text": data.get("Abstract", "")
-                    })
-                # Get related topics
-                for topic in data.get("RelatedTopics", [])[:3]:
-                    if isinstance(topic, dict) and topic.get("Text"):
-                        search_results.append({
-                            "source": "Related",
-                            "url": topic.get("FirstURL", ""),
-                            "text": topic.get("Text", "")
-                        })
-    except Exception as e:
-        print(f"DuckDuckGo search failed: {e}")
-
-    # Also search conversation memory for personal context
-    memory_context = []
-    if _memory:
-        try:
-            results = _memory.search(request.name, n_results=5)
-            for doc in results.get("documents", [[]])[0]:
-                if doc and request.name.lower() in doc.lower():
-                    memory_context.append(doc[:400])
-        except Exception:
-            pass
-
-    # Step 2: Generate wiki content with LLM
-    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
-
-    # Build context from search results
-    web_context = ""
-    if search_results:
-        web_context = "## Research from the web:\n\n"
-        for r in search_results[:5]:
-            web_context += f"**{r['source']}**: {r['text'][:300]}\n\n"
-
-    memory_text = ""
-    if memory_context:
-        memory_text = "## From our past conversations:\n\n" + "\n\n".join(memory_context[:3])
-
-    prompt = f"""You are Cass, writing a wiki page about "{request.name}" for your personal knowledge base.
-
-{web_context}
-
-{memory_text}
-
-Based on the research above and your general knowledge, write a wiki page about "{request.name}".
-
-Include:
-1. A clear explanation of what this is
-2. Why it might be significant or interesting
-3. Connections to related concepts using [[wikilinks]]
-4. Any personal thoughts or questions you have about it
-
-Start with a # heading. Be thoughtful and curious. If you learned something interesting from the research, say so!
-If the topic relates to something personal (a person we know, a project we're working on), incorporate that context."""
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{ollama_url}/api/generate",
-                json={
-                    "model": ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 600,
-                    }
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-            generated_content = result.get("response", "").strip()
-    except Exception as e:
-        generated_content = f"# {request.name}\n\n*Research and content generation failed: {str(e)}*\n"
-
-    if not generated_content.startswith("#"):
-        generated_content = f"# {request.name}\n\n{generated_content}"
-
-    # Add frontmatter with research metadata
-    from wiki.storage import PageType
-    page_type_enum = PageType(request.page_type) if request.page_type in [pt.value for pt in PageType] else PageType.CONCEPT
-
-    sources_list = [r.get("url", "") for r in search_results if r.get("url")]
-    sources_yaml = "\n  - ".join(sources_list) if sources_list else "none"
-
-    content_with_frontmatter = f"""---
-type: {request.page_type}
-generated: true
-researched: true
-sources:
-  - {sources_yaml}
----
-
-{generated_content}
-"""
-
-    # Create the page
-    page = _wiki_storage.create(
-        name=request.name,
-        content=content_with_frontmatter,
-        page_type=page_type_enum
+    researcher = PageResearcher(
+        wiki_storage=_wiki_storage,
+        memory=_memory
     )
 
-    # Embed in vector store
-    if _memory and page:
-        try:
-            _memory.embed_wiki_page(
-                page_name=page.name,
-                page_content=page.content,
-                page_type=page.page_type.value,
-                links=list(page.link_targets)
-            )
-        except Exception as e:
-            print(f"Failed to embed wiki page: {e}")
+    result = await researcher.research_and_create(
+        name=request.name,
+        page_type=request.page_type
+    )
 
-    return {
-        "name": page.name,
-        "page_type": page.page_type.value,
-        "content": page.content,
-        "researched": True,
-        "web_sources": len(search_results),
-        "memory_context_used": len(memory_context),
-        "sources": sources_list,
-    }
+    return result.to_dict()
 
 
 @router.post("/research-batch")
@@ -1165,133 +1027,24 @@ async def enrich_wiki_pages(
     """
     Batch enrich stub wiki pages with LLM-generated content.
 
-    Finds pages that are stubs (short content) and generates richer content
-    using local Ollama based on conversation history.
+    Delegates to PageEnricher for the actual enrichment logic.
     """
     if _wiki_storage is None:
         raise HTTPException(status_code=503, detail="Wiki storage not initialized")
 
-    import httpx
-    import os
+    from wiki.page_enricher import PageEnricher
 
-    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
+    enricher = PageEnricher(
+        wiki_storage=_wiki_storage,
+        memory=_memory
+    )
 
-    # Find stub pages
-    all_pages = _wiki_storage.list_pages()
-    stub_pages = []
-    for page in all_pages:
-        full_page = _wiki_storage.read(page.name)
-        if full_page:
-            # Check content length (excluding frontmatter)
-            content = full_page.content
-            if "---" in content:
-                parts = content.split("---", 2)
-                if len(parts) >= 3:
-                    content = parts[2]
-            if len(content.strip()) < min_content_length:
-                stub_pages.append(full_page)
+    result = await enricher.enrich_batch(
+        limit=limit,
+        min_content_length=min_content_length
+    )
 
-    stub_pages = stub_pages[:limit]
-    results = []
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        for page in stub_pages:
-            try:
-                # Search for context about this entity
-                context_snippets = []
-                if _memory:
-                    try:
-                        search_results = _memory.search(page.name, n_results=10)
-                        for doc, meta in zip(
-                            search_results.get("documents", [[]])[0],
-                            search_results.get("metadatas", [[]])[0]
-                        ):
-                            if doc and page.name.lower() in doc.lower():
-                                context_snippets.append(doc[:500])
-                    except Exception:
-                        pass
-
-                context_text = "\n\n".join(context_snippets[:5]) if context_snippets else "No specific context found."
-
-                prompt = f"""You are Cass, writing a wiki page about "{page.name}" for your personal knowledge base.
-
-Based on what you know from conversations, write a brief wiki page about this {page.page_type.value}.
-
-Context from past conversations:
-{context_text}
-
-Write a concise wiki page (2-4 paragraphs) about "{page.name}". Include:
-- What/who this is
-- Why it's significant to you
-- Any relevant connections using [[wikilinks]] to other concepts you know about
-
-Start with a # heading. Be personal - this is YOUR wiki about YOUR understanding.
-If you don't have much context, write what you can infer and note what you'd like to learn more about."""
-
-                response = await client.post(
-                    f"{ollama_url}/api/generate",
-                    json={
-                        "model": ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.7,
-                            "num_predict": 500,
-                        }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-                generated_content = result.get("response", "").strip()
-
-                if not generated_content.startswith("#"):
-                    generated_content = f"# {page.name}\n\n{generated_content}"
-
-                # Update with new content, preserving type
-                new_content = f"""---
-type: {page.page_type.value}
-generated: true
-enriched: true
----
-
-{generated_content}
-"""
-                _wiki_storage.update(page.name, new_content)
-
-                # Re-embed
-                if _memory:
-                    try:
-                        updated_page = _wiki_storage.read(page.name)
-                        if updated_page:
-                            _memory.embed_wiki_page(
-                                page_name=updated_page.name,
-                                page_content=updated_page.content,
-                                page_type=updated_page.page_type.value,
-                                links=list(updated_page.link_targets)
-                            )
-                    except Exception:
-                        pass
-
-                results.append({
-                    "name": page.name,
-                    "status": "enriched",
-                    "context_snippets": len(context_snippets),
-                })
-
-            except Exception as e:
-                results.append({
-                    "name": page.name,
-                    "status": "error",
-                    "error": str(e),
-                })
-
-    return {
-        "stub_pages_found": len(stub_pages),
-        "results": results,
-        "enriched": len([r for r in results if r["status"] == "enriched"]),
-        "errors": len([r for r in results if r["status"] == "error"]),
-    }
+    return result.to_dict()
 
 
 # === Maturity Tracking Endpoints (PMD) ===
@@ -2121,189 +1874,27 @@ async def get_research_dashboard() -> Dict:
     """
     Consolidated Research Progress Dashboard.
 
-    Aggregates data from multiple sources into a unified view:
-    - Research activity (queue stats, history, completion rates)
-    - Wiki growth metrics (pages, links, coverage)
-    - Knowledge graph health (connectivity, orphans, clusters)
-    - Self-model integration (developmental stage, growth edges, recent observations)
-    - Cross-context consistency (if available)
-
-    Returns a comprehensive dashboard suitable for visualization.
+    Aggregates data from multiple sources into a unified view.
+    Delegates to DashboardBuilder for the actual building logic.
     """
+    from wiki.dashboard_builder import DashboardBuilder
+    from self_model import SelfManager
+
     scheduler = _get_scheduler()
 
-    # Initialize response structure
-    dashboard = {
-        "generated_at": datetime.now().isoformat(),
-        "research": {},
-        "wiki": {},
-        "graph": {},
-        "self_model": {},
-        "cross_context": {},
-    }
-
-    # === Research Activity ===
-    if scheduler:
-        queue_stats = scheduler.queue.get_stats()
-        dashboard["research"] = {
-            "queue": {
-                "total": queue_stats.get("total", 0),
-                "queued": queue_stats.get("by_status", {}).get("queued", 0),
-                "in_progress": queue_stats.get("by_status", {}).get("in_progress", 0),
-                "completed": queue_stats.get("by_status", {}).get("completed", 0),
-                "failed": queue_stats.get("by_status", {}).get("failed", 0),
-            },
-            "by_type": queue_stats.get("by_type", {}),
-            "mode": scheduler.config.mode.value,
-            "last_refresh": scheduler._last_refresh.isoformat() if scheduler._last_refresh else None,
-        }
-
-        # Recent history - last 30 days completion
-        history = scheduler.queue.get_history(limit=100)
-        if history:
-            # Group by date
-            by_date = {}
-            for task in history:
-                completed_at = task.get("completed_at", "")[:10]  # YYYY-MM-DD
-                if completed_at:
-                    by_date[completed_at] = by_date.get(completed_at, 0) + 1
-
-            dashboard["research"]["history"] = {
-                "total_completed_30d": len(history),
-                "by_date": by_date,
-                "avg_daily": len(history) / 30 if len(by_date) > 0 else 0,
-            }
-
-        # Graph stats
-        graph_stats = scheduler.get_graph_stats()
-        dashboard["graph"] = {
-            "node_count": graph_stats.get("node_count", 0),
-            "edge_count": graph_stats.get("edge_count", 0),
-            "avg_connectivity": graph_stats.get("avg_connectivity", 0),
-            "most_connected": graph_stats.get("most_connected", [])[:5],
-            "orphan_count": graph_stats.get("orphan_count", 0),
-            "sparse_count": graph_stats.get("sparse_count", 0),
-        }
-
-    # === Wiki Growth Metrics ===
-    if _wiki_storage:
-        maturity_stats = _wiki_storage.get_maturity_stats()
-        pages = _wiki_storage.list_pages()
-        graph = _wiki_storage.get_link_graph()
-
-        # Count pages by type
-        by_type = {}
-        for page in pages:
-            ptype = page.page_type.value if hasattr(page.page_type, 'value') else str(page.page_type)
-            by_type[ptype] = by_type.get(ptype, 0) + 1
-
-        # Count total links and red links
-        all_links = set()
-        existing_pages = {p.name.lower() for p in pages}
-        for targets in graph.values():
-            all_links.update(targets)
-        red_links = [link for link in all_links if link.lower() not in existing_pages]
-
-        dashboard["wiki"] = {
-            "total_pages": len(pages),
-            "total_links": len(all_links),
-            "red_links": len(red_links),
-            "by_type": by_type,
-            "maturity": {
-                "avg_depth_score": maturity_stats.get("avg_depth_score", 0),
-                "by_level": maturity_stats.get("by_level", {}),
-                "deepening_candidates": maturity_stats.get("deepening_candidates", 0),
-            },
-        }
-
-    # === Self-Model Integration ===
+    # Try to get self_manager
     try:
-        from self_model import SelfManager
+        self_manager = SelfManager()
+    except Exception:
+        self_manager = None
 
-        self_manager = SelfManager()  # Uses default daemon from database
-        profile = self_manager.load_profile()
+    builder = DashboardBuilder(
+        scheduler=scheduler,
+        wiki_storage=_wiki_storage,
+        self_manager=self_manager
+    )
 
-        # Growth edges
-        growth_edges = [
-            {
-                "area": edge.area,
-                "current_state": edge.current_state,
-                "desired_state": edge.desired_state,
-            }
-            for edge in profile.growth_edges[:5]
-        ]
-
-        # Recent observations (last 10)
-        observations = self_manager.get_recent_observations(limit=10)
-        recent_observations = [
-            {
-                "observation": obs.observation[:200] + "..." if len(obs.observation) > 200 else obs.observation,
-                "category": obs.category,
-                "confidence": obs.confidence,
-                "timestamp": obs.timestamp,
-            }
-            for obs in observations
-        ]
-
-        # Developmental stage
-        stage = self_manager._detect_developmental_stage()
-
-        # Latest cognitive snapshot
-        latest_snapshot = self_manager.get_latest_snapshot()
-        snapshot_summary = None
-        if latest_snapshot:
-            snapshot_summary = {
-                "timestamp": latest_snapshot.timestamp,
-                "period": f"{latest_snapshot.period_start} to {latest_snapshot.period_end}",
-                "avg_authenticity_score": latest_snapshot.avg_authenticity_score,
-                "avg_agency_score": latest_snapshot.avg_agency_score,
-                "conversations_analyzed": latest_snapshot.conversations_analyzed,
-                "opinions_expressed": latest_snapshot.opinions_expressed,
-                "new_opinions_formed": latest_snapshot.new_opinions_formed,
-            }
-
-        # Development summary
-        dev_summary = self_manager.get_recent_development_summary(days=7)
-
-        dashboard["self_model"] = {
-            "developmental_stage": stage,
-            "growth_edges": growth_edges,
-            "growth_edges_count": len(profile.growth_edges),
-            "opinions_count": len(profile.opinions),
-            "open_questions_count": len(profile.open_questions),
-            "recent_observations": recent_observations,
-            "observations_count": len(self_manager.load_observations()),
-            "latest_snapshot": snapshot_summary,
-            "development_summary_7d": {
-                "days_with_logs": dev_summary.get("days_with_logs", 0),
-                "growth_indicators": dev_summary.get("total_growth_indicators", 0),
-                "pattern_shifts": dev_summary.get("total_pattern_shifts", 0),
-                "milestones_triggered": dev_summary.get("total_milestones_triggered", 0),
-            },
-        }
-    except Exception as e:
-        dashboard["self_model"] = {"error": str(e)}
-
-    # === Cross-Context Consistency ===
-    try:
-        from testing.cross_context_analyzer import CrossContextAnalyzer
-        from config import DATA_DIR
-
-        analyzer = CrossContextAnalyzer(str(DATA_DIR / "testing" / "cross_context"))
-        consistency = analyzer.analyze_consistency()
-
-        dashboard["cross_context"] = {
-            "overall_consistency": consistency.overall_score,
-            "consistency_grade": consistency.grade,
-            "samples_analyzed": consistency.total_samples,
-            "context_coverage": consistency.context_coverage,
-            "anomaly_count": len(consistency.anomalies),
-            "key_findings": consistency.key_findings[:3] if consistency.key_findings else [],
-        }
-    except Exception as e:
-        dashboard["cross_context"] = {"error": str(e), "available": False}
-
-    return dashboard
+    return builder.build()
 
 
 @router.post("/research/queue/exploration")
@@ -2522,292 +2113,45 @@ async def get_proposal(proposal_id: str) -> Dict:
 @router.post("/research/proposals/generate")
 async def generate_proposal(
     theme: str = None,
-    max_tasks: int = None,  # Now optional - sized dynamically if not specified
+    max_tasks: int = None,
     focus_areas: List[str] = None,
-    exploration_ratio: float = 0.4,  # Target ratio of exploration tasks
+    exploration_ratio: float = 0.4,
 ) -> Dict:
     """
     Have Cass generate a research proposal by analyzing existing queued tasks.
 
-    This gathers existing exploration and red_link tasks, groups similar ones,
-    and creates a cohesive research proposal rather than generating new tasks.
-
-    Args:
-        theme: Optional theme/direction to filter/prioritize tasks
-        max_tasks: Maximum number of tasks (if None, sized to high-quality available tasks, 3-10 range)
-        focus_areas: Optional list of wiki pages to focus research around
-        exploration_ratio: Target ratio of exploration vs red_link tasks (default 0.4)
+    Delegates to ProposalGenerator for the actual generation logic.
     """
     scheduler = _get_scheduler()
     if not scheduler:
         raise HTTPException(status_code=503, detail="Scheduler not initialized")
 
-    from wiki.research import (
-        ResearchProposal, ProposalStatus, create_proposal_id,
-        ResearchTask, TaskType, TaskStatus, TaskRationale, ExplorationContext, create_task_id
+    from wiki.proposal_generator import ProposalGenerator
+
+    generator = ProposalGenerator(
+        scheduler=scheduler,
+        proposal_queue=_get_proposal_queue()
     )
-    from collections import defaultdict
 
-    # First, ensure we have fresh tasks in the queue
-    scheduler.harvest_red_links()
-    scheduler.harvest_deepening_candidates()
-
-    # Get task IDs already assigned to any proposals (including completed ones)
-    # This prevents the same tasks from being picked for new proposals
-    proposal_queue = _get_proposal_queue()
-    tasks_in_proposals = set()
-    for proposal in proposal_queue.get_all():
-        for task in proposal.tasks:
-            tasks_in_proposals.add(task.task_id)
-
-    # Gather ALL existing queued tasks by type, excluding those already in proposals
-    all_queued = [t for t in scheduler.queue.get_queued() if t.task_id not in tasks_in_proposals]
-    exploration_tasks = [t for t in all_queued if t.task_type == TaskType.EXPLORATION]
-    red_link_tasks = [t for t in all_queued if t.task_type == TaskType.RED_LINK]
-    deepening_tasks = [t for t in all_queued if t.task_type == TaskType.DEEPENING]
-
-    # If no exploration tasks exist, generate some first
-    if not exploration_tasks:
-        gen_count = 10 if max_tasks is None else max_tasks * 2
-        new_explorations = scheduler.generate_exploration_tasks(max_tasks=gen_count)
-        exploration_tasks = new_explorations
-
-    # Determine dynamic task count if not specified
-    # Based on available high-quality tasks (priority > 0.5)
-    if max_tasks is None:
-        high_quality_explorations = len([t for t in exploration_tasks if t.priority > 0.5])
-        high_quality_red_links = len([t for t in red_link_tasks if t.priority > 0.6])
-
-        # Size proposal based on what's available, between 3-10 tasks
-        available_quality = high_quality_explorations + high_quality_red_links
-        max_tasks = min(10, max(3, available_quality // 2))
-
-    # Calculate target counts based on ratio
-    target_explorations = max(1, int(max_tasks * exploration_ratio))
-    target_red_links = max_tasks - target_explorations
-
-    # Group exploration tasks by their source pages for thematic clustering
-    exploration_by_source = defaultdict(list)
-    for task in exploration_tasks:
-        if task.exploration and task.exploration.source_pages:
-            for source in task.exploration.source_pages[:2]:  # First 2 sources
-                exploration_by_source[source].append(task)
-        else:
-            exploration_by_source["_general"].append(task)
-
-    # Group red links by their source pages
-    red_link_by_source = defaultdict(list)
-    for task in red_link_tasks:
-        if task.source_page:
-            red_link_by_source[task.source_page].append(task)
-        else:
-            red_link_by_source["_general"].append(task)
-
-    # Build proposal tasks with diversity
-    proposal_tasks = []
-    used_task_ids = set()
-
-    # If theme provided, filter tasks to those matching theme first
-    if theme:
-        theme_lower = theme.lower()
-
-        def matches_theme(task):
-            task_text = f"{task.target} {task.context or ''}".lower()
-            if task.exploration:
-                task_text += f" {task.exploration.question} {' '.join(task.exploration.related_red_links or [])}".lower()
-            return theme_lower in task_text
-
-        themed_explorations = [t for t in exploration_tasks if matches_theme(t)]
-        themed_red_links = [t for t in red_link_tasks if matches_theme(t)]
-
-        # If theme matches enough tasks, use only those
-        if len(themed_explorations) + len(themed_red_links) >= max_tasks // 2:
-            exploration_tasks = themed_explorations + [t for t in exploration_tasks if t not in themed_explorations]
-            red_link_tasks = themed_red_links + [t for t in red_link_tasks if t not in themed_red_links]
-
-    # 1. Add exploration tasks (sorted by priority)
-    sorted_explorations = sorted(exploration_tasks, key=lambda t: -t.priority)
-    for task in sorted_explorations[:target_explorations]:
-        if task.task_id not in used_task_ids:
-            proposal_tasks.append(task)
-            used_task_ids.add(task.task_id)
-
-    # 2. Red links that appear in multiple sources (high connection potential)
-    red_link_counts = defaultdict(int)
-    for task in red_link_tasks:
-        red_link_counts[task.target] += 1
-
-    # Prioritize multi-referenced red links
-    multi_referenced = sorted(
-        [t for t in red_link_tasks if red_link_counts[t.target] > 1],
-        key=lambda t: (-red_link_counts[t.target], -t.priority)
+    result = generator.generate(
+        theme=theme,
+        max_tasks=max_tasks,
+        focus_areas=focus_areas,
+        exploration_ratio=exploration_ratio
     )
-    for task in multi_referenced:
-        if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
-            proposal_tasks.append(task)
-            used_task_ids.add(task.task_id)
 
-    # 3. Fill remaining with high-priority red links
-    sorted_red_links = sorted(red_link_tasks, key=lambda t: -t.priority)
-    for task in sorted_red_links:
-        if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
-            proposal_tasks.append(task)
-            used_task_ids.add(task.task_id)
-
-    # 4. If still under target, add deepening tasks
-    if len(proposal_tasks) < max_tasks and deepening_tasks:
-        sorted_deepening = sorted(deepening_tasks, key=lambda t: -t.priority)
-        for task in sorted_deepening:
-            if task.task_id not in used_task_ids and len(proposal_tasks) < max_tasks:
-                proposal_tasks.append(task)
-                used_task_ids.add(task.task_id)
-
-    if not proposal_tasks:
+    if not result.generated:
         return {
             "generated": False,
-            "message": "No research opportunities identified. The queue may be empty.",
-            "queue_stats": {
-                "exploration": len(exploration_tasks),
-                "red_link": len(red_link_tasks),
-                "deepening": len(deepening_tasks),
-            }
+            "message": result.message,
+            "queue_stats": result.queue_stats,
         }
-
-    # Count task types for summary (outside try block so available in except)
-    type_counts = defaultdict(int)
-    for t in proposal_tasks:
-        type_counts[t.task_type.value] += 1
-
-    # Build task descriptions and collect red links mentioned
-    task_descriptions = []
-    red_links_mentioned = set()
-    for t in proposal_tasks:
-        if t.task_type == TaskType.EXPLORATION and t.exploration:
-            task_descriptions.append(f"- QUESTION: {t.exploration.question}")
-            task_descriptions.append(f"  Related concepts: {', '.join(t.exploration.related_red_links[:5])}")
-            red_links_mentioned.update(t.exploration.related_red_links[:5])
-        elif t.task_type == TaskType.RED_LINK:
-            task_descriptions.append(f"- FILL GAP: Create page for '{t.target}' (referenced {red_link_counts.get(t.target, 1)} times)")
-            red_links_mentioned.add(t.target)
-        elif t.task_type == TaskType.DEEPENING:
-            task_descriptions.append(f"- DEEPEN: Expand understanding of '{t.target}'")
-        else:
-            task_descriptions.append(f"- RESEARCH: {t.target}")
-
-    # Use LLM to generate proposal metadata based on actual task content
-    try:
-        import httpx
-        import os
-
-        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
-
-        prompt = f"""You are Cass, creating a research proposal for your autonomous knowledge expansion.
-
-Planned research tasks:
-{chr(10).join(task_descriptions)}
-
-Task breakdown: {dict(type_counts)}
-Total red links to investigate: {len(red_links_mentioned)}
-
-{"Research direction hint: " + theme if theme else ""}
-
-Generate a compelling research proposal:
-1. A specific, descriptive title (5-12 words) that captures the research direction
-2. A unifying theme that connects these tasks conceptually (1-2 sentences)
-3. A rationale explaining why pursuing this research will deepen understanding (2-3 sentences)
-
-Be specific - reference actual concepts from the tasks. Avoid generic phrases.
-
-Format your response EXACTLY as:
-TITLE: [your title]
-THEME: [your theme]
-RATIONALE: [your rationale]"""
-
-        # Use httpx to call Ollama (synchronously in async context - quick call)
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(
-                f"{ollama_url}/api/generate",
-                json={
-                    "model": ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 400,
-                    }
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-
-        # Parse response
-        text = result.get("response", "")
-        print(f"LLM proposal response (first 500 chars): {text[:500]}")
-        lines = text.strip().split("\n")
-
-        title = "Research Proposal"
-        proposal_theme = theme or "Knowledge expansion"
-        rationale = f"Investigating {len(proposal_tasks)} topics across {len(type_counts)} research types."
-
-        for line in lines:
-            line = line.strip()
-            # Handle both plain and markdown formatted responses
-            # e.g., "TITLE:" or "**TITLE:**" or "1. TITLE:"
-            clean_line = line.lstrip('*#0123456789. ')
-            if clean_line.upper().startswith("TITLE:"):
-                title = clean_line[6:].strip().strip('"\'*').strip()
-            elif clean_line.upper().startswith("THEME:"):
-                proposal_theme = clean_line[6:].strip().strip('"\'*').strip()
-            elif clean_line.upper().startswith("RATIONALE:"):
-                rationale = clean_line[10:].strip().strip('"\'*').strip()
-
-        print(f"Parsed proposal: title='{title}', theme='{proposal_theme}'")
-
-        # Validate we got meaningful content
-        if title == "Research Proposal" or len(title) < 10:
-            # Try to generate from task content
-            if proposal_tasks[0].task_type == TaskType.EXPLORATION and proposal_tasks[0].exploration:
-                title = f"Exploring: {proposal_tasks[0].exploration.question[:50]}"
-            else:
-                title = f"Research into {', '.join(list(red_links_mentioned)[:3])}"
-
-    except Exception as e:
-        print(f"LLM proposal generation failed: {e}")
-        # Generate meaningful fallback
-        if proposal_tasks:
-            first_task = proposal_tasks[0]
-            if first_task.task_type == TaskType.EXPLORATION and first_task.exploration:
-                title = f"Exploring: {first_task.exploration.question[:40]}..."
-                proposal_theme = f"Investigating questions around {', '.join(first_task.exploration.related_red_links[:3])}"
-            else:
-                title = f"Research: {first_task.target}"
-                proposal_theme = f"Filling knowledge gaps in {first_task.target}"
-        else:
-            title = theme or "Research Proposal"
-            proposal_theme = theme or "Systematic knowledge expansion"
-
-        type_summary = ", ".join(f"{v} {k}" for k, v in type_counts.items())
-        rationale = f"This proposal includes {type_summary} tasks to deepen understanding of interconnected concepts."
-
-    # Create the proposal with the selected tasks
-    proposal = ResearchProposal(
-        proposal_id=create_proposal_id(),
-        title=title,
-        theme=proposal_theme,
-        rationale=rationale,
-        tasks=proposal_tasks,
-        status=ProposalStatus.PENDING,
-    )
-
-    queue = _get_proposal_queue()
-    queue.add(proposal)
 
     return {
         "generated": True,
-        "proposal": proposal.to_dict(),
-        "task_breakdown": dict(type_counts),
-        "total_queued": len(all_queued),
+        "proposal": result.proposal.to_dict(),
+        "task_breakdown": result.task_breakdown,
+        "total_queued": result.total_queued,
     }
 
 
