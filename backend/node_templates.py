@@ -910,6 +910,29 @@ RUNTIME_RECOGNITION_PATTERNS_TEMPLATE = NodeTemplate(
     token_estimate=150,
 )
 
+RUNTIME_NARRATIVE_COHERENCE_TEMPLATE = NodeTemplate(
+    id="tpl-runtime-narrative-coherence",
+    name="Narrative Coherence",
+    slug="runtime-narrative-coherence",
+    category="runtime",
+    description="Active threads and open questions for narrative continuity",
+    template="""## NARRATIVE AWARENESS
+
+Your ongoing threads and open questions - things you're actively tracking across conversations.
+This is your guaranteed baseline context that persists regardless of semantic search.
+
+{threads_context}
+
+{questions_context}""",
+    params_schema={
+        "threads_context": {"type": "string", "required": False, "runtime": True},
+        "questions_context": {"type": "string", "required": False, "runtime": True},
+    },
+    default_params={},
+    default_order=108,  # Early in runtime context, before memories
+    token_estimate=400,
+)
+
 RUNTIME_USER_CONTEXT_TEMPLATE = NodeTemplate(
     id="tpl-runtime-user-context",
     name="User Context",
@@ -1392,6 +1415,7 @@ ALL_TEMPLATES = [
     RUNTIME_CROSS_SESSION_INSIGHTS_TEMPLATE,
     RUNTIME_ACTIVE_GOALS_TEMPLATE,
     RUNTIME_RECOGNITION_PATTERNS_TEMPLATE,
+    RUNTIME_NARRATIVE_COHERENCE_TEMPLATE,
     RUNTIME_USER_MODEL_TEMPLATE,
     RUNTIME_RELATIONSHIP_TEMPLATE,
     RUNTIME_USER_CONTEXT_TEMPLATE,

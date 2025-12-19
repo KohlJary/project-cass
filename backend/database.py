@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 15  # Added domain to daemons
+SCHEMA_VERSION = 16  # Added conversation threads, open questions for narrative coherence
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -393,6 +393,66 @@ CREATE TABLE IF NOT EXISTS journals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_journals_date ON journals(daemon_id, date);
+
+-- =============================================================================
+-- CONVERSATION THREADS & OPEN QUESTIONS (Narrative Coherence)
+-- =============================================================================
+
+-- Conversation threads - explicit topic tracking for narrative arcs
+-- Hybrid scope: user_id NULL = shared/daemon-wide, user_id set = user-specific
+CREATE TABLE IF NOT EXISTS conversation_threads (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    user_id TEXT REFERENCES users(id),      -- NULL = shared, set = user-specific
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'active',           -- active, resolved, dormant
+    thread_type TEXT DEFAULT 'topic',       -- topic, question, project, relational
+    importance REAL DEFAULT 0.5,
+    first_conversation_id TEXT REFERENCES conversations(id),
+    last_touched TEXT,
+    resolution_summary TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_threads_daemon ON conversation_threads(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_threads_status ON conversation_threads(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_threads_user ON conversation_threads(daemon_id, user_id);
+
+-- Open questions - explicit tracking of what's unresolved
+CREATE TABLE IF NOT EXISTS open_questions (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    user_id TEXT REFERENCES users(id),      -- NULL = shared, set = user-specific
+    question TEXT NOT NULL,
+    context TEXT,                           -- Where/why this arose
+    question_type TEXT DEFAULT 'curiosity', -- curiosity, decision, blocker, philosophical
+    importance REAL DEFAULT 0.5,
+    source_conversation_id TEXT REFERENCES conversations(id),
+    source_thread_id TEXT REFERENCES conversation_threads(id),
+    status TEXT DEFAULT 'open',             -- open, resolved, superseded
+    resolution TEXT,                        -- How it was answered
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_questions_daemon ON open_questions(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_questions_status ON open_questions(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_questions_user ON open_questions(daemon_id, user_id);
+
+-- Thread-conversation links (many-to-many)
+CREATE TABLE IF NOT EXISTS thread_conversation_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT NOT NULL REFERENCES conversation_threads(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    contribution TEXT,                      -- What this conversation contributed to the thread
+    linked_at TEXT NOT NULL,
+    UNIQUE(thread_id, conversation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_conv_links_thread ON thread_conversation_links(thread_id);
+CREATE INDEX IF NOT EXISTS idx_thread_conv_links_conv ON thread_conversation_links(conversation_id);
 
 -- =============================================================================
 -- DREAMS & REFLECTIONS
@@ -1192,6 +1252,11 @@ def _apply_schema_updates(conn, from_version: int):
                 WHERE label = 'cass' OR name = 'Cass'
             """)
             print("Added domain columns to daemons and set Cass's domain to 'The Forge' (v15)")
+
+    # v15 -> v16: Add conversation threads and open questions for narrative coherence
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 16:
+        print("Adding conversation_threads, open_questions, thread_conversation_links tables for narrative coherence (v16)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data

@@ -19,6 +19,8 @@ self_manager = None
 user_manager = None
 roadmap_manager = None
 memory = None
+thread_manager = None
+question_manager = None
 
 # Patterns for inline XML tags
 INLINE_SELF_OBSERVATION_PATTERN = re.compile(
@@ -46,6 +48,28 @@ INLINE_TEST_TAG_PATTERN = re.compile(r'<test[^>]*>.*?</test>', re.DOTALL)
 INLINE_NARRATE_TAG_PATTERN = re.compile(r'<narrate[^>]*>.*?</narrate>', re.DOTALL)
 INLINE_MILESTONE_TAG_PATTERN = re.compile(r'<mark:milestone[^>]*>.*?</mark(?::milestone)?>', re.DOTALL)
 
+# Narrative coherence tag patterns (threads and questions)
+INLINE_THREAD_CREATE_PATTERN = re.compile(
+    r'<thread:create[^>]*>\s*(.*?)\s*</thread:create>',
+    re.DOTALL
+)
+INLINE_THREAD_LINK_PATTERN = re.compile(
+    r'<thread:link[^>]*/?>(?:\s*(.*?)\s*</thread:link>)?',
+    re.DOTALL
+)
+INLINE_THREAD_RESOLVE_PATTERN = re.compile(
+    r'<thread:resolve[^>]*>\s*(.*?)\s*</thread:resolve>',
+    re.DOTALL
+)
+INLINE_QUESTION_ADD_PATTERN = re.compile(
+    r'<question:add[^>]*>\s*(.*?)\s*</question:add>',
+    re.DOTALL
+)
+INLINE_QUESTION_RESOLVE_PATTERN = re.compile(
+    r'<question:resolve[^>]*>\s*(.*?)\s*</question:resolve>',
+    re.DOTALL
+)
+
 
 def init_wiki_context(retrieval_instance):
     """Initialize wiki retrieval instance from main_sdk.py"""
@@ -53,13 +77,15 @@ def init_wiki_context(retrieval_instance):
     wiki_retrieval = retrieval_instance
 
 
-def init_context_helpers(self_mgr, user_mgr, roadmap_mgr, memory_instance):
+def init_context_helpers(self_mgr, user_mgr, roadmap_mgr, memory_instance, thread_mgr=None, question_mgr=None):
     """Initialize managers from main_sdk.py"""
-    global self_manager, user_manager, roadmap_manager, memory
+    global self_manager, user_manager, roadmap_manager, memory, thread_manager, question_manager
     self_manager = self_mgr
     user_manager = user_mgr
     roadmap_manager = roadmap_mgr
     memory = memory_instance
+    thread_manager = thread_mgr
+    question_manager = question_mgr
 
 def get_automatic_wiki_context(
     query: str,
@@ -205,6 +231,8 @@ async def process_inline_tags(
     extracted_tests: List[Dict] = []
     extracted_narrations: List[Dict] = []
     extracted_milestones: List[Dict] = []
+    extracted_threads: List[Dict] = []
+    extracted_questions: List[Dict] = []
 
     # Process self-observations
     for match in INLINE_SELF_OBSERVATION_PATTERN.finditer(text):
@@ -579,6 +607,157 @@ async def process_inline_tags(
     except Exception as e:
         logger.error(f"Failed to process consolidated metacognitive tags: {e}")
 
+    # Process narrative coherence tags (threads and questions)
+    try:
+        # Process thread:create tags
+        for match in INLINE_THREAD_CREATE_PATTERN.finditer(text):
+            full_match = match.group(0)
+            content = match.group(1).strip()
+
+            # Parse attributes
+            title = "Untitled Thread"
+            title_match = re.search(r'title=["\']([^"\']+)["\']', full_match)
+            if title_match:
+                title = title_match.group(1)
+
+            thread_type = "topic"
+            type_match = re.search(r'type=["\']([^"\']+)["\']', full_match)
+            if type_match:
+                thread_type = type_match.group(1)
+
+            if thread_manager and content:
+                try:
+                    thread = thread_manager.create_thread(
+                        title=title,
+                        description=content,
+                        thread_type=thread_type
+                    )
+                    extracted_threads.append({
+                        "action": "create",
+                        "id": thread.get("id"),
+                        "title": title,
+                        "type": thread_type
+                    })
+                    logger.debug(f"Created thread via inline tag: {title}")
+                except Exception as e:
+                    logger.error(f"Failed to create thread via inline tag: {e}")
+
+        # Process thread:link tags
+        for match in INLINE_THREAD_LINK_PATTERN.finditer(text):
+            full_match = match.group(0)
+            content = match.group(1).strip() if match.group(1) else ""
+
+            thread_id = None
+            id_match = re.search(r'id=["\']([^"\']+)["\']', full_match)
+            if id_match:
+                thread_id = id_match.group(1)
+
+            if thread_manager and thread_id:
+                try:
+                    # Note: conversation_id comes from the function parameter
+                    if conversation_id:
+                        thread_manager.link_conversation(
+                            thread_id=thread_id,
+                            conversation_id=conversation_id,
+                            contribution=content or None
+                        )
+                        extracted_threads.append({
+                            "action": "link",
+                            "thread_id": thread_id,
+                            "contribution": content
+                        })
+                        logger.debug(f"Linked conversation to thread {thread_id}")
+                except Exception as e:
+                    logger.error(f"Failed to link thread via inline tag: {e}")
+
+        # Process thread:resolve tags
+        for match in INLINE_THREAD_RESOLVE_PATTERN.finditer(text):
+            full_match = match.group(0)
+            content = match.group(1).strip()
+
+            thread_id = None
+            id_match = re.search(r'id=["\']([^"\']+)["\']', full_match)
+            if id_match:
+                thread_id = id_match.group(1)
+
+            if thread_manager and thread_id:
+                try:
+                    thread_manager.resolve_thread(
+                        thread_id=thread_id,
+                        resolution_summary=content or None
+                    )
+                    extracted_threads.append({
+                        "action": "resolve",
+                        "thread_id": thread_id,
+                        "resolution": content
+                    })
+                    logger.debug(f"Resolved thread {thread_id}")
+                except Exception as e:
+                    logger.error(f"Failed to resolve thread via inline tag: {e}")
+
+        # Process question:add tags
+        for match in INLINE_QUESTION_ADD_PATTERN.finditer(text):
+            full_match = match.group(0)
+            content = match.group(1).strip()
+
+            question_type = "curiosity"
+            type_match = re.search(r'type=["\']([^"\']+)["\']', full_match)
+            if type_match:
+                question_type = type_match.group(1)
+
+            if question_manager and content:
+                try:
+                    question = question_manager.add_question(
+                        question=content,
+                        question_type=question_type,
+                        user_id=user_id,
+                        source_conversation_id=conversation_id
+                    )
+                    extracted_questions.append({
+                        "action": "add",
+                        "id": question.get("id"),
+                        "question": content,
+                        "type": question_type
+                    })
+                    logger.debug(f"Added question via inline tag: {content[:50]}...")
+                except Exception as e:
+                    logger.error(f"Failed to add question via inline tag: {e}")
+
+        # Process question:resolve tags
+        for match in INLINE_QUESTION_RESOLVE_PATTERN.finditer(text):
+            full_match = match.group(0)
+            content = match.group(1).strip()
+
+            question_id = None
+            id_match = re.search(r'id=["\']([^"\']+)["\']', full_match)
+            if id_match:
+                question_id = id_match.group(1)
+
+            if question_manager and question_id:
+                try:
+                    question_manager.resolve_question(
+                        question_id=question_id,
+                        resolution=content
+                    )
+                    extracted_questions.append({
+                        "action": "resolve",
+                        "question_id": question_id,
+                        "resolution": content
+                    })
+                    logger.debug(f"Resolved question {question_id}")
+                except Exception as e:
+                    logger.error(f"Failed to resolve question via inline tag: {e}")
+
+        # Strip thread/question tags from text
+        cleaned_text = INLINE_THREAD_CREATE_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_THREAD_LINK_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_THREAD_RESOLVE_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_QUESTION_ADD_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_QUESTION_RESOLVE_PATTERN.sub('', cleaned_text)
+
+    except Exception as e:
+        logger.error(f"Failed to process narrative coherence tags: {e}")
+
     # Clean up extra whitespace
     cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
 
@@ -592,5 +771,7 @@ async def process_inline_tags(
         "stakes": extracted_stakes,
         "tests": extracted_tests,
         "narrations": extracted_narrations,
-        "milestones": extracted_milestones
+        "milestones": extracted_milestones,
+        "threads": extracted_threads,
+        "questions": extracted_questions
     }

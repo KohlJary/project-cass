@@ -208,10 +208,69 @@ export function Chat() {
     }
   }, [isConnected]);
 
-  const handleSend = () => {
+  // Helper to add a system message to the chat
+  const addSystemMessage = useCallback((content: string) => {
+    const systemMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'system',
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, systemMsg]);
+  }, [setMessages]);
+
+  // Handle slash commands locally
+  const handleSlashCommand = useCallback(async (command: string): Promise<boolean> => {
+    const parts = command.slice(1).split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+
+    switch (cmd) {
+      case 'help':
+        addSystemMessage(
+          `Available commands:\n` +
+          `/help - Show this help message\n` +
+          `/summarize - Trigger memory summarization for current conversation`
+        );
+        return true;
+
+      case 'summarize':
+        if (!selectedConversationId) {
+          addSystemMessage('No conversation selected. Start or select a conversation first.');
+          return true;
+        }
+        try {
+          addSystemMessage('Triggering memory summarization...');
+          const response = await conversationsApi.triggerSummarize(selectedConversationId);
+          const data = response.data;
+          addSystemMessage(`Summarization ${data.status}: ${data.message}`);
+          // Refresh summaries
+          queryClient.invalidateQueries({ queryKey: ['chat-summaries', selectedConversationId] });
+        } catch (err) {
+          console.error('Summarization error:', err);
+          addSystemMessage('Failed to trigger summarization. Please try again.');
+        }
+        return true;
+
+      default:
+        // Unknown command - let it go to the LLM
+        return false;
+    }
+  }, [selectedConversationId, addSystemMessage, queryClient]);
+
+  const handleSend = async () => {
     const trimmed = inputValue.trim();
     const hasAttachments = pendingAttachments.length > 0 && pendingAttachments.every(a => !a.uploading);
     if ((!trimmed && !pendingImage && !hasAttachments) || !isConnected) return;
+
+    // Check for slash commands
+    if (trimmed.startsWith('/') && !pendingImage && !hasAttachments) {
+      const handled = await handleSlashCommand(trimmed);
+      if (handled) {
+        setInputValue('');
+        setTimeout(() => inputRef.current?.focus(), 0);
+        return;
+      }
+    }
 
     const imageData = pendingImage
       ? { data: pendingImage.data, mediaType: pendingImage.mediaType }

@@ -178,6 +178,11 @@ class BaseSessionRunner(ABC):
     - complete_session(): Finalize session and store results
     """
 
+    # Safety limits to prevent runaway sessions
+    MAX_ITERATIONS = 20  # Hard cap on LLM calls per session
+    MAX_CONSECUTIVE_FAILURES = 5  # Stop after this many errors/unproductive iterations
+    MAX_SESSION_COST_USD = 1.0  # Budget cap per session
+
     def __init__(
         self,
         anthropic_api_key: Optional[str] = None,
@@ -200,6 +205,10 @@ class BaseSessionRunner(ABC):
         self._running = False
         self._current_task: Optional[asyncio.Task] = None
         self._current_state: Optional[SessionState] = None
+
+        # Safety tracking
+        self._consecutive_failures = 0
+        self._session_cost_usd = 0.0
 
         # Provider config
         self.use_haiku = use_haiku and anthropic_api_key
@@ -368,13 +377,31 @@ class BaseSessionRunner(ABC):
         Check if session should continue.
 
         Override to add custom termination conditions.
-        Default checks time limit and running flag.
+        Default checks time limit, running flag, and safety limits.
         """
         if not self._running:
             return False
 
         elapsed = (datetime.now() - session_state.started_at).total_seconds()
         if elapsed >= session_state.duration_minutes * 60:
+            return False
+
+        # Safety limit: max iterations
+        if session_state.iteration_count >= self.MAX_ITERATIONS:
+            print(f"⚠️ Session terminated: reached max iterations ({self.MAX_ITERATIONS})")
+            session_state.completion_reason = "max_iterations"
+            return False
+
+        # Safety limit: consecutive failures
+        if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
+            print(f"⚠️ Session terminated: {self.MAX_CONSECUTIVE_FAILURES} consecutive failures")
+            session_state.completion_reason = "consecutive_failures"
+            return False
+
+        # Safety limit: cost cap
+        if self._session_cost_usd >= self.MAX_SESSION_COST_USD:
+            print(f"⚠️ Session terminated: exceeded cost cap (${self._session_cost_usd:.2f})")
+            session_state.completion_reason = "cost_limit"
             return False
 
         return True
@@ -521,6 +548,10 @@ class BaseSessionRunner(ABC):
         if not state:
             return
 
+        # Reset safety counters for new session
+        self._consecutive_failures = 0
+        self._session_cost_usd = 0.0
+
         try:
             await self.on_session_start(state)
 
@@ -665,11 +696,15 @@ class BaseSessionRunner(ABC):
                             # Could check for explicit end signals
                             pass
 
+                    # Successful iteration - reset failure counter
+                    self._consecutive_failures = 0
+
                     # Small delay between iterations
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Error in session loop iteration: {e}")
+                    self._consecutive_failures += 1
+                    print(f"Error in session loop iteration ({self._consecutive_failures}/{self.MAX_CONSECUTIVE_FAILURES}): {e}")
                     import traceback
                     traceback.print_exc()
                     await asyncio.sleep(2)
@@ -718,18 +753,26 @@ class BaseSessionRunner(ABC):
                 tools=tools,
             )
 
-            # Track tokens
-            if self.token_tracker and response.usage:
+            # Track tokens and cost
+            if response.usage:
                 cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                self.token_tracker.record(
-                    category="autonomous",
-                    operation=self.get_activity_type().value,
-                    provider="anthropic",
-                    model=self.haiku_model,
-                    input_tokens=response.usage.input_tokens + cache_read,
-                    output_tokens=response.usage.output_tokens,
-                    cache_read_tokens=cache_read,
-                )
+                input_tokens = response.usage.input_tokens + cache_read
+                output_tokens = response.usage.output_tokens
+
+                # Estimate cost (Haiku pricing: $0.25/M input, $1.25/M output)
+                cost = (input_tokens * 0.25 / 1_000_000) + (output_tokens * 1.25 / 1_000_000)
+                self._session_cost_usd += cost
+
+                if self.token_tracker:
+                    self.token_tracker.record(
+                        category="autonomous",
+                        operation=self.get_activity_type().value,
+                        provider="anthropic",
+                        model=self.haiku_model,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cache_read_tokens=cache_read,
+                    )
 
             return response
 

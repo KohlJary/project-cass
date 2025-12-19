@@ -1231,6 +1231,9 @@ def get_system_prompt_for_daemon(
     goals_context: Optional[str] = None,
     patterns_context: Optional[str] = None,
     intro_guidance: Optional[str] = None,
+    # Narrative coherence (threads + open questions)
+    threads_context: Optional[str] = None,
+    questions_context: Optional[str] = None,
     # Enhanced user/relationship modeling
     user_model_context: Optional[str] = None,
     relationship_context: Optional[str] = None,
@@ -1343,6 +1346,11 @@ def get_system_prompt_for_daemon(
         patterns_context=patterns_context,
         has_intro_guidance=bool(intro_guidance),
         intro_guidance=intro_guidance,
+        # Narrative coherence (threads + open questions)
+        has_threads=bool(threads_context),
+        threads_context=threads_context,
+        has_questions=bool(questions_context),
+        questions_context=questions_context,
         has_user_context=bool(user_context),
         user_context=user_context,
         has_user_model=bool(user_model_context),

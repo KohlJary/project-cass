@@ -49,6 +49,10 @@ from .sessions import (
     init_reflection_runner,
 )
 from .homepage import router as homepage_router
+from .narrative import (
+    router as narrative_router,
+    init_managers as _init_narrative_managers,
+)
 
 # Create combined router
 router = APIRouter()
@@ -62,6 +66,7 @@ router.include_router(self_model_router)
 router.include_router(stats_router)
 router.include_router(sessions_router)
 router.include_router(homepage_router)
+router.include_router(narrative_router)
 
 
 # Module-level references for backward compatibility
@@ -99,6 +104,11 @@ def init_token_tracker(tracker):
     global token_usage_tracker
     token_usage_tracker = tracker
     _init_stats_token_tracker(tracker)
+
+
+def init_narrative_managers(thread_manager, question_manager, memory=None, conversations=None, token_tracker=None):
+    """Initialize narrative coherence managers (threads/questions)."""
+    _init_narrative_managers(thread_manager, question_manager, memory, conversations, token_tracker)
 
 
 # Module-level reference for token tracker (used by other modules)
@@ -146,4 +156,5 @@ __all__ = [
     "init_creative_runner",
     "init_user_model_synthesis_runner",
     "init_reflection_runner",
+    "init_narrative_managers",
 ]
