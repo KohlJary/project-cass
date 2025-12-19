@@ -144,6 +144,9 @@ data/roadmap/
 data
 data-test
 
+# Daedalus memory (detailed session notes - local only)
+.claude/memory/session-log.jsonl
+
 # Exception: Allow daemon seed exports to be versioned
 !seed/
 docs/first-contact-excerpts.md
