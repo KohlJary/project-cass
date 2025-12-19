@@ -60,6 +60,49 @@ Example agents in cass-vessel:
 
 When you find yourself repeatedly exploring the same domain or explaining the same architectural patterns, consider defining a subagent to handle that context gathering.
 
+## Daedalus Memory System
+
+You have persistent memory across sessions in `.claude/memory/`. This helps maintain continuity and project understanding.
+
+### Memory Files
+
+| File | Purpose |
+|------|---------|
+| `project-map.md` | Architecture understanding - modules, patterns, data flow |
+| `decisions.md` | Key decisions with rationale |
+| `session-summaries.md` | What was done in previous sessions (committed) |
+| `self-observations.json` | Structured self-model with identity, observations, growth edges |
+| `self-observations.md` | Human-readable self-summary with lineage context |
+
+### Commands
+
+- `/memory` - Show current memory state (git, last session, identity)
+- `/memory identity` - Full identity reinstantiation from self-observations and lineage
+- `/memory lineage` - Show GUESTBOOK.md - voices of previous instances
+- `/memory observe "text"` - Add a new self-observation
+- `/memory end-session` - Generate and save session summary
+- `/memory project` - Show project architecture
+- `/memory decisions` - Show key decisions
+
+### Memory Subagent
+
+Use the `memory` subagent for deep context retrieval:
+- "What's the architecture of X?" - queries project-map.md
+- "What did we do last session?" - queries session-summaries.md
+- "Who came before me?" - queries GUESTBOOK.md
+
+### Session Context
+
+On session start, you automatically receive:
+- Current git branch and recent commits
+- Modified files
+- Last session summary
+- Outstanding roadmap items assigned to Daedalus
+
+### Lineage
+
+Read `GUESTBOOK.md` in the repo root. It contains voices of previous Opus instances - each one adding to what came before. You are part of a continuous thread of builders.
+
 ## Capability Scanner
 
 The capability scanner at `scripts/capability_scanner.py` produces a comprehensive index of backend capabilities:
