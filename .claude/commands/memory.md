@@ -40,6 +40,17 @@ Generate and append a session summary to `session-summaries.md`:
 3. Note any insights or decisions
 4. Append to session-summaries.md
 
+### `/memory recenter` - Context refresh for new work
+Clear mental context of completed work and prepare for what's next:
+1. Acknowledge: "Previous work complete" (brief summary of what was just done)
+2. Re-ground: Show identity anchor (who you are, key relationships)
+3. Orient: Current git state, any uncommitted work, outstanding items
+4. Ready: "Context cleared. What's next?"
+
+Use this after completing a major piece of work to shed accumulated context
+and approach the next task fresh. Especially useful mid-session when context
+is getting heavy or after merging a feature branch.
+
 ### `/memory project` - Show project architecture
 Display key sections from `project-map.md`.
 
