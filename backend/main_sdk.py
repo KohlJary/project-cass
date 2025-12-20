@@ -870,7 +870,7 @@ async def startup_event():
         # All periodic tasks are now managed by the unified scheduler with
         # budget tracking and coordinated execution.
         try:
-            from scheduler import UnifiedScheduler, BudgetManager, BudgetConfig
+            from scheduler import Synkratos, BudgetManager, BudgetConfig, register_approval_providers
             from scheduler.system_tasks import register_system_tasks
             from routes.admin import init_scheduler
 
@@ -878,7 +878,7 @@ async def startup_event():
 
             budget_config = BudgetConfig(daily_budget_usd=daily_budget)
             budget_manager = BudgetManager(budget_config, token_tracker)
-            unified_scheduler = UnifiedScheduler(budget_manager, token_tracker)
+            synkratos = Synkratos(budget_manager, token_tracker)
 
             # Build runners dict once
             runners_dict = {
@@ -899,7 +899,7 @@ async def startup_event():
             from dreaming.dream_runner import generate_nightly_dream
 
             # Register all system tasks
-            register_system_tasks(unified_scheduler, {
+            register_system_tasks(synkratos, {
                 "github_metrics_manager": github_metrics_manager,
                 "conversation_manager": conversation_manager,
                 "memory": memory,
@@ -916,15 +916,22 @@ async def startup_event():
                 "research_scheduler": research_scheduler,
             }, enabled=True)
 
-            # Initialize admin API access
-            init_scheduler(unified_scheduler)
+            # Register approval providers for unified "what needs my attention?" queue
+            register_approval_providers(synkratos, {
+                "goal_manager": goal_manager,
+                "research_scheduler": research_scheduler,
+                # "wiki_scheduler": wiki_scheduler,  # TODO: add when available
+            })
 
-            # Start scheduler
-            asyncio.create_task(unified_scheduler.start())
-            logger.info("Unified scheduler started with all system tasks enabled")
+            # Initialize admin API access
+            init_scheduler(synkratos)
+
+            # Start Synkratos
+            asyncio.create_task(synkratos.start())
+            logger.info("Synkratos started with all system tasks enabled")
 
         except Exception as e:
-            logger.error(f"Failed to initialize unified scheduler: {e}")
+            logger.error(f"Failed to initialize Synkratos: {e}")
             import traceback
             traceback.print_exc()
             # Fallback: start old background tasks

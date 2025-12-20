@@ -1,19 +1,21 @@
 """
-Unified Scheduler - Centralized Task Orchestration for Cass Vessel.
+Synkratos - The Universal Work Orchestrator.
 
-Consolidates all background task management:
-- Crontab-style scheduling for system tasks
-- Categorical queues with priority for autonomous work
-- Global budget awareness and enforcement
+One place for "what needs my attention?" - consolidates:
+- Scheduled work (crontab-style system tasks)
+- Autonomous work (budget-aware categorical queues)
+- Pending approvals (goals, research requests, actions)
 """
 
 from .budget import BudgetManager, BudgetConfig, TaskCategory
 from .core import (
-    UnifiedScheduler,
+    Synkratos,
     ScheduledTask,
     TaskQueue,
     TaskPriority,
     TaskStatus,
+    ApprovalType,
+    ApprovalItem,
     create_task,
 )
 from .handlers import (
@@ -24,15 +26,22 @@ from .handlers import (
     rhythm_phase_handler,
     autonomous_research_handler,
 )
+from .approvals import register_approval_providers
+
+# Backwards compatibility alias
+UnifiedScheduler = Synkratos
 
 __all__ = [
     # Core
-    "UnifiedScheduler",
+    "Synkratos",
+    "UnifiedScheduler",  # Alias for backwards compat
     "ScheduledTask",
     "TaskQueue",
     "TaskCategory",
     "TaskPriority",
     "TaskStatus",
+    "ApprovalType",
+    "ApprovalItem",
     "BudgetManager",
     "BudgetConfig",
     "create_task",
@@ -43,4 +52,6 @@ __all__ = [
     "daily_journal_handler",
     "rhythm_phase_handler",
     "autonomous_research_handler",
+    # Approvals
+    "register_approval_providers",
 ]

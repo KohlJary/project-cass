@@ -172,6 +172,31 @@ export interface DailySummary {
   rhythmPhase: string | null;
 }
 
+export interface ApprovalItem {
+  approvalId: string;
+  approvalType: string;
+  title: string;
+  description: string;
+  sourceId: string;
+  createdAt: string;
+  createdBy: string;
+  priority: string;
+}
+
+export interface ApprovalCounts {
+  goal: number;
+  research: number;
+  action: number;
+  user: number;
+  total: number;
+}
+
+export interface Approvals {
+  items: ApprovalItem[];
+  count: number;
+  counts: ApprovalCounts;
+}
+
 export interface DashboardData {
   goals: Goals;
   tokens: TokenUsage;
@@ -181,6 +206,7 @@ export interface DashboardData {
   selfModel: SelfModelStats;
   state: GlobalState;
   dailySummary: DailySummary;
+  approvals: Approvals;
 }
 
 // =============================================================================
@@ -303,6 +329,26 @@ export const DASHBOARD_QUERY = gql`
       commits
       currentActivity
       rhythmPhase
+    }
+    approvals {
+      count
+      counts {
+        goal
+        research
+        action
+        user
+        total
+      }
+      items {
+        approvalId
+        approvalType
+        title
+        description
+        sourceId
+        createdAt
+        createdBy
+        priority
+      }
     }
   }
 `;

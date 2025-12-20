@@ -130,7 +130,7 @@ def init_unified_goal_manager(manager=None):
 
 
 def init_scheduler(scheduler):
-    """Initialize unified scheduler for admin API access."""
+    """Initialize Synkratos for admin API access."""
     _set_scheduler(scheduler)
 
 

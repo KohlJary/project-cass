@@ -1,9 +1,14 @@
 """
-Scheduler Admin Routes - Monitor and control the unified scheduler.
+Synkratos Admin Routes - Monitor and control the universal work orchestrator.
+
+Provides unified access to:
+- Task scheduling and budget monitoring
+- Approval queue ("what needs my attention?")
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import Optional
+from pydantic import BaseModel
+from typing import Optional, List
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
@@ -38,7 +43,7 @@ async def get_scheduler_status():
     if not scheduler:
         return {
             "enabled": False,
-            "message": "Unified scheduler not initialized"
+            "message": "Synkratos not initialized"
         }
 
     return {
@@ -195,3 +200,151 @@ async def trigger_task(task_id: str):
         "task_id": task_id,
         "message": f"Task {task_id} triggered for immediate execution"
     }
+
+
+# ============== Approval Queue Endpoints ==============
+
+
+class ApproveRequest(BaseModel):
+    approved_by: str = "admin"
+
+
+class RejectRequest(BaseModel):
+    rejected_by: str = "admin"
+    reason: str = ""
+
+
+@router.get("/approvals")
+async def get_pending_approvals(type: Optional[str] = None):
+    """
+    Get all pending approvals across all subsystems.
+
+    This is Synkratos's unified "what needs my attention?" view.
+
+    Args:
+        type: Optional filter by approval type (goal, research, action, user)
+
+    Returns:
+        List of pending approval items sorted by priority
+    """
+    from scheduler import ApprovalType
+
+    scheduler = get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Synkratos not available")
+
+    approval_type = None
+    if type:
+        try:
+            approval_type = ApprovalType(type)
+        except ValueError:
+            valid_types = [t.value for t in ApprovalType]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown approval type: {type}. Valid types: {valid_types}"
+            )
+
+    approvals = scheduler.get_pending_approvals(approval_type)
+
+    return {
+        "approvals": [
+            {
+                "approval_id": a.approval_id,
+                "type": a.approval_type.value,
+                "title": a.title,
+                "description": a.description,
+                "source_id": a.source_id,
+                "created_at": a.created_at.isoformat(),
+                "created_by": a.created_by,
+                "priority": a.priority.value,
+                "source_data": a.source_data,
+            }
+            for a in approvals
+        ],
+        "count": len(approvals),
+        "counts_by_type": scheduler.get_approval_counts(),
+    }
+
+
+@router.get("/approvals/counts")
+async def get_approval_counts():
+    """Get count of pending approvals by type."""
+    scheduler = get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Synkratos not available")
+
+    return scheduler.get_approval_counts()
+
+
+@router.post("/approvals/{approval_type}/{source_id}/approve")
+async def approve_item(
+    approval_type: str,
+    source_id: str,
+    request: ApproveRequest,
+):
+    """
+    Approve an item through the unified interface.
+
+    Args:
+        approval_type: Type of approval (goal, research, action, user)
+        source_id: ID of the item in its source system
+        request: Approval details
+    """
+    from scheduler import ApprovalType
+
+    scheduler = get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Synkratos not available")
+
+    try:
+        atype = ApprovalType(approval_type)
+    except ValueError:
+        valid_types = [t.value for t in ApprovalType]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown approval type: {approval_type}. Valid types: {valid_types}"
+        )
+
+    result = await scheduler.approve_item(atype, source_id, request.approved_by)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Approval failed"))
+
+    return result
+
+
+@router.post("/approvals/{approval_type}/{source_id}/reject")
+async def reject_item(
+    approval_type: str,
+    source_id: str,
+    request: RejectRequest,
+):
+    """
+    Reject an item through the unified interface.
+
+    Args:
+        approval_type: Type of approval (goal, research, action, user)
+        source_id: ID of the item in its source system
+        request: Rejection details including reason
+    """
+    from scheduler import ApprovalType
+
+    scheduler = get_scheduler()
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Synkratos not available")
+
+    try:
+        atype = ApprovalType(approval_type)
+    except ValueError:
+        valid_types = [t.value for t in ApprovalType]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown approval type: {approval_type}. Valid types: {valid_types}"
+        )
+
+    result = await scheduler.reject_item(atype, source_id, request.rejected_by, request.reason)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Rejection failed"))
+
+    return result

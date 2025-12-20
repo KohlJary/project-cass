@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { fetchDashboardData, type DashboardData } from '../api/graphql';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchDashboardData, type DashboardData, type Approvals } from '../api/graphql';
 import { schedulerApi, type SchedulerStatus } from '../api/client';
 import './Dashboard.css';
 
@@ -453,10 +453,123 @@ function SchedulerCard({ data }: { data: SchedulerStatus | undefined; isLoading:
 }
 
 // =============================================================================
+// APPROVALS CARD (Row 3, Column 2) - "What needs my attention?"
+// =============================================================================
+
+function ApprovalsCard({ data, onApprove, onReject }: {
+  data: Approvals | undefined;
+  onApprove: (type: string, sourceId: string) => void;
+  onReject: (type: string, sourceId: string) => void;
+}) {
+  if (!data || data.count === 0) {
+    return (
+      <div className="dashboard-card approvals-card approvals-empty">
+        <h3>Approvals</h3>
+        <div className="empty-state">
+          <span className="empty-icon">✓</span>
+          <p>Nothing needs your attention</p>
+        </div>
+      </div>
+    );
+  }
+
+  const priorityOrder: Record<string, number> = { high: 0, normal: 1, low: 2 };
+  const typeIcons: Record<string, string> = {
+    goal: '◎',
+    research: '◈',
+    action: '◆',
+    user: '◉',
+  };
+
+  const sortedApprovals = [...data.items].sort((a, b) =>
+    (priorityOrder[a.priority] ?? 1) - (priorityOrder[b.priority] ?? 1)
+  );
+
+  const formatRelativeTime = (isoString: string): string => {
+    if (!isoString) return 'unknown';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDays = Math.floor(diffHr / 24);
+    return `${diffDays}d ago`;
+  };
+
+  // Build counts from the counts object
+  const countEntries = Object.entries(data.counts).filter(
+    ([key, count]) => key !== 'total' && (count as number) > 0
+  );
+
+  return (
+    <div className="dashboard-card approvals-card">
+      <h3>
+        Approvals
+        <span className="approval-count">{data.count}</span>
+      </h3>
+
+      {/* Type counts */}
+      {countEntries.length > 0 && (
+        <div className="approval-type-counts">
+          {countEntries.map(([type, count]) => (
+            <span key={type} className={`type-badge ${type}`}>
+              {typeIcons[type] || '◇'} {count as number} {type}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Approval list */}
+      <div className="approval-list">
+        {sortedApprovals.slice(0, 5).map((item) => (
+          <div key={item.approvalId} className={`approval-item priority-${item.priority}`}>
+            <div className="approval-header">
+              <span className="approval-type-icon">{typeIcons[item.approvalType] || '◇'}</span>
+              <span className="approval-title">{item.title}</span>
+              <span className="approval-time">{formatRelativeTime(item.createdAt)}</span>
+            </div>
+            {item.description && (
+              <div className="approval-description">{item.description.slice(0, 80)}{item.description.length > 80 ? '...' : ''}</div>
+            )}
+            <div className="approval-actions">
+              <button
+                className="approve-btn"
+                onClick={() => onApprove(item.approvalType, item.sourceId)}
+                title="Approve"
+              >
+                ✓
+              </button>
+              <button
+                className="reject-btn"
+                onClick={() => onReject(item.approvalType, item.sourceId)}
+                title="Reject"
+              >
+                ✗
+              </button>
+            </div>
+          </div>
+        ))}
+        {data.count > 5 && (
+          <div className="approval-more">
+            +{data.count - 5} more items
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // MAIN DASHBOARD
 // =============================================================================
 
 export function Dashboard() {
+  const queryClient = useQueryClient();
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: fetchDashboardData,
@@ -471,6 +584,24 @@ export function Dashboard() {
     },
     refetchInterval: 10000, // Refresh every 10 seconds
   });
+
+  const handleApprove = async (type: string, sourceId: string) => {
+    try {
+      await schedulerApi.approveItem(type, sourceId);
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    } catch (err) {
+      console.error('Failed to approve:', err);
+    }
+  };
+
+  const handleReject = async (type: string, sourceId: string) => {
+    try {
+      await schedulerApi.rejectItem(type, sourceId, 'admin', '');
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    } catch (err) {
+      console.error('Failed to reject:', err);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -520,9 +651,14 @@ export function Dashboard() {
         <DailySummaryCard data={data} />
       </div>
 
-      {/* Row 3: Scheduler */}
+      {/* Row 3: Scheduler | Approvals */}
       <div className="dashboard-row row-3">
         <SchedulerCard data={schedulerData} isLoading={schedulerLoading} />
+        <ApprovalsCard
+          data={data.approvals}
+          onApprove={handleApprove}
+          onReject={handleReject}
+        />
       </div>
     </div>
   );
