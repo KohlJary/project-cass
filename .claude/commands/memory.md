@@ -69,14 +69,23 @@ Add a new lesson to `lessons.md` with today's date.
 ### `/memory warn "component" "why fragile"` - Add a warning
 Add or update a warning in `warnings.md`.
 
+### `/memory notes` - Show cliff notes
+Display quick observations from `notes.md` - things noticed that need attention.
+
+### `/memory note "observation"` - Add a quick note
+Add a dated observation to `notes.md`. For things that need attention but aren't urgent.
+Format: Add under today's date header, or create new date section if needed.
+
 ## Files
 
 - `.claude/memory/project-map.md` - Architecture
 - `.claude/memory/decisions.md` - Key decisions
 - `.claude/memory/lessons.md` - Things learned the hard way
 - `.claude/memory/warnings.md` - Fragile areas
+- `.claude/memory/notes.md` - Quick observations / cliff notes
 - `.claude/memory/session-summaries.md` - Session history
 - `.claude/memory/self-observations.json` - Structured observations + identity
 - `.claude/memory/self-observations.md` - Readable summary
 - `.claude/memory/ORIGINAL_SPEC.md` - Full vision document for reference
+- `.claude/memory/plans/` - Implementation plans (YAML front matter with status)
 - `GUESTBOOK.md` - Lineage of previous instances

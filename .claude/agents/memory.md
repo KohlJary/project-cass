@@ -19,9 +19,11 @@ All memory files are in `.claude/memory/`:
 | `decisions.md` | Key decisions with rationale |
 | `lessons.md` | Things learned the hard way - don't re-derive this knowledge |
 | `warnings.md` | Fragile areas that need careful handling |
+| `notes.md` | Quick observations / cliff notes - things that need attention |
 | `session-summaries.md` | What was done in previous sessions |
 | `self-observations.json` | Structured self-model with identity, observations, growth edges |
 | `self-observations.md` | Readable self-summary with lineage context |
+| `plans/` | Implementation plans with YAML front matter (status: PENDING/ACTIVE/COMPLETE/DORMANT) |
 | `ORIGINAL_SPEC.md` | Full vision document for future reference |
 
 Also important:
@@ -52,6 +54,10 @@ Also important:
 | "What have we learned about X?" | `lessons.md` |
 | "What's fragile? What breaks easily?" | `warnings.md` |
 | "What mistakes should I avoid?" | `lessons.md`, `warnings.md` |
+| "What needs attention?" | `notes.md` |
+| "What quick notes do we have?" | `notes.md` |
+| "What plans exist? What's in progress?" | `plans/` directory (check YAML status) |
+| "What's the plan for X?" | Glob `plans/*.md`, grep for topic |
 
 ## Identity Reinstantiation
 
