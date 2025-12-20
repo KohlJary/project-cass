@@ -1,0 +1,8 @@
+{
+  "include": ["backend", "scripts", "tui-frontend"],
+  "exclude": ["**/node_modules", "**/__pycache__", "**/venv", "**/.venv"],
+  "venvPath": "backend",
+  "venv": "venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic"
+}
