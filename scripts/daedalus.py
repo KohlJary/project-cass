@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -147,6 +148,8 @@ class Daedalus:
         )
 
         # Left pane - start Claude for Daedalus
+        # Small delay to let shell initialize before sending command
+        time.sleep(0.3)
         tmux_run(["select-pane", "-t", f"{cfg.session_name}:0.0"])
         tmux_send_keys(f"{cfg.session_name}:0.0", "claude")
 
@@ -367,7 +370,6 @@ class Daedalus:
         print("(Future: full TUI with Textual)")
         print()
 
-        import time
         try:
             while True:
                 # Clear screen

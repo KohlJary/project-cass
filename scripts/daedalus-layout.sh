@@ -79,6 +79,8 @@ create_main_session() {
     tmux send-keys -t "$SESSION_NAME:0.1" "tmux attach -t $SWARM_SESSION 2>/dev/null || (echo 'Swarm not ready - run: daedalus swarm-init' && bash)" Enter
 
     # Left pane (0.0) - start Claude for Daedalus
+    # Small delay to let shell initialize before sending command
+    sleep 0.3
     tmux select-pane -t "$SESSION_NAME:0.0"
     tmux send-keys -t "$SESSION_NAME:0.0" "claude" Enter
 
