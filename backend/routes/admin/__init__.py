@@ -58,6 +58,11 @@ from .goals import (
     router as goals_router,
     init_goal_manager as _init_goal_manager,
 )
+from .scheduler import (
+    router as scheduler_router,
+    set_scheduler as _set_scheduler,
+    get_scheduler,
+)
 
 # Create combined router
 router = APIRouter()
@@ -74,6 +79,7 @@ router.include_router(homepage_router)
 router.include_router(narrative_router)
 router.include_router(state_router)
 router.include_router(goals_router)
+router.include_router(scheduler_router)
 
 
 # Module-level references for backward compatibility
@@ -123,6 +129,11 @@ def init_unified_goal_manager(manager=None):
     _init_goal_manager(manager)
 
 
+def init_scheduler(scheduler):
+    """Initialize unified scheduler for admin API access."""
+    _set_scheduler(scheduler)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -170,4 +181,6 @@ __all__ = [
     "init_reflection_runner",
     "init_narrative_managers",
     "init_unified_goal_manager",
+    "init_scheduler",
+    "get_scheduler",
 ]
