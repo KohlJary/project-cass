@@ -24,6 +24,7 @@ from database import get_db, json_serialize, json_deserialize
 if TYPE_CHECKING:
     from queryable_source import QueryableSource
     from query_models import StateQuery, QueryResult
+    from capability_registry import CapabilityRegistry, CapabilityMatch
 
 logger = logging.getLogger(__name__)
 from state_models import (
@@ -66,6 +67,9 @@ class GlobalStateBus:
         self._queryable_sources: Dict[str, "QueryableSource"] = {}
         self._query_cache: Dict[str, tuple] = {}  # (result, timestamp)
         self._query_cache_ttl_seconds = 60
+
+        # Semantic capability registry (lazy initialized)
+        self._capability_registry: Optional["CapabilityRegistry"] = None
 
     def read_state(self) -> GlobalState:
         """
@@ -499,6 +503,10 @@ class GlobalStateBus:
 
         logger.info(f"Registered queryable source: {source_id} (strategy: {source.refresh_strategy.value})")
 
+        # Index capabilities for semantic search
+        if self._capability_registry:
+            asyncio.create_task(self._register_source_capabilities(source))
+
         # Start background refresh for SCHEDULED sources
         # Only create task if event loop is running (may be registered before startup)
         if source.refresh_strategy == RefreshStrategy.SCHEDULED:
@@ -680,6 +688,105 @@ class GlobalStateBus:
                 if not source._scheduled_refresh_task or source._scheduled_refresh_task.done():
                     asyncio.create_task(source.start_scheduled_refresh())
                     logger.info(f"Started scheduled refresh for {source_id}")
+
+    # === Capability Registry ===
+
+    def set_capability_registry(self, registry: "CapabilityRegistry") -> None:
+        """
+        Set the capability registry for semantic discovery.
+
+        Args:
+            registry: Initialized CapabilityRegistry instance
+        """
+        self._capability_registry = registry
+        logger.info("Capability registry attached to state bus")
+
+        # Note: Existing sources will be indexed when start_capability_indexing() is called
+        # from the startup event (where we have an event loop)
+
+    async def start_capability_indexing(self) -> None:
+        """
+        Index all existing sources in the capability registry.
+
+        Call this from startup_event after the event loop is running.
+        """
+        if not self._capability_registry:
+            return
+
+        for source in self._queryable_sources.values():
+            await self._register_source_capabilities(source)
+
+    async def _register_source_capabilities(self, source: "QueryableSource") -> None:
+        """Register a source's capabilities in the semantic index."""
+        if not self._capability_registry:
+            return
+
+        try:
+            count = await self._capability_registry.register_source(source)
+            logger.debug(f"Indexed {count} capabilities from {source.source_id}")
+        except Exception as e:
+            logger.error(f"Failed to index capabilities for {source.source_id}: {e}")
+
+    async def find_capabilities(
+        self,
+        query: str,
+        limit: int = 5,
+        source_filter: Optional[str] = None,
+        tag_filter: Optional[List[str]] = None,
+    ) -> List["CapabilityMatch"]:
+        """
+        Find relevant capabilities by semantic similarity.
+
+        This is the interface for natural language capability discovery.
+        Cass can ask "What data do we have about user engagement?" and
+        get back relevant metrics from any registered source.
+
+        Args:
+            query: Natural language description of what data is needed
+            limit: Maximum number of results
+            source_filter: Optional source ID to filter by
+            tag_filter: Optional tags to filter by
+
+        Returns:
+            List of matching capabilities, sorted by relevance
+        """
+        if not self._capability_registry:
+            logger.warning("No capability registry configured")
+            return []
+
+        return await self._capability_registry.find_capabilities(
+            query=query,
+            limit=limit,
+            source_filter=source_filter,
+            tag_filter=tag_filter,
+        )
+
+    async def list_all_capabilities(self) -> Dict[str, List[Dict]]:
+        """
+        List all registered capabilities grouped by source.
+
+        Returns:
+            Dict mapping source_id to list of metric info dicts
+        """
+        if not self._capability_registry:
+            return {}
+
+        return await self._capability_registry.list_all_capabilities()
+
+    def format_capabilities_for_llm(self, matches: List["CapabilityMatch"]) -> str:
+        """
+        Format capability matches for LLM consumption.
+
+        Args:
+            matches: List of capability matches
+
+        Returns:
+            Human-readable formatted string
+        """
+        if not self._capability_registry:
+            return "Capability registry not configured."
+
+        return self._capability_registry.format_for_llm(matches)
 
 
 # === Convenience functions ===

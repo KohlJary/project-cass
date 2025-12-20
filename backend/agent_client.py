@@ -1211,7 +1211,7 @@ from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
-from handlers.state_query import QUERY_STATE_TOOL_DEFINITION
+from handlers.state_query import QUERY_STATE_TOOL_DEFINITION, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 
 
 # ============================================================================
@@ -1425,7 +1425,10 @@ STATE_QUERY_KEYWORDS = frozenset({
     "token usage", "token cost", "tokens today", "cost today",
     "stars", "clones", "forks", "views", "repository metrics",
     "how many tokens", "how much spent", "spending", "usage stats",
-    "metrics query", "query metrics"
+    "metrics query", "query metrics",
+    # Capability discovery
+    "what data", "what metrics", "available data", "capabilities",
+    "discover capabilities", "find data", "data sources",
 })
 
 
@@ -1581,6 +1584,7 @@ class CassAgentClient:
             # State query tools - metrics from global state bus (github, tokens, etc)
             if should_include_state_query_tools(message):
                 tools.append(QUERY_STATE_TOOL_DEFINITION)
+                tools.append(DISCOVER_CAPABILITIES_TOOL_DEFINITION)
 
         # Project tools only available in project context
         if project_id and self.enable_tools:

@@ -407,3 +407,77 @@ async def refresh_source_rollups(
         "status": "refreshed",
         "timestamp": datetime.now().isoformat(),
     }
+
+
+# === Capability Discovery Endpoints ===
+
+
+class CapabilitySearchRequest(BaseModel):
+    """Request body for semantic capability search."""
+    query: str
+    limit: int = 5
+    source: Optional[str] = None
+    tags: Optional[list] = None
+
+
+@router.get("/state/capabilities")
+async def list_capabilities(
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)")
+):
+    """
+    List all registered capabilities grouped by source.
+
+    Returns all queryable metrics from all registered sources with their
+    semantic summaries and metadata. Useful for understanding what data
+    is available to query.
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+    state_bus = get_state_bus(d_id)
+
+    capabilities = await state_bus.list_all_capabilities()
+
+    # Also include source schemas for context
+    schemas = state_bus.describe_sources()
+
+    return {
+        "daemon_id": d_id,
+        "timestamp": datetime.now().isoformat(),
+        "sources": list(capabilities.keys()),
+        "capabilities": capabilities,
+        "schemas": schemas,
+    }
+
+
+@router.post("/state/capabilities/search")
+async def search_capabilities(
+    request: CapabilitySearchRequest,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)")
+):
+    """
+    Search for capabilities using natural language.
+
+    Semantically matches your query against registered capabilities
+    to find relevant data sources and metrics.
+
+    Examples:
+    - {"query": "user engagement metrics"}
+    - {"query": "how much are we spending on tokens?"}
+    - {"query": "repository activity", "source": "github"}
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+    state_bus = get_state_bus(d_id)
+
+    matches = await state_bus.find_capabilities(
+        query=request.query,
+        limit=request.limit,
+        source_filter=request.source,
+        tag_filter=request.tags,
+    )
+
+    return {
+        "daemon_id": d_id,
+        "query": request.query,
+        "timestamp": datetime.now().isoformat(),
+        "matches": [m.to_dict() for m in matches],
+        "formatted": state_bus.format_capabilities_for_llm(matches),
+    }
