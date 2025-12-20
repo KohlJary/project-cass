@@ -865,26 +865,23 @@ async def startup_event():
         _state["marker_store"] = marker_store
         _state["self_manager"] = self_manager
 
-        # Start background task for daily journal generation
-        asyncio.create_task(daily_journal_task())
+        # === Unified Scheduler ===
+        # Replaces the old asyncio.create_task() calls for background tasks.
+        # All periodic tasks are now managed by the unified scheduler with
+        # budget tracking and coordinated execution.
+        try:
+            from scheduler import UnifiedScheduler, BudgetManager, BudgetConfig
+            from scheduler.system_tasks import register_system_tasks
+            from routes.admin import init_scheduler
 
-        # Start background task for autonomous research scheduling
-        asyncio.create_task(autonomous_research_task())
+            daily_budget = float(os.getenv("DAILY_BUDGET_USD", "5.0"))
 
-        # Start background task for GitHub metrics collection
-        asyncio.create_task(github_metrics_task(github_metrics_manager))
+            budget_config = BudgetConfig(daily_budget_usd=daily_budget)
+            budget_manager = BudgetManager(budget_config, token_tracker)
+            unified_scheduler = UnifiedScheduler(budget_manager, token_tracker)
 
-        # Start background task for idle conversation summarization
-        asyncio.create_task(idle_summarization_task(
-            conversation_manager=conversation_manager,
-            memory=memory,
-            token_tracker=token_tracker
-        ))
-
-        # Start background task for rhythm-triggered autonomous sessions
-        asyncio.create_task(rhythm_phase_monitor_task(
-            daily_rhythm_manager,
-            runners={
+            # Build runners dict once
+            runners_dict = {
                 "research": get_research_runner(),
                 "reflection": get_reflection_runner(),
                 "synthesis": get_synthesis_runner(),
@@ -896,9 +893,68 @@ async def startup_event():
                 "curiosity": get_curiosity_runner(),
                 "world_state": get_world_state_runner(),
                 "creative": get_creative_runner(),
-            },
-            self_model_graph=self_model_graph
-        ))
+            }
+
+            # Import dream generation for nightly dreams
+            from dreaming.dream_runner import generate_nightly_dream
+
+            # Register all system tasks
+            register_system_tasks(unified_scheduler, {
+                "github_metrics_manager": github_metrics_manager,
+                "conversation_manager": conversation_manager,
+                "memory": memory,
+                "token_tracker": token_tracker,
+                "rhythm_manager": daily_rhythm_manager,
+                "runners": runners_dict,
+                "self_model_graph": self_model_graph,
+                # For daily_journal handler
+                "generate_missing_journals": generate_missing_journals,
+                "generate_nightly_dream": generate_nightly_dream,
+                "self_manager": self_manager,
+                "data_dir": DATA_DIR,
+                # For autonomous_research handler
+                "research_scheduler": research_scheduler,
+            }, enabled=True)
+
+            # Initialize admin API access
+            init_scheduler(unified_scheduler)
+
+            # Start scheduler
+            asyncio.create_task(unified_scheduler.start())
+            logger.info("Unified scheduler started with all system tasks enabled")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize unified scheduler: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback: start old background tasks
+            logger.warning("Falling back to legacy background tasks")
+            asyncio.create_task(daily_journal_task())
+            asyncio.create_task(autonomous_research_task())
+            asyncio.create_task(github_metrics_task(github_metrics_manager))
+            asyncio.create_task(idle_summarization_task(
+                conversation_manager=conversation_manager,
+                memory=memory,
+                token_tracker=token_tracker
+            ))
+            asyncio.create_task(rhythm_phase_monitor_task(
+                daily_rhythm_manager,
+                runners={
+                    "research": get_research_runner(),
+                    "reflection": get_reflection_runner(),
+                    "synthesis": get_synthesis_runner(),
+                    "meta_reflection": get_meta_reflection_runner(),
+                    "consolidation": get_consolidation_runner(),
+                    "growth_edge": get_growth_edge_runner(),
+                    "knowledge_building": get_knowledge_building_runner(),
+                    "writing": get_writing_runner(),
+                    "curiosity": get_curiosity_runner(),
+                    "world_state": get_world_state_runner(),
+                    "creative": get_creative_runner(),
+                },
+                self_model_graph=self_model_graph
+            ))
+
     asyncio.create_task(start_deferred_tasks())
 
     # Print startup banner (extracted to startup.py)

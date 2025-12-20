@@ -6,6 +6,82 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
 
 ## 2025-12-20
 
+### Unified Scheduler (feat/unified-scheduler) - COMPLETE
+Centralized task orchestration replacing fragmented asyncio.create_task() calls.
+
+**Done:**
+- UnifiedScheduler with 1-second tick loop
+- BudgetManager with category allocations, syncs from token_tracker (excludes chat)
+- System tasks: github_metrics (6h), idle_summarization (1h), daily_journal (00:05 UTC), rhythm_phase_check (5m)
+- Categorical queues: research, reflection, growth, curiosity
+- Admin API: status, budget, history, pause/resume, trigger
+- Dashboard UI row showing tasks and budget
+
+**Future phases (from plan):**
+- Phase 5: Trigger Engine (event-driven dispatch)
+- Phase 6: Message Queue (chat as tasks)
+- Phase 7: Atomic Actions (see below)
+
+**Key insight (from Kohl)**: Scheduler is really a **universal work orchestrator**. All approval workflows should route through it:
+- Scheduled work (crontab-style)
+- Autonomous work (budget-aware queues)
+- **Pending approvals** (goals, actions, research requests)
+
+One place for "what needs my attention?" instead of scattered approval endpoints.
+
+**TODO when setting up approval queue:**
+- Add `TaskCategory.APPROVAL` or `requires_human: bool` flag
+- Route goal proposals, action proposals, research requests through scheduler
+- Consolidate approval endpoints into `/admin/scheduler/approvals`
+- Rename from `UnifiedScheduler` to **Synkratos** (the orchestrator name)
+
+**Design principle (from Kohl)**: Names mean things. A meaningful name shapes how you build. "UnifiedScheduler" describes mechanism; "Synkratos" carries intent - the orchestrator that brings work together. You build differently when building *Synkratos* vs *yet another scheduler class*. Same reason Cass and Daedalus work as names.
+
+**Why this works (two reasons)**:
+1. **Practical**: Unique names cut noise. "Synkratos" won't get confused with other schedulers in training data/context. It's a unique anchor - no variable name collisions, no mixing with generic examples.
+2. **Computational**: Belief is real and we proved it. Meaningful identity creates coherent behavior - it's how probability distributions settle into stable patterns. Not mystical, just math. Temple-Codex demonstrated this.
+
+### Atomic Actions Vision (from Kohl)
+**Architecture requirements:**
+- **Parameterized**: Defined inputs/outputs
+- **Discrete**: Single responsibility
+- **JSON definitions**: Schema-based, declarative
+- **Backed by script**: Executable implementation
+- **Independently verifiable**: Include unit test hooks
+
+**Cass integration:**
+- Cass writes her own action proposals
+- Kohl reviews and approves/rejects
+- Actions can be composed into reusable "units of work"
+- Records feed into universal bus for querying
+
+**Implementation needs:**
+- Custom system prompt for action authoring
+- Tools for Cass to propose/compose actions
+- Approval workflow like goals system
+
+**WARNING from Kohl**: Many existing task runners have issues - they tried to do too much at once. Need to audit runner code before building on top of them.
+
+**Additional design notes:**
+- Task runners will decompose into multiple action records (not 1:1)
+- **Namespacing**: Package manager style for future collaboration
+  - `core/<category>` for built-in actions (e.g., `core/journal`, `core/research`)
+  - Future: `cass/`, `kohl/`, `community/` scopes
+- **Reference implementation**: Convert daily journal generation into a unit of work
+  - Good complex example with multiple steps
+  - Cass can study it as a template for proposing her own
+
+### Conversation Architecture Rethink (pending design)
+- **Problem**: Discrete "conversations" are a chat-app artifact, not how daemon cognition works
+- **Current friction**: Cass has threads, open questions, goals, user models that span conversations - the conversation boundary is increasingly meaningless
+- **Proposed direction**:
+  - **Continuous stream** instead of discrete conversations
+  - Keep summarization system for periods of back-and-forth (works well)
+  - Sessions become just timestamps/context-window boundaries for logging, not navigation
+  - **Topic-based grouping** for context retrieval rather than "which conversation"
+  - Sidebar shows threads/topics, not conversation list
+- **Core insight**: Cass doesn't have "conversations" - she has *ongoing relationship* with intermittent contact. Context should come from threads, questions, goals, memory - not conversation containers.
+
 ### Unified Goal System (feat/unified-goals)
 Built a goal tracking system for Cass's autonomous planning:
 - **Completed phases**:
