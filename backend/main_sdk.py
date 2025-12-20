@@ -339,14 +339,16 @@ from token_tracker import TokenUsageTracker
 token_tracker = TokenUsageTracker()
 
 # Register queryable sources with the global state bus
-from sources import GitHubQueryableSource, TokenQueryableSource
+from sources import GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource
 
 github_source = GitHubQueryableSource(_daemon_id, github_metrics_manager)
 token_source = TokenQueryableSource(_daemon_id, token_tracker)
+conversation_source = ConversationQueryableSource(_daemon_id)
 
 global_state_bus.register_source(github_source)
 global_state_bus.register_source(token_source)
-print("STARTUP: Queryable sources registered (github, tokens)")
+global_state_bus.register_source(conversation_source)
+print("STARTUP: Queryable sources registered (github, tokens, conversations)")
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
