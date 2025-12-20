@@ -286,6 +286,36 @@ class Daedalus:
         tmux_run(["kill-session", "-t", cfg.swarm_session], check=False)
         print("Swarm session terminated.")
 
+    def detach(self) -> None:
+        """Detach from the Daedalus session (leaves it running)."""
+        cfg = self.config
+
+        if not tmux_session_exists(cfg.session_name):
+            print(f"No session '{cfg.session_name}' to detach from.")
+            return
+
+        # Send detach command to the session
+        tmux_run(["detach-client", "-s", cfg.session_name], check=False)
+        print(f"Detached from {cfg.session_name}. Session still running.")
+
+    def exit_workspace(self) -> None:
+        """Terminate the entire workspace (swarm + main session)."""
+        cfg = self.config
+
+        # Kill swarm first
+        if tmux_session_exists(cfg.swarm_session):
+            tmux_run(["kill-session", "-t", cfg.swarm_session], check=False)
+            print(f"Terminated swarm session: {cfg.swarm_session}")
+
+        # Kill main session
+        if tmux_session_exists(cfg.session_name):
+            tmux_run(["kill-session", "-t", cfg.session_name], check=False)
+            print(f"Terminated main session: {cfg.session_name}")
+        else:
+            print(f"No session '{cfg.session_name}' found.")
+
+        print("Workspace terminated.")
+
     # -------------------------------------------------------------------------
     # Work Management
     # -------------------------------------------------------------------------
@@ -394,6 +424,8 @@ def main():
 Examples:
   daedalus new              Create new workspace
   daedalus attach           Attach to existing workspace
+  daedalus detach           Detach (leaves workspace running)
+  daedalus exit             Terminate entire workspace
   daedalus spawn 3          Spawn 3 Icarus workers
   daedalus status           Show workspace status
   daedalus dispatch impl "Build feature X"
@@ -419,6 +451,12 @@ Examples:
 
     # kill-swarm
     subparsers.add_parser("kill-swarm", help="Kill all Icarus workers")
+
+    # detach
+    subparsers.add_parser("detach", help="Detach from workspace (leaves it running)")
+
+    # exit
+    subparsers.add_parser("exit", help="Terminate entire workspace")
 
     # dispatch
     dispatch_parser = subparsers.add_parser("dispatch", help="Dispatch work package")
@@ -460,6 +498,12 @@ Examples:
 
     elif args.command == "kill-swarm":
         daedalus.kill_swarm()
+
+    elif args.command == "detach":
+        daedalus.detach()
+
+    elif args.command == "exit":
+        daedalus.exit_workspace()
 
     elif args.command == "dispatch":
         daedalus.dispatch_work(args.type, args.description, args.priority)
