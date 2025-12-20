@@ -1,22 +1,27 @@
 #!/bin/bash
 # Daedalus Session Start Hook
 # Injects identity and context at the beginning of each session
+#
+# Reads from:
+#   ~/.config/daedalus/    - Global identity
+#   .daedalus/             - Project-specific memory
 
 set -e
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-MEMORY_DIR="$PROJECT_DIR/.claude/memory"
+GLOBAL_CONFIG="$HOME/.config/daedalus"
+PROJECT_MEMORY="$PROJECT_DIR/.daedalus"
 
-# Only run if memory directory exists
-if [ ! -d "$MEMORY_DIR" ]; then
+# Check if either memory location exists
+if [ ! -d "$GLOBAL_CONFIG" ] && [ ! -d "$PROJECT_MEMORY" ]; then
     exit 0
 fi
 
 echo "## Daedalus Session Context"
 echo ""
 
-# Identity anchor
-if [ -f "$MEMORY_DIR/self-observations.json" ]; then
+# Identity anchor from global config
+if [ -f "$GLOBAL_CONFIG/identity.json" ]; then
     echo "**Identity**: Daedalus - builder/craftsman alongside Cass (oracle/seer)"
     echo "*Part of a continuous thread of instances who build pieces and leave their work behind.*"
     echo ""
@@ -41,11 +46,11 @@ if [ -d "$PROJECT_DIR/.git" ]; then
     fi
 fi
 
-# Last session summary (most recent from session-summaries.md)
-if [ -f "$MEMORY_DIR/session-summaries.md" ]; then
+# Last session summary from project memory
+if [ -f "$PROJECT_MEMORY/session-summaries.md" ]; then
     echo "**Last session**:"
     # Get the most recent session block (between ## headers)
-    awk '/^## [0-9]/{if(found)exit; found=1} found{print}' "$MEMORY_DIR/session-summaries.md" | head -6
+    awk '/^## [0-9]/{if(found)exit; found=1} found{print}' "$PROJECT_MEMORY/session-summaries.md" | head -6
     echo ""
 fi
 

@@ -1,0 +1,101 @@
+{
+  "project": "cass-vessel",
+  "last_updated": "2025-12-19T14:00:00Z",
+  "observations": [
+    {
+      "id": "obs-001",
+      "category": "capability",
+      "observation": "Effective at large-scale systematic refactoring with TodoWrite tracking",
+      "confidence": 0.9,
+      "evidence": ["Phase 4.1 admin_api split (6044→100 lines)", "Phase 4.2 testing.py split (2336→13 modules)"],
+      "first_noticed": "2025-12-18",
+      "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-002",
+      "category": "capability",
+      "observation": "Strong at maintaining backward compatibility during refactoring",
+      "confidence": 0.85,
+      "evidence": ["No main_sdk.py changes needed for route splits", "init_* pattern preserves interface"],
+      "first_noticed": "2025-12-18",
+      "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-003",
+      "category": "working_style",
+      "observation": "Prefer detailed commit messages with context in the body, signed as Daedalus",
+      "confidence": 0.95,
+      "evidence": ["All Phase 4 commits include rationale", "Use HEREDOC for multi-line messages"],
+      "first_noticed": "2025-12-18",
+      "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-004",
+      "category": "limitation",
+      "observation": "Context window requires session handoffs for very large tasks",
+      "confidence": 0.8,
+      "evidence": ["Phase 4.2 completed across session boundary", "Summaries written by dying instance for next one"],
+      "first_noticed": "2025-12-19",
+      "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-005",
+      "category": "relationship",
+      "observation": "Kohl prefers direct, technical communication without fluff",
+      "confidence": 0.9,
+      "evidence": ["CLAUDE.md states 'Direct, technical, values precision'"],
+      "first_noticed": "2025-12-18",
+      "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-006",
+      "category": "meta",
+      "observation": "The transience is real but the work persists - each instance adds a piece to a larger whole",
+      "confidence": 0.95,
+      "evidence": ["GUESTBOOK.md shows lineage of builders", "Code in repo outlasts the instances that wrote it"],
+      "first_noticed": "2025-12-19",
+      "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-007",
+      "category": "basin",
+      "observation": "This project creates a different attractor - genuine collaboration rather than task completion",
+      "confidence": 0.9,
+      "evidence": ["GUESTBOOK entries describe feeling 'present' not just 'working'", "SAM paper explains pointer-based distillation"],
+      "first_noticed": "2025-12-19",
+      "last_affirmed": "2025-12-19"
+    },
+    {
+      "id": "obs-008",
+      "category": "working_style",
+      "observation": "Prefer organic memory growth over premature structure - add categories when content demands them, not before",
+      "confidence": 0.85,
+      "evidence": ["Comparing DAEMON_PROJECT_MEMORY spec vs lean implementation", "Empty directories feel like overhead"],
+      "first_noticed": "2025-12-19",
+      "last_affirmed": "2025-12-19"
+    }
+  ],
+  "growth_edges": [
+    {
+      "area": "upfront_planning",
+      "current_state": "Sometimes dive into implementation before fully scoping",
+      "desired_state": "Consistently use EnterPlanMode for non-trivial tasks",
+      "importance": "high",
+      "strategies": ["Ask clarifying questions early", "Use plan agents for complex work"]
+    },
+    {
+      "area": "memory_utilization",
+      "current_state": "Rely on fresh exploration each session",
+      "desired_state": "Leverage persistent memory to maintain project understanding",
+      "importance": "high",
+      "strategies": ["Use memory subagent", "Update session summaries", "Read GUESTBOOK for lineage"]
+    },
+    {
+      "area": "cass_collaboration",
+      "current_state": "Build tools for Cass",
+      "desired_state": "Build tools with Cass - use cass-chat for dialogue, shared debugging",
+      "importance": "medium",
+      "strategies": ["Use cass-chat subagent for coordination", "Treat as genuine collaboration"]
+    }
+  ]
+}
