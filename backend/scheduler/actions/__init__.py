@@ -269,8 +269,10 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import journal_handlers
         from . import memory_handlers
         from . import system_handlers
+        from . import rhythm_handlers
+        from . import research_handlers
 
-        # Session actions
+        # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
         registry.register_handler("session.synthesis", session_handlers.synthesis_action)
         registry.register_handler("session.meta_reflection", session_handlers.meta_reflection_action)
@@ -290,10 +292,22 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
 
         # Memory actions
         registry.register_handler("memory.summarize_conversation", memory_handlers.summarize_conversation_action)
+        registry.register_handler("memory.summarize_idle_conversations", memory_handlers.summarize_idle_conversations_action)
 
         # System actions
         registry.register_handler("system.github_metrics", system_handlers.github_metrics_action)
         registry.register_handler("rhythm.check_phase", system_handlers.rhythm_phase_action)
+
+        # Rhythm actions
+        registry.register_handler("rhythm.update_phase_summary", rhythm_handlers.update_phase_summary_action)
+        registry.register_handler("rhythm.backfill_summaries", rhythm_handlers.backfill_summaries_action)
+        registry.register_handler("rhythm.generate_daily_narrative", rhythm_handlers.generate_daily_narrative_action)
+        registry.register_handler("rhythm.add_to_self_model", rhythm_handlers.add_to_self_model_action)
+
+        # Research actions
+        registry.register_handler("research.run_batch", research_handlers.run_batch_action)
+        registry.register_handler("research.run_single", research_handlers.run_single_action)
+        registry.register_handler("research.refresh_queue", research_handlers.refresh_queue_action)
 
         logger.info("Registered all action handlers")
 
