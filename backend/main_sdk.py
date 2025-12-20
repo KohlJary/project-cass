@@ -340,7 +340,7 @@ from token_tracker import TokenUsageTracker
 token_tracker = TokenUsageTracker()
 
 # Register queryable sources with the global state bus
-from sources import GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource, MemoryQueryableSource, SelfQueryableSource, GoalQueryableSource
+from sources import GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource, MemoryQueryableSource, SelfQueryableSource, GoalQueryableSource, ActionQueryableSource
 from unified_goals import UnifiedGoalManager
 
 github_source = GitHubQueryableSource(_daemon_id, github_metrics_manager)
@@ -349,6 +349,7 @@ conversation_source = ConversationQueryableSource(_daemon_id)
 memory_source = MemoryQueryableSource(_daemon_id)  # memory_core set later when available
 self_source = SelfQueryableSource(_daemon_id)  # Uses unified self-model graph
 goal_source = GoalQueryableSource(_daemon_id, UnifiedGoalManager(_daemon_id))
+action_source = ActionQueryableSource(_daemon_id)
 
 global_state_bus.register_source(github_source)
 global_state_bus.register_source(token_source)
@@ -356,7 +357,8 @@ global_state_bus.register_source(conversation_source)
 global_state_bus.register_source(memory_source)
 global_state_bus.register_source(self_source)
 global_state_bus.register_source(goal_source)
-print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals)")
+global_state_bus.register_source(action_source)
+print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals, actions)")
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes

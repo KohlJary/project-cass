@@ -150,6 +150,40 @@ class SelfModelStats:
 
 
 # =============================================================================
+# ACTIONS TYPES
+# =============================================================================
+
+@strawberry.type
+class ActionDefinition:
+    """An atomic action definition."""
+    id: str
+    name: str
+    description: str
+    category: str
+    handler: str
+    estimated_cost_usd: float
+    default_duration_minutes: int
+    priority: str
+    requires_idle: bool
+
+
+@strawberry.type
+class ActionCategory:
+    """Actions grouped by category."""
+    category: str
+    count: int
+    actions: List[ActionDefinition]
+
+
+@strawberry.type
+class ActionsStats:
+    """Summary statistics for all actions."""
+    total_actions: int
+    category_count: int
+    by_category: List[ActionCategory]
+
+
+# =============================================================================
 # STATE TYPES (Emotional, Activity, Coherence)
 # =============================================================================
 
@@ -584,6 +618,56 @@ class Query:
             commits=commits,
             current_activity=activity.get("current_activity", "idle"),
             rhythm_phase=activity.get("rhythm_phase"),
+        )
+
+    @strawberry.field
+    async def actions(self) -> ActionsStats:
+        """Get all atomic action definitions grouped by category."""
+        bus = get_daemon_state_bus()
+
+        try:
+            from query_models import StateQuery
+            query = StateQuery(source="actions", metric="all")
+            result = await bus.query(query)
+
+            data = result.data.value if result.data else {}
+            if isinstance(data, dict):
+                by_cat = data.get("by_category", {})
+                categories = []
+
+                for cat_name, action_list in by_cat.items():
+                    actions = [
+                        ActionDefinition(
+                            id=a.get("id", ""),
+                            name=a.get("name", ""),
+                            description=a.get("description", ""),
+                            category=a.get("category", ""),
+                            handler=a.get("handler", ""),
+                            estimated_cost_usd=a.get("estimated_cost_usd", 0.0),
+                            default_duration_minutes=a.get("default_duration_minutes", 30),
+                            priority=a.get("priority", "normal"),
+                            requires_idle=a.get("requires_idle", False),
+                        )
+                        for a in action_list
+                    ]
+                    categories.append(ActionCategory(
+                        category=cat_name,
+                        count=len(actions),
+                        actions=actions,
+                    ))
+
+                return ActionsStats(
+                    total_actions=data.get("total", 0),
+                    category_count=len(categories),
+                    by_category=categories,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to query actions: {e}")
+
+        return ActionsStats(
+            total_actions=0,
+            category_count=0,
+            by_category=[],
         )
 
     @strawberry.field
