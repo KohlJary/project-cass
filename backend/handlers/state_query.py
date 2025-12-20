@@ -96,6 +96,106 @@ def _build_query_from_input(tool_input: Dict[str, Any]) -> StateQuery:
     return query
 
 
+async def execute_discover_capabilities(
+    tool_name: str,
+    tool_input: Dict[str, Any],
+    state_bus: GlobalStateBus
+) -> Dict[str, Any]:
+    """
+    Execute a discover_capabilities tool call.
+
+    Args:
+        tool_name: Should be "discover_capabilities"
+        tool_input: Tool input with query, limit, source_filter, tag_filter
+        state_bus: The GlobalStateBus instance with capability registry
+
+    Returns:
+        Dict with success, result, and optional error
+    """
+    if tool_name != "discover_capabilities":
+        return {"success": False, "error": f"Unknown tool: {tool_name}"}
+
+    try:
+        query = tool_input.get("query", "")
+        if not query:
+            return {
+                "success": False,
+                "error": "query is required",
+                "result": "Please provide a query describing what data you're looking for.",
+            }
+
+        limit = tool_input.get("limit", 5)
+        source_filter = tool_input.get("source")
+        tag_filter = tool_input.get("tags")
+
+        # Find matching capabilities
+        matches = await state_bus.find_capabilities(
+            query=query,
+            limit=limit,
+            source_filter=source_filter,
+            tag_filter=tag_filter,
+        )
+
+        # Format for LLM consumption
+        formatted = state_bus.format_capabilities_for_llm(matches)
+
+        return {
+            "success": True,
+            "result": formatted,
+            "matches": [m.to_dict() for m in matches],
+        }
+
+    except Exception as e:
+        logger.error(f"Capability discovery failed: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "result": f"Discovery failed: {str(e)}",
+        }
+
+
+# Tool definition for agent_client.py
+DISCOVER_CAPABILITIES_TOOL_DEFINITION = {
+    "name": "discover_capabilities",
+    "description": """Find what data is available to query by describing what you're looking for.
+
+Use this tool when you want to know what metrics or data sources are available before querying.
+The system will semantically match your description to registered capabilities.
+
+Examples:
+- "What data do we have about user engagement?" → Returns github:views, github:clones, github:stars
+- "How much are we spending?" → Returns tokens:cost_usd
+- "Repository activity metrics" → Returns github:clones, github:forks, github:views
+- "Emotional state data" → Returns emotional dimensions like curiosity, contentment
+
+After discovering capabilities, use query_state to actually retrieve the data.""",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Natural language description of what data you want to find"
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of results (default: 5)",
+                "default": 5
+            },
+            "source": {
+                "type": "string",
+                "description": "Optional: filter results to a specific source (github, tokens, emotional)"
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional: filter by tags (e.g., engagement, cost, activity)"
+            }
+        },
+        "required": ["query"]
+    }
+}
+
+
 # Tool definition for agent_client.py
 QUERY_STATE_TOOL_DEFINITION = {
     "name": "query_state",

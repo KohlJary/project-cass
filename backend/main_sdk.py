@@ -264,6 +264,20 @@ def _init_heavy_components():
     _needs_embedding_rebuild = components["needs_embedding_rebuild"]
     _heavy_components_ready = True
 
+    # Initialize capability registry for semantic discovery
+    # Uses the ChromaDB client from memory for embedding storage
+    from capability_registry import CapabilityRegistry
+    from config import OLLAMA_BASE_URL, OLLAMA_MODEL
+
+    capability_registry = CapabilityRegistry(
+        daemon_id=_daemon_id,
+        chroma_client=memory.client,
+        ollama_base_url=OLLAMA_BASE_URL,
+        ollama_model=OLLAMA_MODEL,
+    )
+    global_state_bus.set_capability_registry(capability_registry)
+    print("STARTUP: Capability registry initialized")
+
 
 def is_heavy_components_ready() -> bool:
     """Check if heavy components (memory, self_model_graph, self_manager) are initialized."""
@@ -712,6 +726,8 @@ async def startup_event():
     global_state_bus.start_scheduled_refreshes()
     logger.info("Started scheduled source refreshes")
 
+    # Note: Capability indexing happens in init_heavy_background after registry is attached
+
     # Note: Seed bootstrap now happens in database.init_database_with_migrations()
     # This ensures the seed daemon is imported BEFORE get_or_create_daemon() runs
 
@@ -750,6 +766,10 @@ async def startup_event():
             # Re-initialize context_helpers with actual self_manager (was None at module load)
             init_context_helpers(self_manager, user_manager, roadmap_manager, memory, thread_manager, question_manager)
             logger.info("Background: Context helpers updated with heavy components")
+
+            # Index source capabilities now that registry is attached
+            await global_state_bus.start_capability_indexing()
+            logger.info("Background: Indexed source capabilities")
 
             # Seed default prompt configurations
             try:
@@ -1309,6 +1329,13 @@ async def chat(request: ChatRequest):
                 elif tool_name == "query_state":
                     from handlers.state_query import execute_state_query
                     tool_result = await execute_state_query(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        state_bus=global_state_bus
+                    )
+                elif tool_name == "discover_capabilities":
+                    from handlers.state_query import execute_discover_capabilities
+                    tool_result = await execute_discover_capabilities(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
                         state_bus=global_state_bus

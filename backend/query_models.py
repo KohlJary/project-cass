@@ -335,6 +335,11 @@ class MetricDefinition:
 
     This metadata helps the query system validate queries and
     provides documentation for LLMs constructing queries.
+
+    Semantic fields enable natural language capability discovery:
+    - semantic_summary: LLM-generated 1-2 sentence summary for embedding
+    - example_queries: Natural language questions this metric answers
+    - tags: Categorical tags for filtering (e.g., "engagement", "cost", "activity")
     """
     name: str                             # "stars", "total_tokens", "curiosity"
     description: str                      # Human-readable description
@@ -342,6 +347,10 @@ class MetricDefinition:
     supports_delta: bool = False          # Can compute change over time
     supports_timeseries: bool = True      # Can return time-indexed data
     unit: Optional[str] = None            # "USD", "tokens", etc.
+    # Semantic discovery fields
+    semantic_summary: Optional[str] = None  # LLM-generated, embedding-ready
+    example_queries: List[str] = field(default_factory=list)  # Natural language examples
+    tags: List[str] = field(default_factory=list)  # Categorical tags for filtering
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -351,7 +360,26 @@ class MetricDefinition:
             "supports_delta": self.supports_delta,
             "supports_timeseries": self.supports_timeseries,
             "unit": self.unit,
+            "semantic_summary": self.semantic_summary,
+            "example_queries": self.example_queries,
+            "tags": self.tags,
         }
+
+    def get_embedding_text(self) -> str:
+        """
+        Generate text for embedding in semantic search.
+
+        Uses semantic_summary if available, otherwise combines
+        name, description, and example queries.
+        """
+        if self.semantic_summary:
+            return self.semantic_summary
+
+        # Fallback: construct from available metadata
+        parts = [self.name, self.description]
+        if self.example_queries:
+            parts.extend(self.example_queries[:3])  # Limit for embedding size
+        return " | ".join(parts)
 
 
 @dataclass
