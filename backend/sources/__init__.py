@@ -13,8 +13,10 @@ Each source:
 
 from .github_source import GitHubQueryableSource
 from .token_source import TokenQueryableSource
+from .conversation_source import ConversationQueryableSource
 
 __all__ = [
     "GitHubQueryableSource",
     "TokenQueryableSource",
+    "ConversationQueryableSource",
 ]
