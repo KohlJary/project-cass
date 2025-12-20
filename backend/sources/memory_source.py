@@ -68,6 +68,14 @@ class MemoryQueryableSource(QueryableSource):
     def schema(self) -> SourceSchema:
         return SourceSchema(
             metrics=[
+                MetricDefinition(
+                    name="all",
+                    description="All memory metrics in one response",
+                    data_type="object",
+                    supports_delta=False,
+                    supports_timeseries=False,
+                    unit=None,
+                ),
                 # Journals
                 MetricDefinition(
                     name="total_journals",
@@ -177,6 +185,17 @@ class MemoryQueryableSource(QueryableSource):
         )
 
         metric = query.metric or "total_journals"
+
+        # Handle "all" metric
+        if metric == "all":
+            data = await self._query_all()
+            return QueryResult(
+                source=self.source_id,
+                query=query,
+                data=data,
+                timestamp=datetime.now(),
+                metadata={"period": "computed_fresh"}
+            )
 
         # Handle different query patterns
         if query.group_by in ["day", "month"]:
@@ -421,6 +440,51 @@ class MemoryQueryableSource(QueryableSource):
                 value = 0
 
         return QueryResultData(value=value)
+
+    async def _query_all(self) -> QueryResultData:
+        """Return all memory metrics in one response."""
+        with get_db() as conn:
+            # Journals
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM journals WHERE daemon_id = ?
+            """, (self._daemon_id,))
+            journals_total = cursor.fetchone()["count"]
+
+            # Threads
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM conversation_threads WHERE daemon_id = ?
+            """, (self._daemon_id,))
+            threads_total = cursor.fetchone()["count"]
+
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM conversation_threads
+                WHERE daemon_id = ? AND status = 'active'
+            """, (self._daemon_id,))
+            threads_active = cursor.fetchone()["count"]
+
+            # Questions
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM open_questions WHERE daemon_id = ?
+            """, (self._daemon_id,))
+            questions_total = cursor.fetchone()["count"]
+
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM open_questions
+                WHERE daemon_id = ? AND status = 'open'
+            """, (self._daemon_id,))
+            questions_open = cursor.fetchone()["count"]
+
+        # Embeddings
+        embeddings = self._memory_core.count() if self._memory_core else 0
+
+        return QueryResultData(value={
+            "total_journals": journals_total,
+            "total_threads": threads_total,
+            "threads_active": threads_active,
+            "total_questions": questions_total,
+            "questions_open": questions_open,
+            "total_embeddings": embeddings,
+        })
 
     def get_precomputed_rollups(self) -> Dict[str, Any]:
         """Return cached rollup aggregates."""

@@ -339,6 +339,7 @@ class SoloReflectionRunner(BaseSessionRunner):
         marker_store=None,
         daemon_id: str = "cass",
         daemon_name: str = "Cass",
+        state_bus=None,
     ):
         super().__init__(
             anthropic_api_key=anthropic_api_key,
@@ -350,6 +351,7 @@ class SoloReflectionRunner(BaseSessionRunner):
             self_model_graph=self_model_graph,
             token_tracker=token_tracker,
             marker_store=marker_store,
+            state_bus=state_bus,
         )
         self.manager = reflection_manager
         self._session_data: Optional[ReflectionSessionData] = None

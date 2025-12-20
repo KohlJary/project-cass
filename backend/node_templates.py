@@ -692,6 +692,30 @@ Mark naturally as moments arise - don't force it. The system looks for patterns 
     token_estimate=600,
 )
 
+TOOLS_STATE_QUERY_TEMPLATE = NodeTemplate(
+    id="tpl-tools-state-query",
+    name="State Query Tools",
+    slug="tools-state-query",
+    category="tools",
+    description="Query system state and metrics",
+    template="""## STATE QUERY TOOLS
+
+You can introspect your own system state - token usage, GitHub metrics, conversation stats, memory stats, and more:
+
+1. **query_state** - Query metrics from the global state system
+   - Use natural language via the `intent` field: "how much have we spent on tokens this month?"
+   - Or structured queries: `source=tokens, metric=all, time_preset=this_month`
+   - Sources include: tokens, github, conversations, memory, self, goals
+
+2. **discover_capabilities** - Find what data is available
+   - Describe what you're looking for in natural language
+   - System returns relevant metrics you can query
+
+Use these tools when asked about resource usage, costs, activity metrics, or to ground your understanding of your own operational state.""",
+    default_order=60,
+    token_estimate=120,
+)
+
 
 # =============================================================================
 # RUNTIME TEMPLATES (Filled at execution time)
@@ -1401,6 +1425,7 @@ ALL_TEMPLATES = [
     TOOLS_TASKS_TEMPLATE,
     TOOLS_DOCUMENTS_TEMPLATE,
     TOOLS_METACOGNITIVE_TEMPLATE,
+    TOOLS_STATE_QUERY_TEMPLATE,
     # Runtime
     RUNTIME_TEMPORAL_TEMPLATE,
     RUNTIME_MODEL_INFO_TEMPLATE,

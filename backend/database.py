@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 18  # Added source_rollups table for unified query interface
+SCHEMA_VERSION = 19  # Added unified_goals, capability_gaps, goal_links tables
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -775,6 +775,105 @@ CREATE TABLE IF NOT EXISTS roadmap_links (
     link_type TEXT NOT NULL
 );
 
+-- Unified goals (Cass's autonomous goals + work items)
+CREATE TABLE IF NOT EXISTS unified_goals (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Identity
+    title TEXT NOT NULL,
+    description TEXT,
+    goal_type TEXT NOT NULL,  -- 'work', 'learning', 'research', 'growth', 'initiative'
+
+    -- Hierarchy
+    parent_id TEXT REFERENCES unified_goals(id),
+    project_id TEXT REFERENCES projects(id),
+
+    -- Status lifecycle
+    status TEXT DEFAULT 'proposed',  -- proposed, approved, active, blocked, completed, abandoned
+    autonomy_tier TEXT DEFAULT 'low',  -- 'low', 'medium', 'high'
+
+    -- Approval tracking
+    requires_approval INTEGER DEFAULT 0,
+    approved_by TEXT,
+    approved_at TEXT,
+    rejection_reason TEXT,
+
+    -- Priority
+    priority TEXT DEFAULT 'P2',
+    urgency TEXT DEFAULT 'when_convenient',  -- 'when_convenient', 'soon', 'blocking'
+
+    -- Ownership
+    created_by TEXT NOT NULL,  -- 'cass', 'daedalus', 'user'
+    assigned_to TEXT,
+
+    -- Capability gaps & blockers
+    capability_gaps_json TEXT,
+    blockers_json TEXT,
+
+    -- Alignment
+    alignment_score REAL DEFAULT 1.0,
+    alignment_rationale TEXT,
+    linked_user_goals_json TEXT,
+
+    -- Context (what was queried during planning)
+    context_queries_json TEXT,
+    context_summary TEXT,
+
+    -- Progress
+    progress_json TEXT,
+    completion_criteria_json TEXT,
+    outcome_summary TEXT,
+
+    -- Source tracking
+    source_conversation_id TEXT REFERENCES conversations(id),
+    source_reflection_id TEXT,
+    source_intention_id TEXT,
+
+    -- Timestamps
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_unified_goals_daemon ON unified_goals(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_unified_goals_status ON unified_goals(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_unified_goals_type ON unified_goals(daemon_id, goal_type);
+CREATE INDEX IF NOT EXISTS idx_unified_goals_tier ON unified_goals(daemon_id, autonomy_tier);
+CREATE INDEX IF NOT EXISTS idx_unified_goals_parent ON unified_goals(parent_id);
+
+-- Capability gaps
+CREATE TABLE IF NOT EXISTS capability_gaps (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    goal_id TEXT REFERENCES unified_goals(id) ON DELETE SET NULL,
+    capability TEXT NOT NULL,
+    description TEXT,
+    gap_type TEXT NOT NULL,  -- 'tool', 'knowledge', 'access', 'permission', 'resource'
+    status TEXT DEFAULT 'identified',  -- 'identified', 'requested', 'in_progress', 'resolved'
+    resolution TEXT,
+    urgency TEXT DEFAULT 'low',  -- 'low', 'medium', 'high', 'blocking'
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_capability_gaps_daemon ON capability_gaps(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_capability_gaps_goal ON capability_gaps(goal_id);
+CREATE INDEX IF NOT EXISTS idx_capability_gaps_status ON capability_gaps(status);
+
+-- Goal links (dependencies between goals)
+CREATE TABLE IF NOT EXISTS goal_links (
+    source_id TEXT NOT NULL REFERENCES unified_goals(id) ON DELETE CASCADE,
+    target_id TEXT NOT NULL REFERENCES unified_goals(id) ON DELETE CASCADE,
+    link_type TEXT NOT NULL,  -- 'depends_on', 'blocks', 'relates_to', 'parent', 'child'
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_id, target_id, link_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_goal_links_source ON goal_links(source_id);
+CREATE INDEX IF NOT EXISTS idx_goal_links_target ON goal_links(target_id);
+
 -- Calendar events
 CREATE TABLE IF NOT EXISTS calendar_events (
     id TEXT PRIMARY KEY,
@@ -1327,6 +1426,10 @@ def _apply_schema_updates(conn, from_version: int):
 
     if from_version < 18:
         print("Adding source_rollups table for unified query interface (v18)")
+
+    # v18 -> v19: Add unified goal system tables
+    if from_version < 19:
+        print("Adding unified_goals, capability_gaps, goal_links tables for Cass goal tracking (v19)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data

@@ -60,6 +60,9 @@ class ToolContext:
     protocol_manager: Any = None
     interview_dispatcher: Any = None
 
+    # State bus for query_state tools
+    state_bus: Any = None
+
 
 # Tool name -> executor mapping
 # Each entry is (tool_names_list, executor_import_path, requires_special_handling)
@@ -288,6 +291,10 @@ TOOL_REGISTRY = {
     "recall_dream": "dream",
     "list_dreams": "dream",
     "add_dream_reflection": "dream",
+
+    # State query tools
+    "query_state": "state_query",
+    "discover_capabilities": "state_query",
 }
 
 
@@ -523,6 +530,13 @@ async def route_tool(
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input
+        )
+
+    elif executor_type == "state_query":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            state_bus=ctx.state_bus
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}

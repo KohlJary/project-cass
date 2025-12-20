@@ -67,6 +67,14 @@ class GitHubQueryableSource(QueryableSource):
         return SourceSchema(
             metrics=[
                 MetricDefinition(
+                    name="all",
+                    description="All GitHub metrics in one response",
+                    data_type="object",
+                    supports_delta=False,
+                    supports_timeseries=False,
+                    unit=None,
+                ),
+                MetricDefinition(
                     name="stars",
                     description="Total repository stars",
                     data_type="int",
@@ -148,6 +156,20 @@ class GitHubQueryableSource(QueryableSource):
 
         # Get the metric to query
         metric = query.metric or "stars"
+
+        # Handle "all" metric - return comprehensive summary
+        if metric == "all":
+            data = await self._query_all()
+            return QueryResult(
+                source=self.source_id,
+                query=query,
+                data=data,
+                timestamp=datetime.now(),
+                metadata={
+                    "repos_tracked": self._manager.repos,
+                    "last_fetch": self._manager.last_fetch.isoformat() if self._manager.last_fetch else None,
+                }
+            )
 
         # Handle different query patterns
         if query.group_by == "day":
@@ -333,6 +355,66 @@ class GitHubQueryableSource(QueryableSource):
 
         key = metric_map.get(metric, metric)
         return data.get(key)
+
+    async def _query_all(self) -> QueryResultData:
+        """Return all GitHub metrics in one response."""
+        now = datetime.now()
+        week_ago = now - timedelta(days=7)
+
+        # Get current metrics
+        current = self._manager.get_current_metrics()
+        if not current:
+            return QueryResultData(value={
+                "stars_total": 0,
+                "forks_total": 0,
+                "watchers_total": 0,
+                "open_issues": 0,
+                "clones_14d": 0,
+                "clones_uniques_14d": 0,
+                "views_14d": 0,
+                "views_uniques_14d": 0,
+                "stars_7d": 0,
+                "repos_tracked": len(self._manager.repos),
+                "last_fetch": None,
+            })
+
+        repos_data = current.get("repos", {})
+
+        # Aggregate current totals
+        stars_total = sum(r.get("stars", 0) for r in repos_data.values())
+        forks_total = sum(r.get("forks", 0) for r in repos_data.values())
+        watchers_total = sum(r.get("watchers", 0) for r in repos_data.values())
+        open_issues = sum(r.get("open_issues", 0) for r in repos_data.values())
+
+        # Traffic metrics (GitHub returns 14-day totals in the current snapshot)
+        clones_14d = sum(r.get("clones_count", 0) for r in repos_data.values())
+        clones_uniques_14d = sum(r.get("clones_uniques", 0) for r in repos_data.values())
+        views_14d = sum(r.get("views_count", 0) for r in repos_data.values())
+        views_uniques_14d = sum(r.get("views_uniques", 0) for r in repos_data.values())
+
+        # Calculate stars gained in last 7 days from historical data
+        stars_7d = 0
+        historical = self._manager.get_historical_metrics(days=7)
+        if len(historical) >= 2:
+            oldest = historical[0]
+            newest = historical[-1]
+            oldest_stars = sum(r.get("stars", 0) for r in oldest.get("repos", {}).values())
+            newest_stars = sum(r.get("stars", 0) for r in newest.get("repos", {}).values())
+            stars_7d = newest_stars - oldest_stars
+
+        return QueryResultData(value={
+            "stars_total": stars_total,
+            "forks_total": forks_total,
+            "watchers_total": watchers_total,
+            "open_issues": open_issues,
+            "clones_14d": clones_14d,
+            "clones_uniques_14d": clones_uniques_14d,
+            "views_14d": views_14d,
+            "views_uniques_14d": views_uniques_14d,
+            "stars_7d": stars_7d,
+            "repos_tracked": len(self._manager.repos),
+            "last_fetch": self._manager.last_fetch.isoformat() if self._manager.last_fetch else None,
+        })
 
     def get_precomputed_rollups(self) -> Dict[str, Any]:
         """Return cached rollup aggregates."""

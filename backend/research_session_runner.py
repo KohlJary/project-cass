@@ -587,6 +587,7 @@ class ResearchSessionRunner(BaseSessionRunner):
         token_tracker=None,
         goal_manager=None,
         marker_store=None,
+        state_bus=None,
     ):
         super().__init__(
             anthropic_api_key=anthropic_api_key,
@@ -602,6 +603,7 @@ class ResearchSessionRunner(BaseSessionRunner):
         self.session_manager = session_manager
         self.research_manager = research_manager
         self.goal_manager = goal_manager
+        self.state_bus = state_bus
         self._session_data: Optional[ResearchSessionData] = None
         self._underlying_session: Optional[ResearchSession] = None
 

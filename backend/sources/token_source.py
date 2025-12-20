@@ -65,6 +65,14 @@ class TokenQueryableSource(QueryableSource):
         return SourceSchema(
             metrics=[
                 MetricDefinition(
+                    name="all",
+                    description="All token metrics in one response",
+                    data_type="object",
+                    supports_delta=False,
+                    supports_timeseries=False,
+                    unit=None,
+                ),
+                MetricDefinition(
                     name="total_tokens",
                     description="Total tokens used (input + output)",
                     data_type="int",
@@ -131,6 +139,17 @@ class TokenQueryableSource(QueryableSource):
 
         # Get the metric to query
         metric = query.metric or "total_tokens"
+
+        # Handle "all" metric - return comprehensive summary
+        if metric == "all":
+            data = await self._query_all()
+            return QueryResult(
+                source=self.source_id,
+                query=query,
+                data=data,
+                timestamp=datetime.now(),
+                metadata={"period": "computed_fresh"}
+            )
 
         # Handle different query patterns
         if query.group_by in ["day", "hour"]:
@@ -273,6 +292,40 @@ class TokenQueryableSource(QueryableSource):
         }
         key = metric_map.get(metric, "tokens")
         return data.get(key, 0)
+
+    async def _query_all(self) -> QueryResultData:
+        """Return all token metrics in one response."""
+        now = datetime.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = now - timedelta(days=7)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Get summaries for different periods
+        today_summary = self._tracker.get_summary(start_date=today_start, end_date=now)
+        week_summary = self._tracker.get_summary(start_date=week_start, end_date=now)
+        month_summary = self._tracker.get_summary(start_date=month_start, end_date=now)
+        all_time_summary = self._tracker.get_summary()
+
+        today_totals = today_summary.get("totals", {})
+        week_totals = week_summary.get("totals", {})
+        month_totals = month_summary.get("totals", {})
+        all_totals = all_time_summary.get("totals", {})
+
+        return QueryResultData(value={
+            "today_cost_usd": round(today_totals.get("estimated_cost_usd", 0), 4),
+            "today_input_tokens": today_totals.get("input_tokens", 0),
+            "today_output_tokens": today_totals.get("output_tokens", 0),
+            "today_total_tokens": today_totals.get("total_tokens", 0),
+            "today_requests": today_totals.get("records", 0),
+            "week_cost_usd": round(week_totals.get("estimated_cost_usd", 0), 4),
+            "week_total_tokens": week_totals.get("total_tokens", 0),
+            "month_cost_usd": round(month_totals.get("estimated_cost_usd", 0), 4),
+            "month_total_tokens": month_totals.get("total_tokens", 0),
+            "total_cost_usd": round(all_totals.get("estimated_cost_usd", 0), 4),
+            "total_tokens": all_totals.get("total_tokens", 0),
+            "total_requests": all_totals.get("records", 0),
+            "cache_read_tokens": all_totals.get("cache_read_tokens", 0),
+        })
 
     def get_precomputed_rollups(self) -> Dict[str, Any]:
         """Return cached rollup aggregates."""
