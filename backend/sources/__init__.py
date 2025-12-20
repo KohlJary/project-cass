@@ -17,6 +17,7 @@ from .conversation_source import ConversationQueryableSource
 from .memory_source import MemoryQueryableSource
 from .self_source import SelfQueryableSource
 from .goal_source import GoalQueryableSource
+from .action_source import ActionQueryableSource
 
 __all__ = [
     "GitHubQueryableSource",
@@ -25,4 +26,5 @@ __all__ = [
     "MemoryQueryableSource",
     "SelfQueryableSource",
     "GoalQueryableSource",
+    "ActionQueryableSource",
 ]
