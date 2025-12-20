@@ -199,6 +199,94 @@
       "default_duration_minutes": 1,
       "priority": "normal",
       "requires_idle": false
+    },
+    "rhythm.update_phase_summary": {
+      "id": "rhythm.update_phase_summary",
+      "name": "Update Phase Summary",
+      "description": "Update rhythm phase summary after session completion",
+      "category": "rhythm",
+      "handler": "rhythm_handlers.update_phase_summary_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rhythm.backfill_summaries": {
+      "id": "rhythm.backfill_summaries",
+      "name": "Backfill Phase Summaries",
+      "description": "Backfill missing summaries for completed phases",
+      "category": "rhythm",
+      "handler": "rhythm_handlers.backfill_summaries_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 2,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "rhythm.generate_daily_narrative": {
+      "id": "rhythm.generate_daily_narrative",
+      "name": "Generate Daily Narrative",
+      "description": "Generate narrative summary of day's rhythm activities",
+      "category": "rhythm",
+      "handler": "rhythm_handlers.generate_daily_narrative_action",
+      "estimated_cost_usd": 0.02,
+      "default_duration_minutes": 2,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rhythm.add_to_self_model": {
+      "id": "rhythm.add_to_self_model",
+      "name": "Add Rhythm to Self-Model",
+      "description": "Add daily rhythm node to self-model graph",
+      "category": "rhythm",
+      "handler": "rhythm_handlers.add_to_self_model_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "memory.summarize_idle_conversations": {
+      "id": "memory.summarize_idle_conversations",
+      "name": "Summarize Idle Conversations",
+      "description": "Find and summarize all idle conversations",
+      "category": "memory",
+      "handler": "memory_handlers.summarize_idle_conversations_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 5,
+      "priority": "normal",
+      "requires_idle": true
+    },
+    "research.run_batch": {
+      "id": "research.run_batch",
+      "name": "Run Research Batch",
+      "description": "Run a batch of wiki research tasks",
+      "category": "research",
+      "handler": "research_handlers.run_batch_action",
+      "estimated_cost_usd": 0.30,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "research.run_single": {
+      "id": "research.run_single",
+      "name": "Run Single Research Task",
+      "description": "Run a single wiki research task from queue",
+      "category": "research",
+      "handler": "research_handlers.run_single_action",
+      "estimated_cost_usd": 0.10,
+      "default_duration_minutes": 10,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "research.refresh_queue": {
+      "id": "research.refresh_queue",
+      "name": "Refresh Research Queue",
+      "description": "Refresh the research task queue",
+      "category": "system",
+      "handler": "research_handlers.refresh_queue_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "low",
+      "requires_idle": false
     }
   }
 }
