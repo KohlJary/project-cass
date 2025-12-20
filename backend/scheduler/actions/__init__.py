@@ -271,6 +271,10 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import system_handlers
         from . import rhythm_handlers
         from . import research_handlers
+        from . import world_handlers
+        from . import web_handlers
+        from . import wiki_handlers
+        from . import self_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -308,6 +312,24 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("research.run_batch", research_handlers.run_batch_action)
         registry.register_handler("research.run_single", research_handlers.run_single_action)
         registry.register_handler("research.refresh_queue", research_handlers.refresh_queue_action)
+
+        # World actions (granular)
+        registry.register_handler("world.fetch_news", world_handlers.fetch_news_action)
+        registry.register_handler("world.fetch_weather", world_handlers.fetch_weather_action)
+        registry.register_handler("world.search_events", world_handlers.search_events_action)
+
+        # Web actions (granular)
+        registry.register_handler("web.search", web_handlers.web_search_action)
+        registry.register_handler("web.fetch_url", web_handlers.fetch_url_action)
+
+        # Wiki actions (granular)
+        registry.register_handler("wiki.create_note", wiki_handlers.create_note_action)
+        registry.register_handler("wiki.update_note", wiki_handlers.update_note_action)
+
+        # Self actions (granular)
+        registry.register_handler("self.add_observation", self_handlers.add_observation_action)
+        registry.register_handler("self.record_insight", self_handlers.record_insight_action)
+        registry.register_handler("self.update_growth_edge", self_handlers.update_growth_edge_action)
 
         logger.info("Registered all action handlers")
 
