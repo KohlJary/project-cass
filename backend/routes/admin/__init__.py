@@ -54,6 +54,10 @@ from .narrative import (
     init_managers as _init_narrative_managers,
 )
 from .state import router as state_router
+from .goals import (
+    router as goals_router,
+    init_goal_manager as _init_goal_manager,
+)
 
 # Create combined router
 router = APIRouter()
@@ -69,6 +73,7 @@ router.include_router(sessions_router)
 router.include_router(homepage_router)
 router.include_router(narrative_router)
 router.include_router(state_router)
+router.include_router(goals_router)
 
 
 # Module-level references for backward compatibility
@@ -111,6 +116,11 @@ def init_token_tracker(tracker):
 def init_narrative_managers(thread_manager, question_manager, memory=None, conversations=None, token_tracker=None):
     """Initialize narrative coherence managers (threads/questions)."""
     _init_narrative_managers(thread_manager, question_manager, memory, conversations, token_tracker)
+
+
+def init_unified_goal_manager(manager=None):
+    """Initialize unified goal manager."""
+    _init_goal_manager(manager)
 
 
 # Module-level reference for token tracker (used by other modules)
@@ -159,4 +169,5 @@ __all__ = [
     "init_user_model_synthesis_runner",
     "init_reflection_runner",
     "init_narrative_managers",
+    "init_unified_goal_manager",
 ]

@@ -74,6 +74,14 @@ class SelfQueryableSource(QueryableSource):
     def schema(self) -> SourceSchema:
         return SourceSchema(
             metrics=[
+                MetricDefinition(
+                    name="all",
+                    description="All self-model metrics in one response",
+                    data_type="object",
+                    supports_delta=False,
+                    supports_timeseries=False,
+                    unit=None,
+                ),
                 # Graph health
                 MetricDefinition(
                     name="total_nodes",
@@ -231,6 +239,17 @@ class SelfQueryableSource(QueryableSource):
 
         metric = query.metric or "total_nodes"
 
+        # Handle "all" metric
+        if metric == "all":
+            data = await self._query_all()
+            return QueryResult(
+                source=self.source_id,
+                query=query,
+                data=data,
+                timestamp=datetime.now(),
+                metadata={"period": "computed_fresh"}
+            )
+
         # Handle different query patterns
         if query.group_by == "node_type":
             data = await self._query_by_node_type()
@@ -377,6 +396,35 @@ class SelfQueryableSource(QueryableSource):
             value = 0
 
         return QueryResultData(value=value)
+
+    async def _query_all(self) -> QueryResultData:
+        """Return all self-model metrics in one response."""
+        stats = self._graph.get_stats()
+        node_counts = stats.get("node_counts", {})
+
+        # Get coherence metrics
+        contradictions = self._graph.find_contradictions(resolved=False)
+        intentions = self._graph.get_active_intentions()
+        friction = self._graph.get_friction_report()
+
+        return QueryResultData(value={
+            "total_nodes": stats.get("total_nodes", 0),
+            "total_edges": stats.get("total_edges", 0),
+            "connected_components": stats.get("connected_components", 1),
+            "integration_score": self._graph._calculate_integration_score(),
+            "observations": node_counts.get("observation", 0),
+            "opinions": node_counts.get("opinion", 0),
+            "growth_edges": node_counts.get("growth_edge", 0),
+            "milestones": node_counts.get("milestone", 0),
+            "marks": node_counts.get("mark", 0),
+            "intentions": node_counts.get("intention", 0),
+            "stakes": node_counts.get("stake", 0),
+            "solo_reflections": node_counts.get("solo_reflection", 0),
+            "active_contradictions": len(contradictions),
+            "active_intentions": len(intentions),
+            "friction_points": len(friction),
+            "users_tracked": node_counts.get("user", 0),
+        })
 
     def get_precomputed_rollups(self) -> Dict[str, Any]:
         """Return cached rollup aggregates."""

@@ -1211,7 +1211,7 @@ from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
-from handlers.state_query import QUERY_STATE_TOOL_DEFINITION, DISCOVER_CAPABILITIES_TOOL_DEFINITION
+from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 
 
 # ============================================================================
@@ -1581,10 +1581,12 @@ class CassAgentClient:
             if should_include_testing_tools(message):
                 tools.extend(TESTING_TOOLS)
 
-            # State query tools - metrics from global state bus (github, tokens, etc)
-            if should_include_state_query_tools(message):
-                tools.append(QUERY_STATE_TOOL_DEFINITION)
-                tools.append(DISCOVER_CAPABILITIES_TOOL_DEFINITION)
+            # State query tools - always available for self-introspection
+            # Cass should always be able to query her own state (tokens, github, memory, etc)
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self.daemon_id)
+            tools.append(get_query_state_tool_definition(state_bus))
+            tools.append(DISCOVER_CAPABILITIES_TOOL_DEFINITION)
 
         # Project tools only available in project context
         if project_id and self.enable_tools:

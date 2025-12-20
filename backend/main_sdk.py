@@ -91,6 +91,7 @@ from handlers import (
     ToolContext,
     execute_tool_batch,
 )
+from handlers.state_query import execute_state_query_tool
 from markers import MarkerStore
 from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
@@ -339,20 +340,23 @@ from token_tracker import TokenUsageTracker
 token_tracker = TokenUsageTracker()
 
 # Register queryable sources with the global state bus
-from sources import GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource, MemoryQueryableSource, SelfQueryableSource
+from sources import GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource, MemoryQueryableSource, SelfQueryableSource, GoalQueryableSource
+from unified_goals import UnifiedGoalManager
 
 github_source = GitHubQueryableSource(_daemon_id, github_metrics_manager)
 token_source = TokenQueryableSource(_daemon_id, token_tracker)
 conversation_source = ConversationQueryableSource(_daemon_id)
 memory_source = MemoryQueryableSource(_daemon_id)  # memory_core set later when available
 self_source = SelfQueryableSource(_daemon_id)  # Uses unified self-model graph
+goal_source = GoalQueryableSource(_daemon_id, UnifiedGoalManager(_daemon_id))
 
 global_state_bus.register_source(github_source)
 global_state_bus.register_source(token_source)
 global_state_bus.register_source(conversation_source)
 global_state_bus.register_source(memory_source)
 global_state_bus.register_source(self_source)
-print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self)")
+global_state_bus.register_source(goal_source)
+print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals)")
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
@@ -411,6 +415,7 @@ TOOL_EXECUTORS = {
     "interview": execute_interview_tool,
     "file": execute_file_tool,
     "dream": execute_dream_tool,
+    "state_query": execute_state_query_tool,
 }
 
 
@@ -457,6 +462,7 @@ def create_tool_context(
         interview_analyzer=interview_analyzer,
         protocol_manager=protocol_manager,
         interview_dispatcher=interview_dispatcher,
+        state_bus=global_state_bus,
     )
 
 
@@ -539,6 +545,11 @@ app.include_router(prompt_composer_router)
 # Register chain API routes (node-based prompt composition)
 from chain_api import router as chain_router
 app.include_router(chain_router)
+
+# Mount GraphQL endpoint (unified query interface wrapping State Bus)
+from graphql_schema import get_graphql_router
+graphql_router = get_graphql_router()
+app.include_router(graphql_router, prefix="/graphql")
 
 # Register testing routes
 from routes.testing import router as testing_router, init_testing_routes, init_cross_context_analyzer
@@ -4718,9 +4729,10 @@ def _init_websocket_state():
     from testing.temporal_metrics import create_timing_data as create_timing
     from narration import get_metrics_dict as narration_metrics
 
-    # Create a tool context factory
+    # Create a tool context factory - uses the full create_tool_context from main_sdk
+    # which has all managers including state_bus
     def create_tool_ctx(user_id, user_name, conversation_id, project_id):
-        return create_tool_context_class(
+        return create_tool_context(
             user_id=user_id,
             user_name=user_name,
             conversation_id=conversation_id,

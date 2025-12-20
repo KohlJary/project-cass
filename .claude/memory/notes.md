@@ -6,13 +6,34 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
 
 ## 2025-12-20
 
+### Unified Goal System (feat/unified-goals)
+Built a goal tracking system for Cass's autonomous planning:
+- **Completed phases**:
+  - ✅ Database tables: unified_goals, capability_gaps, goal_links
+  - ✅ UnifiedGoalManager: CRUD, status transitions, autonomy tier determination
+  - ✅ Admin API routes: `/admin/goals/*` with approval workflow
+  - ✅ GoalContextGatherer: State Bus queries for context during planning
+  - ✅ GoalQueryableSource: Registered with State Bus (6 sources now)
+- **Pending**:
+  - ⬜ Phase 6: Execution integration with ResearchScheduler
+
+**Goal lifecycle**: proposed → approved → active → completed/abandoned
+**Autonomy tiers**: low (autonomous), medium (inform after), high (approval required)
+
+**Key files**:
+- `backend/unified_goals.py` - UnifiedGoalManager
+- `backend/goal_context.py` - GoalContextGatherer
+- `backend/sources/goal_source.py` - GoalQueryableSource
+- `backend/routes/admin/goals.py` - Admin API
+
 ### State Bus Integration - Two Phase Plan
 - **Phase 1 (in progress)**: Wire up all subsystems as QueryableSource implementations
   - ✅ github, tokens (already done)
   - ✅ conversations
   - ✅ memory (journals, threads, questions)
+  - ✅ self-model (reads from unified graph - 789 nodes, 680 edges)
+  - ✅ goals (new - unified goal system)
   - ⬜ tasks
-  - ⬜ self-model (opinions, growth edges, milestones)
   - ⬜ users (observations, profiles)
   - ⬜ daily rhythm
   - ⬜ research sessions
@@ -22,6 +43,12 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
   - Need to hook into data writes (add_message, create_journal, etc.)
   - Either direct `source.on_data_changed()` calls or event-based via `state_bus.emit_event()`
   - Event-based is cleaner but requires sources to subscribe at init time
+
+### Self-Model Data Unification (pending)
+- Three sources of truth exist: SQLite tables, JSON/YAML files, and NetworkX graph
+- SQLite has more data than graph: 422 observations (vs 395), 19 opinions (vs 2)
+- `populate_graph()` syncs JSON/YAML → graph but not SQLite → graph
+- **Future work**: Full SQLite→Graph migration to unify all self-model data
 
 ---
 

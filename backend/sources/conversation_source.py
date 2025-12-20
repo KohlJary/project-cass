@@ -63,6 +63,14 @@ class ConversationQueryableSource(QueryableSource):
         return SourceSchema(
             metrics=[
                 MetricDefinition(
+                    name="all",
+                    description="All conversation metrics in one response",
+                    data_type="object",
+                    supports_delta=False,
+                    supports_timeseries=False,
+                    unit=None,
+                ),
+                MetricDefinition(
                     name="total_conversations",
                     description="Total number of conversations",
                     data_type="int",
@@ -153,6 +161,17 @@ class ConversationQueryableSource(QueryableSource):
 
         # Get the metric to query
         metric = query.metric or "total_messages"
+
+        # Handle "all" metric - return comprehensive summary
+        if metric == "all":
+            data = await self._query_all()
+            return QueryResult(
+                source=self.source_id,
+                query=query,
+                data=data,
+                timestamp=datetime.now(),
+                metadata={"period": "computed_fresh"}
+            )
 
         # Handle different query patterns
         if query.group_by in ["day", "hour"]:
@@ -430,6 +449,79 @@ class ConversationQueryableSource(QueryableSource):
                 value = 0
 
         return QueryResultData(value=value)
+
+    async def _query_all(self) -> QueryResultData:
+        """Return all conversation metrics in one response."""
+        now = datetime.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = now - timedelta(days=7)
+
+        with get_db() as conn:
+            # Total conversations
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM conversations WHERE daemon_id = ?
+            """, (self._daemon_id,))
+            total_conversations = cursor.fetchone()["count"]
+
+            # Conversations today
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM conversations
+                WHERE daemon_id = ? AND created_at >= ?
+            """, (self._daemon_id, today_start.isoformat()))
+            conversations_today = cursor.fetchone()["count"]
+
+            # Conversations this week
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM conversations
+                WHERE daemon_id = ? AND created_at >= ?
+            """, (self._daemon_id, week_start.isoformat()))
+            conversations_week = cursor.fetchone()["count"]
+
+            # Total messages
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM messages m
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE c.daemon_id = ?
+            """, (self._daemon_id,))
+            total_messages = cursor.fetchone()["count"]
+
+            # Messages today
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM messages m
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE c.daemon_id = ? AND m.timestamp >= ?
+            """, (self._daemon_id, today_start.isoformat()))
+            messages_today = cursor.fetchone()["count"]
+
+            # Messages this week
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM messages m
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE c.daemon_id = ? AND m.timestamp >= ?
+            """, (self._daemon_id, week_start.isoformat()))
+            messages_week = cursor.fetchone()["count"]
+
+            # Active users today
+            cursor = conn.execute("""
+                SELECT COUNT(DISTINCT m.user_id) as count
+                FROM messages m
+                JOIN conversations c ON c.id = m.conversation_id
+                WHERE c.daemon_id = ? AND m.timestamp >= ? AND m.role = 'user'
+            """, (self._daemon_id, today_start.isoformat()))
+            active_users = cursor.fetchone()["count"]
+
+        return QueryResultData(value={
+            "total_conversations": total_conversations,
+            "conversations_today": conversations_today,
+            "conversations_week": conversations_week,
+            "total_messages": total_messages,
+            "messages_today": messages_today,
+            "messages_week": messages_week,
+            "active_users_today": active_users,
+        })
 
     def get_precomputed_rollups(self) -> Dict[str, Any]:
         """Return cached rollup aggregates."""

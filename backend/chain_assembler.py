@@ -689,6 +689,12 @@ def build_standard_chain(daemon_id: str) -> List[ChainNode]:
         template_slug="tools-metacognitive",
         order_index=59,
     ))
+    nodes.append(ChainNode(
+        id=str(uuid.uuid4()),
+        template_id="tpl-tools-state-query",
+        template_slug="tools-state-query",
+        order_index=60,
+    ))
 
     # Closing
     nodes.append(ChainNode(
