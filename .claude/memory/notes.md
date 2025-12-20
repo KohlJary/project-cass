@@ -6,8 +6,9 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
 
 ## 2025-12-20
 
-### Unified Scheduler (feat/unified-scheduler) - COMPLETE
+### Unified Scheduler → Synkratos (MERGED TO MAIN)
 Centralized task orchestration replacing fragmented asyncio.create_task() calls.
+Branch `feat/unified-scheduler` merged 2025-12-20.
 
 **Done:**
 - UnifiedScheduler with 1-second tick loop

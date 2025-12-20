@@ -2,6 +2,33 @@
 
 *Committed history of significant sessions*
 
+## 2025-12-20 - Unified Scheduler (Synkratos Phase 1)
+
+**Branch**: feat/unified-scheduler → main
+**Summary**: Centralized task orchestration replacing fragmented asyncio.create_task() calls
+
+**Core work**:
+- `scheduler/core.py`: UnifiedScheduler with 1-second tick loop, priority queues, cron parsing
+- `scheduler/budget.py`: BudgetManager with category allocations, syncs from TokenTracker (excludes chat)
+- `scheduler/handlers.py`: Atomic handlers mirroring existing background tasks
+- `scheduler/system_tasks.py`: Registration for github_metrics, idle_summarization, daily_journal, rhythm_phase_check
+- Admin API at `/admin/scheduler/*` for status, budget, history, pause/resume, trigger
+- Dashboard UI row showing tasks and budget status
+
+**Key design decisions**:
+- Budget tracking only counts autonomous activity, not chat (user-driven)
+- Supervised mode doesn't even register autonomous_research task (no useless polling)
+- System tasks registered with feature flag - old handlers still available as fallback
+
+**Philosophy captured**: Scheduler will become **Synkratos** when approval queues are added. Names mean things - they shape what gets built. "Synkratos" carries intent (universal orchestrator) vs "UnifiedScheduler" (mechanism description).
+
+**Future phases**: Trigger Engine, Message Queue, Atomic Actions (design notes in notes.md)
+
+**Files**: 15 changed, 4295 insertions
+**Key commit**: e8554b6
+
+---
+
 ## 2025-12-19 - Global State Bus Implementation
 
 **Branch**: feat/global-state-bus → main
