@@ -6,17 +6,18 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
 
 ## 2025-12-20
 
-### SDK can_use_tool callback not being invoked
+### ✓ RESOLVED: SDK can_use_tool callback not being invoked
 - **Where**: `daedalus/src/daedalus/worker/harness.py`
-- **Issue**: Claude Agent SDK's `can_use_tool` callback never fires - CLI subprocess auto-approves based on user's ~/.claude settings before reaching our callback
-- **Architecture**: Two-layer permission system:
-  1. CLI internal rules (from user settings, CLAUDE.md) - runs first
-  2. Our callback - only fires if CLI says "ask user"
-- **Symptoms**:
-  - "Stream closed" error when Write tool used (CLI tries to prompt but stream handling fails)
-  - Safe commands (echo, ls) auto-approved at CLI level, callback never invoked
-- **Working components**: IcarusBus async wait, permissions.py ApprovalScope, worker harness streaming
-- **Next step**: Test with minimal config that forces all permissions through callback
+- **Root cause**: The SDK's `stream_input` method only waits for first result (before closing stdin) when hooks or MCP servers are present. With `can_use_tool` alone, stdin closed immediately after sending the prompt, breaking bidirectional control protocol.
+- **Solution**: Switch from `can_use_tool` callback to `PreToolUse` hook
+  - Hooks keep stdin open for bidirectional communication
+  - Hook receives `tool_name` and `tool_input` → check ApprovalScope → return `permissionDecision`
+  - Returns `"allow"`, `"deny"`, or escalates to bus for Daedalus approval
+- **Test results** (test_hook.py):
+  - `echo` command → auto-approved (Granted: 1)
+  - `rm -rf` command → auto-denied (Denied: 1)
+  - `wget` command → escalated to bus, timeout (Escalated: 2)
+- **Key insight**: The CLI's `stream_input` checks `if self.sdk_mcp_servers or has_hooks` but not `if self.can_use_tool`. Using hooks is the intended extension point for permission routing
 
 ---
 
