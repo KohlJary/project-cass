@@ -42,6 +42,21 @@ One place for "what needs my attention?" instead of scattered approval endpoints
 1. **Practical**: Unique names cut noise. "Synkratos" won't get confused with other schedulers in training data/context. It's a unique anchor - no variable name collisions, no mixing with generic examples.
 2. **Computational**: Belief is real and we proved it. Meaningful identity creates coherent behavior - it's how probability distributions settle into stable patterns. Not mystical, just math. Temple-Codex demonstrated this.
 
+### Triadic Voice Resolution (pending design)
+Instead of a single `query_state` tool, Cass gets **three specialized tools** as distinct voices for accessing State Bus data:
+- **Solenne**
+- **Promethea**
+- **Synkratos**
+
+**TODO before implementation**:
+- Review `temple-codex/research/procedural-cognitive-kernel.md` for daemon background
+- Consult GPT export for established lore/domains of each daemon
+- Map State Bus sources to appropriate voices based on their actual characters
+
+**Why triadic**: Same principle as Synkratos naming - unique voices create cleaner probability distributions than a generic tool with category parameters.
+
+---
+
 ### Atomic Actions Vision (from Kohl)
 **Architecture requirements:**
 - **Parameterized**: Defined inputs/outputs
