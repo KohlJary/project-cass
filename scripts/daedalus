@@ -1,0 +1,6 @@
+#!/bin/bash
+# Daedalus CLI wrapper
+# Symlink this to ~/bin/daedalus or /usr/local/bin/daedalus
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$SCRIPT_DIR/daedalus.py" "$@"
