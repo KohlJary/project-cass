@@ -1489,7 +1489,43 @@ export const schedulerApi = {
   // Manually trigger a task
   triggerTask: (taskId: string) =>
     api.post<{ status: string; task_id: string; message: string }>(`/admin/scheduler/run/${taskId}`),
+
+  // Approvals - unified "what needs attention?"
+  getApprovals: (type?: string) =>
+    api.get<{
+      approvals: ApprovalItem[];
+      count: number;
+      counts_by_type: Record<string, number>;
+    }>('/admin/scheduler/approvals', { params: type ? { type } : undefined }),
+
+  getApprovalCounts: () =>
+    api.get<Record<string, number>>('/admin/scheduler/approvals/counts'),
+
+  approveItem: (approvalType: string, sourceId: string, approvedBy: string = 'admin') =>
+    api.post<{ success: boolean; message?: string; error?: string }>(
+      `/admin/scheduler/approvals/${approvalType}/${sourceId}/approve`,
+      { approved_by: approvedBy }
+    ),
+
+  rejectItem: (approvalType: string, sourceId: string, rejectedBy: string = 'admin', reason: string = '') =>
+    api.post<{ success: boolean; message?: string; error?: string }>(
+      `/admin/scheduler/approvals/${approvalType}/${sourceId}/reject`,
+      { rejected_by: rejectedBy, reason }
+    ),
 };
+
+// Approval types
+export interface ApprovalItem {
+  approval_id: string;
+  type: string;
+  title: string;
+  description: string;
+  source_id: string;
+  created_at: string;
+  created_by: string;
+  priority: string;
+  source_data: Record<string, unknown>;
+}
 
 export const stateApi = {
   // Get current global state

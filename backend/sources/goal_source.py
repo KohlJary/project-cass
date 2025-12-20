@@ -73,6 +73,13 @@ class GoalQueryableSource(QueryableSource):
         return SourceSchema(
             metrics=[
                 MetricDefinition(
+                    name="all",
+                    description="All goal metrics in one response",
+                    data_type="object",
+                    supports_delta=False,
+                    supports_timeseries=False,
+                ),
+                MetricDefinition(
                     name="total_goals",
                     description="Total number of goals",
                     data_type="int",
@@ -228,13 +235,8 @@ class GoalQueryableSource(QueryableSource):
                 grouped = {"ungrouped": value}
             value = grouped
 
-        # Build result
-        data = QueryResultData(
-            metric=metric or "all",
-            value=value,
-            unit="goals" if isinstance(value, (int, float)) else None,
-            breakdown=stats.get("by_status", {}) if metric in ["total_goals", "all"] else None,
-        )
+        # Build result - QueryResultData only takes value or series
+        data = QueryResultData(value=value)
 
         return QueryResult(
             source=self.source_id,

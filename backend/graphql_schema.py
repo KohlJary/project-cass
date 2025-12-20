@@ -225,6 +225,41 @@ class DailySummary:
 
 
 # =============================================================================
+# APPROVALS TYPES - Synkratos "what needs attention?"
+# =============================================================================
+
+@strawberry.type
+class ApprovalItem:
+    """An item pending human approval."""
+    approval_id: str
+    approval_type: str  # goal, research, action, user
+    title: str
+    description: str
+    source_id: str
+    created_at: str
+    created_by: str
+    priority: str  # high, normal, low
+
+
+@strawberry.type
+class ApprovalCounts:
+    """Counts by approval type."""
+    goal: int
+    research: int
+    action: int
+    user: int
+    total: int
+
+
+@strawberry.type
+class Approvals:
+    """Pending approvals from Synkratos."""
+    items: List[ApprovalItem]
+    count: int
+    counts: ApprovalCounts
+
+
+# =============================================================================
 # ROOT QUERY
 # =============================================================================
 
@@ -549,6 +584,49 @@ class Query:
             commits=commits,
             current_activity=activity.get("current_activity", "idle"),
             rhythm_phase=activity.get("rhythm_phase"),
+        )
+
+    @strawberry.field
+    async def approvals(self) -> Approvals:
+        """Get pending approvals from Synkratos - unified 'what needs attention?' view."""
+        from routes.admin.scheduler import get_scheduler
+
+        scheduler = get_scheduler()
+        if not scheduler:
+            return Approvals(
+                items=[],
+                count=0,
+                counts=ApprovalCounts(goal=0, research=0, action=0, user=0, total=0),
+            )
+
+        # Get pending approvals
+        pending = scheduler.get_pending_approvals()
+        counts = scheduler.get_approval_counts()
+
+        items = [
+            ApprovalItem(
+                approval_id=a.approval_id,
+                approval_type=a.approval_type.value,
+                title=a.title,
+                description=a.description,
+                source_id=a.source_id,
+                created_at=a.created_at.isoformat() if a.created_at else "",
+                created_by=a.created_by or "unknown",
+                priority=a.priority.value if hasattr(a.priority, 'value') else str(a.priority),
+            )
+            for a in pending
+        ]
+
+        return Approvals(
+            items=items,
+            count=len(items),
+            counts=ApprovalCounts(
+                goal=counts.get("goal", 0),
+                research=counts.get("research", 0),
+                action=counts.get("action", 0),
+                user=counts.get("user", 0),
+                total=counts.get("total", 0),
+            ),
         )
 
 

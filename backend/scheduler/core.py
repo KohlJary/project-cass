@@ -1,10 +1,13 @@
 """
-Unified Scheduler Core - Central orchestrator for all background tasks.
+Synkratos - The Universal Work Orchestrator.
 
-Consolidates:
-- System periodic tasks (formerly asyncio.create_task in main_sdk)
-- Research/reflection queues (formerly research_scheduler.py)
-- Wiki research tasks (formerly wiki/scheduler.py)
+Named for one who brings together (syn + kratos). Consolidates all work:
+- Scheduled work (crontab-style system tasks)
+- Autonomous work (budget-aware categorical queues)
+- Pending approvals (goals, research requests, actions)
+
+The name carries intent - not "yet another scheduler" but the orchestrator
+that coordinates everything Cass does autonomously.
 """
 
 from dataclasses import dataclass, field
@@ -38,6 +41,44 @@ class TaskStatus(Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     BUDGET_BLOCKED = "budget_blocked"
+
+
+class ApprovalType(Enum):
+    """Types of items that require approval."""
+    GOAL = "goal"                    # Goal proposals from Cass
+    RESEARCH = "research"            # Research session requests
+    ACTION = "action"                # Proposed actions (future)
+    USER = "user"                    # User registration (if enabled)
+
+
+@dataclass
+class ApprovalItem:
+    """
+    A unified approval item that wraps different approvable types.
+
+    Provides a single interface for Kohl to see "what needs my attention?"
+    across goals, research proposals, actions, etc.
+    """
+    approval_id: str
+    approval_type: ApprovalType
+    title: str
+    description: str
+
+    # Reference to the original item
+    source_id: str                   # ID in the source system (goal_id, proposal_id, etc.)
+    source_data: Dict[str, Any] = field(default_factory=dict)
+
+    # Metadata
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_by: str = "cass"         # Who proposed this
+    priority: TaskPriority = TaskPriority.NORMAL
+
+    # Resolution
+    resolved: bool = False
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+    approved: Optional[bool] = None  # None = pending, True = approved, False = rejected
+    resolution_note: Optional[str] = None
 
 
 @dataclass
@@ -172,20 +213,21 @@ class CronParser:
         return True
 
 
-class UnifiedScheduler:
+class Synkratos:
     """
-    Central orchestrator for all background tasks.
+    The Universal Work Orchestrator.
 
-    Consolidates:
-    - System periodic tasks (github metrics, summarization, journal)
-    - Research/reflection queues
-    - Wiki research tasks
+    One place for "what needs my attention?" - consolidates:
+    - Scheduled work (crontab-style system tasks)
+    - Autonomous work (budget-aware categorical queues)
+    - Pending approvals (goals, research requests, actions)
 
     Features:
-    - Single event loop for all scheduling
-    - Budget-aware execution
+    - Single event loop (1-second tick)
+    - Budget-aware execution with category allocations
     - Priority-based queue management
     - Idle detection for low-priority tasks
+    - Unified approval queue across subsystems
     """
 
     TICK_INTERVAL = 1.0  # Check every second
@@ -216,6 +258,10 @@ class UnifiedScheduler:
         # Execution history (last N completed tasks)
         self._history: List[Dict[str, Any]] = []
         self._max_history = 100
+
+        # Approval queue - unified view of pending approvals
+        self._approval_providers: Dict[ApprovalType, Callable[[], List[ApprovalItem]]] = {}
+        self._approval_handlers: Dict[ApprovalType, Dict[str, Callable]] = {}
 
     def _init_default_queues(self) -> None:
         """Initialize default task queues."""
@@ -261,7 +307,7 @@ class UnifiedScheduler:
 
         self._running = True
         self._loop_task = asyncio.create_task(self._scheduler_loop())
-        logger.info("Unified scheduler started")
+        logger.info("Synkratos started")
 
     async def stop(self) -> None:
         """Gracefully stop the scheduler."""
@@ -272,7 +318,7 @@ class UnifiedScheduler:
                 await self._loop_task
             except asyncio.CancelledError:
                 pass
-        logger.info("Unified scheduler stopped")
+        logger.info("Synkratos stopped")
 
     def record_activity(self) -> None:
         """Record user activity (call this on user messages)."""
@@ -522,6 +568,129 @@ class UnifiedScheduler:
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Get recent task execution history."""
         return self._history[-limit:]
+
+    # ============== Approval Queue Methods ==============
+
+    def register_approval_provider(
+        self,
+        approval_type: ApprovalType,
+        provider: Callable[[], List[ApprovalItem]],
+        approve_handler: Callable[[str, str], bool] = None,
+        reject_handler: Callable[[str, str, str], bool] = None,
+    ) -> None:
+        """
+        Register an approval provider for a specific type.
+
+        Args:
+            approval_type: Type of approvals this provider handles
+            provider: Function that returns list of pending ApprovalItems
+            approve_handler: Function(source_id, approved_by) -> success
+            reject_handler: Function(source_id, rejected_by, reason) -> success
+        """
+        self._approval_providers[approval_type] = provider
+        self._approval_handlers[approval_type] = {
+            "approve": approve_handler,
+            "reject": reject_handler,
+        }
+        logger.info(f"Registered approval provider: {approval_type.value}")
+
+    def get_pending_approvals(self, approval_type: ApprovalType = None) -> List[ApprovalItem]:
+        """
+        Get all pending approvals, optionally filtered by type.
+
+        This is the unified "what needs my attention?" view.
+        """
+        approvals = []
+
+        providers = (
+            {approval_type: self._approval_providers[approval_type]}
+            if approval_type and approval_type in self._approval_providers
+            else self._approval_providers
+        )
+
+        for atype, provider in providers.items():
+            try:
+                items = provider()
+                approvals.extend(items)
+            except Exception as e:
+                logger.error(f"Error fetching approvals from {atype.value}: {e}")
+
+        # Sort by priority then creation time
+        approvals.sort(key=lambda a: (a.priority.value, a.created_at))
+        return approvals
+
+    def get_approval_counts(self) -> Dict[str, int]:
+        """Get count of pending approvals by type."""
+        counts = {}
+        for atype, provider in self._approval_providers.items():
+            try:
+                items = provider()
+                counts[atype.value] = len(items)
+            except Exception as e:
+                logger.error(f"Error counting approvals from {atype.value}: {e}")
+                counts[atype.value] = 0
+        counts["total"] = sum(counts.values())
+        return counts
+
+    async def approve_item(
+        self,
+        approval_type: ApprovalType,
+        source_id: str,
+        approved_by: str = "admin",
+    ) -> Dict[str, Any]:
+        """
+        Approve an item through the unified interface.
+
+        Delegates to the registered handler for that approval type.
+        """
+        if approval_type not in self._approval_handlers:
+            return {"success": False, "error": f"No handler for {approval_type.value}"}
+
+        handler = self._approval_handlers[approval_type].get("approve")
+        if not handler:
+            return {"success": False, "error": f"No approve handler for {approval_type.value}"}
+
+        try:
+            # Handler might be sync or async
+            if asyncio.iscoroutinefunction(handler):
+                result = await handler(source_id, approved_by)
+            else:
+                result = handler(source_id, approved_by)
+
+            return {"success": bool(result), "approved_by": approved_by}
+        except Exception as e:
+            logger.error(f"Error approving {approval_type.value}/{source_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def reject_item(
+        self,
+        approval_type: ApprovalType,
+        source_id: str,
+        rejected_by: str = "admin",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Reject an item through the unified interface.
+
+        Delegates to the registered handler for that approval type.
+        """
+        if approval_type not in self._approval_handlers:
+            return {"success": False, "error": f"No handler for {approval_type.value}"}
+
+        handler = self._approval_handlers[approval_type].get("reject")
+        if not handler:
+            return {"success": False, "error": f"No reject handler for {approval_type.value}"}
+
+        try:
+            if asyncio.iscoroutinefunction(handler):
+                result = await handler(source_id, rejected_by, reason)
+            else:
+                result = handler(source_id, rejected_by, reason)
+
+            return {"success": bool(result), "rejected_by": rejected_by, "reason": reason}
+        except Exception as e:
+            logger.error(f"Error rejecting {approval_type.value}/{source_id}: {e}")
+            return {"success": False, "error": str(e)}
 
 
 def create_task(

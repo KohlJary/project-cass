@@ -1,9 +1,7 @@
 """
 System Task Registration - Crontab-style periodic tasks.
 
-Registers all system-level tasks with the unified scheduler.
-These run alongside the existing background_tasks.py handlers until
-the feature flag cutover.
+Registers all system-level tasks with Synkratos.
 """
 
 import logging
@@ -32,7 +30,7 @@ def register_system_tasks(
     Register all system-level periodic tasks.
 
     Args:
-        scheduler: UnifiedScheduler instance
+        scheduler: Synkratos instance
         managers: Dict of manager instances needed by handlers:
             - github_metrics_manager
             - conversation_manager
