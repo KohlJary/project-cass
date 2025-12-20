@@ -1,0 +1,3 @@
+[submodule "daedalus"]
+	path = daedalus
+	url = https://github.com/KohlJary/daedalus.git
