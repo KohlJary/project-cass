@@ -31,103 +31,17 @@ try:
 except ImportError:
     PYTE_AVAILABLE = False
 
-# Path to the Daedalus CLAUDE.md template and config
-TEMPLATE_PATH = Path(__file__).parent.parent.parent.parent / "backend" / "templates" / "CLAUDE_TEMPLATE.md"
-CONFIG_PATH = Path(__file__).parent.parent.parent.parent / "config" / "daedalus.json"
+# Import template injection from daedalus package
+try:
+    from daedalus.templates import inject_claude_template
+    DAEDALUS_PACKAGE_AVAILABLE = True
+except ImportError:
+    # Fallback: daedalus package not installed, template injection disabled
+    DAEDALUS_PACKAGE_AVAILABLE = False
 
-# Markers for the managed section
-DAEDALUS_BEGIN = "<!-- DAEDALUS_BEGIN -->"
-DAEDALUS_END = "<!-- DAEDALUS_END -->"
-
-
-def load_daedalus_config() -> dict:
-    """Load Daedalus configuration from config file."""
-    if not CONFIG_PATH.exists():
-        return {}
-    try:
-        import json
-        return json.loads(CONFIG_PATH.read_text())
-    except Exception as e:
-        debug_log(f"Failed to load config: {e}", "warning")
-        return {}
-
-
-def substitute_template_vars(content: str, config: dict) -> str:
-    """Substitute template variables with config values."""
-    user_config = config.get("user", {})
-
-    replacements = {
-        "{{USER_NAME}}": user_config.get("name", "the user"),
-        "{{USER_COMMUNICATION_STYLE}}": user_config.get("communication_style", "Not specified"),
-    }
-
-    for placeholder, value in replacements.items():
-        content = content.replace(placeholder, value)
-
-    return content
-
-
-def inject_claude_template(working_dir: str) -> None:
-    """
-    Inject or update the Daedalus section in a project's CLAUDE.md.
-
-    If CLAUDE.md doesn't exist, creates it from the template.
-    If it exists but has no Daedalus section, prepends the section.
-    If it exists with a Daedalus section, updates that section only.
-
-    Template variables (e.g., {{USER_NAME}}) are substituted from config/daedalus.json.
-    """
-    if not working_dir or not os.path.isdir(working_dir):
-        return
-
-    claude_md_path = Path(working_dir) / "CLAUDE.md"
-
-    # Read the template
-    if not TEMPLATE_PATH.exists():
-        debug_log(f"Template not found at {TEMPLATE_PATH}", "warning")
-        return
-
-    template_content = TEMPLATE_PATH.read_text()
-
-    # Load config and substitute variables
-    config = load_daedalus_config()
-    template_content = substitute_template_vars(template_content, config)
-
-    # Extract just the Daedalus section from template
-    match = re.search(
-        rf'{re.escape(DAEDALUS_BEGIN)}.*?{re.escape(DAEDALUS_END)}',
-        template_content,
-        re.DOTALL
-    )
-    if not match:
-        debug_log("Could not find Daedalus markers in template", "warning")
-        return
-
-    daedalus_section = match.group(0)
-
-    if not claude_md_path.exists():
-        # Create new file from template
-        claude_md_path.write_text(template_content)
-        debug_log(f"Created CLAUDE.md at {claude_md_path}", "info")
-    else:
-        # Update existing file
-        existing_content = claude_md_path.read_text()
-
-        if DAEDALUS_BEGIN in existing_content:
-            # Replace existing Daedalus section
-            updated_content = re.sub(
-                rf'{re.escape(DAEDALUS_BEGIN)}.*?{re.escape(DAEDALUS_END)}',
-                daedalus_section,
-                existing_content,
-                flags=re.DOTALL
-            )
-            claude_md_path.write_text(updated_content)
-            debug_log(f"Updated Daedalus section in {claude_md_path}", "info")
-        else:
-            # Prepend Daedalus section to existing content
-            updated_content = daedalus_section + "\n\n" + existing_content
-            claude_md_path.write_text(updated_content)
-            debug_log(f"Prepended Daedalus section to {claude_md_path}", "info")
+    def inject_claude_template(working_dir: str) -> None:
+        """Stub when daedalus package not installed."""
+        debug_log("daedalus package not installed, skipping template injection", "warning")
 
 
 class DaedalusWidget(Widget, can_focus=True):
