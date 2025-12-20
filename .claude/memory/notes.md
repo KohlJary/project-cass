@@ -6,6 +6,25 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
 
 ## 2025-12-20
 
+### State Bus Integration - Two Phase Plan
+- **Phase 1 (in progress)**: Wire up all subsystems as QueryableSource implementations
+  - ✅ github, tokens (already done)
+  - ✅ conversations
+  - ✅ memory (journals, threads, questions)
+  - ⬜ tasks
+  - ⬜ self-model (opinions, growth edges, milestones)
+  - ⬜ users (observations, profiles)
+  - ⬜ daily rhythm
+  - ⬜ research sessions
+  - ⬜ calendar
+- **Phase 2 (next)**: Wire up event emission
+  - Currently sources use LAZY refresh (compute on query)
+  - Need to hook into data writes (add_message, create_journal, etc.)
+  - Either direct `source.on_data_changed()` calls or event-based via `state_bus.emit_event()`
+  - Event-based is cleaner but requires sources to subscribe at init time
+
+---
+
 ### ✓ RESOLVED: SDK can_use_tool callback not being invoked
 - **Where**: `daedalus/src/daedalus/worker/harness.py`
 - **Root cause**: The SDK's `stream_input` method only waits for first result (before closing stdin) when hooks or MCP servers are present. With `can_use_tool` alone, stdin closed immediately after sending the prompt, breaking bidirectional control protocol.
