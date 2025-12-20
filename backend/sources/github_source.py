@@ -182,11 +182,10 @@ class GitHubQueryableSource(QueryableSource):
     ) -> QueryResultData:
         """Query for time series data grouped by day."""
         # Get historical data from manager
+        # Don't pass repo filter here - we'll filter in _extract_metric_from_snapshot
+        # because get_historical_metrics returns different structure when filtered
         days = (end - start).days + 1
-        historical = self._manager.get_historical_metrics(
-            days=days,
-            repo=filters.get("repo") if filters else None
-        )
+        historical = self._manager.get_historical_metrics(days=days)
 
         series = []
         for snapshot in historical:
@@ -203,7 +202,7 @@ class GitHubQueryableSource(QueryableSource):
             except ValueError:
                 continue
 
-            # Extract metric value
+            # Extract metric value (filtering happens here)
             repos_data = snapshot.get("repos", {})
             value = self._extract_metric_from_snapshot(metric, repos_data, filters)
 
