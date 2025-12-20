@@ -287,6 +287,116 @@
       "default_duration_minutes": 1,
       "priority": "low",
       "requires_idle": false
+    },
+    "world.fetch_news": {
+      "id": "world.fetch_news",
+      "name": "Fetch News",
+      "description": "Fetch recent news on a topic or from general sources",
+      "category": "world",
+      "handler": "world_handlers.fetch_news_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "world.fetch_weather": {
+      "id": "world.fetch_weather",
+      "name": "Fetch Weather",
+      "description": "Fetch current weather conditions",
+      "category": "world",
+      "handler": "world_handlers.fetch_weather_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "world.search_events": {
+      "id": "world.search_events",
+      "name": "Search World Events",
+      "description": "Search for current world events or trends",
+      "category": "world",
+      "handler": "world_handlers.search_events_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "web.search": {
+      "id": "web.search",
+      "name": "Web Search",
+      "description": "Search the web for information",
+      "category": "research",
+      "handler": "web_handlers.web_search_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "web.fetch_url": {
+      "id": "web.fetch_url",
+      "name": "Fetch URL",
+      "description": "Fetch and extract content from a URL",
+      "category": "research",
+      "handler": "web_handlers.fetch_url_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "wiki.create_note": {
+      "id": "wiki.create_note",
+      "name": "Create Research Note",
+      "description": "Create a new research note in the wiki",
+      "category": "research",
+      "handler": "wiki_handlers.create_note_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "wiki.update_note": {
+      "id": "wiki.update_note",
+      "name": "Update Research Note",
+      "description": "Update an existing research note",
+      "category": "research",
+      "handler": "wiki_handlers.update_note_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "self.add_observation": {
+      "id": "self.add_observation",
+      "name": "Add Self Observation",
+      "description": "Record an observation about self",
+      "category": "reflection",
+      "handler": "self_handlers.add_observation_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "self.record_insight": {
+      "id": "self.record_insight",
+      "name": "Record Insight",
+      "description": "Record an insight from reflection",
+      "category": "reflection",
+      "handler": "self_handlers.record_insight_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "self.update_growth_edge": {
+      "id": "self.update_growth_edge",
+      "name": "Update Growth Edge",
+      "description": "Update progress on a growth edge",
+      "category": "growth",
+      "handler": "self_handlers.update_growth_edge_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
     }
   }
 }
