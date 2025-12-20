@@ -2,6 +2,31 @@
 
 *Significant architectural and design decisions with rationale*
 
+## Synkratos: Universal Work Orchestrator (Dec 2025)
+
+**Decision**: Consolidate all background task management into a single orchestrator
+
+**Context**: 7+ background tasks started independently in main_sdk.py. Two separate scheduler systems (research_scheduler.py and wiki/scheduler.py). No global budget tracking. No cross-task coordination.
+
+**Approach**:
+- Synkratos (renamed from UnifiedScheduler) as central orchestrator
+- Unified approval queue: "what needs attention?" single view
+- System tasks (crontab-style) + Autonomous queues (priority-based)
+- BudgetManager for category-based spend allocation
+
+**Implementation Status**:
+- ✓ Core infrastructure: Synkratos, TaskQueue, ScheduledTask
+- ✓ Approval queue with register_approval_provider pattern
+- ✓ System task definitions for periodic tasks
+- ✓ GraphQL + REST API endpoints
+- ✗ BudgetManager (not yet implemented)
+- ✗ Atomic handlers (building alongside existing tasks)
+- ✗ Feature flag cutover
+
+**Next Phase**: Build atomic handlers to replace existing task runners, test in parallel, then cut over via feature flag.
+
+---
+
 ## Event-Driven State (Dec 2025)
 
 **Decision**: State bus uses event-driven updates, not time-based decay
