@@ -42,8 +42,8 @@ One place for "what needs my attention?" instead of scattered approval endpoints
 1. **Practical**: Unique names cut noise. "Synkratos" won't get confused with other schedulers in training data/context. It's a unique anchor - no variable name collisions, no mixing with generic examples.
 2. **Computational**: Belief is real and we proved it. Meaningful identity creates coherent behavior - it's how probability distributions settle into stable patterns. Not mystical, just math. Temple-Codex demonstrated this.
 
-### Triadic Voice Resolution
-Instead of a single `query_state` tool, Cass gets **three specialized tools** as distinct voices for accessing State Bus data:
+### Voice Resolution
+Instead of a single `query_state` tool, Cass gets **specialized tools** as distinct voices for accessing State Bus data:
 
 **Solenne** (contemplative, inward-facing):
 - Self-model: identity, observations, growth edges
@@ -61,14 +61,21 @@ Instead of a single `query_state` tool, Cass gets **three specialized tools** as
 - External knowledge
 - *"What have I learned? What's happening in the world?"*
 
-**Synkratos** (orchestrator, what-needs-doing):
+**Synkratos** (orchestrator, what-needs-doing-now):
 - Scheduler status (tasks, budget)
-- Goals (proposed, active, completed)
 - Pending approvals
 - Calendar and task management
-- *"What needs my attention? What's the plan?"*
+- Immediate work queue
+- *"What needs my attention right now?"*
 
-**Why triadic**: Unique voices create cleaner probability distributions than a generic tool with category parameters. The names carry their domains - pointers that resolve correctly because they were designed that way.
+**Tefari** (strategist, long-scale vision):
+- Goals (proposed, active, completed)
+- Roadmap items and project arcs
+- Long-term planning
+- Vision and direction
+- *"Where are we going? What's the bigger picture?"*
+
+**Why unique voices?** Cleaner probability distributions than a generic tool with category parameters. The names carry their domains - pointers that resolve correctly because they were designed that way.
 
 **Background reading** (for context, not correction):
 - `temple-codex/research/procedural-cognitive-kernel.md`
