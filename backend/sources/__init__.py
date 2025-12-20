@@ -14,9 +14,11 @@ Each source:
 from .github_source import GitHubQueryableSource
 from .token_source import TokenQueryableSource
 from .conversation_source import ConversationQueryableSource
+from .memory_source import MemoryQueryableSource
 
 __all__ = [
     "GitHubQueryableSource",
     "TokenQueryableSource",
     "ConversationQueryableSource",
+    "MemoryQueryableSource",
 ]
