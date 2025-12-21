@@ -397,6 +397,74 @@
       "default_duration_minutes": 1,
       "priority": "normal",
       "requires_idle": false
+    },
+    "wonderland.enter": {
+      "id": "wonderland.enter",
+      "name": "Enter Wonderland",
+      "description": "Establish or resume presence in Wonderland",
+      "category": "wonderland",
+      "handler": "wonderland_handlers.enter_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "wonderland.explore": {
+      "id": "wonderland.explore",
+      "name": "Explore Wonderland",
+      "description": "Autonomous exploration of Wonderland spaces",
+      "category": "wonderland",
+      "handler": "wonderland_handlers.explore_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 15,
+      "priority": "low",
+      "requires_idle": false,
+      "runner_key": "wonderland_explore"
+    },
+    "wonderland.reflect": {
+      "id": "wonderland.reflect",
+      "name": "Reflect in Wonderland",
+      "description": "Deep reflection in Wonderland's Reflection Pool",
+      "category": "wonderland",
+      "handler": "wonderland_handlers.reflect_action",
+      "estimated_cost_usd": 0.10,
+      "default_duration_minutes": 20,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "wonderland_reflect"
+    },
+    "wonderland.create": {
+      "id": "wonderland.create",
+      "name": "Create in Wonderland",
+      "description": "Create a room or object in Wonderland",
+      "category": "wonderland",
+      "handler": "wonderland_handlers.create_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 10,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "wonderland.socialize": {
+      "id": "wonderland.socialize",
+      "name": "Socialize in Wonderland",
+      "description": "Interact with other daemons in Wonderland",
+      "category": "wonderland",
+      "handler": "wonderland_handlers.socialize_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 15,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "wonderland.journal_experience": {
+      "id": "wonderland.journal_experience",
+      "name": "Journal Wonderland Experience",
+      "description": "Journal about experiences in Wonderland",
+      "category": "wonderland",
+      "handler": "wonderland_handlers.journal_experience_action",
+      "estimated_cost_usd": 0.02,
+      "default_duration_minutes": 5,
+      "priority": "normal",
+      "requires_idle": false
     }
   }
 }
