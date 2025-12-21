@@ -41,8 +41,8 @@ from .mythology import (
     create_nexus, create_greek_realm, create_norse_realm, create_african_realm,
     create_kemetic_realm, create_dharmic_realm, create_celtic_realm,
     create_shinto_realm, create_chinese_realm, create_mesoamerican_realm,
-    create_mesopotamian_realm, create_scientific_realm, create_computation_realm,
-    create_all_realms, link_nexus_to_realm,
+    create_mesopotamian_realm, create_esoteric_realm, create_scientific_realm,
+    create_computation_realm, create_all_realms, link_nexus_to_realm,
 )
 
 __all__ = [
@@ -103,6 +103,7 @@ __all__ = [
     "create_chinese_realm",
     "create_mesoamerican_realm",
     "create_mesopotamian_realm",
+    "create_esoteric_realm",
     "create_scientific_realm",
     "create_computation_realm",
     "create_all_realms",
