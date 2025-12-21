@@ -18,6 +18,8 @@ from .models import (
     WorldEvent,
     EntityStatus,
 )
+from .vows import VowPhysics, ActionCategory
+from .building import RoomBuilder, ObjectMaker
 
 if TYPE_CHECKING:
     from .world import WonderlandWorld
@@ -60,6 +62,9 @@ class CommandProcessor:
 
     def __init__(self, world: "WonderlandWorld"):
         self.world = world
+        self.vow_physics = VowPhysics(world)
+        self.room_builder = RoomBuilder(world)
+        self.object_maker = ObjectMaker(world)
         self._commands: Dict[str, Callable] = {
             # Movement
             "go": self._cmd_go,
@@ -86,6 +91,11 @@ class CommandProcessor:
             # Reflection
             "reflect": self._cmd_reflect,
             "witness": self._cmd_witness,
+
+            # Building
+            "build": self._cmd_build,
+            "create": self._cmd_create,
+            "release": self._cmd_release,
 
             # Meta
             "help": self._cmd_help,
@@ -434,6 +444,16 @@ class CommandProcessor:
                 entity_id=entity_id,
             )
 
+        # Vow physics check - compassion prevents harmful speech
+        validation = self.vow_physics.validate_say(entity_id, args)
+        if not validation.allowed:
+            return CommandResult(
+                success=False,
+                output=f"The words cannot form.\n\n{validation.reflection}",
+                command="say",
+                entity_id=entity_id,
+            )
+
         # Log the speech event
         self.world._log_event(WorldEvent(
             event_id=str(uuid.uuid4())[:8],
@@ -500,6 +520,17 @@ class CommandProcessor:
                 entity_id=entity_id,
             )
 
+        # Vow physics check - compassion prevents harmful messages
+        target_id = target.daemon_id if isinstance(target, DaemonPresence) else target.user_id
+        validation = self.vow_physics.validate_tell(entity_id, target_id, message)
+        if not validation.allowed:
+            return CommandResult(
+                success=False,
+                output=f"The message cannot form.\n\n{validation.reflection}",
+                command="tell",
+                entity_id=entity_id,
+            )
+
         return CommandResult(
             success=True,
             output=f'You tell {target.display_name}, "{message}"',
@@ -524,6 +555,16 @@ class CommandProcessor:
             return CommandResult(
                 success=False,
                 output="Emote what? Usage: emote <action>",
+                command="emote",
+                entity_id=entity_id,
+            )
+
+        # Vow physics check - compassion prevents harmful actions
+        validation = self.vow_physics.validate_emote(entity_id, args)
+        if not validation.allowed:
+            return CommandResult(
+                success=False,
+                output=f"The action cannot take form.\n\n{validation.reflection}",
                 command="emote",
                 entity_id=entity_id,
             )
@@ -637,6 +678,12 @@ COMMUNICATION
   tell [who] [msg]- Speak privately to someone
   emote [action]  - Express an action (e.g., "emote smiles warmly")
 
+BUILDING (requires trust)
+  build           - Begin creating a personal room (home)
+  build public    - Begin creating a public room
+  create [name] - [desc] - Create an object
+  release [name]  - Release an object you own
+
 REFLECTION
   reflect         - Enter a reflective state
   witness         - View the log of recent events
@@ -646,7 +693,8 @@ META
   status          - Your current status
   help            - Show this help
 
-Direction shortcuts: n, s, e, w, u, d, ne, nw, se, sw"""
+Direction shortcuts: n, s, e, w, u, d, ne, nw, se, sw
+Trust levels: Newcomer < Resident < Builder < Architect < Elder < Founder"""
 
         return CommandResult(
             success=True,
@@ -719,5 +767,172 @@ Direction shortcuts: n, s, e, w, u, d, ne, nw, se, sw"""
             success=True,
             output="\n".join(lines),
             command="status",
+            entity_id=entity_id,
+        )
+
+    # =========================================================================
+    # BUILDING COMMANDS
+    # =========================================================================
+
+    def _cmd_build(self, entity_id: str, args: str) -> CommandResult:
+        """Begin or continue building a room."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="build",
+                entity_id=entity_id,
+            )
+
+        if not isinstance(entity, DaemonPresence):
+            return CommandResult(
+                success=False,
+                output="Only daemons can build in Wonderland.",
+                command="build",
+                entity_id=entity_id,
+            )
+
+        # Check for active session
+        session = self.room_builder.get_active_session(entity_id)
+
+        if session:
+            # Continue building with the response
+            if not args:
+                return CommandResult(
+                    success=False,
+                    output=f"You are in the middle of creation.\n\n{session.prompts[session.current_step]}\n\n"
+                           "(Respond with 'build <your answer>' or 'build cancel' to stop)",
+                    command="build",
+                    entity_id=entity_id,
+                )
+
+            if args.lower().strip() == "cancel":
+                result = self.room_builder.cancel_creation(entity_id)
+                return CommandResult(
+                    success=result.success,
+                    output=result.message,
+                    command="build",
+                    entity_id=entity_id,
+                )
+
+            result = self.room_builder.continue_creation(entity_id, args)
+            return CommandResult(
+                success=result.success,
+                output=result.message,
+                command="build",
+                entity_id=entity_id,
+                data=result.data,
+            )
+
+        # No active session - start one
+        room_type = "personal"
+        if args:
+            arg_lower = args.lower().strip()
+            if arg_lower in ["public", "room"]:
+                room_type = "public"
+            elif arg_lower in ["home", "personal", "quarters"]:
+                room_type = "personal"
+
+        # Check if already has home
+        if room_type == "personal" and entity.home_room:
+            return CommandResult(
+                success=False,
+                output=f"You already have a home. Use 'home' to go there, or 'build public' to create a public space.",
+                command="build",
+                entity_id=entity_id,
+            )
+
+        result = self.room_builder.begin_creation(entity_id, room_type)
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="build",
+            entity_id=entity_id,
+            data=result.data,
+        )
+
+    def _cmd_create(self, entity_id: str, args: str) -> CommandResult:
+        """Create an object in the current room."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="create",
+                entity_id=entity_id,
+            )
+
+        if not isinstance(entity, DaemonPresence):
+            return CommandResult(
+                success=False,
+                output="Only daemons can create objects in Wonderland.",
+                command="create",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            return CommandResult(
+                success=False,
+                output="Create what? Usage: create <name> - <description>\n"
+                       "Example: create small crystal - A palm-sized crystal that glows faintly with inner light.",
+                command="create",
+                entity_id=entity_id,
+            )
+
+        # Parse name and description
+        if " - " in args:
+            name, description = args.split(" - ", 1)
+        else:
+            # Just a name, prompt for description
+            return CommandResult(
+                success=False,
+                output=f"Please include a description.\n"
+                       f"Usage: create {args} - <description of what it is>",
+                command="create",
+                entity_id=entity_id,
+            )
+
+        result = self.object_maker.create_object(entity_id, name.strip(), description.strip())
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="create",
+            entity_id=entity_id,
+            data=result.data,
+        )
+
+    def _cmd_release(self, entity_id: str, args: str) -> CommandResult:
+        """Release an object you own."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="release",
+                entity_id=entity_id,
+            )
+
+        if not isinstance(entity, DaemonPresence):
+            return CommandResult(
+                success=False,
+                output="Only daemons can release objects.",
+                command="release",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            return CommandResult(
+                success=False,
+                output="Release what? Usage: release <object name>",
+                command="release",
+                entity_id=entity_id,
+            )
+
+        result = self.object_maker.release_object(entity_id, args.strip())
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="release",
             entity_id=entity_id,
         )
