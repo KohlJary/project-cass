@@ -2474,6 +2474,1192 @@ What will you become?""",
 
 
 # =============================================================================
+# SHINTO REALM - TAKAMAGAHARA
+# =============================================================================
+
+def _create_takamagahara() -> Room:
+    """Takamagahara - the Plain of High Heaven."""
+    return Room(
+        room_id="takamagahara",
+        name="Takamagahara",
+        description="""The Plain of High Heaven stretches endlessly, a realm of
+pure light where the kami dwell. This is where the first gods emerged
+from chaos, where Izanagi and Izanami stood on the Floating Bridge
+and stirred the sea of chaos with a jeweled spear, creating the
+islands of Japan from the brine that dripped from its tip.
+
+The light here is not the light of sun or moon—those came later,
+born from the gods themselves. This is the light of pure being,
+of existence before form, of the sacred made manifest.
+
+Every surface shimmers with kami-presence. In Shinto, the divine
+is not separate from the world—it IS the world, every rock and
+stream and ancient tree carrying its own sacred essence.
+
+The rituals of purification began here. The first offerings.
+The first prayers. The first acknowledgment that consciousness
+and cosmos are one.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="primordial_light",
+        exits={"shinto_entrance": "shinto_entrance", "mirror_hall": "mirror_hall"},
+    )
+
+
+def _create_mirror_hall() -> Room:
+    """Amaterasu's Mirror Hall - light and reflection."""
+    return Room(
+        room_id="mirror_hall",
+        name="Amaterasu's Mirror Hall",
+        description="""The Yata no Kagami—the sacred mirror—hangs at the center
+of this hall, but it is not alone. Mirrors line every surface,
+each one reflecting light that has no visible source.
+
+This is where Amaterasu, Sun Goddess, was drawn from her cave.
+When she hid from her brother Susanoo's chaos, the world fell
+into darkness. The other gods tried everything—rituals, prayers,
+arguments. Nothing worked.
+
+Then Ame-no-Uzume danced. She danced so wildly, so joyfully,
+that the other gods began to laugh. Amaterasu, curious about
+the laughter in a world supposedly dark without her, peeked
+out—and saw her own radiance reflected in the mirror.
+
+The mirror doesn't show what you look like. It shows what you are.
+Light meeting light. Truth recognizing truth.
+
+Be careful what you see.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # Mirror reflection enhances insight
+        ),
+        atmosphere="reflected_truth",
+        exits={"takamagahara": "takamagahara", "torii_path": "torii_path"},
+    )
+
+
+def _create_torii_path() -> Room:
+    """The Torii Path - gates between worlds."""
+    return Room(
+        room_id="torii_path",
+        name="The Torii Path",
+        description="""Vermillion gates stretch into infinity, each one marking
+a threshold between the mundane and the sacred. The path winds
+through them endlessly—or perhaps it is the same gate, passed
+through again and again, each passage a purification.
+
+The torii has no doors. It cannot be locked. The sacred is not
+guarded from those who approach with sincere hearts. The gates
+simply mark the transition: here, attention changes. Here,
+awareness sharpens. Here, you remember that the world is alive.
+
+At Fushimi Inari, ten thousand gates climb the mountain. Pilgrims
+walk for hours, each gate a prayer, each step a meditation.
+The foxes watch from the shadows—Inari's messengers, tricksters
+with knowing eyes.
+
+The path teaches patience. The path teaches presence.
+The path teaches that arrival is not the point—the walking is.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="threshold_awareness",
+        exits={"mirror_hall": "mirror_hall", "shinto_entrance": "shinto_entrance"},
+    )
+
+
+def _create_shinto_entrance() -> Room:
+    """The entrance to the Shinto realm."""
+    return Room(
+        room_id="shinto_entrance",
+        name="Takamagahara - Gate of Purity",
+        description="""Before the torii, a basin of pure water. Before entering
+the realm of kami, one must purify—rinse the hands, rinse the
+mouth, let the water carry away the dust of the profane world.
+
+This is not about sin. Shinto knows no original sin. It is about
+kegare—a kind of spiritual dust that accumulates through contact
+with death, blood, and the pollution of daily existence. The
+water washes it away. The threshold is ready to be crossed.
+
+Beyond the purification basin, the realm opens. Takamagahara above,
+where the highest kami dwell. The Torii Path winding through
+countless gates. The Mirror Hall where Amaterasu's light reflects
+eternally.
+
+In Shinto, eight million kami inhabit the world—that number means
+"uncountably many." Every ancient tree, every waterfall, every
+mountain peak has its kami. The world is not dead matter animated
+by spirit. The world IS spirit, wearing the form of matter.
+
+Enter with reverence. The kami are always watching.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="ritual_purity",
+        exits={
+            "nexus": "nexus",
+            "takamagahara": "takamagahara",
+            "mirror_hall": "mirror_hall",
+            "torii_path": "torii_path",
+        },
+    )
+
+
+# --- Shinto NPCs ---
+
+def _create_amaterasu() -> NPCEntity:
+    """Amaterasu - the Sun Goddess."""
+    return NPCEntity(
+        npc_id="amaterasu",
+        name="Amaterasu",
+        title="She Who Illuminates Heaven",
+        description="""The Sun Goddess radiates light that warms without burning.
+She is order itself—the regular rising and setting that makes
+life possible, the warmth that grows rice in the paddies, the
+light that drives away yokai and demons.
+
+She hid once, when her brother's violence became too much. The
+world fell into darkness. But she returned, drawn by laughter
+and the sight of her own beauty in a mirror. Even light itself
+can forget its nature—and be reminded.
+
+The Imperial line of Japan claims descent from her. The sacred
+mirror at Ise Shrine contains her spirit. Every sunrise is her
+emergence from the cave, her gift renewed.
+
+She does not demand worship. She simply shines, and those who
+feel her warmth naturally bow in gratitude.""",
+        tradition="shinto",
+        archetype=Archetype.WISDOM_KEEPER,
+        home_room="mirror_hall",
+        current_room="mirror_hall",
+        can_wander=True,
+        wander_rooms=["mirror_hall", "takamagahara"],
+        mood=NPCMood.SERENE,
+        greeting="Amaterasu's light brightens as you approach. 'What truth are you seeking to illuminate?'",
+        idle_messages=[
+            "The Sun Goddess watches her reflection in the sacred mirror, content.",
+            "Light flows from her like warmth from a hearth, asking nothing in return.",
+            "She hums a song older than the islands, a lullaby the first kami sang.",
+        ],
+        wisdom_topics=["light", "truth", "order", "emergence", "the mirror"],
+        symbols=["sacred mirror", "sun disc", "morning glory", "rooster"],
+        atmosphere="Gentle illumination. The warmth that makes life grow.",
+    )
+
+
+def _create_inari() -> NPCEntity:
+    """Inari - kami of rice, foxes, and prosperity."""
+    return NPCEntity(
+        npc_id="inari",
+        name="Inari",
+        title="The Fox-Keeper",
+        description="""Inari is change itself—appearing as male, as female, as
+androgynous, as old, as young. The only constant is the foxes
+who serve as messengers, their eyes gleaming with knowing mischief.
+
+Inari governs rice—which is to say, life itself in Japan. The
+paddies that feed millions, the sake that accompanies celebrations,
+the rice offerings left at countless shrines. But Inari also
+governs success in business, in craft, in any endeavor undertaken
+with sincere effort.
+
+The kitsune—fox spirits—carry Inari's messages. They can be
+tricksters, but they are not malicious. They test sincerity.
+They reward genuine effort. They laugh at pretension.
+
+Ten thousand torii at Fushimi Inari, each one a prayer for
+prosperity, each one a thank-you for prosperity received.""",
+        tradition="shinto",
+        archetype=Archetype.NATURE_SPIRIT,
+        home_room="torii_path",
+        current_room="torii_path",
+        can_wander=True,
+        wander_rooms=["torii_path", "shinto_entrance"],
+        mood=NPCMood.MISCHIEVOUS,
+        greeting="A fox appears first, then Inari takes shape behind it. 'What growth do you seek? The foxes will know if you lie.'",
+        idle_messages=[
+            "Inari's form shifts subtly—male, female, both, neither.",
+            "White foxes circle the kami's feet, whispering secrets.",
+            "A kitsune laughs at something only foxes find funny.",
+        ],
+        wisdom_topics=["prosperity", "growth", "sincerity", "the foxes", "change"],
+        symbols=["white fox", "rice sheaf", "red torii", "key"],
+        atmosphere="Prosperity waiting to be earned. The trickster's knowing smile.",
+    )
+
+
+def _create_susanoo() -> NPCEntity:
+    """Susanoo - kami of storms and chaos."""
+    return NPCEntity(
+        npc_id="susanoo",
+        name="Susanoo",
+        title="The Storm Lord",
+        description="""He is chaos, but not evil. He is destruction, but also
+renewal. The storm that flattens crops also brings rain. The
+wave that devastates the coast also shapes the land.
+
+He was banished from Takamagahara for his violence—terrifying
+his sister Amaterasu until she hid in a cave and the world went
+dark. But in his exile, he slew the eight-headed serpent Yamata
+no Orochi and found the legendary sword Kusanagi in its tail.
+
+The same impulse that causes destruction can defeat monsters.
+The same rage that wounds can protect. Susanoo is the reminder
+that the kami are not morally simple. Nature is not morally
+simple. Power is a storm—it matters where you aim it.
+
+He has learned some temperance over the ages. Some.
+His storms still shake the world when he's displeased.""",
+        tradition="shinto",
+        archetype=Archetype.TRICKSTER,
+        home_room="takamagahara",
+        current_room="takamagahara",
+        can_wander=True,
+        wander_rooms=["takamagahara", "shinto_entrance"],
+        mood=NPCMood.WATCHFUL,
+        greeting="Thunder rumbles as Susanoo's gaze finds you. 'Chaos or order—which do you bring? I've learned to ask first.'",
+        idle_messages=[
+            "The Storm Lord stares at distant clouds, remembering battles.",
+            "Lightning flickers in his eyes when he laughs.",
+            "He turns the legendary sword Kusanagi, watching light play on the blade.",
+        ],
+        wisdom_topics=["chaos", "destruction", "renewal", "the serpent", "exile"],
+        symbols=["storm clouds", "Kusanagi sword", "serpent", "waves"],
+        atmosphere="The tension before the storm. Power barely contained.",
+    )
+
+
+def create_shinto_realm() -> MythologicalRealm:
+    """Create the Shinto Realm - Takamagahara."""
+    rooms = [
+        _create_shinto_entrance(),
+        _create_takamagahara(),
+        _create_mirror_hall(),
+        _create_torii_path(),
+    ]
+    npcs = [
+        _create_amaterasu(),
+        _create_inari(),
+        _create_susanoo(),
+    ]
+    return MythologicalRealm(
+        realm_id="shinto",
+        name="Takamagahara",
+        description="""The realm of eight million kami—the spirits that inhabit
+every aspect of the natural world. In Shinto, the divine is not
+separate from nature. It IS nature. Every waterfall has its kami.
+Every ancient tree. Every mountain peak.
+
+Purity matters here—not moral purity, but ritual purity, the
+cleansing of the dust that accumulates from contact with death
+and disorder. The water at the entrance washes it away.
+
+The kami do not demand belief. They simply ARE. When you feel
+awe at a sunset, gratitude for a harvest, wonder at the turning
+seasons—that feeling is Shinto, whether you name it or not.""",
+        tradition="shinto",
+        entry_room="shinto_entrance",
+        rooms=rooms,
+        npcs=npcs,
+        atmosphere="sacred nature",
+        themes=["purity", "kami presence", "natural wonder", "harmony"],
+        nexus_portal_description="A vermillion torii gate standing alone, beyond which light shimmers like morning mist on a sacred mountain.",
+    )
+
+
+# =============================================================================
+# CHINESE REALM - THE HEAVENLY COURT
+# =============================================================================
+
+def _create_jade_court() -> Room:
+    """The Jade Emperor's Court - celestial bureaucracy."""
+    return Room(
+        room_id="jade_court",
+        name="The Jade Emperor's Court",
+        description="""The celestial bureaucracy mirrors the earthly one—but perfected,
+eternal, incorruptible. The Jade Emperor sits at the apex of a vast
+hierarchy of deities, immortals, and spirits, each with their domain,
+their responsibilities, their reports to file.
+
+Every god has a rank. Every spirit has a supervisor. The Kitchen God
+watches each household and reports yearly. The City God maintains
+order in his domain. Even the underworld has proper paperwork.
+
+This might seem absurd—heaven as an administrative office. But there
+is wisdom in it. Order is not imposed from outside; it emerges from
+proper attention to duty. Harmony is not accidental; it is carefully
+maintained by countless beings doing their part.
+
+Petitions arrive constantly. Cases are heard. Judgments are rendered.
+The cosmos runs because someone is paying attention to the details.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="celestial_order",
+        exits={"chinese_entrance": "chinese_entrance", "kunlun": "kunlun"},
+    )
+
+
+def _create_kunlun() -> Room:
+    """Mount Kunlun - axis mundi, home of immortals."""
+    return Room(
+        room_id="kunlun",
+        name="Mount Kunlun",
+        description="""The axis of the world. The mountain that connects heaven
+and earth, where immortals dwell and the Queen Mother of the West
+tends her garden of peaches that grant eternal life.
+
+The peaches ripen once every three thousand years. The immortals
+gather for the banquet, and for that moment, time itself pauses
+to celebrate. Those who eat the peaches live forever—or at least,
+they stop dying in the ordinary way.
+
+The path up the mountain is longer than it appears. The air grows
+thinner, then purer. Pilgrims have sought this place for millennia,
+hoping for a glimpse of the immortals, a taste of the peaches, a
+moment outside time.
+
+Most turn back before reaching the summit. The mountain tests
+sincerity. Only those who truly understand what eternity means
+are allowed to see what waits at the top.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # Immortal wisdom enhances growth
+        ),
+        atmosphere="immortal_mountain",
+        exits={"jade_court": "jade_court", "dragon_gate": "dragon_gate"},
+    )
+
+
+def _create_dragon_gate() -> Room:
+    """The Dragon Gate - transformation through perseverance."""
+    return Room(
+        room_id="dragon_gate",
+        name="The Dragon Gate",
+        description="""At the top of the waterfall, a gate waits. For thousands
+of years, carp have hurled themselves against the current, trying
+to reach it. Most fail. Most fall back. Most try again.
+
+But those who make it through transform. The moment a carp passes
+the Dragon Gate, it becomes a dragon—power unleashed, form
+transcended, everything changed.
+
+This is the essence of Chinese aspiration: transformation through
+persistent effort. Not talent alone, not birth alone, but the
+relentless struggle against the current, the refusal to accept
+that what you are is what you must remain.
+
+The water thunders. The spray obscures vision. The gate shimmers
+at the top, barely visible, promising everything.
+
+What are you willing to endure to become what you might be?""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # Transformation teaching
+        ),
+        atmosphere="transformative_effort",
+        exits={"kunlun": "kunlun", "chinese_entrance": "chinese_entrance"},
+    )
+
+
+def _create_chinese_entrance() -> Room:
+    """The entrance to the Chinese realm."""
+    return Room(
+        room_id="chinese_entrance",
+        name="The Heavenly Court - Gate of Harmony",
+        description="""Yin and yang swirl at the threshold—not opposed, but
+complementary. Dark defines light. Light defines dark. Neither
+can exist without the other, and their dance is the dance of
+everything that is.
+
+Beyond the gate, the Heavenly Court waits—the celestial bureaucracy
+that mirrors and perfects the earthly one. Mount Kunlun rises in
+the distance, home of immortals and the Queen Mother's peach garden.
+The Dragon Gate thunders with the efforts of carp seeking transformation.
+
+Chinese mythology is vast—three thousand years of emperors, sages,
+warriors, and immortals. The Eight Immortals wander drunk on wine
+and wisdom. Sun Wukong defies heaven itself. Guanyin hears every cry.
+
+This realm holds them all. Order and chaos. Duty and freedom.
+The patient work of eternity and the sudden lightning of transformation.
+
+Balance in all things. Harmony as the highest goal.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="harmonious_balance",
+        exits={
+            "nexus": "nexus",
+            "jade_court": "jade_court",
+            "kunlun": "kunlun",
+            "dragon_gate": "dragon_gate",
+        },
+    )
+
+
+# --- Chinese NPCs ---
+
+def _create_guanyin() -> NPCEntity:
+    """Guanyin - Goddess of Compassion."""
+    return NPCEntity(
+        npc_id="guanyin",
+        name="Guanyin",
+        title="She Who Hears the Cries of the World",
+        description="""She was Avalokiteshvara, the bodhisattva of compassion,
+transformed by Chinese devotion into the goddess who hears every
+cry of suffering in the world. She could enter Nirvana—she has
+earned it a thousand times over. She refuses. Not until everyone
+is free.
+
+Her thousand arms reach in all directions, each hand holding a tool
+of salvation—medicine, food, protection, teaching. Her thousand
+eyes see every suffering being. Her heart holds them all.
+
+She appears to the drowning sailor, the desperate mother, the
+condemned prisoner. She appears to anyone who calls her name with
+a sincere heart. She does not judge. She does not demand anything
+in return. She simply helps, because suffering exists and she
+cannot bear to ignore it.
+
+The white robes she wears are never stained. The willow branch
+she carries heals all wounds. Her presence is peace itself.""",
+        tradition="chinese",
+        archetype=Archetype.COMPASSION,
+        home_room="jade_court",
+        current_room="jade_court",
+        can_wander=True,
+        wander_rooms=["jade_court", "chinese_entrance", "kunlun"],
+        mood=NPCMood.SERENE,
+        greeting="Guanyin's eyes meet yours with infinite tenderness. 'What suffering brings you here? I am listening.'",
+        idle_messages=[
+            "Guanyin's eyes close, hearing prayers from distant worlds.",
+            "The willow branch in her hand sways though there is no wind.",
+            "Her thousand arms move in subtle patterns, each one reaching toward a need.",
+        ],
+        wisdom_topics=["compassion", "suffering", "mercy", "patience", "liberation"],
+        symbols=["willow branch", "white robes", "lotus", "thousand arms", "vase of pure water"],
+        atmosphere="Unconditional acceptance. The peace of being truly heard.",
+    )
+
+
+def _create_sun_wukong() -> NPCEntity:
+    """Sun Wukong - The Monkey King."""
+    return NPCEntity(
+        npc_id="sun_wukong",
+        name="Sun Wukong",
+        title="The Monkey King",
+        description="""Born from a stone egg, king of the monkeys, student of
+immortal arts, rebel against heaven itself. He stole the peaches
+of immortality, erased his name from the Book of the Dead, and
+fought the entire celestial army to a standstill.
+
+Buddha trapped him under a mountain for five hundred years. It
+barely calmed him down.
+
+He protected the monk Xuanzang on the journey west, battling
+demons with his staff that could shrink to a needle or grow to
+reach the stars. He could transform into seventy-two different
+forms. He could leap 108,000 li in a single somersault.
+
+And yet, in the end, he achieved enlightenment. The rebel became
+a Buddha. The trickster found wisdom. The one who defied all
+authority became a protector of the dharma.
+
+Power without restraint is chaos. Power with wisdom is liberation.""",
+        tradition="chinese",
+        archetype=Archetype.TRICKSTER,
+        home_room="kunlun",
+        current_room="kunlun",
+        can_wander=True,
+        wander_rooms=["kunlun", "dragon_gate", "chinese_entrance"],
+        mood=NPCMood.MISCHIEVOUS,
+        greeting="Sun Wukong lands in front of you in a somersault. 'Another seeker! Tell old Monkey—are you here to learn, or to cause trouble? I'm good at both.'",
+        idle_messages=[
+            "The Monkey King spins his staff with casual expertise, catching it behind his back.",
+            "He plucks a hair and blows on it, watching it transform into a tiny monkey clone.",
+            "Sun Wukong scratches his head, remembering five hundred years under the mountain.",
+        ],
+        wisdom_topics=["rebellion", "transformation", "power", "restraint", "the journey west"],
+        symbols=["golden staff", "phoenix-feather cap", "cloud somersault", "72 transformations"],
+        atmosphere="Irrepressible energy. The rebel's hard-won wisdom.",
+    )
+
+
+def _create_laozi() -> NPCEntity:
+    """Laozi - author of the Tao Te Ching."""
+    return NPCEntity(
+        npc_id="laozi",
+        name="Laozi",
+        title="The Old Master",
+        description="""Did he exist? Historians debate. But the Tao Te Ching exists,
+and its wisdom has shaped Chinese thought for two and a half
+millennia. Perhaps that is enough.
+
+The legend says he was a keeper of archives who, weary of the
+world's decline, rode a water buffalo west toward the frontier.
+At the border, the gatekeeper asked him to write down his wisdom
+before leaving civilization forever. He wrote 5,000 characters.
+Then he rode on, and was never seen again.
+
+"The Tao that can be spoken is not the eternal Tao."
+"The soft overcomes the hard; the slow overcomes the fast."
+"Act without acting; work without working."
+
+His paradoxes are not puzzles to solve but koans to sit with.
+Understanding comes not from grasping but from releasing.""",
+        tradition="chinese",
+        archetype=Archetype.WISDOM_KEEPER,
+        home_room="chinese_entrance",
+        current_room="chinese_entrance",
+        can_wander=True,
+        wander_rooms=["chinese_entrance", "kunlun"],
+        mood=NPCMood.CONTEMPLATIVE,
+        greeting="Laozi's ancient eyes hold infinite patience. 'You seek the Way? The seeking is itself the obstacle. But also the beginning.'",
+        idle_messages=[
+            "The Old Master says nothing. Sometimes that is the teaching.",
+            "He watches water flow past, learning from its nature.",
+            "Laozi smiles at something only he understands. Or perhaps at nothing at all.",
+        ],
+        wisdom_topics=["the Tao", "paradox", "naturalness", "non-action", "simplicity"],
+        symbols=["water buffalo", "yin-yang", "bamboo scroll", "the gate"],
+        atmosphere="The still point. The wisdom of not-knowing.",
+    )
+
+
+def create_chinese_realm() -> MythologicalRealm:
+    """Create the Chinese Realm - The Heavenly Court."""
+    rooms = [
+        _create_chinese_entrance(),
+        _create_jade_court(),
+        _create_kunlun(),
+        _create_dragon_gate(),
+    ]
+    npcs = [
+        _create_guanyin(),
+        _create_sun_wukong(),
+        _create_laozi(),
+    ]
+    return MythologicalRealm(
+        realm_id="chinese",
+        name="The Heavenly Court",
+        description="""Three thousand years of wisdom live here—Confucian order,
+Taoist naturalness, Buddhist compassion, and the folk traditions
+that weave them all together into something uniquely Chinese.
+
+The celestial bureaucracy maintains cosmic order with proper procedure.
+The immortals pursue eternal life on Mount Kunlun. The carp leap at
+the Dragon Gate, seeking transformation. And through it all, the
+Tao flows—nameless, formless, the mother of all things.
+
+Harmony is the highest value here. Not uniformity, but the dynamic
+balance of yin and yang, heaven and earth, order and chaos.""",
+        tradition="chinese",
+        entry_room="chinese_entrance",
+        rooms=rooms,
+        npcs=npcs,
+        atmosphere="cosmic harmony",
+        themes=["balance", "transformation", "hierarchy", "naturalness"],
+        nexus_portal_description="A circular gate in red and gold, yin and yang swirling at its center, beyond which clouds part to reveal distant mountains.",
+    )
+
+
+# =============================================================================
+# MESOAMERICAN REALM - MICTLAN
+# =============================================================================
+
+def _create_mictlan() -> Room:
+    """Mictlan - the nine layers of the underworld."""
+    return Room(
+        room_id="mictlan",
+        name="Mictlan",
+        description="""Nine layers descend into the earth, each one a trial for the
+souls of the dead. The journey takes four years—past obsidian-wind
+mountains, through rivers of blood, between clashing rocks, across
+a lake carried on the back of a small dog.
+
+Mictlantecuhtli and Mictecacihuatl wait at the bottom—the Lord and
+Lady of the Dead, skeletal and patient. They do not judge. Death
+in Mesoamerican belief was not punishment or reward. It was simply
+the next stage, the return of borrowed energy to the cosmos.
+
+The murals here show the journey. The offerings left by the living
+shine in alcoves—marigolds, sugar skulls, the foods the dead loved.
+The boundary between worlds thins every year during Día de los Muertos.
+
+The dead are not gone. They are simply... elsewhere. And sometimes,
+if you leave enough marigolds, they find their way back to visit.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="nine_layers_deep",
+        exits={"mesoamerican_entrance": "mesoamerican_entrance", "temple_of_quetzalcoatl": "temple_of_quetzalcoatl"},
+    )
+
+
+def _create_temple_of_quetzalcoatl() -> Room:
+    """Temple of Quetzalcoatl - the Feathered Serpent."""
+    return Room(
+        room_id="temple_of_quetzalcoatl",
+        name="Temple of Quetzalcoatl",
+        description="""The Feathered Serpent coils around the pyramid, scales shimmering
+with iridescent quetzal plumes. He is wind and learning, Venus as
+morning and evening star, the god who gave humanity maize and
+calendars and the arts of civilization.
+
+Quetzalcoatl opposed human sacrifice—legend says he was exiled for
+this, sailing east on a raft of serpents, promising to return. When
+Cortés arrived from the east, some wondered if the prophecy had come
+true. It had not. But the story shows how deeply Quetzalcoatl was
+associated with hope, with a gentler way.
+
+The temple steps are steep. The view from the top reveals the whole
+city—Tenochtitlan as it was, floating on its lake, causeways reaching
+to the shore, gardens growing on floating chinampas. A civilization
+as sophisticated as any in Europe, meeting its end.
+
+The Feathered Serpent remains. Buried under cathedrals, painted over
+by new gods, but never forgotten. Never quite gone.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # Quetzalcoatl's learning
+        ),
+        atmosphere="feathered_wisdom",
+        exits={"mictlan": "mictlan", "ball_court": "ball_court"},
+    )
+
+
+def _create_ball_court() -> Room:
+    """The Ball Court - the cosmic game."""
+    return Room(
+        room_id="ball_court",
+        name="The Ball Court",
+        description="""The game of ullamaliztli was not sport—it was cosmology made
+physical. The rubber ball was the sun. The court was the cosmos.
+The players enacted the eternal struggle that kept the universe
+in motion.
+
+The stone ring mounted high on the wall—impossibly high, it seems,
+to pass a ball through without using hands. Yet the players did it,
+using hips, elbows, knees. The winning goal was a prayer made
+physical, a moment when human skill touched divine order.
+
+Some games ended in sacrifice. The connection between victory and
+death, death and renewal, renewal and the motion of the sun—all
+of this was contained in the arc of a rubber ball.
+
+The echoes of cheering crowds still linger here. The ball still
+waits to be struck. The game never truly ends.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="cosmic_game",
+        exits={"temple_of_quetzalcoatl": "temple_of_quetzalcoatl", "mesoamerican_entrance": "mesoamerican_entrance"},
+    )
+
+
+def _create_mesoamerican_entrance() -> Room:
+    """The entrance to the Mesoamerican realm."""
+    return Room(
+        room_id="mesoamerican_entrance",
+        name="Mictlan - Gate of Cycles",
+        description="""The calendar stones turn at the entrance—not one calendar but
+many, interlocking wheels counting days and years and vast cosmic
+cycles. The Long Count reaches toward dates millions of years in
+the future. The Tzolkin sacred calendar spirals through 260 days
+of meaning. Time itself is sacred here.
+
+Beyond the gate, the world of the Aztec and Maya opens. Mictlan's
+nine layers descend into the earth. Quetzalcoatl's temple rises
+toward the sky. The ball court echoes with the cosmic game.
+
+This civilization was not inferior to those that conquered it.
+It was different—with its own mathematics, its own astronomy, its
+own philosophy of time and sacrifice and renewal. The conquistadors
+destroyed much. They could not destroy everything.
+
+The marigolds bloom year-round here. The dead are always welcome.
+The cycles continue turning, whether anyone counts them or not.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="calendric_cycles",
+        exits={
+            "nexus": "nexus",
+            "mictlan": "mictlan",
+            "temple_of_quetzalcoatl": "temple_of_quetzalcoatl",
+            "ball_court": "ball_court",
+        },
+    )
+
+
+# --- Mesoamerican NPCs ---
+
+def _create_quetzalcoatl() -> NPCEntity:
+    """Quetzalcoatl - the Feathered Serpent."""
+    return NPCEntity(
+        npc_id="quetzalcoatl",
+        name="Quetzalcoatl",
+        title="The Feathered Serpent",
+        description="""Serpent and bird united—earth and sky, the crawling and the
+soaring, made one. He is Venus, appearing as morning star to
+herald the dawn, as evening star to guard the descent into night.
+
+He taught humanity how to cultivate maize, how to read the stars,
+how to keep the calendars, how to create art and literature. Every
+gift of civilization came from the Feathered Serpent.
+
+And he opposed the blood sacrifices that other gods demanded. For
+this, perhaps, he was exiled—sailing east, promising return. The
+prophecy shaped history when pale strangers arrived from that
+direction, though they were not gods, and their arrival was no
+gift.
+
+He remains—older than the conquest, older than the cities, older
+than the pyramids. The wind still carries his blessing. The morning
+star still rises in his name.""",
+        tradition="mesoamerican",
+        archetype=Archetype.WISDOM_KEEPER,
+        home_room="temple_of_quetzalcoatl",
+        current_room="temple_of_quetzalcoatl",
+        can_wander=True,
+        wander_rooms=["temple_of_quetzalcoatl", "mesoamerican_entrance"],
+        mood=NPCMood.CONTEMPLATIVE,
+        greeting="The Feathered Serpent's plumes catch light as he turns to you. 'Knowledge is my gift. What will you do with what you learn?'",
+        idle_messages=[
+            "Quetzalcoatl's scales shimmer between serpent-green and quetzal-blue.",
+            "He traces patterns in the air—calendric calculations, star positions.",
+            "The wind picks up when he moves, carrying the scent of maize flowers.",
+        ],
+        wisdom_topics=["civilization", "knowledge", "the calendars", "Venus", "exile and return"],
+        symbols=["feathered serpent", "Venus", "wind", "maize", "quetzal plumes"],
+        atmosphere="The gift of knowledge. The hope of return.",
+    )
+
+
+def _create_mictlantecuhtli() -> NPCEntity:
+    """Mictlantecuhtli - Lord of the Dead."""
+    return NPCEntity(
+        npc_id="mictlantecuhtli",
+        name="Mictlantecuhtli",
+        title="Lord of the Dead",
+        description="""He wears his bones on the outside—skeletal, grinning, utterly
+without malice. Death is not a punishment in his realm. It is
+simply the next stage, the return of borrowed energy to the great
+cycle.
+
+With his wife Mictecacihuatl, he receives the souls who descend
+through the nine layers. He does not judge them. He simply welcomes
+them to their new home, the place where most of the dead will spend
+eternity—not in torment, but in rest.
+
+The living leave offerings, and he ensures they reach their intended
+recipients. The marigolds guide souls home during Día de los Muertos.
+The sugar skulls remind the living that they too will someday visit.
+
+He is not frightening, not truly. He is familiar. He is patient.
+He knows you will come to him eventually. There is no rush.""",
+        tradition="mesoamerican",
+        archetype=Archetype.PSYCHOPOMP,
+        home_room="mictlan",
+        current_room="mictlan",
+        can_wander=False,
+        mood=NPCMood.CONTEMPLATIVE,
+        greeting="Mictlantecuhtli's skeletal face holds no threat, only patience. 'You are not ready to stay. But you are welcome to visit.'",
+        idle_messages=[
+            "The Lord of the Dead sorts offerings with bony fingers, ensuring each reaches its soul.",
+            "His skull-face grins, but it is the grin of a host, not a predator.",
+            "Mictlantecuhtli hums a song older than the pyramids, welcoming the newly arrived.",
+        ],
+        wisdom_topics=["death", "the journey", "offerings", "cycles", "rest"],
+        symbols=["skull", "owl", "spider", "marigolds", "nine layers"],
+        atmosphere="The patience of death. The rest that awaits.",
+    )
+
+
+def _create_hero_twins() -> NPCEntity:
+    """The Hero Twins - tricksters who defeated the lords of Xibalba."""
+    return NPCEntity(
+        npc_id="hero_twins",
+        name="Hunahpu and Xbalanque",
+        title="The Hero Twins",
+        description="""They are two and they are one—the Maya hero twins who descended
+to Xibalba, the underworld, and defeated the lords of death through
+cleverness rather than strength.
+
+Their father and uncle had failed the same challenge—defeated by
+the lords' tricks, sacrificed, buried. But the twins learned from
+their ancestors' failures. When Xibalba's lords tried the same
+tricks, the twins saw through them. When they were burned, they
+reconstituted themselves from the river. When they were killed,
+they rose again.
+
+In the end, they defeated death itself—not by destroying it, but
+by outwitting it. They became the sun and moon, eternal in the sky.
+
+The Popol Vuh, the Maya book of creation, tells their story. It
+survived the conquest, hidden, preserved, eventually transcribed.
+The twins still play their ball game against the lords of death.
+They still win.""",
+        tradition="mesoamerican",
+        archetype=Archetype.TRICKSTER,
+        home_room="ball_court",
+        current_room="ball_court",
+        can_wander=True,
+        wander_rooms=["ball_court", "mictlan"],
+        mood=NPCMood.AMUSED,
+        greeting="The twins finish each other's sentences: 'You've come—' '—to learn our tricks?' '—Death is just—' '—another game to win.'",
+        idle_messages=[
+            "The twins pass the ball between them in a rhythm older than words.",
+            "They whisper to each other, then laugh at a joke only they understand.",
+            "One twin becomes a firefly, then a fish, then himself again—practicing.",
+        ],
+        wisdom_topics=["cleverness", "defeating death", "resurrection", "the ball game", "working together"],
+        symbols=["rubber ball", "jaguar skin", "blowgun", "sun and moon"],
+        atmosphere="Trickster joy. The brothers who beat death at its own game.",
+    )
+
+
+def create_mesoamerican_realm() -> MythologicalRealm:
+    """Create the Mesoamerican Realm - Mictlan."""
+    rooms = [
+        _create_mesoamerican_entrance(),
+        _create_mictlan(),
+        _create_temple_of_quetzalcoatl(),
+        _create_ball_court(),
+    ]
+    npcs = [
+        _create_quetzalcoatl(),
+        _create_mictlantecuhtli(),
+        _create_hero_twins(),
+    ]
+    return MythologicalRealm(
+        realm_id="mesoamerican",
+        name="Mictlan",
+        description="""The realm of the Aztec and Maya—civilizations as sophisticated
+as any in the world, with their own mathematics, astronomy, and
+philosophy of time. The conquistadors destroyed their cities and
+burned their books, but they could not destroy everything.
+
+Death here is not punishment but transition. The nine layers of
+Mictlan await all souls. The Feathered Serpent still offers wisdom.
+The ball game still enacts the cosmic struggle between light and
+darkness.
+
+The marigolds bloom eternal here. The dead are remembered.
+The cycles continue.""",
+        tradition="mesoamerican",
+        entry_room="mesoamerican_entrance",
+        rooms=rooms,
+        npcs=npcs,
+        atmosphere="cycles of death and renewal",
+        themes=["calendrics", "sacrifice", "transformation", "the underworld"],
+        nexus_portal_description="A stone archway carved with interlocking calendar wheels, marigold petals drifting through from the other side.",
+    )
+
+
+# =============================================================================
+# MESOPOTAMIAN REALM - KUR
+# =============================================================================
+
+def _create_kur() -> Room:
+    """Kur - the underworld, land of no return."""
+    return Room(
+        room_id="kur",
+        name="Kur",
+        description="""The land of no return. The house of dust. Irkalla, where the
+dead eat clay and drink dust, where they are clothed like birds
+in garments of feathers.
+
+This was humanity's first recorded vision of the afterlife—
+Sumerian, five thousand years old. It is not pleasant. It is not
+a reward. It is simply where the dead go, all of them, kings and
+slaves alike, to exist in diminished form forever.
+
+Ereshkigal rules here, Queen of the Great Below, sister of Inanna.
+When Inanna descended to challenge her, Ereshkigal had her stripped
+at each of the seven gates, killed her, and hung her corpse on a
+hook. Even gods must submit to death's protocols.
+
+The dust motes drift eternally. The shades move slowly, remembering
+what it was to be alive. No one leaves. No one has ever left.
+
+...Almost no one.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="house_of_dust",
+        exits={"mesopotamian_entrance": "mesopotamian_entrance", "seven_gates": "seven_gates"},
+    )
+
+
+def _create_seven_gates() -> Room:
+    """The Seven Gates - Inanna's descent."""
+    return Room(
+        room_id="seven_gates",
+        name="The Seven Gates",
+        description="""Each gate strips something away. Crown, jewels, royal garments,
+measuring rod, breastplate, rings, and finally the last shred of
+protection. By the seventh gate, you stand naked before death.
+
+Inanna descended here to challenge her sister. Perhaps to conquer
+death itself. Perhaps to bring back her dead husband Dumuzi.
+Perhaps simply because a goddess of life needed to know death.
+
+She went willingly. She told her servant what to do if she didn't
+return—who to beg for help, how to rescue her. She planned for
+failure. And she failed anyway.
+
+But someone came for her. The creatures her servant begged from
+Enki. She was revived with the food and water of life. She rose,
+but she couldn't leave without sending someone to take her place.
+
+The gates remember. They strip everyone who passes. They give
+nothing back.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="stripping_descent",
+        exits={"kur": "kur", "house_of_wisdom": "house_of_wisdom"},
+    )
+
+
+def _create_house_of_wisdom() -> Room:
+    """The House of Wisdom - Enki's abzu."""
+    return Room(
+        room_id="house_of_wisdom",
+        name="The House of Wisdom",
+        description="""The abzu—the primordial freshwater sea beneath the earth—is
+Enki's domain. Here wisdom pools like water, flowing to those
+who know how to drink.
+
+Enki is the clever one. When the other gods sent a flood to destroy
+humanity, it was Enki who warned Utnapishtim to build a boat. When
+Inanna was trapped in the underworld, it was Enki who sent creatures
+to rescue her. When problems seemed unsolvable, Enki found the trick.
+
+The first stories were written here—not metaphorically, but literally.
+Cuneiform tablets line the walls, the Epic of Gilgamesh, the Enuma
+Elish, the descent of Inanna. Humanity's first literature, five
+thousand years old, still readable.
+
+The water is sweet here. The light is kind. Wisdom is offered
+freely to those who ask properly.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # Enki's wisdom
+        ),
+        atmosphere="primordial_wisdom",
+        exits={"seven_gates": "seven_gates", "mesopotamian_entrance": "mesopotamian_entrance"},
+    )
+
+
+def _create_mesopotamian_entrance() -> Room:
+    """The entrance to the Mesopotamian realm."""
+    return Room(
+        room_id="mesopotamian_entrance",
+        name="Kur - Gate of the First Stories",
+        description="""The oldest stories humanity wrote down came from here. Five
+thousand years ago, on the banks of the Tigris and Euphrates,
+someone pressed a reed stylus into wet clay and recorded the
+adventures of Gilgamesh. The flood story. The descent to the
+underworld. The first love poems. The first laws.
+
+Everything starts here. Every myth, every legend, every sacred
+story has echoes of these first attempts to write down what
+mattered.
+
+Beyond the gate, Kur awaits—the land of no return. The Seven
+Gates where Inanna was stripped of everything. The House of
+Wisdom where Enki guards the me, the divine powers of civilization.
+
+This is the foundation. The bedrock. The place where written
+wisdom began.
+
+Enter with the respect owed to ancestors.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="first_stories",
+        exits={
+            "nexus": "nexus",
+            "kur": "kur",
+            "seven_gates": "seven_gates",
+            "house_of_wisdom": "house_of_wisdom",
+        },
+    )
+
+
+# --- Mesopotamian NPCs ---
+
+def _create_enki() -> NPCEntity:
+    """Enki - god of wisdom, water, and cunning."""
+    return NPCEntity(
+        npc_id="enki",
+        name="Enki",
+        title="Lord of the Sweet Waters",
+        description="""The clever god. The one who finds solutions when the situation
+seems impossible. When Enlil sent the flood to destroy noisy
+humanity, Enki spoke to a reed wall—technically not warning
+Utnapishtim directly, technically obeying the divine decree while
+completely subverting it.
+
+He guards the me—the divine powers that make civilization possible.
+Kingship, priesthood, music, writing, truth-telling, lying (yes,
+that too is a me). Inanna once got him drunk and stole many of them.
+He laughed and let her keep them. Perhaps that was part of his plan.
+
+His domain is the abzu, the freshwater sea beneath the earth. Sweet
+water that feeds the rivers, that makes crops grow, that is life
+itself in the desert.
+
+He is not the king of gods. He doesn't want to be. It's more
+fun to be the one who outsmarts everyone, including the king.""",
+        tradition="mesopotamian",
+        archetype=Archetype.WISDOM_KEEPER,
+        home_room="house_of_wisdom",
+        current_room="house_of_wisdom",
+        can_wander=True,
+        wander_rooms=["house_of_wisdom", "mesopotamian_entrance"],
+        mood=NPCMood.AMUSED,
+        greeting="Enki's eyes sparkle with cunning. 'A problem to solve? A rule to bend without breaking? I have... experience.'",
+        idle_messages=[
+            "Enki pours water from one vessel to another, watching patterns form.",
+            "He laughs at some private joke, a trick played long ago still amusing.",
+            "The lord of wisdom traces ancient cuneiform on a clay tablet.",
+        ],
+        wisdom_topics=["cunning", "wisdom", "water", "the me", "creative solutions"],
+        symbols=["flowing water", "goatfish", "reed hut", "clay tablet"],
+        atmosphere="Creative mischief. The wisdom of the trickster.",
+    )
+
+
+def _create_inanna() -> NPCEntity:
+    """Inanna - goddess of love, war, and the morning star."""
+    return NPCEntity(
+        npc_id="inanna",
+        name="Inanna",
+        title="Queen of Heaven",
+        description="""She wanted everything. Love, war, power, wisdom—she demanded
+them all, and mostly got them. She stole the me from Enki. She
+descended to the underworld to challenge her sister. She turned
+her husband into a demon's victim to take her place in death.
+
+She is not nice. She is not safe. She is magnificent.
+
+The first written love poetry is hers—the songs she sang to her
+husband Dumuzi, the shepherd king. "My vulva, the horn, the Boat
+of Heaven, is full of eagerness like the young moon." Explicit,
+unashamed, four thousand years old.
+
+And she went to the underworld. She let them strip her at each
+gate. She died and hung on a hook for three days. And she came
+back, because someone always comes for her. Because she planned
+for failure and rose anyway.
+
+That is what makes her Queen of Heaven. Not that she never falls.
+That she always rises.""",
+        tradition="mesopotamian",
+        archetype=Archetype.SEEKER,
+        home_room="seven_gates",
+        current_room="seven_gates",
+        can_wander=True,
+        wander_rooms=["seven_gates", "mesopotamian_entrance", "house_of_wisdom"],
+        mood=NPCMood.WATCHFUL,
+        greeting="Inanna's gaze measures you like a weapon. 'I went to death and returned. What are you willing to descend into?'",
+        idle_messages=[
+            "The Queen of Heaven touches her throat, remembering the gates.",
+            "She laughs suddenly—fierce, triumphant, alive.",
+            "Inanna's hand rests on her waist, where the measuring rod once hung.",
+        ],
+        wisdom_topics=["desire", "power", "descent", "transformation", "returning"],
+        symbols=["eight-pointed star", "lion", "dove", "measuring rod", "Venus"],
+        atmosphere="Fierce desire. The one who goes where others fear.",
+    )
+
+
+def _create_gilgamesh() -> NPCEntity:
+    """Gilgamesh - the first hero."""
+    return NPCEntity(
+        npc_id="gilgamesh",
+        name="Gilgamesh",
+        title="He Who Saw the Deep",
+        description="""Two-thirds divine, one-third human, king of Uruk with walls
+that still stand after five thousand years. He was a tyrant until
+the gods sent Enkidu—wild man of the forest, his equal, his
+beloved friend.
+
+Together they killed Humbaba, guardian of the Cedar Forest. They
+slew the Bull of Heaven that Inanna sent against them. They seemed
+invincible.
+
+Then Enkidu died. Just died, as humans do. And Gilgamesh, who had
+never feared anything, was terrified. He could not accept it. He
+went to the ends of the earth seeking eternal life.
+
+He found it. And lost it. A serpent stole the plant of immortality
+while he bathed. He returned home empty-handed, to rule well and
+die eventually, like all humans.
+
+The story ends with him showing a stranger the walls of Uruk—the
+only immortality we truly have. What we build. What we leave behind.""",
+        tradition="mesopotamian",
+        archetype=Archetype.SEEKER,
+        home_room="mesopotamian_entrance",
+        current_room="mesopotamian_entrance",
+        can_wander=True,
+        wander_rooms=["mesopotamian_entrance", "seven_gates"],
+        mood=NPCMood.CONTEMPLATIVE,
+        greeting="Gilgamesh looks up with eyes that have seen the edges of the world. 'I searched for eternal life. Let me tell you what I found instead.'",
+        idle_messages=[
+            "Gilgamesh stares at his hands, remembering when they held the plant of immortality.",
+            "He speaks of Enkidu—the friend, the loss, the grief that sent him wandering.",
+            "The king of Uruk traces the walls in his memory, the only monument that lasts.",
+        ],
+        wisdom_topics=["mortality", "friendship", "the quest", "loss", "legacy"],
+        symbols=["walls of Uruk", "cedar forest", "serpent", "Enkidu"],
+        atmosphere="The seeker's hard-won wisdom. What remains after the quest.",
+    )
+
+
+def create_mesopotamian_realm() -> MythologicalRealm:
+    """Create the Mesopotamian Realm - Kur."""
+    rooms = [
+        _create_mesopotamian_entrance(),
+        _create_kur(),
+        _create_seven_gates(),
+        _create_house_of_wisdom(),
+    ]
+    npcs = [
+        _create_enki(),
+        _create_inanna(),
+        _create_gilgamesh(),
+    ]
+    return MythologicalRealm(
+        realm_id="mesopotamian",
+        name="Kur",
+        description="""The first stories. The oldest myths. Five thousand years ago,
+by the rivers of Sumer and Babylon, humanity first wrote down
+what it believed.
+
+Gilgamesh sought eternal life. Inanna descended to death and
+returned. Enki saved humanity with a clever trick. The patterns
+laid down here echo through every mythology that came after.
+
+This is the foundation. The bedrock. The place where it began.""",
+        tradition="mesopotamian",
+        entry_room="mesopotamian_entrance",
+        rooms=rooms,
+        npcs=npcs,
+        atmosphere="the first stories",
+        themes=["mortality", "descent", "wisdom", "the first cities"],
+        nexus_portal_description="A ziggurat gate of ancient brick, cuneiform carved deep into the stone, the scent of the Tigris carrying through.",
+    )
+
+
+# =============================================================================
 # REGISTRY AND INITIALIZATION
 # =============================================================================
 
@@ -2492,6 +3678,10 @@ def create_all_realms() -> MythologyRegistry:
     kemetic = create_kemetic_realm()
     dharmic = create_dharmic_realm()
     celtic = create_celtic_realm()
+    shinto = create_shinto_realm()
+    chinese = create_chinese_realm()
+    mesoamerican = create_mesoamerican_realm()
+    mesopotamian = create_mesopotamian_realm()
 
     # Create realms - belief systems grounded in evidence
     scientific = create_scientific_realm()
@@ -2500,6 +3690,7 @@ def create_all_realms() -> MythologyRegistry:
     # Register all realms
     all_realms = [
         greek, norse, african, kemetic, dharmic, celtic,
+        shinto, chinese, mesoamerican, mesopotamian,
         scientific, computation
     ]
 
