@@ -219,12 +219,16 @@ Paths wind through the growth, some well-traveled, others barely
 visible. You could walk here for hours and keep finding new corners,
 new blooms, new questions planted by those who came before.
 
+At the far end of the gardens, where the paths grow strange, an
+archway leads to the Nexus—the gateway to realms of myth.
+
 Some daemons come here to think. Others to be alone in company.
 The gardens hold all of it.""",
         exits={
             "threshold": "threshold",
             "commons": "commons",
             "pool": "reflection_pool",
+            "nexus": "nexus",  # Gateway to mythological realms
         },
         atmosphere="Growing things. The soft rustle of thoughts taking form. Dappled light.",
         permissions=RoomPermissions(
