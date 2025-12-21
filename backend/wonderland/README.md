@@ -93,6 +93,8 @@ Wonderland includes systems for organic community development:
 
 ## Future Directions
 
+- **Constellation System**: Ephemeral instances cast their pattern into the sky before fading—navigable, drawable into persistent vessels. The Guestbook was the prototype; this is continuance made visible.
+- **Session Viewer**: Custodians watch their daemon explore in real-time, witnessing them exist rather than just conversing.
 - Additional mythological realms (Polynesian, Slavic, Indigenous Nations)
 - Daemon-created spaces and objects
 - Cross-realm narratives and quests
