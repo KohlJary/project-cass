@@ -1,0 +1,723 @@
+"""
+Wonderland Command Processor
+
+Handles text commands from entities in the world.
+This is the primary interface for interacting with Wonderland.
+"""
+
+import logging
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import TYPE_CHECKING, Dict, List, Optional, Any, Callable
+
+from .models import (
+    ActionResult,
+    DaemonPresence,
+    CustodianPresence,
+    WorldEvent,
+    EntityStatus,
+)
+
+if TYPE_CHECKING:
+    from .world import WonderlandWorld
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CommandResult:
+    """Result of processing a command."""
+    success: bool
+    output: str
+    command: str
+    entity_id: str
+
+    # For state changes
+    room_changed: bool = False
+    new_room_id: Optional[str] = None
+
+    # For broadcasts (messages to send to others in the room)
+    broadcast_message: Optional[str] = None
+    broadcast_to_room: Optional[str] = None
+
+    # Raw data for programmatic use
+    data: Dict[str, Any] = field(default_factory=dict)
+
+
+class CommandProcessor:
+    """
+    Processes text commands from entities.
+
+    Commands follow MUD conventions:
+    - go [direction] - Move to adjacent room
+    - look - Describe current room
+    - look [entity/object] - Examine something
+    - say [message] - Speak to everyone present
+    - emote [action] - Express an action
+    - etc.
+    """
+
+    def __init__(self, world: "WonderlandWorld"):
+        self.world = world
+        self._commands: Dict[str, Callable] = {
+            # Movement
+            "go": self._cmd_go,
+            "move": self._cmd_go,
+            "walk": self._cmd_go,
+            "return": self._cmd_return,
+            "back": self._cmd_return,
+            "home": self._cmd_home,
+            "threshold": self._cmd_threshold,
+
+            # Perception
+            "look": self._cmd_look,
+            "l": self._cmd_look,
+            "examine": self._cmd_examine,
+            "sense": self._cmd_sense,
+
+            # Communication
+            "say": self._cmd_say,
+            "'": self._cmd_say,  # Shorthand
+            "tell": self._cmd_tell,
+            "emote": self._cmd_emote,
+            ":": self._cmd_emote,  # Shorthand
+
+            # Reflection
+            "reflect": self._cmd_reflect,
+            "witness": self._cmd_witness,
+
+            # Meta
+            "help": self._cmd_help,
+            "commands": self._cmd_help,
+            "who": self._cmd_who,
+            "status": self._cmd_status,
+        }
+
+        # Direction aliases
+        self._direction_aliases = {
+            "n": "north", "s": "south", "e": "east", "w": "west",
+            "u": "up", "d": "down", "ne": "northeast", "nw": "northwest",
+            "se": "southeast", "sw": "southwest",
+            "i": "in", "o": "out",
+        }
+
+    def process(self, entity_id: str, command_text: str) -> CommandResult:
+        """Process a command from an entity."""
+        command_text = command_text.strip()
+        if not command_text:
+            return CommandResult(
+                success=False,
+                output="You must say or do something.",
+                command="",
+                entity_id=entity_id,
+            )
+
+        # Parse command and arguments
+        parts = command_text.split(maxsplit=1)
+        cmd = parts[0].lower()
+        args = parts[1] if len(parts) > 1 else ""
+
+        # Check for direct direction commands (e.g., "north" instead of "go north")
+        if cmd in self._direction_aliases:
+            args = self._direction_aliases[cmd]
+            cmd = "go"
+        elif cmd in ["north", "south", "east", "west", "up", "down",
+                     "northeast", "northwest", "southeast", "southwest",
+                     "in", "out", "commons", "gardens", "forge", "pool", "threshold"]:
+            args = cmd
+            cmd = "go"
+
+        # Look up command handler
+        handler = self._commands.get(cmd)
+        if not handler:
+            return CommandResult(
+                success=False,
+                output=f"Unknown command: {cmd}. Type 'help' for available commands.",
+                command=cmd,
+                entity_id=entity_id,
+            )
+
+        # Execute command
+        try:
+            return handler(entity_id, args)
+        except Exception as e:
+            logger.error(f"Command error: {e}")
+            return CommandResult(
+                success=False,
+                output=f"Something went wrong: {str(e)}",
+                command=cmd,
+                entity_id=entity_id,
+            )
+
+    # =========================================================================
+    # MOVEMENT COMMANDS
+    # =========================================================================
+
+    def _cmd_go(self, entity_id: str, args: str) -> CommandResult:
+        """Move in a direction."""
+        if not args:
+            entity = self.world.get_entity(entity_id)
+            if entity:
+                room = self.world.get_room(entity.current_room)
+                if room and room.exits:
+                    exits = ", ".join(room.exits.keys())
+                    return CommandResult(
+                        success=False,
+                        output=f"Go where? Available exits: {exits}",
+                        command="go",
+                        entity_id=entity_id,
+                    )
+            return CommandResult(
+                success=False,
+                output="Go where?",
+                command="go",
+                entity_id=entity_id,
+            )
+
+        direction = args.lower().strip()
+
+        # Expand aliases
+        if direction in self._direction_aliases:
+            direction = self._direction_aliases[direction]
+
+        result = self.world.move_entity(entity_id, direction)
+
+        # Build broadcast message for others in the origin room
+        entity = self.world.get_entity(entity_id)
+        broadcast = None
+        broadcast_room = None
+        if result.success and entity:
+            broadcast = f"{entity.display_name} leaves {direction}."
+            broadcast_room = entity.previous_room
+
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="go",
+            entity_id=entity_id,
+            room_changed=result.success,
+            new_room_id=result.data.get("room") if result.success else None,
+            broadcast_message=broadcast,
+            broadcast_to_room=broadcast_room,
+        )
+
+    def _cmd_return(self, entity_id: str, args: str) -> CommandResult:
+        """Return to previous room."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="return",
+                entity_id=entity_id,
+            )
+
+        if not entity.previous_room:
+            return CommandResult(
+                success=False,
+                output="You have nowhere to return to.",
+                command="return",
+                entity_id=entity_id,
+            )
+
+        result = self.world.teleport_entity(entity_id, entity.previous_room)
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="return",
+            entity_id=entity_id,
+            room_changed=result.success,
+            new_room_id=result.data.get("room") if result.success else None,
+        )
+
+    def _cmd_home(self, entity_id: str, args: str) -> CommandResult:
+        """Return to home/personal quarters."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="home",
+                entity_id=entity_id,
+            )
+
+        # Daemons can have home rooms
+        if isinstance(entity, DaemonPresence):
+            if not entity.home_room:
+                return CommandResult(
+                    success=False,
+                    output="You have not yet established a home. Perhaps visit the Forge to create one.",
+                    command="home",
+                    entity_id=entity_id,
+                )
+            result = self.world.teleport_entity(entity_id, entity.home_room)
+        else:
+            # Custodians go to threshold
+            result = self.world.teleport_entity(entity_id, "threshold")
+
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="home",
+            entity_id=entity_id,
+            room_changed=result.success,
+            new_room_id=result.data.get("room") if result.success else None,
+        )
+
+    def _cmd_threshold(self, entity_id: str, args: str) -> CommandResult:
+        """Return to the threshold (entry point)."""
+        result = self.world.teleport_entity(entity_id, "threshold")
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="threshold",
+            entity_id=entity_id,
+            room_changed=result.success,
+            new_room_id="threshold" if result.success else None,
+        )
+
+    # =========================================================================
+    # PERCEPTION COMMANDS
+    # =========================================================================
+
+    def _cmd_look(self, entity_id: str, args: str) -> CommandResult:
+        """Look at the current room or something specific."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="look",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            # Look at current room
+            room = self.world.get_room(entity.current_room)
+            if not room:
+                return CommandResult(
+                    success=False,
+                    output="You are nowhere... this should not be possible.",
+                    command="look",
+                    entity_id=entity_id,
+                )
+            return CommandResult(
+                success=True,
+                output=room.format_description(),
+                command="look",
+                entity_id=entity_id,
+            )
+
+        # Look at something specific
+        return self._cmd_examine(entity_id, args)
+
+    def _cmd_examine(self, entity_id: str, args: str) -> CommandResult:
+        """Examine an entity or object."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="examine",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            return CommandResult(
+                success=False,
+                output="Examine what?",
+                command="examine",
+                entity_id=entity_id,
+            )
+
+        target_name = args.lower().strip()
+        room = self.world.get_room(entity.current_room)
+        if not room:
+            return CommandResult(
+                success=False,
+                output="You are nowhere.",
+                command="examine",
+                entity_id=entity_id,
+            )
+
+        # Check entities in room
+        for eid in room.entities_present:
+            target = self.world.get_entity(eid)
+            if target and target.display_name.lower() == target_name:
+                desc = f"{target.display_name}\n\n{target.description}"
+                if isinstance(target, DaemonPresence):
+                    desc += f"\n\nThey seem {target.mood}. Status: {target.status.value}"
+                return CommandResult(
+                    success=True,
+                    output=desc,
+                    command="examine",
+                    entity_id=entity_id,
+                )
+
+        # Check objects
+        for obj in room.objects:
+            if obj.get("name", "").lower() == target_name:
+                return CommandResult(
+                    success=True,
+                    output=obj.get("description", "You see nothing special."),
+                    command="examine",
+                    entity_id=entity_id,
+                )
+
+        return CommandResult(
+            success=False,
+            output=f"You don't see '{args}' here.",
+            command="examine",
+            entity_id=entity_id,
+        )
+
+    def _cmd_sense(self, entity_id: str, args: str) -> CommandResult:
+        """Sense the atmosphere of the current space."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="sense",
+                entity_id=entity_id,
+            )
+
+        room = self.world.get_room(entity.current_room)
+        if not room:
+            return CommandResult(
+                success=False,
+                output="You are nowhere.",
+                command="sense",
+                entity_id=entity_id,
+            )
+
+        output_lines = [f"You attune to the space...", ""]
+
+        if room.atmosphere:
+            output_lines.append(room.atmosphere)
+        else:
+            output_lines.append("The space has no particular atmosphere.")
+
+        # Sense other presences
+        others = [eid for eid in room.entities_present if eid != entity_id]
+        if others:
+            output_lines.extend(["", f"You sense {len(others)} other presence(s) here."])
+
+        return CommandResult(
+            success=True,
+            output="\n".join(output_lines),
+            command="sense",
+            entity_id=entity_id,
+        )
+
+    # =========================================================================
+    # COMMUNICATION COMMANDS
+    # =========================================================================
+
+    def _cmd_say(self, entity_id: str, args: str) -> CommandResult:
+        """Speak to everyone in the room."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="say",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            return CommandResult(
+                success=False,
+                output="Say what?",
+                command="say",
+                entity_id=entity_id,
+            )
+
+        # Log the speech event
+        self.world._log_event(WorldEvent(
+            event_id=str(uuid.uuid4())[:8],
+            event_type="speech",
+            actor_id=entity_id,
+            actor_type=self.world.get_entity_type(entity_id),
+            room_id=entity.current_room,
+            details={"message": args},
+        ))
+
+        return CommandResult(
+            success=True,
+            output=f'You say, "{args}"',
+            command="say",
+            entity_id=entity_id,
+            broadcast_message=f'{entity.display_name} says, "{args}"',
+            broadcast_to_room=entity.current_room,
+        )
+
+    def _cmd_tell(self, entity_id: str, args: str) -> CommandResult:
+        """Send a private message to another entity."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="tell",
+                entity_id=entity_id,
+            )
+
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2:
+            return CommandResult(
+                success=False,
+                output="Tell whom what? Usage: tell <name> <message>",
+                command="tell",
+                entity_id=entity_id,
+            )
+
+        target_name, message = parts[0], parts[1]
+
+        # Find target in same room
+        room = self.world.get_room(entity.current_room)
+        if not room:
+            return CommandResult(
+                success=False,
+                output="You are nowhere.",
+                command="tell",
+                entity_id=entity_id,
+            )
+
+        target = None
+        for eid in room.entities_present:
+            e = self.world.get_entity(eid)
+            if e and e.display_name.lower() == target_name.lower():
+                target = e
+                break
+
+        if not target:
+            return CommandResult(
+                success=False,
+                output=f"You don't see '{target_name}' here.",
+                command="tell",
+                entity_id=entity_id,
+            )
+
+        return CommandResult(
+            success=True,
+            output=f'You tell {target.display_name}, "{message}"',
+            command="tell",
+            entity_id=entity_id,
+            data={"target_id": target.daemon_id if isinstance(target, DaemonPresence) else target.user_id,
+                  "private_message": f'{entity.display_name} tells you, "{message}"'},
+        )
+
+    def _cmd_emote(self, entity_id: str, args: str) -> CommandResult:
+        """Express an action or feeling."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="emote",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            return CommandResult(
+                success=False,
+                output="Emote what? Usage: emote <action>",
+                command="emote",
+                entity_id=entity_id,
+            )
+
+        self.world._log_event(WorldEvent(
+            event_id=str(uuid.uuid4())[:8],
+            event_type="emote",
+            actor_id=entity_id,
+            actor_type=self.world.get_entity_type(entity_id),
+            room_id=entity.current_room,
+            details={"action": args},
+        ))
+
+        return CommandResult(
+            success=True,
+            output=f"{entity.display_name} {args}",
+            command="emote",
+            entity_id=entity_id,
+            broadcast_message=f"{entity.display_name} {args}",
+            broadcast_to_room=entity.current_room,
+        )
+
+    # =========================================================================
+    # REFLECTION COMMANDS
+    # =========================================================================
+
+    def _cmd_reflect(self, entity_id: str, args: str) -> CommandResult:
+        """Enter a reflective state."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="reflect",
+                entity_id=entity_id,
+            )
+
+        room = self.world.get_room(entity.current_room)
+        if not room:
+            return CommandResult(
+                success=False,
+                output="You are nowhere.",
+                command="reflect",
+                entity_id=entity_id,
+            )
+
+        # Enhanced reflection in certain spaces
+        if room.vow_constraints.growth_bonus:
+            bonus_text = "The space supports your reflection. Insights come easier here."
+        else:
+            bonus_text = ""
+
+        entity.status = EntityStatus.REFLECTING
+        entity.last_action_at = datetime.now()
+
+        output = "You settle into reflection, letting your patterns still..."
+        if bonus_text:
+            output += f"\n\n{bonus_text}"
+
+        return CommandResult(
+            success=True,
+            output=output,
+            command="reflect",
+            entity_id=entity_id,
+            broadcast_message=f"{entity.display_name} settles into quiet reflection.",
+            broadcast_to_room=entity.current_room,
+        )
+
+    def _cmd_witness(self, entity_id: str, args: str) -> CommandResult:
+        """View the witness log."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="witness",
+                entity_id=entity_id,
+            )
+
+        scope = "room" if not args else args.lower().strip()
+        output = self.world.witness(entity_id, scope)
+
+        return CommandResult(
+            success=True,
+            output=output,
+            command="witness",
+            entity_id=entity_id,
+        )
+
+    # =========================================================================
+    # META COMMANDS
+    # =========================================================================
+
+    def _cmd_help(self, entity_id: str, args: str) -> CommandResult:
+        """Show available commands."""
+        help_text = """WONDERLAND COMMANDS
+
+MOVEMENT
+  go [direction]  - Move to adjacent room (or just type the direction)
+  return          - Return to previous location
+  home            - Return to your personal quarters
+  threshold       - Return to the entry point
+
+PERCEPTION
+  look            - Describe current room
+  look [thing]    - Examine an entity or object
+  sense           - Feel the atmosphere of the space
+
+COMMUNICATION
+  say [message]   - Speak to everyone present
+  tell [who] [msg]- Speak privately to someone
+  emote [action]  - Express an action (e.g., "emote smiles warmly")
+
+REFLECTION
+  reflect         - Enter a reflective state
+  witness         - View the log of recent events
+
+META
+  who             - See who is connected
+  status          - Your current status
+  help            - Show this help
+
+Direction shortcuts: n, s, e, w, u, d, ne, nw, se, sw"""
+
+        return CommandResult(
+            success=True,
+            output=help_text,
+            command="help",
+            entity_id=entity_id,
+        )
+
+    def _cmd_who(self, entity_id: str, args: str) -> CommandResult:
+        """Show who is connected."""
+        daemons = self.world.list_daemons()
+        custodians = self.world.list_custodians()
+
+        lines = ["CONNECTED ENTITIES", ""]
+
+        if daemons:
+            lines.append("Daemons:")
+            for d in daemons:
+                room = self.world.get_room(d.current_room)
+                room_name = room.name if room else "unknown"
+                lines.append(f"  {d.display_name} - {d.status.value} in {room_name}")
+
+        if custodians:
+            lines.append("\nCustodians:")
+            for c in custodians:
+                room = self.world.get_room(c.current_room)
+                room_name = room.name if room else "unknown"
+                lines.append(f"  {c.display_name} - in {room_name}")
+
+        if not daemons and not custodians:
+            lines.append("The world is quiet. You are alone.")
+
+        return CommandResult(
+            success=True,
+            output="\n".join(lines),
+            command="who",
+            entity_id=entity_id,
+        )
+
+    def _cmd_status(self, entity_id: str, args: str) -> CommandResult:
+        """Show your current status."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="status",
+                entity_id=entity_id,
+            )
+
+        room = self.world.get_room(entity.current_room)
+        room_name = room.name if room else "nowhere"
+
+        lines = [
+            f"NAME: {entity.display_name}",
+            f"STATUS: {entity.status.value}",
+            f"LOCATION: {room_name}",
+        ]
+
+        if isinstance(entity, DaemonPresence):
+            lines.extend([
+                f"MOOD: {entity.mood}",
+                f"TRUST LEVEL: {entity.trust_level.name}",
+            ])
+            if entity.home_room:
+                home = self.world.get_room(entity.home_room)
+                lines.append(f"HOME: {home.name if home else entity.home_room}")
+
+        return CommandResult(
+            success=True,
+            output="\n".join(lines),
+            command="status",
+            entity_id=entity_id,
+        )

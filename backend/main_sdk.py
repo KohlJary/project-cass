@@ -92,6 +92,7 @@ from handlers import (
     execute_tool_batch,
 )
 from handlers.state_query import execute_state_query_tool
+from handlers.janet import execute_janet_tool
 from markers import MarkerStore
 from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
@@ -340,8 +341,13 @@ from token_tracker import TokenUsageTracker
 token_tracker = TokenUsageTracker()
 
 # Register queryable sources with the global state bus
-from sources import GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource, MemoryQueryableSource, SelfQueryableSource, GoalQueryableSource, ActionQueryableSource
+from sources import (
+    GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource,
+    MemoryQueryableSource, SelfQueryableSource, GoalQueryableSource, ActionQueryableSource,
+    WorkItemQueryableSource, ScheduleQueryableSource
+)
 from unified_goals import UnifiedGoalManager
+from work_planning import WorkItemManager, ScheduleManager
 
 github_source = GitHubQueryableSource(_daemon_id, github_metrics_manager)
 token_source = TokenQueryableSource(_daemon_id, token_tracker)
@@ -351,6 +357,12 @@ self_source = SelfQueryableSource(_daemon_id)  # Uses unified self-model graph
 goal_source = GoalQueryableSource(_daemon_id, UnifiedGoalManager(_daemon_id))
 action_source = ActionQueryableSource(_daemon_id)
 
+# Cass's work planning infrastructure
+work_manager = WorkItemManager(_daemon_id)
+schedule_manager = ScheduleManager(_daemon_id)
+work_source = WorkItemQueryableSource(_daemon_id, work_manager)
+schedule_source = ScheduleQueryableSource(_daemon_id, schedule_manager)
+
 global_state_bus.register_source(github_source)
 global_state_bus.register_source(token_source)
 global_state_bus.register_source(conversation_source)
@@ -358,7 +370,9 @@ global_state_bus.register_source(memory_source)
 global_state_bus.register_source(self_source)
 global_state_bus.register_source(goal_source)
 global_state_bus.register_source(action_source)
-print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals, actions)")
+global_state_bus.register_source(work_source)
+global_state_bus.register_source(schedule_source)
+print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals, actions, work, schedule)")
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
@@ -418,6 +432,7 @@ TOOL_EXECUTORS = {
     "file": execute_file_tool,
     "dream": execute_dream_tool,
     "state_query": execute_state_query_tool,
+    "janet": execute_janet_tool,
 }
 
 
@@ -538,6 +553,15 @@ init_daily_rhythm_manager(daily_rhythm_manager)
 init_research_manager(research_manager)
 init_goal_manager(goal_manager)
 init_narrative_managers(thread_manager, question_manager, token_tracker=token_tracker)
+
+# Configure Janet with all her dependencies
+from janet import configure_janet
+configure_janet(
+    state_bus=global_state_bus,
+    research_manager=research_manager,
+    wiki_storage=wiki_storage,
+)
+
 app.include_router(admin_router)
 
 # Register prompt composer routes
@@ -1420,6 +1444,13 @@ async def chat(request: ChatRequest):
                     tool_result = await execute_discover_capabilities(
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
+                        state_bus=global_state_bus
+                    )
+                elif tool_name in ["summon_janet", "janet_feedback", "janet_stats"]:
+                    tool_result = await execute_janet_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        daemon_id=_daemon_id,
                         state_bus=global_state_bus
                     )
                 elif project_id:

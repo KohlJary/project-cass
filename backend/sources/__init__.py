@@ -18,6 +18,8 @@ from .memory_source import MemoryQueryableSource
 from .self_source import SelfQueryableSource
 from .goal_source import GoalQueryableSource
 from .action_source import ActionQueryableSource
+from .work_source import WorkItemQueryableSource
+from .schedule_source import ScheduleQueryableSource
 
 __all__ = [
     "GitHubQueryableSource",
@@ -27,4 +29,6 @@ __all__ = [
     "SelfQueryableSource",
     "GoalQueryableSource",
     "ActionQueryableSource",
+    "WorkItemQueryableSource",
+    "ScheduleQueryableSource",
 ]

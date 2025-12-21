@@ -1212,6 +1212,7 @@ from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
+from handlers.janet import JANET_TOOLS
 
 
 # ============================================================================
@@ -1520,6 +1521,9 @@ class CassAgentClient:
 
             # Cross-session insight tools - continuity across sessions
             tools.extend(CROSS_SESSION_INSIGHT_TOOLS)
+
+            # Janet tools - research/retrieval assistant
+            tools.extend(JANET_TOOLS)
 
             # File tools - always available for reading files
             tools.extend(FILE_TOOLS)

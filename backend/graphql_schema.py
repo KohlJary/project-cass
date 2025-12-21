@@ -184,6 +184,81 @@ class ActionsStats:
 
 
 # =============================================================================
+# WORK PLANNING TYPES (Cass's taskboard and calendar)
+# =============================================================================
+
+@strawberry.type
+class WorkItemSummary:
+    """A work item from Cass's taskboard."""
+    id: str
+    title: str
+    description: Optional[str]
+    category: str
+    priority: int
+    status: str
+    estimated_duration_minutes: int
+    estimated_cost_usd: float
+    requires_approval: bool
+    approval_status: str
+    goal_id: Optional[str]
+    created_at: str
+
+
+@strawberry.type
+class WorkStats:
+    """Summary statistics for Cass's work items."""
+    total: int
+    by_status: strawberry.scalars.JSON
+    by_category: strawberry.scalars.JSON
+    pending_approval: int
+    estimated_pending_cost_usd: float
+    actual_completed_cost_usd: float
+
+    @strawberry.field
+    def completion_rate(self) -> float:
+        by_status = self.by_status if isinstance(self.by_status, dict) else {}
+        completed = by_status.get("completed", 0)
+        if self.total == 0:
+            return 0.0
+        return (completed / self.total) * 100
+
+
+@strawberry.type
+class ScheduleSlotSummary:
+    """A schedule slot from Cass's calendar."""
+    id: str
+    work_item_id: Optional[str]
+    start_time: Optional[str]
+    end_time: Optional[str]
+    duration_minutes: int
+    priority: int
+    status: str
+    requires_idle: bool
+    notes: Optional[str]
+
+
+@strawberry.type
+class ScheduleStats:
+    """Summary statistics for Cass's schedule."""
+    total: int
+    by_status: strawberry.scalars.JSON
+    today_count: int
+    week_count: int
+    budget_scheduled_usd: float
+    flexible_slots: int
+    idle_slots: int
+
+
+@strawberry.type
+class WorkPlanning:
+    """Cass's work planning state - taskboard and calendar."""
+    work_stats: WorkStats
+    schedule_stats: ScheduleStats
+    pending_approval: List[WorkItemSummary]
+    upcoming_slots: List[ScheduleSlotSummary]
+
+
+# =============================================================================
 # STATE TYPES (Emotional, Activity, Coherence)
 # =============================================================================
 
@@ -668,6 +743,93 @@ class Query:
             total_actions=0,
             category_count=0,
             by_category=[],
+        )
+
+    @strawberry.field
+    async def work_planning(self) -> WorkPlanning:
+        """Get Cass's work planning state - taskboard and calendar."""
+        bus = get_daemon_state_bus()
+
+        try:
+            from query_models import StateQuery
+
+            # Query work items
+            work_query = StateQuery(source="work", metric="all")
+            work_result = await bus.query(work_query)
+            work_data = work_result.data.value if work_result.data else {}
+
+            # Query schedule
+            schedule_query = StateQuery(source="schedule", metric="all")
+            schedule_result = await bus.query(schedule_query)
+            schedule_data = schedule_result.data.value if schedule_result.data else {}
+
+            # Query pending approval work items
+            pending_query = StateQuery(source="work", metric="pending_approval")
+            pending_result = await bus.query(pending_query)
+
+            # Query upcoming schedule slots
+            upcoming_query = StateQuery(source="schedule", metric="upcoming", filters={"hours": 24})
+            upcoming_result = await bus.query(upcoming_query)
+            upcoming_data = upcoming_result.data.value if upcoming_result.data else []
+
+            # Build work stats
+            work_stats = WorkStats(
+                total=work_data.get("total", 0) if isinstance(work_data, dict) else 0,
+                by_status=work_data.get("by_status", {}) if isinstance(work_data, dict) else {},
+                by_category=work_data.get("by_category", {}) if isinstance(work_data, dict) else {},
+                pending_approval=work_data.get("pending_approval", 0) if isinstance(work_data, dict) else 0,
+                estimated_pending_cost_usd=work_data.get("estimated_pending_cost_usd", 0.0) if isinstance(work_data, dict) else 0.0,
+                actual_completed_cost_usd=work_data.get("actual_completed_cost_usd", 0.0) if isinstance(work_data, dict) else 0.0,
+            )
+
+            # Build schedule stats
+            schedule_stats = ScheduleStats(
+                total=schedule_data.get("total", 0) if isinstance(schedule_data, dict) else 0,
+                by_status=schedule_data.get("by_status", {}) if isinstance(schedule_data, dict) else {},
+                today_count=schedule_data.get("today_count", 0) if isinstance(schedule_data, dict) else 0,
+                week_count=schedule_data.get("week_count", 0) if isinstance(schedule_data, dict) else 0,
+                budget_scheduled_usd=schedule_data.get("budget_scheduled_usd", 0.0) if isinstance(schedule_data, dict) else 0.0,
+                flexible_slots=schedule_data.get("flexible_slots", 0) if isinstance(schedule_data, dict) else 0,
+                idle_slots=schedule_data.get("idle_slots", 0) if isinstance(schedule_data, dict) else 0,
+            )
+
+            # Convert upcoming slots to GraphQL type
+            upcoming_slots = []
+            if isinstance(upcoming_data, list):
+                for s in upcoming_data:
+                    upcoming_slots.append(ScheduleSlotSummary(
+                        id=s.get("id", ""),
+                        work_item_id=s.get("work_item_id"),
+                        start_time=s.get("start_time"),
+                        end_time=s.get("end_time"),
+                        duration_minutes=s.get("duration_minutes", 30),
+                        priority=s.get("priority", 2),
+                        status=s.get("status", "scheduled"),
+                        requires_idle=s.get("requires_idle", False),
+                        notes=s.get("notes"),
+                    ))
+
+            return WorkPlanning(
+                work_stats=work_stats,
+                schedule_stats=schedule_stats,
+                pending_approval=[],  # Would need to query actual work items
+                upcoming_slots=upcoming_slots,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to query work planning: {e}")
+
+        # Return empty state on error
+        return WorkPlanning(
+            work_stats=WorkStats(
+                total=0, by_status={}, by_category={},
+                pending_approval=0, estimated_pending_cost_usd=0.0, actual_completed_cost_usd=0.0
+            ),
+            schedule_stats=ScheduleStats(
+                total=0, by_status={}, today_count=0, week_count=0,
+                budget_scheduled_usd=0.0, flexible_slots=0, idle_slots=0
+            ),
+            pending_approval=[],
+            upcoming_slots=[],
         )
 
     @strawberry.field

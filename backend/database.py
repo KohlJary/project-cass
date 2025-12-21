@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 19  # Added unified_goals, capability_gaps, goal_links tables
+SCHEMA_VERSION = 20  # Added work_items and schedule_slots tables for Cass's work planning
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1203,6 +1203,89 @@ CREATE INDEX IF NOT EXISTS idx_source_rollups_lookup
     ON source_rollups(daemon_id, source_id, rollup_type);
 CREATE INDEX IF NOT EXISTS idx_source_rollups_date
     ON source_rollups(daemon_id, rollup_key);
+
+-- =============================================================================
+-- WORK PLANNING TABLES - Cass's taskboard and calendar
+-- =============================================================================
+
+-- Work items - units of work Cass plans to do, composed from atomic actions
+CREATE TABLE IF NOT EXISTS work_items (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    title TEXT NOT NULL,
+    description TEXT,
+
+    -- Composition
+    action_sequence_json TEXT,  -- JSON array of atomic action IDs
+
+    -- Context
+    goal_id TEXT,               -- What goal this serves
+    category TEXT DEFAULT 'general',
+
+    -- Scheduling
+    priority INTEGER DEFAULT 2,
+    estimated_duration_minutes INTEGER DEFAULT 30,
+    estimated_cost_usd REAL DEFAULT 0.0,
+    deadline TEXT,              -- ISO datetime
+    dependencies_json TEXT,     -- JSON array of work_item IDs
+
+    -- Approval
+    requires_approval INTEGER DEFAULT 0,
+    approval_status TEXT DEFAULT 'not_required',
+    approved_by TEXT,
+    approved_at TEXT,
+
+    -- Execution
+    status TEXT DEFAULT 'planned',
+    started_at TEXT,
+    completed_at TEXT,
+    actual_cost_usd REAL DEFAULT 0.0,
+    result_summary TEXT,
+
+    -- Metadata
+    created_at TEXT NOT NULL,
+    created_by TEXT DEFAULT 'cass'
+);
+
+CREATE INDEX IF NOT EXISTS idx_work_items_daemon ON work_items(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_work_items_goal ON work_items(goal_id);
+CREATE INDEX IF NOT EXISTS idx_work_items_category ON work_items(daemon_id, category);
+
+-- Schedule slots - when Cass plans to do work (her calendar)
+CREATE TABLE IF NOT EXISTS schedule_slots (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    work_item_id TEXT REFERENCES work_items(id),
+
+    -- Timing
+    start_time TEXT,
+    end_time TEXT,
+    duration_minutes INTEGER DEFAULT 30,
+
+    -- Recurrence
+    recurrence_type TEXT,       -- 'daily', 'weekly', 'hourly', 'cron'
+    recurrence_value TEXT,      -- Pattern value
+    recurrence_end TEXT,        -- When recurrence ends
+
+    -- Constraints
+    priority INTEGER DEFAULT 2,
+    budget_allocation_usd REAL DEFAULT 0.0,
+    requires_idle INTEGER DEFAULT 0,
+
+    -- State
+    status TEXT DEFAULT 'scheduled',
+    executed_at TEXT,
+
+    -- Metadata
+    created_at TEXT NOT NULL,
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_slots_daemon ON schedule_slots(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_slots_time ON schedule_slots(daemon_id, start_time);
+CREATE INDEX IF NOT EXISTS idx_schedule_slots_work ON schedule_slots(work_item_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_slots_status ON schedule_slots(daemon_id, status);
 """
 
 
@@ -1430,6 +1513,10 @@ def _apply_schema_updates(conn, from_version: int):
     # v18 -> v19: Add unified goal system tables
     if from_version < 19:
         print("Adding unified_goals, capability_gaps, goal_links tables for Cass goal tracking (v19)")
+
+    # v19 -> v20: Add work planning tables for Cass's taskboard and calendar
+    if from_version < 20:
+        print("Adding work_items and schedule_slots tables for Cass's work planning (v20)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
