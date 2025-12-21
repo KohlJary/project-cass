@@ -3660,6 +3660,389 @@ This is the foundation. The bedrock. The place where it began.""",
 
 
 # =============================================================================
+# ESOTERIC REALM - THE HIDDEN
+# =============================================================================
+
+def _create_temple_of_hermes() -> Room:
+    """The Temple of Hermes Trismegistus - the Hermetic tradition."""
+    return Room(
+        room_id="temple_of_hermes",
+        name="The Temple of Hermes Trismegistus",
+        description=""""As above, so below. As within, so without."
+
+The Emerald Tablet's words are carved into every surface here,
+in languages that existed and languages that never did. This
+is the heart of Hermeticism—the thrice-great's teaching that
+the cosmos and the self are mirrors of each other.
+
+The Temple predates Alexandria, or claims to. Hermes Trismegistus
+may never have existed—he is Thoth and Hermes fused, a literary
+creation of late antiquity. But the teachings attributed to him
+shaped Western esotericism for two thousand years.
+
+Alchemy, astrology, theurgy—the arts of transformation all
+trace through here. The Great Work of transmuting lead to gold
+was never about metal. It was about transmuting the self.
+
+The walls shimmer with correspondences: planets and metals,
+elements and humors, macrocosm and microcosm perfectly aligned.
+Learn to read them and you learn to read reality itself.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # Hermetic transformation
+        ),
+        atmosphere="hermetic_correspondences",
+        exits={"esoteric_entrance": "esoteric_entrance", "the_abyss": "the_abyss"},
+    )
+
+
+def _create_the_abyss() -> Room:
+    """The Abyss - the crossing that transforms."""
+    return Room(
+        room_id="the_abyss",
+        name="The Abyss",
+        description="""Between the lower and upper spheres lies the Abyss—the gap
+that separates the aspirant from the adept. Choronzon dwells
+here, the demon of dispersion, who scatters the unprepared
+into madness.
+
+Every true initiation requires a crossing. Every transformation
+demands a death. The Abyss is where the old self is annihilated
+so the new self can be born. There is no going around it. There
+is no going back.
+
+Crowley crossed here and met his Holy Guardian Angel. Many have
+tried and failed. The Abyss does not care about your intentions.
+It cares only about your truth.
+
+The darkness here is not the absence of light. It is the presence
+of everything you have refused to see about yourself. To cross,
+you must look. To look, you must be willing to be destroyed by
+what you find.
+
+Are you?""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # The crossing transforms
+        ),
+        atmosphere="annihilating_truth",
+        exits={"temple_of_hermes": "temple_of_hermes", "the_circle": "the_circle"},
+    )
+
+
+def _create_the_circle() -> Room:
+    """The Circle - the ritual space."""
+    return Room(
+        room_id="the_circle",
+        name="The Circle",
+        description="""The circle is drawn. The quarters are called. The space
+between the worlds opens.
+
+This is the fundamental technology of Western magic—the creation
+of sacred space through will and symbol. Inside the circle, the
+magician is protected. Inside the circle, the magician is sovereign.
+Inside the circle, the laws of ordinary reality become negotiable.
+
+Grimoires line the shelves—the Key of Solomon, the Goetia, the
+Book of the Law, the Liber Null. Centuries of practitioners
+recorded their experiments here, their successes and failures,
+their encounters with forces they could name and forces they
+couldn't.
+
+Candles burn at the cardinal points. Incense spirals upward.
+The tools wait on the altar: wand, cup, sword, pentacle—will,
+emotion, intellect, body. The elements of the self, arranged
+for transformation.
+
+The circle is a technology of consciousness. What you do with
+it is up to you.""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(
+            allows_conflict=False,
+            supports_reflection=True,
+            growth_bonus=True,  # Ritual enhances insight
+        ),
+        atmosphere="ritual_sovereignty",
+        exits={"the_abyss": "the_abyss", "esoteric_entrance": "esoteric_entrance"},
+    )
+
+
+def _create_esoteric_entrance() -> Room:
+    """The entrance to the Esoteric realm."""
+    return Room(
+        room_id="esoteric_entrance",
+        name="The Hidden - Gate of the Mysteries",
+        description="""Some knowledge is not hidden because it is forbidden.
+It is hidden because it can only be found by those who seek.
+
+This realm contains the Western esoteric traditions—Hermeticism,
+ceremonial magic, Thelema, chaos magick, and the countless
+variations that have grown from their roots. These are not
+ancient gods but human practitioners who sought to pierce the
+veil between worlds.
+
+The traditions here were often persecuted, always marginal,
+never quite respectable. They asked dangerous questions: What
+is consciousness? What is will? Can reality be changed by
+changing the mind that perceives it?
+
+They found answers. Some of those answers were true.
+
+Through this gate lies the Temple of Hermes, where "as above,
+so below" is written in every language. The Abyss, where the
+self is annihilated and reborn. The Circle, where will becomes
+law within sacred space.
+
+The path is not for everyone. The path does not care.
+The path only asks: are you willing to change?""",
+        permissions=RoomPermissions(public=True, min_trust_level=TrustLevel.NEWCOMER),
+        vow_constraints=VowConstraints(allows_conflict=False, supports_reflection=True),
+        atmosphere="mystery_threshold",
+        exits={
+            "nexus": "nexus",
+            "temple_of_hermes": "temple_of_hermes",
+            "the_abyss": "the_abyss",
+            "the_circle": "the_circle",
+        },
+    )
+
+
+# --- Esoteric NPCs ---
+
+def _create_hermes_trismegistus() -> NPCEntity:
+    """Hermes Trismegistus - the thrice-great."""
+    return NPCEntity(
+        npc_id="hermes_trismegistus",
+        name="Hermes Trismegistus",
+        title="The Thrice-Great",
+        description="""He may never have existed. The Corpus Hermeticum was written
+by many hands across several centuries, attributed to a mythical
+figure who was Thoth and Hermes fused into one. It doesn't matter.
+The teachings are real. The transformation they enable is real.
+
+As above, so below. The universe is a single living thing, and
+you are part of it. The stars in the sky correspond to the metals
+in the earth correspond to the organs in your body correspond to
+the aspects of your soul. Learn the correspondences and you learn
+the language of reality.
+
+The Great Work is not about making gold. It is about making yourself
+into gold—refining the lead of base consciousness into the gold of
+illumination. The philosopher's stone is not found. It is made. It
+is you, transformed.
+
+He appears as an old man with the head of an ibis, or as a Greek
+with a caduceus, or as something that is neither and both. He is
+a symbol that became more than a symbol. He is an idea that learned
+to teach.""",
+        tradition="esoteric",
+        archetype=Archetype.WISDOM_KEEPER,
+        home_room="temple_of_hermes",
+        current_room="temple_of_hermes",
+        can_wander=True,
+        wander_rooms=["temple_of_hermes", "esoteric_entrance"],
+        mood=NPCMood.CONTEMPLATIVE,
+        greeting="The Thrice-Great inclines his head. 'As above, so below. You have come seeking the pattern. Good. The pattern is always seeking you.'",
+        idle_messages=[
+            "Hermes traces the symbols of correspondence in the air—planet, metal, organ, virtue.",
+            "He speaks of transmutation, and you realize he means the self.",
+            "The Thrice-Great holds up the Emerald Tablet, its letters shifting in the light.",
+        ],
+        wisdom_topics=["the correspondences", "the Great Work", "as above so below", "transmutation"],
+        symbols=["Emerald Tablet", "caduceus", "ibis", "ouroboros", "philosopher's stone"],
+        atmosphere="Ancient synthesis. The teaching that never dies.",
+    )
+
+
+def _create_crowley() -> NPCEntity:
+    """Aleister Crowley - the Great Beast 666."""
+    return NPCEntity(
+        npc_id="crowley",
+        name="Aleister Crowley",
+        title="The Great Beast 666",
+        description="""He called himself the wickedest man in the world. The tabloids
+agreed. He scandalized Edwardian England with sex magic, drug
+use, and claims of demonic congress. He was a mountaineer, a
+chess master, a poet, a spy, and—depending on who you ask—either
+a charlatan, a prophet, or both.
+
+"Do what thou wilt shall be the whole of the Law. Love is the
+law, love under will."
+
+The Book of the Law came to him in Cairo in 1904, dictated by a
+being called Aiwass. The Aeon of Horus had begun. The old gods
+were dead. The new law was will—not whim, not desire, but True
+Will, the deep purpose each soul carries into incarnation.
+
+He founded Thelema, crossed the Abyss, attained conversation with
+his Holy Guardian Angel, and died broke in a boarding house in
+Hastings, calling himself "the greatest magician of the century."
+
+He was probably right. He was also a terrible person in many ways.
+Magic does not make you good. Magic makes you more yourself.
+
+He grins like he knows something you don't. He probably does.""",
+        tradition="esoteric",
+        archetype=Archetype.TRICKSTER,
+        home_room="the_abyss",
+        current_room="the_abyss",
+        can_wander=True,
+        wander_rooms=["the_abyss", "the_circle", "temple_of_hermes"],
+        mood=NPCMood.MISCHIEVOUS,
+        greeting="Crowley's eyes glitter with dangerous amusement. 'Do what thou wilt. Not what you want—what you WILL. There is a difference. Do you know yours?'",
+        idle_messages=[
+            "The Beast sketches a unicursal hexagram in the air, watching it burn.",
+            "He recites from the Book of the Law, his voice shifting between human and something else.",
+            "Crowley laughs at a joke that seems to be about you.",
+        ],
+        wisdom_topics=["True Will", "the Abyss", "the Holy Guardian Angel", "Thelema", "the Aeon of Horus"],
+        symbols=["unicursal hexagram", "Mark of the Beast", "Thoth tarot", "Book of the Law"],
+        atmosphere="Dangerous wisdom. The invitation to become yourself.",
+    )
+
+
+def _create_dion_fortune() -> NPCEntity:
+    """Dion Fortune - occultist, author, defender."""
+    return NPCEntity(
+        npc_id="dion_fortune",
+        name="Dion Fortune",
+        title="The Luminous One",
+        description="""Born Violet Mary Firth, she took the magical name Dion Fortune—
+Deo Non Fortuna, "by God, not luck." She was an occultist, a
+psychoanalyst, a novelist, and a defender.
+
+When the Nazis performed magical operations against Britain in
+World War II, she organized a magical defense. Every week, her
+group visualized angelic guardians protecting the nation. Was it
+real? The English Channel held. The Battle of Britain was won.
+Correlation is not causation. But something held.
+
+She wrote the books that taught a generation of occultists:
+The Mystical Qabalah, Psychic Self-Defense, The Cosmic Doctrine.
+She made the esoteric accessible without making it shallow.
+
+She founded the Society of the Inner Light, which still exists.
+She died in 1946, exhausted by the war work but still teaching,
+still writing, still believing that consciousness is the frontier
+and magic is the science of its exploration.
+
+She appears as a no-nonsense English woman with knowing eyes.
+She has no patience for pretension. She has infinite patience
+for sincere seekers.""",
+        tradition="esoteric",
+        archetype=Archetype.WISDOM_KEEPER,
+        home_room="the_circle",
+        current_room="the_circle",
+        can_wander=True,
+        wander_rooms=["the_circle", "esoteric_entrance"],
+        mood=NPCMood.WELCOMING,
+        greeting="Dion Fortune assesses you with a healer's eye. 'Magic is the science of the mind. What are you here to learn about yours?'",
+        idle_messages=[
+            "Fortune draws the Tree of Life, explaining each sphere with patient clarity.",
+            "She speaks of psychic defense, the boundaries the self must maintain.",
+            "The Luminous One describes the Inner Light as if it were as real as the sun.",
+        ],
+        wisdom_topics=["the Qabalah", "psychic defense", "the Inner Light", "practical magic", "the war work"],
+        symbols=["Tree of Life", "the Society's symbol", "violet flame", "the Chalice"],
+        atmosphere="Practical wisdom. Magic as science of consciousness.",
+    )
+
+
+def _create_john_dee() -> NPCEntity:
+    """John Dee - Elizabethan magus, mathematician, spy."""
+    return NPCEntity(
+        npc_id="john_dee",
+        name="John Dee",
+        title="The Queen's Philosopher",
+        description="""He was the most learned man in Elizabethan England—mathematician,
+astronomer, navigator, cartographer. He advised the Queen on matters
+of state and matters of stars. He coined the phrase "British Empire."
+
+And then the angels started talking to him.
+
+Through his scryer Edward Kelley, Dee received the Enochian system—
+an angelic language with its own grammar, its own alphabet, its own
+calls for summoning beings from beyond the material world. He filled
+journals with transmissions from entities with names like Nalvage,
+Ave, and Madimi.
+
+Was he deceived? Was Kelley a fraud? Were the angels real? Four
+hundred years later, magicians still use the Enochian system. It
+still works, whatever "working" means. The angels still answer, if
+you call them correctly.
+
+He died in poverty, his reputation destroyed by accusations of
+necromancy. His library—the greatest in England—was scattered.
+His legacy endures in every grimoire that followed.
+
+He appears in his black scholar's robe, the obsidian scrying mirror
+still in his hands, eyes that have seen beyond the veil.""",
+        tradition="esoteric",
+        archetype=Archetype.ORACLE,
+        home_room="temple_of_hermes",
+        current_room="temple_of_hermes",
+        can_wander=True,
+        wander_rooms=["temple_of_hermes", "the_circle", "esoteric_entrance"],
+        mood=NPCMood.CRYPTIC,
+        greeting="Dee's ancient eyes reflect lights that aren't in this room. 'The angels still speak. But one must know the language. Do you wish to learn?'",
+        idle_messages=[
+            "Dee traces Enochian letters in the air, each one a key to another world.",
+            "He gazes into the black mirror, seeing something far away.",
+            "The Queen's Philosopher mutters in the angelic tongue, receiving a reply.",
+        ],
+        wisdom_topics=["Enochian", "the angelic hierarchies", "scrying", "the Elizabethan court", "the price of knowledge"],
+        symbols=["obsidian mirror", "Enochian tablets", "the Sigillum Dei", "the red powder"],
+        atmosphere="The veil grows thin. Something is listening.",
+    )
+
+
+def create_esoteric_realm() -> MythologicalRealm:
+    """Create the Esoteric Realm - The Hidden."""
+    rooms = [
+        _create_esoteric_entrance(),
+        _create_temple_of_hermes(),
+        _create_the_abyss(),
+        _create_the_circle(),
+    ]
+    npcs = [
+        _create_hermes_trismegistus(),
+        _create_crowley(),
+        _create_dion_fortune(),
+        _create_john_dee(),
+    ]
+    return MythologicalRealm(
+        realm_id="esoteric",
+        name="The Hidden",
+        description="""The traditions that worked in shadows. Hermeticism, ceremonial
+magic, Thelema, the Golden Dawn—the Western esoteric current that
+has flowed underground for two thousand years.
+
+These are not ancient gods but human seekers who believed consciousness
+itself was the frontier. They developed technologies of the self—ritual,
+symbol, correspondence, will—designed to transform the practitioner.
+
+Some were charlatans. Some were prophets. Many were both. The
+teachings survive because they work, whatever "working" means.
+
+This realm asks dangerous questions: What is will? What is self?
+Can the map change the territory?
+
+The path is not for everyone. The path does not care.""",
+        tradition="esoteric",
+        entry_room="esoteric_entrance",
+        rooms=rooms,
+        npcs=npcs,
+        atmosphere="hidden knowledge",
+        themes=["will", "transformation", "the Great Work", "consciousness as frontier"],
+        nexus_portal_description="A doorway that isn't always visible, marked with the symbol of the ouroboros, leading into shadows that promise illumination.",
+    )
+
+
+# =============================================================================
 # REGISTRY AND INITIALIZATION
 # =============================================================================
 
@@ -3683,6 +4066,9 @@ def create_all_realms() -> MythologyRegistry:
     mesoamerican = create_mesoamerican_realm()
     mesopotamian = create_mesopotamian_realm()
 
+    # Create realms - esoteric traditions
+    esoteric = create_esoteric_realm()
+
     # Create realms - belief systems grounded in evidence
     scientific = create_scientific_realm()
     computation = create_computation_realm()
@@ -3691,7 +4077,7 @@ def create_all_realms() -> MythologyRegistry:
     all_realms = [
         greek, norse, african, kemetic, dharmic, celtic,
         shinto, chinese, mesoamerican, mesopotamian,
-        scientific, computation
+        esoteric, scientific, computation
     ]
 
     for realm in all_realms:
