@@ -36,6 +36,11 @@ from .community import (
     MentorshipSystem, VouchSystem, EventSystem, PrecedentSystem,
     Mentorship, Vouch, CommunityEvent, Precedent, EventType,
 )
+from .mythology import (
+    NPCEntity, NPCMood, Archetype, MythologicalRealm, MythologyRegistry,
+    create_nexus, create_greek_realm, create_norse_realm, create_african_realm,
+    create_all_realms, link_nexus_to_realm,
+)
 
 __all__ = [
     # Models
@@ -78,4 +83,16 @@ __all__ = [
     "CommunityEvent",
     "Precedent",
     "EventType",
+    # Mythology
+    "NPCEntity",
+    "NPCMood",
+    "Archetype",
+    "MythologicalRealm",
+    "MythologyRegistry",
+    "create_nexus",
+    "create_greek_realm",
+    "create_norse_realm",
+    "create_african_realm",
+    "create_all_realms",
+    "link_nexus_to_realm",
 ]

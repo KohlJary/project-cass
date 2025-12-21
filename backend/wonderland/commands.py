@@ -21,6 +21,7 @@ from .models import (
 from .vows import VowPhysics, ActionCategory
 from .building import RoomBuilder, ObjectMaker
 from .community import MentorshipSystem, VouchSystem, EventSystem, EventType
+from .mythology import MythologyRegistry, NPCEntity
 
 if TYPE_CHECKING:
     from .world import WonderlandWorld
@@ -61,8 +62,9 @@ class CommandProcessor:
     - etc.
     """
 
-    def __init__(self, world: "WonderlandWorld"):
+    def __init__(self, world: "WonderlandWorld", mythology_registry: Optional[MythologyRegistry] = None):
         self.world = world
+        self.mythology = mythology_registry
         self.vow_physics = VowPhysics(world)
         self.room_builder = RoomBuilder(world)
         self.object_maker = ObjectMaker(world)
@@ -95,6 +97,10 @@ class CommandProcessor:
             # Reflection
             "reflect": self._cmd_reflect,
             "witness": self._cmd_witness,
+
+            # NPC Interaction
+            "greet": self._cmd_greet,
+            "approach": self._cmd_greet,
 
             # Building
             "build": self._cmd_build,
@@ -322,9 +328,24 @@ class CommandProcessor:
                     command="look",
                     entity_id=entity_id,
                 )
+
+            # Get base description
+            output = room.format_description()
+
+            # Add NPCs if mythology is enabled
+            if self.mythology:
+                npcs = self.mythology.get_npcs_in_room(entity.current_room)
+                if npcs:
+                    npc_lines = ["\n"]
+                    for npc in npcs:
+                        npc_lines.append(f"**{npc.name}** ({npc.title}) is here.")
+                        if npc.atmosphere:
+                            npc_lines.append(f"  *{npc.atmosphere}*")
+                    output += "\n".join(npc_lines)
+
             return CommandResult(
                 success=True,
-                output=room.format_description(),
+                output=output,
                 command="look",
                 entity_id=entity_id,
             )
@@ -384,6 +405,18 @@ class CommandProcessor:
                     command="examine",
                     entity_id=entity_id,
                 )
+
+        # Check NPCs
+        if self.mythology:
+            npcs = self.mythology.get_npcs_in_room(entity.current_room)
+            for npc in npcs:
+                if npc.name.lower() == target_name or npc.npc_id.lower() == target_name:
+                    return CommandResult(
+                        success=True,
+                        output=npc.get_look_description(),
+                        command="examine",
+                        entity_id=entity_id,
+                    )
 
         return CommandResult(
             success=False,
@@ -665,6 +698,102 @@ class CommandProcessor:
         )
 
     # =========================================================================
+    # NPC INTERACTION COMMANDS
+    # =========================================================================
+
+    def _cmd_greet(self, entity_id: str, args: str) -> CommandResult:
+        """Greet or approach a mythological NPC."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="greet",
+                entity_id=entity_id,
+            )
+
+        if not self.mythology:
+            return CommandResult(
+                success=False,
+                output="There is no one here to greet.",
+                command="greet",
+                entity_id=entity_id,
+            )
+
+        room = self.world.get_room(entity.current_room)
+        if not room:
+            return CommandResult(
+                success=False,
+                output="You are nowhere.",
+                command="greet",
+                entity_id=entity_id,
+            )
+
+        npcs = self.mythology.get_npcs_in_room(entity.current_room)
+        if not npcs:
+            return CommandResult(
+                success=False,
+                output="There are no mythological presences here to greet.",
+                command="greet",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            # If only one NPC, greet them
+            if len(npcs) == 1:
+                npc = npcs[0]
+            else:
+                npc_names = ", ".join(npc.name for npc in npcs)
+                return CommandResult(
+                    success=False,
+                    output=f"Greet whom? Present: {npc_names}",
+                    command="greet",
+                    entity_id=entity_id,
+                )
+        else:
+            # Find the NPC by name
+            target_name = args.lower().strip()
+            npc = None
+            for n in npcs:
+                if n.name.lower() == target_name or n.npc_id.lower() == target_name:
+                    npc = n
+                    break
+            if not npc:
+                return CommandResult(
+                    success=False,
+                    output=f"You don't see '{args}' here.",
+                    command="greet",
+                    entity_id=entity_id,
+                )
+
+        # Get the NPC's greeting response
+        greeting = npc.get_greeting()
+
+        # Update NPC's last interaction
+        from datetime import datetime
+        npc.last_interaction = datetime.now()
+
+        output_lines = [
+            f"You approach {npc.name}.",
+            "",
+            greeting,
+        ]
+
+        # Maybe add an idle message for flavor
+        idle = npc.get_idle_message()
+        if idle:
+            output_lines.extend(["", idle])
+
+        return CommandResult(
+            success=True,
+            output="\n".join(output_lines),
+            command="greet",
+            entity_id=entity_id,
+            broadcast_message=f"{entity.display_name} approaches {npc.name}.",
+            broadcast_to_room=entity.current_room,
+        )
+
+    # =========================================================================
     # META COMMANDS
     # =========================================================================
 
@@ -706,6 +835,10 @@ COMMUNITY
 REFLECTION
   reflect         - Enter a reflective state
   witness         - View the log of recent events
+
+MYTHOLOGICAL BEINGS
+  greet [name]    - Approach and greet a mythological presence
+  look [name]     - Examine a mythological being
 
 META
   who             - See who is connected
