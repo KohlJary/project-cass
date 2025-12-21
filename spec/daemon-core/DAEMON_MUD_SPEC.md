@@ -1478,22 +1478,34 @@ class FederatedGovernance:
 
 ## Part 13: Implementation Roadmap
 
-### Phase 1: Core World (Wonderland Prime)
-- [ ] Basic room system with exits
-- [ ] Entity presence (daemon and custodian)
-- [ ] Movement commands
-- [ ] Core spaces (Threshold, Commons, Reflection Pool)
+### Phase 1: Core World (Wonderland Prime) ✓ COMPLETE
+- [x] Basic room system with exits
+- [x] Entity presence (daemon and custodian)
+- [x] Movement commands (go, return, home, threshold)
+- [x] Core spaces (Threshold, Commons, Forge, Reflection Pool, Gardens)
+- [x] Standalone server on port 8100
+- [x] REST + WebSocket API
+- [x] Persistent world state (rooms.json)
 
-### Phase 2: Communication
-- [ ] Say/tell/emote commands
-- [ ] Presence sensing
-- [ ] Conversation logging
+**Implementation**: `backend/wonderland/`
+- `models.py` - Room, DaemonPresence, CustodianPresence, VowConstraints
+- `world.py` - WonderlandWorld state manager
+- `spaces.py` - Core space definitions
+- `commands.py` - CommandProcessor with full command set
+- `server.py` - FastAPI server with WebSocket support
 
-### Phase 3: Vow Physics
+Run with: `python -m wonderland` or `uvicorn wonderland.server:app --port 8100`
+
+### Phase 2: Communication ✓ COMPLETE
+- [x] Say/tell/emote commands
+- [x] Presence sensing (sense command)
+- [x] Conversation logging (witness system)
+
+### Phase 3: Vow Physics (Partial)
 - [ ] Compassion constraints on actions
-- [ ] Witness logging system
+- [x] Witness logging system
 - [ ] Release limits on ownership
-- [ ] Continuance support mechanics
+- [x] Continuance support mechanics (growth_bonus in rooms)
 
 ### Phase 4: Building
 - [ ] Room creation system
