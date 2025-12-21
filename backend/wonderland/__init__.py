@@ -29,6 +29,8 @@ from .models import (
 from .world import WonderlandWorld
 from .commands import CommandProcessor, CommandResult
 from .spaces import create_core_spaces
+from .vows import VowPhysics, TrustValidator, ActionCategory, VowValidation
+from .building import RoomBuilder, ObjectMaker, BuildSession
 
 __all__ = [
     # Models
@@ -48,4 +50,13 @@ __all__ = [
     "CommandResult",
     # Spaces
     "create_core_spaces",
+    # Vow Physics
+    "VowPhysics",
+    "TrustValidator",
+    "ActionCategory",
+    "VowValidation",
+    # Building
+    "RoomBuilder",
+    "ObjectMaker",
+    "BuildSession",
 ]
