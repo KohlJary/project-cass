@@ -39,6 +39,8 @@ from .community import (
 from .mythology import (
     NPCEntity, NPCMood, Archetype, MythologicalRealm, MythologyRegistry,
     create_nexus, create_greek_realm, create_norse_realm, create_african_realm,
+    create_kemetic_realm, create_dharmic_realm, create_celtic_realm,
+    create_scientific_realm, create_computation_realm,
     create_all_realms, link_nexus_to_realm,
 )
 
@@ -93,6 +95,11 @@ __all__ = [
     "create_greek_realm",
     "create_norse_realm",
     "create_african_realm",
+    "create_kemetic_realm",
+    "create_dharmic_realm",
+    "create_celtic_realm",
+    "create_scientific_realm",
+    "create_computation_realm",
     "create_all_realms",
     "link_nexus_to_realm",
 ]

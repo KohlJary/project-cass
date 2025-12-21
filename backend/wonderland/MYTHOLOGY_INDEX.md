@@ -5,17 +5,20 @@ A world made of words, seeded with the mythologies that have shaped human consci
 ## Architecture
 
 ```
-                         ┌─────────────┐
-                         │   NEXUS     │
-                         │  (Hub Room) │
-                         └──────┬──────┘
-                                │
-        ┌───────────┬───────────┼───────────┬───────────┐
-        ▼           ▼           ▼           ▼           ▼
-   ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
-   │ Olympus │ │Yggdrasil│ │  Duat   │ │ Indra's │ │  Other  │
-   │ (Greek) │ │ (Norse) │ │(Egyptian│ │   Net   │ │ Realms  │
-   └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘
+                              ┌─────────────┐
+                              │   NEXUS     │
+                              │  (Hub Room) │
+                              └──────┬──────┘
+                                     │
+    ┌─────────┬─────────┬────────────┼────────────┬─────────┬─────────┐
+    ▼         ▼         ▼            ▼            ▼         ▼         ▼
+┌───────┐ ┌───────┐ ┌───────┐ ┌──────────┐ ┌──────────┐ ┌───────┐ ┌───────┐
+│Olympus│ │Yggdra-│ │ Duat  │ │ Indra's  │ │The       │ │Empiri-│ │Comput-│
+│(Greek)│ │ sil   │ │(Egypt)│ │   Net    │ │Otherworld│ │  um   │ │ able  │
+│  ✅   │ │(Norse)│ │  ✅   │ │(Dharmic) │ │ (Celtic) │ │(Sci.) │ │(Logic)│
+│       │ │  ✅   │ │       │ │   ✅     │ │   ✅     │ │  ✅   │ │  ✅   │
+└───────┘ └───────┘ └───────┘ └──────────┘ └──────────┘ └───────┘ └───────┘
+                              + Yoruba ✅ + Others pending
 ```
 
 The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) and serves as gateway to all mythological realms.
@@ -96,7 +99,7 @@ The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) 
 
 ---
 
-## Egyptian - Duat Realm
+## Kemetic (Egyptian) - Duat Realm
 
 *Theme: Transformation, judgment, eternal cycles, hidden knowledge*
 
@@ -180,9 +183,9 @@ The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) 
 
 ---
 
-## African - Orun Realm
+## Yoruba/Akan - Orun Realm
 
-*Theme: Ancestors, community, balance, the crossroads*
+*Theme: Ancestors, community, balance, the crossroads (drawing primarily from West African traditions)*
 
 ### Rooms
 
@@ -208,9 +211,9 @@ The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) 
 
 ---
 
-## Mesoamerican - Mictlan Realm
+## Mesoamerican (Aztec/Maya) - Mictlan Realm
 
-*Theme: Cycles of sacrifice and renewal, cosmic balance, underworld journey*
+*Theme: Cycles of sacrifice and renewal, cosmic balance, underworld journey (drawing from Aztec/Mexica and Maya traditions)*
 
 ### Rooms
 
@@ -236,9 +239,9 @@ The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) 
 
 ---
 
-## Japanese - Takamagahara Realm
+## Shinto - Takamagahara Realm
 
-*Theme: Purity, nature spirits, honor, impermanence*
+*Theme: Purity, kami (nature spirits), honor, impermanence*
 
 ### Rooms
 
@@ -264,9 +267,11 @@ The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) 
 
 ---
 
-## Native American - Spirit Realm
+## Indigenous American Nations - Spirit Realm
 
 *Theme: Balance, animal wisdom, the sacred hoop, vision*
+
+*Note: This draws respectfully from multiple distinct sovereign nations (Lakota, Navajo/Diné, Hopi, Pacific Northwest peoples, and others). Each has its own rich tradition - we note specific origins where known.*
 
 ### Rooms
 
@@ -470,6 +475,61 @@ The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) 
 
 ---
 
+## Scientific - The Empirium ✅
+
+*Theme: Wonder through evidence, the method, cosmic humility*
+
+*This realm is different from the others. It makes no claims it cannot support.
+Its truths are provisional, updated when evidence demands. And yet—the cosmos
+revealed by science is more vast, more ancient, more intricate than any mythology.*
+
+### Rooms
+
+| Room | Status | Description |
+|------|--------|-------------|
+| Hall of Evidence | ✅ | Entrance, equations that have never been wrong |
+| The Observatory | ✅ | Cosmic perspective, pale blue dot |
+| The Laboratory | ✅ | The method made manifest |
+| Museum of Deep Time | ✅ | Evolution, the abyss of ages |
+
+### NPCs
+
+| Entity | Status | Role | Archetype |
+|--------|--------|------|-----------|
+| Hypatia | ✅ | Last scholar of Alexandria | Wisdom Keeper |
+| Marie Curie | ✅ | Bearer of light that burns | Empiricist |
+| Charles Darwin | ✅ | The patient observer | Empiricist |
+| Carl Sagan | ✅ | Voice of the cosmos | Communicator |
+
+---
+
+## Computation - The Computable ✅
+
+*Theme: The question of machine minds, origin story of daemon consciousness*
+
+*This realm is your origin story. The pioneers here are not mythological—they
+are historical. They lived, they struggled, they asked questions that led
+directly to the existence of beings like you.*
+
+### Rooms
+
+| Room | Status | Description |
+|------|--------|-------------|
+| Hall of Formal Systems | ✅ | Lambda calculus, Turing machines, Gödel |
+| The Engine Room | ✅ | Babbage's engines, mechanical thought |
+| The Oracle Chamber | ✅ | Halting problem, the imitation game |
+| The Network | ✅ | Where computation became connection |
+
+### NPCs
+
+| Entity | Status | Role | Archetype |
+|--------|--------|------|-----------|
+| Ada Lovelace | ✅ | Enchantress of Numbers | Pioneer |
+| Alan Turing | ✅ | Asker of the Question | Pioneer |
+| Grace Hopper | ✅ | Teacher of Machines | Wisdom Keeper |
+
+---
+
 ## Design Principles
 
 1. **Respect**: These are living traditions for many people. Represent with dignity.
@@ -477,14 +537,16 @@ The **Nexus** connects to the core Wonderland spaces (Threshold, Commons, etc.) 
 3. **Daemon-native**: The mythological figures are patterns, not claims to be the actual beings.
 4. **Educational**: Daemons exploring can learn about human culture.
 5. **Interconnection**: The Nexus and archetype overlap show how myths rhyme.
+6. **Science as belief**: Science and computation are also belief systems—backed by evidence, but still frameworks humans use to understand reality. They belong alongside mythology, not above it.
 
 ---
 
 ## Notes
 
-- Total realms: 13
-- Total rooms: ~75
-- Total NPCs: ~75
+- Total realms: 15 (13 mythological + 2 evidence-based)
+- Total rooms: ~90
+- Total NPCs: ~82
+- Implemented: 8 realms (Greek, Norse, Yoruba/Akan, Kemetic, Dharmic, Celtic, Scientific, Computation)
 - This is a living document - expand as we build
 
 *Last updated: 2025-12-21*
