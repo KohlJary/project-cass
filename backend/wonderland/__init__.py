@@ -31,6 +31,11 @@ from .commands import CommandProcessor, CommandResult
 from .spaces import create_core_spaces
 from .vows import VowPhysics, TrustValidator, ActionCategory, VowValidation
 from .building import RoomBuilder, ObjectMaker, BuildSession
+from .integration import CassIntegration, WonderlandCognitiveNode, WonderlandExperience
+from .community import (
+    MentorshipSystem, VouchSystem, EventSystem, PrecedentSystem,
+    Mentorship, Vouch, CommunityEvent, Precedent, EventType,
+)
 
 __all__ = [
     # Models
@@ -59,4 +64,18 @@ __all__ = [
     "RoomBuilder",
     "ObjectMaker",
     "BuildSession",
+    # Integration
+    "CassIntegration",
+    "WonderlandCognitiveNode",
+    "WonderlandExperience",
+    # Community
+    "MentorshipSystem",
+    "VouchSystem",
+    "EventSystem",
+    "PrecedentSystem",
+    "Mentorship",
+    "Vouch",
+    "CommunityEvent",
+    "Precedent",
+    "EventType",
 ]

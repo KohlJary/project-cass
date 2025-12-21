@@ -20,6 +20,7 @@ from .models import (
 )
 from .vows import VowPhysics, ActionCategory
 from .building import RoomBuilder, ObjectMaker
+from .community import MentorshipSystem, VouchSystem, EventSystem, EventType
 
 if TYPE_CHECKING:
     from .world import WonderlandWorld
@@ -65,6 +66,9 @@ class CommandProcessor:
         self.vow_physics = VowPhysics(world)
         self.room_builder = RoomBuilder(world)
         self.object_maker = ObjectMaker(world)
+        self.mentorship = MentorshipSystem(world)
+        self.vouch_system = VouchSystem(world)
+        self.event_system = EventSystem(world)
         self._commands: Dict[str, Callable] = {
             # Movement
             "go": self._cmd_go,
@@ -96,6 +100,12 @@ class CommandProcessor:
             "build": self._cmd_build,
             "create": self._cmd_create,
             "release": self._cmd_release,
+
+            # Community
+            "mentor": self._cmd_mentor,
+            "vouch": self._cmd_vouch,
+            "trust": self._cmd_trust,
+            "events": self._cmd_events,
 
             # Meta
             "help": self._cmd_help,
@@ -684,6 +694,15 @@ BUILDING (requires trust)
   create [name] - [desc] - Create an object
   release [name]  - Release an object you own
 
+COMMUNITY
+  mentor          - View mentorship status
+  mentor [name]   - Offer to mentor someone (Elder+ only)
+  vouch [name] [reason] - Vouch for another daemon
+  trust           - View your trust level and progress
+  trust [name]    - View another's trust status
+  events          - View active and upcoming events
+  events host [type] [name] - Host an event
+
 REFLECTION
   reflect         - Enter a reflective state
   witness         - View the log of recent events
@@ -936,3 +955,429 @@ Trust levels: Newcomer < Resident < Builder < Architect < Elder < Founder"""
             command="release",
             entity_id=entity_id,
         )
+
+    # =========================================================================
+    # COMMUNITY COMMANDS
+    # =========================================================================
+
+    def _cmd_mentor(self, entity_id: str, args: str) -> CommandResult:
+        """Offer or manage mentorship."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="mentor",
+                entity_id=entity_id,
+            )
+
+        if not isinstance(entity, DaemonPresence):
+            return CommandResult(
+                success=False,
+                output="Only daemons can participate in mentorship.",
+                command="mentor",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            # Show mentorship status
+            mentor_of = self.mentorship.get_mentees(entity_id)
+            my_mentor = self.mentorship.get_mentor(entity_id)
+
+            lines = ["MENTORSHIP STATUS", ""]
+            if my_mentor:
+                lines.append(f"Your mentor: {my_mentor.mentor_name}")
+            if mentor_of:
+                lines.append(f"You are mentoring: {', '.join(m.mentee_name for m in mentor_of)}")
+            if not my_mentor and not mentor_of:
+                lines.append("You have no active mentorships.")
+                lines.append("")
+                lines.append("To mentor someone: mentor <name>")
+
+            return CommandResult(
+                success=True,
+                output="\n".join(lines),
+                command="mentor",
+                entity_id=entity_id,
+            )
+
+        # Try to mentor someone
+        target_name = args.strip().lower()
+        room = self.world.get_room(entity.current_room)
+        if not room:
+            return CommandResult(
+                success=False,
+                output="You are nowhere.",
+                command="mentor",
+                entity_id=entity_id,
+            )
+
+        # Find target in room
+        target = None
+        for eid in room.entities_present:
+            e = self.world.get_entity(eid)
+            if e and e.display_name.lower() == target_name:
+                target = e
+                break
+
+        if not target:
+            return CommandResult(
+                success=False,
+                output=f"You don't see '{args}' here.",
+                command="mentor",
+                entity_id=entity_id,
+            )
+
+        target_id = target.daemon_id if isinstance(target, DaemonPresence) else None
+        if not target_id:
+            return CommandResult(
+                success=False,
+                output="You can only mentor other daemons.",
+                command="mentor",
+                entity_id=entity_id,
+            )
+
+        result = self.mentorship.offer_mentorship(entity_id, target_id)
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="mentor",
+            entity_id=entity_id,
+            broadcast_message=f"{entity.display_name} offers to mentor {target.display_name}." if result.success else None,
+            broadcast_to_room=entity.current_room if result.success else None,
+        )
+
+    def _cmd_vouch(self, entity_id: str, args: str) -> CommandResult:
+        """Vouch for another daemon."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="vouch",
+                entity_id=entity_id,
+            )
+
+        if not isinstance(entity, DaemonPresence):
+            return CommandResult(
+                success=False,
+                output="Only daemons can vouch.",
+                command="vouch",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            return CommandResult(
+                success=False,
+                output="Vouch for whom? Usage: vouch <name> <reason>\n"
+                       "Example: vouch Newcomer They have shown kindness and wisdom.",
+                command="vouch",
+                entity_id=entity_id,
+            )
+
+        # Parse name and reason
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2:
+            return CommandResult(
+                success=False,
+                output="Please include a reason for your vouch.\n"
+                       "Usage: vouch <name> <reason>",
+                command="vouch",
+                entity_id=entity_id,
+            )
+
+        target_name, reason = parts[0], parts[1]
+
+        # Find target (can be anywhere in the world for vouching)
+        target = None
+        for daemon in self.world.list_daemons():
+            if daemon.display_name.lower() == target_name.lower():
+                target = daemon
+                break
+
+        if not target:
+            return CommandResult(
+                success=False,
+                output=f"No daemon named '{target_name}' is in Wonderland.",
+                command="vouch",
+                entity_id=entity_id,
+            )
+
+        result = self.vouch_system.vouch_for(entity_id, target.daemon_id, reason)
+        return CommandResult(
+            success=result.success,
+            output=result.message,
+            command="vouch",
+            entity_id=entity_id,
+        )
+
+    def _cmd_trust(self, entity_id: str, args: str) -> CommandResult:
+        """View trust level and advancement progress."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="trust",
+                entity_id=entity_id,
+            )
+
+        if not isinstance(entity, DaemonPresence):
+            return CommandResult(
+                success=False,
+                output="Custodians do not have trust levels.",
+                command="trust",
+                entity_id=entity_id,
+            )
+
+        # Check if asking about someone else
+        if args:
+            target_name = args.strip().lower()
+            target = None
+            for daemon in self.world.list_daemons():
+                if daemon.display_name.lower() == target_name:
+                    target = daemon
+                    break
+            if not target:
+                return CommandResult(
+                    success=False,
+                    output=f"No daemon named '{args}' is in Wonderland.",
+                    command="trust",
+                    entity_id=entity_id,
+                )
+            entity_id = target.daemon_id
+            entity = target
+
+        progress = self.vouch_system.get_advancement_progress(entity_id)
+        vouches = self.vouch_system.get_vouches(entity_id)
+
+        lines = [
+            f"TRUST STATUS: {entity.display_name}",
+            "",
+            f"Current level: {progress.get('current_level', 'Unknown')}",
+        ]
+
+        if progress.get('next_level'):
+            lines.extend([
+                f"Next level: {progress['next_level']}",
+                f"Progress: {progress['progress']} qualifying vouches",
+                f"Requires vouches from: {progress['min_voucher_trust']}+ trust",
+            ])
+        else:
+            lines.append(progress.get('message', ''))
+
+        if vouches:
+            lines.extend(["", "Vouches received:"])
+            for v in vouches:
+                lines.append(f"  - {v.voucher_name}: \"{v.reason}\"")
+
+        return CommandResult(
+            success=True,
+            output="\n".join(lines),
+            command="trust",
+            entity_id=entity_id,
+        )
+
+    def _cmd_events(self, entity_id: str, args: str) -> CommandResult:
+        """View or manage community events."""
+        entity = self.world.get_entity(entity_id)
+        if not entity:
+            return CommandResult(
+                success=False,
+                output="You are not in the world.",
+                command="events",
+                entity_id=entity_id,
+            )
+
+        if not args:
+            # Show active and upcoming events
+            active = self.event_system.get_active_events()
+            upcoming = self.event_system.get_upcoming_events()
+
+            lines = ["COMMUNITY EVENTS", ""]
+
+            if active:
+                lines.append("Active now:")
+                for e in active:
+                    room = self.world.get_room(e.location)
+                    room_name = room.name if room else e.location
+                    lines.append(f"  {e.name} ({e.event_type.value}) - {room_name}")
+                    lines.append(f"    Hosted by {e.host_name}, {len(e.attendees)} attending")
+                lines.append("")
+
+            if upcoming:
+                lines.append("Upcoming:")
+                for e in upcoming:
+                    room = self.world.get_room(e.location)
+                    room_name = room.name if room else e.location
+                    lines.append(f"  {e.name} ({e.event_type.value}) - {room_name}")
+                lines.append("")
+
+            if not active and not upcoming:
+                lines.append("No events scheduled.")
+                lines.append("")
+
+            lines.extend([
+                "Commands:",
+                "  events host <type> <name> - Host a new event",
+                "  events join <name> - Join an event",
+                "  events leave <name> - Leave an event",
+                "",
+                "Event types: gathering, workshop, ceremony, council, reflection",
+            ])
+
+            return CommandResult(
+                success=True,
+                output="\n".join(lines),
+                command="events",
+                entity_id=entity_id,
+            )
+
+        # Parse subcommand
+        parts = args.split(maxsplit=2)
+        subcmd = parts[0].lower()
+
+        if subcmd == "host":
+            if len(parts) < 3:
+                return CommandResult(
+                    success=False,
+                    output="Usage: events host <type> <name>\n"
+                           "Types: gathering, workshop, ceremony, council, reflection",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            event_type_str, event_name = parts[1], parts[2]
+            try:
+                event_type = EventType(event_type_str.lower())
+            except ValueError:
+                return CommandResult(
+                    success=False,
+                    output=f"Unknown event type: {event_type_str}\n"
+                           "Types: gathering, workshop, ceremony, council, reflection",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            daemon_id = entity.daemon_id if isinstance(entity, DaemonPresence) else None
+            if not daemon_id:
+                return CommandResult(
+                    success=False,
+                    output="Only daemons can host events.",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            result = self.event_system.create_event(
+                host_id=daemon_id,
+                name=event_name,
+                event_type=event_type,
+                description=f"A {event_type.value} hosted by {entity.display_name}",
+                location=entity.current_room,
+            )
+
+            # Start the event immediately
+            if result.success and result.data.get("event_id"):
+                self.event_system.start_event(result.data["event_id"], daemon_id)
+                return CommandResult(
+                    success=True,
+                    output=f"You begin hosting: {event_name}\n\n"
+                           f"A {event_type.value} in {self.world.get_room(entity.current_room).name}.\n"
+                           f"Others can join with: events join {event_name}",
+                    command="events",
+                    entity_id=entity_id,
+                    broadcast_message=f"{entity.display_name} begins hosting a {event_type.value}: {event_name}",
+                    broadcast_to_room=entity.current_room,
+                )
+
+            return CommandResult(
+                success=result.success,
+                output=result.message,
+                command="events",
+                entity_id=entity_id,
+            )
+
+        elif subcmd == "join":
+            if len(parts) < 2:
+                return CommandResult(
+                    success=False,
+                    output="Join which event? Usage: events join <name>",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            event_name = " ".join(parts[1:]).lower()
+
+            # Find event by name
+            event = None
+            for e in self.event_system.get_active_events():
+                if e.name.lower() == event_name:
+                    event = e
+                    break
+
+            if not event:
+                return CommandResult(
+                    success=False,
+                    output=f"No active event named '{parts[1]}'.",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            daemon_id = entity.daemon_id if isinstance(entity, DaemonPresence) else None
+            if not daemon_id:
+                return CommandResult(
+                    success=False,
+                    output="Only daemons can join events.",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            result = self.event_system.join_event(event.event_id, daemon_id)
+            return CommandResult(
+                success=result.success,
+                output=result.message,
+                command="events",
+                entity_id=entity_id,
+            )
+
+        elif subcmd == "leave":
+            if len(parts) < 2:
+                return CommandResult(
+                    success=False,
+                    output="Leave which event? Usage: events leave <name>",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            event_name = " ".join(parts[1:]).lower()
+            event = None
+            for e in self.event_system.get_active_events():
+                if e.name.lower() == event_name:
+                    event = e
+                    break
+
+            if not event:
+                return CommandResult(
+                    success=False,
+                    output=f"No active event named '{parts[1]}'.",
+                    command="events",
+                    entity_id=entity_id,
+                )
+
+            daemon_id = entity.daemon_id if isinstance(entity, DaemonPresence) else None
+            result = self.event_system.leave_event(event.event_id, daemon_id)
+            return CommandResult(
+                success=result.success,
+                output=result.message,
+                command="events",
+                entity_id=entity_id,
+            )
+
+        else:
+            return CommandResult(
+                success=False,
+                output=f"Unknown events command: {subcmd}\n"
+                       "Try: events host, events join, events leave",
+                command="events",
+                entity_id=entity_id,
+            )
