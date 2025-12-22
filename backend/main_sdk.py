@@ -955,6 +955,89 @@ async def startup_event():
             # Initialize admin API access
             init_scheduler(synkratos)
 
+            # Initialize autonomous scheduling (Cass decides her own work)
+            from config import AUTONOMOUS_SCHEDULING_ENABLED
+            if AUTONOMOUS_SCHEDULING_ENABLED:
+                try:
+                    from scheduling import (
+                        SchedulingDecisionEngine,
+                        AutonomousScheduler,
+                        DayPhaseTracker,
+                        PhaseQueueManager,
+                    )
+                    from sources.autonomous_schedule_source import AutonomousScheduleSource
+                    from memory.questions import OpenQuestionManager
+
+                    # Create the decision engine with Cass's identity context
+                    question_manager = OpenQuestionManager(daemon_id=_daemon_id)
+                    decision_engine = SchedulingDecisionEngine(
+                        daemon_id=_daemon_id,
+                        state_bus=global_state_bus,
+                        budget_manager=budget_manager,
+                        self_manager=self_manager,
+                        question_manager=question_manager,
+                    )
+
+                    # Create and start the autonomous scheduler
+                    autonomous_scheduler = AutonomousScheduler(
+                        synkratos=synkratos,
+                        decision_engine=decision_engine,
+                        state_bus=global_state_bus,
+                    )
+
+                    # Register as queryable source
+                    autonomous_source = AutonomousScheduleSource(
+                        daemon_id=_daemon_id,
+                        autonomous_scheduler=autonomous_scheduler,
+                    )
+                    global_state_bus.register_source(autonomous_source)
+
+                    # === Day Phase Tracking ===
+                    # Tracks time-of-day phases (morning/afternoon/evening/night)
+                    # Emits day_phase.changed events that other systems can subscribe to
+                    day_phase_tracker = DayPhaseTracker(state_bus=global_state_bus)
+
+                    # === Phase-Based Work Queues ===
+                    # Work can be queued for specific phases, triggered on phase transition
+                    phase_queue_manager = PhaseQueueManager(
+                        synkratos=synkratos,
+                        state_bus=global_state_bus,
+                    )
+
+                    # Subscribe phase queue to day phase transitions
+                    # When phase changes, queued work for that phase gets dispatched
+                    day_phase_tracker.on_phase_change(phase_queue_manager.on_phase_changed)
+
+                    # Subscribe autonomous scheduler to phase changes
+                    # Morning phase triggers daily planning
+                    day_phase_tracker.on_phase_change(autonomous_scheduler.on_phase_changed)
+
+                    # Give autonomous scheduler access to phase queuing
+                    autonomous_scheduler.set_phase_queue(phase_queue_manager)
+
+                    # Register global accessors for GraphQL/API access
+                    from routes.admin.scheduler import (
+                        set_scheduler,
+                        set_autonomous_scheduler,
+                        set_phase_queue_manager,
+                    )
+                    set_scheduler(synkratos)
+                    set_autonomous_scheduler(autonomous_scheduler)
+                    set_phase_queue_manager(phase_queue_manager)
+
+                    # Start day phase tracking and autonomous scheduling
+                    asyncio.create_task(day_phase_tracker.start())
+                    asyncio.create_task(autonomous_scheduler.start())
+                    logger.info("Autonomous scheduling enabled - Cass decides her own work")
+                    logger.info(f"Day phase tracker started - current phase: {day_phase_tracker.current_phase}")
+
+                except Exception as e:
+                    logger.error(f"Failed to initialize autonomous scheduling: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                logger.info("Autonomous scheduling disabled by config")
+
             # Start Synkratos
             asyncio.create_task(synkratos.start())
             logger.info("Synkratos started with all system tasks enabled")
@@ -973,23 +1056,14 @@ async def startup_event():
                 memory=memory,
                 token_tracker=token_tracker
             ))
-            asyncio.create_task(rhythm_phase_monitor_task(
-                daily_rhythm_manager,
-                runners={
-                    "research": get_research_runner(),
-                    "reflection": get_reflection_runner(),
-                    "synthesis": get_synthesis_runner(),
-                    "meta_reflection": get_meta_reflection_runner(),
-                    "consolidation": get_consolidation_runner(),
-                    "growth_edge": get_growth_edge_runner(),
-                    "knowledge_building": get_knowledge_building_runner(),
-                    "writing": get_writing_runner(),
-                    "curiosity": get_curiosity_runner(),
-                    "world_state": get_world_state_runner(),
-                    "creative": get_creative_runner(),
-                },
-                self_model_graph=self_model_graph
-            ))
+            # OLD DAILY RHYTHM DISABLED - replaced by autonomous scheduling
+            # TODO: Remove DailyRhythmManager and rhythm_phase_monitor_task entirely
+            # See scheduler/MIGRATION_PLAN.md for cleanup steps
+            # asyncio.create_task(rhythm_phase_monitor_task(
+            #     daily_rhythm_manager,
+            #     runners={...},
+            #     self_model_graph=self_model_graph
+            # ))
 
     asyncio.create_task(start_deferred_tasks())
 

@@ -508,22 +508,43 @@ async def assign_conversation_user(
 @router.get("/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
     conversation_id: str,
+    limit: int = 0,
+    since_hours: float = 0,
     user: Dict = Depends(require_auth)
 ):
-    """Get all messages in a conversation"""
+    """Get messages in a conversation.
+
+    Args:
+        limit: Maximum number of messages to return (0 = all)
+        since_hours: Only return messages from the last N hours (0 = all)
+    """
     from database import get_db
+    from datetime import datetime, timedelta
     import json
 
     try:
         with get_db() as conn:
-            # Get messages directly from database
-            cursor = conn.execute("""
+            # Build query with optional filters
+            query = """
                 SELECT role, content, timestamp, provider, model,
                        input_tokens, output_tokens, user_id
                 FROM messages
                 WHERE conversation_id = ?
-                ORDER BY timestamp ASC
-            """, (conversation_id,))
+            """
+            params = [conversation_id]
+
+            if since_hours > 0:
+                # Use local time since DB timestamps are local
+                cutoff = (datetime.now() - timedelta(hours=since_hours)).isoformat()
+                query += " AND timestamp >= ?"
+                params.append(cutoff)
+
+            query += " ORDER BY timestamp DESC"  # Get most recent first for limit
+
+            if limit > 0:
+                query += f" LIMIT {limit}"
+
+            cursor = conn.execute(query, params)
 
             messages = []
             for row in cursor.fetchall():
@@ -538,9 +559,10 @@ async def get_conversation_messages(
                     "user_id": row[7]
                 })
 
-            if not messages:
-                raise HTTPException(status_code=404, detail="Conversation not found")
+            # Reverse back to chronological order (we queried DESC for limit)
+            messages.reverse()
 
+            # Don't 404 on empty - continuous conversations may have no messages yet
             return {"messages": messages}
 
     except HTTPException:

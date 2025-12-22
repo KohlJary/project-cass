@@ -127,7 +127,8 @@ export const conversationsApi = {
   getAll: (params?: { user_id?: string; limit?: number }) =>
     api.get('/admin/conversations', { params }),
   getById: (id: string) => api.get(`/admin/conversations/${id}`),
-  getMessages: (id: string) => api.get(`/admin/conversations/${id}/messages`),
+  getMessages: (id: string, params?: { limit?: number; since_hours?: number }) =>
+    api.get(`/admin/conversations/${id}/messages`, { params }),
   getSummaries: (id: string) => api.get(`/admin/conversations/${id}/summaries`),
   getObservations: (id: string) => api.get(`/admin/conversations/${id}/observations`),
   assignUser: (id: string, userId: string | null) =>

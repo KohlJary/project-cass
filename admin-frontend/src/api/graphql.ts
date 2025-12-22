@@ -105,6 +105,15 @@ export interface ConversationStats {
   activeUsersToday: number;
 }
 
+export interface ContinuousConversation {
+  conversationId: string;
+  userId: string;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+  hasWorkingSummary: boolean;
+}
+
 export interface MemoryStats {
   totalJournals: number;
   totalThreads: number;
@@ -139,8 +148,10 @@ export interface EmotionalState {
 
 export interface ActivityState {
   current: string;
-  sessionId: string | null;
   userId: string | null;
+  contactStarted: string | null;
+  messagesThisContact: number;
+  currentTopics: string[];
   rhythmPhase: string | null;
   rhythmSummary: string | null;
   activeThreads: number;
@@ -305,8 +316,10 @@ export const DASHBOARD_QUERY = gql`
       }
       activity {
         current
-        sessionId
         userId
+        contactStarted
+        messagesThisContact
+        currentTopics
         rhythmPhase
         rhythmSummary
         activeThreads
@@ -734,4 +747,168 @@ export const addPeopleDexRelationship = async (input: {
 
 export const deletePeopleDexRelationship = async (relId: string): Promise<{ deletePeopledexRelationship: MutationResult }> => {
   return getGraphQLClient().request(DELETE_PEOPLEDEX_RELATIONSHIP, { relId });
+};
+
+// =============================================================================
+// AUTONOMOUS SCHEDULE TYPES
+// =============================================================================
+
+export interface WorkUnit {
+  id: string;
+  name: string;
+  templateId: string | null;
+  category: string | null;
+  focus: string | null;
+  motivation: string | null;
+  estimatedDurationMinutes: number;
+  estimatedCostUsd: number;
+  status: string;
+}
+
+export interface QueuedWorkUnit {
+  workUnit: WorkUnit;
+  targetPhase: string;
+  queuedAt: string;
+  priority: number;
+}
+
+export interface PhaseQueue {
+  phase: string;
+  isCurrent: boolean;
+  queueCount: number;
+  workUnits: QueuedWorkUnit[];
+}
+
+export interface TodaysPlanByPhase {
+  phase: string;
+  workUnits: WorkUnit[];
+}
+
+export interface TodaysPlan {
+  dayIntention: string | null;
+  plannedAt: string | null;
+  phases: TodaysPlanByPhase[];
+  totalWorkUnits: number;
+}
+
+export interface CurrentWork {
+  workUnit: WorkUnit;
+  startedAt: string;
+  elapsedMinutes: number;
+}
+
+export interface DailySummary {
+  date: string;
+  total_work_units: number;
+  by_category: Record<string, { count: number; total_minutes: number }>;
+  current_work: object | null;
+}
+
+export interface AutonomousScheduleState {
+  enabled: boolean;
+  isWorking: boolean;
+  currentWork: CurrentWork | null;
+  todaysPlan: TodaysPlan;
+  phaseQueues: PhaseQueue[];
+  dailySummary: DailySummary;
+}
+
+// =============================================================================
+// AUTONOMOUS SCHEDULE QUERY
+// =============================================================================
+
+export const AUTONOMOUS_SCHEDULE_QUERY = gql`
+  query AutonomousSchedule {
+    autonomousSchedule {
+      enabled
+      isWorking
+      currentWork {
+        workUnit {
+          id
+          name
+          templateId
+          category
+          focus
+          motivation
+          estimatedDurationMinutes
+          estimatedCostUsd
+          status
+        }
+        startedAt
+        elapsedMinutes
+      }
+      todaysPlan {
+        dayIntention
+        plannedAt
+        totalWorkUnits
+        phases {
+          phase
+          workUnits {
+            id
+            name
+            templateId
+            category
+            focus
+            motivation
+            estimatedDurationMinutes
+            estimatedCostUsd
+            status
+          }
+        }
+      }
+      phaseQueues {
+        phase
+        isCurrent
+        queueCount
+        workUnits {
+          workUnit {
+            id
+            name
+            templateId
+            category
+            focus
+            motivation
+            estimatedDurationMinutes
+            estimatedCostUsd
+            status
+          }
+          targetPhase
+          queuedAt
+          priority
+        }
+      }
+      dailySummary
+    }
+  }
+`;
+
+// =============================================================================
+// AUTONOMOUS SCHEDULE QUERY FUNCTION
+// =============================================================================
+
+export const fetchAutonomousSchedule = async (): Promise<{ autonomousSchedule: AutonomousScheduleState }> => {
+  return getGraphQLClient().request(AUTONOMOUS_SCHEDULE_QUERY);
+};
+
+// =============================================================================
+// CONTINUOUS CONVERSATION QUERY
+// =============================================================================
+
+export const CONTINUOUS_CONVERSATION_QUERY = gql`
+  query ContinuousConversation($userId: String!) {
+    continuousConversation(userId: $userId) {
+      conversationId
+      userId
+      messageCount
+      createdAt
+      updatedAt
+      hasWorkingSummary
+    }
+  }
+`;
+
+export const fetchContinuousConversation = async (
+  userId: string
+): Promise<{ continuousConversation: ContinuousConversation }> => {
+  return getGraphQLClient().request(CONTINUOUS_CONVERSATION_QUERY, { userId });
 };

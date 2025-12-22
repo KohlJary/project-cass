@@ -175,3 +175,10 @@ DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 # Use for demo sites where you don't want to persist user uploads
 # Set ATTACHMENTS_SESSION_ONLY=true in .env or environment to enable
 ATTACHMENTS_SESSION_ONLY = os.getenv("ATTACHMENTS_SESSION_ONLY", "false").lower() == "true"
+
+# Autonomous Scheduling Configuration
+# When enabled, Cass decides what to work on during idle time
+# This replaces the rigid daily rhythm system with self-directed scheduling
+AUTONOMOUS_SCHEDULING_ENABLED = os.getenv("AUTONOMOUS_SCHEDULING_ENABLED", "true").lower() == "true"
+AUTONOMOUS_CHECK_INTERVAL_SECONDS = int(os.getenv("AUTONOMOUS_CHECK_INTERVAL", "60"))
+AUTONOMOUS_MIN_IDLE_SECONDS = int(os.getenv("AUTONOMOUS_MIN_IDLE", "120"))

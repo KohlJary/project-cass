@@ -10,9 +10,6 @@ import {
   deletePeopleDexAttribute,
   addPeopleDexRelationship,
   deletePeopleDexRelationship,
-  PeopleDexEntity,
-  PeopleDexProfile,
-  PeopleDexStats,
 } from '../api/graphql';
 import './PeopleDex.css';
 

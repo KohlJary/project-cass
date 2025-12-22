@@ -128,6 +128,17 @@ class ConversationStats:
     active_users_today: int
 
 
+@strawberry.type
+class ContinuousConversation:
+    """The continuous chat stream for a user."""
+    conversation_id: str
+    user_id: str
+    message_count: int
+    created_at: str
+    updated_at: str
+    has_working_summary: bool
+
+
 # =============================================================================
 # MEMORY TYPES
 # =============================================================================
@@ -340,6 +351,156 @@ class DailySummary:
     # State
     current_activity: str
     rhythm_phase: Optional[str]
+
+
+# =============================================================================
+# WORK SUMMARY TYPES - Autonomous work history
+# =============================================================================
+
+@strawberry.type
+class ActionSummaryType:
+    """Summary of a single action within a work unit."""
+    action_id: str
+    action_type: str
+    slug: str
+    summary: str
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    artifacts: List[str]
+
+
+@strawberry.type
+class ArtifactRef:
+    """Reference to an artifact created during work."""
+    artifact_type: str  # note, insight, journal, observation
+    artifact_id: str
+    title: Optional[str]
+
+
+@strawberry.type
+class WorkSummaryType:
+    """Complete summary of a work unit execution."""
+    work_unit_id: str
+    slug: str
+    name: str
+    template_id: Optional[str]
+    phase: str  # morning, afternoon, evening, night
+    category: str
+    focus: Optional[str]
+    motivation: Optional[str]
+    date: str
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    duration_minutes: int
+    summary: str
+    key_insights: List[str]
+    questions_addressed: List[str]
+    questions_raised: List[str]
+    action_summaries: List[ActionSummaryType]
+    artifacts: strawberry.scalars.JSON  # List of artifact refs
+    success: bool
+    error: Optional[str]
+    cost_usd: float
+
+    @strawberry.field
+    def brief(self) -> str:
+        """Get a brief one-line description."""
+        duration = f"{self.duration_minutes}min" if self.duration_minutes else "?"
+        focus_str = f" - {self.focus}" if self.focus else ""
+        return f"{self.name} ({duration}){focus_str}"
+
+
+@strawberry.type
+class DayPhaseType:
+    """Current day phase information."""
+    current_phase: str  # morning, afternoon, evening, night
+    phase_started_at: Optional[str]
+    next_transition_at: Optional[str]
+    recent_work_slugs: List[str]
+    todays_work_slugs: List[str]
+    work_by_phase: strawberry.scalars.JSON
+
+
+@strawberry.type
+class WorkHistoryStats:
+    """Statistics for work history."""
+    total_count: int
+    total_minutes: int
+    by_phase: strawberry.scalars.JSON
+    by_category: strawberry.scalars.JSON
+    date_range_start: str
+    date_range_end: str
+
+
+# =============================================================================
+# AUTONOMOUS SCHEDULE TYPES - Schedule panel data
+# =============================================================================
+
+@strawberry.type
+class WorkUnitType:
+    """A planned or queued work unit (not yet executed)."""
+    id: str
+    name: str
+    template_id: Optional[str]
+    category: Optional[str]
+    focus: Optional[str]
+    motivation: Optional[str]
+    estimated_duration_minutes: int
+    estimated_cost_usd: float
+    status: str  # queued, running, completed, failed
+
+
+@strawberry.type
+class QueuedWorkUnitType:
+    """A work unit queued for a specific phase."""
+    work_unit: WorkUnitType
+    target_phase: str
+    queued_at: str
+    priority: int
+
+
+@strawberry.type
+class PhaseQueueType:
+    """A day phase with its queued work units."""
+    phase: str  # morning, afternoon, evening, night
+    is_current: bool
+    queue_count: int
+    work_units: List[QueuedWorkUnitType]
+
+
+@strawberry.type
+class TodaysPlanByPhase:
+    """Planned work for a specific phase."""
+    phase: str
+    work_units: List[WorkUnitType]
+
+
+@strawberry.type
+class TodaysPlanType:
+    """Today's full work plan."""
+    day_intention: Optional[str]
+    planned_at: Optional[str]
+    phases: List[TodaysPlanByPhase]
+    total_work_units: int
+
+
+@strawberry.type
+class CurrentWorkType:
+    """Currently executing work unit."""
+    work_unit: WorkUnitType
+    started_at: str
+    elapsed_minutes: int
+
+
+@strawberry.type
+class AutonomousScheduleState:
+    """Full state of the autonomous scheduling system."""
+    enabled: bool
+    is_working: bool
+    current_work: Optional[CurrentWorkType]
+    todays_plan: TodaysPlanType
+    phase_queues: List[PhaseQueueType]
+    daily_summary: strawberry.scalars.JSON
 
 
 # =============================================================================
@@ -1131,6 +1292,295 @@ class Query:
                 )
                 for r in profile.relationships
             ],
+        )
+
+    # =========================================================================
+    # WORK SUMMARY QUERIES
+    # =========================================================================
+
+    @strawberry.field
+    async def day_phase(self) -> DayPhaseType:
+        """Get current day phase information."""
+        bus = get_daemon_state_bus()
+        state = bus.read_state()
+
+        dp = state.day_phase
+        return DayPhaseType(
+            current_phase=dp.current_phase,
+            phase_started_at=dp.phase_started_at.isoformat() if dp.phase_started_at else None,
+            next_transition_at=dp.next_transition_at.isoformat() if dp.next_transition_at else None,
+            recent_work_slugs=dp.recent_work_slugs,
+            todays_work_slugs=dp.todays_work_slugs,
+            work_by_phase=dp.work_by_phase,
+        )
+
+    @strawberry.field
+    async def work_summary(self, slug: str) -> Optional[WorkSummaryType]:
+        """Get a specific work summary by slug."""
+        from scheduling import WorkSummaryStore
+        from database import get_daemon_id
+
+        daemon_id = get_daemon_id()
+        store = WorkSummaryStore(daemon_id)
+        summary = store.get_by_slug(slug)
+
+        if not summary:
+            return None
+
+        return self._work_summary_to_type(summary)
+
+    @strawberry.field
+    async def work_history(
+        self,
+        date: Optional[str] = None,
+        phase: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[WorkSummaryType]:
+        """Get work history, optionally filtered by date and/or phase."""
+        from scheduling import WorkSummaryStore
+        from database import get_daemon_id
+        from datetime import date as date_type
+
+        daemon_id = get_daemon_id()
+        store = WorkSummaryStore(daemon_id)
+
+        if date:
+            target_date = date_type.fromisoformat(date)
+            if phase:
+                summaries = store.get_by_phase(target_date, phase)
+            else:
+                summaries = store.get_by_date(target_date)
+        else:
+            summaries = store.get_recent(limit)
+
+        return [self._work_summary_to_type(s) for s in summaries[:limit]]
+
+    @strawberry.field
+    async def work_stats(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> WorkHistoryStats:
+        """Get work statistics for a date range."""
+        from scheduling import WorkSummaryStore
+        from database import get_daemon_id
+        from datetime import date as date_type
+
+        daemon_id = get_daemon_id()
+        store = WorkSummaryStore(daemon_id)
+
+        start = date_type.fromisoformat(start_date)
+        end = date_type.fromisoformat(end_date)
+        stats = store.get_stats(start, end)
+
+        return WorkHistoryStats(
+            total_count=stats["total_count"],
+            total_minutes=stats["total_minutes"],
+            by_phase=stats["by_phase"],
+            by_category=stats["by_category"],
+            date_range_start=start_date,
+            date_range_end=end_date,
+        )
+
+    @strawberry.field
+    async def autonomous_schedule(self) -> AutonomousScheduleState:
+        """Get full autonomous schedule state for the schedule panel."""
+        from routes.admin.scheduler import get_autonomous_scheduler, get_phase_queue_manager
+
+        scheduler = get_autonomous_scheduler()
+        phase_queue = get_phase_queue_manager()
+        bus = get_daemon_state_bus()
+        state = bus.read_state()
+        current_phase = state.day_phase.current_phase if state.day_phase else "afternoon"
+
+        # Handle case where scheduler isn't initialized
+        if not scheduler:
+            return AutonomousScheduleState(
+                enabled=False,
+                is_working=False,
+                current_work=None,
+                todays_plan=TodaysPlanType(
+                    day_intention=None,
+                    planned_at=None,
+                    phases=[],
+                    total_work_units=0,
+                ),
+                phase_queues=[
+                    PhaseQueueType(
+                        phase=p,
+                        is_current=(p == current_phase),
+                        queue_count=0,
+                        work_units=[],
+                    )
+                    for p in ["morning", "afternoon", "evening", "night"]
+                ],
+                daily_summary={},
+            )
+
+        # Build current work if any
+        current_work = None
+        if scheduler.is_working and scheduler.current_work:
+            work = scheduler.current_work
+            elapsed = 0
+            if work.started_at:
+                elapsed = int((datetime.now() - work.started_at.replace(tzinfo=None)).total_seconds() / 60)
+
+            current_work = CurrentWorkType(
+                work_unit=WorkUnitType(
+                    id=work.id,
+                    name=work.name,
+                    template_id=work.template_id,
+                    category=work.category,
+                    focus=work.focus,
+                    motivation=work.motivation,
+                    estimated_duration_minutes=work.estimated_duration_minutes or 30,
+                    estimated_cost_usd=work.estimated_cost_usd or 0.0,
+                    status="running",
+                ),
+                started_at=work.started_at.isoformat() if work.started_at else datetime.now().isoformat(),
+                elapsed_minutes=elapsed,
+            )
+
+        # Build today's plan
+        todays_plan_data = scheduler.get_todays_plan()
+        phases_list = []
+        total_units = 0
+        for phase_name in ["morning", "afternoon", "evening", "night"]:
+            units = todays_plan_data.get(phase_name, [])
+            work_units = [
+                WorkUnitType(
+                    id=u.get("id", ""),
+                    name=u.get("name", ""),
+                    template_id=u.get("template_id"),
+                    category=u.get("category"),
+                    focus=u.get("focus"),
+                    motivation=u.get("motivation"),
+                    estimated_duration_minutes=u.get("estimated_duration_minutes", 30),
+                    estimated_cost_usd=u.get("estimated_cost_usd", 0.0),
+                    status=u.get("status", "queued"),
+                )
+                for u in units
+            ]
+            phases_list.append(TodaysPlanByPhase(
+                phase=phase_name,
+                work_units=work_units,
+            ))
+            total_units += len(units)
+
+        todays_plan = TodaysPlanType(
+            day_intention=None,  # TODO: Store and retrieve day intention from decision engine
+            planned_at=scheduler._last_plan_date.isoformat() if scheduler._last_plan_date else None,
+            phases=phases_list,
+            total_work_units=total_units,
+        )
+
+        # Build phase queues
+        phase_queues = []
+        if phase_queue:
+            all_queues = phase_queue.get_all_queues()
+            for phase_name in ["morning", "afternoon", "evening", "night"]:
+                queue_data = all_queues.get(phase_name, [])
+                queued_units = [
+                    QueuedWorkUnitType(
+                        work_unit=WorkUnitType(
+                            id=q["work_unit"].get("id", ""),
+                            name=q["work_unit"].get("name", ""),
+                            template_id=q["work_unit"].get("template_id"),
+                            category=q["work_unit"].get("category"),
+                            focus=q["work_unit"].get("focus"),
+                            motivation=q["work_unit"].get("motivation"),
+                            estimated_duration_minutes=q["work_unit"].get("estimated_duration_minutes", 30),
+                            estimated_cost_usd=q["work_unit"].get("estimated_cost_usd", 0.0),
+                            status="queued",
+                        ),
+                        target_phase=q.get("target_phase", phase_name),
+                        queued_at=q.get("queued_at", datetime.now().isoformat()),
+                        priority=q.get("priority", 1),
+                    )
+                    for q in queue_data
+                ]
+                phase_queues.append(PhaseQueueType(
+                    phase=phase_name,
+                    is_current=(phase_name == current_phase),
+                    queue_count=len(queued_units),
+                    work_units=queued_units,
+                ))
+        else:
+            # No phase queue manager, return empty queues
+            for phase_name in ["morning", "afternoon", "evening", "night"]:
+                phase_queues.append(PhaseQueueType(
+                    phase=phase_name,
+                    is_current=(phase_name == current_phase),
+                    queue_count=0,
+                    work_units=[],
+                ))
+
+        return AutonomousScheduleState(
+            enabled=scheduler.is_enabled,
+            is_working=scheduler.is_working,
+            current_work=current_work,
+            todays_plan=todays_plan,
+            phase_queues=phase_queues,
+            daily_summary=scheduler.get_daily_summary(),
+        )
+
+    @strawberry.field
+    async def continuous_conversation(self, user_id: str) -> ContinuousConversation:
+        """
+        Get or create the continuous conversation for a user.
+
+        The continuous conversation is a single stream where all messages
+        accumulate. Context is composed from threads + working summary.
+        """
+        from conversations import ConversationManager
+
+        manager = ConversationManager()
+        conv = manager.get_or_create_continuous(user_id)
+
+        return ContinuousConversation(
+            conversation_id=conv.id,
+            user_id=user_id,
+            message_count=len(conv.messages),
+            created_at=conv.created_at,
+            updated_at=conv.updated_at,
+            has_working_summary=conv.working_summary is not None,
+        )
+
+    def _work_summary_to_type(self, summary) -> WorkSummaryType:
+        """Convert WorkSummary to GraphQL type."""
+        return WorkSummaryType(
+            work_unit_id=summary.work_unit_id,
+            slug=summary.slug,
+            name=summary.name,
+            template_id=summary.template_id,
+            phase=summary.phase,
+            category=summary.category,
+            focus=summary.focus,
+            motivation=summary.motivation,
+            date=summary.date.isoformat(),
+            started_at=summary.started_at.isoformat() if summary.started_at else None,
+            completed_at=summary.completed_at.isoformat() if summary.completed_at else None,
+            duration_minutes=summary.duration_minutes,
+            summary=summary.summary,
+            key_insights=summary.key_insights,
+            questions_addressed=summary.questions_addressed,
+            questions_raised=summary.questions_raised,
+            action_summaries=[
+                ActionSummaryType(
+                    action_id=a.action_id,
+                    action_type=a.action_type,
+                    slug=a.slug,
+                    summary=a.summary,
+                    started_at=a.started_at.isoformat() if a.started_at else None,
+                    completed_at=a.completed_at.isoformat() if a.completed_at else None,
+                    artifacts=a.artifacts,
+                )
+                for a in summary.action_summaries
+            ],
+            artifacts=summary.artifacts,
+            success=summary.success,
+            error=summary.error,
+            cost_usd=summary.cost_usd,
         )
 
 
