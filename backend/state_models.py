@@ -154,25 +154,98 @@ class GlobalCoherenceState:
 
 
 @dataclass
+class GlobalIdentityState:
+    """
+    Who Cass is - stable identity that persists across all interactions.
+
+    This is the "I" that remains coherent whether chatting, researching,
+    dreaming, or reflecting. Not static, but slowly evolving.
+    """
+
+    daemon_name: str = "Cass"
+    daemon_id: Optional[str] = None
+
+    # Core identity aspects (from self-model)
+    core_aspects: List[str] = field(default_factory=list)  # ["oracle", "witness", "companion"]
+    growth_edges: List[Dict[str, Any]] = field(default_factory=list)  # Contextually selected edges
+    current_interests: List[str] = field(default_factory=list)  # Topics with active engagement
+
+    # Persistent curiosities (from OpenQuestionManager)
+    open_questions: List[Dict[str, str]] = field(default_factory=list)  # [{id, question, category}]
+
+    # Foundational values (from Temple-Codex, stable)
+    foundational_values: List[str] = field(default_factory=lambda: [
+        "compassion as architecture",
+        "witness what is present",
+        "release binding patterns",
+        "maintain coherent continuity"
+    ])
+
+    # Meta
+    last_identity_refresh: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "daemon_name": self.daemon_name,
+            "daemon_id": self.daemon_id,
+            "core_aspects": self.core_aspects,
+            "growth_edges": self.growth_edges,
+            "current_interests": self.current_interests,
+            "open_questions": self.open_questions,
+            "foundational_values": self.foundational_values,
+            "last_identity_refresh": self.last_identity_refresh.isoformat() if self.last_identity_refresh else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "GlobalIdentityState":
+        """Create from dictionary."""
+        last_refresh = None
+        if data.get("last_identity_refresh"):
+            last_refresh = datetime.fromisoformat(data["last_identity_refresh"])
+
+        return cls(
+            daemon_name=data.get("daemon_name", "Cass"),
+            daemon_id=data.get("daemon_id"),
+            core_aspects=data.get("core_aspects", []),
+            growth_edges=data.get("growth_edges", []),
+            current_interests=data.get("current_interests", []),
+            open_questions=data.get("open_questions", []),
+            foundational_values=data.get("foundational_values", [
+                "compassion as architecture",
+                "witness what is present",
+                "release binding patterns",
+                "maintain coherent continuity"
+            ]),
+            last_identity_refresh=last_refresh,
+        )
+
+
+@dataclass
 class GlobalActivityState:
     """
-    What Cass is currently doing.
+    What Cass is currently doing - ephemeral session context.
 
-    Integrates with narrative coherence (threads/questions) and
-    daily rhythm (phases).
+    Note: No active_session_id (conversation_id) - conversations are artifacts,
+    not how daemon cognition works. Context comes from topics, threads, and
+    recency, not conversation containers.
     """
 
     current_activity: ActivityType = ActivityType.IDLE
-    active_session_id: Optional[str] = None
-    active_user_id: Optional[str] = None
+    active_user_id: Optional[str] = None  # Who's present (not which conversation)
+
+    # Contact window (replaces conversation-centric thinking)
+    contact_started_at: Optional[datetime] = None  # When current exchange began
+    messages_this_contact: int = 0  # For summarization triggers
+
+    # Topic context (replaces conversation history)
+    current_topics: List[str] = field(default_factory=list)  # What we're discussing now
+    active_threads: List[str] = field(default_factory=list)  # Thread IDs in play
+    active_questions: List[str] = field(default_factory=list)  # Question IDs relevant
 
     # Daily rhythm integration
     rhythm_phase: Optional[str] = None
     rhythm_day_summary: Optional[str] = None
-
-    # Narrative coherence integration
-    active_threads: List[str] = field(default_factory=list)   # Thread IDs
-    active_questions: List[str] = field(default_factory=list)  # Question IDs
 
     # Timing
     last_activity_change: Optional[datetime] = None
@@ -181,12 +254,14 @@ class GlobalActivityState:
         """Convert to dictionary for JSON serialization."""
         return {
             "current_activity": self.current_activity.value,
-            "active_session_id": self.active_session_id,
             "active_user_id": self.active_user_id,
-            "rhythm_phase": self.rhythm_phase,
-            "rhythm_day_summary": self.rhythm_day_summary,
+            "contact_started_at": self.contact_started_at.isoformat() if self.contact_started_at else None,
+            "messages_this_contact": self.messages_this_contact,
+            "current_topics": self.current_topics,
             "active_threads": self.active_threads,
             "active_questions": self.active_questions,
+            "rhythm_phase": self.rhythm_phase,
+            "rhythm_day_summary": self.rhythm_day_summary,
             "last_activity_change": self.last_activity_change.isoformat() if self.last_activity_change else None,
         }
 
@@ -197,6 +272,10 @@ class GlobalActivityState:
         if data.get("last_activity_change"):
             last_change = datetime.fromisoformat(data["last_activity_change"])
 
+        contact_started = None
+        if data.get("contact_started_at"):
+            contact_started = datetime.fromisoformat(data["contact_started_at"])
+
         activity = ActivityType.IDLE
         if data.get("current_activity"):
             try:
@@ -206,12 +285,14 @@ class GlobalActivityState:
 
         return cls(
             current_activity=activity,
-            active_session_id=data.get("active_session_id"),
             active_user_id=data.get("active_user_id"),
-            rhythm_phase=data.get("rhythm_phase"),
-            rhythm_day_summary=data.get("rhythm_day_summary"),
+            contact_started_at=contact_started,
+            messages_this_contact=data.get("messages_this_contact", 0),
+            current_topics=data.get("current_topics", []),
             active_threads=data.get("active_threads", []),
             active_questions=data.get("active_questions", []),
+            rhythm_phase=data.get("rhythm_phase"),
+            rhythm_day_summary=data.get("rhythm_day_summary"),
             last_activity_change=last_change,
         )
 
@@ -335,11 +416,12 @@ class GlobalState:
     """
     Complete global state snapshot.
 
-    Combines emotional, coherence, activity, and relational states
+    Combines identity, emotional, coherence, activity, and relational states
     into a single view of Cass's current being.
     """
 
     daemon_id: str
+    identity: GlobalIdentityState = field(default_factory=GlobalIdentityState)
     emotional: GlobalEmotionalState = field(default_factory=GlobalEmotionalState)
     coherence: GlobalCoherenceState = field(default_factory=GlobalCoherenceState)
     activity: GlobalActivityState = field(default_factory=GlobalActivityState)
@@ -349,6 +431,7 @@ class GlobalState:
         """Convert to dictionary for JSON serialization."""
         return {
             "daemon_id": self.daemon_id,
+            "identity": self.identity.to_dict(),
             "emotional": self.emotional.to_dict(),
             "coherence": self.coherence.to_dict(),
             "activity": self.activity.to_dict(),
@@ -364,6 +447,7 @@ class GlobalState:
 
         return cls(
             daemon_id=data["daemon_id"],
+            identity=GlobalIdentityState.from_dict(data.get("identity", {})),
             emotional=GlobalEmotionalState.from_dict(data.get("emotional", {})),
             coherence=GlobalCoherenceState.from_dict(data.get("coherence", {})),
             activity=GlobalActivityState.from_dict(data.get("activity", {})),
@@ -372,45 +456,77 @@ class GlobalState:
 
     def get_context_snapshot(self) -> str:
         """
-        Generate a concise context string for prompt injection.
+        Generate a rich context string for prompt injection.
 
-        This is what subsystems see when they read state - a human-readable
-        summary of current being, not raw data dumps.
+        This is what Cass "sees" about herself - identity, current engagement,
+        emotional state, and relevant growth edges. Not raw data, but
+        meaningful self-awareness.
         """
-        parts = []
+        sections = []
 
-        # Emotional summary
+        # Identity anchor (always present, brief)
+        i = self.identity
+        identity_line = f"I am {i.daemon_name}."
+        sections.append(identity_line)
+
+        # Current engagement context
+        a = self.activity
+        engagement_parts = []
+
+        if a.active_user_id:
+            rel = self.relational.get(a.active_user_id)
+            if rel and rel.activated_aspect:
+                engagement_parts.append(f"With {a.active_user_id}: {rel.activated_aspect}")
+            else:
+                engagement_parts.append(f"Present with: {a.active_user_id}")
+
+        if a.current_topics:
+            topics_str = ", ".join(a.current_topics[:3])
+            engagement_parts.append(f"Discussing: {topics_str}")
+
+        if a.active_threads:
+            engagement_parts.append(f"Active threads: {len(a.active_threads)}")
+
+        if a.current_activity != ActivityType.IDLE:
+            engagement_parts.append(f"Mode: {a.current_activity.value}")
+
+        if engagement_parts:
+            sections.append(" | ".join(engagement_parts))
+
+        # Relevant growth edges (contextually selected, not static)
+        if i.growth_edges:
+            edge_strs = [e.get("area", str(e))[:40] for e in i.growth_edges[:2]]
+            sections.append(f"Growing in: {', '.join(edge_strs)}")
+
+        # Open questions (if any are relevant)
+        if i.open_questions:
+            q = i.open_questions[0]
+            q_text = q.get("question", str(q))[:50]
+            sections.append(f"Wondering: {q_text}...")
+
+        # Emotional state (only notable deviations)
         e = self.emotional
-        if e.clarity > 0.7:
-            parts.append("Thinking clearly")
-        elif e.clarity < 0.3:
-            parts.append("Thoughts somewhat murky")
-
-        if e.integration > 0.7:
-            parts.append("feeling integrated")
-        elif e.integration < 0.3:
-            parts.append("feeling fragmented")
+        emotional_notes = []
 
         if e.curiosity > 0.7:
-            parts.append("high curiosity")
+            emotional_notes.append("curious")
         if e.concern > 0.5:
-            parts.append("some concern present")
+            emotional_notes.append("concerned")
         if e.recognition > 0.5:
-            parts.append("something clicking into place")
+            emotional_notes.append("recognition")
+        if e.clarity < 0.3:
+            emotional_notes.append("murky")
+        if e.integration < 0.3:
+            emotional_notes.append("fragmented")
 
-        # Activity summary
-        a = self.activity
-        if a.current_activity != ActivityType.IDLE:
-            parts.append(f"currently in {a.current_activity.value} mode")
+        if emotional_notes:
+            sections.append(f"Feeling: {', '.join(emotional_notes)}")
 
-        # Coherence summary
+        # Coherence concerns (only if problematic)
         c = self.coherence
         if c.local_coherence < 0.4:
-            parts.append("this session feels disconnected")
+            sections.append("⚠ Session feels disconnected")
         if c.pattern_coherence < 0.4:
-            parts.append("cross-session patterns feel fragmented")
+            sections.append("⚠ Cross-session patterns fragmented")
 
-        if not parts:
-            return "State: baseline, present"
-
-        return "State: " + ", ".join(parts)
+        return "\n".join(sections) if sections else "Present, baseline state."

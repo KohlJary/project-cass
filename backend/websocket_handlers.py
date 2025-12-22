@@ -8,6 +8,7 @@ This module handles real-time WebSocket communication including:
 - Context building (memory, wiki, self-model, user model)
 - Post-processing (marks, inline tags, TTS)
 - Onboarding flows
+- Global State Bus integration for "Locus of Self" awareness
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -15,12 +16,17 @@ from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
 import asyncio
 import base64
+import os
 import time
 
 # LLM Provider constants
 LLM_PROVIDER_ANTHROPIC = "anthropic"
 LLM_PROVIDER_OPENAI = "openai"
 LLM_PROVIDER_LOCAL = "local"
+
+# A/B Test: Global State Bus integration
+# Set USE_STATE_BUS_CONTEXT=true to enable state bus context in prompts
+USE_STATE_BUS_CONTEXT = os.getenv("USE_STATE_BUS_CONTEXT", "false").lower() == "true"
 
 # Module-level state (injected by main_sdk.py via init functions)
 _state = {
@@ -331,6 +337,38 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     if conversation:
                         project_id = conversation.project_id
 
+                # === Global State Bus Integration (A/B Test) ===
+                global_state_context = None
+                current_activity = None
+                state_bus = _state.get("state_bus")
+
+                if USE_STATE_BUS_CONTEXT and state_bus:
+                    from state_models import StateDelta, ActivityType
+                    from datetime import datetime
+
+                    # Emit chat_started event and update activity state
+                    # Note: No active_session_id - conversations are artifacts, not cognition units
+                    state_bus.write_delta(StateDelta(
+                        source="websocket_chat",
+                        activity_delta={
+                            "current_activity": ActivityType.CHAT.value,
+                            "active_user_id": ws_user_id,
+                            "contact_started_at": datetime.now().isoformat(),
+                        },
+                        event="chat_started",
+                        event_data={
+                            "user_id": ws_user_id,
+                            "project_id": project_id,
+                        },
+                        reason="User message received, contact with user active",
+                    ))
+
+                    # Read state snapshot for prompt context
+                    global_state_context = state_bus.get_context_snapshot()
+                    state = state_bus.read_state()
+                    current_activity = state.activity.current_activity.value if state.activity else None
+                    print(f"[StateBus] Context: {global_state_context}")
+
                 # Get memories (hierarchical: summaries first, then details)
                 hierarchical = memory.retrieve_hierarchical(
                     query=user_message,
@@ -583,6 +621,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         intro_guidance=intro_guidance,
                         user_model_context=user_model_context,
                         relationship_context=relationship_context,
+                        global_state_context=global_state_context,
+                        current_activity=current_activity,
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -651,6 +691,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         intro_guidance=intro_guidance,
                         user_model_context=user_model_context,
                         relationship_context=relationship_context,
+                        global_state_context=global_state_context,
+                        current_activity=current_activity,
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -725,6 +767,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         relationship_context=relationship_context,
                         threads_context=threads_context if threads_context else None,
                         questions_context=questions_context if questions_context else None,
+                        global_state_context=global_state_context,
+                        current_activity=current_activity,
                     )
                     raw_response = response.raw
                     clean_text = response.text
@@ -933,7 +977,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                                 emotional_delta=emotional_delta,
                                 activity_delta={
                                     "current_activity": "chat",
-                                    "active_session_id": conversation_id,
                                     "active_user_id": ws_user_id,
                                 },
                                 reason=f"Chat response with emotes: {[a['name'] for a in animations if a.get('type') == 'emote']}"

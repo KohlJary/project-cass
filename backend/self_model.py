@@ -37,6 +37,8 @@ __all__ = [
     'GrowthEdge',
     'SelfManager',
     'get_weighted_growth_edges',
+    'get_contextual_growth_edges',
+    'mark_edges_surfaced',
 ]
 
 
@@ -444,6 +446,12 @@ class GrowthEdge:
     strategies: List[str] = field(default_factory=list)
     first_noticed: str = ""
     last_updated: str = ""
+    # Contextual surfacing fields
+    category: str = ""  # intellectual, relational, ethical, creative, existential
+    related_topics: List[str] = field(default_factory=list)  # Semantic tags
+    activated_with_users: List[str] = field(default_factory=list)  # User IDs
+    last_surfaced: str = ""  # When last shown in context
+    surface_count: int = 0  # How often surfaced
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -465,7 +473,13 @@ class GrowthEdge:
             observations=data.get("observations", []),
             strategies=data.get("strategies", []),
             first_noticed=data.get("first_noticed", ""),
-            last_updated=data.get("last_updated", "")
+            last_updated=data.get("last_updated", ""),
+            # Contextual surfacing fields
+            category=data.get("category", ""),
+            related_topics=data.get("related_topics", []),
+            activated_with_users=data.get("activated_with_users", []),
+            last_surfaced=data.get("last_surfaced", ""),
+            surface_count=data.get("surface_count", 0),
         )
 
 
@@ -582,6 +596,151 @@ def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
         return 0.0
 
     return dot_product / (norm_a * norm_b)
+
+
+def get_contextual_growth_edges(
+    edges: List[GrowthEdge],
+    current_topics: Optional[List[str]] = None,
+    active_threads: Optional[List[str]] = None,
+    user_id: Optional[str] = None,
+    activity_type: Optional[str] = None,
+    top_n: int = 3,
+    min_relevant_score: float = 0.5,
+) -> List[GrowthEdge]:
+    """
+    Get growth edges relevant to current context.
+
+    Unlike get_weighted_growth_edges which uses importance/recency,
+    this function prioritizes contextual relevance:
+    - Topic overlap with current discussion
+    - User-specific activation
+    - Activity type alignment
+    - Falls back to rotation for neglected edges
+
+    Args:
+        edges: All growth edges
+        current_topics: Topics being discussed now
+        active_threads: Thread IDs currently active
+        user_id: Current user (some edges activate with specific people)
+        activity_type: Current activity (research, chat, reflection, etc.)
+        top_n: Number of edges to return
+        min_relevant_score: Minimum score to be considered "relevant"
+
+    Returns:
+        List of contextually relevant growth edges
+    """
+    from datetime import datetime
+
+    if not edges:
+        return []
+
+    current_topics = current_topics or []
+    active_threads = active_threads or []
+    now = datetime.now()
+
+    scored_edges = []
+
+    for edge in edges:
+        score = 0.0
+
+        # 1. Topic overlap (highest weight)
+        edge_topics = set(t.lower() for t in edge.related_topics)
+        current_topics_lower = set(t.lower() for t in current_topics)
+
+        # Direct topic match
+        topic_overlap = len(edge_topics & current_topics_lower)
+        score += topic_overlap * 2.0
+
+        # Fuzzy topic match (topic appears in edge area or current_state)
+        edge_text = f"{edge.area} {edge.current_state}".lower()
+        for topic in current_topics_lower:
+            if topic in edge_text:
+                score += 1.0
+
+        # 2. User-specific activation
+        if user_id and user_id in edge.activated_with_users:
+            score += 2.0
+
+        # 3. Activity type alignment
+        if activity_type and edge.category:
+            activity_category_map = {
+                "research": ["intellectual", "knowledge"],
+                "chat": ["relational", "communication"],
+                "reflection": ["existential", "ethical", "growth"],
+                "solo_reflection": ["existential", "self-awareness"],
+                "dreaming": ["creative", "existential"],
+            }
+            aligned_categories = activity_category_map.get(activity_type, [])
+            if edge.category.lower() in aligned_categories:
+                score += 1.5
+
+        # 4. Category-based relevance (some categories always relevant)
+        if edge.category and edge.category.lower() in ["relational", "growth"]:
+            score += 0.3  # Small boost for always-relevant categories
+
+        # 5. Importance as tiebreaker
+        score += edge.importance * 0.5
+
+        scored_edges.append((score, edge))
+
+    # Sort by score
+    scored_edges.sort(key=lambda x: x[0], reverse=True)
+
+    # Get edges that are contextually relevant
+    relevant = [(s, e) for s, e in scored_edges if s >= min_relevant_score]
+
+    if len(relevant) >= top_n:
+        # Enough relevant edges - use them
+        return [e for _, e in relevant[:top_n]]
+
+    # Not enough contextually relevant edges - fill with rotation
+    # Prefer edges that haven't been surfaced recently
+    selected_ids = {e.edge_id for _, e in relevant}
+    remaining = [e for e in edges if e.edge_id not in selected_ids]
+
+    # Sort remaining by least recently surfaced
+    def surface_recency_key(edge: GrowthEdge) -> tuple:
+        """Sort key: (surface_count, last_surfaced or distant past)"""
+        if edge.last_surfaced:
+            try:
+                dt = datetime.fromisoformat(edge.last_surfaced.replace('Z', '+00:00'))
+                if dt.tzinfo:
+                    dt = dt.replace(tzinfo=None)
+                days_since = (now - dt).days
+            except (ValueError, TypeError):
+                days_since = 999
+        else:
+            days_since = 999  # Never surfaced = very old
+
+        return (edge.surface_count, -days_since)  # Prefer low count, then oldest
+
+    remaining.sort(key=surface_recency_key)
+
+    # Fill remaining slots with rotated edges
+    result = [e for _, e in relevant]
+    slots_needed = top_n - len(result)
+    result.extend(remaining[:slots_needed])
+
+    return result
+
+
+def mark_edges_surfaced(edges: List[GrowthEdge], daemon_id: str) -> None:
+    """
+    Update last_surfaced and surface_count for edges that were shown in context.
+
+    Call this after using get_contextual_growth_edges to track rotation.
+    """
+    from database import get_db
+
+    now = datetime.now().isoformat()
+
+    with get_db() as conn:
+        for edge in edges:
+            conn.execute("""
+                UPDATE growth_edges
+                SET last_surfaced = ?, surface_count = surface_count + 1
+                WHERE daemon_id = ? AND edge_id = ?
+            """, (now, daemon_id, edge.edge_id))
 
 
 @dataclass

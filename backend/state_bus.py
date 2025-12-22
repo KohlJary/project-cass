@@ -427,14 +427,28 @@ class GlobalStateBus:
             except ValueError:
                 pass
 
+        # Handle contact_started_at parsing
+        contact_started = current.contact_started_at
+        if "contact_started_at" in delta:
+            val = delta["contact_started_at"]
+            if isinstance(val, str):
+                try:
+                    contact_started = datetime.fromisoformat(val)
+                except ValueError:
+                    contact_started = datetime.now()
+            elif isinstance(val, datetime):
+                contact_started = val
+
         return GlobalActivityState(
             current_activity=activity,
-            active_session_id=delta.get("active_session_id", current.active_session_id),
             active_user_id=delta.get("active_user_id", current.active_user_id),
-            rhythm_phase=delta.get("rhythm_phase", current.rhythm_phase),
-            rhythm_day_summary=delta.get("rhythm_day_summary", current.rhythm_day_summary),
+            contact_started_at=contact_started,
+            messages_this_contact=delta.get("messages_this_contact", current.messages_this_contact),
+            current_topics=delta.get("current_topics", current.current_topics),
             active_threads=delta.get("active_threads", current.active_threads),
             active_questions=delta.get("active_questions", current.active_questions),
+            rhythm_phase=delta.get("rhythm_phase", current.rhythm_phase),
+            rhythm_day_summary=delta.get("rhythm_day_summary", current.rhythm_day_summary),
             last_activity_change=datetime.now() if "current_activity" in delta else current.last_activity_change,
         )
 

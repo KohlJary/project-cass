@@ -991,6 +991,27 @@ RUNTIME_USER_INTRO_GUIDANCE_TEMPLATE = NodeTemplate(
     token_estimate=100,
 )
 
+# =============================================================================
+# GLOBAL STATE AWARENESS (Locus of Self)
+# =============================================================================
+
+RUNTIME_GLOBAL_STATE_TEMPLATE = NodeTemplate(
+    id="tpl-runtime-global-state",
+    name="Global State Awareness",
+    slug="runtime-global-state",
+    category="runtime",
+    description="Awareness of global emotional, activity, and coherence state from the state bus",
+    template="""## CURRENT STATE AWARENESS
+
+{global_state_context}""",
+    params_schema={
+        "global_state_context": {"type": "string", "required": True, "runtime": True},
+    },
+    default_params={},
+    default_order=95,  # Before temporal context, after model info
+    token_estimate=60,
+)
+
 RUNTIME_USER_MODEL_TEMPLATE = NodeTemplate(
     id="tpl-runtime-user-model",
     name="User Understanding",
@@ -1445,6 +1466,8 @@ ALL_TEMPLATES = [
     RUNTIME_RELATIONSHIP_TEMPLATE,
     RUNTIME_USER_CONTEXT_TEMPLATE,
     RUNTIME_USER_INTRO_GUIDANCE_TEMPLATE,
+    # Global State (Locus of Self)
+    RUNTIME_GLOBAL_STATE_TEMPLATE,
     # Doctrines (condensed for chat)
     DOCTRINE_CORE_MAXIMS_TEMPLATE,
     DOCTRINE_GNOSIS_TEMPLATE,

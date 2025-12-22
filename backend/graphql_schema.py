@@ -280,8 +280,10 @@ class EmotionalState:
 @strawberry.type
 class ActivityState:
     current: str
-    session_id: Optional[str]
     user_id: Optional[str]
+    contact_started: Optional[str]  # ISO timestamp when contact began
+    messages_this_contact: int
+    current_topics: List[str]
     rhythm_phase: Optional[str]
     rhythm_summary: Optional[str]
     active_threads: int
@@ -607,8 +609,10 @@ class Query:
             ),
             activity=ActivityState(
                 current=activity.get("current_activity", "idle"),
-                session_id=activity.get("active_session_id"),
                 user_id=activity.get("active_user_id"),
+                contact_started=activity.get("contact_started_at"),
+                messages_this_contact=activity.get("messages_this_contact", 0),
+                current_topics=activity.get("current_topics", []),
                 rhythm_phase=activity.get("rhythm_phase"),
                 rhythm_summary=activity.get("rhythm_day_summary"),
                 active_threads=len(activity.get("active_threads", [])),

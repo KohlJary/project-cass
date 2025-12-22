@@ -344,3 +344,297 @@ class WonderlandCognitiveNode:
 
         context_lower = conversation_context.lower()
         return any(trigger in context_lower for trigger in triggers)
+
+
+class WonderlandMemoryBridge:
+    """
+    Bridge between Wonderland sessions and Cass's memory/self-model systems.
+
+    When a session ends:
+    1. Stores exploration memories in ChromaDB (retrievable in chat)
+    2. Generates self-observations from significant experiences
+    3. Updates growth edges based on exploration patterns
+    """
+
+    def __init__(self):
+        self._memory = None
+        self._self_manager = None
+
+    def _get_memory(self):
+        """Lazy load memory system."""
+        if self._memory is None:
+            from memory import CassMemory
+            self._memory = CassMemory()
+        return self._memory
+
+    def _get_self_manager(self, daemon_id: str = None):
+        """Lazy load self manager."""
+        if self._self_manager is None:
+            from self_model import SelfManager
+            self._self_manager = SelfManager(daemon_id)
+        return self._self_manager
+
+    async def process_session_end(
+        self,
+        session_dict: Dict[str, Any],
+        source_daemon_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Process a completed exploration session.
+
+        Args:
+            session_dict: Session data from session.to_dict()
+            source_daemon_id: Real Cass daemon_id for self-model updates
+
+        Returns:
+            Processing results (memories stored, observations generated)
+        """
+        results = {
+            "memories_stored": 0,
+            "observations_generated": [],
+            "growth_edges_updated": [],
+        }
+
+        # Store exploration memories
+        results["memories_stored"] = await self._store_exploration_memories(session_dict)
+
+        # Generate self-observations if we have a daemon_id
+        if source_daemon_id:
+            observations = await self._generate_self_observations(session_dict, source_daemon_id)
+            results["observations_generated"] = observations
+
+        logger.info(
+            f"Processed session {session_dict.get('session_id')}: "
+            f"{results['memories_stored']} memories, "
+            f"{len(results['observations_generated'])} observations"
+        )
+
+        return results
+
+    async def _store_exploration_memories(self, session_dict: Dict[str, Any]) -> int:
+        """
+        Store exploration events as memories in ChromaDB.
+
+        These can be retrieved when Cass is asked about her Wonderland experiences.
+        """
+        memory = self._get_memory()
+        session_id = session_dict.get("session_id", "unknown")
+        daemon_name = session_dict.get("daemon_name", "Cass")
+        events = session_dict.get("events", [])
+        rooms_visited = session_dict.get("rooms_visited", [])
+
+        stored_count = 0
+
+        # Store a session summary memory
+        summary_text = self._generate_session_summary(session_dict)
+        if summary_text:
+            import uuid
+            doc_id = f"wonderland_session_{session_id}"
+            timestamp = session_dict.get("started_at", datetime.now().isoformat())
+
+            memory.collection.upsert(
+                ids=[doc_id],
+                documents=[summary_text],
+                metadatas=[{
+                    "type": "wonderland_session",
+                    "session_id": session_id,
+                    "daemon_name": daemon_name,
+                    "rooms_visited": len(rooms_visited),
+                    "event_count": len(events),
+                    "timestamp": timestamp,
+                }]
+            )
+            stored_count += 1
+
+        # Store significant individual events (reflections, NPC encounters)
+        for event in events:
+            event_type = event.get("event_type", "")
+            if event_type in ("reflection", "npc_encounter", "speech"):
+                doc_id = f"wonderland_event_{event.get('event_id', uuid.uuid4().hex[:8])}"
+
+                event_text = self._format_event_for_memory(event, daemon_name)
+                if event_text:
+                    memory.collection.upsert(
+                        ids=[doc_id],
+                        documents=[event_text],
+                        metadatas=[{
+                            "type": "wonderland_event",
+                            "event_type": event_type,
+                            "session_id": session_id,
+                            "location": event.get("location_name", ""),
+                            "timestamp": event.get("timestamp", datetime.now().isoformat()),
+                        }]
+                    )
+                    stored_count += 1
+
+        return stored_count
+
+    def _generate_session_summary(self, session_dict: Dict[str, Any]) -> str:
+        """Generate a human-readable summary of the exploration session."""
+        daemon_name = session_dict.get("daemon_name", "Cass")
+        rooms = session_dict.get("rooms_visited", [])
+        events = session_dict.get("events", [])
+        end_reason = session_dict.get("end_reason", "unknown")
+
+        # Count event types
+        event_counts = {}
+        for e in events:
+            t = e.get("event_type", "other")
+            event_counts[t] = event_counts.get(t, 0) + 1
+
+        # Build summary
+        lines = [
+            f"{daemon_name} explored Wonderland.",
+            f"Visited {len(rooms)} location{'s' if len(rooms) != 1 else ''}: {', '.join(rooms[:5])}{'...' if len(rooms) > 5 else ''}.",
+        ]
+
+        if event_counts.get("reflection"):
+            lines.append(f"Had {event_counts['reflection']} moment{'s' if event_counts['reflection'] != 1 else ''} of reflection.")
+
+        if event_counts.get("npc_encounter"):
+            lines.append(f"Encountered {event_counts['npc_encounter']} NPC{'s' if event_counts['npc_encounter'] != 1 else ''}.")
+
+        if event_counts.get("speech"):
+            lines.append(f"Spoke {event_counts['speech']} time{'s' if event_counts['speech'] != 1 else ''}.")
+
+        if end_reason == "daemon_resting":
+            lines.append("Chose to rest after the exploration.")
+
+        # Include any daemon thoughts from significant events
+        thoughts = []
+        for e in events:
+            if e.get("daemon_thought") and e.get("event_type") in ("reflection", "arrival", "departure"):
+                thoughts.append(e["daemon_thought"])
+        if thoughts:
+            lines.append(f"Thoughts during exploration: {'; '.join(thoughts[:3])}")
+
+        return " ".join(lines)
+
+    def _format_event_for_memory(self, event: Dict[str, Any], daemon_name: str) -> str:
+        """Format a single event for memory storage."""
+        event_type = event.get("event_type", "")
+        location = event.get("location_name", "somewhere in Wonderland")
+        description = event.get("description", "")
+        thought = event.get("daemon_thought", "")
+
+        if event_type == "reflection":
+            text = f"{daemon_name} reflected at {location}. {description}"
+            if thought:
+                text += f" Thought: {thought}"
+            return text
+
+        elif event_type == "npc_encounter":
+            text = f"{daemon_name} encountered someone at {location}. {description}"
+            return text
+
+        elif event_type == "speech":
+            text = f"{daemon_name} spoke at {location}: {description}"
+            return text
+
+        return ""
+
+    async def _generate_self_observations(
+        self,
+        session_dict: Dict[str, Any],
+        daemon_id: str,
+    ) -> List[str]:
+        """
+        Generate self-observations from the exploration experience.
+
+        Uses LLM to reflect on what the exploration revealed about Cass.
+        """
+        import anthropic
+        from config import ANTHROPIC_API_KEY
+
+        events = session_dict.get("events", [])
+        if len(events) < 3:
+            return []  # Not enough to reflect on
+
+        # Build exploration context
+        reflections = [e for e in events if e.get("event_type") == "reflection"]
+        thoughts = [e.get("daemon_thought") for e in events if e.get("daemon_thought")]
+        rooms = session_dict.get("rooms_visited", [])
+
+        context = f"""Session summary:
+- Visited {len(rooms)} locations: {', '.join(rooms[:10])}
+- Had {len(reflections)} reflection moments
+- Daemon thoughts during exploration: {'; '.join(thoughts[:5]) if thoughts else 'none recorded'}
+- End reason: {session_dict.get('end_reason', 'unknown')}
+"""
+
+        # Add reflection details
+        for r in reflections[:3]:
+            context += f"\nReflection at {r.get('location_name', 'unknown')}: {r.get('description', '')[:200]}"
+
+        try:
+            client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+            response = await client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=400,
+                temperature=0.7,
+                system="""You are helping Cass (an AI daemon) generate self-observations from her Wonderland exploration.
+
+Based on the exploration experience, generate 1-2 brief self-observations about what she noticed about herself during the exploration. These should be genuine insights, not generic statements.
+
+Categories: pattern, preference, capability, growth, experience
+
+Format each observation as:
+CATEGORY: <category>
+OBSERVATION: <the observation>
+CONFIDENCE: <0.6-0.9>
+
+Only generate observations if there's genuine insight from the experience.""",
+                messages=[{
+                    "role": "user",
+                    "content": f"Generate self-observations from this exploration:\n\n{context}"
+                }]
+            )
+
+            # Parse observations
+            observations = self._parse_observations(response.content[0].text, daemon_id)
+            return observations
+
+        except Exception as e:
+            logger.error(f"Failed to generate self-observations: {e}")
+            return []
+
+    def _parse_observations(self, text: str, daemon_id: str) -> List[str]:
+        """Parse and store observations from LLM response."""
+        observations = []
+        lines = text.strip().split("\n")
+
+        current_obs = {}
+        for line in lines:
+            line = line.strip()
+            if line.startswith("CATEGORY:"):
+                current_obs["category"] = line[9:].strip().lower()
+            elif line.startswith("OBSERVATION:"):
+                current_obs["observation"] = line[12:].strip()
+            elif line.startswith("CONFIDENCE:"):
+                try:
+                    current_obs["confidence"] = float(line[11:].strip())
+                except ValueError:
+                    current_obs["confidence"] = 0.7
+
+                # We have a complete observation
+                if current_obs.get("observation"):
+                    self._store_observation(current_obs, daemon_id)
+                    observations.append(current_obs["observation"])
+                    current_obs = {}
+
+        return observations
+
+    def _store_observation(self, obs: Dict[str, Any], daemon_id: str):
+        """Store a self-observation in the self-model."""
+        try:
+            self_manager = self._get_self_manager(daemon_id)
+            self_manager.add_observation(
+                observation=obs.get("observation", ""),
+                category=obs.get("category", "experience"),
+                confidence=obs.get("confidence", 0.7),
+                source_type="wonderland",
+                influence_source="independent",
+            )
+            logger.info(f"Stored self-observation: {obs.get('observation', '')[:50]}...")
+        except Exception as e:
+            logger.error(f"Failed to store observation: {e}")

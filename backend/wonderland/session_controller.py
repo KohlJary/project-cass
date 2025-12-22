@@ -22,7 +22,7 @@ from .models import DaemonPresence, TrustLevel, EntityStatus
 from .world import WonderlandWorld
 from .commands import CommandProcessor, CommandResult
 from .pathfinder import WonderlandPathfinder, PathResult
-from .exploration_agent import ExplorationAgent, ExplorationDecision, ActionIntent, ConversationDecision, CASS_PERSONALITY, format_goal_context
+from .exploration_agent import ExplorationAgent, ExplorationDecision, ActionIntent, ConversationDecision, SelfObservation, CASS_PERSONALITY, format_goal_context, build_identity_context
 from .mythology import create_all_realms, MythologyRegistry
 from .npc_conversation import NPCConversationHandler, NPCConversation, ConversationStatus
 from .world_clock import get_world_clock, CyclePhase
@@ -32,6 +32,10 @@ from .world_simulation import get_world_simulation, WorldEvent
 def get_goal_manager():
     from unified_goals import UnifiedGoalManager
     return UnifiedGoalManager()
+
+def get_memory_bridge():
+    from .integration import WonderlandMemoryBridge
+    return WonderlandMemoryBridge()
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +126,7 @@ class ExplorationSession:
     exploration_goal: Optional[ExplorationGoal] = None  # Goal for this session
     personality: str = ""  # Stored for goal context formatting
     active_conversation: Optional[str] = None  # ID of active NPC conversation
+    source_daemon_id: Optional[str] = None  # Real Cass daemon_id for memory/observations
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -202,21 +207,37 @@ class SessionController:
         self,
         user_id: str,
         daemon_name: str = "Cass",
-        personality: str = CASS_PERSONALITY,
+        personality: str = None,  # If None, builds dynamic identity context
         goal_preset: Optional[str] = None,
+        source_daemon_id: Optional[str] = None,  # Real Cass daemon_id for identity lookup
     ) -> ExplorationSession:
         """
         Start a new exploration session.
 
         Creates a daemon presence in the world and begins autonomous exploration.
         Optionally sets an exploration goal from a preset.
+
+        If source_daemon_id is provided and personality is None, builds a dynamic
+        identity context from the GlobalState - making the exploration feel like
+        *her* exploration with her current growth edges, interests, and emotional state.
         """
         session_id = str(uuid.uuid4())[:8]
-        daemon_id = f"explorer_{session_id}"
+        explorer_daemon_id = f"explorer_{session_id}"
+
+        # Build personality context - either provided or dynamic from identity
+        if personality is None:
+            if source_daemon_id:
+                personality = build_identity_context(source_daemon_id)
+                logger.info(f"Built dynamic identity context for {daemon_name} from daemon {source_daemon_id}")
+            else:
+                personality = CASS_PERSONALITY
+                logger.info(f"Using static personality for {daemon_name} (no source_daemon_id)")
+        else:
+            logger.info(f"Using provided personality for {daemon_name}")
 
         # Register daemon in world
         daemon_presence = DaemonPresence(
-            daemon_id=daemon_id,
+            daemon_id=explorer_daemon_id,
             display_name=daemon_name,
             description=f"{daemon_name}, exploring Wonderland.",
             current_room="threshold",
@@ -232,7 +253,7 @@ class SessionController:
         # Create session
         session = ExplorationSession(
             session_id=session_id,
-            daemon_id=daemon_id,
+            daemon_id=explorer_daemon_id,
             daemon_name=daemon_name,
             user_id=user_id,
             started_at=datetime.now(),
@@ -240,6 +261,7 @@ class SessionController:
             current_room="threshold",
             current_room_name=room_name,
             personality=personality,  # Store for goal context formatting
+            source_daemon_id=source_daemon_id,  # For memory/observation storage
         )
         session.rooms_visited.add("threshold")
 
@@ -330,6 +352,16 @@ class SessionController:
 
         # Save session
         self._save_session(session)
+
+        # Store memories and generate self-observations
+        try:
+            memory_bridge = get_memory_bridge()
+            await memory_bridge.process_session_end(
+                session_dict=session.to_dict(),
+                source_daemon_id=session.source_daemon_id,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to process session memories: {e}")
 
         return session
 
@@ -988,6 +1020,12 @@ class SessionController:
                 daemon_thought=decision.thought
             )
 
+            # Store self-observation if present
+            if decision.self_observation and session.source_daemon_id:
+                await self._store_conversation_observation(
+                    session, decision.self_observation, npc_name
+                )
+
             # Check if daemon wants to end conversation
             if decision.end_conversation:
                 break
@@ -1017,6 +1055,67 @@ class SessionController:
         # Broadcast conversation end
         await self._broadcast_conversation_end(session, npc_name)
         recent_events.append(f"conversation: Finished speaking with {npc_name}")
+
+    async def _store_conversation_observation(
+        self,
+        session: ExplorationSession,
+        observation: "SelfObservation",
+        npc_name: str,
+    ):
+        """
+        Store a self-observation that arose during NPC conversation.
+
+        This gives Cass the same self-observation capability during
+        Wonderland conversations that she has in regular chat.
+        """
+        if not session.source_daemon_id:
+            return
+
+        try:
+            from self_model import SelfManager
+            from memory import CassMemory
+
+            self_manager = SelfManager(session.source_daemon_id)
+            obs = self_manager.add_observation(
+                observation=observation.observation,
+                category=observation.category,
+                confidence=observation.confidence,
+                source_type="wonderland_conversation",
+                influence_source="independent",
+            )
+
+            # Also embed in memory for retrieval
+            memory = CassMemory()
+            memory.embed_self_observation(
+                observation_id=obs.id,
+                observation_text=observation.observation,
+                category=observation.category,
+                confidence=observation.confidence,
+                influence_source="independent",
+                timestamp=obs.timestamp,
+            )
+
+            logger.info(
+                f"Stored self-observation from conversation with {npc_name}: "
+                f"{observation.observation[:50]}..."
+            )
+
+            # Broadcast to spectators
+            spectators = self.spectators.get(session.session_id, set())
+            message = {
+                "type": "self_observation",
+                "observation": observation.observation,
+                "category": observation.category,
+                "context": f"conversation with {npc_name}",
+            }
+            for ws in list(spectators):
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.warning(f"Failed to store conversation observation: {e}")
 
     async def _broadcast_conversation_start(
         self,

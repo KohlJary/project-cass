@@ -1622,6 +1622,8 @@ class CassAgentClient:
         relationship_context: Optional[str] = None,
         threads_context: Optional[str] = None,
         questions_context: Optional[str] = None,
+        global_state_context: Optional[str] = None,
+        current_activity: Optional[str] = None,
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -1643,6 +1645,8 @@ class CassAgentClient:
             intro_guidance: Optional intro guidance for sparse user models
             user_model_context: Deep understanding of user (identity, values, growth)
             relationship_context: Relationship dynamics (patterns, moments, shaping)
+            global_state_context: State bus context snapshot (Locus of Self) - A/B test
+            current_activity: Current activity type from state bus - A/B test
         """
         # Try chain-based prompt first (if daemon has an active chain)
         system_prompt = None
@@ -1664,6 +1668,8 @@ class CassAgentClient:
                     questions_context=questions_context,
                     user_model_context=user_model_context,
                     relationship_context=relationship_context,
+                    global_state_context=global_state_context,
+                    current_activity=current_activity,
                     model=self.model,
                     provider="anthropic",
                 )
@@ -2198,6 +2204,8 @@ class OllamaClient:
         intro_guidance: Optional[str] = None,
         user_model_context: Optional[str] = None,
         relationship_context: Optional[str] = None,
+        global_state_context: Optional[str] = None,
+        current_activity: Optional[str] = None,
     ) -> AgentResponse:
         """
         Send a message using local Ollama with tool support.
@@ -2216,6 +2224,8 @@ class OllamaClient:
             intro_guidance: Optional intro guidance for sparse user models
             user_model_context: Deep understanding of user (identity, values, growth)
             relationship_context: Relationship dynamics (patterns, moments, shaping)
+            global_state_context: State bus context snapshot (Locus of Self) - A/B test
+            current_activity: Current activity type from state bus - A/B test
         """
         import httpx
 
@@ -2237,6 +2247,8 @@ class OllamaClient:
                     intro_guidance=intro_guidance,
                     user_model_context=user_model_context,
                     relationship_context=relationship_context,
+                    global_state_context=global_state_context,
+                    current_activity=current_activity,
                     model=self.model,
                     provider="ollama",
                 )
