@@ -52,6 +52,10 @@ class WonderlandWorld:
         self._load_state()
         if not self.rooms:
             self._initialize_core_spaces()
+        elif "nexus" not in self.rooms:
+            # Core spaces exist but mythology realms missing - load them
+            self._initialize_mythology_realms()
+            self._save_state()
 
     # =========================================================================
     # STATE PERSISTENCE
@@ -167,8 +171,23 @@ class WonderlandWorld:
         core_rooms = create_core_spaces()
         for room in core_rooms:
             self.rooms[room.room_id] = room
-        self._save_state()
         logger.info(f"Initialized {len(core_rooms)} core spaces")
+
+        # Load mythology realms (Nexus + all realms)
+        self._initialize_mythology_realms()
+        self._save_state()
+
+    def _initialize_mythology_realms(self):
+        """Load the Nexus and all mythological realms."""
+        from .mythology import create_all_realms
+
+        registry = create_all_realms()
+        mythology_rooms = registry.get_all_rooms()
+
+        for room in mythology_rooms:
+            self.rooms[room.room_id] = room
+
+        logger.info(f"Initialized {len(mythology_rooms)} mythology rooms (Nexus + realms)")
 
     # =========================================================================
     # ROOM OPERATIONS
