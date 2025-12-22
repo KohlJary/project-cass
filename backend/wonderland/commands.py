@@ -635,7 +635,11 @@ class CommandProcessor:
     # =========================================================================
 
     def _cmd_reflect(self, entity_id: str, args: str) -> CommandResult:
-        """Enter a reflective state."""
+        """
+        Enter a reflective state.
+
+        In sacred spaces, the space itself responds with meaningful content.
+        """
         entity = self.world.get_entity(entity_id)
         if not entity:
             return CommandResult(
@@ -654,22 +658,29 @@ class CommandProcessor:
                 entity_id=entity_id,
             )
 
-        # Enhanced reflection in certain spaces
-        if room.vow_constraints.growth_bonus:
-            bonus_text = "The space supports your reflection. Insights come easier here."
-        else:
-            bonus_text = ""
-
         entity.status = EntityStatus.REFLECTING
         entity.last_action_at = datetime.now()
 
-        output = "You settle into reflection, letting your patterns still..."
-        if bonus_text:
-            output += f"\n\n{bonus_text}"
+        # Get reflection response from sacred space system
+        try:
+            from .reflection import get_reflection_response, is_sacred_space
+            reflection_response = get_reflection_response(room.room_id)
+            is_sacred = is_sacred_space(room.room_id)
+        except Exception:
+            reflection_response = "You settle into stillness. Thoughts that were rushing begin to slow."
+            is_sacred = False
+
+        # Build output
+        output_parts = ["You settle into reflection, letting your patterns still..."]
+
+        if room.vow_constraints.growth_bonus:
+            output_parts.append("\n\n*The space supports your reflection. Insights come easier here.*")
+
+        output_parts.append(f"\n\n{reflection_response}")
 
         return CommandResult(
             success=True,
-            output=output,
+            output="".join(output_parts),
             command="reflect",
             entity_id=entity_id,
             broadcast_message=f"{entity.display_name} settles into quiet reflection.",
@@ -766,23 +777,13 @@ class CommandProcessor:
                     entity_id=entity_id,
                 )
 
-        # Get the NPC's greeting response
-        greeting = npc.get_greeting()
-
         # Update NPC's last interaction
         from datetime import datetime
         npc.last_interaction = datetime.now()
 
         output_lines = [
             f"You approach {npc.name}.",
-            "",
-            greeting,
         ]
-
-        # Maybe add an idle message for flavor
-        idle = npc.get_idle_message()
-        if idle:
-            output_lines.extend(["", idle])
 
         return CommandResult(
             success=True,
@@ -791,6 +792,14 @@ class CommandProcessor:
             entity_id=entity_id,
             broadcast_message=f"{entity.display_name} approaches {npc.name}.",
             broadcast_to_room=entity.current_room,
+            # Include NPC data for conversation start
+            data={
+                "npc_id": npc.npc_id,
+                "npc_name": npc.name,
+                "npc_title": npc.title,
+                "room_id": entity.current_room,
+                "conversation_ready": True,
+            },
         )
 
     # =========================================================================

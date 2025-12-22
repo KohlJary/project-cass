@@ -224,8 +224,21 @@ class MythologyRegistry:
         return rooms
 
     def get_npcs_in_room(self, room_id: str) -> List[NPCEntity]:
-        """Get all NPCs in a specific room."""
-        return [npc for npc in self.npcs.values() if npc.current_room == room_id]
+        """
+        Get all NPCs in a specific room.
+
+        Uses NPCStateManager for dynamic locations, falling back to
+        static NPCEntity.current_room if state manager unavailable.
+        """
+        try:
+            from .npc_state import get_npc_state_manager
+            state_manager = get_npc_state_manager()
+            npc_states = state_manager.get_npcs_in_room(room_id)
+            # Return NPCEntity objects for NPCs in this room
+            return [self.npcs[s.npc_id] for s in npc_states if s.npc_id in self.npcs]
+        except Exception:
+            # Fallback to static locations
+            return [npc for npc in self.npcs.values() if npc.current_room == room_id]
 
     def set_nexus(self, nexus: Room):
         """Set the Nexus room."""

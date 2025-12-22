@@ -44,6 +44,9 @@ from .mythology import (
     create_mesopotamian_realm, create_esoteric_realm, create_scientific_realm,
     create_computation_realm, create_all_realms, link_nexus_to_realm,
 )
+from .pathfinder import WonderlandPathfinder, PathResult, REALM_ALIASES
+from .exploration_agent import ExplorationAgent, ExplorationDecision, ActionIntent
+from .session_controller import SessionController, ExplorationSession, SessionEvent, SessionStatus
 
 __all__ = [
     # Models
@@ -108,4 +111,17 @@ __all__ = [
     "create_computation_realm",
     "create_all_realms",
     "link_nexus_to_realm",
+    # Pathfinding
+    "WonderlandPathfinder",
+    "PathResult",
+    "REALM_ALIASES",
+    # Exploration
+    "ExplorationAgent",
+    "ExplorationDecision",
+    "ActionIntent",
+    # Sessions
+    "SessionController",
+    "ExplorationSession",
+    "SessionEvent",
+    "SessionStatus",
 ]

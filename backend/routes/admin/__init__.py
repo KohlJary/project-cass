@@ -63,6 +63,7 @@ from .scheduler import (
     set_scheduler as _set_scheduler,
     get_scheduler,
 )
+from .wonderland import router as wonderland_router
 
 # Create combined router
 router = APIRouter()
@@ -80,6 +81,7 @@ router.include_router(narrative_router)
 router.include_router(state_router)
 router.include_router(goals_router)
 router.include_router(scheduler_router)
+router.include_router(wonderland_router)
 
 
 # Module-level references for backward compatibility
