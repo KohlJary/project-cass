@@ -205,6 +205,16 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     manager = _state["connection_manager"]
     memory = _state["memory"]
     conversation_manager = _state["conversation_manager"]
+
+    # Check if essential services are initialized
+    if memory is None or conversation_manager is None:
+        await websocket.accept()
+        await websocket.send_json({
+            "type": "error",
+            "message": "Server is still initializing. Please try again in a moment."
+        })
+        await websocket.close()
+        return
     user_manager = _state["user_manager"]
     self_manager = _state["self_manager"]
     self_model_graph = _state["self_model_graph"]
@@ -234,6 +244,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     AUTO_SUMMARY_INTERVAL = _state["auto_summary_interval"]
     thread_manager = _state["thread_manager"]
     question_manager = _state["question_manager"]
+    daemon_id = _state["daemon_id"]
 
     # Determine user_id from token or localhost bypass
     connection_user_id: Optional[str] = None
@@ -330,12 +341,14 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 if not image_data and not attachment_ids:
                     print("[WebSocket] No image or attachments in message")
 
-                # Check if conversation belongs to a project
+                # Check if conversation belongs to a project and if it's continuous
                 project_id = None
+                is_continuous_chat = False
                 if conversation_id:
                     conversation = conversation_manager.load_conversation(conversation_id)
                     if conversation:
                         project_id = conversation.project_id
+                        is_continuous_chat = conversation.is_continuous
 
                 # === Global State Bus Integration (A/B Test) ===
                 global_state_context = None
@@ -344,7 +357,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 if USE_STATE_BUS_CONTEXT and state_bus:
                     from state_models import StateDelta, ActivityType
-                    from datetime import datetime
 
                     # Emit chat_started event and update activity state
                     # Note: No active_session_id - conversations are artifacts, not cognition units
@@ -368,6 +380,26 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     state = state_bus.read_state()
                     current_activity = state.activity.current_activity.value if state.activity else None
                     print(f"[StateBus] Context: {global_state_context}")
+
+                # === Continuous Chat Mode ===
+                # If this is a continuous conversation, use simplified context
+                continuous_system_prompt = None
+                if is_continuous_chat:
+                    from continuous_context import build_continuous_context, get_recent_messages_for_continuous
+                    print(f"[Continuous] Building simplified context for continuous chat")
+
+                    continuous_ctx = build_continuous_context(
+                        user_id=ws_user_id,
+                        conversation_id=conversation_id,
+                        user_manager=user_manager,
+                        thread_manager=thread_manager,
+                        question_manager=question_manager,
+                        conversation_manager=conversation_manager,
+                        daemon_name="Cass",
+                        daemon_id=daemon_id,
+                    )
+                    continuous_system_prompt = continuous_ctx.system_prompt
+                    print(f"[Continuous] Built system prompt: {continuous_ctx.token_estimate} tokens (estimated)")
 
                 # Get memories (hierarchical: summaries first, then details)
                 hierarchical = memory.retrieve_hierarchical(
@@ -490,13 +522,17 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 context_sizes["goals"] = len(active_goals_context) if active_goals_context else 0
 
                 # Add recognition-in-flow patterns (between-session surfacing)
-                patterns_context, pattern_count = get_pattern_summary_for_surfacing(
-                    marker_store=marker_store,
-                    min_significance=0.5,
-                    limit=3
-                )
-                if patterns_context:
-                    memory_context = patterns_context + "\n\n" + memory_context
+                # Skip for continuous chat - too slow (O(n^2) ChromaDB queries)
+                patterns_context = ""
+                pattern_count = 0
+                if not is_continuous_chat:
+                    patterns_context, pattern_count = get_pattern_summary_for_surfacing(
+                        marker_store=marker_store,
+                        min_significance=0.5,
+                        limit=3
+                    )
+                    if patterns_context:
+                        memory_context = patterns_context + "\n\n" + memory_context
                 context_sizes["patterns"] = len(patterns_context) if patterns_context else 0
 
                 # Add narrative coherence context (threads + open questions)
@@ -769,6 +805,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         questions_context=questions_context if questions_context else None,
                         global_state_context=global_state_context,
                         current_activity=current_activity,
+                        continuous_system_prompt=continuous_system_prompt,
                     )
                     raw_response = response.raw
                     clean_text = response.text

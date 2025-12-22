@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 22  # Added PeopleDex tables for biographical entity database
+SCHEMA_VERSION = 23  # Added is_continuous flag for continuous chat
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     working_summary TEXT,
     last_summary_timestamp TEXT,
     messages_since_last_summary INTEGER DEFAULT 0,
+    is_continuous INTEGER DEFAULT 0,  -- 1 = continuous stream chat (one per user)
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -1604,6 +1605,14 @@ def _apply_schema_updates(conn, from_version: int):
     # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
     if from_version < 22:
         print("Adding PeopleDex tables (peopledex_entities, peopledex_attributes, peopledex_relationships) for biographical entity database (v22)")
+
+    # v22 -> v23: Add is_continuous flag to conversations for continuous chat
+    if from_version < 23:
+        cursor = conn.execute("PRAGMA table_info(conversations)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'is_continuous' not in columns:
+            conn.execute("ALTER TABLE conversations ADD COLUMN is_continuous INTEGER DEFAULT 0")
+            print("Added is_continuous column to conversations (v23)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data

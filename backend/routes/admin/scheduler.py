@@ -12,19 +12,43 @@ from typing import Optional, List
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
-# Global scheduler reference (set during startup)
+# Global scheduler references (set during startup)
 _scheduler = None
+_autonomous_scheduler = None
+_phase_queue_manager = None
 
 
 def set_scheduler(scheduler):
-    """Set the global scheduler instance."""
+    """Set the global Synkratos scheduler instance."""
     global _scheduler
     _scheduler = scheduler
 
 
 def get_scheduler():
-    """Get the global scheduler instance."""
+    """Get the global Synkratos scheduler instance."""
     return _scheduler
+
+
+def set_autonomous_scheduler(scheduler):
+    """Set the global autonomous scheduler instance."""
+    global _autonomous_scheduler
+    _autonomous_scheduler = scheduler
+
+
+def get_autonomous_scheduler():
+    """Get the global autonomous scheduler instance."""
+    return _autonomous_scheduler
+
+
+def set_phase_queue_manager(manager):
+    """Set the global phase queue manager instance."""
+    global _phase_queue_manager
+    _phase_queue_manager = manager
+
+
+def get_phase_queue_manager():
+    """Get the global phase queue manager instance."""
+    return _phase_queue_manager
 
 
 @router.get("/status")

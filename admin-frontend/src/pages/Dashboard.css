@@ -1,10 +1,98 @@
 /* =============================================================================
-   DASHBOARD - Responsive 3-Row Layout
-   Row 1: State | Stats | Goals (3 columns)
-   Row 2: Metrics | Daily Summary (2 columns)
-   Row 3: Scheduler (full width)
+   DASHBOARD - 3-Column Layout with Side Panels
+   Left: Autonomous Schedule (280px fixed)
+   Center: Main Dashboard (flexible)
+   Right: Chat Widget (350px fixed)
    ============================================================================= */
 
+/* 3-Column Layout Container */
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 18%) 1fr minmax(320px, 22%);
+  gap: 1rem;
+  height: calc(100vh - 60px); /* Account for nav header */
+  padding: 1rem;
+  overflow: hidden;
+}
+
+/* Left Panel: Autonomous Schedule */
+.dashboard-left-panel {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Center: Main Dashboard */
+.dashboard-center {
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 0.5rem; /* Space for scrollbar */
+}
+
+/* Right Panel: Chat Widget */
+.dashboard-right-panel {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Chat widget placeholder */
+.chat-widget-placeholder {
+  height: 100%;
+  background: var(--bg-secondary, #141414);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder-content {
+  text-align: center;
+  color: var(--text-muted, #666);
+}
+
+.placeholder-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2rem;
+  display: block;
+  margin-bottom: 0.5rem;
+  opacity: 0.5;
+}
+
+.placeholder-hint {
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Responsive: Hide right panel first, then left */
+@media (max-width: 1400px) {
+  .dashboard-layout {
+    grid-template-columns: minmax(280px, 22%) 1fr;
+  }
+
+  .dashboard-right-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .dashboard-left-panel {
+    display: none;
+  }
+
+  .dashboard-center {
+    height: auto;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+/* Legacy .dashboard class (for loading/error states) */
 .dashboard {
   padding: 1rem;
   max-width: 1600px;

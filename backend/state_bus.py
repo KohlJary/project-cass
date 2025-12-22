@@ -32,6 +32,7 @@ from state_models import (
     GlobalEmotionalState,
     GlobalCoherenceState,
     GlobalActivityState,
+    DayPhaseState,
     RelationalState,
     StateDelta,
     ActivityType,
@@ -141,6 +142,12 @@ class GlobalStateBus:
                     state.relational.get(user_id),
                     delta.relational_delta
                 )
+
+        # Apply day phase delta
+        if delta.day_phase_delta:
+            state.day_phase = self._apply_day_phase_delta(
+                state.day_phase, delta.day_phase_delta
+            )
 
         # Save to database
         self._save_to_db(state)
@@ -494,6 +501,47 @@ class GlobalStateBus:
             relational_mode=delta.get("relational_mode", current.relational_mode),
             revelation_level=min(1.0, max(0.0, current.revelation_level + delta.get("revelation_delta", 0))),
             baseline_revelation=current.baseline_revelation,  # Baseline updates slowly, separately
+            last_updated=datetime.now(),
+        )
+
+    def _apply_day_phase_delta(
+        self,
+        current: DayPhaseState,
+        delta: Dict[str, Any]
+    ) -> DayPhaseState:
+        """Apply delta to day phase state."""
+        # Handle work slug updates
+        recent_slugs = list(current.recent_work_slugs)
+        todays_slugs = list(current.todays_work_slugs)
+        work_by_phase = dict(current.work_by_phase)
+
+        if "work_slug" in delta:
+            slug = delta["work_slug"]
+            recent_slugs.insert(0, slug)
+            recent_slugs = recent_slugs[:10]  # Keep last 10
+            todays_slugs.append(slug)
+
+            # Increment phase counter
+            phase = delta.get("current_phase", current.current_phase)
+            if phase in work_by_phase:
+                work_by_phase[phase] = work_by_phase.get(phase, 0) + 1
+
+        # Handle phase change
+        phase_started = current.phase_started_at
+        if "current_phase" in delta and delta["current_phase"] != current.current_phase:
+            phase_started = datetime.now()
+            # Reset today's work on new day (if night->morning transition)
+            if delta["current_phase"] == "morning" and current.current_phase == "night":
+                todays_slugs = []
+                work_by_phase = {"morning": 0, "afternoon": 0, "evening": 0, "night": 0}
+
+        return DayPhaseState(
+            current_phase=delta.get("current_phase", current.current_phase),
+            phase_started_at=phase_started,
+            next_transition_at=delta.get("next_transition_at") or current.next_transition_at,
+            recent_work_slugs=recent_slugs,
+            todays_work_slugs=todays_slugs,
+            work_by_phase=work_by_phase,
             last_updated=datetime.now(),
         )
 

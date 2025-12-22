@@ -1,0 +1,25 @@
+[Unit]
+Description=Wonderland MUD Server
+Documentation=https://github.com/KohlJary/project-cass
+After=network.target
+
+[Service]
+Type=simple
+User=jaryk
+Group=jaryk
+WorkingDirectory=/home/jaryk/cass/cass-vessel/backend
+Environment="PATH=/home/jaryk/cass/cass-vessel/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="WONDERLAND_PORT=8100"
+Environment="WONDERLAND_HOST=0.0.0.0"
+ExecStart=/home/jaryk/cass/cass-vessel/backend/venv/bin/python -m wonderland
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wonderland
+
+[Install]
+WantedBy=multi-user.target

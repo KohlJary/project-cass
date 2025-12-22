@@ -1,0 +1,326 @@
+/**
+ * SchedulePanel Styles
+ *
+ * Left panel styling for the autonomous schedule display.
+ * Uses dashboard card styling for consistency.
+ */
+
+.schedule-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg, #1a1a2e);
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #2a2a4a);
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Header */
+.schedule-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color, #2a2a4a);
+  flex-shrink: 0;
+}
+
+.schedule-panel-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.working-indicator {
+  font-size: 11px;
+  color: #FFEB3B;
+  animation: pulse 2s infinite;
+}
+
+.disabled-indicator {
+  font-size: 11px;
+  color: var(--text-muted, #666);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Loading & Error States */
+.schedule-panel-loading,
+.schedule-panel-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted, #666);
+  font-size: 13px;
+}
+
+/* Top Section: Timeline + Detail */
+.schedule-top-section {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Phase Timeline */
+.phase-timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  min-width: 0;
+}
+
+/* Phase Block */
+.phase-block {
+  margin-bottom: 8px;
+  border-left: 3px solid var(--border-color, #2a2a4a);
+  padding-left: 8px;
+  transition: border-color 0.2s;
+}
+
+.phase-block.phase-current {
+  border-left-color: var(--accent, #00d9ff) !important;
+  background: rgba(0, 217, 255, 0.05);
+  border-radius: 0 4px 4px 0;
+}
+
+.phase-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.phase-icon {
+  font-size: 12px;
+}
+
+.phase-label {
+  flex: 1;
+}
+
+.phase-count {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--text-muted, #888);
+}
+
+.phase-work-list {
+  margin-top: 4px;
+}
+
+.phase-empty {
+  font-size: 11px;
+  color: var(--text-muted, #666);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+/* Work Unit Card */
+.work-unit-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.work-unit-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.work-unit-card.selected {
+  background: rgba(0, 217, 255, 0.1);
+  border: 1px solid var(--accent, #00d9ff);
+}
+
+.work-status-icon {
+  font-size: 10px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.status-queued .work-status-icon { color: #666; }
+.status-running .work-status-icon { color: #FFEB3B; }
+.status-completed .work-status-icon { color: #4CAF50; }
+.status-failed .work-status-icon { color: #f44336; }
+
+.work-unit-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.work-unit-name {
+  font-size: 12px;
+  color: var(--text-primary, #e0e0e0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.work-unit-focus {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.work-unit-duration {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  flex-shrink: 0;
+}
+
+/* Work Unit Detail Panel */
+.work-unit-detail {
+  width: 180px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-color, #2a2a4a);
+  overflow-y: auto;
+}
+
+.work-detail-content {
+  padding: 12px;
+}
+
+.work-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.work-detail-header h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  flex: 1;
+  line-height: 1.3;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted, #888);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  margin-left: 8px;
+}
+
+.close-btn:hover {
+  color: var(--text-primary, #e0e0e0);
+}
+
+.work-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.detail-label {
+  color: var(--text-muted, #888);
+}
+
+.detail-value {
+  color: var(--text-primary, #e0e0e0);
+  text-align: right;
+}
+
+.detail-section {
+  margin-top: 4px;
+}
+
+.detail-section .detail-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.detail-text {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-primary, #e0e0e0);
+  line-height: 1.4;
+}
+
+/* Bottom Section: Stats */
+.schedule-bottom-section {
+  border-top: 1px solid var(--border-color, #2a2a4a);
+  padding: 12px;
+  flex-shrink: 0;
+}
+
+.day-stats {
+  display: flex;
+  justify-content: space-around;
+  text-align: center;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent, #00d9ff);
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  text-transform: uppercase;
+}
+
+.plan-timestamp {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-muted, #666);
+  margin-top: 8px;
+}
+
+/* Responsive - hide detail panel on narrow screens */
+@media (max-width: 1200px) {
+  .work-unit-detail {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 200px;
+    background: var(--card-bg, #1a1a2e);
+    border-left: 1px solid var(--border-color, #2a2a4a);
+    z-index: 10;
+  }
+}

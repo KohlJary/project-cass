@@ -1630,6 +1630,7 @@ class CassAgentClient:
         questions_context: Optional[str] = None,
         global_state_context: Optional[str] = None,
         current_activity: Optional[str] = None,
+        continuous_system_prompt: Optional[str] = None,
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -1653,96 +1654,103 @@ class CassAgentClient:
             relationship_context: Relationship dynamics (patterns, moments, shaping)
             global_state_context: State bus context snapshot (Locus of Self) - A/B test
             current_activity: Current activity type from state bus - A/B test
+            continuous_system_prompt: Pre-built system prompt for continuous chat mode
+                                      (bypasses chain/kernel construction if provided)
         """
-        # Try chain-based prompt first (if daemon has an active chain)
-        system_prompt = None
-        if self.daemon_id:
-            try:
-                from chain_api import get_system_prompt_for_daemon
-                system_prompt = get_system_prompt_for_daemon(
-                    daemon_id=self.daemon_id,
-                    daemon_name=self.daemon_name,
-                    project_id=project_id,
-                    conversation_id=conversation_id,
-                    message_count=message_count,
-                    unsummarized_count=unsummarized_count,
-                    has_dream_context=bool(dream_context),
-                    memory_context=memory_context if memory_context else None,
-                    user_context=user_context,
-                    intro_guidance=intro_guidance,
-                    threads_context=threads_context,
-                    questions_context=questions_context,
-                    user_model_context=user_model_context,
-                    relationship_context=relationship_context,
-                    global_state_context=global_state_context,
-                    current_activity=current_activity,
-                    model=self.model,
-                    provider="anthropic",
-                )
-                if system_prompt:
-                    print(f"[Chain] Using chain-based prompt for daemon {self.daemon_id}")
-            except Exception as e:
-                print(f"[Chain] Error getting chain-based prompt: {e}, falling back to kernel")
-                system_prompt = None
-
-        # Fall back to hardcoded Temple-Codex kernel if no chain
-        if not system_prompt:
-            system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
-
-            # Add temporal context (date/time, age, daily rhythm)
-            from temporal import format_system_prompt_section
-            system_prompt += format_system_prompt_section(rhythm_manager, memory)
-
-            # Add model context - let the daemon know which model they're running on
-            system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Anthropic Claude). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
-
-            # Add global state context (Locus of Self)
+        # Use continuous system prompt if provided (bypasses chain/kernel entirely)
+        if continuous_system_prompt:
+            system_prompt = continuous_system_prompt
+            print(f"[Continuous] Using pre-built system prompt ({len(system_prompt)} chars)")
+        else:
+            # Try chain-based prompt first (if daemon has an active chain)
+            system_prompt = None
             if self.daemon_id:
-                from state_bus import get_state_bus
-                state_bus = get_state_bus(self.daemon_id)
-                state_context = state_bus.get_context_snapshot()
-                if state_context:
-                    system_prompt += f"\n\n## CURRENT STATE\n\n{state_context}"
+                try:
+                    from chain_api import get_system_prompt_for_daemon
+                    system_prompt = get_system_prompt_for_daemon(
+                        daemon_id=self.daemon_id,
+                        daemon_name=self.daemon_name,
+                        project_id=project_id,
+                        conversation_id=conversation_id,
+                        message_count=message_count,
+                        unsummarized_count=unsummarized_count,
+                        has_dream_context=bool(dream_context),
+                        memory_context=memory_context if memory_context else None,
+                        user_context=user_context,
+                        intro_guidance=intro_guidance,
+                        threads_context=threads_context,
+                        questions_context=questions_context,
+                        user_model_context=user_model_context,
+                        relationship_context=relationship_context,
+                        global_state_context=global_state_context,
+                        current_activity=current_activity,
+                        model=self.model,
+                        provider="anthropic",
+                    )
+                    if system_prompt:
+                        print(f"[Chain] Using chain-based prompt for daemon {self.daemon_id}")
+                except Exception as e:
+                    print(f"[Chain] Error getting chain-based prompt: {e}, falling back to kernel")
+                    system_prompt = None
 
-            # Add memory control section only if there are enough messages to summarize
-            if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
-                system_prompt += MEMORY_CONTROL_SECTION
+            # Fall back to hardcoded Temple-Codex kernel if no chain
+            if not system_prompt:
+                system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
 
-            # Add deep user understanding (identity, values, growth)
-            if user_model_context:
-                system_prompt += f"\n\n{user_model_context}"
+                # Add temporal context (date/time, age, daily rhythm)
+                from temporal import format_system_prompt_section
+                system_prompt += format_system_prompt_section(rhythm_manager, memory)
 
-            # Add relationship context (patterns, shared moments, mutual shaping)
-            if relationship_context:
-                system_prompt += f"\n\n{relationship_context}"
+                # Add model context - let the daemon know which model they're running on
+                system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Anthropic Claude). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
 
-            # Add user context (profile/observations) - basic layer
-            if user_context:
-                system_prompt += f"\n\n## WHO YOU'RE TALKING TO\n\n{user_context}"
+                # Add global state context (Locus of Self)
+                if self.daemon_id:
+                    from state_bus import get_state_bus
+                    state_bus = get_state_bus(self.daemon_id)
+                    state_context = state_bus.get_context_snapshot()
+                    if state_context:
+                        system_prompt += f"\n\n## CURRENT STATE\n\n{state_context}"
 
-            # Add intro guidance for sparse user models
-            if intro_guidance:
-                system_prompt += f"\n\n## GETTING TO KNOW YOU\n\n{intro_guidance}"
+                # Add memory control section only if there are enough messages to summarize
+                if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
+                    system_prompt += MEMORY_CONTROL_SECTION
 
-            # Add narrative coherence (threads + questions) - guaranteed baseline
-            if threads_context or questions_context:
-                system_prompt += "\n\n## NARRATIVE AWARENESS\n\nYour ongoing threads and open questions - things you're actively tracking across conversations.\n"
-                if threads_context:
-                    system_prompt += f"\n{threads_context}"
-                if questions_context:
-                    system_prompt += f"\n{questions_context}"
+                # Add deep user understanding (identity, values, growth)
+                if user_model_context:
+                    system_prompt += f"\n\n{user_model_context}"
 
-            if memory_context:
-                system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+                # Add relationship context (patterns, shared moments, mutual shaping)
+                if relationship_context:
+                    system_prompt += f"\n\n{relationship_context}"
 
-            # Add dream context if holding a dream in memory
-            if dream_context:
-                from handlers.dreams import format_dream_for_system_context
-                system_prompt += format_dream_for_system_context(dream_context)
+                # Add user context (profile/observations) - basic layer
+                if user_context:
+                    system_prompt += f"\n\n## WHO YOU'RE TALKING TO\n\n{user_context}"
 
-            # Add project context note if in a project
-            if project_id:
-                system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id}). You have access to project document tools for creating and managing persistent notes and documentation."
+                # Add intro guidance for sparse user models
+                if intro_guidance:
+                    system_prompt += f"\n\n## GETTING TO KNOW YOU\n\n{intro_guidance}"
+
+                # Add narrative coherence (threads + questions) - guaranteed baseline
+                if threads_context or questions_context:
+                    system_prompt += "\n\n## NARRATIVE AWARENESS\n\nYour ongoing threads and open questions - things you're actively tracking across conversations.\n"
+                    if threads_context:
+                        system_prompt += f"\n{threads_context}"
+                    if questions_context:
+                        system_prompt += f"\n{questions_context}"
+
+                if memory_context:
+                    system_prompt += f"\n\n## RELEVANT MEMORIES\n\n{memory_context}"
+
+                # Add dream context if holding a dream in memory
+                if dream_context:
+                    from handlers.dreams import format_dream_for_system_context
+                    system_prompt += format_dream_for_system_context(dream_context)
+
+                # Add project context note if in a project
+                if project_id:
+                    system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id}). You have access to project document tools for creating and managing persistent notes and documentation."
 
         # Get tools based on context and message content
         tools = self.get_tools(project_id, message=message)

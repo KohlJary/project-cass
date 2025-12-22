@@ -6,6 +6,18 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
 
 ## 2025-12-22
 
+### TODO: Remove old Daily Rhythm system
+- **Status**: Disabled but not removed
+- **What's left**:
+  - `daily_rhythm.py` - DailyRhythmManager class
+  - `handlers/daily_rhythm.py` - Tool handlers
+  - `routes/admin/sessions.py` - `/rhythm/*` endpoints (lines 1487-1520)
+  - `background_tasks.py` - `rhythm_phase_monitor_task` function
+  - References in `temporal.py`, `agent_client.py`, `openai_client.py`
+- **Replaced by**: Autonomous scheduling (`scheduling/` module)
+- **Migration guide**: `scheduler/MIGRATION_PLAN.md`
+- **Action**: Can safely delete after confirming autonomous scheduling is stable
+
 ### Goal/Task Hierarchy Architecture
 - **Three-tier system** for structured goal pursuit:
   1. **Goal** (unified_goals.py) - Strategic objectives ("Explore Wonderland", "Learn about Greek mythology")

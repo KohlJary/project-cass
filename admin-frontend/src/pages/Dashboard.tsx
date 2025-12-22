@@ -1,6 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchDashboardData, type DashboardData, type Approvals } from '../api/graphql';
-import { schedulerApi, type SchedulerStatus } from '../api/client';
+import { fetchDashboardData } from '../api/graphql';
+import type { DashboardData, Approvals } from '../api/graphql';
+import { schedulerApi } from '../api/client';
+import type { SchedulerStatus } from '../api/client';
+import { SchedulePanel } from '../components/SchedulePanel';
+import { ChatWidget } from '../components/ChatWidget';
 import './Dashboard.css';
 
 // =============================================================================
@@ -629,37 +633,50 @@ export function Dashboard() {
   }
 
   return (
-    <div className="dashboard">
-      <header className="dashboard-header">
-        <div className="header-content">
-          <h1>Dashboard</h1>
-          <p className="subtitle">Cass instance overview</p>
+    <div className="dashboard-layout">
+      {/* Left Panel: Autonomous Schedule */}
+      <aside className="dashboard-left-panel">
+        <SchedulePanel />
+      </aside>
+
+      {/* Center: Main Dashboard */}
+      <main className="dashboard-center">
+        <header className="dashboard-header">
+          <div className="header-content">
+            <h1>Dashboard</h1>
+            <p className="subtitle">Cass instance overview</p>
+          </div>
+          <button className="refresh-btn" onClick={() => refetch()}>Refresh</button>
+        </header>
+
+        {/* Row 1: State | Stats | Goals */}
+        <div className="dashboard-row row-1">
+          <StateCard data={data} />
+          <StatsCard data={data} />
+          <GoalsCard data={data} />
         </div>
-        <button className="refresh-btn" onClick={() => refetch()}>Refresh</button>
-      </header>
 
-      {/* Row 1: State | Stats | Goals */}
-      <div className="dashboard-row row-1">
-        <StateCard data={data} />
-        <StatsCard data={data} />
-        <GoalsCard data={data} />
-      </div>
+        {/* Row 2: Metrics | Daily Summary */}
+        <div className="dashboard-row row-2">
+          <MetricsCard data={data} />
+          <DailySummaryCard data={data} />
+        </div>
 
-      {/* Row 2: Metrics | Daily Summary */}
-      <div className="dashboard-row row-2">
-        <MetricsCard data={data} />
-        <DailySummaryCard data={data} />
-      </div>
+        {/* Row 3: Scheduler | Approvals */}
+        <div className="dashboard-row row-3">
+          <SchedulerCard data={schedulerData} isLoading={schedulerLoading} />
+          <ApprovalsCard
+            data={data.approvals}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
+        </div>
+      </main>
 
-      {/* Row 3: Scheduler | Approvals */}
-      <div className="dashboard-row row-3">
-        <SchedulerCard data={schedulerData} isLoading={schedulerLoading} />
-        <ApprovalsCard
-          data={data.approvals}
-          onApprove={handleApprove}
-          onReject={handleReject}
-        />
-      </div>
+      {/* Right Panel: Chat Widget */}
+      <aside className="dashboard-right-panel">
+        <ChatWidget />
+      </aside>
     </div>
   );
 }

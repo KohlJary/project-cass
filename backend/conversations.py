@@ -53,6 +53,7 @@ class Conversation:
     project_id: Optional[str] = None  # Optional project association
     working_summary: Optional[str] = None  # Token-optimized summary for prompt context
     user_id: Optional[str] = None  # Owner of this conversation
+    is_continuous: bool = False  # If True, this is a continuous stream chat (one per user)
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -66,7 +67,8 @@ class Conversation:
             "messages_since_last_summary": self.messages_since_last_summary,
             "project_id": self.project_id,
             "working_summary": self.working_summary,
-            "user_id": self.user_id
+            "user_id": self.user_id,
+            "is_continuous": self.is_continuous
         }
 
     @classmethod
@@ -83,7 +85,8 @@ class Conversation:
             messages_since_last_summary=data.get("messages_since_last_summary", 0),
             project_id=data.get("project_id"),
             working_summary=data.get("working_summary"),
-            user_id=data.get("user_id")
+            user_id=data.get("user_id"),
+            is_continuous=data.get("is_continuous", False)
         )
 
 
@@ -107,7 +110,8 @@ class ConversationManager:
         self,
         title: Optional[str] = None,
         project_id: Optional[str] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        is_continuous: bool = False
     ) -> Conversation:
         """Create a new conversation"""
         conversation_id = str(uuid.uuid4())
@@ -118,8 +122,9 @@ class ConversationManager:
                 INSERT INTO conversations (
                     id, daemon_id, user_id, project_id, title,
                     working_summary, last_summary_timestamp,
-                    messages_since_last_summary, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    messages_since_last_summary, is_continuous,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 conversation_id,
                 self.daemon_id,
@@ -129,6 +134,7 @@ class ConversationManager:
                 None,  # working_summary
                 None,  # last_summary_timestamp
                 0,     # messages_since_last_summary
+                1 if is_continuous else 0,
                 now,
                 now
             ))
@@ -140,7 +146,8 @@ class ConversationManager:
             updated_at=now,
             messages=[],
             project_id=project_id,
-            user_id=user_id
+            user_id=user_id,
+            is_continuous=is_continuous
         )
 
     def load_conversation(self, conversation_id: str) -> Optional[Conversation]:
@@ -149,7 +156,8 @@ class ConversationManager:
             # Load conversation metadata
             cursor = conn.execute("""
                 SELECT id, title, created_at, updated_at, user_id, project_id,
-                       working_summary, last_summary_timestamp, messages_since_last_summary
+                       working_summary, last_summary_timestamp, messages_since_last_summary,
+                       is_continuous
                 FROM conversations WHERE id = ?
             """, (conversation_id,))
             row = cursor.fetchone()
@@ -198,7 +206,8 @@ class ConversationManager:
                 messages_since_last_summary=row['messages_since_last_summary'] or 0,
                 project_id=row['project_id'],
                 working_summary=row['working_summary'],
-                user_id=row['user_id']
+                user_id=row['user_id'],
+                is_continuous=bool(row['is_continuous'])
             )
 
     def add_message(
@@ -758,6 +767,59 @@ class ConversationManager:
                 marks=json_deserialize(row['marks_json']),
                 narration_metrics=json_deserialize(row['narration_metrics_json'])
             )
+
+    def get_or_create_continuous(self, user_id: str) -> Conversation:
+        """
+        Get or create the continuous conversation for a user.
+
+        Each user has at most one continuous conversation - a single stream
+        where all messages accumulate. This is the foundation for continuous
+        chat where context is composed from threads + working summary.
+
+        Args:
+            user_id: The user ID to get/create continuous conversation for
+
+        Returns:
+            The continuous conversation (existing or newly created)
+        """
+        with get_db() as conn:
+            # Look for existing continuous conversation for this user
+            cursor = conn.execute("""
+                SELECT id FROM conversations
+                WHERE daemon_id = ? AND user_id = ? AND is_continuous = 1
+                LIMIT 1
+            """, (self.daemon_id, user_id))
+            row = cursor.fetchone()
+
+            if row:
+                # Load and return existing continuous conversation
+                return self.load_conversation(row['id'])
+
+        # Create new continuous conversation
+        return self.create_conversation(
+            title="Continuous Stream",
+            user_id=user_id,
+            is_continuous=True
+        )
+
+    def get_continuous_id(self, user_id: str) -> Optional[str]:
+        """
+        Get the ID of the continuous conversation for a user, if it exists.
+
+        Args:
+            user_id: The user ID
+
+        Returns:
+            The conversation ID, or None if no continuous conversation exists
+        """
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT id FROM conversations
+                WHERE daemon_id = ? AND user_id = ? AND is_continuous = 1
+                LIMIT 1
+            """, (self.daemon_id, user_id))
+            row = cursor.fetchone()
+            return row['id'] if row else None
 
 
 if __name__ == "__main__":

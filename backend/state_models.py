@@ -298,6 +298,72 @@ class GlobalActivityState:
 
 
 @dataclass
+class DayPhaseState:
+    """
+    Current day phase and work context.
+
+    Tracks where we are in the day cycle and provides quick access
+    to recent work for context queries like "what did you do this morning?"
+    """
+
+    # Current phase
+    current_phase: str = "afternoon"  # morning, afternoon, evening, night
+    phase_started_at: Optional[datetime] = None
+    next_transition_at: Optional[datetime] = None
+
+    # Recent work (slugs for quick reference)
+    recent_work_slugs: List[str] = field(default_factory=list)  # Last N work unit slugs
+    todays_work_slugs: List[str] = field(default_factory=list)  # All work today
+
+    # Phase-specific work counts
+    work_by_phase: Dict[str, int] = field(default_factory=lambda: {
+        "morning": 0, "afternoon": 0, "evening": 0, "night": 0
+    })
+
+    # Meta
+    last_updated: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "current_phase": self.current_phase,
+            "phase_started_at": self.phase_started_at.isoformat() if self.phase_started_at else None,
+            "next_transition_at": self.next_transition_at.isoformat() if self.next_transition_at else None,
+            "recent_work_slugs": self.recent_work_slugs,
+            "todays_work_slugs": self.todays_work_slugs,
+            "work_by_phase": self.work_by_phase,
+            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DayPhaseState":
+        """Create from dictionary."""
+        phase_started = None
+        if data.get("phase_started_at"):
+            phase_started = datetime.fromisoformat(data["phase_started_at"])
+
+        next_transition = None
+        if data.get("next_transition_at"):
+            next_transition = datetime.fromisoformat(data["next_transition_at"])
+
+        last_updated = None
+        if data.get("last_updated"):
+            last_updated = datetime.fromisoformat(data["last_updated"])
+
+        return cls(
+            current_phase=data.get("current_phase", "afternoon"),
+            phase_started_at=phase_started,
+            next_transition_at=next_transition,
+            recent_work_slugs=data.get("recent_work_slugs", []),
+            todays_work_slugs=data.get("todays_work_slugs", []),
+            work_by_phase=data.get("work_by_phase", {
+                "morning": 0, "afternoon": 0, "evening": 0, "night": 0
+            }),
+            last_updated=last_updated,
+        )
+
+
+@dataclass
 class RelationalState:
     """
     Relational state for a specific user relationship.
@@ -369,6 +435,7 @@ class StateDelta:
     activity_delta: Optional[Dict[str, Any]] = None      # {"current_activity": "research"}
     coherence_delta: Optional[Dict[str, float]] = None   # {"local_coherence": 0.02}
     relational_delta: Optional[Dict[str, Any]] = None    # {"revelation_level": 0.1}
+    day_phase_delta: Optional[Dict[str, Any]] = None     # {"current_phase": "evening", "work_slug": "..."}
 
     # Event to emit (optional)
     event: Optional[str] = None                    # "session_started", "insight_gained"
@@ -386,6 +453,7 @@ class StateDelta:
             "activity_delta": self.activity_delta,
             "coherence_delta": self.coherence_delta,
             "relational_delta": self.relational_delta,
+            "day_phase_delta": self.day_phase_delta,
             "event": self.event,
             "event_data": self.event_data,
             "reason": self.reason,
@@ -405,6 +473,7 @@ class StateDelta:
             activity_delta=data.get("activity_delta"),
             coherence_delta=data.get("coherence_delta"),
             relational_delta=data.get("relational_delta"),
+            day_phase_delta=data.get("day_phase_delta"),
             event=data.get("event"),
             event_data=data.get("event_data"),
             reason=data.get("reason", ""),
@@ -416,7 +485,7 @@ class GlobalState:
     """
     Complete global state snapshot.
 
-    Combines identity, emotional, coherence, activity, and relational states
+    Combines identity, emotional, coherence, activity, day phase, and relational states
     into a single view of Cass's current being.
     """
 
@@ -425,6 +494,7 @@ class GlobalState:
     emotional: GlobalEmotionalState = field(default_factory=GlobalEmotionalState)
     coherence: GlobalCoherenceState = field(default_factory=GlobalCoherenceState)
     activity: GlobalActivityState = field(default_factory=GlobalActivityState)
+    day_phase: DayPhaseState = field(default_factory=DayPhaseState)
     relational: Dict[str, RelationalState] = field(default_factory=dict)  # user_id -> state
 
     def to_dict(self) -> Dict[str, Any]:
@@ -435,6 +505,7 @@ class GlobalState:
             "emotional": self.emotional.to_dict(),
             "coherence": self.coherence.to_dict(),
             "activity": self.activity.to_dict(),
+            "day_phase": self.day_phase.to_dict(),
             "relational": {uid: rs.to_dict() for uid, rs in self.relational.items()},
         }
 
@@ -451,6 +522,7 @@ class GlobalState:
             emotional=GlobalEmotionalState.from_dict(data.get("emotional", {})),
             coherence=GlobalCoherenceState.from_dict(data.get("coherence", {})),
             activity=GlobalActivityState.from_dict(data.get("activity", {})),
+            day_phase=DayPhaseState.from_dict(data.get("day_phase", {})),
             relational=relational,
         )
 
