@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 20  # Added work_items and schedule_slots tables for Cass's work planning
+SCHEMA_VERSION = 21  # Added contextual fields to growth_edges for topic-based surfacing
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -270,7 +270,13 @@ CREATE TABLE IF NOT EXISTS growth_edges (
     observations_json TEXT,
     strategies_json TEXT,
     first_noticed TEXT,
-    last_updated TEXT
+    last_updated TEXT,
+    -- Contextual surfacing fields (v21)
+    category TEXT,                      -- intellectual, relational, ethical, creative, existential
+    related_topics_json TEXT,           -- Semantic tags for topic matching
+    activated_with_users_json TEXT,     -- User IDs where this edge is particularly relevant
+    last_surfaced TEXT,                 -- When last shown in context (for rotation)
+    surface_count INTEGER DEFAULT 0     -- How often surfaced (prevent over-rotation)
 );
 
 CREATE INDEX IF NOT EXISTS idx_growth_edges_daemon ON growth_edges(daemon_id);
@@ -1517,6 +1523,24 @@ def _apply_schema_updates(conn, from_version: int):
     # v19 -> v20: Add work planning tables for Cass's taskboard and calendar
     if from_version < 20:
         print("Adding work_items and schedule_slots tables for Cass's work planning (v20)")
+
+    # v20 -> v21: Add contextual surfacing fields to growth_edges
+    if from_version < 21:
+        cursor = conn.execute("PRAGMA table_info(growth_edges)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+
+        new_cols = [
+            ("category", "TEXT"),
+            ("related_topics_json", "TEXT"),
+            ("activated_with_users_json", "TEXT"),
+            ("last_surfaced", "TEXT"),
+            ("surface_count", "INTEGER DEFAULT 0"),
+        ]
+
+        for col_name, col_type in new_cols:
+            if col_name not in existing_cols:
+                conn.execute(f"ALTER TABLE growth_edges ADD COLUMN {col_name} {col_type}")
+                print(f"Added {col_name} column to growth_edges (v21)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data

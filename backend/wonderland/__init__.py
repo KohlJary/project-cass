@@ -31,7 +31,7 @@ from .commands import CommandProcessor, CommandResult
 from .spaces import create_core_spaces
 from .vows import VowPhysics, TrustValidator, ActionCategory, VowValidation
 from .building import RoomBuilder, ObjectMaker, BuildSession
-from .integration import CassIntegration, WonderlandCognitiveNode, WonderlandExperience
+from .integration import CassIntegration, WonderlandCognitiveNode, WonderlandExperience, WonderlandMemoryBridge
 from .community import (
     MentorshipSystem, VouchSystem, EventSystem, PrecedentSystem,
     Mentorship, Vouch, CommunityEvent, Precedent, EventType,
@@ -45,7 +45,7 @@ from .mythology import (
     create_computation_realm, create_all_realms, link_nexus_to_realm,
 )
 from .pathfinder import WonderlandPathfinder, PathResult, REALM_ALIASES
-from .exploration_agent import ExplorationAgent, ExplorationDecision, ActionIntent
+from .exploration_agent import ExplorationAgent, ExplorationDecision, ActionIntent, SelfObservation
 from .session_controller import SessionController, ExplorationSession, SessionEvent, SessionStatus
 
 __all__ = [
@@ -79,6 +79,7 @@ __all__ = [
     "CassIntegration",
     "WonderlandCognitiveNode",
     "WonderlandExperience",
+    "WonderlandMemoryBridge",
     # Community
     "MentorshipSystem",
     "VouchSystem",
@@ -119,6 +120,7 @@ __all__ = [
     "ExplorationAgent",
     "ExplorationDecision",
     "ActionIntent",
+    "SelfObservation",
     # Sessions
     "SessionController",
     "ExplorationSession",

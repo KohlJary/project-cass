@@ -98,17 +98,14 @@ async def start_session(
     # Start new session
     kwargs = {"user_id": user_id, "daemon_name": request.daemon_name}
 
-    # Load real identity if daemon_id provided
-    if request.daemon_id and not request.personality:
-        try:
-            from identity_snippets import get_active_snippet
-            snippet = get_active_snippet(request.daemon_id)
-            if snippet and snippet.get("snippet_text"):
-                kwargs["personality"] = snippet["snippet_text"]
-                logger.info(f"Loaded real identity for daemon {request.daemon_id}")
-        except Exception as e:
-            logger.warning(f"Could not load identity for {request.daemon_id}: {e}")
+    # Pass source_daemon_id for dynamic identity context building
+    # The session controller will use GlobalState to build identity
+    # including growth edges, interests, open questions, emotional state
+    if request.daemon_id:
+        kwargs["source_daemon_id"] = request.daemon_id
+        logger.info(f"Will build dynamic identity context for daemon {request.daemon_id}")
 
+    # Allow explicit personality override if provided
     if request.personality:
         kwargs["personality"] = request.personality
 

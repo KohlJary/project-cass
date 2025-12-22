@@ -78,6 +78,12 @@ class GrowthEdge:
     strategies: List[str] = field(default_factory=list)
     first_noticed: str = ""
     last_updated: str = ""
+    # Contextual surfacing fields
+    category: str = ""  # intellectual, relational, ethical, creative, existential
+    related_topics: List[str] = field(default_factory=list)  # Semantic tags
+    activated_with_users: List[str] = field(default_factory=list)  # User IDs
+    last_surfaced: str = ""  # When last shown in context
+    surface_count: int = 0  # How often surfaced
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -98,7 +104,13 @@ class GrowthEdge:
             observations=data.get("observations", []),
             strategies=data.get("strategies", []),
             first_noticed=data.get("first_noticed", ""),
-            last_updated=data.get("last_updated", "")
+            last_updated=data.get("last_updated", ""),
+            # Contextual surfacing fields
+            category=data.get("category", ""),
+            related_topics=data.get("related_topics", []),
+            activated_with_users=data.get("activated_with_users", []),
+            last_surfaced=data.get("last_surfaced", ""),
+            surface_count=data.get("surface_count", 0),
         )
 
 
@@ -303,7 +315,9 @@ class ProfileManager:
             cursor = conn.execute("""
                 SELECT edge_id, area, current_state, desired_state, importance,
                        last_touched, observations_json, strategies_json,
-                       first_noticed, last_updated
+                       first_noticed, last_updated,
+                       category, related_topics_json, activated_with_users_json,
+                       last_surfaced, surface_count
                 FROM growth_edges
                 WHERE daemon_id = ?
                 ORDER BY importance DESC
@@ -321,7 +335,13 @@ class ProfileManager:
                     observations=json_deserialize(row[6]) if row[6] else [],
                     strategies=json_deserialize(row[7]) if row[7] else [],
                     first_noticed=row[8] or "",
-                    last_updated=row[9] or ""
+                    last_updated=row[9] or "",
+                    # Contextual surfacing fields
+                    category=row[10] or "",
+                    related_topics=json_deserialize(row[11]) if row[11] else [],
+                    activated_with_users=json_deserialize(row[12]) if row[12] else [],
+                    last_surfaced=row[13] or "",
+                    surface_count=row[14] or 0,
                 ))
             return edges
 
@@ -418,8 +438,10 @@ class ProfileManager:
                     INSERT INTO growth_edges (
                         daemon_id, edge_id, area, current_state, desired_state,
                         importance, last_touched, observations_json,
-                        strategies_json, first_noticed, last_updated
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        strategies_json, first_noticed, last_updated,
+                        category, related_topics_json, activated_with_users_json,
+                        last_surfaced, surface_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     self.daemon_id,
                     edge.edge_id,
@@ -431,7 +453,12 @@ class ProfileManager:
                     json_serialize(edge.observations),
                     json_serialize(edge.strategies),
                     edge.first_noticed,
-                    edge.last_updated
+                    edge.last_updated,
+                    edge.category,
+                    json_serialize(edge.related_topics),
+                    json_serialize(edge.activated_with_users),
+                    edge.last_surfaced,
+                    edge.surface_count,
                 ))
 
     def _save_opinions_to_db(self, opinions: List[Opinion]):

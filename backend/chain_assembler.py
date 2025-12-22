@@ -89,6 +89,12 @@ class RuntimeContext:
     has_relationship_model: bool = False
     relationship_context: Optional[str] = None  # Relationship: patterns, shared moments, mutual shaping
 
+    # Global State Bus awareness (Locus of Self)
+    has_global_state: bool = False
+    global_state_context: Optional[str] = None  # From state_bus.get_context_snapshot()
+    current_activity: Optional[str] = None  # idle, chat, research, reflection, etc.
+    emotional_snapshot: Optional[str] = None  # Brief emotional state description
+
     # Chain-level parameters
     chain_params: Dict[str, Any] = field(default_factory=dict)
 
@@ -139,6 +145,11 @@ class RuntimeContext:
             "user_model_context": self.user_model_context,
             "has_relationship_model": self.has_relationship_model,
             "relationship_context": self.relationship_context,
+            # Global state
+            "has_global_state": self.has_global_state,
+            "global_state_context": self.global_state_context,
+            "current_activity": self.current_activity,
+            "emotional_snapshot": self.emotional_snapshot,
             **self.chain_params,
         }
 

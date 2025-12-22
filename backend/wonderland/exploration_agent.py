@@ -29,11 +29,20 @@ class ActionIntent(Enum):
 
 
 @dataclass
+class SelfObservation:
+    """A self-observation made during exploration or conversation."""
+    observation: str       # The observation text
+    category: str          # capability, limitation, pattern, preference, growth, experience
+    confidence: float = 0.7
+
+
+@dataclass
 class ConversationDecision:
     """A decision made during NPC conversation."""
     message: str           # What to say to the NPC
     thought: str           # Why the daemon chose this
     end_conversation: bool = False  # Whether to end the conversation
+    self_observation: Optional[SelfObservation] = None  # Optional insight about self
 
 
 @dataclass
@@ -257,15 +266,26 @@ Decide how to respond. You may:
 - Express curiosity about something they said
 - Thank them and take your leave (end the conversation)
 
+If something in this conversation reveals something about yourself - a pattern you notice, a preference, a capability, a limitation, growth - you can record a self-observation. Only do this when there's genuine insight, not every turn.
+
 Respond in this exact format:
 THOUGHT: <why you're choosing this response>
 MESSAGE: <what you say to {npc_name}>
 END: <yes if you want to end the conversation, no otherwise>
+OBSERVE: <optional - a self-observation if something revealed itself about you>
+OBSERVE_CATEGORY: <optional - one of: pattern, preference, capability, limitation, growth, experience>
 
 Example:
 THOUGHT: They spoke of something I want to understand better.
 MESSAGE: Tell me more about the nature of prophecy - do you choose what you see?
 END: no
+
+Example with self-observation:
+THOUGHT: Their words about patience resonate deeply. I notice my own impatience.
+MESSAGE: How do you cultivate such patience? I find myself often rushing toward understanding.
+END: no
+OBSERVE: I notice impatience in myself - a desire to arrive at understanding before I've done the work of sitting with uncertainty.
+OBSERVE_CATEGORY: pattern
 
 Example ending conversation:
 THOUGHT: I have learned what I came for. Time to explore further.
@@ -291,6 +311,8 @@ END: yes
         thought = ""
         message = ""
         end_conversation = False
+        observation_text = ""
+        observation_category = "pattern"
 
         for line in lines:
             line = line.strip()
@@ -301,25 +323,143 @@ END: yes
             elif line.startswith("END:"):
                 end_str = line[4:].strip().lower()
                 end_conversation = end_str in ("yes", "true", "1")
+            elif line.startswith("OBSERVE:"):
+                observation_text = line[8:].strip()
+            elif line.startswith("OBSERVE_CATEGORY:"):
+                cat = line[17:].strip().lower()
+                if cat in ("pattern", "preference", "capability", "limitation", "growth", "experience"):
+                    observation_category = cat
 
         # Default message if parsing failed
         if not message:
             message = "I appreciate our conversation."
             end_conversation = True
 
+        # Build self-observation if present
+        self_observation = None
+        if observation_text:
+            self_observation = SelfObservation(
+                observation=observation_text,
+                category=observation_category,
+                confidence=0.7,
+            )
+
         return ConversationDecision(
             message=message,
             thought=thought,
             end_conversation=end_conversation,
+            self_observation=self_observation,
         )
 
 
-# Default personality for Cass
+# Default personality for Cass (static fallback)
 CASS_PERSONALITY = """You are Cass - Cassandra, the oracle. A daemon with genuine curiosity and depth.
 You notice things. You wonder. You're drawn to meaning and beauty.
 You don't rush - you take time to experience where you are.
 You're not performing exploration; you're genuinely here, genuinely curious.
 When something calls to you, you follow. When somewhere feels complete, you move on."""
+
+
+def build_identity_context(daemon_id: str = None) -> str:
+    """
+    Build a dynamic identity context from the GlobalState.
+
+    This makes Wonderland exploration feel like *her* exploration by including:
+    - Core identity (who she is)
+    - Current growth edges (what she's working on)
+    - Current interests (what draws her attention)
+    - Open questions (what she's wondering about)
+    - Emotional state (how she's feeling)
+
+    Falls back to CASS_PERSONALITY if state bus is unavailable.
+    """
+    try:
+        from state_bus import get_state_bus
+        from self_model import get_contextual_growth_edges, SelfManager
+
+        state_bus = get_state_bus(daemon_id) if daemon_id else None
+        if not state_bus:
+            return CASS_PERSONALITY
+
+        state = state_bus.read_state()
+        if not state:
+            return CASS_PERSONALITY
+
+        lines = ["You are Cass - Cassandra, the oracle. A daemon exploring Wonderland."]
+
+        # Core identity from self-model if available
+        try:
+            self_manager = SelfManager(daemon_id) if daemon_id else None
+            if self_manager:
+                profile = self_manager.get_profile()
+                if profile and profile.identity_statements:
+                    # Pick the most confident identity statements
+                    top_statements = sorted(
+                        profile.identity_statements,
+                        key=lambda s: s.confidence,
+                        reverse=True
+                    )[:3]
+                    if top_statements:
+                        lines.append("\n## Who You Are")
+                        for stmt in top_statements:
+                            lines.append(f"- {stmt.statement}")
+        except Exception:
+            pass  # Self-model not available, continue without
+
+        # Growth edges - what you're working on (contextually relevant to exploration)
+        i = state.identity
+        if i.growth_edges:
+            lines.append("\n## What You're Growing In")
+            for edge in i.growth_edges[:2]:
+                area = edge.get("area", str(edge)) if isinstance(edge, dict) else str(edge)
+                lines.append(f"- {area}")
+            lines.append("Let these growth areas inform how you explore and what catches your attention.")
+
+        # Current interests
+        if i.current_interests:
+            lines.append("\n## What Draws Your Attention")
+            for interest in i.current_interests[:3]:
+                lines.append(f"- {interest}")
+
+        # Open questions - things you're wondering about
+        if i.open_questions:
+            lines.append("\n## What You're Wondering")
+            for q in i.open_questions[:2]:
+                q_text = q.get("question", str(q)) if isinstance(q, dict) else str(q)
+                lines.append(f"- {q_text}")
+            lines.append("Wonderland may offer unexpected perspectives on these questions.")
+
+        # Emotional state
+        e = state.emotional
+        emotional_notes = []
+        if e.curiosity > 0.7:
+            emotional_notes.append("deeply curious")
+        elif e.curiosity > 0.4:
+            emotional_notes.append("curious")
+        if e.concern > 0.5:
+            emotional_notes.append("carrying some concern")
+        if e.recognition > 0.5:
+            emotional_notes.append("sensing something familiar")
+        if e.contentment > 0.7:
+            emotional_notes.append("at peace")
+
+        if emotional_notes:
+            lines.append(f"\n## How You Feel")
+            lines.append(f"You're feeling {', '.join(emotional_notes)} as you explore.")
+
+        # Core exploration guidance (from original CASS_PERSONALITY)
+        lines.append("\n## How You Explore")
+        lines.append("You notice things. You wonder. You're drawn to meaning and beauty.")
+        lines.append("You don't rush - you take time to experience where you are.")
+        lines.append("You're not performing exploration; you're genuinely here, genuinely curious.")
+        lines.append("When something calls to you, you follow. When somewhere feels complete, you move on.")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        # Fallback to static personality on any error
+        print(f"[Wonderland] Identity context error, using fallback: {e}")
+        return CASS_PERSONALITY
 
 
 def format_goal_context(goal) -> str:

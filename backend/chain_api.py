@@ -1237,6 +1237,9 @@ def get_system_prompt_for_daemon(
     # Enhanced user/relationship modeling
     user_model_context: Optional[str] = None,
     relationship_context: Optional[str] = None,
+    # Global state bus (Locus of Self)
+    global_state_context: Optional[str] = None,
+    current_activity: Optional[str] = None,
     # Model info
     model: str = "unknown",
     provider: str = "unknown",
@@ -1357,6 +1360,10 @@ def get_system_prompt_for_daemon(
         user_model_context=user_model_context,
         has_relationship_model=bool(relationship_context),
         relationship_context=relationship_context,
+        # Global state bus (Locus of Self)
+        has_global_state=bool(global_state_context),
+        global_state_context=global_state_context,
+        current_activity=current_activity,
         current_time=now,
         hour=now.hour,
         temporal_context=temporal_ctx,
