@@ -13,8 +13,21 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 from pydantic import BaseModel
 
 from wonderland.session_controller import SessionController, SessionStatus, GOAL_PRESETS
+from wonderland.npc_conversation import NPCConversationHandler, ConversationStatus
+import uuid
 
 logger = logging.getLogger(__name__)
+
+# NPC Conversation handler (initialized lazily)
+_conversation_handler: Optional[NPCConversationHandler] = None
+
+
+def get_conversation_handler() -> NPCConversationHandler:
+    """Get or create the NPC conversation handler."""
+    global _conversation_handler
+    if _conversation_handler is None:
+        _conversation_handler = NPCConversationHandler()
+    return _conversation_handler
 
 router = APIRouter(prefix="/wonderland", tags=["wonderland"])
 
@@ -325,3 +338,173 @@ async def get_living_world():
     controller = get_session_controller()
 
     return controller.world_simulation.get_world_state_summary()
+
+
+# =============================================================================
+# NPC CONVERSATION ENDPOINTS
+# =============================================================================
+
+class StartConversationRequest(BaseModel):
+    """Request to start an NPC conversation."""
+    daemon_id: str
+    daemon_name: str
+    npc_id: str
+    room_id: str
+    session_id: Optional[str] = None
+
+
+class SendMessageRequest(BaseModel):
+    """Request to send a message in a conversation."""
+    message: str
+
+
+@router.post("/npc/conversations")
+async def start_npc_conversation(request: StartConversationRequest):
+    """
+    Start a conversation with an NPC.
+
+    Returns the NPC's initial greeting based on their semantic pointer-set.
+    The greeting warmth is affected by the NPC's disposition toward this daemon.
+    """
+    controller = get_session_controller()
+    handler = get_conversation_handler()
+
+    # Find the NPC in mythology registry
+    npc = controller.mythology.get_npc(request.npc_id)
+    if not npc:
+        raise HTTPException(status_code=404, detail=f"NPC not found: {request.npc_id}")
+
+    # Start the conversation
+    conversation_id = str(uuid.uuid4())[:8]
+    conversation = handler.start_conversation(
+        conversation_id=conversation_id,
+        session_id=request.session_id or "direct",
+        daemon_id=request.daemon_id,
+        daemon_name=request.daemon_name,
+        npc=npc,
+        room_id=request.room_id,
+    )
+
+    if not conversation:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot start conversation - NPC {request.npc_id} has no pointer-set"
+        )
+
+    # Generate initial greeting
+    greeting = await handler.generate_initial_greeting(conversation_id)
+
+    return {
+        "conversation_id": conversation_id,
+        "npc_id": npc.npc_id,
+        "npc_name": npc.name,
+        "npc_title": npc.title,
+        "status": conversation.status.value,
+        "greeting": greeting,
+        "messages": [m.to_dict() for m in conversation.messages],
+    }
+
+
+@router.get("/npc/conversations/{conversation_id}")
+async def get_npc_conversation(conversation_id: str):
+    """Get the current state of an NPC conversation."""
+    handler = get_conversation_handler()
+    conversation = handler.get_conversation(conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return conversation.to_dict()
+
+
+@router.post("/npc/conversations/{conversation_id}/message")
+async def send_npc_message(conversation_id: str, request: SendMessageRequest):
+    """
+    Send a message to the NPC and receive their response.
+
+    The NPC's response is generated via LLM using their semantic pointer-set,
+    conversation history, memory of past interactions, and disposition.
+    """
+    handler = get_conversation_handler()
+    conversation = handler.get_conversation(conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation.status != ConversationStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Conversation is not active")
+
+    # Generate NPC response
+    response = await handler.generate_npc_response(conversation_id, request.message)
+
+    if response is None:
+        raise HTTPException(status_code=500, detail="Failed to generate NPC response")
+
+    return {
+        "conversation_id": conversation_id,
+        "npc_response": response,
+        "messages": [m.to_dict() for m in conversation.messages],
+        "message_count": len(conversation.messages),
+    }
+
+
+@router.post("/npc/conversations/{conversation_id}/end")
+async def end_npc_conversation(conversation_id: str):
+    """
+    End an NPC conversation.
+
+    This triggers conversation summarization and memory storage.
+    The NPC will remember this conversation in future interactions.
+    """
+    handler = get_conversation_handler()
+    conversation = handler.get_conversation(conversation_id)
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Summarize and store in NPC memory
+    memory = await handler.summarize_and_remember(conversation_id)
+
+    # End the conversation
+    handler.end_conversation(conversation_id)
+
+    return {
+        "conversation_id": conversation_id,
+        "status": "ended",
+        "message_count": len(conversation.messages),
+        "memory_stored": memory is not None,
+        "memory": {
+            "topics": memory.topics if memory else [],
+            "sentiment": memory.sentiment if memory else None,
+            "memorable_quote": memory.memorable_quote if memory else None,
+        } if memory else None,
+    }
+
+
+@router.get("/npc/{npc_id}")
+async def get_npc_info(npc_id: str):
+    """Get information about an NPC including their current state."""
+    controller = get_session_controller()
+
+    # Get NPC from mythology
+    npc = controller.mythology.get_npc(npc_id)
+    if not npc:
+        raise HTTPException(status_code=404, detail=f"NPC not found: {npc_id}")
+
+    # Get NPC state
+    from wonderland.npc_state import get_npc_state_manager
+    state_manager = get_npc_state_manager()
+    state = state_manager.get_state(npc_id)
+
+    return {
+        "npc_id": npc.npc_id,
+        "name": npc.name,
+        "title": npc.title,
+        "archetype": npc.archetype.value if npc.archetype else None,
+        "tradition": npc.tradition,
+        "description": npc.description,
+        "current_room": state.current_room if state else npc.current_room,
+        "activity": state.activity.value if state else "idle",
+        "behavior_type": state.behavior_type.value if state else None,
+        "memory_count": len(state.memories) if state else 0,
+    }
