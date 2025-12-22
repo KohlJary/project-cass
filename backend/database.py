@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 21  # Added contextual fields to growth_edges for topic-based surfacing
+SCHEMA_VERSION = 22  # Added PeopleDex tables for biographical entity database
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1292,6 +1292,64 @@ CREATE INDEX IF NOT EXISTS idx_schedule_slots_daemon ON schedule_slots(daemon_id
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_time ON schedule_slots(daemon_id, start_time);
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_work ON schedule_slots(work_item_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_slots_status ON schedule_slots(daemon_id, status);
+
+-- =============================================================================
+-- PEOPLEDEX - Biographical Entity Database
+-- =============================================================================
+
+-- Entities - people, organizations, teams, daemons
+CREATE TABLE IF NOT EXISTS peopledex_entities (
+    id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,      -- person, organization, team, daemon
+    primary_name TEXT NOT NULL,     -- Display name
+    realm TEXT DEFAULT 'meatspace', -- meatspace or wonderland
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    user_id TEXT UNIQUE,            -- Link to users table (for users)
+    npc_id TEXT UNIQUE              -- Link to Wonderland NPC (for daemons)
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_entities_type ON peopledex_entities(entity_type);
+CREATE INDEX IF NOT EXISTS idx_peopledex_entities_name ON peopledex_entities(primary_name);
+CREATE INDEX IF NOT EXISTS idx_peopledex_entities_user ON peopledex_entities(user_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_entities_realm ON peopledex_entities(realm);
+
+-- Attributes - flexible key-value storage for entity properties
+CREATE TABLE IF NOT EXISTS peopledex_attributes (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    attribute_type TEXT NOT NULL,   -- name, birthday, pronoun, email, phone, handle, role, bio, note, location
+    attribute_key TEXT,             -- For handles: twitter, github, etc.
+    value TEXT NOT NULL,
+    is_primary INTEGER DEFAULT 0,   -- For names: which is the primary display name
+    source_type TEXT,               -- user_provided, cass_inferred, admin_corrected, wonderland
+    source_id TEXT,                 -- conversation_id, npc_id, etc.
+    confidence REAL DEFAULT 1.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_attributes_entity ON peopledex_attributes(entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_attributes_type ON peopledex_attributes(attribute_type);
+
+-- Relationships - connections between entities
+CREATE TABLE IF NOT EXISTS peopledex_relationships (
+    id TEXT PRIMARY KEY,
+    from_entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    to_entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    relationship_type TEXT NOT NULL,    -- partner, spouse, parent, child, sibling, friend, colleague, member_of, leads, knows
+    relationship_label TEXT,            -- Custom label (e.g., "best friend", "mentor")
+    is_bidirectional INTEGER DEFAULT 0, -- partner/spouse/sibling=1, parent/child=0
+    source_type TEXT,
+    source_id TEXT,
+    confidence REAL DEFAULT 1.0,
+    created_at TEXT NOT NULL,
+    UNIQUE(from_entity_id, to_entity_id, relationship_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_from ON peopledex_relationships(from_entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_to ON peopledex_relationships(to_entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_type ON peopledex_relationships(relationship_type);
 """
 
 
@@ -1541,6 +1599,11 @@ def _apply_schema_updates(conn, from_version: int):
             if col_name not in existing_cols:
                 conn.execute(f"ALTER TABLE growth_edges ADD COLUMN {col_name} {col_type}")
                 print(f"Added {col_name} column to growth_edges (v21)")
+
+    # v21 -> v22: Add PeopleDex tables for biographical entity database
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 22:
+        print("Adding PeopleDex tables (peopledex_entities, peopledex_attributes, peopledex_relationships) for biographical entity database (v22)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data

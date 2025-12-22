@@ -453,3 +453,285 @@ export const fetchDailySummaryData = async (): Promise<{
 }> => {
   return getGraphQLClient().request(DAILY_SUMMARY_QUERY);
 };
+
+// =============================================================================
+// PEOPLEDEX TYPES
+// =============================================================================
+
+export interface PeopleDexEntity {
+  id: string;
+  entityType: string;
+  primaryName: string;
+  realm: string;
+  userId: string | null;
+  npcId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeopleDexAttribute {
+  id: string;
+  entityId: string;
+  attributeType: string;
+  attributeKey: string | null;
+  value: string;
+  isPrimary: boolean;
+  sourceType: string | null;
+  sourceId: string | null;
+  confidence: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeopleDexRelatedEntity {
+  id: string;
+  entityType: string;
+  primaryName: string;
+  realm: string;
+}
+
+export interface PeopleDexRelationship {
+  relationshipId: string;
+  relationshipType: string;
+  relationshipLabel: string | null;
+  direction: string;
+  relatedEntity: PeopleDexRelatedEntity;
+}
+
+export interface PeopleDexProfile {
+  entity: PeopleDexEntity;
+  attributes: PeopleDexAttribute[];
+  relationships: PeopleDexRelationship[];
+}
+
+export interface PeopleDexStats {
+  totalEntities: number;
+  byType: Record<string, number>;
+  byRealm: Record<string, number>;
+}
+
+export interface MutationResult {
+  success: boolean;
+  message: string;
+  id: string | null;
+}
+
+// =============================================================================
+// PEOPLEDEX QUERIES
+// =============================================================================
+
+export const PEOPLEDEX_STATS_QUERY = gql`
+  query PeopleDexStats {
+    peopledexStats {
+      totalEntities
+      byType
+      byRealm
+    }
+  }
+`;
+
+export const PEOPLEDEX_ENTITIES_QUERY = gql`
+  query PeopleDexEntities($entityType: String, $realm: String, $search: String, $limit: Int, $offset: Int) {
+    peopledexEntities(entityType: $entityType, realm: $realm, search: $search, limit: $limit, offset: $offset) {
+      id
+      entityType
+      primaryName
+      realm
+      userId
+      npcId
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const PEOPLEDEX_ENTITY_QUERY = gql`
+  query PeopleDexEntity($entityId: String!) {
+    peopledexEntity(entityId: $entityId) {
+      entity {
+        id
+        entityType
+        primaryName
+        realm
+        userId
+        npcId
+        createdAt
+        updatedAt
+      }
+      attributes {
+        id
+        entityId
+        attributeType
+        attributeKey
+        value
+        isPrimary
+        sourceType
+        sourceId
+        confidence
+        createdAt
+        updatedAt
+      }
+      relationships {
+        relationshipId
+        relationshipType
+        relationshipLabel
+        direction
+        relatedEntity {
+          id
+          entityType
+          primaryName
+          realm
+        }
+      }
+    }
+  }
+`;
+
+// =============================================================================
+// PEOPLEDEX MUTATIONS
+// =============================================================================
+
+export const CREATE_PEOPLEDEX_ENTITY = gql`
+  mutation CreatePeopleDexEntity($input: CreateEntityInput!) {
+    createPeopledexEntity(input: $input) {
+      success
+      message
+      id
+    }
+  }
+`;
+
+export const UPDATE_PEOPLEDEX_ENTITY = gql`
+  mutation UpdatePeopleDexEntity($entityId: String!, $input: UpdateEntityInput!) {
+    updatePeopledexEntity(entityId: $entityId, input: $input) {
+      success
+      message
+      id
+    }
+  }
+`;
+
+export const DELETE_PEOPLEDEX_ENTITY = gql`
+  mutation DeletePeopleDexEntity($entityId: String!) {
+    deletePeopledexEntity(entityId: $entityId) {
+      success
+      message
+    }
+  }
+`;
+
+export const ADD_PEOPLEDEX_ATTRIBUTE = gql`
+  mutation AddPeopleDexAttribute($entityId: String!, $input: AddAttributeInput!) {
+    addPeopledexAttribute(entityId: $entityId, input: $input) {
+      success
+      message
+      id
+    }
+  }
+`;
+
+export const DELETE_PEOPLEDEX_ATTRIBUTE = gql`
+  mutation DeletePeopleDexAttribute($attrId: String!) {
+    deletePeopledexAttribute(attrId: $attrId) {
+      success
+      message
+    }
+  }
+`;
+
+export const ADD_PEOPLEDEX_RELATIONSHIP = gql`
+  mutation AddPeopleDexRelationship($input: AddRelationshipInput!) {
+    addPeopledexRelationship(input: $input) {
+      success
+      message
+      id
+    }
+  }
+`;
+
+export const DELETE_PEOPLEDEX_RELATIONSHIP = gql`
+  mutation DeletePeopleDexRelationship($relId: String!) {
+    deletePeopledexRelationship(relId: $relId) {
+      success
+      message
+    }
+  }
+`;
+
+export const MERGE_PEOPLEDEX_ENTITIES = gql`
+  mutation MergePeopleDexEntities($input: MergeEntitiesInput!) {
+    mergePeopledexEntities(input: $input) {
+      success
+      message
+      id
+    }
+  }
+`;
+
+// =============================================================================
+// PEOPLEDEX QUERY FUNCTIONS
+// =============================================================================
+
+export const fetchPeopleDexStats = async (): Promise<{ peopledexStats: PeopleDexStats }> => {
+  return getGraphQLClient().request(PEOPLEDEX_STATS_QUERY);
+};
+
+export const fetchPeopleDexEntities = async (params: {
+  entityType?: string;
+  realm?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ peopledexEntities: PeopleDexEntity[] }> => {
+  return getGraphQLClient().request(PEOPLEDEX_ENTITIES_QUERY, params);
+};
+
+export const fetchPeopleDexEntity = async (entityId: string): Promise<{ peopledexEntity: PeopleDexProfile | null }> => {
+  return getGraphQLClient().request(PEOPLEDEX_ENTITY_QUERY, { entityId });
+};
+
+// Mutation functions
+export const createPeopleDexEntity = async (input: {
+  entityType: string;
+  primaryName: string;
+  realm?: string;
+  userId?: string;
+  npcId?: string;
+}): Promise<{ createPeopledexEntity: MutationResult }> => {
+  return getGraphQLClient().request(CREATE_PEOPLEDEX_ENTITY, { input });
+};
+
+export const deletePeopleDexEntity = async (entityId: string): Promise<{ deletePeopledexEntity: MutationResult }> => {
+  return getGraphQLClient().request(DELETE_PEOPLEDEX_ENTITY, { entityId });
+};
+
+export const addPeopleDexAttribute = async (
+  entityId: string,
+  input: {
+    attributeType: string;
+    value: string;
+    attributeKey?: string;
+    isPrimary?: boolean;
+    sourceType?: string;
+  }
+): Promise<{ addPeopledexAttribute: MutationResult }> => {
+  return getGraphQLClient().request(ADD_PEOPLEDEX_ATTRIBUTE, { entityId, input });
+};
+
+export const deletePeopleDexAttribute = async (attrId: string): Promise<{ deletePeopledexAttribute: MutationResult }> => {
+  return getGraphQLClient().request(DELETE_PEOPLEDEX_ATTRIBUTE, { attrId });
+};
+
+export const addPeopleDexRelationship = async (input: {
+  fromEntityId: string;
+  toEntityId: string;
+  relationshipType: string;
+  relationshipLabel?: string;
+  sourceType?: string;
+}): Promise<{ addPeopledexRelationship: MutationResult }> => {
+  return getGraphQLClient().request(ADD_PEOPLEDEX_RELATIONSHIP, { input });
+};
+
+export const deletePeopleDexRelationship = async (relId: string): Promise<{ deletePeopledexRelationship: MutationResult }> => {
+  return getGraphQLClient().request(DELETE_PEOPLEDEX_RELATIONSHIP, { relId });
+};

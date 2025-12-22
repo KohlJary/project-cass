@@ -57,6 +57,10 @@ class WonderlandWorld:
             # Core spaces exist but mythology realms missing - load them
             self._initialize_mythology_realms()
             self._save_state()
+        else:
+            # Rooms exist with nexus - still need to load mythology registry
+            # (it's not persisted, only loaded in memory)
+            self._load_mythology_registry()
 
     # =========================================================================
     # STATE PERSISTENCE
@@ -190,6 +194,14 @@ class WonderlandWorld:
             self.rooms[room.room_id] = room
 
         logger.info(f"Initialized {len(mythology_rooms)} mythology rooms (Nexus + realms)")
+
+    def _load_mythology_registry(self):
+        """Load just the mythology registry (rooms already exist from disk)."""
+        from .mythology import create_all_realms
+
+        registry = create_all_realms()
+        self.mythology_registry = registry
+        logger.info(f"Loaded mythology registry with {len(registry.npcs)} NPCs")
 
     def get_mythology_registry(self):
         """Get the mythology registry for NPC access."""

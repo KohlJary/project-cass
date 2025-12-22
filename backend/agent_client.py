@@ -1211,6 +1211,7 @@ from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
+from handlers.peopledex import PEOPLEDEX_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 from handlers.janet import JANET_TOOLS
 
@@ -1527,6 +1528,11 @@ class CassAgentClient:
 
             # File tools - always available for reading files
             tools.extend(FILE_TOOLS)
+
+            # PeopleDex tools - biographical lookup (lookup_person only, writes are inline tags)
+            # Only include lookup_person since remember_* are handled as inline XML tags
+            lookup_tool = [t for t in PEOPLEDEX_TOOLS if t["name"] == "lookup_person"]
+            tools.extend(lookup_tool)
 
             # === KEYWORD-TRIGGERED (Conditional loading) ===
 

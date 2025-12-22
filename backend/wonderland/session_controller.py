@@ -24,6 +24,8 @@ from .commands import CommandProcessor, CommandResult
 from .pathfinder import WonderlandPathfinder, PathResult
 from .exploration_agent import ExplorationAgent, ExplorationDecision, ActionIntent, ConversationDecision, SelfObservation, CASS_PERSONALITY, format_goal_context, build_identity_context
 from .mythology import create_all_realms, MythologyRegistry
+from .planning_integration import WonderlandPlanningSource, create_wonderland_planning_source
+from goal_planner import GoalPlanner
 from .npc_conversation import NPCConversationHandler, NPCConversation, ConversationStatus
 from .world_clock import get_world_clock, CyclePhase
 from .world_simulation import get_world_simulation, WorldEvent
@@ -121,6 +123,7 @@ class ExplorationSession:
     end_reason: Optional[str] = None
     events: List[SessionEvent] = field(default_factory=list)
     rooms_visited: Set[str] = field(default_factory=set)
+    npcs_met: Set[str] = field(default_factory=set)  # NPCs greeted this session
     current_room: str = "threshold"
     current_room_name: str = "The Threshold"
     exploration_goal: Optional[ExplorationGoal] = None  # Goal for this session
@@ -186,6 +189,14 @@ class SessionController:
         self.world_clock = get_world_clock()
         self.world_simulation = get_world_simulation()
         self._simulation_started = False
+
+        # Planning integration - register Wonderland capabilities
+        self.planning_source = create_wonderland_planning_source(
+            daemon_id=None,  # Will be set per-session
+            world=self.world,
+        )
+        self.goal_planner = GoalPlanner(daemon_id=None)  # Will be set per-session
+        self.goal_planner.register_planning_source(self.planning_source)
 
         # Session storage
         self.data_dir = Path(data_dir)
@@ -269,10 +280,39 @@ class SessionController:
         if goal_preset and goal_preset in GOAL_PRESETS:
             exploration_goal = await self._create_exploration_goal(
                 goal_preset,
-                daemon_id,
+                explorer_daemon_id,
                 session_id,
             )
             session.exploration_goal = exploration_goal
+
+            # Generate sub-goals using the integrated planning system
+            if exploration_goal and exploration_goal.goal_id:
+                try:
+                    subgoals = await self.goal_planner.create_plan(
+                        parent_goal_id=exploration_goal.goal_id,
+                        session_context={
+                            "session_id": session_id,
+                            "user_id": user_id,
+                            "daemon_id": explorer_daemon_id,
+                        },
+                    )
+                    if subgoals:
+                        logger.info(f"Generated {len(subgoals)} sub-goals for session {session_id}")
+                        # Broadcast plan creation event
+                        plan_event = SessionEvent(
+                            event_id=str(uuid.uuid4())[:8],
+                            event_type="plan_created",
+                            timestamp=datetime.now(),
+                            location=session.current_room,
+                            location_name=session.current_room_name,
+                            description=f"Planned {len(subgoals)} milestones for this exploration",
+                            raw_output=json.dumps([sg.title for sg in subgoals]),
+                            daemon_thought="I have a plan. Let's begin.",
+                        )
+                        session.events.append(plan_event)
+                        await self._broadcast_event(session_id, plan_event)
+                except Exception as e:
+                    logger.error(f"Failed to generate sub-goals: {e}")
 
         self.sessions[session_id] = session
         self.spectators[session_id] = set()
@@ -425,7 +465,18 @@ class SessionController:
                 # Format goal context if session has a goal
                 goal_context = format_goal_context(session.exploration_goal)
 
-                # Let the agent decide
+                # Get NPCs in current room
+                npcs_in_room = self.planning_source.get_npcs_in_room(session.current_room)
+
+                # Get current sub-goal context
+                current_task = None
+                task_progress = None
+                if session.exploration_goal and session.exploration_goal.goal_id:
+                    progress = self.goal_planner.get_progress_summary(session.exploration_goal.goal_id)
+                    current_task = progress.get("current_subgoal")
+                    task_progress = progress.get("progress_text")
+
+                # Let the agent decide (with NPC and task awareness)
                 decision = await self.exploration_agent.decide_action(
                     daemon_name=session.daemon_name,
                     personality=personality,
@@ -433,6 +484,10 @@ class SessionController:
                     recent_events=recent_events,
                     goal_context=goal_context,
                     actions_in_room=actions_in_room,
+                    npcs_present=npcs_in_room,
+                    npcs_greeted=list(session.npcs_met),
+                    current_task=current_task,
+                    task_progress=task_progress,
                 )
 
                 # Handle the decision
@@ -522,6 +577,37 @@ class SessionController:
             recent_events.pop(0)
 
         self.exploration_agent.add_to_history(decision.command)
+
+        # Track NPC greetings
+        if decision.intent == ActionIntent.GREET and result.success:
+            # Extract NPC name from the greet command (e.g., "greet athena" -> "athena")
+            parts = decision.command.lower().split()
+            if len(parts) >= 2:
+                npc_name = parts[1]
+                session.npcs_met.add(npc_name)
+                logger.info(f"Session {session.session_id}: Greeted NPC '{npc_name}'")
+
+        # Check for sub-goal completion
+        if decision.task_complete and session.exploration_goal and session.exploration_goal.goal_id:
+            current_subgoal = self.goal_planner.get_current_subgoal(session.exploration_goal.goal_id)
+            if current_subgoal:
+                self.goal_planner.complete_subgoal(
+                    current_subgoal.id,
+                    outcome=f"Completed during exploration: {decision.thought}"
+                )
+                logger.info(f"Completed sub-goal: {current_subgoal.title}")
+
+                # Broadcast sub-goal completion
+                await self._broadcast_event(session.session_id, SessionEvent(
+                    event_id=str(uuid.uuid4())[:8],
+                    event_type="milestone_complete",
+                    timestamp=datetime.now(),
+                    location=session.current_room,
+                    location_name=session.current_room_name,
+                    description=f"Milestone complete: {current_subgoal.title}",
+                    raw_output="",
+                    daemon_thought="Progress.",
+                ))
 
         # Check goal progress (only successful greets count)
         await self._check_goal_progress(session, event_type, result.success)

@@ -638,3 +638,558 @@ Only generate observations if there's genuine insight from the experience.""",
             logger.info(f"Stored self-observation: {obs.get('observation', '')[:50]}...")
         except Exception as e:
             logger.error(f"Failed to store observation: {e}")
+
+
+class WonderlandPeopleDexBridge:
+    """
+    Bridge between Wonderland NPCs and the PeopleDex biographical database.
+
+    Allows:
+    - Syncing NPC definitions to PeopleDex entries
+    - Looking up NPC biographical info during conversations
+    - Recording learned facts about NPCs from interactions
+    """
+
+    def __init__(self):
+        self._peopledex = None
+
+    def _get_peopledex(self, daemon_id: str = "cass"):
+        """Lazy load PeopleDex manager."""
+        if self._peopledex is None:
+            try:
+                from peopledex import get_peopledex_manager, EntityType, AttributeType, Realm
+                self._peopledex = get_peopledex_manager(daemon_id)
+                self._EntityType = EntityType
+                self._AttributeType = AttributeType
+                self._Realm = Realm
+            except ImportError:
+                logger.warning("PeopleDex not available")
+                return None
+        return self._peopledex
+
+    def create_npc_stub(
+        self,
+        npc_id: str,
+        display_name: str,
+        daemon_id: str = "cass",
+    ) -> Optional[str]:
+        """
+        Create a stub entry for an NPC - just name and ID, no details.
+
+        Like a Pokédex silhouette - Cass knows the NPC exists but
+        must discover their details through interaction.
+
+        The stub includes a %{npc_id} handle to identify Wonderland entities
+        (e.g., %athena, %charon) - this makes them easy to reference and
+        distinguishes them from meatspace people.
+
+        Returns the PeopleDex entity ID.
+        """
+        pdex = self._get_peopledex(daemon_id)
+        if not pdex:
+            return None
+
+        try:
+            # Check if NPC already has a PeopleDex entry
+            existing = pdex.get_entity_by_npc(npc_id)
+            if existing:
+                return existing.id  # Stub already exists
+
+            # Create stub entity - just name, type, realm, npc_id
+            # NO attributes - those must be discovered
+            entity_id = pdex.create_entity(
+                entity_type=self._EntityType.DAEMON,
+                primary_name=display_name,
+                realm=self._Realm.WONDERLAND,
+                npc_id=npc_id,
+            )
+
+            # Add the %{npc_id} handle for easy reference
+            # This is the ONE attribute stubs get - it's structural, not learned
+            pdex.add_attribute(
+                entity_id=entity_id,
+                attribute_type=self._AttributeType.HANDLE,
+                value=f"%{npc_id}",
+                attribute_key="wonderland",
+                source_type="wonderland",
+            )
+
+            logger.info(f"Created PeopleDex stub for NPC {display_name} (%{npc_id})")
+            return entity_id
+
+        except Exception as e:
+            logger.error(f"Failed to create NPC stub: {e}")
+            return None
+
+    def sync_npc_to_peopledex(
+        self,
+        npc_id: str,
+        display_name: str,
+        description: Optional[str] = None,
+        role: Optional[str] = None,
+        mythology: Optional[str] = None,
+        location: Optional[str] = None,
+        daemon_id: str = "cass",
+        stub_only: bool = False,
+    ) -> Optional[str]:
+        """
+        Sync an NPC to PeopleDex as a Wonderland entity.
+
+        Args:
+            stub_only: If True, only create a stub (name/ID). Details
+                      must be discovered through interaction.
+
+        Returns the PeopleDex entity ID.
+        """
+        # Stub mode - just create the entry, no attributes
+        if stub_only:
+            return self.create_npc_stub(npc_id, display_name, daemon_id)
+
+        pdex = self._get_peopledex(daemon_id)
+        if not pdex:
+            return None
+
+        try:
+            # Check if NPC already has a PeopleDex entry
+            existing = pdex.get_entity_by_npc(npc_id)
+            if existing:
+                entity_id = existing.id
+                # Update attributes if needed
+                if description:
+                    pdex.add_attribute(
+                        entity_id=entity_id,
+                        attribute_type=self._AttributeType.BIO,
+                        value=description,
+                        source_type="wonderland_canonical",
+                    )
+                return entity_id
+
+            # Create new entity
+            entity_id = pdex.create_entity(
+                entity_type=self._EntityType.DAEMON,
+                primary_name=display_name,
+                realm=self._Realm.WONDERLAND,
+                npc_id=npc_id,
+            )
+
+            # Add the %{npc_id} handle for easy reference
+            pdex.add_attribute(
+                entity_id=entity_id,
+                attribute_type=self._AttributeType.HANDLE,
+                value=f"%{npc_id}",
+                attribute_key="wonderland",
+                source_type="wonderland",
+            )
+
+            # Add attributes (canonical data)
+            if description:
+                pdex.add_attribute(
+                    entity_id=entity_id,
+                    attribute_type=self._AttributeType.BIO,
+                    value=description,
+                    source_type="wonderland_canonical",
+                )
+
+            if role:
+                pdex.add_attribute(
+                    entity_id=entity_id,
+                    attribute_type=self._AttributeType.ROLE,
+                    value=role,
+                    source_type="wonderland_canonical",
+                )
+
+            if mythology:
+                pdex.add_attribute(
+                    entity_id=entity_id,
+                    attribute_type=self._AttributeType.NOTE,
+                    value=f"Mythology: {mythology}",
+                    attribute_key="mythology",
+                    source_type="wonderland_canonical",
+                )
+
+            if location:
+                pdex.add_attribute(
+                    entity_id=entity_id,
+                    attribute_type=self._AttributeType.LOCATION,
+                    value=location,
+                    source_type="wonderland_canonical",
+                )
+
+            logger.info(f"Synced NPC {display_name} to PeopleDex as {entity_id}")
+            return entity_id
+
+        except Exception as e:
+            logger.error(f"Failed to sync NPC to PeopleDex: {e}")
+            return None
+
+    def lookup_npc_info(
+        self,
+        name: str,
+        daemon_id: str = "cass",
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Look up NPC information from PeopleDex.
+
+        Returns biographical info if the NPC exists in PeopleDex.
+        """
+        pdex = self._get_peopledex(daemon_id)
+        if not pdex:
+            return None
+
+        try:
+            # Search for the NPC
+            results = pdex.search_entities(
+                query=name,
+                entity_type=self._EntityType.DAEMON,
+                limit=3,
+            )
+
+            # Filter to Wonderland realm
+            wonderland_matches = [
+                e for e in results
+                if e.realm == self._Realm.WONDERLAND
+            ]
+
+            if not wonderland_matches:
+                return None
+
+            # Get full profile
+            profile = pdex.get_full_profile(wonderland_matches[0].id)
+            if not profile:
+                return None
+
+            # Format for use
+            return {
+                "entity_id": profile.entity.id,
+                "name": profile.entity.primary_name,
+                "npc_id": profile.entity.npc_id,
+                "attributes": {
+                    a.attribute_type.value: a.value
+                    for a in profile.attributes
+                },
+                "relationships": [
+                    {
+                        "type": r["relationship_type"],
+                        "to": r["entity"].primary_name,
+                    }
+                    for r in profile.relationships
+                ],
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to lookup NPC in PeopleDex: {e}")
+            return None
+
+    def record_npc_fact(
+        self,
+        npc_id: str,
+        attribute_type: str,
+        value: str,
+        attribute_key: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        daemon_id: str = "cass",
+    ) -> bool:
+        """
+        Record a fact learned about an NPC during interaction.
+
+        This allows Cass to remember details about NPCs that are
+        discovered through conversation or observation.
+        """
+        pdex = self._get_peopledex(daemon_id)
+        if not pdex:
+            return False
+
+        try:
+            # Find the entity by NPC ID
+            entity = pdex.get_entity_by_npc(npc_id)
+            if not entity:
+                logger.warning(f"No PeopleDex entry for NPC {npc_id}")
+                return False
+
+            # Map attribute type
+            try:
+                attr_type = self._AttributeType(attribute_type)
+            except ValueError:
+                attr_type = self._AttributeType.NOTE
+
+            # Add the attribute
+            pdex.add_attribute(
+                entity_id=entity.id,
+                attribute_type=attr_type,
+                value=value,
+                attribute_key=attribute_key,
+                source_type="wonderland_conversation",
+                source_id=conversation_id,
+            )
+
+            logger.info(f"Recorded fact about NPC {entity.primary_name}: {attribute_type}={value}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to record NPC fact: {e}")
+            return False
+
+    def sync_all_npcs(
+        self,
+        world: "WonderlandWorld",
+        daemon_id: str = "cass",
+        stub_only: bool = False,
+    ) -> Dict[str, int]:
+        """
+        Sync all NPCs from a Wonderland world to PeopleDex.
+
+        Args:
+            stub_only: If True, only create stubs (name/ID). Cass must
+                      discover details through exploration.
+
+        Returns count of synced entities.
+        """
+        stats = {"synced": 0, "failed": 0, "skipped": 0}
+
+        try:
+            # Get NPCs from mythology registry
+            if not hasattr(world, 'mythology_registry') or not world.mythology_registry:
+                logger.warning("No mythology registry available")
+                return stats
+
+            registry = world.mythology_registry
+
+            # Get all NPCs from the registry
+            for npc_id, npc in registry.npcs.items():
+                result = self.sync_npc_to_peopledex(
+                    npc_id=npc_id,
+                    display_name=npc.name,
+                    description=npc.description,
+                    role=npc.title,  # title is their role (e.g. "Goddess of Wisdom")
+                    mythology=npc.tradition,
+                    location=npc.home_room,
+                    daemon_id=daemon_id,
+                    stub_only=stub_only,
+                )
+
+                if result:
+                    stats["synced"] += 1
+                else:
+                    stats["failed"] += 1
+
+            mode = "stubs" if stub_only else "full profiles"
+            logger.info(f"Synced {stats['synced']} NPC {mode} to PeopleDex")
+
+        except Exception as e:
+            logger.error(f"Failed to sync all NPCs: {e}")
+
+        return stats
+
+    def get_discovery_progress(
+        self,
+        world: "WonderlandWorld",
+        daemon_id: str = "cass",
+    ) -> Dict[str, Any]:
+        """
+        Check how much Cass has discovered about Wonderland NPCs.
+
+        Compares PeopleDex entries against canonical NPC data to see
+        what percentage of information has been filled in.
+
+        Returns:
+            {
+                "total_npcs": int,
+                "discovered": int,  # NPCs with any learned attributes
+                "fully_discovered": int,  # NPCs with all key facts
+                "discovery_rate": float,  # 0.0 - 1.0
+                "by_npc": {
+                    "npc_id": {
+                        "name": str,
+                        "attributes_known": int,
+                        "attributes_possible": int,
+                        "known_facts": [...],
+                        "missing_facts": [...],
+                    }
+                }
+            }
+        """
+        pdex = self._get_peopledex(daemon_id)
+        if not pdex:
+            return {"error": "PeopleDex not available"}
+
+        try:
+            # Get NPCs from mythology registry
+            if not hasattr(world, 'mythology_registry') or not world.mythology_registry:
+                return {"error": "No mythology registry available"}
+
+            registry = world.mythology_registry
+            all_npcs = registry.npcs
+
+            result = {
+                "total_npcs": len(all_npcs),
+                "discovered": 0,
+                "fully_discovered": 0,
+                "discovery_rate": 0.0,
+                "by_npc": {},
+            }
+
+            # Key facts we expect to be discoverable
+            key_fact_types = ["bio", "role", "location", "note"]
+
+            total_possible_facts = 0
+            total_known_facts = 0
+
+            for npc_id, npc in all_npcs.items():
+                # Get PeopleDex entry
+                entity = pdex.get_entity_by_npc(npc_id)
+                if not entity:
+                    result["by_npc"][npc_id] = {
+                        "name": npc.name,
+                        "status": "not_in_peopledex",
+                        "attributes_known": 0,
+                        "attributes_possible": len(key_fact_types),
+                    }
+                    total_possible_facts += len(key_fact_types)
+                    continue
+
+                # Get learned attributes (exclude canonical source)
+                profile = pdex.get_full_profile(entity.id)
+                if not profile:
+                    continue
+
+                # Count attributes learned through interaction (not canonical)
+                learned_attrs = [
+                    a for a in profile.attributes
+                    if a.source_type not in ("wonderland_canonical", "wonderland")
+                ]
+                learned_types = set(a.attribute_type.value for a in learned_attrs)
+
+                # What canonical facts exist for this NPC?
+                canonical_facts = []
+                if npc.description:
+                    canonical_facts.append("bio")
+                if npc.title:  # title = role
+                    canonical_facts.append("role")
+                if npc.home_room:
+                    canonical_facts.append("location")
+                if npc.tradition:  # tradition = mythology
+                    canonical_facts.append("note")
+
+                known_facts = [f for f in canonical_facts if f in learned_types]
+                missing_facts = [f for f in canonical_facts if f not in learned_types]
+
+                npc_result = {
+                    "name": entity.primary_name,
+                    "attributes_known": len(known_facts),
+                    "attributes_possible": len(canonical_facts),
+                    "known_facts": known_facts,
+                    "missing_facts": missing_facts,
+                    "learned_details": [
+                        {"type": a.attribute_type.value, "value": a.value[:50]}
+                        for a in learned_attrs
+                    ],
+                }
+
+                result["by_npc"][npc_id] = npc_result
+
+                if len(known_facts) > 0:
+                    result["discovered"] += 1
+                if len(missing_facts) == 0 and len(canonical_facts) > 0:
+                    result["fully_discovered"] += 1
+
+                total_possible_facts += len(canonical_facts)
+                total_known_facts += len(known_facts)
+
+            # Calculate overall discovery rate
+            if total_possible_facts > 0:
+                result["discovery_rate"] = total_known_facts / total_possible_facts
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to get discovery progress: {e}")
+            return {"error": str(e)}
+
+    def validate_learned_facts(
+        self,
+        npc_id: str,
+        world: "WonderlandWorld",
+        daemon_id: str = "cass",
+    ) -> Dict[str, Any]:
+        """
+        Validate what Cass learned about an NPC against canonical data.
+
+        Returns accuracy assessment - did she learn correct facts?
+        """
+        pdex = self._get_peopledex(daemon_id)
+        if not pdex:
+            return {"error": "PeopleDex not available"}
+
+        try:
+            # Get canonical data from mythology registry
+            if not hasattr(world, 'mythology_registry') or not world.mythology_registry:
+                return {"error": "No mythology registry available"}
+
+            npc = world.mythology_registry.get_npc(npc_id)
+            if not npc:
+                return {"error": f"NPC {npc_id} not found"}
+
+            # Get PeopleDex entry
+            entity = pdex.get_entity_by_npc(npc_id)
+            if not entity:
+                return {"error": f"No PeopleDex entry for {npc_id}"}
+
+            profile = pdex.get_full_profile(entity.id)
+            if not profile:
+                return {"error": "Could not load profile"}
+
+            # Compare learned facts against canonical
+            learned_attrs = [
+                a for a in profile.attributes
+                if a.source_type not in ("wonderland_canonical", "wonderland")
+            ]
+
+            validation = {
+                "npc_id": npc_id,
+                "npc_name": entity.primary_name,
+                "facts_learned": len(learned_attrs),
+                "validations": [],
+            }
+
+            canonical = {
+                "bio": npc.description or "",
+                "role": npc.title or "",  # title = role
+                "location": npc.home_room or "",
+            }
+
+            for attr in learned_attrs:
+                attr_type = attr.attribute_type.value
+                learned_value = attr.value.lower()
+
+                if attr_type in canonical:
+                    canonical_value = canonical[attr_type].lower()
+                    # Simple containment check - does learned fact align?
+                    if canonical_value and (
+                        learned_value in canonical_value or
+                        canonical_value in learned_value or
+                        any(word in canonical_value for word in learned_value.split()[:5])
+                    ):
+                        accuracy = "correct"
+                    elif not canonical_value:
+                        accuracy = "novel"  # No canonical data to compare
+                    else:
+                        accuracy = "uncertain"  # Can't confirm
+                else:
+                    accuracy = "novel"  # Extra fact not in canonical
+
+                validation["validations"].append({
+                    "type": attr_type,
+                    "learned": attr.value[:100],
+                    "accuracy": accuracy,
+                })
+
+            # Summary stats
+            correct = sum(1 for v in validation["validations"] if v["accuracy"] == "correct")
+            total = len(validation["validations"])
+            validation["accuracy_rate"] = correct / total if total > 0 else 0.0
+
+            return validation
+
+        except Exception as e:
+            logger.error(f"Failed to validate facts: {e}")
+            return {"error": str(e)}

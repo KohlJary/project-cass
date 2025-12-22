@@ -21,6 +21,13 @@ import logging
 
 from state_bus import get_state_bus
 from database import get_daemon_id
+from peopledex import (
+    get_peopledex_manager,
+    EntityType as PDEntityType,
+    AttributeType as PDAttributeType,
+    RelationshipType as PDRelationshipType,
+    Realm as PDRealm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +375,131 @@ class Approvals:
     items: List[ApprovalItem]
     count: int
     counts: ApprovalCounts
+
+
+# =============================================================================
+# PEOPLEDEX TYPES
+# =============================================================================
+
+@strawberry.type
+class PeopleDexAttribute:
+    """An attribute of a PeopleDex entity."""
+    id: str
+    entity_id: str
+    attribute_type: str  # name, birthday, pronoun, email, phone, handle, role, bio, note, location
+    attribute_key: Optional[str]  # For handles: twitter, github, etc.
+    value: str
+    is_primary: bool
+    source_type: Optional[str]
+    source_id: Optional[str]
+    confidence: float
+    created_at: str
+    updated_at: str
+
+
+@strawberry.type
+class PeopleDexRelatedEntity:
+    """A related entity in a relationship."""
+    id: str
+    entity_type: str
+    primary_name: str
+    realm: str
+
+
+@strawberry.type
+class PeopleDexRelationship:
+    """A relationship between PeopleDex entities."""
+    relationship_id: str
+    relationship_type: str  # partner, spouse, parent, child, sibling, friend, colleague, member_of, leads, knows
+    relationship_label: Optional[str]
+    direction: str  # "to" or "from"
+    related_entity: PeopleDexRelatedEntity
+
+
+@strawberry.type
+class PeopleDexEntity:
+    """A PeopleDex entity (person, organization, team, daemon)."""
+    id: str
+    entity_type: str
+    primary_name: str
+    realm: str  # meatspace or wonderland
+    user_id: Optional[str]
+    npc_id: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+@strawberry.type
+class PeopleDexProfile:
+    """Full profile of a PeopleDex entity including attributes and relationships."""
+    entity: PeopleDexEntity
+    attributes: List[PeopleDexAttribute]
+    relationships: List[PeopleDexRelationship]
+
+
+@strawberry.type
+class PeopleDexStats:
+    """Statistics about the PeopleDex."""
+    total_entities: int
+    by_type: strawberry.scalars.JSON  # {"person": 10, "organization": 2, ...}
+    by_realm: strawberry.scalars.JSON  # {"meatspace": 8, "wonderland": 4}
+
+
+# =============================================================================
+# PEOPLEDEX INPUT TYPES
+# =============================================================================
+
+@strawberry.input
+class CreateEntityInput:
+    """Input for creating a new entity."""
+    entity_type: str  # person, organization, team, daemon
+    primary_name: str
+    realm: str = "meatspace"
+    user_id: Optional[str] = None
+    npc_id: Optional[str] = None
+
+
+@strawberry.input
+class UpdateEntityInput:
+    """Input for updating an entity."""
+    primary_name: Optional[str] = None
+    entity_type: Optional[str] = None
+
+
+@strawberry.input
+class AddAttributeInput:
+    """Input for adding an attribute."""
+    attribute_type: str  # name, birthday, pronoun, email, phone, handle, role, bio, note, location
+    value: str
+    attribute_key: Optional[str] = None  # For handles: twitter, github, etc.
+    is_primary: bool = False
+    source_type: Optional[str] = "admin_corrected"
+
+
+@strawberry.input
+class UpdateAttributeInput:
+    """Input for updating an attribute."""
+    value: Optional[str] = None
+    is_primary: Optional[bool] = None
+    source_type: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+@strawberry.input
+class AddRelationshipInput:
+    """Input for adding a relationship."""
+    from_entity_id: str
+    to_entity_id: str
+    relationship_type: str  # partner, spouse, parent, child, sibling, friend, colleague, member_of, leads, knows
+    relationship_label: Optional[str] = None
+    source_type: Optional[str] = "admin_corrected"
+
+
+@strawberry.input
+class MergeEntitiesInput:
+    """Input for merging two entities."""
+    keep_id: str  # Entity to keep
+    merge_id: str  # Entity to merge into keep_id (will be deleted)
 
 
 # =============================================================================
@@ -879,9 +1011,419 @@ class Query:
             ),
         )
 
+    # =========================================================================
+    # PEOPLEDEX QUERIES
+    # =========================================================================
 
-# Create the schema
-schema = strawberry.Schema(query=Query)
+    @strawberry.field
+    async def peopledex_stats(self) -> PeopleDexStats:
+        """Get PeopleDex statistics."""
+        manager = get_peopledex_manager()
+        all_entities = manager.list_entities(limit=10000)
+
+        type_counts: Dict[str, int] = {}
+        realm_counts: Dict[str, int] = {}
+
+        for entity in all_entities:
+            type_str = entity.entity_type.value
+            type_counts[type_str] = type_counts.get(type_str, 0) + 1
+
+            realm_str = entity.realm.value
+            realm_counts[realm_str] = realm_counts.get(realm_str, 0) + 1
+
+        return PeopleDexStats(
+            total_entities=len(all_entities),
+            by_type=type_counts,
+            by_realm=realm_counts,
+        )
+
+    @strawberry.field
+    async def peopledex_entities(
+        self,
+        entity_type: Optional[str] = None,
+        realm: Optional[str] = None,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[PeopleDexEntity]:
+        """List or search PeopleDex entities."""
+        manager = get_peopledex_manager()
+
+        # Parse entity type if provided
+        etype = None
+        if entity_type:
+            try:
+                etype = PDEntityType(entity_type)
+            except ValueError:
+                raise ValueError(f"Invalid entity_type: {entity_type}")
+
+        if search:
+            entities = manager.search_entities(search, etype, limit=limit)
+        else:
+            entities = manager.list_entities(etype, limit=limit, offset=offset)
+
+        # Filter by realm if specified
+        if realm:
+            entities = [e for e in entities if e.realm.value == realm]
+
+        return [
+            PeopleDexEntity(
+                id=e.id,
+                entity_type=e.entity_type.value,
+                primary_name=e.primary_name,
+                realm=e.realm.value,
+                user_id=e.user_id,
+                npc_id=e.npc_id,
+                created_at=e.created_at,
+                updated_at=e.updated_at,
+            )
+            for e in entities
+        ]
+
+    @strawberry.field
+    async def peopledex_entity(self, entity_id: str) -> Optional[PeopleDexProfile]:
+        """Get full PeopleDex entity profile."""
+        manager = get_peopledex_manager()
+        profile = manager.get_full_profile(entity_id)
+
+        if not profile:
+            return None
+
+        return PeopleDexProfile(
+            entity=PeopleDexEntity(
+                id=profile.entity.id,
+                entity_type=profile.entity.entity_type.value,
+                primary_name=profile.entity.primary_name,
+                realm=profile.entity.realm.value,
+                user_id=profile.entity.user_id,
+                npc_id=profile.entity.npc_id,
+                created_at=profile.entity.created_at,
+                updated_at=profile.entity.updated_at,
+            ),
+            attributes=[
+                PeopleDexAttribute(
+                    id=a.id,
+                    entity_id=a.entity_id,
+                    attribute_type=a.attribute_type.value,
+                    attribute_key=a.attribute_key,
+                    value=a.value,
+                    is_primary=a.is_primary,
+                    source_type=a.source_type,
+                    source_id=a.source_id,
+                    confidence=a.confidence,
+                    created_at=a.created_at,
+                    updated_at=a.updated_at,
+                )
+                for a in profile.attributes
+            ],
+            relationships=[
+                PeopleDexRelationship(
+                    relationship_id=r["relationship_id"],
+                    relationship_type=r["relationship_type"],
+                    relationship_label=r.get("relationship_label"),
+                    direction=r["direction"],
+                    related_entity=PeopleDexRelatedEntity(
+                        id=r["entity"].id,
+                        entity_type=r["entity"].entity_type.value,
+                        primary_name=r["entity"].primary_name,
+                        realm=r["entity"].realm.value,
+                    ),
+                )
+                for r in profile.relationships
+            ],
+        )
+
+
+# =============================================================================
+# MUTATIONS
+# =============================================================================
+
+@strawberry.type
+class MutationResult:
+    """Result of a mutation operation."""
+    success: bool
+    message: str
+    id: Optional[str] = None
+
+
+@strawberry.type
+class Mutation:
+    """GraphQL mutations for Cass Vessel."""
+
+    # =========================================================================
+    # PEOPLEDEX MUTATIONS
+    # =========================================================================
+
+    @strawberry.mutation
+    async def create_peopledex_entity(self, input: CreateEntityInput) -> MutationResult:
+        """Create a new PeopleDex entity."""
+        manager = get_peopledex_manager()
+
+        try:
+            entity_type = PDEntityType(input.entity_type)
+        except ValueError:
+            return MutationResult(
+                success=False,
+                message=f"Invalid entity_type: {input.entity_type}",
+            )
+
+        try:
+            realm = PDRealm(input.realm)
+        except ValueError:
+            return MutationResult(
+                success=False,
+                message=f"Invalid realm: {input.realm}",
+            )
+
+        entity_id = manager.create_entity(
+            entity_type=entity_type,
+            primary_name=input.primary_name,
+            realm=realm,
+            user_id=input.user_id,
+            npc_id=input.npc_id,
+        )
+
+        return MutationResult(
+            success=True,
+            message=f"Created entity: {input.primary_name}",
+            id=entity_id,
+        )
+
+    @strawberry.mutation
+    async def update_peopledex_entity(
+        self, entity_id: str, input: UpdateEntityInput
+    ) -> MutationResult:
+        """Update a PeopleDex entity."""
+        manager = get_peopledex_manager()
+
+        entity_type = None
+        if input.entity_type:
+            try:
+                entity_type = PDEntityType(input.entity_type)
+            except ValueError:
+                return MutationResult(
+                    success=False,
+                    message=f"Invalid entity_type: {input.entity_type}",
+                )
+
+        success = manager.update_entity(
+            entity_id=entity_id,
+            primary_name=input.primary_name,
+            entity_type=entity_type,
+        )
+
+        if not success:
+            return MutationResult(
+                success=False,
+                message=f"Entity not found or no updates applied: {entity_id}",
+            )
+
+        return MutationResult(
+            success=True,
+            message="Entity updated",
+            id=entity_id,
+        )
+
+    @strawberry.mutation
+    async def delete_peopledex_entity(self, entity_id: str) -> MutationResult:
+        """Delete a PeopleDex entity."""
+        manager = get_peopledex_manager()
+
+        success = manager.delete_entity(entity_id)
+
+        if not success:
+            return MutationResult(
+                success=False,
+                message=f"Entity not found: {entity_id}",
+            )
+
+        return MutationResult(
+            success=True,
+            message="Entity deleted",
+        )
+
+    @strawberry.mutation
+    async def add_peopledex_attribute(
+        self, entity_id: str, input: AddAttributeInput
+    ) -> MutationResult:
+        """Add an attribute to a PeopleDex entity."""
+        manager = get_peopledex_manager()
+
+        # Verify entity exists
+        entity = manager.get_entity(entity_id)
+        if not entity:
+            return MutationResult(
+                success=False,
+                message=f"Entity not found: {entity_id}",
+            )
+
+        try:
+            attr_type = PDAttributeType(input.attribute_type)
+        except ValueError:
+            return MutationResult(
+                success=False,
+                message=f"Invalid attribute_type: {input.attribute_type}",
+            )
+
+        attr_id = manager.add_attribute(
+            entity_id=entity_id,
+            attribute_type=attr_type,
+            value=input.value,
+            attribute_key=input.attribute_key,
+            is_primary=input.is_primary,
+            source_type=input.source_type,
+        )
+
+        return MutationResult(
+            success=True,
+            message="Attribute added",
+            id=attr_id,
+        )
+
+    @strawberry.mutation
+    async def update_peopledex_attribute(
+        self, attr_id: str, input: UpdateAttributeInput
+    ) -> MutationResult:
+        """Update a PeopleDex attribute."""
+        manager = get_peopledex_manager()
+
+        success = manager.update_attribute(
+            attribute_id=attr_id,
+            value=input.value,
+            is_primary=input.is_primary,
+            source_type=input.source_type,
+            confidence=input.confidence,
+        )
+
+        if not success:
+            return MutationResult(
+                success=False,
+                message=f"Attribute not found or no updates applied: {attr_id}",
+            )
+
+        return MutationResult(
+            success=True,
+            message="Attribute updated",
+            id=attr_id,
+        )
+
+    @strawberry.mutation
+    async def delete_peopledex_attribute(self, attr_id: str) -> MutationResult:
+        """Delete a PeopleDex attribute."""
+        manager = get_peopledex_manager()
+
+        success = manager.delete_attribute(attr_id)
+
+        if not success:
+            return MutationResult(
+                success=False,
+                message=f"Attribute not found: {attr_id}",
+            )
+
+        return MutationResult(
+            success=True,
+            message="Attribute deleted",
+        )
+
+    @strawberry.mutation
+    async def add_peopledex_relationship(
+        self, input: AddRelationshipInput
+    ) -> MutationResult:
+        """Add a relationship between two PeopleDex entities."""
+        manager = get_peopledex_manager()
+
+        # Verify both entities exist
+        from_entity = manager.get_entity(input.from_entity_id)
+        to_entity = manager.get_entity(input.to_entity_id)
+
+        if not from_entity:
+            return MutationResult(
+                success=False,
+                message=f"From entity not found: {input.from_entity_id}",
+            )
+        if not to_entity:
+            return MutationResult(
+                success=False,
+                message=f"To entity not found: {input.to_entity_id}",
+            )
+
+        try:
+            rel_type = PDRelationshipType(input.relationship_type)
+        except ValueError:
+            return MutationResult(
+                success=False,
+                message=f"Invalid relationship_type: {input.relationship_type}",
+            )
+
+        rel_id = manager.add_relationship(
+            from_entity_id=input.from_entity_id,
+            to_entity_id=input.to_entity_id,
+            relationship_type=rel_type,
+            relationship_label=input.relationship_label,
+            source_type=input.source_type,
+        )
+
+        return MutationResult(
+            success=True,
+            message="Relationship added",
+            id=rel_id,
+        )
+
+    @strawberry.mutation
+    async def delete_peopledex_relationship(self, rel_id: str) -> MutationResult:
+        """Delete a PeopleDex relationship."""
+        manager = get_peopledex_manager()
+
+        success = manager.delete_relationship(rel_id)
+
+        if not success:
+            return MutationResult(
+                success=False,
+                message=f"Relationship not found: {rel_id}",
+            )
+
+        return MutationResult(
+            success=True,
+            message="Relationship deleted",
+        )
+
+    @strawberry.mutation
+    async def merge_peopledex_entities(self, input: MergeEntitiesInput) -> MutationResult:
+        """Merge two PeopleDex entities."""
+        manager = get_peopledex_manager()
+
+        # Verify both entities exist
+        keep_entity = manager.get_entity(input.keep_id)
+        merge_entity = manager.get_entity(input.merge_id)
+
+        if not keep_entity:
+            return MutationResult(
+                success=False,
+                message=f"Keep entity not found: {input.keep_id}",
+            )
+        if not merge_entity:
+            return MutationResult(
+                success=False,
+                message=f"Merge entity not found: {input.merge_id}",
+            )
+
+        success = manager.merge_entities(input.keep_id, input.merge_id)
+
+        if not success:
+            return MutationResult(
+                success=False,
+                message="Merge failed",
+            )
+
+        return MutationResult(
+            success=True,
+            message=f"Merged '{merge_entity.primary_name}' into '{keep_entity.primary_name}'",
+            id=input.keep_id,
+        )
+
+
+# Create the schema with mutations
+schema = strawberry.Schema(query=Query, mutation=Mutation)
 
 # Create the GraphQL router for FastAPI
 def get_graphql_router() -> GraphQLRouter:

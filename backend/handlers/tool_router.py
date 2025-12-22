@@ -17,6 +17,7 @@ class ToolContext:
     user_name: Optional[str] = None
     conversation_id: Optional[str] = None
     project_id: Optional[str] = None
+    daemon_id: Optional[str] = None
 
     # Managers (injected at runtime)
     memory: Any = None
@@ -295,6 +296,11 @@ TOOL_REGISTRY = {
     # State query tools
     "query_state": "state_query",
     "discover_capabilities": "state_query",
+
+    # PeopleDex tools (biographical entity database)
+    "lookup_person": "peopledex",
+    "remember_person": "peopledex",
+    "remember_relationship": "peopledex",
 }
 
 
@@ -537,6 +543,14 @@ async def route_tool(
             tool_name=tool_name,
             tool_input=tool_input,
             state_bus=ctx.state_bus
+        )
+
+    elif executor_type == "peopledex":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+            conversation_id=ctx.conversation_id
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}

@@ -88,6 +88,7 @@ from handlers import (
     execute_marker_tool,
     execute_interview_tool,
     execute_dream_tool,
+    execute_peopledex_tool,
     ToolContext,
     execute_tool_batch,
 )
@@ -433,6 +434,7 @@ TOOL_EXECUTORS = {
     "dream": execute_dream_tool,
     "state_query": execute_state_query_tool,
     "janet": execute_janet_tool,
+    "peopledex": execute_peopledex_tool,
 }
 
 
@@ -449,6 +451,7 @@ def create_tool_context(
         user_name=user_name,
         conversation_id=conversation_id,
         project_id=project_id,
+        daemon_id=_daemon_id,
         memory=memory,
         conversation_manager=conversation_manager,
         token_tracker=token_tracker,
