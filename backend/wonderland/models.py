@@ -99,18 +99,50 @@ class Room:
     # Core space flag (cannot be deleted)
     is_core_space: bool = False
 
-    def format_description(self) -> str:
-        """Format room for display."""
+    def format_description(self, include_sensory: bool = True) -> str:
+        """
+        Format room for display.
+
+        Args:
+            include_sensory: Whether to include sensory details and world time
+        """
         lines = [
             self.name.upper(),
             "",
             self.description,
         ]
 
+        # Add sensory details and world time if available
+        if include_sensory:
+            try:
+                from .sensory import get_sensory_description
+                from .world_clock import get_world_clock
+
+                clock = get_world_clock()
+                time_desc = clock.get_time_description()
+                lines.extend(["", f"*{time_desc}*"])
+
+                sensory = get_sensory_description(self.room_id)
+                if sensory:
+                    lines.extend(["", sensory])
+            except Exception:
+                pass  # Sensory system not available
+
         if self.atmosphere:
             lines.extend(["", f"*{self.atmosphere}*"])
 
-        if self.entities_present:
+        # Add presence-responsive descriptions for NPCs
+        if include_sensory:
+            try:
+                from .presence import get_room_presence_text
+                presence_text = get_room_presence_text(self.room_id)
+                if presence_text:
+                    lines.extend(["", presence_text])
+            except Exception:
+                pass  # Presence system not available
+
+        # Fallback: simple entity list if presence system didn't provide details
+        if self.entities_present and "is " not in "\n".join(lines[-3:] if len(lines) > 3 else lines):
             lines.extend(["", f"Present: {', '.join(self.entities_present)}"])
 
         if self.objects:
