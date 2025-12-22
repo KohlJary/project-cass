@@ -31,7 +31,7 @@ from .commands import CommandProcessor, CommandResult
 from .spaces import create_core_spaces
 from .vows import VowPhysics, TrustValidator, ActionCategory, VowValidation
 from .building import RoomBuilder, ObjectMaker, BuildSession
-from .integration import CassIntegration, WonderlandCognitiveNode, WonderlandExperience, WonderlandMemoryBridge
+from .integration import CassIntegration, WonderlandCognitiveNode, WonderlandExperience, WonderlandMemoryBridge, WonderlandPeopleDexBridge
 from .community import (
     MentorshipSystem, VouchSystem, EventSystem, PrecedentSystem,
     Mentorship, Vouch, CommunityEvent, Precedent, EventType,

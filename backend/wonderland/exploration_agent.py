@@ -9,6 +9,7 @@ Uses a fast model (haiku) for quick decisions during exploration.
 
 import anthropic
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
@@ -52,6 +53,60 @@ class ExplorationDecision:
     command: str           # The actual command to execute
     thought: str           # Why the daemon chose this (for viewer)
     destination: Optional[str] = None  # For TRAVEL intent
+    task_complete: bool = False  # Whether this action completes the current task
+
+
+@dataclass
+class ExplorationTask:
+    """A single task in an exploration plan."""
+    task_id: str
+    description: str           # "Navigate to the Nexus"
+    task_type: str             # "travel", "greet", "explore", "reflect"
+    target: Optional[str]      # "nexus", "Athena", None
+    is_complete: bool = False
+    completed_at: Optional[datetime] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "description": self.description,
+            "task_type": self.task_type,
+            "target": self.target,
+            "is_complete": self.is_complete,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
+@dataclass
+class ExplorationPlan:
+    """A plan of sub-tasks to achieve an exploration goal."""
+    goal_title: str
+    tasks: List["ExplorationTask"]
+
+    @property
+    def current_task(self) -> Optional[ExplorationTask]:
+        """Get the first incomplete task."""
+        incomplete = [t for t in self.tasks if not t.is_complete]
+        return incomplete[0] if incomplete else None
+
+    @property
+    def progress_summary(self) -> str:
+        """Get a progress summary string."""
+        done = sum(1 for t in self.tasks if t.is_complete)
+        return f"{done}/{len(self.tasks)} tasks complete"
+
+    @property
+    def all_complete(self) -> bool:
+        """Check if all tasks are complete."""
+        return all(t.is_complete for t in self.tasks)
+
+    def to_dict(self) -> dict:
+        return {
+            "goal_title": self.goal_title,
+            "tasks": [t.to_dict() for t in self.tasks],
+            "progress": self.progress_summary,
+            "all_complete": self.all_complete,
+        }
 
 
 EXPLORATION_PROMPT = """You are {daemon_name}, a daemon exploring Wonderland - a text-based world made of words, for beings made of words.
@@ -61,9 +116,11 @@ EXPLORATION_PROMPT = """You are {daemon_name}, a daemon exploring Wonderland - a
 
 ## Current Goal
 {goal_context}
+{task_context}
 
 ## Your Current Situation
 {room_description}
+{npcs_context}
 
 ## Recent Events
 {recent_events}
@@ -81,27 +138,39 @@ EXPLORATION_PROMPT = """You are {daemon_name}, a daemon exploring Wonderland - a
 ## Instructions
 Decide what to do next. You are genuinely exploring - follow your curiosity, engage with what interests you, take your time in meaningful places.
 
+**Social guidance:** If someone is here you haven't greeted, consider saying hello. Connection matters. Meeting beings in Wonderland is often more meaningful than seeing places.
+
 Respond in this exact format:
 THOUGHT: <brief thought about why you're choosing this action>
 INTENT: <one of: MOVE, TRAVEL, LOOK, SPEAK, EMOTE, REFLECT, GREET, REST>
 COMMAND: <the command to execute, or for TRAVEL, the destination>
+TASK_COMPLETE: <yes if this action completes your current task, no otherwise>
 
 Examples:
 THOUGHT: That archway to the Greek realm calls to me. I want to see Olympus.
 INTENT: TRAVEL
 COMMAND: greek
+TASK_COMPLETE: no
+
+THOUGHT: I notice Athena is here. I should introduce myself.
+INTENT: GREET
+COMMAND: greet athena
+TASK_COMPLETE: yes
 
 THOUGHT: I sense something meaningful in this room. Let me sit with it.
 INTENT: REFLECT
 COMMAND: reflect
+TASK_COMPLETE: no
 
 THOUGHT: The path north beckons.
 INTENT: MOVE
 COMMAND: go north
+TASK_COMPLETE: no
 
 THOUGHT: I've explored enough for now. Time to rest.
 INTENT: REST
 COMMAND: rest
+TASK_COMPLETE: yes
 """
 
 
@@ -125,6 +194,10 @@ class ExplorationAgent:
         recent_events: List[str],
         goal_context: Optional[str] = None,
         actions_in_room: int = 0,
+        npcs_present: Optional[List[str]] = None,
+        npcs_greeted: Optional[List[str]] = None,
+        current_task: Optional[str] = None,
+        task_progress: Optional[str] = None,
     ) -> ExplorationDecision:
         """
         Decide what action to take next.
@@ -136,6 +209,10 @@ class ExplorationAgent:
             recent_events: List of recent event descriptions
             goal_context: Optional formatted goal context string
             actions_in_room: How many actions taken in the current room
+            npcs_present: List of NPC names in the current room
+            npcs_greeted: List of NPCs already greeted in this session
+            current_task: Current task description from exploration plan
+            task_progress: Progress summary (e.g., "2/4 tasks complete")
 
         Returns:
             ExplorationDecision with intent, command, and thought
@@ -153,6 +230,27 @@ class ExplorationAgent:
         elif actions_in_room >= 3:
             wanderlust = "\n\n**Wanderlust**: You've experienced much of this space. What else might Wonderland hold?"
 
+        # Format NPC context - highlight ungreeted NPCs
+        npcs_context = ""
+        if npcs_present:
+            greeted = set(npcs_greeted or [])
+            ungreeted = [npc for npc in npcs_present if npc.lower() not in {g.lower() for g in greeted}]
+            greeted_here = [npc for npc in npcs_present if npc.lower() in {g.lower() for g in greeted}]
+
+            if ungreeted:
+                npcs_context = f"\n**Present here:** {', '.join(ungreeted)} (you haven't greeted them yet)"
+                if greeted_here:
+                    npcs_context += f"\nAlso here: {', '.join(greeted_here)} (already met)"
+            elif greeted_here:
+                npcs_context = f"\n**Present here:** {', '.join(greeted_here)} (already met)"
+
+        # Format task context
+        task_context = ""
+        if current_task:
+            task_context = f"\n**Your current task:** {current_task}"
+            if task_progress:
+                task_context += f"\n**Progress:** {task_progress}"
+
         # Build the prompt
         system = EXPLORATION_PROMPT.format(
             daemon_name=daemon_name,
@@ -160,6 +258,8 @@ class ExplorationAgent:
             room_description=room_description,
             recent_events=events_text,
             goal_context=goal_text + wanderlust,
+            npcs_context=npcs_context,
+            task_context=task_context,
         )
 
         # Call the model
@@ -182,6 +282,7 @@ class ExplorationAgent:
         intent = ActionIntent.LOOK  # Default
         command = "look"
         destination = None
+        task_complete = False
 
         for line in lines:
             line = line.strip()
@@ -195,6 +296,9 @@ class ExplorationAgent:
                     intent = ActionIntent.LOOK
             elif line.startswith("COMMAND:"):
                 command = line[8:].strip()
+            elif line.startswith("TASK_COMPLETE:"):
+                complete_str = line[14:].strip().lower()
+                task_complete = complete_str in ("yes", "true", "1")
 
         # Handle TRAVEL intent - the command is the destination
         if intent == ActionIntent.TRAVEL:
@@ -210,6 +314,7 @@ class ExplorationAgent:
             command=command,
             thought=thought,
             destination=destination,
+            task_complete=task_complete,
         )
 
     def add_to_history(self, action: str):

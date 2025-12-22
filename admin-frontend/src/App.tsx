@@ -26,6 +26,7 @@ import { GenesisDream } from './pages/GenesisDream';
 import { Homepage } from './pages/Homepage';
 import { Architecture } from './pages/Architecture';
 import { Wonderland } from './pages/Wonderland';
+import { PeopleDex } from './pages/PeopleDex';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -132,6 +133,7 @@ function AppRoutes() {
         <Route path="homepage" element={<AdminRoute><Homepage /></AdminRoute>} />
         <Route path="architecture" element={<AdminRoute><Architecture /></AdminRoute>} />
         <Route path="wonderland" element={<AdminRoute><Wonderland /></AdminRoute>} />
+        <Route path="peopledex" element={<AdminRoute><PeopleDex /></AdminRoute>} />
       </Route>
     </Routes>
   );

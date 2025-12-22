@@ -48,6 +48,16 @@ INLINE_TEST_TAG_PATTERN = re.compile(r'<test[^>]*>.*?</test>', re.DOTALL)
 INLINE_NARRATE_TAG_PATTERN = re.compile(r'<narrate[^>]*>.*?</narrate>', re.DOTALL)
 INLINE_MILESTONE_TAG_PATTERN = re.compile(r'<mark:milestone[^>]*>.*?</mark(?::milestone)?>', re.DOTALL)
 
+# PeopleDex tag patterns (biographical entity database)
+INLINE_REMEMBER_PERSON_PATTERN = re.compile(
+    r'<remember_person[^>]*>\s*(.*?)\s*</remember_person>',
+    re.DOTALL
+)
+INLINE_REMEMBER_RELATIONSHIP_PATTERN = re.compile(
+    r'<remember_relationship[^>]*(?:/>|>\s*(.*?)\s*</remember_relationship>)',
+    re.DOTALL
+)
+
 # Narrative coherence tag patterns (threads and questions)
 INLINE_THREAD_CREATE_PATTERN = re.compile(
     r'<thread:create[^>]*>\s*(.*?)\s*</thread:create>',
@@ -207,6 +217,9 @@ async def process_inline_tags(
     - <create_roadmap_item> tags (legacy)
     - <observe>, <hold>, <note> tags (consolidated)
     - <intend>, <stake>, <test>, <narrate>, <mark:milestone> tags (expanded)
+    - <thread:create>, <thread:link>, <thread:resolve> tags (narrative coherence)
+    - <question:add>, <question:resolve> tags (narrative coherence)
+    - <remember_person>, <remember_relationship> tags (PeopleDex biographical data)
 
     Returns:
         Dict with:
@@ -220,6 +233,9 @@ async def process_inline_tags(
         - tests: List of preference tests
         - narrations: List of deflection patterns
         - milestones: List of milestone acknowledgments
+        - threads: List of thread operations
+        - questions: List of question operations
+        - peopledex: List of PeopleDex operations (persons, relationships)
     """
     cleaned_text = text
     extracted_self_observations: List[Dict] = []
@@ -233,6 +249,7 @@ async def process_inline_tags(
     extracted_milestones: List[Dict] = []
     extracted_threads: List[Dict] = []
     extracted_questions: List[Dict] = []
+    extracted_peopledex: List[Dict] = []
 
     # Process self-observations
     for match in INLINE_SELF_OBSERVATION_PATTERN.finditer(text):
@@ -758,6 +775,165 @@ async def process_inline_tags(
     except Exception as e:
         logger.error(f"Failed to process narrative coherence tags: {e}")
 
+    # Process PeopleDex tags (biographical entity database)
+    try:
+        from peopledex import get_peopledex_manager, EntityType, AttributeType, RelationshipType
+
+        # Get peopledex manager with daemon_id for state bus events
+        pdex = get_peopledex_manager("cass")
+
+        # Process remember_person tags
+        for match in INLINE_REMEMBER_PERSON_PATTERN.finditer(text):
+            full_match = match.group(0)
+            content = match.group(1).strip() if match.group(1) else ""
+
+            # Parse name attribute (required)
+            name = None
+            name_match = re.search(r'name=["\']([^"\']+)["\']', full_match)
+            if name_match:
+                name = name_match.group(1)
+
+            if not name:
+                continue
+
+            # Parse entity type (default: person)
+            entity_type = EntityType.PERSON
+            type_match = re.search(r'type=["\']([^"\']+)["\']', full_match)
+            if type_match:
+                try:
+                    entity_type = EntityType(type_match.group(1))
+                except ValueError:
+                    pass
+
+            # Find or create entity
+            entity = pdex.find_or_create_by_name(
+                name=name,
+                entity_type=entity_type,
+                source_type="cass_inferred",
+                source_id=conversation_id
+            )
+
+            # Parse attributes from content (format: "key=value" or "key: value" per line)
+            attrs_added = []
+            if content:
+                for line in content.split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Try key=value format
+                    kv_match = re.match(r'(\w+)\s*[=:]\s*(.+)', line)
+                    if kv_match:
+                        attr_key = kv_match.group(1).lower()
+                        attr_value = kv_match.group(2).strip().strip('"\'')
+
+                        # Map common keys to attribute types
+                        attr_type_map = {
+                            'birthday': AttributeType.BIRTHDAY,
+                            'pronoun': AttributeType.PRONOUN,
+                            'pronouns': AttributeType.PRONOUN,
+                            'email': AttributeType.EMAIL,
+                            'phone': AttributeType.PHONE,
+                            'role': AttributeType.ROLE,
+                            'job': AttributeType.ROLE,
+                            'title': AttributeType.ROLE,
+                            'location': AttributeType.LOCATION,
+                            'bio': AttributeType.BIO,
+                            'note': AttributeType.NOTE,
+                            'twitter': AttributeType.HANDLE,
+                            'github': AttributeType.HANDLE,
+                            'discord': AttributeType.HANDLE,
+                        }
+
+                        if attr_key in attr_type_map:
+                            attr_type = attr_type_map[attr_key]
+                            # For handles, use the key as the attribute_key
+                            handle_key = attr_key if attr_key in ('twitter', 'github', 'discord') else None
+                            pdex.add_attribute(
+                                entity_id=entity.id,
+                                attribute_type=attr_type,
+                                value=attr_value,
+                                attribute_key=handle_key,
+                                source_type="cass_inferred",
+                                source_id=conversation_id
+                            )
+                            attrs_added.append(f"{attr_key}={attr_value}")
+
+            extracted_peopledex.append({
+                "action": "remember_person",
+                "name": name,
+                "entity_type": entity_type.value,
+                "attributes": attrs_added
+            })
+            logger.debug(f"PeopleDex: Remembered {name} with {len(attrs_added)} attributes")
+
+        # Process remember_relationship tags
+        for match in INLINE_REMEMBER_RELATIONSHIP_PATTERN.finditer(text):
+            full_match = match.group(0)
+            label = match.group(1).strip() if match.group(1) else None
+
+            # Parse person1/from attribute
+            person1 = None
+            p1_match = re.search(r'(?:person1|from)=["\']([^"\']+)["\']', full_match)
+            if p1_match:
+                person1 = p1_match.group(1)
+
+            # Parse person2/to attribute
+            person2 = None
+            p2_match = re.search(r'(?:person2|to)=["\']([^"\']+)["\']', full_match)
+            if p2_match:
+                person2 = p2_match.group(1)
+
+            # Parse relationship type
+            rel_type = None
+            type_match = re.search(r'type=["\']([^"\']+)["\']', full_match)
+            if type_match:
+                try:
+                    rel_type = RelationshipType(type_match.group(1))
+                except ValueError:
+                    logger.warning(f"Unknown relationship type: {type_match.group(1)}")
+                    continue
+
+            if not person1 or not person2 or not rel_type:
+                continue
+
+            # Find or create both entities
+            entity1 = pdex.find_or_create_by_name(
+                name=person1,
+                source_type="cass_inferred",
+                source_id=conversation_id
+            )
+            entity2 = pdex.find_or_create_by_name(
+                name=person2,
+                source_type="cass_inferred",
+                source_id=conversation_id
+            )
+
+            # Add relationship
+            pdex.add_relationship(
+                from_entity_id=entity1.id,
+                to_entity_id=entity2.id,
+                relationship_type=rel_type,
+                relationship_label=label,
+                source_type="cass_inferred",
+                source_id=conversation_id
+            )
+
+            extracted_peopledex.append({
+                "action": "remember_relationship",
+                "person1": person1,
+                "person2": person2,
+                "relationship": rel_type.value,
+                "label": label
+            })
+            logger.debug(f"PeopleDex: Remembered {person1} {rel_type.value} {person2}")
+
+        # Strip PeopleDex tags from text
+        cleaned_text = INLINE_REMEMBER_PERSON_PATTERN.sub('', cleaned_text)
+        cleaned_text = INLINE_REMEMBER_RELATIONSHIP_PATTERN.sub('', cleaned_text)
+
+    except Exception as e:
+        logger.error(f"Failed to process PeopleDex tags: {e}")
+
     # Clean up extra whitespace
     cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
 
@@ -773,5 +949,6 @@ async def process_inline_tags(
         "narrations": extracted_narrations,
         "milestones": extracted_milestones,
         "threads": extracted_threads,
-        "questions": extracted_questions
+        "questions": extracted_questions,
+        "peopledex": extracted_peopledex
     }

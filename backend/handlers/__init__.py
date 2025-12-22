@@ -23,6 +23,7 @@ from .memory import execute_memory_tool, MEMORY_TOOLS
 from .markers import execute_marker_tool, MARKER_TOOLS
 from .interviews import execute_interview_tool, INTERVIEW_TOOLS
 from .dreams import execute_dream_tool, DREAM_TOOLS
+from .peopledex import execute_peopledex_tool, PEOPLEDEX_TOOLS
 from .tool_router import ToolContext, route_tool, execute_tool_batch, TOOL_REGISTRY
 
 __all__ = [
@@ -64,6 +65,8 @@ __all__ = [
     "INTERVIEW_TOOLS",
     "execute_dream_tool",
     "DREAM_TOOLS",
+    "execute_peopledex_tool",
+    "PEOPLEDEX_TOOLS",
     "ToolContext",
     "route_tool",
     "execute_tool_batch",
