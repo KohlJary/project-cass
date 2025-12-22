@@ -47,6 +47,7 @@ class WonderlandWorld:
         self.daemons: Dict[str, DaemonPresence] = {}
         self.custodians: Dict[str, CustodianPresence] = {}
         self.events: List[WorldEvent] = []
+        self.mythology_registry: Optional["MythologyRegistry"] = None
 
         # Load or initialize
         self._load_state()
@@ -182,12 +183,17 @@ class WonderlandWorld:
         from .mythology import create_all_realms
 
         registry = create_all_realms()
+        self.mythology_registry = registry
         mythology_rooms = registry.get_all_rooms()
 
         for room in mythology_rooms:
             self.rooms[room.room_id] = room
 
         logger.info(f"Initialized {len(mythology_rooms)} mythology rooms (Nexus + realms)")
+
+    def get_mythology_registry(self):
+        """Get the mythology registry for NPC access."""
+        return self.mythology_registry
 
     # =========================================================================
     # ROOM OPERATIONS

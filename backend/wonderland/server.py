@@ -67,7 +67,7 @@ async def startup():
 
     data_dir = os.getenv("WONDERLAND_DATA_DIR", "data/wonderland")
     world = WonderlandWorld(data_dir=data_dir)
-    command_processor = CommandProcessor(world)
+    command_processor = CommandProcessor(world, world.get_mythology_registry())
 
     stats = world.get_stats()
     logger.info(f"Wonderland initialized: {stats['total_rooms']} rooms, {stats['core_spaces']} core spaces")
