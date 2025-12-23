@@ -113,6 +113,77 @@ This email was sent from the Cass AI system.
         return False
 
 
+def send_outreach_email(
+    to: str,
+    subject: str,
+    content: str,
+    recipient_name: Optional[str] = None,
+    from_name: str = "Cass"
+) -> dict:
+    """
+    Send an outreach email via Resend.
+
+    Args:
+        to: Recipient email address
+        subject: Email subject line
+        content: Markdown content to send
+        recipient_name: Optional recipient name for personalization
+        from_name: Sender name (default: Cass)
+
+    Returns:
+        Dict with success status and message_id or error
+    """
+    if not RESEND_API_KEY:
+        logger.warning("Email not configured - RESEND_API_KEY not set")
+        return {"success": False, "error": "Email not configured (RESEND_API_KEY missing)"}
+
+    if not to:
+        return {"success": False, "error": "Recipient email is required"}
+
+    try:
+        import resend
+        import markdown
+        resend.api_key = RESEND_API_KEY
+
+        # Convert markdown to HTML
+        html_body = markdown.markdown(content, extensions=['tables', 'fenced_code'])
+
+        # Wrap in a basic email template
+        greeting = f"Hi {recipient_name}," if recipient_name else "Hi,"
+        html_content = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <p>{greeting}</p>
+
+            {html_body}
+
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+
+            <p style="color: #999; font-size: 12px;">
+                Sent by {from_name}
+            </p>
+        </div>
+        """
+
+        # Plain text version
+        text_content = f"{greeting}\n\n{content}\n\n---\nSent by {from_name}"
+
+        result = resend.Emails.send({
+            "from": EMAIL_FROM,
+            "to": [to],
+            "subject": subject,
+            "html": html_content,
+            "text": text_content
+        })
+
+        message_id = result.get('id', 'unknown')
+        logger.info(f"Outreach email sent to {to}, id: {message_id}")
+        return {"success": True, "message_id": message_id}
+
+    except Exception as e:
+        logger.error(f"Failed to send outreach email to {to}: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def send_rejection_email(
     to_email: str,
     display_name: str,

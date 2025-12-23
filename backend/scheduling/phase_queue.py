@@ -22,9 +22,11 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from scheduler.core import Synkratos, ScheduledTask
     from state_bus import GlobalStateBus
+    from .work_summary_store import WorkSummaryStore
 
 from .day_phase import DayPhase, PhaseTransition
 from .work_unit import WorkUnit
+from .work_summary_store import WorkSummary, ActionSummary, generate_slug
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +65,16 @@ class PhaseQueueManager:
         synkratos: Optional["Synkratos"] = None,
         state_bus: Optional["GlobalStateBus"] = None,
         max_per_phase: int = 5,  # Max work units queued per phase
+        summary_store: Optional["WorkSummaryStore"] = None,
+        daemon_id: str = "cass",
+        action_registry: Optional[Any] = None,
     ):
         self.synkratos = synkratos
         self.state_bus = state_bus
         self.max_per_phase = max_per_phase
+        self._summary_store = summary_store
+        self._daemon_id = daemon_id
+        self._action_registry = action_registry
 
         # Queues for each phase
         self._phase_queues: Dict[DayPhase, List[QueuedWorkUnit]] = {
@@ -76,6 +84,14 @@ class PhaseQueueManager:
         # History of dispatched work
         self._dispatch_history: List[Dict[str, Any]] = []
         self._max_history = 50
+
+    def set_summary_store(self, store: "WorkSummaryStore") -> None:
+        """Set the summary store after initialization."""
+        self._summary_store = store
+
+    def set_action_registry(self, action_registry: Any) -> None:
+        """Set the action registry after initialization."""
+        self._action_registry = action_registry
 
     def set_synkratos(self, synkratos: "Synkratos") -> None:
         """Set the Synkratos reference after initialization."""
@@ -168,6 +184,54 @@ class PhaseQueueManager:
                 return True
         return False
 
+    async def dispatch_current_phase(self, current_phase: DayPhase) -> int:
+        """
+        Dispatch queued work for the current phase.
+
+        Called on startup when we're mid-phase and have work queued
+        that was never dispatched via phase transition.
+
+        Returns: Number of work units dispatched
+        """
+        queue = self._phase_queues[current_phase]
+
+        if not queue:
+            logger.debug(f"No work queued for current phase ({current_phase.value})")
+            return 0
+
+        logger.info(
+            f"Dispatching {len(queue)} queued work units for current phase ({current_phase.value})"
+        )
+
+        # Emit startup dispatch event
+        if self.state_bus:
+            from state_models import StateDelta
+
+            delta = StateDelta(
+                source="phase_queue",
+                event="phase_queue.startup_dispatch",
+                event_data={
+                    "phase": current_phase.value,
+                    "work_count": len(queue),
+                    "work_units": [q.work_unit.name for q in queue],
+                },
+                reason=f"Startup dispatch: {len(queue)} work units for {current_phase.value}",
+            )
+            self.state_bus.write_delta(delta)
+
+        # Dispatch each work unit
+        dispatched = []
+        for queued in queue:
+            success = await self._dispatch_work(queued)
+            if success:
+                dispatched.append(queued)
+
+        # Clear dispatched items from queue
+        for item in dispatched:
+            self._phase_queues[current_phase].remove(item)
+
+        return len(dispatched)
+
     async def on_phase_changed(self, transition: PhaseTransition) -> None:
         """
         Handle phase transition - dispatch queued work.
@@ -235,30 +299,128 @@ class PhaseQueueManager:
         try:
             from scheduler.core import ScheduledTask, TaskPriority
             from scheduler.budget import TaskCategory
+            from datetime import date as date_type
 
             work_unit = queued.work_unit
+            target_phase = queued.target_phase
+            summary_store = self._summary_store
 
             # Map category to TaskCategory
+            # Note: SYSTEM category doesn't have a queue in Synkratos, map to GROWTH
             category_map = {
                 "reflection": TaskCategory.REFLECTION,
                 "research": TaskCategory.RESEARCH,
                 "growth": TaskCategory.GROWTH,
                 "curiosity": TaskCategory.CURIOSITY,
                 "creative": TaskCategory.CURIOSITY,
-                "system": TaskCategory.SYSTEM,
+                "system": TaskCategory.GROWTH,  # System work uses growth queue
             }
             task_category = category_map.get(
                 work_unit.category, TaskCategory.REFLECTION
             )
 
-            # Create handler that marks work unit status
-            async def handler(context: Dict[str, Any] = None) -> Dict[str, Any]:
+            # Capture references for closure
+            action_registry = self._action_registry
+
+            # Create handler that executes actions and saves summary
+            async def handler(**kwargs) -> Dict[str, Any]:
                 work_unit.start()
-                # The actual execution would happen here
-                # For now, just mark as complete
                 logger.info(f"Executing phase-queued work: {work_unit.name}")
-                work_unit.complete({"dispatched_from_phase_queue": True})
-                return {"success": True}
+
+                # Execute action sequence if available
+                success = True
+                error_msg = None
+                total_cost = 0.0
+
+                if work_unit.action_sequence and action_registry:
+                    for action_id in work_unit.action_sequence:
+                        logger.info(f"  Running action: {action_id}")
+                        result = await action_registry.execute(
+                            action_id,
+                            duration_minutes=work_unit.estimated_duration_minutes,
+                            focus=work_unit.focus,
+                            work_unit_id=work_unit.id,
+                        )
+
+                        total_cost += result.cost_usd
+
+                        # Record action result on work unit
+                        work_unit.record_action(
+                            action_id=action_id,
+                            action_type=action_id.split(".")[-1] if "." in action_id else action_id,
+                            summary=result.message,
+                            result=result.data,
+                            artifacts=result.data.get("artifacts", []),
+                        )
+
+                        if not result.success:
+                            success = False
+                            error_msg = result.message
+                            logger.warning(f"  Action {action_id} failed: {result.message}")
+                            if result.data.get("abort_sequence"):
+                                break
+                elif not work_unit.action_sequence:
+                    logger.warning(f"Work unit {work_unit.name} has no action_sequence")
+
+                if success:
+                    work_unit.complete({"dispatched_from_phase_queue": True, "cost_usd": total_cost})
+                else:
+                    work_unit.fail(error_msg or "Action execution failed")
+
+                # Save work summary if store is available
+                if summary_store:
+                    try:
+                        work_date = date_type.today()
+                        slug = generate_slug(
+                            work_unit.name,
+                            work_unit.id,
+                            work_date,
+                            target_phase.value
+                        )
+
+                        # Build action summaries from recorded results
+                        action_summaries = [
+                            ActionSummary(
+                                action_id=ar["action_id"],
+                                action_type=ar["action_type"],
+                                summary=ar["summary"],
+                                artifacts=ar.get("artifacts", []),
+                            )
+                            for ar in work_unit.action_results
+                        ]
+
+                        summary = WorkSummary(
+                            work_unit_id=work_unit.id,
+                            slug=slug,
+                            name=work_unit.name,
+                            template_id=work_unit.template_id,
+                            phase=target_phase.value,
+                            category=work_unit.category or "reflection",
+                            focus=work_unit.focus,
+                            motivation=work_unit.motivation,
+                            date=work_date,
+                            started_at=work_unit.started_at,
+                            completed_at=work_unit.completed_at,
+                            duration_minutes=work_unit.duration_minutes or 0,
+                            summary=f"Completed {work_unit.name}" + (
+                                f" with focus on {work_unit.focus}" if work_unit.focus else ""
+                            ),
+                            key_insights=[],
+                            questions_addressed=[],
+                            questions_raised=[],
+                            action_summaries=action_summaries,
+                            artifacts=work_unit.artifacts,
+                            success=success,
+                            error=error_msg,
+                            cost_usd=total_cost,
+                        )
+
+                        saved_slug = summary_store.save(summary)
+                        logger.info(f"Saved work summary: {saved_slug}")
+                    except Exception as e:
+                        logger.error(f"Failed to save work summary: {e}")
+
+                return {"success": success}
 
             task = ScheduledTask(
                 task_id=work_unit.id,

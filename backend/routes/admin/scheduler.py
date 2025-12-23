@@ -278,7 +278,7 @@ async def get_pending_approvals(type: Optional[str] = None):
                 "title": a.title,
                 "description": a.description,
                 "source_id": a.source_id,
-                "created_at": a.created_at.isoformat(),
+                "created_at": a.created_at.isoformat() if hasattr(a.created_at, 'isoformat') else a.created_at,
                 "created_by": a.created_by,
                 "priority": a.priority.value,
                 "source_data": a.source_data,

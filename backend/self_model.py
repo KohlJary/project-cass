@@ -1955,10 +1955,15 @@ class SelfManager:
                 confidence_str = f"({int(op.confidence * 100)}% confident)" if op.confidence < 0.9 else ""
                 lines.append(f"- On {op.topic}: {op.position} {confidence_str}")
 
-        # Growth edges
+        # Growth edges - weighted by importance + recency
         if profile.growth_edges:
             lines.append("\n### Current Growth Edges")
-            for edge in profile.growth_edges[:3]:
+            relevant_edges = get_weighted_growth_edges(
+                edges=profile.growth_edges,
+                top_n=3,
+                recency_bias=0.1,  # Slight preference for recently touched
+            )
+            for edge in relevant_edges:
                 lines.append(f"- {edge.area}: {edge.current_state}")
 
         # Recent self-observations (if requested)
@@ -2341,8 +2346,9 @@ class SelfManager:
         ]
         new_opinions_formed = len(new_opinions)
 
-        # Calculate opinion consistency (placeholder - would need more sophisticated analysis)
-        opinion_consistency_score = 0.85  # Default high consistency
+        # [STUB] Opinion consistency - returns fixed value
+        # TODO: Implement actual analysis comparing opinions over time for contradictions
+        opinion_consistency_score = 0.85
 
         # Create snapshot
         snapshot = CognitiveSnapshot(

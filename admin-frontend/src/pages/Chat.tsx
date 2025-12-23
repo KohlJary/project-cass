@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { conversationsApi, settingsApi, attachmentsApi } from '../api/client';
+import { conversationsApi, settingsApi, attachmentsApi, memoryApi } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useWebSocket } from '../hooks/useWebSocket';
 import type { ChatMessage } from '../hooks/useWebSocket';
@@ -48,12 +48,22 @@ interface LLMProviderInfo {
   local_model: string;
 }
 
+interface MemorySearchResult {
+  id: string;
+  content: string;
+  type: string;
+  similarity: number;
+  metadata: Record<string, unknown>;
+}
+
 export function Chat() {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
   const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [showAllConversations, setShowAllConversations] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchExpanded, setSearchExpanded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +151,19 @@ export function Chat() {
       queryClient.invalidateQueries({ queryKey: ['llm-provider'] });
     },
   });
+
+  // Memory search mutation
+  const searchMutation = useMutation({
+    mutationFn: (query: string) => memoryApi.search(query, 10).then((r) => r.data),
+  });
+
+  const handleMemorySearch = useCallback(() => {
+    if (searchQuery.trim()) {
+      searchMutation.mutate(searchQuery);
+    }
+  }, [searchQuery, searchMutation]);
+
+  const searchResults: MemorySearchResult[] = searchMutation.data?.results || [];
 
   // Populate recognition from historical observations
   useEffect(() => {
@@ -695,6 +718,65 @@ export function Chat() {
           <h3>Memory Context</h3>
         </div>
         <div className="memory-sidebar-content">
+          {/* Memory Search Section */}
+          <div className="memory-search-section">
+            <div
+              className="memory-search-header"
+              onClick={() => setSearchExpanded(!searchExpanded)}
+            >
+              <span className="memory-search-title">🔍 Search Memory</span>
+              <span className="memory-search-toggle">{searchExpanded ? '−' : '+'}</span>
+            </div>
+            {searchExpanded && (
+              <div className="memory-search-content">
+                <div className="memory-search-input-row">
+                  <input
+                    type="text"
+                    className="memory-search-input"
+                    placeholder="Search memories..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleMemorySearch()}
+                  />
+                  <button
+                    className="memory-search-btn"
+                    onClick={handleMemorySearch}
+                    disabled={searchMutation.isPending || !searchQuery.trim()}
+                  >
+                    {searchMutation.isPending ? '...' : '→'}
+                  </button>
+                </div>
+                {searchMutation.isError && (
+                  <div className="memory-search-error">Search failed</div>
+                )}
+                {searchResults.length > 0 && (
+                  <div className="memory-search-results">
+                    {searchResults.map((result, idx) => (
+                      <div key={result.id || idx} className="memory-search-result">
+                        <div className="memory-search-result-header">
+                          <span className={`memory-search-type type-${result.type}`}>
+                            {result.type}
+                          </span>
+                          <span className="memory-search-score">
+                            {(result.similarity * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="memory-search-result-content">
+                          {result.content.length > 150
+                            ? result.content.substring(0, 150) + '...'
+                            : result.content}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {searchMutation.data && searchResults.length === 0 && (
+                  <div className="memory-search-empty">No memories found</div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Live memory stats from WebSocket */}
           {memoryContext && (
             <div className="memory-stats">

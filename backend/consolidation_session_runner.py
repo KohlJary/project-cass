@@ -669,17 +669,21 @@ class ConsolidationRunner(BaseSessionRunner):
         return "\n".join(lines)
 
     async def _list_sessions(self, tool_input: Dict, session: ConsolidationSession) -> str:
-        """List autonomous sessions from the period."""
+        """
+        [STUB] List autonomous sessions from the period.
+
+        TODO: Query WorkSummaryStore for completed work in date range.
+        The data exists in data/work_summaries/ as JSON files.
+        """
         start_date = tool_input.get("start_date", session.period_start)
         end_date = tool_input.get("end_date", session.period_end)
         session_type = tool_input.get("session_type", "all")
 
         lines = [f"## Autonomous Sessions ({start_date} to {end_date})\n"]
 
-        # This would need access to session logs
-        # For now, provide a placeholder
-        lines.append("*Session history would be listed here*")
-        lines.append("(Session logs not yet queryable from consolidation)")
+        # [STUB] Need to query WorkSummaryStore for completed work
+        lines.append("*[STUB] Session history not yet queryable*")
+        lines.append("TODO: Wire to WorkSummaryStore.list_summaries(start_date, end_date)")
 
         return "\n".join(lines)
 

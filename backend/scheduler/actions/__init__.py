@@ -275,6 +275,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import web_handlers
         from . import wiki_handlers
         from . import self_handlers
+        from . import outreach_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -330,6 +331,13 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("self.add_observation", self_handlers.add_observation_action)
         registry.register_handler("self.record_insight", self_handlers.record_insight_action)
         registry.register_handler("self.update_growth_edge", self_handlers.update_growth_edge_action)
+
+        # Outreach actions
+        registry.register_handler("outreach.draft", outreach_handlers.draft_outreach_action)
+        registry.register_handler("outreach.submit", outreach_handlers.submit_outreach_action)
+        registry.register_handler("outreach.send_email", outreach_handlers.send_email_action)
+        registry.register_handler("outreach.check_track_record", outreach_handlers.check_track_record_action)
+        registry.register_handler("outreach.get_stats", outreach_handlers.get_outreach_stats_action)
 
         logger.info("Registered all action handlers")
 

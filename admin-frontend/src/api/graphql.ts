@@ -912,3 +912,264 @@ export const fetchContinuousConversation = async (
 ): Promise<{ continuousConversation: ContinuousConversation }> => {
   return getGraphQLClient().request(CONTINUOUS_CONVERSATION_QUERY, { userId });
 };
+
+// =============================================================================
+// UNIFIED GOALS (for Agency Tab)
+// =============================================================================
+
+export interface UnifiedGoal {
+  id: string;
+  title: string;
+  description: string | null;
+  goalType: string;
+  status: string;
+  priority: number;
+  emergenceType: string | null;
+  createdAt: string;
+  createdBy: string;
+  alignmentScore: number;
+}
+
+export interface UnifiedGoalsResult {
+  goals: UnifiedGoal[];
+  total: number;
+  emergenceCounts: string; // JSON string of Record<string, number>
+}
+
+export const UNIFIED_GOALS_QUERY = gql`
+  query UnifiedGoals($includeCompleted: Boolean, $emergenceType: String) {
+    unifiedGoals(includeCompleted: $includeCompleted, emergenceType: $emergenceType) {
+      goals {
+        id
+        title
+        description
+        goalType
+        status
+        priority
+        emergenceType
+        createdAt
+        createdBy
+        alignmentScore
+      }
+      total
+      emergenceCounts
+    }
+  }
+`;
+
+export const fetchUnifiedGoals = async (params?: {
+  includeCompleted?: boolean;
+  emergenceType?: string;
+}): Promise<{ unifiedGoals: UnifiedGoalsResult }> => {
+  return getGraphQLClient().request(UNIFIED_GOALS_QUERY, params || {});
+};
+
+// Root goals (top-level, no parent)
+export const ROOT_GOALS_QUERY = gql`
+  query RootGoals {
+    rootGoals {
+      id
+      title
+      description
+      goalType
+      status
+      priority
+      emergenceType
+      createdAt
+      createdBy
+      alignmentScore
+    }
+  }
+`;
+
+export const fetchRootGoals = async (): Promise<{ rootGoals: UnifiedGoal[] }> => {
+  return getGraphQLClient().request(ROOT_GOALS_QUERY);
+};
+
+// Goal children (direct children of a goal)
+export const GOAL_CHILDREN_QUERY = gql`
+  query GoalChildren($goalId: String!) {
+    goalChildren(goalId: $goalId) {
+      id
+      title
+      description
+      goalType
+      status
+      priority
+      emergenceType
+      createdAt
+      createdBy
+      alignmentScore
+    }
+  }
+`;
+
+export const fetchGoalChildren = async (goalId: string): Promise<{ goalChildren: UnifiedGoal[] }> => {
+  return getGraphQLClient().request(GOAL_CHILDREN_QUERY, { goalId });
+};
+
+// Work items for a goal (atomic actions to achieve the goal)
+export interface WorkItemSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: number;
+  status: string;
+  estimatedDurationMinutes: number;
+  estimatedCostUsd: number;
+  requiresApproval: boolean;
+  approvalStatus: string;
+  goalId: string | null;
+  createdAt: string;
+  actionSequence: string[];
+}
+
+export const WORK_ITEMS_FOR_GOAL_QUERY = gql`
+  query WorkItemsForGoal($goalId: String!) {
+    workItemsForGoal(goalId: $goalId) {
+      id
+      title
+      description
+      category
+      priority
+      status
+      estimatedDurationMinutes
+      estimatedCostUsd
+      requiresApproval
+      approvalStatus
+      goalId
+      createdAt
+      actionSequence
+    }
+  }
+`;
+
+export const fetchWorkItemsForGoal = async (goalId: string): Promise<{ workItemsForGoal: WorkItemSummary[] }> => {
+  return getGraphQLClient().request(WORK_ITEMS_FOR_GOAL_QUERY, { goalId });
+};
+
+// =============================================================================
+// WORK HISTORY / SUMMARIES (Completed scheduled work)
+// =============================================================================
+
+export interface ActionSummary {
+  actionId: string;
+  actionType: string;
+  slug: string;
+  summary: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  artifacts: string[];
+}
+
+export interface WorkSummary {
+  workUnitId: string;
+  slug: string;
+  name: string;
+  templateId: string | null;
+  phase: string;
+  category: string;
+  focus: string | null;
+  motivation: string | null;
+  date: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMinutes: number;
+  summary: string;
+  keyInsights: string[];
+  questionsAddressed: string[];
+  questionsRaised: string[];
+  actionSummaries: ActionSummary[];
+  artifacts: Array<{ type: string; id: string; title?: string }>;
+  success: boolean;
+  error: string | null;
+  costUsd: number;
+  brief: string;
+}
+
+export const WORK_HISTORY_QUERY = gql`
+  query WorkHistory($date: String, $phase: String, $limit: Int) {
+    workHistory(date: $date, phase: $phase, limit: $limit) {
+      workUnitId
+      slug
+      name
+      templateId
+      phase
+      category
+      focus
+      motivation
+      date
+      startedAt
+      completedAt
+      durationMinutes
+      summary
+      keyInsights
+      questionsAddressed
+      questionsRaised
+      actionSummaries {
+        actionId
+        actionType
+        slug
+        summary
+        startedAt
+        completedAt
+        artifacts
+      }
+      artifacts
+      success
+      error
+      costUsd
+      brief
+    }
+  }
+`;
+
+export const WORK_SUMMARY_QUERY = gql`
+  query WorkSummary($slug: String!) {
+    workSummary(slug: $slug) {
+      workUnitId
+      slug
+      name
+      templateId
+      phase
+      category
+      focus
+      motivation
+      date
+      startedAt
+      completedAt
+      durationMinutes
+      summary
+      keyInsights
+      questionsAddressed
+      questionsRaised
+      actionSummaries {
+        actionId
+        actionType
+        slug
+        summary
+        startedAt
+        completedAt
+        artifacts
+      }
+      artifacts
+      success
+      error
+      costUsd
+      brief
+    }
+  }
+`;
+
+export const fetchWorkHistory = async (params?: {
+  date?: string;
+  phase?: string;
+  limit?: number;
+}): Promise<{ workHistory: WorkSummary[] }> => {
+  return getGraphQLClient().request(WORK_HISTORY_QUERY, params || {});
+};
+
+export const fetchWorkSummary = async (slug: string): Promise<{ workSummary: WorkSummary | null }> => {
+  return getGraphQLClient().request(WORK_SUMMARY_QUERY, { slug });
+};

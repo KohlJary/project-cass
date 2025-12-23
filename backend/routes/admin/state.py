@@ -53,6 +53,7 @@ async def get_current_state(
         "emotional": state.emotional.to_dict(),
         "activity": state.activity.to_dict(),
         "coherence": state.coherence.to_dict(),
+        "day_phase": state.day_phase.to_dict(),
         "relational": {
             user_id: rel.to_dict()
             for user_id, rel in state.relational.items()

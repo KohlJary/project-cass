@@ -197,6 +197,19 @@ class DayPhaseTracker:
 
         logger.info(f"DayPhaseTracker starting in phase: {self._current_phase.value}")
 
+        # Emit initial state to state bus
+        if self.state_bus:
+            from state_models import StateDelta
+            delta = StateDelta(
+                source="day_phase_tracker",
+                day_phase_delta={
+                    "current_phase": self._current_phase.value,
+                    "phase_started_at": self._phase_started_at.isoformat(),
+                },
+                reason=f"Day phase tracker initialized in {self._current_phase.value} phase",
+            )
+            self.state_bus.write_delta(delta)
+
         self._running = True
         self._loop_task = asyncio.create_task(self._tracking_loop())
 
@@ -264,8 +277,8 @@ class DayPhaseTracker:
 
             delta = StateDelta(
                 source="day_phase_tracker",
-                activity_delta={
-                    "day_phase": new_phase.value,
+                day_phase_delta={
+                    "current_phase": new_phase.value,
                     "phase_started_at": now.isoformat(),
                 },
                 event="day_phase.changed",

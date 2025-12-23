@@ -60,11 +60,13 @@ class AutonomousScheduler:
         decision_engine: SchedulingDecisionEngine,
         state_bus: Optional["GlobalStateBus"] = None,
         daemon_id: str = "cass",
+        action_registry: Optional[Any] = None,
     ):
         self.synkratos = synkratos
         self.decision_engine = decision_engine
         self.state_bus = state_bus
         self._daemon_id = daemon_id
+        self._action_registry = action_registry
 
         # Phase queue for deferred work
         self._phase_queue: Optional["PhaseQueueManager"] = None
@@ -172,7 +174,9 @@ class AutonomousScheduler:
         logger.info("Autonomous scheduler started (plan-based mode)")
 
         # Plan the day if enabled and not already planned today
+        # Brief delay to allow DayPhaseTracker to emit initial state to state bus
         if self.PLAN_ON_STARTUP:
+            await asyncio.sleep(0.5)  # Allow phase tracker to initialize state
             await self._maybe_plan_day()
 
     async def stop(self) -> None:
@@ -298,6 +302,15 @@ class AutonomousScheduler:
             f"Day planned: {sum(len(units) for units in plan.values())} work units "
             f"across {len(plan)} phases"
         )
+
+        # Dispatch work for the current phase immediately
+        # (since we won't get a phase transition event for it)
+        if self._phase_queue and current_phase in plan:
+            dispatched = await self._phase_queue.dispatch_current_phase(current_phase)
+            if dispatched > 0:
+                logger.info(
+                    f"Dispatched {dispatched} work units for current phase ({current_phase.value})"
+                )
 
         return {phase.value: units for phase, units in plan.items()}
 
@@ -436,40 +449,81 @@ class AutonomousScheduler:
         return handler
 
     async def _run_session(self, work_unit: WorkUnit) -> Dict[str, Any]:
-        """Run a session-based work unit."""
-        # This will need to be wired to the actual session runners
-        # For now, return a placeholder
-        logger.info(f"Would run session: {work_unit.runner_key} with focus: {work_unit.focus}")
+        """
+        [STUB][DEPRECATED] Run a session-based work unit.
 
-        # TODO: Wire to actual session runners
-        # runner = self.session_runners.get(work_unit.runner_key)
-        # if runner:
-        #     session = await runner.start_session(
-        #         duration_minutes=work_unit.estimated_duration_minutes,
-        #         focus=work_unit.focus,
-        #     )
-        #     return session.to_dict()
+        NOTE: Session runners are being deprecated in favor of atomic actions.
+        All work should use action_sequence instead of runner_key.
+        This method exists only for backwards compatibility during migration.
+        """
+        logger.warning(
+            f"[STUB] _run_session called with runner_key={work_unit.runner_key}. "
+            "Session runners are deprecated - use action_sequence instead."
+        )
 
         return {
-            "success": True,
-            "message": f"Session {work_unit.runner_key} would run here",
+            "success": False,
+            "message": f"Session runners deprecated. Convert {work_unit.runner_key} to action_sequence.",
             "focus": work_unit.focus,
         }
 
     async def _run_action_sequence(self, work_unit: WorkUnit) -> Dict[str, Any]:
-        """Run a composite action sequence."""
-        # This will need to be wired to the action registry
-        logger.info(f"Would run actions: {work_unit.action_sequence}")
+        """Run a composite action sequence via the action registry."""
+        if not self._action_registry:
+            logger.error("No action registry available - cannot execute actions")
+            return {
+                "success": False,
+                "message": "Action registry not initialized",
+            }
 
-        # TODO: Wire to action registry
-        # results = []
-        # for action_id in work_unit.action_sequence:
-        #     result = await action_registry.execute(action_id)
-        #     results.append(result)
+        logger.info(f"Executing action sequence: {work_unit.action_sequence}")
+
+        results = []
+        total_cost = 0.0
+        all_success = True
+
+        for action_id in work_unit.action_sequence:
+            logger.info(f"  Running action: {action_id}")
+            result = await self._action_registry.execute(
+                action_id,
+                duration_minutes=work_unit.estimated_duration_minutes,
+                focus=work_unit.focus,
+                work_unit_id=work_unit.id,
+            )
+
+            results.append({
+                "action_id": action_id,
+                "success": result.success,
+                "message": result.message,
+                "cost_usd": result.cost_usd,
+                "data": result.data,
+            })
+
+            total_cost += result.cost_usd
+
+            # Record action result on work unit for detailed summary
+            work_unit.record_action(
+                action_id=action_id,
+                action_type=action_id.split(".")[-1] if "." in action_id else action_id,
+                summary=result.message,
+                result=result.data,
+                artifacts=result.data.get("artifacts", []),
+            )
+
+            if not result.success:
+                all_success = False
+                logger.warning(f"  Action {action_id} failed: {result.message}")
+                # Continue with remaining actions unless it's a critical failure
+                if result.data.get("abort_sequence"):
+                    break
 
         return {
-            "success": True,
-            "message": f"Actions {work_unit.action_sequence} would run here",
+            "success": all_success,
+            "message": f"Executed {len(results)} actions" + (
+                "" if all_success else f" ({sum(1 for r in results if not r['success'])} failed)"
+            ),
+            "actions": results,
+            "total_cost_usd": total_cost,
         }
 
     async def _complete_work(

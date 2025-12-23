@@ -313,7 +313,8 @@
 
 /* Responsive - hide detail panel on narrow screens */
 @media (max-width: 1200px) {
-  .work-unit-detail {
+  .work-unit-detail,
+  .work-summary-detail {
     position: absolute;
     right: 0;
     top: 0;
@@ -323,4 +324,141 @@
     border-left: 1px solid var(--border-color, #2a2a4a);
     z-index: 10;
   }
+}
+
+/* View Toggle */
+.view-toggle {
+  display: flex;
+  padding: 8px 12px;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-color, #2a2a4a);
+  flex-shrink: 0;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border-color, #2a2a4a);
+  background: transparent;
+  color: var(--text-muted, #888);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary, #e0e0e0);
+}
+
+.toggle-btn.active {
+  background: var(--accent, #00d9ff);
+  border-color: var(--accent, #00d9ff);
+  color: #000;
+}
+
+/* Loading/Empty messages */
+.loading-message,
+.empty-message {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted, #666);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Completed Work List */
+.completed-work-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  min-width: 0;
+}
+
+.completed-phase-block {
+  margin-bottom: 12px;
+}
+
+.completed-work-items {
+  margin-top: 4px;
+}
+
+/* Completed Work Card */
+.completed-work-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.completed-work-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.completed-work-card.selected {
+  background: rgba(0, 217, 255, 0.1);
+  border: 1px solid var(--accent, #00d9ff);
+}
+
+.completed-work-card.status-completed .work-status-icon {
+  color: #4CAF50;
+}
+
+.completed-work-card.status-failed .work-status-icon {
+  color: #f44336;
+}
+
+/* Work Summary Detail Panel */
+.work-summary-detail {
+  width: 220px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-color, #2a2a4a);
+  overflow-y: auto;
+}
+
+.detail-value.success {
+  color: #4CAF50;
+}
+
+.detail-value.failed {
+  color: #f44336;
+}
+
+.summary-text {
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 2px solid var(--accent, #00d9ff);
+}
+
+.insights-list,
+.questions-list {
+  margin: 4px 0;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--text-primary, #e0e0e0);
+  line-height: 1.5;
+}
+
+.insights-list li,
+.questions-list li {
+  margin-bottom: 4px;
+}
+
+.error-section {
+  background: rgba(244, 67, 54, 0.1);
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 2px solid #f44336;
+}
+
+.error-text {
+  color: #f44336;
 }

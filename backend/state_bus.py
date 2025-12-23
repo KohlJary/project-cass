@@ -288,6 +288,8 @@ class GlobalStateBus:
                     state.coherence = GlobalCoherenceState.from_dict(data)
                 elif state_type == "activity":
                     state.activity = GlobalActivityState.from_dict(data)
+                elif state_type == "day_phase":
+                    state.day_phase = DayPhaseState.from_dict(data)
 
             # Load relational states
             cursor = conn.execute("""
@@ -343,6 +345,17 @@ class GlobalStateBus:
                 f"{self.daemon_id}-activity",
                 self.daemon_id,
                 json_serialize(state.activity.to_dict()),
+                now,
+            ))
+
+            # Save day_phase state
+            conn.execute("""
+                INSERT OR REPLACE INTO global_state (id, daemon_id, state_type, state_json, updated_at)
+                VALUES (?, ?, 'day_phase', ?, ?)
+            """, (
+                f"{self.daemon_id}-day_phase",
+                self.daemon_id,
+                json_serialize(state.day_phase.to_dict()),
                 now,
             ))
 

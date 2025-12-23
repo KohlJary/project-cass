@@ -465,6 +465,61 @@
       "default_duration_minutes": 5,
       "priority": "normal",
       "requires_idle": false
+    },
+    "outreach.draft": {
+      "id": "outreach.draft",
+      "name": "Create Outreach Draft",
+      "description": "Create an outreach draft (email, blog post, document, etc.)",
+      "category": "outreach",
+      "handler": "outreach_handlers.draft_outreach_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 10,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "outreach.submit": {
+      "id": "outreach.submit",
+      "name": "Submit for Review",
+      "description": "Submit a draft for review (or auto-approve if graduated)",
+      "category": "outreach",
+      "handler": "outreach_handlers.submit_outreach_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "outreach.send_email": {
+      "id": "outreach.send_email",
+      "name": "Send Email",
+      "description": "Send an approved email draft via Resend",
+      "category": "outreach",
+      "handler": "outreach_handlers.send_email_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "high",
+      "requires_idle": false
+    },
+    "outreach.check_track_record": {
+      "id": "outreach.check_track_record",
+      "name": "Check Track Record",
+      "description": "Check autonomy track record for outreach types",
+      "category": "outreach",
+      "handler": "outreach_handlers.check_track_record_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "outreach.get_stats": {
+      "id": "outreach.get_stats",
+      "name": "Get Outreach Stats",
+      "description": "Get overall outreach statistics",
+      "category": "outreach",
+      "handler": "outreach_handlers.get_outreach_stats_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "low",
+      "requires_idle": false
     }
   }
 }

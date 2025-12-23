@@ -135,11 +135,11 @@ async def chat(request: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """
-    Streaming chat endpoint for real-time responses.
+    [STUB] Streaming chat endpoint for real-time responses.
     Returns Server-Sent Events.
+
+    TODO: Implement actual SSE streaming instead of redirect to regular chat.
     """
-    # TODO: Implement SSE streaming
-    # For now, redirect to regular chat
     return await chat(request)
 
 @app.post("/memory/store")
