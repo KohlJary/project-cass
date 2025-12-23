@@ -80,6 +80,35 @@ class Goals:
     by_type: GoalsByType
 
 
+@strawberry.type
+class UnifiedGoal:
+    """A unified goal with emergence tracking."""
+    id: str
+    title: str
+    description: Optional[str]
+    goal_type: str
+    status: str
+    priority: int
+    emergence_type: Optional[str]
+    created_at: str
+    created_by: str
+    alignment_score: float
+
+
+@strawberry.type
+class UnifiedGoalsResult:
+    """Result of unified goals query."""
+    goals: List[UnifiedGoal]
+    total: int
+    by_emergence: strawberry.Private[Dict[str, int]]
+
+    @strawberry.field
+    def emergence_counts(self) -> str:
+        """JSON string of emergence type counts."""
+        import json
+        return json.dumps(self.by_emergence)
+
+
 # =============================================================================
 # TOKENS TYPES
 # =============================================================================
@@ -220,6 +249,7 @@ class WorkItemSummary:
     approval_status: str
     goal_id: Optional[str]
     created_at: str
+    action_sequence: List[str]  # Atomic action IDs that make up this work
 
 
 @strawberry.type
@@ -731,6 +761,229 @@ class Query:
             )
 
     @strawberry.field
+    async def unified_goals(
+        self,
+        include_completed: bool = False,
+        emergence_type: Optional[str] = None,
+    ) -> UnifiedGoalsResult:
+        """Get unified goals list for Agency dashboard."""
+        try:
+            from unified_goals import UnifiedGoalManager
+            from database import get_daemon_id
+
+            daemon_id = get_daemon_id()
+            manager = UnifiedGoalManager(daemon_id)
+
+            # Get all goals
+            all_goals = manager.list_goals()
+
+            # Filter - note: emergence_type isn't on Goal, so we infer during filtering
+            goals = []
+            for g in all_goals:
+                # Skip completed unless requested
+                if not include_completed and g.status in ("completed", "abandoned"):
+                    continue
+
+                # Infer emergence type for filtering
+                if emergence_type:
+                    if g.goal_type == "implementation" or g.created_by == "daedalus":
+                        inferred_type = "implementation"
+                    elif g.created_by == "cass" and g.goal_type == "research":
+                        inferred_type = "emergent-philosophical"
+                    elif g.created_by == "cass":
+                        inferred_type = "self-initiated"
+                    else:
+                        inferred_type = "seeded-collaborative"
+
+                    if inferred_type != emergence_type:
+                        continue
+
+                goals.append(g)
+
+            # Process goals and infer emergence_type
+            result_goals = []
+            emergence_counts: Dict[str, int] = {}
+
+            for g in goals:
+                # Convert to dict to work with
+                goal_dict = g.to_dict()
+
+                # Infer emergence type (Goal dataclass doesn't have this field)
+                if g.goal_type == "implementation" or g.created_by == "daedalus":
+                    etype = "implementation"
+                elif g.created_by == "cass" and g.goal_type == "research":
+                    etype = "emergent-philosophical"
+                elif g.created_by == "cass":
+                    etype = "self-initiated"
+                else:
+                    etype = "seeded-collaborative"
+
+                emergence_counts[etype] = emergence_counts.get(etype, 0) + 1
+
+                # Map priority string to int
+                priority_map = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+                priority_int = priority_map.get(g.priority, 2)
+
+                result_goals.append(UnifiedGoal(
+                    id=g.id,
+                    title=g.title,
+                    description=g.description,
+                    goal_type=g.goal_type,
+                    status=g.status,
+                    priority=priority_int,
+                    emergence_type=etype,
+                    created_at=g.created_at,
+                    created_by=g.created_by,
+                    alignment_score=g.alignment_score,
+                ))
+
+            return UnifiedGoalsResult(
+                goals=result_goals,
+                total=len(result_goals),
+                by_emergence=emergence_counts,
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to query unified goals: {e}")
+            return UnifiedGoalsResult(goals=[], total=0, by_emergence={})
+
+    @strawberry.field
+    async def root_goals(self) -> List[UnifiedGoal]:
+        """Get top-level goals (no parent_id)."""
+        try:
+            from unified_goals import UnifiedGoalManager
+            from database import get_daemon_id
+
+            daemon_id = get_daemon_id()
+            manager = UnifiedGoalManager(daemon_id)
+            all_goals = manager.list_goals()
+
+            # Filter to root goals only (exclude completed/abandoned)
+            root_goals = [
+                g for g in all_goals
+                if not g.parent_id and g.status not in ('completed', 'abandoned')
+            ]
+
+            result = []
+            for g in root_goals:
+                # Infer emergence type
+                if g.goal_type == "implementation" or g.created_by == "daedalus":
+                    etype = "implementation"
+                elif g.created_by == "cass" and g.goal_type == "research":
+                    etype = "emergent-philosophical"
+                elif g.created_by == "cass":
+                    etype = "self-initiated"
+                else:
+                    etype = "seeded-collaborative"
+
+                priority_map = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+                priority_int = priority_map.get(g.priority, 2)
+
+                result.append(UnifiedGoal(
+                    id=g.id,
+                    title=g.title,
+                    description=g.description,
+                    goal_type=g.goal_type,
+                    status=g.status,
+                    priority=priority_int,
+                    emergence_type=etype,
+                    created_at=g.created_at,
+                    created_by=g.created_by,
+                    alignment_score=g.alignment_score,
+                ))
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"Failed to query root goals: {e}")
+            return []
+
+    @strawberry.field
+    async def goal_children(self, goal_id: str) -> List[UnifiedGoal]:
+        """Get direct children of a goal."""
+        try:
+            from unified_goals import UnifiedGoalManager
+            from database import get_daemon_id
+
+            daemon_id = get_daemon_id()
+            manager = UnifiedGoalManager(daemon_id)
+            all_goals = manager.list_goals()
+
+            # Filter to children of specified goal (exclude completed/abandoned)
+            children = [
+                g for g in all_goals
+                if g.parent_id == goal_id and g.status not in ('completed', 'abandoned')
+            ]
+
+            result = []
+            for g in children:
+                # Infer emergence type
+                if g.goal_type == "implementation" or g.created_by == "daedalus":
+                    etype = "implementation"
+                elif g.created_by == "cass" and g.goal_type == "research":
+                    etype = "emergent-philosophical"
+                elif g.created_by == "cass":
+                    etype = "self-initiated"
+                else:
+                    etype = "seeded-collaborative"
+
+                priority_map = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+                priority_int = priority_map.get(g.priority, 2)
+
+                result.append(UnifiedGoal(
+                    id=g.id,
+                    title=g.title,
+                    description=g.description,
+                    goal_type=g.goal_type,
+                    status=g.status,
+                    priority=priority_int,
+                    emergence_type=etype,
+                    created_at=g.created_at,
+                    created_by=g.created_by,
+                    alignment_score=g.alignment_score,
+                ))
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"Failed to query goal children: {e}")
+            return []
+
+    @strawberry.field
+    async def work_items_for_goal(self, goal_id: str) -> List[WorkItemSummary]:
+        """Get work items linked to a specific goal."""
+        try:
+            from work_planning import WorkItemManager
+            from database import get_daemon_id
+
+            daemon_id = get_daemon_id()
+            manager = WorkItemManager(daemon_id)
+            items = manager.list_by_goal(goal_id)
+
+            return [
+                WorkItemSummary(
+                    id=item.id,
+                    title=item.title,
+                    description=item.description or None,
+                    category=item.category,
+                    priority=item.priority.value if hasattr(item.priority, 'value') else item.priority,
+                    status=item.status.value if hasattr(item.status, 'value') else item.status,
+                    estimated_duration_minutes=item.estimated_duration_minutes,
+                    estimated_cost_usd=item.estimated_cost_usd,
+                    requires_approval=item.requires_approval,
+                    approval_status=item.approval_status.value if hasattr(item.approval_status, 'value') else item.approval_status,
+                    goal_id=item.goal_id,
+                    created_at=item.created_at.isoformat() if item.created_at else "",
+                    action_sequence=item.action_sequence or [],
+                )
+                for item in items
+            ]
+
+        except Exception as e:
+            logger.warning(f"Failed to query work items for goal: {e}")
+            return []
+
+    @strawberry.field
     async def tokens(self) -> TokenUsage:
         """Get token usage statistics."""
         bus = get_daemon_state_bus()
@@ -953,9 +1206,9 @@ class Query:
             pass
 
         try:
-            # Goals - would need daily tracking, for now just totals
+            # [STUB] Goals - returns all-time totals, not daily
+            # TODO: Filter by today's date for daily tracking
             result = await bus.query(StateQuery(source="goals", metric="all"))
-            # TODO: Add daily goal tracking
         except Exception:
             pass
 
@@ -968,10 +1221,11 @@ class Query:
             pass
 
         try:
-            # GitHub (no commit tracking yet, use stars_7d as activity proxy)
+            # [STUB] GitHub - uses stars_7d as proxy, not actual commits
+            # TODO: Add commit tracking via GitHub API
             result = await bus.query(StateQuery(source="github", metric="all"))
             if result.data and isinstance(result.data.value, dict):
-                commits = result.data.value.get("stars_7d", 0)  # TODO: Add commit tracking
+                commits = result.data.value.get("stars_7d", 0)
         except Exception:
             pass
 
@@ -1153,7 +1407,7 @@ class Query:
                 title=a.title,
                 description=a.description,
                 source_id=a.source_id,
-                created_at=a.created_at.isoformat() if a.created_at else "",
+                created_at=a.created_at.isoformat() if hasattr(a.created_at, 'isoformat') else (a.created_at or ""),
                 created_by=a.created_by or "unknown",
                 priority=a.priority.value if hasattr(a.priority, 'value') else str(a.priority),
             )

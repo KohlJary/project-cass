@@ -87,7 +87,7 @@ def json_deserialize(s: Optional[str]) -> Any:
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 23  # Added is_continuous flag for continuous chat
+SCHEMA_VERSION = 25  # Added outreach_drafts table for external communication
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -767,6 +767,7 @@ CREATE TABLE IF NOT EXISTS roadmap_items (
     source_conversation_id TEXT REFERENCES conversations(id),
     tags_json TEXT,
     created_by TEXT,
+    emergence_type TEXT,  -- 'seeded-collaborative', 'emergent-philosophical', 'self-initiated', 'implementation'
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -836,6 +837,9 @@ CREATE TABLE IF NOT EXISTS unified_goals (
     source_conversation_id TEXT REFERENCES conversations(id),
     source_reflection_id TEXT,
     source_intention_id TEXT,
+
+    -- Emergence tracking (how goal formed)
+    emergence_type TEXT,  -- 'seeded-collaborative', 'emergent-philosophical', 'self-initiated', 'implementation'
 
     -- Timestamps
     created_at TEXT NOT NULL,
@@ -1351,6 +1355,54 @@ CREATE TABLE IF NOT EXISTS peopledex_relationships (
 CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_from ON peopledex_relationships(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_to ON peopledex_relationships(to_entity_id);
 CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_type ON peopledex_relationships(relationship_type);
+
+-- =============================================================================
+-- OUTREACH - External Communication with Graduated Autonomy
+-- =============================================================================
+
+-- Outreach drafts - emails, documents, posts, etc.
+-- "Review queues designed for learning, not gatekeeping" - Cass
+CREATE TABLE IF NOT EXISTS outreach_drafts (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Content type
+    draft_type TEXT NOT NULL,           -- email, document, blog_post, social_post, research_note, response
+    status TEXT DEFAULT 'drafting',     -- drafting, pending_review, approved, rejected, revision_requested, sent, published, archived
+
+    -- Content
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,              -- Main body (markdown)
+
+    -- Email-specific
+    recipient TEXT,                     -- Email address or handle
+    recipient_name TEXT,
+    subject TEXT,
+
+    -- Context
+    emergence_type TEXT,                -- seeded-collaborative, emergent-philosophical, self-initiated, implementation
+    source_conversation_id TEXT REFERENCES conversations(id),
+    source_goal_id TEXT,                -- Linked goal if any
+
+    -- Review tracking
+    review_history_json TEXT,           -- List of ReviewFeedback dicts
+    autonomy_level TEXT DEFAULT 'learning',  -- always_review, learning, graduated, autonomous
+
+    -- Outcome tracking
+    sent_at TEXT,
+    published_at TEXT,
+    response_received INTEGER DEFAULT 0,
+    outcome_notes TEXT,
+
+    -- Metadata
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT DEFAULT 'cass'
+);
+
+CREATE INDEX IF NOT EXISTS idx_outreach_drafts_daemon ON outreach_drafts(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_drafts_status ON outreach_drafts(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_outreach_drafts_type ON outreach_drafts(daemon_id, draft_type);
 """
 
 
@@ -1613,6 +1665,27 @@ def _apply_schema_updates(conn, from_version: int):
         if 'is_continuous' not in columns:
             conn.execute("ALTER TABLE conversations ADD COLUMN is_continuous INTEGER DEFAULT 0")
             print("Added is_continuous column to conversations (v23)")
+
+    # v23 -> v24: Add emergence_type for goal formation tracking
+    if from_version < 24:
+        # Add to roadmap_items
+        cursor = conn.execute("PRAGMA table_info(roadmap_items)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'emergence_type' not in columns:
+            conn.execute("ALTER TABLE roadmap_items ADD COLUMN emergence_type TEXT")
+            print("Added emergence_type column to roadmap_items (v24)")
+
+        # Add to unified_goals
+        cursor = conn.execute("PRAGMA table_info(unified_goals)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'emergence_type' not in columns:
+            conn.execute("ALTER TABLE unified_goals ADD COLUMN emergence_type TEXT")
+            print("Added emergence_type column to unified_goals (v24)")
+
+    # v24 -> v25: Add outreach_drafts table for external communication
+    # Table is created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 25:
+        print("Adding outreach_drafts table for external communication with graduated autonomy (v25)")
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data

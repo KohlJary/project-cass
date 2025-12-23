@@ -16,6 +16,7 @@ from .handlers import (
     daily_journal_handler,
     rhythm_phase_handler,
     autonomous_research_handler,
+    goal_refinement_handler,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,20 @@ def register_system_tasks(
             ))
             logger.info(f"Registered: autonomous_research (every 5 min, mode: {mode_value})")
 
+    # Goal refinement - daily at 09:00
+    scheduler.register_system_task(create_task(
+        name="goal_refinement",
+        category=TaskCategory.SYSTEM,
+        priority=TaskPriority.LOW,
+        handler=partial(
+            goal_refinement_handler,
+            daemon_id=managers.get("daemon_id"),
+        ),
+        cron="0 9 * * *",  # 09:00 daily
+        estimated_cost_usd=0.0,  # Just scans, doesn't generate
+    ))
+    logger.info("Registered: goal_refinement (09:00 daily)")
+
 
 def get_system_task_config() -> Dict[str, Dict[str, Any]]:
     """
@@ -182,5 +197,11 @@ def get_system_task_config() -> Dict[str, Dict[str, Any]]:
             "interval": "every 5 minutes",
             "estimated_cost": "$0.10-0.50",
             "category": "research",
+        },
+        "goal_refinement": {
+            "description": "Check for goals needing detailed descriptions/criteria",
+            "interval": "09:00 daily",
+            "estimated_cost": "$0.00 (scan only)",
+            "category": "system",
         },
     }

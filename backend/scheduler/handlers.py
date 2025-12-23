@@ -443,6 +443,90 @@ async def autonomous_research_handler(
         )
 
 
+async def goal_refinement_handler(
+    daemon_id: str = None,
+    agent_client=None,
+) -> HandlerResult:
+    """
+    Review and refine goals that need more detail.
+
+    Finds goals missing proper descriptions or completion criteria
+    and asks Cass to flesh them out.
+
+    Atomic: Yes - processes one batch of goals needing refinement
+    Cost: ~$0.10-0.30 depending on number of goals
+    """
+    from unified_goals import UnifiedGoalManager, GoalStatus
+
+    if not daemon_id:
+        from database import get_daemon_id
+        daemon_id = get_daemon_id()
+
+    manager = UnifiedGoalManager(daemon_id)
+
+    try:
+        # Find goals needing refinement (active/approved but lacking detail)
+        all_goals = manager.list_goals()
+        needs_refinement = []
+
+        for goal in all_goals:
+            if goal.status not in [GoalStatus.ACTIVE.value, GoalStatus.APPROVED.value]:
+                continue
+            if goal.parent_id:  # Skip sub-goals - focus on top-level
+                continue
+
+            needs_work = False
+            reasons = []
+
+            # Check description quality
+            if not goal.description or len(goal.description.strip()) < 50:
+                needs_work = True
+                reasons.append("missing or brief description")
+
+            # Check completion criteria
+            if not goal.completion_criteria or len(goal.completion_criteria) < 2:
+                needs_work = True
+                reasons.append("missing or insufficient completion criteria")
+
+            if needs_work:
+                needs_refinement.append({
+                    "goal": goal,
+                    "reasons": reasons,
+                })
+
+        if not needs_refinement:
+            return HandlerResult(
+                success=True,
+                message="All active goals are well-defined",
+                data={"goals_checked": len(all_goals), "needs_refinement": 0}
+            )
+
+        # Log goals needing refinement (actual refinement requires conversation with Cass)
+        goal_titles = [g["goal"].title for g in needs_refinement[:5]]
+        logger.info(f"Found {len(needs_refinement)} goals needing refinement: {goal_titles}")
+
+        # For now, just report - actual refinement happens via conversation
+        # Future: Could integrate with agent to auto-refine
+        return HandlerResult(
+            success=True,
+            message=f"Found {len(needs_refinement)} goals needing refinement",
+            cost_usd=0.0,
+            data={
+                "goals_checked": len(all_goals),
+                "needs_refinement": len(needs_refinement),
+                "goal_ids": [g["goal"].id for g in needs_refinement[:10]],
+                "goal_titles": goal_titles,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Goal refinement check failed: {e}")
+        return HandlerResult(
+            success=False,
+            message=f"Goal refinement check failed: {e}"
+        )
+
+
 def _calculate_duration(window: str, activity_type: str, max_duration: int = None) -> int:
     """Calculate session duration based on phase window and activity type."""
     if max_duration is None:

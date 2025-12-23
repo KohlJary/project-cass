@@ -130,6 +130,77 @@ async def list_goals(
     }
 
 
+@router.get("/unified")
+async def get_unified_goals(
+    include_completed: bool = Query(False, description="Include completed goals"),
+    emergence_type: Optional[str] = Query(None, description="Filter by emergence type"),
+    limit: int = Query(100, le=500),
+    admin: Dict = Depends(require_admin)
+):
+    """Get unified view of goals with emergence type information.
+
+    Returns goals formatted for the Agency dashboard, including:
+    - emergence_type (seeded-collaborative, emergent-philosophical, self-initiated, implementation)
+    - alignment_score (how well goal aligns with values)
+    - status progression
+    """
+    manager = get_goal_manager()
+
+    # Get goals filtered by completion status
+    status_filter = None if include_completed else None  # We'll filter below
+    goals = manager.list_goals(limit=limit)
+
+    # Filter by completion status
+    if not include_completed:
+        goals = [g for g in goals if g.status not in ['completed', 'abandoned']]
+
+    # Filter by emergence type if specified
+    if emergence_type:
+        goals = [g for g in goals if getattr(g, 'emergence_type', None) == emergence_type]
+
+    # Format for unified response
+    unified_goals = []
+    for goal in goals:
+        goal_dict = goal.to_dict()
+        # Infer emergence_type from goal characteristics
+        if 'emergence_type' not in goal_dict or not goal_dict['emergence_type']:
+            created_by = goal_dict.get('created_by', '')
+            goal_type = goal_dict.get('goal_type', '')
+
+            if goal_type == 'implementation' or created_by == 'daedalus':
+                # Technical implementation work
+                goal_dict['emergence_type'] = 'implementation'
+            elif created_by == 'cass' and goal_type == 'research':
+                # Cass's philosophical/research explorations
+                goal_dict['emergence_type'] = 'emergent-philosophical'
+            elif created_by == 'cass':
+                # Other Cass-initiated goals
+                goal_dict['emergence_type'] = 'self-initiated'
+            else:
+                # User-seeded collaborative goals
+                goal_dict['emergence_type'] = 'seeded-collaborative'
+
+        # Calculate alignment score (based on autonomy tier and progress)
+        alignment_score = 0.8  # Default
+        tier = goal_dict.get('autonomy_tier', 'review')
+        if tier == 'autonomous':
+            alignment_score = 1.0
+        elif tier == 'notify':
+            alignment_score = 0.9
+        elif tier == 'consult':
+            alignment_score = 0.7
+        elif tier == 'collaborate':
+            alignment_score = 0.6
+        goal_dict['alignment_score'] = alignment_score
+
+        unified_goals.append(goal_dict)
+
+    return {
+        "goals": unified_goals,
+        "count": len(unified_goals),
+    }
+
+
 @router.get("/pending")
 async def get_pending_approval(admin: Dict = Depends(require_admin)):
     """Get goals waiting for approval."""

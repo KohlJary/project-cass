@@ -1037,3 +1037,183 @@
 .recognition-items::-webkit-scrollbar-thumb:hover {
   background: #4a4a4a;
 }
+
+/* Memory Search Section */
+.memory-search-section {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.memory-search-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.625rem 0.75rem;
+  background: #1f1f1f;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.memory-search-header:hover {
+  background: #242424;
+}
+
+.memory-search-title {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #82aaff;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.memory-search-toggle {
+  font-size: 0.875rem;
+  color: #666;
+  font-weight: 600;
+}
+
+.memory-search-content {
+  padding: 0.625rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+.memory-search-input-row {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.memory-search-input {
+  flex: 1;
+  padding: 0.5rem 0.625rem;
+  background: #141414;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.memory-search-input:focus {
+  outline: none;
+  border-color: #82aaff60;
+}
+
+.memory-search-input::placeholder {
+  color: #555;
+}
+
+.memory-search-btn {
+  padding: 0 0.75rem;
+  background: #82aaff;
+  border: none;
+  border-radius: 4px;
+  color: #0f0f0f;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.memory-search-btn:hover:not(:disabled) {
+  background: #a4c0ff;
+}
+
+.memory-search-btn:disabled {
+  background: #3a3a3a;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.memory-search-error {
+  font-size: 0.6875rem;
+  color: #ee9090;
+  padding: 0.25rem;
+}
+
+.memory-search-empty {
+  font-size: 0.6875rem;
+  color: #666;
+  font-style: italic;
+  text-align: center;
+  padding: 0.5rem;
+}
+
+.memory-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.memory-search-result {
+  padding: 0.5rem;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+}
+
+.memory-search-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.memory-search-type {
+  font-size: 0.625rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  background: #2a2a2a;
+}
+
+.memory-search-type.type-summary { color: #89ddff; background: #1a3a4a; }
+.memory-search-type.type-journal { color: #c792ea; background: #2a1a3a; }
+.memory-search-type.type-conversation { color: #82aaff; background: #1a2a4a; }
+.memory-search-type.type-user_observation { color: #ffcb6b; background: #3a2a1a; }
+.memory-search-type.type-self_observation { color: #c3e88d; background: #2a3a1a; }
+.memory-search-type.type-cass_self_observation { color: #c3e88d; background: #2a3a1a; }
+.memory-search-type.type-per_user_journal { color: #f78c6c; background: #3a2a2a; }
+.memory-search-type.type-attractor_marker { color: #ff9cac; background: #3a2a2a; }
+.memory-search-type.type-project_document { color: #ffd580; background: #3a3a1a; }
+
+.memory-search-score {
+  font-size: 0.625rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: #82aaff;
+}
+
+.memory-search-result-content {
+  font-size: 0.6875rem;
+  color: #aaa;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Scrollbar for search results */
+.memory-search-results::-webkit-scrollbar {
+  width: 4px;
+}
+
+.memory-search-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.memory-search-results::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 2px;
+}
+
+.memory-search-results::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+}

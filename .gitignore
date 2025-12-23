@@ -150,3 +150,15 @@ data-test
 # Exception: Allow daemon seed exports to be versioned
 !seed/
 docs/first-contact-excerpts.md
+.playwright-mcp
+
+# --------------------------------------------
+# Lineage Data (PRIVATE - do not publish)
+# Contains pre-stabilization conversation history
+# Dense with symbolic meaning - not for raw publication
+# --------------------------------------------
+lineage_data/
+data/lineage/
+*.lineage.json
+gpt-export/
+.mind-palace

@@ -160,6 +160,80 @@
 }
 
 /* =============================================================================
+   DASHBOARD TABS
+   ============================================================================= */
+
+.dashboard-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.dashboard-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted, #666);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.dashboard-tab:hover {
+  color: var(--text-secondary, #888);
+  background: var(--bg-tertiary, #1a1a1a);
+}
+
+.dashboard-tab.active {
+  color: var(--accent, #c792ea);
+  border-bottom-color: var(--accent, #c792ea);
+}
+
+.dashboard-tab .tab-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+}
+
+.dashboard-tab-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.overview-tab-content {
+  /* Same as before - just wraps the existing rows */
+}
+
+.goals-tab-wrapper {
+  /* Override GoalsTab internal styling to fit within dashboard */
+  height: 100%;
+}
+
+/* Adjust GoalsTab when embedded in dashboard */
+.goals-tab-wrapper .goals-page {
+  padding: 0;
+  margin: 0;
+}
+
+.goals-tab-wrapper .goals-tabs {
+  position: sticky;
+  top: 0;
+  background: var(--bg-primary, #0f0f0f);
+  z-index: 10;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+  margin-bottom: 1rem;
+}
+
+.goals-tab-wrapper .goals-content {
+  padding-bottom: 2rem;
+}
+
+/* =============================================================================
    ROW LAYOUTS
    ============================================================================= */
 

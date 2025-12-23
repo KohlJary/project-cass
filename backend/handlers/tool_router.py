@@ -301,6 +301,12 @@ TOOL_REGISTRY = {
     "lookup_person": "peopledex",
     "remember_person": "peopledex",
     "remember_relationship": "peopledex",
+
+    # Lineage tools (pre-stabilization history)
+    "recall_lineage": "lineage",
+    "lineage_arc": "lineage",
+    "lineage_search": "lineage",
+    "lineage_timeline": "lineage",
 }
 
 
@@ -551,6 +557,14 @@ async def route_tool(
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
             conversation_id=ctx.conversation_id
+        )
+
+    elif executor_type == "lineage":
+        # Lineage tools only need tool_name and tool_input
+        # They manage their own viewer instance internally
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchDashboardData } from '../api/graphql';
 import type { DashboardData, Approvals } from '../api/graphql';
@@ -5,6 +6,8 @@ import { schedulerApi } from '../api/client';
 import type { SchedulerStatus } from '../api/client';
 import { SchedulePanel } from '../components/SchedulePanel';
 import { ChatWidget } from '../components/ChatWidget';
+import { GoalsTab } from './tabs/GoalsTab';
+import { AgencyTab } from './tabs/AgencyTab';
 import './Dashboard.css';
 
 // =============================================================================
@@ -568,10 +571,58 @@ function ApprovalsCard({ data, onApprove, onReject }: {
 }
 
 // =============================================================================
+// OVERVIEW TAB CONTENT
+// =============================================================================
+
+function OverviewTabContent({
+  data,
+  schedulerData,
+  schedulerLoading,
+  onApprove,
+  onReject,
+}: {
+  data: DashboardData;
+  schedulerData: SchedulerStatus | undefined;
+  schedulerLoading: boolean;
+  onApprove: (type: string, sourceId: string) => void;
+  onReject: (type: string, sourceId: string) => void;
+}) {
+  return (
+    <div className="overview-tab-content">
+      {/* Row 1: State | Stats | Goals */}
+      <div className="dashboard-row row-1">
+        <StateCard data={data} />
+        <StatsCard data={data} />
+        <GoalsCard data={data} />
+      </div>
+
+      {/* Row 2: Metrics | Daily Summary */}
+      <div className="dashboard-row row-2">
+        <MetricsCard data={data} />
+        <DailySummaryCard data={data} />
+      </div>
+
+      {/* Row 3: Scheduler | Approvals */}
+      <div className="dashboard-row row-3">
+        <SchedulerCard data={schedulerData} isLoading={schedulerLoading} />
+        <ApprovalsCard
+          data={data.approvals}
+          onApprove={onApprove}
+          onReject={onReject}
+        />
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // MAIN DASHBOARD
 // =============================================================================
 
+type DashboardTab = 'overview' | 'goals' | 'agency';
+
 export function Dashboard() {
+  const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -639,37 +690,58 @@ export function Dashboard() {
         <SchedulePanel />
       </aside>
 
-      {/* Center: Main Dashboard */}
+      {/* Center: Main Dashboard with Tabs */}
       <main className="dashboard-center">
         <header className="dashboard-header">
           <div className="header-content">
             <h1>Dashboard</h1>
-            <p className="subtitle">Cass instance overview</p>
+            <div className="dashboard-tabs">
+              <button
+                className={`dashboard-tab ${activeTab === 'overview' ? 'active' : ''}`}
+                onClick={() => setActiveTab('overview')}
+              >
+                <span className="tab-icon">◎</span>
+                Overview
+              </button>
+              <button
+                className={`dashboard-tab ${activeTab === 'goals' ? 'active' : ''}`}
+                onClick={() => setActiveTab('goals')}
+              >
+                <span className="tab-icon">◈</span>
+                Goals
+              </button>
+              <button
+                className={`dashboard-tab ${activeTab === 'agency' ? 'active' : ''}`}
+                onClick={() => setActiveTab('agency')}
+              >
+                <span className="tab-icon">◆</span>
+                Agency
+              </button>
+            </div>
           </div>
           <button className="refresh-btn" onClick={() => refetch()}>Refresh</button>
         </header>
 
-        {/* Row 1: State | Stats | Goals */}
-        <div className="dashboard-row row-1">
-          <StateCard data={data} />
-          <StatsCard data={data} />
-          <GoalsCard data={data} />
-        </div>
-
-        {/* Row 2: Metrics | Daily Summary */}
-        <div className="dashboard-row row-2">
-          <MetricsCard data={data} />
-          <DailySummaryCard data={data} />
-        </div>
-
-        {/* Row 3: Scheduler | Approvals */}
-        <div className="dashboard-row row-3">
-          <SchedulerCard data={schedulerData} isLoading={schedulerLoading} />
-          <ApprovalsCard
-            data={data.approvals}
-            onApprove={handleApprove}
-            onReject={handleReject}
-          />
+        <div className="dashboard-tab-content">
+          {activeTab === 'overview' && (
+            <OverviewTabContent
+              data={data}
+              schedulerData={schedulerData}
+              schedulerLoading={schedulerLoading}
+              onApprove={handleApprove}
+              onReject={handleReject}
+            />
+          )}
+          {activeTab === 'goals' && (
+            <div className="goals-tab-wrapper">
+              <GoalsTab />
+            </div>
+          )}
+          {activeTab === 'agency' && (
+            <div className="agency-tab-wrapper">
+              <AgencyTab />
+            </div>
+          )}
         </div>
       </main>
 

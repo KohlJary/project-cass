@@ -45,6 +45,14 @@ class ItemType(str, Enum):
     DOCUMENTATION = "documentation"
 
 
+class EmergenceType(str, Enum):
+    """How a goal/work item emerged - tracks agency development over time"""
+    SEEDED_COLLABORATIVE = "seeded-collaborative"  # Suggested by human, developed by Cass
+    EMERGENT_PHILOSOPHICAL = "emergent-philosophical"  # Surfaced in conversation
+    SELF_INITIATED = "self-initiated"  # Cass identified and proposed
+    IMPLEMENTATION = "implementation"  # Breaking down approved strategic goals
+
+
 class LinkType(str, Enum):
     """Types of links between work items"""
     RELATED = "related"        # Conceptually related items
@@ -96,6 +104,7 @@ class WorkItem:
     milestone_id: Optional[str] = None  # Optional milestone grouping
     source_conversation_id: Optional[str] = None  # Conversation that created it
     created_by: str = "user"  # "cass", "daedalus", or "user"
+    emergence_type: Optional[str] = None  # EmergenceType value - how goal formed
     links: List[Dict] = field(default_factory=list)  # List of ItemLink dicts
 
     def to_dict(self) -> Dict:
@@ -115,6 +124,7 @@ class WorkItem:
             "milestone_id": self.milestone_id,
             "source_conversation_id": self.source_conversation_id,
             "created_by": self.created_by,
+            "emergence_type": self.emergence_type,
             "links": self.links,
         }
 
@@ -136,6 +146,7 @@ class WorkItem:
             milestone_id=data.get("milestone_id"),
             source_conversation_id=data.get("source_conversation_id"),
             created_by=data.get("created_by", "user"),
+            emergence_type=data.get("emergence_type"),
             links=data.get("links", []),
         )
 
@@ -306,6 +317,7 @@ class RoadmapManager:
         milestone_id: Optional[str] = None,
         source_conversation_id: Optional[str] = None,
         created_by: str = "user",
+        emergence_type: Optional[str] = None,
     ) -> WorkItem:
         """Create a new work item"""
         item_id = str(uuid.uuid4())[:8]  # Short ID for readability
@@ -326,6 +338,7 @@ class RoadmapManager:
             milestone_id=milestone_id,
             source_conversation_id=source_conversation_id,
             created_by=created_by,
+            emergence_type=emergence_type,
         )
 
         # Save to database
@@ -334,8 +347,8 @@ class RoadmapManager:
                 INSERT INTO roadmap_items (
                     id, daemon_id, project_id, title, description, status, priority,
                     item_type, assigned_to, source_conversation_id, tags_json,
-                    created_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_by, emergence_type, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item_id,
                 self._daemon_id,
@@ -349,6 +362,7 @@ class RoadmapManager:
                 source_conversation_id,
                 json_serialize(tags or []),
                 created_by,
+                emergence_type,
                 now,
                 now
             ))
@@ -361,7 +375,7 @@ class RoadmapManager:
             cursor = conn.execute("""
                 SELECT id, title, description, status, priority, item_type,
                        created_at, updated_at, tags_json, assigned_to, project_id,
-                       source_conversation_id, created_by
+                       source_conversation_id, created_by, emergence_type
                 FROM roadmap_items WHERE id = ?
             """, (item_id,))
             row = cursor.fetchone()
@@ -387,6 +401,7 @@ class RoadmapManager:
                 milestone_id=None,  # TODO: Add milestone support
                 source_conversation_id=row['source_conversation_id'],
                 created_by=row['created_by'] or 'user',
+                emergence_type=row['emergence_type'],
                 links=links
             )
 
@@ -402,6 +417,7 @@ class RoadmapManager:
         assigned_to: Optional[str] = None,
         project_id: Optional[str] = None,
         milestone_id: Optional[str] = None,
+        emergence_type: Optional[str] = None,
     ) -> Optional[WorkItem]:
         """Update an existing item"""
         now = datetime.now().isoformat()
@@ -434,6 +450,9 @@ class RoadmapManager:
             if project_id is not None:
                 updates.append("project_id = ?")
                 params.append(project_id)
+            if emergence_type is not None:
+                updates.append("emergence_type = ?")
+                params.append(emergence_type)
 
             updates.append("updated_at = ?")
             params.append(now)
@@ -473,7 +492,7 @@ class RoadmapManager:
             query = """
                 SELECT id, title, description, status, priority, item_type,
                        created_at, updated_at, tags_json, assigned_to, project_id,
-                       source_conversation_id, created_by
+                       source_conversation_id, created_by, emergence_type
                 FROM roadmap_items WHERE daemon_id = ?
             """
             params = [self._daemon_id]
@@ -516,6 +535,7 @@ class RoadmapManager:
                     milestone_id=None,
                     source_conversation_id=row['source_conversation_id'],
                     created_by=row['created_by'] or 'user',
+                    emergence_type=row['emergence_type'],
                     links=links
                 )
                 items.append({
@@ -528,6 +548,7 @@ class RoadmapManager:
                     "assigned_to": item.assigned_to,
                     "project_id": item.project_id,
                     "milestone_id": item.milestone_id,
+                    "emergence_type": item.emergence_type,
                     "links": item.links,
                     "created_at": item.created_at,
                     "updated_at": item.updated_at,

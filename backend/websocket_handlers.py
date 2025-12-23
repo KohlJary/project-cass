@@ -382,11 +382,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     print(f"[StateBus] Context: {global_state_context}")
 
                 # === Continuous Chat Mode ===
-                # If this is a continuous conversation, use simplified context
+                # If this is a continuous conversation, use simplified context with semantic retrieval
                 continuous_system_prompt = None
+                continuous_messages = None
                 if is_continuous_chat:
                     from continuous_context import build_continuous_context, get_recent_messages_for_continuous
-                    print(f"[Continuous] Building simplified context for continuous chat")
+                    print(f"[Continuous] Building context with semantic memory retrieval")
 
                     continuous_ctx = build_continuous_context(
                         user_id=ws_user_id,
@@ -397,9 +398,19 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         conversation_manager=conversation_manager,
                         daemon_name="Cass",
                         daemon_id=daemon_id,
+                        memory=memory,
+                        query=user_message,
                     )
                     continuous_system_prompt = continuous_ctx.system_prompt
-                    print(f"[Continuous] Built system prompt: {continuous_ctx.token_estimate} tokens (estimated)")
+                    has_semantic = "semantic_memories" in continuous_ctx.context_sections
+
+                    # Get recent message history for conversation continuity
+                    continuous_messages = get_recent_messages_for_continuous(
+                        conversation_manager=conversation_manager,
+                        conversation_id=conversation_id,
+                        limit=12  # Last 12 messages (6 exchanges)
+                    )
+                    print(f"[Continuous] Built system prompt: {continuous_ctx.token_estimate} tokens (estimated), semantic={has_semantic}, messages={len(continuous_messages)}")
 
                 # Get memories (hierarchical: summaries first, then details)
                 hierarchical = memory.retrieve_hierarchical(
@@ -806,6 +817,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         global_state_context=global_state_context,
                         current_activity=current_activity,
                         continuous_system_prompt=continuous_system_prompt,
+                        continuous_messages=continuous_messages,
                     )
                     raw_response = response.raw
                     clean_text = response.text

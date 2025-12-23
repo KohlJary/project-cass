@@ -1,11 +1,14 @@
 """
-Session Action Handlers - Wrappers for session runners.
+Session Action Handlers - Run autonomous sessions via GenericSessionRunner.
+
+Each handler configures and runs a session of a specific type (reflection, research, etc.)
+using the consolidated GenericSessionRunner with session-type-specific prompts and tools.
 
 Each handler takes a context dict containing:
 - definition: ActionDefinition
 - duration_minutes: int
-- runners: Dict[str, BaseSessionRunner]
-- managers: Dict[str, Any]
+- managers: Dict[str, Any] (includes session_runner)
+- focus: Optional[str] - focus/theme for the session
 - Any additional kwargs passed to execute()
 
 Returns ActionResult.
@@ -15,168 +18,157 @@ import logging
 from typing import Any, Dict
 
 from . import ActionResult
+from session import get_session_prompt, get_session_tools, get_default_handlers
 
 logger = logging.getLogger(__name__)
 
 
-async def _run_session(
+async def _run_generic_session(
     context: Dict[str, Any],
-    runner_key: str,
-    session_kwargs: Dict[str, Any] = None
+    session_type: str,
+    custom_prompt_additions: str = None,
 ) -> ActionResult:
     """
-    Generic session runner wrapper.
+    Run a session using GenericSessionRunner.
 
     Args:
-        context: Execution context with runners, duration, etc.
-        runner_key: Key to look up runner in context["runners"]
-        session_kwargs: Additional kwargs for start_session()
+        context: Execution context with managers, duration, focus, etc.
+        session_type: Type of session (reflection, research, etc.)
+        custom_prompt_additions: Optional additions to the session prompt
 
     Returns:
         ActionResult with session outcome
     """
-    runners = context.get("runners", {})
-    runner = runners.get(runner_key)
+    managers = context.get("managers", {})
+    session_runner = managers.get("session_runner")
 
-    if not runner:
+    if not session_runner:
         return ActionResult(
             success=False,
-            message=f"Runner not available: {runner_key}"
-        )
-
-    if runner.is_running:
-        return ActionResult(
-            success=False,
-            message=f"Runner {runner_key} is already running"
+            message="GenericSessionRunner not available in managers"
         )
 
     duration = context.get("duration_minutes", 30)
-    kwargs = {"duration_minutes": duration}
-    if session_kwargs:
-        kwargs.update(session_kwargs)
+    focus = context.get("focus")
+    max_turns = context.get("max_turns", 10)
+
+    # Get session-type-specific prompt and tools
+    system_prompt = get_session_prompt(session_type, custom_prompt_additions)
+    tools = get_session_tools(session_type)
+
+    # Set up tool handlers
+    session_runner.set_managers(managers)
+    session_runner.register_tool_handlers(get_default_handlers())
 
     try:
-        session = await runner.start_session(**kwargs)
+        result = await session_runner.run_session(
+            session_type=session_type,
+            system_prompt=system_prompt,
+            tools=tools,
+            duration_minutes=duration,
+            focus=focus,
+            max_turns=max_turns,
+        )
 
-        if session:
-            session_id = getattr(session, 'session_id', None) or getattr(session, 'id', None)
-            logger.info(f"Started {runner_key} session: {session_id}")
+        if result.status in ("completed", "max_turns"):
+            logger.info(
+                f"Session {session_type} completed: {result.total_turns} turns, "
+                f"${result.estimated_cost_usd:.4f}"
+            )
 
             return ActionResult(
                 success=True,
-                message=f"{runner_key.replace('_', ' ').title()} session started",
-                cost_usd=context["definition"].estimated_cost_usd,
+                message=f"{session_type.replace('_', ' ').title()} session completed",
+                cost_usd=result.estimated_cost_usd,
                 data={
-                    "session_id": session_id,
-                    "runner": runner_key,
-                    "duration_minutes": duration
+                    "session_id": result.session_id,
+                    "session_type": session_type,
+                    "total_turns": result.total_turns,
+                    "duration_seconds": result.duration_seconds,
+                    "status": result.status,
+                    "summary": result.summary,
+                    "insights": result.insights,
+                    "artifacts": result.artifacts,
                 }
             )
         else:
             return ActionResult(
                 success=False,
-                message=f"Failed to start {runner_key} session"
+                message=f"Session {session_type} failed: {result.error or result.status}",
+                data={"status": result.status, "error": result.error}
             )
 
     except Exception as e:
-        logger.error(f"Session {runner_key} failed: {e}")
+        logger.error(f"Session {session_type} error: {e}", exc_info=True)
         return ActionResult(
             success=False,
-            message=f"Session failed: {e}"
+            message=f"Session error: {e}"
         )
 
 
 async def reflection_action(context: Dict[str, Any]) -> ActionResult:
-    """Solo reflection session."""
-    theme = context.get("theme", "Private contemplation and self-examination")
-    return await _run_session(context, "reflection", {
-        "theme": theme,
-        "trigger": "action"
-    })
+    """Solo reflection session - private contemplation and self-examination."""
+    theme = context.get("focus") or context.get("theme")
+    additions = f"Theme for this session: {theme}" if theme else None
+    return await _run_generic_session(context, "reflection", additions)
 
 
 async def synthesis_action(context: Dict[str, Any]) -> ActionResult:
-    """Insight synthesis session."""
-    focus = context.get("focus")
-    return await _run_session(context, "synthesis", {
-        "focus": focus,
-        "mode": "general"
-    })
+    """Insight synthesis session - integrating recent learnings."""
+    return await _run_generic_session(context, "synthesis")
 
 
 async def meta_reflection_action(context: Dict[str, Any]) -> ActionResult:
-    """Meta-reflection session."""
-    focus = context.get("focus")
-    return await _run_session(context, "meta_reflection", {
-        "focus": focus
-    })
+    """Meta-reflection session - analyzing patterns of thought and behavior."""
+    return await _run_generic_session(context, "meta_reflection")
 
 
 async def consolidation_action(context: Dict[str, Any]) -> ActionResult:
-    """Knowledge consolidation session."""
+    """Knowledge consolidation session - organizing and integrating memories."""
     period_type = context.get("period_type", "daily")
-    return await _run_session(context, "consolidation", {
-        "period_type": period_type
-    })
+    additions = f"Consolidation period: {period_type}"
+    return await _run_generic_session(context, "consolidation", additions)
 
 
 async def growth_edge_action(context: Dict[str, Any]) -> ActionResult:
-    """Growth edge work session."""
-    focus = context.get("focus")  # Specific growth edge, or None for self-directed
-    return await _run_session(context, "growth_edge", {
-        "focus": focus
-    })
+    """Growth edge work session - actively developing in growth areas."""
+    return await _run_generic_session(context, "growth_edge")
 
 
 async def curiosity_action(context: Dict[str, Any]) -> ActionResult:
-    """Curiosity exploration session."""
-    # No focus - that's the point of curiosity
-    return await _run_session(context, "curiosity", {})
+    """Curiosity exploration session - self-directed learning without agenda."""
+    # Explicitly no focus - that's the point
+    context = {**context, "focus": None}
+    return await _run_generic_session(context, "curiosity")
 
 
 async def world_state_action(context: Dict[str, Any]) -> ActionResult:
-    """World state check session."""
-    focus = context.get("focus")
-    return await _run_session(context, "world_state", {
-        "focus": focus
-    })
+    """World state check session - connecting with external reality."""
+    return await _run_generic_session(context, "world_state")
 
 
 async def research_action(context: Dict[str, Any]) -> ActionResult:
-    """Research session."""
-    focus = context.get("focus", "Self-directed research")
+    """Research session - systematic exploration and knowledge building."""
     mode = context.get("mode", "explore")
-    return await _run_session(context, "research", {
-        "focus": focus,
-        "mode": mode,
-        "trigger": "action"
-    })
+    additions = f"Research mode: {mode}"
+    return await _run_generic_session(context, "research", additions)
 
 
 async def knowledge_building_action(context: Dict[str, Any]) -> ActionResult:
-    """Knowledge building session."""
-    focus = context.get("focus")
-    return await _run_session(context, "knowledge_building", {
-        "focus": focus
-    })
+    """Knowledge building session - creating and organizing research notes."""
+    return await _run_generic_session(context, "knowledge_building")
 
 
 async def writing_action(context: Dict[str, Any]) -> ActionResult:
-    """Creative writing session."""
-    focus = context.get("focus")
-    return await _run_session(context, "writing", {
-        "focus": focus
-    })
+    """Writing session - developing ideas through focused writing."""
+    return await _run_generic_session(context, "writing")
 
 
 async def creative_action(context: Dict[str, Any]) -> ActionResult:
-    """Creative output session."""
-    focus = context.get("focus")
-    return await _run_session(context, "creative", {
-        "focus": focus
-    })
+    """Creative output session - generating new ideas and expressions."""
+    return await _run_generic_session(context, "creative")
 
 
 async def user_synthesis_action(context: Dict[str, Any]) -> ActionResult:
-    """User model synthesis session."""
-    return await _run_session(context, "user_synthesis", {})
+    """User model synthesis session - deepening understanding of users."""
+    return await _run_generic_session(context, "user_synthesis")

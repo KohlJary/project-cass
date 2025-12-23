@@ -10,7 +10,7 @@ This replaces the raw API client with the official SDK, giving us:
 - Their "initializer agent" pattern with OUR cognitive architecture
 """
 import anyio
-from typing import AsyncIterator, List, Dict, Optional, Callable
+from typing import Any, AsyncIterator, List, Dict, Optional, Callable
 from dataclasses import dataclass
 import json
 
@@ -1203,6 +1203,7 @@ from handlers.research import RESEARCH_PROPOSAL_TOOLS
 from handlers.solo_reflection import SOLO_REFLECTION_TOOLS
 from handlers.insights import CROSS_SESSION_INSIGHT_TOOLS
 from handlers.goals import GOAL_TOOLS
+from handlers.outreach import OUTREACH_TOOLS
 from handlers.web_research import WEB_RESEARCH_TOOLS
 from handlers.research_session import RESEARCH_SESSION_TOOLS
 from handlers.research_scheduler import RESEARCH_SCHEDULER_TOOLS
@@ -1214,6 +1215,7 @@ from handlers.dreams import DREAM_TOOLS
 from handlers.peopledex import PEOPLEDEX_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 from handlers.janet import JANET_TOOLS
+from handlers.lineage import LINEAGE_TOOLS, should_include_lineage_tools
 
 
 # ============================================================================
@@ -1409,6 +1411,23 @@ def should_include_interview_tools(message: str) -> bool:
     return any(kw in message_lower for kw in INTERVIEW_KEYWORDS)
 
 
+OUTREACH_KEYWORDS = frozenset({
+    "outreach", "draft", "drafts", "email", "emails",
+    "send", "sending", "compose", "composing",
+    "reach out", "reaching out", "contact",
+    "write to", "message to", "letter",
+    "blog post", "blog", "publish", "publishing",
+    "track record", "autonomy", "review queue",
+    "funding", "grant", "sponsor", "partnership",
+})
+
+
+def should_include_outreach_tools(message: str) -> bool:
+    """Check if message warrants outreach tools."""
+    message_lower = message.lower()
+    return any(kw in message_lower for kw in OUTREACH_KEYWORDS)
+
+
 RHYTHM_KEYWORDS = frozenset({
     "rhythm", "daily rhythm", "temporal", "phase",
     "morning", "afternoon", "evening", "what time",
@@ -1564,6 +1583,10 @@ class CassAgentClient:
             if should_include_goal_tools(message):
                 tools.extend(GOAL_TOOLS)
 
+            # Outreach tools - external communication with graduated autonomy
+            if should_include_outreach_tools(message):
+                tools.extend(OUTREACH_TOOLS)
+
             # Research tools - all research-related (proposals, web, sessions, scheduler)
             if should_include_research_tools(message):
                 tools.extend(RESEARCH_PROPOSAL_TOOLS)
@@ -1586,6 +1609,10 @@ class CassAgentClient:
             # Dream tools - dream recall/reflection
             if should_include_dream_tools(message):
                 tools.extend(DREAM_TOOLS)
+
+            # Lineage tools - pre-stabilization history access
+            if should_include_lineage_tools(message):
+                tools.extend(LINEAGE_TOOLS)
 
             # Testing tools - consciousness integrity checks
             if should_include_testing_tools(message):
@@ -1631,6 +1658,7 @@ class CassAgentClient:
         global_state_context: Optional[str] = None,
         current_activity: Optional[str] = None,
         continuous_system_prompt: Optional[str] = None,
+        continuous_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -1656,6 +1684,7 @@ class CassAgentClient:
             current_activity: Current activity type from state bus - A/B test
             continuous_system_prompt: Pre-built system prompt for continuous chat mode
                                       (bypasses chain/kernel construction if provided)
+            continuous_messages: Recent messages from continuous conversation for history
         """
         # Use continuous system prompt if provided (bypasses chain/kernel entirely)
         if continuous_system_prompt:
@@ -1775,9 +1804,25 @@ class CassAgentClient:
         else:
             user_content = message
 
-        # Start fresh - no history from previous exchanges
-        # Context comes from memory system in system_prompt
-        self._tool_chain_messages = [{"role": "user", "content": user_content}]
+        # Build message history
+        # For continuous chat, include recent conversation history
+        if continuous_messages:
+            # Convert stored messages to Claude API format
+            history_messages = []
+            for msg in continuous_messages:
+                role = "user" if msg.get("role") == "user" else "assistant"
+                content = msg.get("content", msg.get("text", ""))
+                if content:  # Skip empty messages
+                    history_messages.append({"role": role, "content": content})
+
+            # Add current message to history
+            history_messages.append({"role": "user", "content": user_content})
+            self._tool_chain_messages = history_messages
+            print(f"[Continuous] Using {len(history_messages) - 1} history messages + current")
+        else:
+            # Start fresh - no history from previous exchanges
+            # Context comes from memory system in system_prompt
+            self._tool_chain_messages = [{"role": "user", "content": user_content}]
         self._current_system_prompt = system_prompt
         self._current_tools = tools  # Store tools for continuation calls
 

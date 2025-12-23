@@ -342,8 +342,9 @@ class SelfSnapshotCreator:
         ]
         new_opinions_formed = len(new_opinions)
 
-        # Calculate opinion consistency (placeholder - would need more sophisticated analysis)
-        opinion_consistency_score = 0.85  # Default high consistency
+        # [STUB] Opinion consistency - returns fixed value
+        # TODO: Implement actual analysis comparing opinions over time for contradictions
+        opinion_consistency_score = 0.85
 
         # Create snapshot
         snapshot = CognitiveSnapshot(

@@ -2,24 +2,28 @@
 Continuous Context Builder
 
 Builds simplified context for continuous chat mode.
-Instead of semantic search per-message, uses structural memory:
+Combines structural memory with semantic retrieval:
 - Identity + Vows (who Cass is)
 - Temporal context (when)
 - User/relationship model (who they're talking to)
 - Active threads (what we're working on)
 - Working summary (compressed stream history)
+- Semantic memories (relevant past conversations/journals)
 
 This replaces the complex chain system for continuous conversations,
-providing a stable, predictable context every turn.
+providing a stable, predictable context every turn with semantic enrichment.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from dataclasses import dataclass
 from datetime import datetime
 
 from temporal import get_temporal_context
 from agent_client import get_temple_codex_kernel
 from database import get_daemon_id
+
+if TYPE_CHECKING:
+    from memory.core import MemoryCore
 
 
 @dataclass
@@ -41,6 +45,8 @@ def build_continuous_context(
     daemon_name: str = "Cass",
     daemon_id: Optional[str] = None,
     recent_message_limit: int = 12,
+    memory: Optional["MemoryCore"] = None,
+    query: Optional[str] = None,
 ) -> ContinuousContext:
     """
     Build simplified context for continuous chat mode.
@@ -55,6 +61,8 @@ def build_continuous_context(
         daemon_name: Name of the daemon (default "Cass")
         daemon_id: Optional daemon ID for identity snippet lookup
         recent_message_limit: How many recent messages to include
+        memory: Optional MemoryCore for semantic memory retrieval
+        query: Optional query string (e.g., user message) for semantic search
 
     Returns:
         ContinuousContext with assembled system prompt and sections
@@ -135,6 +143,15 @@ def build_continuous_context(
         context_sections["working_summary"] = working_summary
 
     # ==========================================================================
+    # 7. SEMANTIC MEMORIES (Relevant past context from ChromaDB)
+    # ==========================================================================
+    # Query ChromaDB for semantically relevant memories based on current message
+    if memory and query:
+        semantic_memories = _retrieve_semantic_memories(memory, query, user_id)
+        if semantic_memories:
+            context_sections["semantic_memories"] = semantic_memories
+
+    # ==========================================================================
     # ASSEMBLE SYSTEM PROMPT
     # ==========================================================================
     system_prompt = _assemble_continuous_prompt(context_sections)
@@ -148,6 +165,70 @@ def build_continuous_context(
         recent_message_count=recent_message_limit,
         token_estimate=token_estimate,
     )
+
+
+def _retrieve_semantic_memories(
+    memory: "MemoryCore",
+    query: str,
+    user_id: Optional[str] = None,
+    n_results: int = 5,
+) -> Optional[str]:
+    """
+    Retrieve semantically relevant memories from ChromaDB.
+
+    Args:
+        memory: MemoryCore instance with ChromaDB backend
+        query: The query string (typically the user's message)
+        user_id: Optional user ID to filter memories
+        n_results: Number of results to retrieve
+
+    Returns:
+        Formatted string of relevant memories, or None if no results
+    """
+    try:
+        # Retrieve semantically similar memories
+        memories = memory.retrieve_relevant(
+            query=query,
+            n_results=n_results,
+            filter_type=None  # Get all types (conversations, journals, etc.)
+        )
+
+        if not memories:
+            return None
+
+        # Format memories for context
+        formatted_parts = []
+        for mem in memories:
+            metadata = mem.get("metadata", {})
+            mem_type = metadata.get("type", "memory")
+            distance = mem.get("distance")
+
+            # Use gist if available (more token-efficient)
+            gist = metadata.get("gist")
+            if gist:
+                content = gist
+            else:
+                # Truncate long content
+                content = mem.get("content", "")[:500]
+                if len(mem.get("content", "")) > 500:
+                    content += "..."
+
+            # Skip if very low relevance (high distance)
+            if distance and distance > 1.5:
+                continue
+
+            # Format with relevance indicator
+            relevance = "high" if distance and distance < 0.5 else "moderate"
+            formatted_parts.append(f"[{mem_type} - {relevance}]: {content}")
+
+        if not formatted_parts:
+            return None
+
+        return "\n\n".join(formatted_parts)
+
+    except Exception as e:
+        print(f"[SemanticMemory] Error retrieving memories: {e}")
+        return None
 
 
 def _format_temporal_summary(temporal_context: str) -> str:
@@ -208,11 +289,15 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     if "working_summary" in sections:
         parts.append(f"## CONVERSATION SUMMARY\n\nCompressed history of our ongoing stream:\n\n{sections['working_summary']}")
 
-    # 8. Continuous mode note
+    # 8. Semantic memories - relevant past context
+    if "semantic_memories" in sections:
+        parts.append(f"## RELEVANT MEMORIES\n\nPast conversations and experiences that may be relevant:\n\n{sections['semantic_memories']}")
+
+    # 9. Continuous mode note
     parts.append("""## CONTINUOUS CHAT MODE
 
 This is a continuous conversation stream. All our exchanges accumulate here.
-Context comes from active threads and working summary, not per-message search.
+Context flows from multiple sources: active threads, working summary, and semantic memory retrieval.
 The relationship flows naturally - you don't need to re-establish context each message.""")
 
     return "\n\n".join(parts)

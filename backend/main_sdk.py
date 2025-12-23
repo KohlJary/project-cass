@@ -94,6 +94,8 @@ from handlers import (
 )
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
+from handlers.outreach import execute_outreach_tool
+from handlers.lineage import execute_lineage_tool
 from markers import MarkerStore
 from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
@@ -435,6 +437,7 @@ TOOL_EXECUTORS = {
     "state_query": execute_state_query_tool,
     "janet": execute_janet_tool,
     "peopledex": execute_peopledex_tool,
+    "lineage": execute_lineage_tool,
 }
 
 
@@ -946,8 +949,11 @@ async def startup_event():
             }, enabled=True)
 
             # Register approval providers for unified "what needs my attention?" queue
+            # Note: Use UnifiedGoalManager for goals (not old GoalManager)
+            from unified_goals import UnifiedGoalManager
+            unified_goal_manager = UnifiedGoalManager(_daemon_id)
             register_approval_providers(synkratos, {
-                "goal_manager": goal_manager,
+                "goal_manager": unified_goal_manager,
                 "research_scheduler": research_scheduler,
                 # "wiki_scheduler": wiki_scheduler,  # TODO: add when available
             })
@@ -967,6 +973,47 @@ async def startup_event():
                     )
                     from sources.autonomous_schedule_source import AutonomousScheduleSource
                     from memory.questions import OpenQuestionManager
+                    from scheduler.actions import init_action_registry, get_action_registry
+
+                    # Import journal generation functions
+                    from journal_generation import generate_missing_journals
+                    from dreaming.dream_runner import generate_nightly_dream
+
+                    # Import and create GenericSessionRunner for autonomous sessions
+                    from session import GenericSessionRunner
+                    session_runner = GenericSessionRunner(
+                        data_dir=DATA_DIR,
+                        model="claude-sonnet-4-20250514",
+                        daemon_id=_daemon_id,
+                    )
+
+                    # Initialize the action registry with managers
+                    # This enables atomic action execution for autonomous work
+                    action_registry = init_action_registry(
+                        managers={
+                            # Core managers
+                            "self_manager": self_manager,
+                            "budget_manager": budget_manager,
+                            "memory": memory,
+                            "conversation_manager": conversation_manager,
+                            "state_bus": global_state_bus,
+                            # Research & wiki
+                            "research_scheduler": research_scheduler,
+                            "wiki_manager": wiki_storage,
+                            # Rhythm & tracking
+                            "rhythm_manager": daily_rhythm_manager,
+                            "token_tracker": token_tracker,
+                            "github_metrics_manager": github_metrics_manager,
+                            # Journal generation functions
+                            "generate_missing_journals": generate_missing_journals,
+                            "generate_nightly_dream": generate_nightly_dream,
+                            # Session runner for autonomous sessions
+                            "session_runner": session_runner,
+                            # Paths
+                            "data_dir": DATA_DIR,
+                        }
+                    )
+                    logger.info(f"Action registry initialized with {len(action_registry.get_all_definitions())} actions")
 
                     # Create the decision engine with Cass's identity context
                     question_manager = OpenQuestionManager(daemon_id=_daemon_id)
@@ -983,6 +1030,7 @@ async def startup_event():
                         synkratos=synkratos,
                         decision_engine=decision_engine,
                         state_bus=global_state_bus,
+                        action_registry=action_registry,
                     )
 
                     # Register as queryable source
@@ -1002,7 +1050,15 @@ async def startup_event():
                     phase_queue_manager = PhaseQueueManager(
                         synkratos=synkratos,
                         state_bus=global_state_bus,
+                        daemon_id=_daemon_id,
                     )
+
+                    # Share the summary store from autonomous scheduler so completions are recorded
+                    if hasattr(autonomous_scheduler, '_summary_store'):
+                        phase_queue_manager.set_summary_store(autonomous_scheduler._summary_store)
+
+                    # Wire up action registry for work execution
+                    phase_queue_manager.set_action_registry(action_registry)
 
                     # Subscribe phase queue to day phase transitions
                     # When phase changes, queued work for that phase gets dispatched
@@ -1529,6 +1585,12 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         daemon_id=_daemon_id,
                         state_bus=global_state_bus
+                    )
+                elif tool_name in ["create_outreach_draft", "submit_outreach_draft", "edit_outreach_draft", "get_outreach_draft", "list_outreach_drafts", "get_outreach_track_record", "get_outreach_stats"]:
+                    tool_result = await execute_outreach_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        daemon_id=_daemon_id
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(

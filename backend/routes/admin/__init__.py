@@ -64,6 +64,10 @@ from .scheduler import (
     get_scheduler,
 )
 from .wonderland import router as wonderland_router
+from .outreach import (
+    router as outreach_router,
+    init_outreach_manager as _init_outreach_manager,
+)
 
 # Create combined router
 router = APIRouter()
@@ -82,6 +86,7 @@ router.include_router(state_router)
 router.include_router(goals_router)
 router.include_router(scheduler_router)
 router.include_router(wonderland_router)
+router.include_router(outreach_router)
 
 
 # Module-level references for backward compatibility
@@ -136,6 +141,11 @@ def init_scheduler(scheduler):
     _set_scheduler(scheduler)
 
 
+def init_outreach_manager(daemon_id: str = "cass"):
+    """Initialize outreach manager for review queue and drafts."""
+    _init_outreach_manager(daemon_id)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -185,4 +195,5 @@ __all__ = [
     "init_unified_goal_manager",
     "init_scheduler",
     "get_scheduler",
+    "init_outreach_manager",
 ]

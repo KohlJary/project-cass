@@ -358,7 +358,26 @@ class UnifiedGoalManager:
 
         Autonomy tier is automatically determined based on goal type and actions.
         Goals requiring high-stakes actions start as 'proposed' and need approval.
+
+        When created_by is 'cass' and it's a top-level goal (no parent_id),
+        description and completion_criteria are required to ensure goals are
+        well-defined before proposal.
         """
+        # Validate that Cass-proposed top-level goals are well-defined
+        if created_by == "cass" and not parent_id:
+            if not description or len(description.strip()) < 50:
+                raise ValueError(
+                    "Goals proposed by Cass must include a detailed description "
+                    "(at least 50 characters explaining what this goal is about "
+                    "and why it matters)."
+                )
+            if not completion_criteria or len(completion_criteria) < 2:
+                raise ValueError(
+                    "Goals proposed by Cass must include at least 2 completion "
+                    "criteria (specific, measurable conditions for when this "
+                    "goal is complete)."
+                )
+
         goal_id = str(uuid.uuid4())[:8]  # Short ID for readability
         now = datetime.now().isoformat()
 
