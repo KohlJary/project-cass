@@ -1,0 +1,220 @@
+================================================================================
+AUTONOMOUS SCHEDULER - WORK PACKAGE SETUP COMPLETE
+================================================================================
+
+Created: 2025-12-24
+Status: Ready for dispatch to Daedalus workers
+
+================================================================================
+WHAT HAS BEEN CREATED
+================================================================================
+
+1. FIVE SEQUENCED WORK PACKAGES
+   Location: .daedalus/ariadne/work-packages/
+   
+   - wp1-fix-template-execution.json     (1.5 hrs) - Remove runner_key
+   - wp2-start-scheduler.json            (1.0 hrs) - Wire startup
+   - wp3-validate-actions.json           (1.5 hrs) - Add validation
+   - wp4-action-definitions.json         (2.5 hrs) - Create JSON
+   - wp5-test-and-verify.json            (1.5 hrs) - Integration test
+   
+   Total: 8-10 hours of focused work
+
+2. COMPREHENSIVE MANIFEST
+   Location: .daedalus/ariadne/WORK_MANIFEST.md
+   
+   Contents:
+   - Detailed execution strategy with dependency graph
+   - Complete problem statement and architectural context
+   - Code samples for each work package
+   - Success criteria and validation approach
+   - Testing checklist and monitoring commands
+   - Notes for Daedalus on approach and pitfalls
+
+3. README FOR ORIENTATION
+   Location: .daedalus/ariadne/README.md
+   
+   Contents:
+   - Quick start guide
+   - Work package overview
+   - Architecture context
+   - Command reference
+   - Key files and resources
+
+4. THIS SUMMARY
+   Location: .daedalus/ariadne/DISPATCH_SUMMARY.txt
+
+================================================================================
+THE PROBLEM (IN 3 MONSTERS)
+================================================================================
+
+HYDRA (Critical):
+  Templates have runner_key set, routing to deprecated _run_session() stub
+  that returns "Session runners deprecated" error.
+  Fix: Remove runner_key from all templates in templates.py
+
+SPIDER (Critical):
+  Scheduler is instantiated but never started.
+  No await day_phase_tracker.start() or await autonomous_scheduler.start()
+  Fix: Add startup wiring in main_sdk.py around line 1250
+
+CERBERUS (High):
+  Action definitions.json missing. No metadata for cost tracking, priorities.
+  Handlers registered but definitions unavailable.
+  Fix: Create definitions.json with 30+ action definitions
+
+================================================================================
+THE SOLUTION (IN 5 STEPS)
+================================================================================
+
+PHASE 1: CRITICAL PATH (2.5 hours)
+  WP1: Fix Template Execution (1.5 hrs)
+    - Remove runner_key from templates.py
+    - Verify action_sequence is set
+    - Delete _run_session() method
+  
+  WP2: Start Scheduler (1.0 hrs)
+    - Add DayPhaseTracker instantiation
+    - Register phase change callbacks
+    - Add await start() calls
+  
+  Gate: Service starts without errors
+
+PHASE 2: QUALITY ASSURANCE (2-4 hours, parallel)
+  WP3: Validate Action Handlers (1.5 hrs)
+    - Create validation function
+    - Call at startup
+    - Log missing actions
+  
+  WP4: Create Action Definitions JSON (2.5 hrs)
+    - Define 30+ actions with metadata
+    - Set cost estimates
+    - Validate JSON syntax
+  
+  Gate: All actions defined and validated
+
+PHASE 3: INTEGRATION TESTING (1.5 hours)
+  WP5: Test and Verify (1.5 hrs)
+    - Restart service
+    - Monitor scheduling
+    - Verify work execution
+    - Check budget tracking
+  
+  Gate: System executes work autonomously
+
+================================================================================
+KEY METRICS
+================================================================================
+
+Total Time Investment:    8-10 hours
+Critical Path:            4 hours (WP1+WP2)
+Parallel Opportunity:     ~2 hours (WP3 + WP4 concurrent)
+Complexity:               LOW (mostly deletion and wiring)
+Risk Level:               LOW (architecture is sound)
+Confidence:               HIGH (95% of system already built)
+
+Success Criteria:
+  - Service starts cleanly
+  - At least 1 work unit executes successfully
+  - Budget tracking accurate to cent
+  - No "Unknown action" errors
+  - All phases transition on schedule
+  - Work summaries saved and queryable
+
+================================================================================
+SUPPORTING DOCUMENTATION
+================================================================================
+
+Theseus Analysis (Architecture & Problems):
+  .daedalus/theseus/reports/2025-12-24-autonomous-scheduler-analysis.md
+  .daedalus/theseus/reports/2025-12-24-autonomous-scheduler-architecture.md
+  .daedalus/theseus/reports/2025-12-24-autonomous-scheduler-roadmap.md
+
+Specification:
+  spec/atomic-actions-projection.md
+
+Code References:
+  backend/scheduling/autonomous_scheduler.py
+  backend/scheduling/templates.py
+  backend/scheduling/day_phase.py
+  backend/main_sdk.py
+  backend/scheduler/actions/__init__.py
+
+================================================================================
+HOW TO USE THIS WORK PLAN
+================================================================================
+
+For Daedalus (Code Implementation):
+  1. Read WORK_MANIFEST.md for full context
+  2. Pick up WP1 (critical path)
+  3. Do WP2 next
+  4. Do WP3+WP4 in parallel
+  5. Do WP5 for integration testing
+  6. Each WP has detailed acceptance criteria and validation steps
+
+For Monitoring/Tracking:
+  - Watch: .daedalus/ariadne/work-packages/ for status updates
+  - Reference: WORK_MANIFEST.md for dependency tracking
+  - Report: Update individual WP json with progress
+
+For Testing:
+  - Use commands in WP5 for verification
+  - Monitor logs with provided grep patterns
+  - Check API endpoints for state validation
+
+================================================================================
+IMMEDIATE NEXT STEPS
+================================================================================
+
+Option A: Dispatch All Now
+  Start with WP1, sequence as described above
+
+Option B: Phase-Based Dispatch
+  - Dispatch WP1+WP2 now (critical path, 2.5 hrs)
+  - When WP2 complete, dispatch WP3+WP4 in parallel
+  - When both complete, dispatch WP5
+
+Option C: Supervised Dispatch
+  - Send WP1 first, review when complete
+  - Send WP2 based on WP1 outcome
+  - Continue with gating approach
+
+Recommended: Option A (all at once, with sequential dependency enforcement)
+
+================================================================================
+CONFIDENCE ASSESSMENT
+================================================================================
+
+Risk Level:        LOW
+  - No architectural changes needed
+  - All components already built
+  - Mostly integration work
+  - Clear, achievable tasks
+
+Certainty of Fix:  HIGH
+  - Theseus analysis identified exact problems
+  - Solutions are straightforward (delete, wire, create)
+  - No ambiguous or uncertain work
+
+Time Estimate:     CONFIDENT
+  - 8-10 hours based on detailed analysis
+  - Critical path clearly identified (4 hours)
+  - Testing included (1.5 hours)
+
+Quality:           EXCELLENT
+  - Work packages are detailed with acceptance criteria
+  - Code samples provided for each change
+  - Validation approach included
+  - Success metrics clearly defined
+
+Recommended Action: PROCEED IMMEDIATELY
+
+================================================================================
+END OF SUMMARY
+================================================================================
+
+All work packages ready for dispatch.
+System will be operational within 1-2 days of focused work.
+No external dependencies or blockers.
+
+Good luck, Daedalus. Build well.

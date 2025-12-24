@@ -1,0 +1,139 @@
+{
+  "id": "wp5-test-and-verify",
+  "title": "Test and Verify End-to-End Autonomous Scheduling",
+  "description": "Restart backend service, monitor logs, trigger daily planning, verify work units queue and execute. Validate action handlers work correctly. Fix any issues discovered.",
+  "priority": "P1-HIGH",
+  "type": "testing",
+  "estimated_hours": 1.5,
+  "status": "ready",
+  "phase": 1,
+  "depends_on": ["wp1-fix-template-execution", "wp2-start-scheduler", "wp3-validate-actions", "wp4-action-definitions"],
+  "assigned_to": null,
+  "files_affected": [],
+  "problem_statement": {
+    "integration": "All previous work packages must be integrated and working together",
+    "current_state": "System components created but untested in production",
+    "impact": "Need to validate that templates execute, budgets track, and phase transitions work correctly",
+    "goal": "Get at least one work unit to execute successfully end-to-end"
+  },
+  "acceptance_criteria": [
+    "Service starts without errors",
+    "Logs show 'Autonomous scheduling system started'",
+    "Day phase tracker initializes with current phase",
+    "At least one work unit executes successfully within 1 hour",
+    "Work summary is saved and queryable",
+    "Budget deduction is tracked correctly",
+    "No critical errors in logs",
+    "Action execution completes without 'Unknown action' errors"
+  ],
+  "test_sequence": [
+    {
+      "step": 1,
+      "title": "Restart Backend Service",
+      "actions": [
+        "sudo systemctl restart cass-vessel",
+        "Wait 5 seconds for startup",
+        "journalctl -u cass-vessel -n 50 - verify startup logs"
+      ],
+      "expected_output": "Autonomous scheduler started, DayPhaseTracker started in phase: X"
+    },
+    {
+      "step": 2,
+      "title": "Monitor Initial Phase",
+      "actions": [
+        "Note current time and phase",
+        "Check logs for action validation",
+        "Verify no missing action warnings"
+      ],
+      "expected_output": "All actions validated successfully"
+    },
+    {
+      "step": 3,
+      "title": "Trigger Morning Planning (if not morning)",
+      "actions": [
+        "If not morning phase, manually trigger or wait for phase transition",
+        "Watch logs for 'Planning the day's autonomous work'",
+        "Check for decision engine context gathering"
+      ],
+      "expected_output": "Day planning triggered, work units queued"
+    },
+    {
+      "step": 4,
+      "title": "Monitor Work Dispatch",
+      "actions": [
+        "Watch logs for phase transitions",
+        "Look for 'Dispatching work unit' messages",
+        "Monitor for action handler execution"
+      ],
+      "expected_output": "Work units are queued for current phase and dispatched"
+    },
+    {
+      "step": 5,
+      "title": "Verify Work Execution",
+      "actions": [
+        "Monitor logs for action execution start/completion",
+        "Check for ActionResult generation",
+        "Verify no execution errors in logs"
+      ],
+      "expected_output": "Action completes successfully, returns cost tracking"
+    },
+    {
+      "step": 6,
+      "title": "Check Budget Tracking",
+      "actions": [
+        "Call GET /admin/scheduler/budget endpoint",
+        "Verify cost deduction from category budget",
+        "Confirm total daily spend updated"
+      ],
+      "expected_output": "Budget shows correct deduction from executed action"
+    },
+    {
+      "step": 7,
+      "title": "Verify Work Summary",
+      "actions": [
+        "Call GET /admin/scheduler/work-history endpoint",
+        "Find completed work unit",
+        "Check summary content"
+      ],
+      "expected_output": "Work summary saved with narrative, actions, and results"
+    },
+    {
+      "step": 8,
+      "title": "Run Full 24-Hour Simulation (Optional)",
+      "actions": [
+        "Leave service running for 24 hours",
+        "Monitor daily planning trigger",
+        "Verify multiple work units execute across phases",
+        "Check budget reset at midnight"
+      ],
+      "expected_output": "System stable for 24+ hours, multiple work completions"
+    }
+  ],
+  "troubleshooting_guide": {
+    "no_startup_logs": "Check that main_sdk.py has await statements for scheduler start",
+    "action_validation_errors": "Run WP3 validation to identify missing handlers",
+    "budget_exhaustion": "Check WP4 cost estimates are not too high",
+    "silent_failures": "Check logs for 'Unknown action' errors, verify WP3 validation",
+    "phase_not_triggering": "Check that DayPhaseTracker.start() was called, verify phase windows in day_phase.py"
+  },
+  "monitoring_commands": {
+    "watch_logs": "journalctl -u cass-vessel -f | grep -i 'autonomous\\|phase\\|work unit\\|action'",
+    "check_budget": "curl http://localhost:8000/admin/scheduler/budget | jq",
+    "check_status": "curl http://localhost:8000/admin/scheduler/status | jq",
+    "check_history": "curl http://localhost:8000/admin/scheduler/work-history | jq",
+    "debug_phase": "curl http://localhost:8000/admin/scheduler/phase | jq"
+  },
+  "success_metrics": [
+    "Service runs without crashing",
+    "At least one complete work unit execution per test run",
+    "Budget tracking accurate to cent",
+    "No unknown action errors",
+    "All phases transition successfully"
+  ],
+  "notes": "This is the integration test phase. If all WPs 1-4 are done correctly, this should mostly work. Main issues will be discovered here (missing handlers, cost estimation, timing).",
+  "artifacts": [
+    "Test log output (save to .daedalus/test-results/autonomous-scheduler-test-YYYY-MM-DD.log)",
+    "Budget tracking verification",
+    "Work unit execution trace"
+  ]
+}

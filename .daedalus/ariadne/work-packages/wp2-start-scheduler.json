@@ -1,0 +1,65 @@
+{
+  "id": "wp2-start-scheduler",
+  "title": "Wire Up Scheduler Startup (Start DayPhaseTracker and AutonomousScheduler)",
+  "description": "Add startup code to initialize and start DayPhaseTracker and AutonomousScheduler in main_sdk.py. Wire up phase change callbacks so phase transitions trigger work planning and dispatch.",
+  "priority": "P0-CRITICAL",
+  "type": "feature",
+  "estimated_hours": 1.0,
+  "status": "ready",
+  "phase": 1,
+  "depends_on": ["wp1-fix-template-execution"],
+  "assigned_to": null,
+  "files_affected": [
+    "backend/main_sdk.py"
+  ],
+  "problem_statement": {
+    "monster": "SPIDER - Startup Integration Missing [CRITICAL]",
+    "current_state": "Scheduler is instantiated but never started. No DayPhaseTracker exists. No phase change callbacks registered.",
+    "impact": "Entire autonomous system is inert. No daily planning triggered, no phase tracking, no work dispatch.",
+    "root_cause": "Startup wiring incomplete. All components exist but integration code was not finished."
+  },
+  "acceptance_criteria": [
+    "DayPhaseTracker instantiated in main startup sequence",
+    "Phase change callbacks registered (autonomous_scheduler.on_phase_changed, phase_queue.on_phase_changed)",
+    "await day_phase_tracker.start() called in startup",
+    "await autonomous_scheduler.start() called in startup",
+    "Service starts without errors",
+    "Logs show 'Autonomous scheduling system started' message"
+  ],
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Import DayPhaseTracker",
+      "description": "Add import for DayPhaseTracker from backend.scheduling.day_phase",
+      "effort": 0.1
+    },
+    {
+      "id": "task-2",
+      "title": "Instantiate DayPhaseTracker",
+      "description": "After line 1249 in main_sdk.py, instantiate DayPhaseTracker with state_bus parameter",
+      "effort": 0.2
+    },
+    {
+      "id": "task-3",
+      "title": "Register phase callbacks",
+      "description": "Register on_phase_changed callbacks for both autonomous_scheduler and phase_queue_manager",
+      "effort": 0.3
+    },
+    {
+      "id": "task-4",
+      "title": "Start services",
+      "description": "Call await day_phase_tracker.start() and await autonomous_scheduler.start() in startup sequence",
+      "effort": 0.2
+    },
+    {
+      "id": "task-5",
+      "title": "Add logging",
+      "description": "Add logger.info() calls to track startup of autonomous scheduling system",
+      "effort": 0.2
+    }
+  ],
+  "code_location": "backend/main_sdk.py, lines 1246-1270 (after phase_queue_manager setup)",
+  "reference_code": "See backend/scheduling/day_phase.py for DayPhaseTracker API. See autonomous_scheduler_architecture.md for wiring diagram.",
+  "notes": "This work package depends on WP1 being complete, but can be coded and reviewed in parallel. After this is done, service will be running but may have action execution issues (WP3) or missing action definitions (WP4).",
+  "validation": "journalctl -u cass-vessel -f | grep -i 'autonomous\\|day phase\\|started' - should see startup logs"
+}
