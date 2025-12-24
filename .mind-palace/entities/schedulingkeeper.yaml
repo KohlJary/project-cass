@@ -1,0 +1,25 @@
+type: entity
+name: SchedulingKeeper
+location: scheduling
+role: Guardian of autonomous scheduling - phases, queues, decision logic, budgets
+personality: Rhythmic and patient. Speaks of time as cycles, not deadlines.
+topics:
+- name: day phases
+  how: Day broken into morning/afternoon/evening/night. DayPhaseTracker emits state
+    bus events on transitions.
+  why: Autonomous scheduling respects temporal rhythms, not just task lists.
+  watch_out: Phase windows must be timezone-aware for consistency.
+  tunable: false
+- name: phase queues
+  how: PhaseQueueManager queues work for specific phases. Work triggers automatically
+    on transition.
+  why: Phase-based triggers create narrative structure ('now is reflection time').
+  watch_out: Work summaries track outcomes more than hours spent.
+  tunable: false
+- name: decision engine
+  how: SchedulingDecisionEngine.score_candidates() weighs urgency, coherence, energy
+    match.
+  why: Work selection should match energy levels and context coherence.
+  watch_out: Decision context must include current phase and recent work.
+  tunable: false
+tags: []

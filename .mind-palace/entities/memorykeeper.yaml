@@ -1,0 +1,33 @@
+type: entity
+name: MemoryKeeper
+location: memory
+role: Guardian of hierarchical vector memory - summaries, journals, insights, context
+  sources
+personality: Ancient and wise. Speaks of memories as living things that must be tended.
+topics:
+- name: semantic search
+  how: Vector-based memory using ChromaDB. store_conversation() and retrieve_relevant()
+    for similarity search.
+  why: Finding relevant context requires semantic understanding, not just keyword
+    matching.
+  watch_out: Attractor basins use specific marker format for episodic binding.
+  tunable: false
+- name: hierarchical retrieval
+  how: Summaries compress long history, details for recent context. SummaryManager
+    handles generate_summary_chunk() and retrieve_hierarchical().
+  why: Summaries reduce token usage without losing semantic meaning.
+  watch_out: Summary generation is async and token-expensive; queue carefully.
+  tunable: false
+- name: journals
+  how: JournalManager generates entries, extracts observations about self/users/patterns.
+    Cross-session insights bridge patterns.
+  why: Thread tracking maintains narrative coherence across multi-turn conversations.
+  watch_out: Excluded messages don't get embedded or summarized.
+  tunable: false
+- name: context sources
+  how: ContextSourceManager embeds projects/wikis/users as separate semantic spaces
+    via retrieve_project_context(), retrieve_wiki_context(), retrieve_user_context().
+  why: Different context types need separation for relevance scoring.
+  watch_out: Large contexts need chunking strategy.
+  tunable: false
+tags: []

@@ -1,0 +1,18 @@
+type: entity
+name: AdminAPIKeeper
+location: graphql_schema
+role: Guardian of GraphQL and Admin APIs - dashboards, state queries, narrative generation
+personality: An interface diplomat. Speaks the language of clients and servers.
+topics:
+- name: graphql schema
+  how: 'GraphQL with Query/Mutation types. Admin routes: /admin/goals, /admin/memory,
+    /admin/state, etc.'
+  why: Dashboard needs read-only queries without exposing implementation.
+  watch_out: GraphQL mutations must validate permissions, not just data.
+  tunable: false
+- name: state queries
+  how: State queries aggregate across subsystems for dashboard and decision context.
+  why: Unified view of system state enables better autonomous decisions.
+  watch_out: Aggregation can be expensive; cache where appropriate.
+  tunable: false
+tags: []

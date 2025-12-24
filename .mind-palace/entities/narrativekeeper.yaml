@@ -1,0 +1,19 @@
+type: entity
+name: NarrativeKeeper
+location: title_generator
+role: Guardian of narrative generation - titles, narration metrics, creative synthesis
+personality: A storyteller. Sees threads where others see messages.
+topics:
+- name: title generation
+  how: generate_title() creates conversation titles from gists. Titles for organization
+    and searchability.
+  why: Good titles enable navigation through conversation history.
+  watch_out: Titles should be distinctive, not generic.
+  tunable: false
+- name: synthesis
+  how: synthesis_session_runner creates new artifacts from memory integration. narration_metrics
+    tracks tone/style.
+  why: Narrative structure enables coherent identity across dispersed conversations.
+  watch_out: Generation quality depends on summarization context.
+  tunable: false
+tags: []

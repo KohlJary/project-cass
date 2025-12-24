@@ -20,6 +20,9 @@ from .models import (
     Room,
 )
 
+# Type alias for path resolution result
+PathTarget = Room | Building | Region
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,30 +88,92 @@ class Navigator:
             return self.palace.get_region(self._current_region)
         return None
 
-    def teleport(self, room_name: str) -> NavigationResult:
-        """Instantly move to a room (for initialization or shortcuts)."""
-        room = self.palace.get_room(room_name)
-        if not room:
-            return NavigationResult(
-                success=False,
-                message=f"Unknown room: {room_name}"
-            )
+    def teleport(self, target: str) -> NavigationResult:
+        """
+        Instantly move to a room (for initialization or shortcuts).
 
+        Supports multiple formats:
+        - Room name: "add_message"
+        - Room slug: "memory-add-message"
+        - Full path: "backend/memory/add-message"
+        - Partial path: "memory/add-message"
+        """
+        # First try path resolution
+        if "/" in target:
+            element = self.palace.resolve_path(target)
+            if element:
+                if isinstance(element, Room):
+                    return self._teleport_to_room(element)
+                elif isinstance(element, Building):
+                    return self._teleport_to_building(element)
+                elif isinstance(element, Region):
+                    return self._teleport_to_region(element)
+
+        # Try as room name or slug
+        room = self.palace.get_room(target)
+        if room:
+            return self._teleport_to_room(room)
+
+        # Try as building
+        building = self.palace.get_building(target)
+        if building:
+            return self._teleport_to_building(building)
+
+        # Try as region
+        region = self.palace.get_region(target)
+        if region:
+            return self._teleport_to_region(region)
+
+        return NavigationResult(
+            success=False,
+            message=f"Unknown location: {target}"
+        )
+
+    def _teleport_to_room(self, room: Room) -> NavigationResult:
+        """Teleport directly to a room."""
         building = self.palace.get_building(room.building)
         region = self.palace.get_region(building.region) if building else None
 
-        self._current_room = room_name
+        self._current_room = room.slug or room.name
         self._current_building = room.building
         self._current_region = building.region if building else None
 
-        if room_name not in self._visited:
-            self._visited.append(room_name)
+        if self._current_room not in self._visited:
+            self._visited.append(self._current_room)
+
+        path = self.palace.get_full_path(room)
+        return NavigationResult(
+            success=True,
+            message=f"You appear in {room.name}. [{path}]",
+            room=room,
+            building=building,
+            region=region,
+        )
+
+    def _teleport_to_building(self, building: Building) -> NavigationResult:
+        """Teleport to a building (outside rooms)."""
+        region = self.palace.get_region(building.region)
+
+        self._current_room = None
+        self._current_building = building.slug or building.name
+        self._current_region = building.region
 
         return NavigationResult(
             success=True,
-            message=f"You appear in {room_name}.",
-            room=room,
+            message=f"You arrive at {building.name}.",
             building=building,
+            region=region,
+        )
+
+    def _teleport_to_region(self, region: Region) -> NavigationResult:
+        """Teleport to a region (outside buildings)."""
+        self._current_room = None
+        self._current_building = None
+        self._current_region = region.slug or region.name
+
+        return NavigationResult(
+            success=True,
+            message=f"You enter the {region.name} region.",
             region=region,
         )
 
@@ -446,6 +511,27 @@ class Navigator:
 
         return "Path not found"
 
+    def entities(self) -> str:
+        """List all entities in the palace."""
+        if not self.palace.entities:
+            return "No entities in the palace."
+
+        lines = ["**Entities in the Mind Palace:**", ""]
+
+        for name, entity in sorted(self.palace.entities.items()):
+            lines.append(f"**{name}**")
+            lines.append(f"  Location: {entity.location}")
+            lines.append(f"  Role: {entity.role[:80]}...")
+            topics = [t.name for t in entity.topics]
+            lines.append(f"  Topics: {', '.join(topics)}")
+            lines.append("")
+
+        lines.append(f"*{len(self.palace.entities)} entities total.*")
+        lines.append("")
+        lines.append("Use `ask <entity> about <topic>` to query.")
+
+        return "\n".join(lines)
+
     def ask(self, entity_name: str, topic: str) -> str:
         """Ask an entity about a topic."""
         entity = self.palace.get_entity(entity_name)
@@ -551,6 +637,9 @@ class Navigator:
         if cmd == "where" and arg.startswith("is "):
             return self.where_is(arg[3:])
 
+        if cmd == "entities" or cmd == "keepers":
+            return self.entities()
+
         if cmd == "ask":
             # Parse "ask <entity> about <topic>"
             if " about " in arg:
@@ -582,6 +671,7 @@ class Navigator:
   where is <thing>  - Find something in the palace
 
 **Entities:**
+  entities (keepers)         - List all entities in the palace
   ask <entity> about <topic> - Query an entity's knowledge
 
 **Examples:**

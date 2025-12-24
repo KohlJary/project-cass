@@ -1,0 +1,433 @@
+version: '1.0'
+updated: '2025-12-24T01:00:14.436369'
+links:
+- from_room: auth
+  to_palace: backend
+  to_path: routes/admin/auth
+  link_type: api_call
+  metadata:
+    method: POST
+    endpoint: /admin/auth/register
+    api_call: authApi.register()
+    handler: auth.py
+    source_file: AuthContext.tsx
+- from_room: users
+  to_palace: backend
+  to_path: routes/admin/auth
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/users
+    api_call: usersApi.getAll()
+    handler: auth.py
+    source_file: Users.tsx
+- from_room: userprofile
+  to_palace: backend
+  to_path: routes/admin/auth
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/users/{id}
+    api_call: usersApi.getById()
+    handler: auth.py
+    source_file: UserProfile.tsx
+- from_room: datamanagement
+  to_palace: backend
+  to_path: routes/admin/daemons
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/daemons
+    api_call: daemonsApi.getAll()
+    handler: daemons.py
+    source_file: DataManagement.tsx
+- from_room: datamanagement
+  to_palace: backend
+  to_path: export
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /export/wiki/json
+    api_call: exportApi.getWikiJson()
+    handler: export.py
+    source_file: DataManagement.tsx
+- from_room: genesisdream
+  to_palace: backend
+  to_path: routes/admin/genesis
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/daemons/mine
+    api_call: genesisApi.getMyDaemons()
+    handler: genesis.py
+    source_file: GenesisDream.tsx
+- from_room: homepage
+  to_palace: backend
+  to_path: routes/admin/daemons
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/daemons
+    api_call: daemonsApi.getAll()
+    handler: daemons.py
+    source_file: Homepage.tsx
+- from_room: retrieval
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory
+    api_call: memoryApi.getAll()
+    handler: memory.py
+    source_file: Retrieval.tsx
+- from_room: vectors
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory/vectors
+    api_call: memoryApi.getVectors()
+    handler: memory.py
+    source_file: Vectors.tsx
+- from_room: memory
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory
+    api_call: memoryApi.getAll()
+    handler: memory.py
+    source_file: Memory.tsx
+- from_room: memorysystem
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory/stats
+    api_call: memoryApi.getStats()
+    handler: memory.py
+    source_file: MemorySystem.tsx
+- from_room: memorybrowsetab
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory
+    api_call: memoryApi.getAll()
+    handler: memory.py
+    source_file: MemoryBrowseTab.tsx
+- from_room: memoryretrievaltab
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory/vectors
+    api_call: memoryApi.getVectors()
+    handler: memory.py
+    source_file: MemoryRetrievalTab.tsx
+- from_room: memoryvectorstab
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory/vectors
+    api_call: memoryApi.getVectors()
+    handler: memory.py
+    source_file: MemoryVectorsTab.tsx
+- from_room: journals
+  to_palace: backend
+  to_path: routes/admin/sessions
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/journals
+    api_call: journalsApi.getAll()
+    handler: sessions.py
+    source_file: Journals.tsx
+- from_room: chat
+  to_palace: backend
+  to_path: routes/admin/sessions
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/conversations
+    api_call: conversationsApi.getAll()
+    handler: sessions.py
+    source_file: Chat.tsx
+- from_room: chat
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: POST
+    endpoint: /attachments/upload
+    api_call: attachmentsApi.upload()
+    handler: main_sdk.py
+    source_file: Chat.tsx
+- from_room: chat
+  to_palace: backend
+  to_path: routes/admin/memory
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/memory
+    api_call: memoryApi.getAll()
+    handler: memory.py
+    source_file: Chat.tsx
+- from_room: conversations
+  to_palace: backend
+  to_path: routes/admin/sessions
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/conversations
+    api_call: conversationsApi.getAll()
+    handler: sessions.py
+    source_file: Conversations.tsx
+- from_room: conversationstab
+  to_palace: backend
+  to_path: routes/admin/sessions
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/conversations
+    api_call: conversationsApi.getAll()
+    handler: sessions.py
+    source_file: ConversationsTab.tsx
+- from_room: journalstab
+  to_palace: backend
+  to_path: routes/admin/sessions
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/journals
+    api_call: journalsApi.getAll()
+    handler: sessions.py
+    source_file: JournalsTab.tsx
+- from_room: selfmodel
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /cass/self-model
+    api_call: selfModelApi.get()
+    handler: main_sdk.py
+    source_file: SelfModel.tsx
+- from_room: selfdevelopment
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /cass/self-model
+    api_call: selfModelApi.get()
+    handler: main_sdk.py
+    source_file: SelfDevelopment.tsx
+- from_room: development
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /cass/snapshots
+    api_call: developmentApi.getSnapshots()
+    handler: main_sdk.py
+    source_file: Development.tsx
+- from_room: developmenttimelinetab
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /cass/snapshots
+    api_call: developmentApi.getSnapshots()
+    handler: main_sdk.py
+    source_file: DevelopmentTimelineTab.tsx
+- from_room: selfmodeltab
+  to_palace: backend
+  to_path: routes/admin/self-model
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/self-model/identity-snippet
+    api_call: selfModelApi.getIdentitySnippet()
+    handler: self_model.py
+    source_file: SelfModelTab.tsx
+- from_room: wiki
+  to_palace: backend
+  to_path: wiki
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /wiki/pages
+    api_call: wikiApi.getPages()
+    handler: wiki.py
+    source_file: Wiki.tsx
+- from_room: research
+  to_palace: backend
+  to_path: wiki
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /wiki/research/queue
+    api_call: researchApi.getQueue()
+    handler: wiki.py
+    source_file: Research.tsx
+- from_room: wikitab
+  to_palace: backend
+  to_path: wiki
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /wiki/pages
+    api_call: wikiApi.getPages()
+    handler: wiki.py
+    source_file: WikiTab.tsx
+- from_room: autonomousresearchtab
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /autonomous-research/status
+    api_call: autonomousResearchApi.getStatus()
+    handler: main_sdk.py
+    source_file: AutonomousResearchTab.tsx
+- from_room: system
+  to_palace: backend
+  to_path: routes/admin/stats
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/system/health
+    api_call: systemApi.getHealth()
+    handler: stats.py
+    source_file: System.tsx
+- from_room: systemhealthtab
+  to_palace: backend
+  to_path: routes/admin/stats
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/system/health
+    api_call: systemApi.getHealth()
+    handler: stats.py
+    source_file: SystemHealthTab.tsx
+- from_room: goals
+  to_palace: backend
+  to_path: goals
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /goals/questions
+    api_call: goalsApi.getQuestions()
+    handler: goals.py
+    source_file: Goals.tsx
+- from_room: goalstab
+  to_palace: backend
+  to_path: routes/admin/goals
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/goals/unified
+    api_call: goalsApi.getUnifiedGoals()
+    handler: goals.py
+    source_file: GoalsTab.tsx
+- from_room: dailyrhythmtab
+  to_palace: backend
+  to_path: routes/admin/sessions
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /admin/rhythm/phases
+    api_call: rhythmApi.getPhases()
+    handler: sessions.py
+    source_file: DailyRhythmTab.tsx
+- from_room: consciousnesshealth
+  to_palace: backend
+  to_path: testing
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /testing/health
+    api_call: testingApi.getHealth()
+    handler: testing/
+    source_file: ConsciousnessHealth.tsx
+- from_room: projects
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /projects
+    api_call: projectsApi.getAll()
+    handler: main_sdk.py
+    source_file: Projects.tsx
+- from_room: projects
+  to_palace: backend
+  to_path: roadmap
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /roadmap/items
+    api_call: roadmapApi.getItems()
+    handler: roadmap.py
+    source_file: Projects.tsx
+- from_room: databackupstab
+  to_palace: backend
+  to_path: export
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /export/backups
+    api_call: exportApi.listBackups()
+    handler: export.py
+    source_file: DataBackupsTab.tsx
+- from_room: dataexporttab
+  to_palace: backend
+  to_path: export
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /export/wiki/json
+    api_call: exportApi.getWikiJson()
+    handler: export.py
+    source_file: DataExportTab.tsx
+- from_room: settings
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /settings/llm-provider
+    api_call: settingsApi.getLLMProvider()
+    handler: main_sdk.py
+    source_file: Settings.tsx
+- from_room: dreams
+  to_palace: backend
+  to_path: main-sdk
+  link_type: api_call
+  metadata:
+    method: GET
+    endpoint: /dreams
+    api_call: dreamsApi.getAll()
+    handler: main_sdk.py
+    source_file: Dreams.tsx
+- from_room: feedback
+  to_palace: backend
+  to_path: routes/admin/stats
+  link_type: api_call
+  metadata:
+    method: POST
+    endpoint: /admin/feedback
+    api_call: feedbackApi.submit()
+    handler: stats.py
+    source_file: Feedback.tsx

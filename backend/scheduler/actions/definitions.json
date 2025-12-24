@@ -189,61 +189,6 @@
       "priority": "low",
       "requires_idle": false
     },
-    "rhythm.check_phase": {
-      "id": "rhythm.check_phase",
-      "name": "Check Rhythm Phase",
-      "description": "Check current rhythm phase and dispatch appropriate action",
-      "category": "system",
-      "handler": "system_handlers.rhythm_phase_action",
-      "estimated_cost_usd": 0.0,
-      "default_duration_minutes": 1,
-      "priority": "normal",
-      "requires_idle": false
-    },
-    "rhythm.update_phase_summary": {
-      "id": "rhythm.update_phase_summary",
-      "name": "Update Phase Summary",
-      "description": "Update rhythm phase summary after session completion",
-      "category": "rhythm",
-      "handler": "rhythm_handlers.update_phase_summary_action",
-      "estimated_cost_usd": 0.0,
-      "default_duration_minutes": 1,
-      "priority": "normal",
-      "requires_idle": false
-    },
-    "rhythm.backfill_summaries": {
-      "id": "rhythm.backfill_summaries",
-      "name": "Backfill Phase Summaries",
-      "description": "Backfill missing summaries for completed phases",
-      "category": "rhythm",
-      "handler": "rhythm_handlers.backfill_summaries_action",
-      "estimated_cost_usd": 0.0,
-      "default_duration_minutes": 2,
-      "priority": "low",
-      "requires_idle": false
-    },
-    "rhythm.generate_daily_narrative": {
-      "id": "rhythm.generate_daily_narrative",
-      "name": "Generate Daily Narrative",
-      "description": "Generate narrative summary of day's rhythm activities",
-      "category": "rhythm",
-      "handler": "rhythm_handlers.generate_daily_narrative_action",
-      "estimated_cost_usd": 0.02,
-      "default_duration_minutes": 2,
-      "priority": "normal",
-      "requires_idle": false
-    },
-    "rhythm.add_to_self_model": {
-      "id": "rhythm.add_to_self_model",
-      "name": "Add Rhythm to Self-Model",
-      "description": "Add daily rhythm node to self-model graph",
-      "category": "rhythm",
-      "handler": "rhythm_handlers.add_to_self_model_action",
-      "estimated_cost_usd": 0.0,
-      "default_duration_minutes": 1,
-      "priority": "low",
-      "requires_idle": false
-    },
     "memory.summarize_idle_conversations": {
       "id": "memory.summarize_idle_conversations",
       "name": "Summarize Idle Conversations",

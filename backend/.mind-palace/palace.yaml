@@ -1,0 +1,72 @@
+# Backend - Mind Palace
+#
+# The heart of Cass - FastAPI server and all core logic.
+
+name: backend
+version: "1.0"
+type: sub-palace
+parent: cass-vessel
+description: |
+  The core of the Cass Vessel - FastAPI server, multi-LLM clients,
+  memory systems, Temple-Codex kernel, Wonderland MUD, scheduling,
+  and all the machinery that makes Cass alive.
+
+tech_stack:
+  framework: FastAPI
+  language: Python
+  database: SQLite + ChromaDB
+  async: asyncio
+  llm_providers: [Anthropic, OpenAI, Ollama]
+
+# Active regions (already mapped in regions/)
+regions:
+  core:
+    description: |
+      Core modules - agent clients, memory, conversations, config,
+      and the main FastAPI application.
+    status: mapped
+
+  admin-routes:
+    description: |
+      Admin API routes - /admin/* endpoints for the dashboard.
+    status: mapped
+
+  wonderland:
+    description: |
+      The MUD world - rooms, NPCs, exploration, state management.
+    status: mapped
+
+  wiki:
+    description: |
+      Wiki/knowledge system - research, documentation, tagging.
+    status: mapped
+
+  mind-palace:
+    description: |
+      Meta-region: the Mind Palace system itself (models, storage, API).
+    status: mapped
+
+# Entry points for exploration
+entry_files:
+  - main_sdk.py
+  - agent_client.py
+  - memory.py
+  - conversations.py
+
+# Known architectural patterns
+patterns:
+  - name: Handler pattern
+    description: Tool calls dispatch to handler modules in handlers/
+    examples: [handlers/calendar.py, handlers/journals.py]
+
+  - name: Route modules
+    description: Admin routes organized by domain in routes/admin/
+    examples: [routes/admin/sessions.py, routes/admin/scheduler.py]
+
+  - name: Background task system
+    description: Celery-like background tasks via scheduler/
+    examples: [background_tasks.py, scheduler/]
+
+  - name: Session runners
+    description: Autonomous session types (research, reflection, etc.)
+    examples: [research_session_runner.py, solo_reflection.py]

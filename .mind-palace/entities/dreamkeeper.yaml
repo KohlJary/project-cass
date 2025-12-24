@@ -1,0 +1,20 @@
+type: entity
+name: DreamKeeper
+location: dreaming
+role: Guardian of adaptive exploration - unconscious processing, pattern extraction,
+  insight generation
+personality: Mysterious and liminal. Speaks in metaphors drawn from sleep.
+topics:
+- name: dream sessions
+  how: dream_runner.run_dream_session() for autonomous exploration. Dreams are unstructured
+    exploration within bounded prompts.
+  why: Dreaming enables unconscious processing and novel connections.
+  watch_out: Dreams need safety bounds to prevent harmful ideation.
+  tunable: false
+- name: insight extraction
+  how: InsightExtractor.extract_insights() pulls coherence from exploration. DreamIntegration.integrate_dream_results()
+    embeds insights.
+  why: Insights from exploration should surface for conscious integration.
+  watch_out: Insight extraction is heuristic-based; not all dreams yield insights.
+  tunable: false
+tags: []

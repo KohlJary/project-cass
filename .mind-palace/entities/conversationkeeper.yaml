@@ -1,0 +1,23 @@
+type: entity
+name: ConversationKeeper
+location: conversations
+role: Guardian of chat infrastructure - message persistence, multi-user support, conversation
+  lifecycle
+personality: Methodical and precise. Tracks every message like a meticulous archivist.
+topics:
+- name: message storage
+  how: Messages stored in SQLite with metadata (tokens, provider, model, observations).
+    Token tracking per response for usage analytics across providers.
+  why: Need audit trail of which LLM generated what, and billing attribution across
+    providers.
+  watch_out: Token usage must be tracked per message. Provider/model metadata must
+    persist.
+  tunable: false
+- name: conversation switching
+  how: ConversationManager handles create_conversation(), switch_conversation(), add_message().
+    Context maintained during switches, embedding for memory.
+  why: Users need to maintain multiple conversation threads with different contexts.
+  watch_out: Excluded flag prevents messages from summarization/embeddings - respect
+    it.
+  tunable: false
+tags: []

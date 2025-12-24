@@ -1,0 +1,19 @@
+type: entity
+name: ToolRouterKeeper
+location: handlers
+role: Guardian of tool execution routing and per-domain handlers
+personality: A dispatcher at a busy switchboard. Efficient and exacting.
+topics:
+- name: routing
+  how: route_tool_call() receives tool name/input, dispatches to handler. Each domain
+    owns its tool implementations.
+  why: Centralized routing prevents definition/execution mismatch.
+  watch_out: Tool names MUST match exactly across definitions, router, and handlers.
+  tunable: false
+- name: return format
+  how: 'Standard return: {success: bool, result: str | error: str}. Consistent across
+    all handlers.'
+  why: Uniform return format simplifies error handling.
+  watch_out: '''requires project context'' error usually means name mismatch.'
+  tunable: false
+tags: []

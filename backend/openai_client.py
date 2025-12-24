@@ -134,7 +134,6 @@ class OpenAIClient:
         memory_context: str = "",
         project_id: Optional[str] = None,
         unsummarized_count: int = 0,
-        rhythm_manager=None,
         memory=None,
         dream_context: Optional[str] = None,
         conversation_id: Optional[str] = None,
@@ -155,7 +154,6 @@ class OpenAIClient:
             memory_context: Optional memory context from VectorDB to inject
             project_id: Optional project ID for tool context
             unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
-            rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
             dream_context: Optional dream context to hold in memory during conversation
             conversation_id: Optional conversation ID for chain context
@@ -213,9 +211,9 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
 
 Provide thoughtful, complete responses. Don't be unnecessarily terse - take the space needed to fully address what's being discussed. Engage naturally in conversation with appropriate depth and nuance. Short answers are fine for simple questions, but for anything substantive, give it the attention it deserves."""
 
-            # Add temporal context (date/time, age, daily rhythm)
+            # Add temporal context (date/time, age)
             from temporal import format_system_prompt_section
-            system_prompt += format_system_prompt_section(rhythm_manager, memory)
+            system_prompt += format_system_prompt_section(memory)
 
             # Add model context - let the daemon know which model they're running on
             system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (OpenAI). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."

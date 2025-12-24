@@ -216,7 +216,6 @@ async def execute_research_session_tool(
     session_manager,
     conversation_id: str = None,
     research_runner=None,
-    rhythm_manager=None
 ) -> str:
     """Execute a research session tool and return the result as a string."""
 
@@ -252,19 +251,6 @@ async def execute_research_session_tool(
                     mode=mode,
                     trigger="self_initiated"  # Mark as self-initiated
                 )
-
-                # Optionally mark rhythm phase as in progress
-                if rhythm_manager:
-                    try:
-                        current_phase = rhythm_manager.get_current_phase()
-                        if current_phase and current_phase.get("activity_type") == "research":
-                            rhythm_manager.mark_phase_completed(
-                                current_phase["id"],
-                                session_type="research",
-                                session_id=session.session_id
-                            )
-                    except Exception:
-                        pass  # Don't fail if rhythm marking fails
 
                 result = {
                     "success": True,

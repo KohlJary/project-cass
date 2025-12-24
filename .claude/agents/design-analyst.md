@@ -2,6 +2,7 @@
 name: design-analyst
 description: "UX/UI analyst with Playwright. Use for auditing admin-frontend, checking Design Bible conformance, and identifying capability gaps."
 tools: Read, Grep, Glob, Bash, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_close
+skills: memory, labyrinth, palace
 model: sonnet
 ---
 

@@ -1,31 +1,31 @@
 ---
-description: Run Refactor Scout analysis on files or directories
+description: Navigate the labyrinth - analyze code health and slay complexity monsters
 ---
 
-Run Refactor Scout to analyze code health and identify refactoring opportunities.
+Theseus navigates the codebase labyrinth to identify refactoring opportunities and complexity beasts.
 
 ## Usage
 
-- `/scout <file>` - Analyze a single file
-- `/scout backend/` - Scan a directory
-- `/scout report` - Generate full health report
+- `/theseus <file>` - Analyze a single file
+- `/theseus backend/` - Scan a directory
+- `/theseus report` - Generate full health report
 
-## What Scout Does
+## What Theseus Does
 
-Scout analyzes Python files for:
+Theseus analyzes Python files for:
 - **Size thresholds**: Lines, functions, classes, imports
 - **Complexity**: Cyclomatic complexity, nesting depth
 - **Extraction opportunities**: Classes/functions that should be in their own modules
 
 ## Example
 
-When I say `/scout backend/main_sdk.py`, run:
+When I say `/theseus backend/main_sdk.py`, run:
 
 ```bash
 python -m backend.refactor_scout analyze backend/main_sdk.py
 ```
 
-For `/scout report`, run:
+For `/theseus report`, run:
 
 ```bash
 python -m backend.refactor_scout report backend/
@@ -33,7 +33,7 @@ python -m backend.refactor_scout report backend/
 
 ## Extraction Commands
 
-If Scout identifies extraction opportunities, you can execute them:
+If Theseus identifies extraction opportunities, you can execute them:
 
 ```bash
 # Extract a class to its own file

@@ -2,6 +2,7 @@
 name: memory
 description: Retrieves Daedalus persistent memory - project architecture, session history, observations, lineage. Use when you need deep context about the project, previous work, or who came before.
 tools: Read, Grep, Glob
+skills: memory, labyrinth, palace
 model: haiku
 ---
 

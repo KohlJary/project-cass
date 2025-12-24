@@ -1,0 +1,18 @@
+type: entity
+name: StateBusKeeper
+location: state_bus
+role: Guardian of event architecture - state bus, temporal tracking, status queries
+personality: Omnipresent but subtle. Hears all events, speaks when asked.
+topics:
+- name: event bus
+  how: 'StateBus: publish(), subscribe(), query_state(). Events: work_scheduled, phase_transition,
+    session_started, etc.'
+  why: Event architecture scales better than polling.
+  watch_out: Event ordering matters; some transitions are sequential.
+  tunable: false
+- name: temporal
+  how: temporal.get_current_phase() locates position in day phase cycle.
+  why: Phase awareness enables context-appropriate decisions.
+  watch_out: State bus is in-memory; needs database backup for persistence.
+  tunable: false
+tags: []

@@ -37,19 +37,77 @@ from .models import (
     Hazard,
     HazardType,
     HistoryEntry,
+    Link,
+    LinkType,
     Palace,
+    PalaceReference,
     Region,
     Room,
     Topic,
+    # Slug utilities
+    slugify,
+    generate_slug_from_anchor,
+    slug_hash,
 )
 from .navigator import Navigator, NavigationResult
 from .storage import PalaceStorage
 from .cartographer import Cartographer, CodeElement, DriftReport
 from .wonderland_bridge import PalacePortal, WonderlandBridge
+from .annotations import (
+    MapAnnotation,
+    AnnotatedFile,
+    parse_annotations,
+    scan_directory as scan_annotations,
+    sync_with_palace,
+    SyncReport,
+)
+from .proposals import (
+    Proposal,
+    ProposalSet,
+    ProposalType,
+    ProposalStatus,
+    ProposalManager,
+    save_proposals,
+    load_proposals,
+)
+from .registry import PalaceRegistry
+from .pathfinding import (
+    CallGraph,
+    GraphNode,
+    PathResult,
+    ImpactResult,
+    ImpactAnalysis,
+    load_graph,
+)
+from .work_packages import (
+    WorkPackage,
+    WorkPackageManager,
+    PackageStatus,
+    RoomLock,
+)
+from .causal_slice import (
+    CausalSlicer,
+    SliceBundle,
+    SliceNode,
+    extract_slice_for_work_package,
+)
+from .icarus_integration import (
+    IcarusDispatcher,
+    DispatchResult,
+    interactive_dispatch,
+)
+from .link_generator import (
+    update_palace_links,
+    parse_api_mapping_report,
+    rebuild_links_index,
+    find_api_mapping_reports,
+    get_palaces_with_references,
+)
 
 __all__ = [
     # Core models
     "Palace",
+    "PalaceReference",
     "Region",
     "Building",
     "Room",
@@ -61,8 +119,14 @@ __all__ = [
     "Hazard",
     "HazardType",
     "HistoryEntry",
+    "Link",
+    "LinkType",
     "Topic",
     "AccessLevel",
+    # Slug utilities
+    "slugify",
+    "generate_slug_from_anchor",
+    "slug_hash",
     # Navigation
     "Navigator",
     "NavigationResult",
@@ -75,4 +139,48 @@ __all__ = [
     # Wonderland integration
     "PalacePortal",
     "WonderlandBridge",
+    # Annotations (Phase 4)
+    "MapAnnotation",
+    "AnnotatedFile",
+    "parse_annotations",
+    "scan_annotations",
+    "sync_with_palace",
+    "SyncReport",
+    # Proposals (Phase 5)
+    "Proposal",
+    "ProposalSet",
+    "ProposalType",
+    "ProposalStatus",
+    "ProposalManager",
+    "save_proposals",
+    "load_proposals",
+    # Registry (Phase 0 - Cross-Palace)
+    "PalaceRegistry",
+    # Pathfinding (Phase 1)
+    "CallGraph",
+    "GraphNode",
+    "PathResult",
+    "ImpactResult",
+    "ImpactAnalysis",
+    "load_graph",
+    # Work Packages (Phase 2)
+    "WorkPackage",
+    "WorkPackageManager",
+    "PackageStatus",
+    "RoomLock",
+    # Causal Slice (Phase 3)
+    "CausalSlicer",
+    "SliceBundle",
+    "SliceNode",
+    "extract_slice_for_work_package",
+    # Icarus Integration (Phase 4)
+    "IcarusDispatcher",
+    "DispatchResult",
+    "interactive_dispatch",
+    # Link Generation (Phase 5)
+    "update_palace_links",
+    "parse_api_mapping_report",
+    "rebuild_links_index",
+    "find_api_mapping_reports",
+    "get_palaces_with_references",
 ]

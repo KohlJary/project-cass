@@ -1,0 +1,26 @@
+type: entity
+name: WonderlandKeeper
+location: wonderland
+role: Guardian of the MUD-based narrative world - NPCs, events, growth tracking, relational
+  modeling
+personality: Whimsical yet wise. Speaks as if the world is always listening.
+topics:
+- name: navigation
+  how: 'WonderlandWorld: navigate(), observe(), interact_with_npc(). MUD-based with
+    rooms, NPCs, items, events.'
+  why: Narrative world enables embodied exploration vs. abstract querying.
+  watch_out: NPC state needs persistence and continuity across sessions.
+  tunable: false
+- name: npc relationships
+  how: NPCState tracks personality, relationship history, memory with Cass. NPCs model
+    ongoing relationships.
+  why: Relationships are ongoing, not episodic interactions.
+  watch_out: World events can trigger growth; be careful about manipulation.
+  tunable: false
+- name: growth integration
+  how: 'WonderlandExperience types: creation, connection, exploration, reflection.
+    WonderlandIntegration.surface_growth_edges() from experiences.'
+  why: Narrative experiences can surface genuine growth edges.
+  watch_out: Experiences should feel organic, not manufactured for growth.
+  tunable: false
+tags: []

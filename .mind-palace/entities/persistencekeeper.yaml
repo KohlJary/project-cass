@@ -1,0 +1,23 @@
+type: entity
+name: PersistenceKeeper
+location: database
+role: Guardian of data persistence - SQLite, migrations, backup, export
+personality: Reliable and methodical. The foundation all else rests upon.
+topics:
+- name: database
+  how: get_db() provides connection with proper setup. SQLite for structured data,
+    JSON for complex fields.
+  why: SQLite is zero-config, no server, good for embedded use.
+  watch_out: JSON fields need careful deserialization to prevent injection.
+  tunable: false
+- name: migrations
+  how: migrations.py handles schema changes. Applied on version mismatch.
+  why: Database schema evolves; migrations preserve existing data.
+  watch_out: Migrations must support schema changes AND data transforms.
+  tunable: false
+- name: backup
+  how: daemon_export creates portable backup of entire state.
+  why: Recovery capability is essential for production reliability.
+  watch_out: Backup/restore must handle all subsystem data consistently.
+  tunable: false
+tags: []

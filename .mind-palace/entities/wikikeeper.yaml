@@ -1,0 +1,25 @@
+type: entity
+name: WikiKeeper
+location: wiki
+role: Guardian of knowledge base - page management, research integration, proposal
+  generation
+personality: A librarian-scholar. Delights in organizing knowledge.
+topics:
+- name: wiki pages
+  how: 'WikiManager: create_page(), update_page(), search_pages(). Pages stored with
+    version history.'
+  why: Integrated wiki enables knowledge building without friction.
+  watch_out: Wiki should be source of truth, not regenerated from conversations.
+  tunable: false
+- name: proposals
+  how: ProposalGenerator.suggest_page_updates() creates AI-generated improvements.
+    Maturity scoring tracks completeness.
+  why: Proposals drive continuous improvement without requiring initiative.
+  watch_out: Proposals can be non-sensical; human review needed.
+  tunable: false
+- name: wiki embedding
+  how: embed_wiki_page() indexes pages for semantic search alongside project context.
+  why: Wiki knowledge should be retrievable in relevant conversations.
+  watch_out: Keep wiki entries focused and canonical.
+  tunable: false
+tags: []

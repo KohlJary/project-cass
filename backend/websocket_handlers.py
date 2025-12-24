@@ -38,7 +38,6 @@ _state = {
     "self_model_graph": None,
     "goal_manager": None,
     "marker_store": None,
-    "daily_rhythm_manager": None,
     "token_tracker": None,
     "temporal_metrics_tracker": None,
     "connection_manager": None,
@@ -88,7 +87,6 @@ def init_websocket_state(
     self_model_graph,
     goal_manager,
     marker_store,
-    daily_rhythm_manager,
     token_tracker,
     temporal_metrics_tracker,
     connection_manager,
@@ -119,7 +117,6 @@ def init_websocket_state(
     _state["self_model_graph"] = self_model_graph
     _state["goal_manager"] = goal_manager
     _state["marker_store"] = marker_store
-    _state["daily_rhythm_manager"] = daily_rhythm_manager
     _state["token_tracker"] = token_tracker
     _state["temporal_metrics_tracker"] = temporal_metrics_tracker
     _state["connection_manager"] = connection_manager
@@ -220,7 +217,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     self_model_graph = _state["self_model_graph"]
     goal_manager = _state["goal_manager"]
     marker_store = _state["marker_store"]
-    daily_rhythm_manager = _state["daily_rhythm_manager"]
     token_tracker = _state["token_tracker"]
     temporal_metrics_tracker = _state["temporal_metrics_tracker"]
     agent_client = _state["agent_client"]
@@ -805,7 +801,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         unsummarized_count=unsummarized_count,
                         image=image_data,
                         image_media_type=image_media_type,
-                        rhythm_manager=daily_rhythm_manager,
                         memory=memory,
                         conversation_id=conversation_id,
                         user_context=user_context if user_context else None,

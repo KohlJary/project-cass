@@ -2,6 +2,7 @@
 name: roadmap
 description: "Query roadmap items, work items, and project planning data. Use when discussing features to implement, bugs to fix, or project priorities."
 tools: Read, Glob
+skills: memory, labyrinth, palace
 model: haiku
 ---
 

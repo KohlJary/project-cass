@@ -103,8 +103,6 @@ from research import ResearchManager
 from research_session import ResearchSessionManager
 from research_scheduler import ResearchScheduler, SessionType
 from research_session_runner import ResearchSessionRunner
-from daily_rhythm import DailyRhythmManager
-from handlers.daily_rhythm import execute_daily_rhythm_tool
 import base64
 
 # Startup helpers (extracted for clarity)
@@ -320,7 +318,6 @@ goal_manager = GoalManager(data_dir=DATA_DIR)
 research_manager = ResearchManager()
 research_session_manager = ResearchSessionManager()
 research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
-daily_rhythm_manager = DailyRhythmManager()
 
 # Initialize interview system
 from interviews import InterviewAnalyzer
@@ -471,7 +468,6 @@ def create_tool_context(
         research_session_manager=research_session_manager,
         research_scheduler=research_scheduler,
         research_runner=get_research_runner(),
-        rhythm_manager=daily_rhythm_manager,
         reflection_manager=reflection_manager,
         project_manager=project_manager,
         consciousness_test_runner=g.get('consciousness_test_runner'),
@@ -547,7 +543,7 @@ init_auth_routes(auth_service)
 app.include_router(auth_router)
 
 # Register admin routes
-from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_daily_rhythm_manager, init_research_manager, init_goal_manager, init_narrative_managers
+from admin_api import router as admin_router, init_managers as init_admin_managers, init_research_session_manager, init_research_scheduler, init_github_metrics, init_token_tracker, init_research_manager, init_goal_manager, init_narrative_managers
 # Note: init_admin_managers is called in background task after heavy components load
 # Conversation and user managers are passed immediately since they don't need ChromaDB
 init_admin_managers(None, conversation_manager, user_manager, None)  # memory/self_manager set in background
@@ -555,7 +551,6 @@ init_research_session_manager(research_session_manager)
 init_research_scheduler(research_scheduler)
 init_github_metrics(github_metrics_manager)
 init_token_tracker(token_tracker)
-init_daily_rhythm_manager(daily_rhythm_manager)
 init_research_manager(research_manager)
 init_goal_manager(goal_manager)
 init_narrative_managers(thread_manager, question_manager, token_tracker=token_tracker)
@@ -936,7 +931,6 @@ async def startup_event():
                 "conversation_manager": conversation_manager,
                 "memory": memory,
                 "token_tracker": token_tracker,
-                "rhythm_manager": daily_rhythm_manager,
                 "runners": runners_dict,
                 "self_model_graph": self_model_graph,
                 # For daily_journal handler
@@ -1000,8 +994,7 @@ async def startup_event():
                             # Research & wiki
                             "research_scheduler": research_scheduler,
                             "wiki_manager": wiki_storage,
-                            # Rhythm & tracking
-                            "rhythm_manager": daily_rhythm_manager,
+                            # Tracking
                             "token_tracker": token_tracker,
                             "github_metrics_manager": github_metrics_manager,
                             # Journal generation functions
@@ -1112,14 +1105,6 @@ async def startup_event():
                 memory=memory,
                 token_tracker=token_tracker
             ))
-            # OLD DAILY RHYTHM DISABLED - replaced by autonomous scheduling
-            # TODO: Remove DailyRhythmManager and rhythm_phase_monitor_task entirely
-            # See scheduler/MIGRATION_PLAN.md for cleanup steps
-            # asyncio.create_task(rhythm_phase_monitor_task(
-            #     daily_rhythm_manager,
-            #     runners={...},
-            #     self_model_graph=self_model_graph
-            # ))
 
     asyncio.create_task(start_deferred_tasks())
 
@@ -1527,8 +1512,7 @@ async def chat(request: ChatRequest):
                         tool_input=tool_use["input"],
                         session_manager=research_session_manager,
                         conversation_id=request.conversation_id,
-                        research_runner=get_research_runner(),
-                        rhythm_manager=daily_rhythm_manager
+                        research_runner=get_research_runner()
                     )
                     import json as json_module
                     tool_result = json_module.loads(tool_result_str)
@@ -1541,18 +1525,6 @@ async def chat(request: ChatRequest):
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
                         scheduler=research_scheduler
-                    )
-                    import json as json_module
-                    tool_result = json_module.loads(tool_result_str)
-                    if "error" in tool_result:
-                        tool_result = {"success": False, "error": tool_result["error"]}
-                    else:
-                        tool_result = {"success": True, "result": tool_result_str}
-                elif tool_name in ["get_daily_rhythm_status", "get_temporal_context", "mark_rhythm_phase_complete", "get_rhythm_stats"]:
-                    tool_result_str = await execute_daily_rhythm_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        rhythm_manager=daily_rhythm_manager
                     )
                     import json as json_module
                     tool_result = json_module.loads(tool_result_str)
@@ -2891,7 +2863,7 @@ from journal_tasks import _create_development_log_entry, daily_journal_task
 from context_helpers import process_inline_tags, get_automatic_wiki_context
 from research_integration import _integrate_research_into_self_model, _extract_and_store_opinions, _extract_and_queue_new_red_links
 from summary_generation import generate_and_store_summary, generate_conversation_title
-from background_tasks import autonomous_research_task, github_metrics_task, rhythm_phase_monitor_task, idle_summarization_task
+from background_tasks import autonomous_research_task, github_metrics_task, idle_summarization_task
 
 # Initialize the runner (lazy - created when needed)
 _reflection_runner: Optional[SoloReflectionRunner] = None
@@ -2996,7 +2968,6 @@ def get_meta_reflection_runner() -> MetaReflectionRunner:
         _meta_reflection_runner = MetaReflectionRunner(
             self_manager=self_manager,
             self_model_graph=self_model_graph,
-            rhythm_manager=daily_rhythm_manager,
             marker_store=marker_store,
             anthropic_api_key=ANTHROPIC_API_KEY,
             use_haiku=True,
@@ -4982,7 +4953,6 @@ def _init_websocket_state():
         self_model_graph=self_model_graph,
         goal_manager=goal_manager,
         marker_store=marker_store,
-        daily_rhythm_manager=daily_rhythm_manager,
         token_tracker=token_tracker,
         temporal_metrics_tracker=temporal_metrics_tracker,
         connection_manager=manager,
