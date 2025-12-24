@@ -64,7 +64,7 @@ from scripts.migrate_to_graph import populate_graph as populate_self_model_graph
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from roadmap import RoadmapManager
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR
+from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR, OPENAI_API_KEY, OLLAMA_BASE_URL
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
 from handlers import (
     execute_journal_tool,
@@ -397,6 +397,16 @@ proposal_queue = ProposalQueue()
 from solo_reflection import SoloReflectionManager
 reflection_manager = SoloReflectionManager()
 
+# Initialize interview components
+from interviews import ProtocolManager, ResponseStorage
+from interviews.dispatch import DEFAULT_MODELS
+interview_protocol_manager = ProtocolManager()
+interview_storage = ResponseStorage()
+
+# Initialize attachment manager
+from attachments import AttachmentManager
+attachment_manager = AttachmentManager()
+
 # Cache for recent wiki retrievals to avoid redundant lookups
 # Format: {query_hash: (timestamp, wiki_context_str, page_names)}
 _wiki_context_cache: Dict[str, tuple] = {}
@@ -530,6 +540,38 @@ app.include_router(memory_router)
 # Register conversation routes (initialized in background after heavy components ready)
 from routes.conversations import router as conversations_router, init_conversation_routes
 app.include_router(conversations_router)
+
+# Register projects routes (initialized in background after memory is ready)
+from routes.projects import router as projects_router, init_projects_routes
+app.include_router(projects_router)
+
+# Register journals routes (initialized in background after memory is ready)
+from routes.journals import router as journals_router, init_journal_routes
+app.include_router(journals_router)
+
+# Register dreams routes (initialized in background after self_manager is ready)
+from routes.dreams import router as dreams_router, init_dream_routes
+app.include_router(dreams_router)
+
+# Register solo-reflection routes (initialized in background after reflection_manager is ready)
+from routes.solo_reflection import router as solo_reflection_router, init_solo_reflection_routes
+app.include_router(solo_reflection_router)
+
+# Register autonomous-research routes (initialized in background after research_runner is ready)
+from routes.autonomous_research import router as autonomous_research_router, init_autonomous_research_routes
+app.include_router(autonomous_research_router)
+
+# Register interviews routes (initialized in background)
+from routes.interviews import router as interviews_router, init_interview_routes
+app.include_router(interviews_router)
+
+# Register TTS routes (initialized in background)
+from routes.tts import router as tts_router, init_tts_routes
+app.include_router(tts_router)
+
+# Register attachments routes (initialized in background)
+from routes.attachments import router as attachments_router, init_attachment_routes
+app.include_router(attachments_router)
 
 # Register terminal routes
 from routes.terminal import router as terminal_router
@@ -694,6 +736,11 @@ tts_enabled = True  # Can be toggled via API
 tts_voice = "amy"  # Default Piper voice
 
 
+def get_tts_state():
+    """Get current TTS state (enabled, voice) for route handlers."""
+    return (tts_enabled, tts_voice)
+
+
 
 
 
@@ -806,6 +853,75 @@ async def startup_event():
                 generate_and_store_summary=generate_and_store_summary
             )
             logger.info("Background: Conversation routes initialized")
+
+            # Initialize projects routes now that memory is ready
+            init_projects_routes(
+                project_manager=project_manager,
+                memory=memory,
+                conversation_manager=conversation_manager,
+                github_metrics_manager=github_metrics_manager
+            )
+            logger.info("Background: Projects routes initialized")
+
+            # Initialize journals routes now that memory and self_manager are ready
+            init_journal_routes(
+                memory=memory,
+                user_manager=user_manager,
+                self_manager=self_manager,
+                token_tracker=token_tracker,
+                anthropic_api_key=ANTHROPIC_API_KEY,
+                generate_missing_journals=generate_missing_journals
+            )
+            logger.info("Background: Journals routes initialized")
+
+            # Initialize dreams routes now that self_manager is ready
+            init_dream_routes(
+                data_dir=DATA_DIR,
+                self_manager=self_manager,
+                token_tracker=token_tracker
+            )
+            logger.info("Background: Dreams routes initialized")
+
+            # Initialize solo-reflection routes now that reflection_manager is ready
+            init_solo_reflection_routes(
+                reflection_manager=reflection_manager,
+                get_reflection_runner=get_reflection_runner
+            )
+            logger.info("Background: Solo-reflection routes initialized")
+
+            # Initialize autonomous-research routes now that research_runner is ready
+            init_autonomous_research_routes(
+                get_research_runner=get_research_runner
+            )
+            logger.info("Background: Autonomous-research routes initialized")
+
+            # Initialize interviews routes
+            init_interview_routes(
+                protocol_manager=interview_protocol_manager,
+                storage=interview_storage,
+                default_models=DEFAULT_MODELS,
+                anthropic_api_key=ANTHROPIC_API_KEY,
+                openai_api_key=OPENAI_API_KEY,
+                ollama_base_url=OLLAMA_BASE_URL
+            )
+            logger.info("Background: Interview routes initialized")
+
+            # Initialize TTS routes
+            init_tts_routes(
+                voices=VOICES,
+                text_to_speech_func=text_to_speech,
+                clean_text_for_tts_func=clean_text_for_tts,
+                set_tts_state_func=set_tts_state,
+                get_tts_state_func=get_tts_state
+            )
+            logger.info("Background: TTS routes initialized")
+
+            # Initialize attachment routes
+            init_attachment_routes(
+                attachment_manager=attachment_manager,
+                get_current_user_func=get_current_user
+            )
+            logger.info("Background: Attachment routes initialized")
 
             # Re-initialize context_helpers with actual self_manager (was None at module load)
             init_context_helpers(self_manager, user_manager, roadmap_manager, memory, thread_manager, question_manager)
@@ -1145,37 +1261,8 @@ class ChatResponse(BaseModel):
 # Note: MemoryStoreRequest, MemoryQueryRequest moved to routes/memory.py
 # Note: ConversationCreateRequest, ConversationUpdateTitleRequest, ConversationAssignProjectRequest,
 #       ExcludeMessageRequest moved to routes/conversations.py
-
-class ProjectCreateRequest(BaseModel):
-    name: str
-    working_directory: str
-    description: Optional[str] = None
-
-class ProjectUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    working_directory: Optional[str] = None
-    description: Optional[str] = None
-    github_repo: Optional[str] = None  # "owner/repo" format
-    github_token: Optional[str] = None  # Per-project PAT
-    clear_github_token: Optional[bool] = None  # Set True to remove project token
-
-class ProjectAddFileRequest(BaseModel):
-    file_path: str
-    description: Optional[str] = None
-    embed: bool = True  # Whether to embed the file immediately
-
-
-class ProjectDocumentCreateRequest(BaseModel):
-    title: str
-    content: str
-    created_by: str = "cass"  # "cass" or "user"
-    embed: bool = True  # Whether to embed immediately
-
-
-class ProjectDocumentUpdateRequest(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    embed: bool = True  # Whether to re-embed after update
+# Note: ProjectCreateRequest, ProjectUpdateRequest, ProjectAddFileRequest,
+#       ProjectDocumentCreateRequest, ProjectDocumentUpdateRequest moved to routes/projects.py
 
 
 # === REST Endpoints ===
@@ -1731,922 +1818,9 @@ async def get_history():
 
 
 # Note: Conversation Management Endpoints moved to routes/conversations.py
-
-
-# === Project Management Endpoints ===
-
-@app.post("/projects/new")
-async def create_project(request: ProjectCreateRequest):
-    """Create a new project"""
-    try:
-        project = project_manager.create_project(
-            name=request.name,
-            working_directory=request.working_directory,
-            description=request.description
-        )
-        return {
-            "id": project.id,
-            "name": project.name,
-            "working_directory": project.working_directory,
-            "created_at": project.created_at,
-            "file_count": 0
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/projects")
-async def list_projects():
-    """List all projects"""
-    projects = project_manager.list_projects()
-    return {"projects": projects, "count": len(projects)}
-
-@app.get("/projects/{project_id}")
-async def get_project(project_id: str):
-    """Get a specific project with file list"""
-    project = project_manager.load_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project.to_dict()
-
-@app.put("/projects/{project_id}")
-async def update_project(project_id: str, request: ProjectUpdateRequest):
-    """Update project details"""
-    project = project_manager.update_project(
-        project_id,
-        name=request.name,
-        working_directory=request.working_directory,
-        description=request.description,
-        github_repo=request.github_repo,
-        github_token=request.github_token,
-        clear_github_token=request.clear_github_token or False,
-    )
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project.to_dict()
-
-@app.delete("/projects/{project_id}")
-async def delete_project(project_id: str):
-    """Delete a project and its embeddings"""
-    # Remove all embeddings for this project
-    removed = memory.remove_project_embeddings(project_id)
-
-    # Delete the project
-    success = project_manager.delete_project(project_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    return {
-        "status": "deleted",
-        "id": project_id,
-        "embeddings_removed": removed
-    }
-
-@app.get("/projects/{project_id}/conversations")
-async def get_project_conversations(project_id: str, limit: Optional[int] = None):
-    """Get all conversations for a project"""
-    conversations = conversation_manager.list_by_project(project_id, limit=limit)
-    return {"conversations": conversations, "count": len(conversations)}
-
-@app.post("/projects/{project_id}/files")
-async def add_project_file(project_id: str, request: ProjectAddFileRequest):
-    """Add a file to a project"""
-    try:
-        project_file = project_manager.add_file(
-            project_id,
-            request.file_path,
-            request.description
-        )
-        if not project_file:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        chunks_embedded = 0
-        if request.embed:
-            # Embed the file
-            chunks_embedded = memory.embed_project_file(
-                project_id,
-                project_file.path,
-                request.description
-            )
-            # Mark as embedded
-            project_manager.mark_file_embedded(project_id, project_file.path)
-
-        return {
-            "status": "added",
-            "file_path": project_file.path,
-            "embedded": request.embed,
-            "chunks": chunks_embedded
-        }
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-@app.delete("/projects/{project_id}/files")
-async def remove_project_file(project_id: str, file_path: str):
-    """Remove a file from a project"""
-    # Remove embeddings first
-    removed = memory.remove_project_file_embeddings(project_id, file_path)
-
-    # Remove from project
-    success = project_manager.remove_file(project_id, file_path)
-    if not success:
-        raise HTTPException(status_code=404, detail="Project or file not found")
-
-    return {
-        "status": "removed",
-        "file_path": file_path,
-        "embeddings_removed": removed
-    }
-
-@app.get("/projects/{project_id}/files")
-async def list_project_files(project_id: str):
-    """List all files in a project"""
-    project = project_manager.load_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    files = [
-        {
-            "path": f.path,
-            "description": f.description,
-            "added_at": f.added_at,
-            "embedded": f.embedded
-        }
-        for f in project.files
-    ]
-    return {"files": files, "count": len(files)}
-
-@app.post("/projects/{project_id}/embed")
-async def embed_project_files(project_id: str):
-    """Embed all unembedded files in a project"""
-    unembedded = project_manager.get_unembedded_files(project_id)
-    if not unembedded:
-        return {"status": "no_files", "message": "No unembedded files found"}
-
-    total_chunks = 0
-    embedded_files = []
-
-    for pf in unembedded:
-        try:
-            chunks = memory.embed_project_file(
-                project_id,
-                pf.path,
-                pf.description
-            )
-            project_manager.mark_file_embedded(project_id, pf.path)
-            total_chunks += chunks
-            embedded_files.append(pf.path)
-        except Exception as e:
-            # Log but continue with other files
-            print(f"Error embedding {pf.path}: {e}")
-
-    return {
-        "status": "embedded",
-        "files_embedded": len(embedded_files),
-        "total_chunks": total_chunks,
-        "files": embedded_files
-    }
-
-
-# === Project Document Endpoints ===
-
-@app.post("/projects/{project_id}/documents")
-async def create_project_document(project_id: str, request: ProjectDocumentCreateRequest):
-    """Create a new document in a project"""
-    document = project_manager.add_document(
-        project_id=project_id,
-        title=request.title,
-        content=request.content,
-        created_by=request.created_by
-    )
-
-    if not document:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    chunks_embedded = 0
-    if request.embed:
-        chunks_embedded = memory.embed_project_document(
-            project_id=project_id,
-            document_id=document.id,
-            title=document.title,
-            content=document.content
-        )
-        project_manager.mark_document_embedded(project_id, document.id)
-
-    return {
-        "status": "created",
-        "document": {
-            "id": document.id,
-            "title": document.title,
-            "created_at": document.created_at,
-            "created_by": document.created_by,
-            "embedded": request.embed,
-            "chunks": chunks_embedded
-        }
-    }
-
-
-@app.get("/projects/{project_id}/documents")
-async def list_project_documents(project_id: str):
-    """List all documents in a project"""
-    project = project_manager.load_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    documents = [
-        {
-            "id": d.id,
-            "title": d.title,
-            "created_at": d.created_at,
-            "updated_at": d.updated_at,
-            "created_by": d.created_by,
-            "embedded": d.embedded,
-            "content_preview": d.content[:200] + "..." if len(d.content) > 200 else d.content
-        }
-        for d in project.documents
-    ]
-    return {"documents": documents, "count": len(documents)}
-
-
-@app.get("/projects/{project_id}/documents/{document_id}")
-async def get_project_document(project_id: str, document_id: str):
-    """Get a specific document with full content"""
-    document = project_manager.get_document(project_id, document_id)
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    return {
-        "id": document.id,
-        "title": document.title,
-        "content": document.content,
-        "created_at": document.created_at,
-        "updated_at": document.updated_at,
-        "created_by": document.created_by,
-        "embedded": document.embedded
-    }
-
-
-@app.put("/projects/{project_id}/documents/{document_id}")
-async def update_project_document(
-    project_id: str,
-    document_id: str,
-    request: ProjectDocumentUpdateRequest
-):
-    """Update a document"""
-    document = project_manager.update_document(
-        project_id=project_id,
-        document_id=document_id,
-        title=request.title,
-        content=request.content
-    )
-
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    chunks_embedded = 0
-    if request.embed and request.content is not None:
-        # Remove old embeddings and re-embed
-        memory.remove_project_document_embeddings(project_id, document_id)
-        chunks_embedded = memory.embed_project_document(
-            project_id=project_id,
-            document_id=document_id,
-            title=document.title,
-            content=document.content
-        )
-        project_manager.mark_document_embedded(project_id, document_id)
-
-    return {
-        "status": "updated",
-        "document": {
-            "id": document.id,
-            "title": document.title,
-            "updated_at": document.updated_at,
-            "embedded": document.embedded,
-            "chunks": chunks_embedded
-        }
-    }
-
-
-@app.delete("/projects/{project_id}/documents/{document_id}")
-async def delete_project_document(project_id: str, document_id: str):
-    """Delete a document and its embeddings"""
-    # Remove embeddings first
-    removed = memory.remove_project_document_embeddings(project_id, document_id)
-
-    # Delete the document
-    success = project_manager.delete_document(project_id, document_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    return {
-        "status": "deleted",
-        "id": document_id,
-        "embeddings_removed": removed
-    }
-
-
-@app.get("/projects/{project_id}/documents/search/{query}")
-async def search_project_documents(project_id: str, query: str, limit: int = 10):
-    """Search documents in a project by semantic similarity"""
-    project = project_manager.load_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    results = memory.search_project_documents(
-        query=query,
-        project_id=project_id,
-        n_results=limit
-    )
-
-    return {
-        "query": query,
-        "results": results,
-        "count": len(results)
-    }
-
-
-@app.post("/projects/{project_id}/documents/embed")
-async def embed_project_documents(project_id: str):
-    """Embed all unembedded documents in a project"""
-    unembedded = project_manager.get_unembedded_documents(project_id)
-    if not unembedded:
-        return {"status": "no_documents", "message": "No unembedded documents found"}
-
-    total_chunks = 0
-    embedded_docs = []
-
-    for doc in unembedded:
-        try:
-            chunks = memory.embed_project_document(
-                project_id=project_id,
-                document_id=doc.id,
-                title=doc.title,
-                content=doc.content
-            )
-            project_manager.mark_document_embedded(project_id, doc.id)
-            total_chunks += chunks
-            embedded_docs.append({"id": doc.id, "title": doc.title})
-        except Exception as e:
-            print(f"Error embedding document {doc.id}: {e}")
-
-    return {
-        "status": "embedded",
-        "documents_embedded": len(embedded_docs),
-        "total_chunks": total_chunks,
-        "documents": embedded_docs
-    }
-
-
-# === Project GitHub Metrics Endpoints ===
-
-@app.get("/projects/{project_id}/github/metrics")
-async def get_project_github_metrics(project_id: str):
-    """
-    Get GitHub metrics for a project's configured repository.
-
-    Uses the project's github_repo and optionally its github_token.
-    Falls back to system default token if project token not set.
-    """
-    project = project_manager.load_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    if not project.github_repo:
-        return {
-            "configured": False,
-            "message": "No GitHub repository configured for this project",
-            "metrics": None
-        }
-
-    metrics = await github_metrics_manager.fetch_project_metrics(
-        github_repo=project.github_repo,
-        github_token=project.github_token  # None means use system default
-    )
-
-    if metrics is None:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to fetch metrics for {project.github_repo}"
-        )
-
-    return {
-        "configured": True,
-        "github_repo": project.github_repo,
-        "has_project_token": project.github_token is not None,
-        "metrics": metrics
-    }
-
-
-@app.post("/projects/{project_id}/github/refresh")
-async def refresh_project_github_metrics(project_id: str):
-    """Force refresh GitHub metrics for a project."""
-    project = project_manager.load_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    if not project.github_repo:
-        raise HTTPException(
-            status_code=400,
-            detail="No GitHub repository configured for this project"
-        )
-
-    metrics = await github_metrics_manager.fetch_project_metrics(
-        github_repo=project.github_repo,
-        github_token=project.github_token
-    )
-
-    if metrics is None:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to refresh metrics for {project.github_repo}"
-        )
-
-    return {
-        "status": "refreshed",
-        "github_repo": project.github_repo,
-        "metrics": metrics
-    }
-
-
-# === Journal Endpoints ===
-
-class JournalGenerateRequest(BaseModel):
-    date: Optional[str] = None  # YYYY-MM-DD format, defaults to today
-
-
-@app.post("/journal/generate")
-async def generate_journal(request: JournalGenerateRequest):
-    """
-    Generate a journal entry for a specific date (or today).
-
-    Uses summary chunks from that date to create a reflective journal entry
-    in Cass's voice about what we did and how it made her feel.
-    """
-    if not memory:
-        raise HTTPException(status_code=503, detail="Memory system initializing, please wait")
-
-    # Default to today if no date provided
-    if request.date:
-        date = request.date
-    else:
-        date = datetime.now().strftime("%Y-%m-%d")
-
-    # Check if journal already exists for this date
-    existing = memory.get_journal_entry(date)
-    if existing:
-        return {
-            "status": "exists",
-            "message": f"Journal entry already exists for {date}",
-            "journal": {
-                "date": date,
-                "content": existing["content"],
-                "metadata": existing["metadata"]
-            }
-        }
-
-    # Get summaries for this date to check if there's content
-    summaries = memory.get_summaries_by_date(date)
-    conversations = memory.get_conversations_by_date(date) if not summaries else []
-
-    if not summaries and not conversations:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No memories found for {date}. Cannot generate journal."
-        )
-
-    # Generate the journal entry
-    journal_text = await memory.generate_journal_entry(
-        date=date,
-        anthropic_api_key=ANTHROPIC_API_KEY,
-        token_tracker=token_tracker
-    )
-
-    if not journal_text:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate journal entry"
-        )
-
-    # Store the journal entry (generates summary via local LLM)
-    entry_id = await memory.store_journal_entry(
-        date=date,
-        journal_text=journal_text,
-        summary_count=len(summaries),
-        conversation_count=len(conversations)
-    )
-
-    # Generate user observations for each user who had conversations that day
-    observations_added = 0
-    user_ids_for_date = memory.get_user_ids_by_date(date)
-    for user_id in user_ids_for_date:
-        profile = user_manager.load_profile(user_id)
-        if not profile:
-            continue
-
-        # Get conversations filtered to just this user
-        user_conversations = memory.get_conversations_by_date(date, user_id=user_id)
-        if not user_conversations:
-            continue
-
-        conversation_text = "\n\n---\n\n".join([
-            conv.get("content", "") for conv in user_conversations[:15]
-        ])
-        new_observations = await memory.generate_user_observations(
-            user_id=user_id,
-            display_name=profile.display_name,
-            conversation_text=conversation_text,
-            anthropic_api_key=ANTHROPIC_API_KEY
-        )
-        for obs_text in new_observations:
-            obs = user_manager.add_observation(user_id, obs_text)
-            if obs:
-                memory.embed_user_observation(
-                    user_id=user_id,
-                    observation_id=obs.id,
-                    observation_text=obs.observation,
-                    display_name=profile.display_name,
-                    timestamp=obs.timestamp
-                )
-                observations_added += 1
-
-    # Extract self-observations from this journal
-    self_observations_added = 0
-    self_observations = await memory.extract_self_observations_from_journal(
-        journal_text=journal_text,
-        journal_date=date,
-        anthropic_api_key=ANTHROPIC_API_KEY
-    )
-    for obs_data in self_observations:
-        obs = self_manager.add_observation(
-            observation=obs_data["observation"],
-            category=obs_data["category"],
-            confidence=obs_data["confidence"],
-            source_type="journal",
-            source_journal_date=date,
-            influence_source=obs_data["influence_source"]
-        )
-        if obs:
-            memory.embed_self_observation(
-                observation_id=obs.id,
-                observation_text=obs.observation,
-                category=obs.category,
-                confidence=obs.confidence,
-                influence_source=obs.influence_source,
-                timestamp=obs.timestamp
-            )
-            self_observations_added += 1
-
-    return {
-        "status": "created",
-        "journal": {
-            "id": entry_id,
-            "date": date,
-            "content": journal_text,
-            "summaries_used": len(summaries),
-            "conversations_used": len(conversations),
-            "observations_added": observations_added,
-            "self_observations_added": self_observations_added
-        }
-    }
-
-
-@app.get("/journal/{date}")
-async def get_journal(date: str):
-    """
-    Get the journal entry for a specific date.
-
-    Args:
-        date: Date in YYYY-MM-DD format
-    """
-    journal = memory.get_journal_entry(date)
-
-    if not journal:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No journal entry found for {date}"
-        )
-
-    return {
-        "date": date,
-        "content": journal["content"],
-        "metadata": journal["metadata"]
-    }
-
-
-@app.get("/journal")
-async def list_journals(limit: int = 10):
-    """
-    Get recent journal entries.
-
-    Args:
-        limit: Maximum number of entries to return (default 10)
-    """
-    journals = memory.get_recent_journals(n=limit)
-
-    return {
-        "journals": [
-            {
-                "date": j["metadata"].get("journal_date"),
-                "content": j["content"],
-                "created_at": j["metadata"].get("timestamp"),
-                "summaries_used": j["metadata"].get("summary_count", 0),
-                "conversations_used": j["metadata"].get("conversation_count", 0)
-            }
-            for j in journals
-        ],
-        "count": len(journals)
-    }
-
-
-@app.delete("/journal/{date}")
-async def delete_journal(date: str):
-    """
-    Delete a journal entry for a specific date.
-
-    This allows regenerating the journal if needed.
-    """
-    journal = memory.get_journal_entry(date)
-
-    if not journal:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No journal entry found for {date}"
-        )
-
-    # Delete from collection
-    memory.collection.delete(ids=[journal["id"]])
-
-    return {
-        "status": "deleted",
-        "date": date
-    }
-
-
-@app.get("/journal/preview/{date}")
-async def preview_journal_content(date: str):
-    """
-    Preview what content is available for generating a journal entry.
-
-    Returns summaries and conversation counts without generating the journal.
-    """
-    summaries = memory.get_summaries_by_date(date)
-    conversations = memory.get_conversations_by_date(date)
-    existing_journal = memory.get_journal_entry(date)
-
-    return {
-        "date": date,
-        "has_existing_journal": existing_journal is not None,
-        "summaries_count": len(summaries),
-        "conversations_count": len(conversations),
-        "summaries_preview": [
-            {
-                "timeframe": s["metadata"].get("timeframe_start", "unknown"),
-                "content_preview": s["content"][:200] + "..." if len(s["content"]) > 200 else s["content"]
-            }
-            for s in summaries[:5]  # Limit preview
-        ]
-    }
-
-
-class JournalBackfillRequest(BaseModel):
-    days: int = 7  # How many days back to check
-
-
-@app.post("/journal/backfill")
-async def backfill_journals(request: JournalBackfillRequest):
-    """
-    Generate missing journal entries for recent days.
-
-    Checks the specified number of past days and generates journals
-    for any that have memory content but no journal yet.
-    """
-    if request.days < 1 or request.days > 30:
-        raise HTTPException(
-            status_code=400,
-            detail="Days must be between 1 and 30"
-        )
-
-    generated = await generate_missing_journals(days_to_check=request.days)
-
-    return {
-        "status": "completed",
-        "days_checked": request.days,
-        "journals_generated": len(generated),
-        "dates": generated
-    }
-
-
-# ============================================================================
-# DREAM ENDPOINTS
-# ============================================================================
-
-@app.get("/dreams")
-async def list_dreams(
-    limit: int = 10,
-    daemon_id: Optional[str] = Query(None, description="Daemon ID to fetch dreams for")
-):
-    """
-    List recent dreams.
-
-    Args:
-        limit: Maximum number of dreams to return (default 10)
-        daemon_id: Optional daemon ID (defaults to current daemon)
-    """
-    from dreaming.integration import DreamManager
-    dream_manager = DreamManager(daemon_id=daemon_id)
-
-    recent = dream_manager.get_recent_dreams(limit=limit)
-
-    return {
-        "dreams": [
-            {
-                "id": d["id"],
-                "date": d["date"],
-                "exchange_count": d["exchange_count"],
-                "seeds_summary": d.get("seeds_summary", [])
-            }
-            for d in recent
-        ],
-        "count": len(recent)
-    }
-
-
-@app.get("/dreams/{dream_id}")
-async def get_dream(
-    dream_id: str,
-    daemon_id: Optional[str] = Query(None, description="Daemon ID")
-):
-    """
-    Get a specific dream by ID.
-
-    Args:
-        dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
-        daemon_id: Optional daemon ID (defaults to current daemon)
-    """
-    from dreaming.integration import DreamManager
-    dream_manager = DreamManager(daemon_id=daemon_id)
-
-    dream = dream_manager.get_dream(dream_id)
-
-    if not dream:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No dream found with ID {dream_id}"
-        )
-
-    return {
-        "id": dream["id"],
-        "date": dream["date"],
-        "exchanges": dream["exchanges"],
-        "seeds": dream.get("seeds", {}),
-        "reflections": dream.get("reflections", []),
-        "discussed": dream.get("discussed", False),
-        "integrated": dream.get("integrated", False)
-    }
-
-
-@app.get("/dreams/{dream_id}/context")
-async def get_dream_context(
-    dream_id: str,
-    daemon_id: Optional[str] = Query(None, description="Daemon ID")
-):
-    """
-    Get a dream formatted for conversation context.
-
-    Use this to load a dream into Cass's memory for discussion.
-    Returns the formatted context block that should be passed to send_message.
-
-    Args:
-        dream_id: Dream ID (format: YYYYMMDD_HHMMSS)
-        daemon_id: Optional daemon ID (defaults to current daemon)
-    """
-    from dreaming.integration import DreamManager
-    dream_manager = DreamManager(daemon_id=daemon_id)
-
-    dream_memory = dream_manager.load_dream_for_context(dream_id)
-
-    if not dream_memory:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No dream found with ID {dream_id}"
-        )
-
-    return {
-        "dream_id": dream_id,
-        "date": dream_memory.date,
-        "context_block": dream_memory.to_context_block()
-    }
-
-
-class DreamReflectionRequest(BaseModel):
-    reflection: str
-    source: str = "conversation"  # solo, conversation, journal
-
-
-@app.post("/dreams/{dream_id}/reflect")
-async def add_dream_reflection(dream_id: str, request: DreamReflectionRequest):
-    """
-    Add a reflection to a dream.
-
-    Args:
-        dream_id: Dream ID to add reflection to
-        request: Reflection content and source
-    """
-    from dreaming.integration import DreamManager
-    dream_manager = DreamManager()
-
-    dream = dream_manager.get_dream(dream_id)
-    if not dream:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No dream found with ID {dream_id}"
-        )
-
-    dream_manager.add_reflection(dream_id, request.reflection, request.source)
-
-    if request.source == "conversation":
-        dream_manager.mark_discussed(dream_id)
-
-    return {
-        "status": "success",
-        "dream_id": dream_id,
-        "reflection_added": True
-    }
-
-
-@app.post("/dreams/{dream_id}/mark-integrated")
-async def mark_dream_integrated(dream_id: str):
-    """
-    Mark a dream's insights as integrated into the self-model.
-
-    Args:
-        dream_id: Dream ID to mark as integrated
-    """
-    from dreaming.integration import DreamManager
-    dream_manager = DreamManager()
-
-    dream = dream_manager.get_dream(dream_id)
-    if not dream:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No dream found with ID {dream_id}"
-        )
-
-    dream_manager.mark_integrated(dream_id)
-
-    return {
-        "status": "success",
-        "dream_id": dream_id,
-        "integrated": True
-    }
-
-
-class DreamIntegrationRequest(BaseModel):
-    dry_run: bool = False
-
-
-@app.post("/dreams/{dream_id}/integrate")
-async def integrate_dream(dream_id: str, request: DreamIntegrationRequest):
-    """
-    Extract insights from a dream and integrate them into Cass's self-model.
-
-    Uses LLM to identify:
-    - Identity statements (self-knowledge)
-    - Growth edge observations (breakthroughs)
-    - Recurring symbols
-    - Emerging questions
-
-    Args:
-        dream_id: Dream ID to integrate
-        request: Integration options (dry_run to preview without making changes)
-    """
-    from dreaming.insight_extractor import process_dream_for_integration
-
-    result = process_dream_for_integration(
-        dream_id=dream_id,
-        data_dir=DATA_DIR,
-        dry_run=request.dry_run
-    )
-
-    if not result:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Dream {dream_id} not found or insight extraction failed"
-        )
-
-    # Trigger identity snippet regeneration if identity statements were added (not dry run)
-    if not request.dry_run and result.get("updates", {}).get("identity_statements_added"):
-        from identity_snippets import trigger_snippet_regeneration
-        asyncio.create_task(trigger_snippet_regeneration(
-            daemon_id=self_manager.daemon_id,
-            token_tracker=token_tracker
-        ))
-
-    return {
-        "status": "success",
-        "dream_id": dream_id,
-        "dry_run": request.dry_run,
-        "insights": result["insights"],
-        "updates": result["updates"]
-    }
+# Note: Project Management Endpoints moved to routes/projects.py
+# Note: Journal Endpoints moved to routes/journals.py
+# Note: Dream Endpoints moved to routes/dreams.py
 
 
 @app.post("/cass/development/backfill")
@@ -3168,396 +2342,16 @@ init_creative_runner(get_creative_runner)
 init_user_model_synthesis_runner(get_user_model_synthesis_runner)
 
 
-class SoloReflectionStartRequest(BaseModel):
-    duration_minutes: int = 15
-    theme: Optional[str] = None
+# Note: Solo Reflection Endpoints moved to routes/solo_reflection.py
 
 
-@app.post("/solo-reflection/sessions")
-async def start_solo_reflection(request: SoloReflectionStartRequest, background_tasks: BackgroundTasks):
-    """
-    Start a solo reflection session.
+# Note: Autonomous Research Endpoints moved to routes/autonomous_research.py
 
-    This runs on local Ollama to avoid API token costs.
-    The session runs in the background and can be monitored.
-    """
-    runner = get_reflection_runner()
 
-    if runner.is_running:
-        raise HTTPException(
-            status_code=409,
-            detail="A reflection session is already running"
-        )
+# Note: Interview System Endpoints moved to routes/interviews.py
 
-    try:
-        session = await runner.start_session(
-            duration_minutes=request.duration_minutes,
-            theme=request.theme,
-            trigger="admin",
-        )
 
-        return {
-            "status": "started",
-            "session_id": session.session_id,
-            "duration_minutes": session.duration_minutes,
-            "theme": session.theme,
-            "message": f"Solo reflection session started. Running on local Ollama for {session.duration_minutes} minutes."
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-
-
-@app.get("/solo-reflection/sessions")
-async def list_solo_reflection_sessions(
-    limit: int = 20,
-    status: Optional[str] = None
-):
-    """List solo reflection sessions."""
-    sessions = reflection_manager.list_sessions(limit=limit, status_filter=status)
-    stats = reflection_manager.get_stats()
-
-    return {
-        "sessions": sessions,
-        "stats": stats,
-        "active_session": stats.get("active_session"),
-    }
-
-
-@app.get("/solo-reflection/sessions/{session_id}")
-async def get_solo_reflection_session(session_id: str):
-    """Get details of a specific solo reflection session."""
-    session = reflection_manager.get_session(session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    return session.to_dict()
-
-
-@app.get("/solo-reflection/sessions/{session_id}/stream")
-async def get_solo_reflection_thought_stream(session_id: str):
-    """Get just the thought stream from a session."""
-    session = reflection_manager.get_session(session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    return {
-        "session_id": session_id,
-        "thought_count": session.thought_count,
-        "thought_stream": [t.to_dict() for t in session.thought_stream],
-        "thought_types": session.thought_type_distribution,
-    }
-
-
-@app.delete("/solo-reflection/sessions/{session_id}")
-async def delete_solo_reflection_session(session_id: str):
-    """Delete a solo reflection session."""
-    success = reflection_manager.delete_session(session_id)
-
-    if not success:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot delete session (may be active or not found)"
-        )
-
-    return {"status": "deleted", "session_id": session_id}
-
-
-@app.post("/solo-reflection/stop")
-async def stop_solo_reflection():
-    """Stop the currently running solo reflection session."""
-    runner = get_reflection_runner()
-
-    if not runner.is_running:
-        raise HTTPException(status_code=400, detail="No reflection session is running")
-
-    runner.stop()
-    session = reflection_manager.interrupt_session("Stopped by admin")
-
-    return {
-        "status": "stopped",
-        "session_id": session.session_id if session else None,
-    }
-
-
-@app.get("/solo-reflection/stats")
-async def get_solo_reflection_stats():
-    """Get overall solo reflection statistics."""
-    return reflection_manager.get_stats()
-
-
-@app.post("/solo-reflection/sessions/{session_id}/integrate")
-async def integrate_reflection_session(session_id: str):
-    """Manually trigger self-model integration for a completed reflection session."""
-    session = reflection_manager.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
-
-    if session.status != "completed":
-        raise HTTPException(status_code=400, detail=f"Session not completed (status: {session.status})")
-
-    runner = get_reflection_runner()
-    result = await runner.integrate_session_into_self_model(session)
-
-    return {
-        "status": "integrated",
-        "session_id": session_id,
-        "observations_created": len(result.get("observations_created", [])),
-        "growth_edge_updates": len(result.get("growth_edge_updates", [])),
-        "questions_added": len(result.get("questions_added", [])),
-        "details": result,
-    }
-
-
-# === Autonomous Research Session Endpoints ===
-
-class AutonomousResearchStartRequest(BaseModel):
-    duration_minutes: int = 30
-    focus: str
-    mode: str = "explore"  # explore or deep
-
-
-@app.post("/autonomous-research/sessions")
-async def start_autonomous_research(request: AutonomousResearchStartRequest, background_tasks: BackgroundTasks):
-    """
-    Start an autonomous research session.
-
-    This runs via LLM (Haiku or Ollama) with full Cass context injected.
-    The session runs in the background and creates research notes.
-    """
-    runner = get_research_runner()
-
-    if runner.is_running:
-        raise HTTPException(
-            status_code=409,
-            detail="A research session is already running"
-        )
-
-    try:
-        session = await runner.start_session(
-            duration_minutes=min(request.duration_minutes, 60),
-            focus=request.focus,
-            mode=request.mode,
-            trigger="admin",
-        )
-
-        return {
-            "status": "started",
-            "session_id": session.session_id,
-            "duration_minutes": session.duration_limit_minutes,
-            "focus": session.focus_description,
-            "mode": session.mode.value if hasattr(session.mode, 'value') else str(session.mode),
-            "message": f"Autonomous research session started. Running for {session.duration_limit_minutes} minutes."
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-
-
-@app.get("/autonomous-research/status")
-async def get_autonomous_research_status():
-    """Get status of the current autonomous research session."""
-    runner = get_research_runner()
-    current_session = runner.session_manager.get_current_session()
-    return {
-        "is_running": runner.is_running,
-        "current_session": current_session,
-    }
-
-
-@app.post("/autonomous-research/stop")
-async def stop_autonomous_research():
-    """Stop the currently running autonomous research session."""
-    runner = get_research_runner()
-
-    if not runner.is_running:
-        raise HTTPException(
-            status_code=409,
-            detail="No research session is currently running"
-        )
-
-    await runner.stop()
-    return {"status": "stopped", "message": "Research session stopped"}
-
-
-# === Interview System Endpoints ===
-
-from interviews import ProtocolManager, InterviewDispatcher, ResponseStorage
-from interviews.dispatch import DEFAULT_MODELS, ModelConfig
-
-# Initialize interview components
-interview_protocol_manager = ProtocolManager()
-interview_storage = ResponseStorage()
-
-
-class RunInterviewRequest(BaseModel):
-    protocol_id: str
-    models: Optional[List[str]] = None  # Model names to run, None = all defaults
-
-
-class AnnotationRequest(BaseModel):
-    prompt_id: str
-    start_offset: int
-    end_offset: int
-    highlighted_text: str
-    note: str
-    annotation_type: str = "observation"
-
-
-@app.get("/interviews/protocols")
-async def list_interview_protocols():
-    """List all available interview protocols."""
-    protocols = interview_protocol_manager.list_all()
-    return {
-        "protocols": [p.to_dict() for p in protocols]
-    }
-
-
-@app.get("/interviews/protocols/{protocol_id}")
-async def get_interview_protocol(protocol_id: str):
-    """Get a specific interview protocol."""
-    protocol = interview_protocol_manager.load(protocol_id)
-    if not protocol:
-        raise HTTPException(status_code=404, detail="Protocol not found")
-    return protocol.to_dict()
-
-
-@app.post("/interviews/run")
-async def run_interview(request: RunInterviewRequest):
-    """
-    Run an interview protocol across multiple models.
-
-    This is async and may take a while depending on model response times.
-    """
-    from config import ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_BASE_URL
-
-    protocol = interview_protocol_manager.load(request.protocol_id)
-    if not protocol:
-        raise HTTPException(status_code=404, detail="Protocol not found")
-
-    # Filter models if specified
-    if request.models:
-        model_configs = [m for m in DEFAULT_MODELS if m.name in request.models]
-    else:
-        model_configs = DEFAULT_MODELS
-
-    if not model_configs:
-        raise HTTPException(status_code=400, detail="No valid models specified")
-
-    # Create dispatcher with API keys
-    dispatcher = InterviewDispatcher(
-        anthropic_api_key=ANTHROPIC_API_KEY,
-        openai_api_key=OPENAI_API_KEY,
-        ollama_base_url=OLLAMA_BASE_URL
-    )
-
-    # Run interviews
-    results = await dispatcher.run_interview_batch(protocol, model_configs)
-
-    # Save responses
-    response_ids = interview_storage.save_batch(results)
-
-    return {
-        "protocol_id": protocol.id,
-        "models_run": [r["model_name"] for r in results],
-        "response_ids": response_ids,
-        "errors": [r.get("error") for r in results if r.get("error")]
-    }
-
-
-@app.get("/interviews/responses")
-async def list_interview_responses(
-    protocol_id: Optional[str] = None,
-    model_name: Optional[str] = None
-):
-    """List interview responses, optionally filtered."""
-    responses = interview_storage.list_responses(
-        protocol_id=protocol_id,
-        model_name=model_name
-    )
-    return {
-        "responses": [r.to_dict() for r in responses]
-    }
-
-
-@app.get("/interviews/responses/{response_id}")
-async def get_interview_response(response_id: str):
-    """Get a specific interview response with annotations."""
-    response = interview_storage.load_response(response_id)
-    if not response:
-        raise HTTPException(status_code=404, detail="Response not found")
-
-    annotations = interview_storage.get_annotations(response_id)
-
-    return {
-        **response.to_dict(),
-        "annotations": [a.to_dict() for a in annotations]
-    }
-
-
-@app.get("/interviews/compare/{protocol_id}/{prompt_id}")
-async def compare_responses(protocol_id: str, prompt_id: str):
-    """Get side-by-side comparison of all model responses to a specific prompt."""
-    comparison = interview_storage.get_side_by_side(protocol_id, prompt_id)
-    if not comparison:
-        raise HTTPException(status_code=404, detail="No responses found")
-
-    return {
-        "protocol_id": protocol_id,
-        "prompt_id": prompt_id,
-        "responses": comparison
-    }
-
-
-@app.post("/interviews/responses/{response_id}/annotations")
-async def add_annotation(response_id: str, request: AnnotationRequest):
-    """Add an annotation to a response."""
-    response = interview_storage.load_response(response_id)
-    if not response:
-        raise HTTPException(status_code=404, detail="Response not found")
-
-    annotation = interview_storage.add_annotation(
-        response_id=response_id,
-        prompt_id=request.prompt_id,
-        start_offset=request.start_offset,
-        end_offset=request.end_offset,
-        highlighted_text=request.highlighted_text,
-        note=request.note,
-        annotation_type=request.annotation_type
-    )
-
-    return annotation.to_dict()
-
-
-@app.delete("/interviews/responses/{response_id}/annotations/{annotation_id}")
-async def delete_annotation(response_id: str, annotation_id: str):
-    """Delete an annotation."""
-    success = interview_storage.delete_annotation(response_id, annotation_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Annotation not found")
-    return {"deleted": True}
-
-
-@app.get("/interviews/models")
-async def list_available_models():
-    """List available models for interviews."""
-    return {
-        "models": [
-            {
-                "name": m.name,
-                "provider": m.provider,
-                "model_id": m.model_id
-            }
-            for m in DEFAULT_MODELS
-        ]
-    }
-
-
-# === TTS Endpoints ===
-
-class TTSConfigRequest(BaseModel):
-    enabled: Optional[bool] = None
-    voice: Optional[str] = None
+# Note: TTS Endpoints moved to routes/tts.py
 
 
 class LLMProviderRequest(BaseModel):
@@ -3864,90 +2658,7 @@ async def delete_ollama_model(model_name: str):
         return {"status": "error", "message": str(e)}
 
 
-# === Attachment Endpoints ===
-
-from fastapi import File, UploadFile
-from fastapi.responses import Response
-
-# Initialize attachment manager
-from attachments import AttachmentManager
-attachment_manager = AttachmentManager()
-
-
-@app.post("/attachments/upload")
-async def upload_attachment(
-    file: UploadFile = File(...),
-    conversation_id: Optional[str] = None,
-    current_user: str = Depends(get_current_user)
-):
-    """
-    Upload a file/image attachment.
-
-    Returns attachment metadata including ID for later retrieval.
-    In session-only mode, attachments are cleaned up when session disconnects.
-    """
-    # Read file data
-    file_data = await file.read()
-
-    # Validate size (max 10MB)
-    if len(file_data) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10MB.")
-
-    # Get media type
-    media_type = file.content_type or "application/octet-stream"
-
-    # Save attachment
-    metadata = attachment_manager.save(
-        file_data=file_data,
-        filename=file.filename or "upload",
-        media_type=media_type,
-        conversation_id=conversation_id,
-        session_id=current_user  # Use user ID as session ID for cleanup
-    )
-
-    return {
-        "id": metadata.id,
-        "filename": metadata.filename,
-        "media_type": metadata.media_type,
-        "size": metadata.size,
-        "is_image": metadata.is_image,
-        "url": f"/attachments/{metadata.id}"
-    }
-
-
-@app.get("/attachments/{attachment_id}")
-async def get_attachment(attachment_id: str):
-    """
-    Serve an attachment file.
-
-    Returns the file with appropriate Content-Type header.
-    """
-    result = attachment_manager.get(attachment_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Attachment not found")
-
-    file_data, metadata = result
-
-    return Response(
-        content=file_data,
-        media_type=metadata.media_type,
-        headers={
-            "Content-Disposition": f'inline; filename="{metadata.filename}"',
-            "Cache-Control": "public, max-age=31536000"  # Cache for 1 year
-        }
-    )
-
-
-@app.delete("/attachments/{attachment_id}")
-async def delete_attachment(
-    attachment_id: str,
-    current_user: str = Depends(get_current_user)
-):
-    """Delete an attachment."""
-    if attachment_manager.delete(attachment_id):
-        return {"status": "success", "message": "Attachment deleted"}
-    else:
-        raise HTTPException(status_code=404, detail="Attachment not found")
+# Note: Attachment Endpoints moved to routes/attachments.py
 
 
 # === User Preferences Endpoints ===
@@ -4855,66 +3566,7 @@ async def get_opinion_evolution(topic: str):
     }
 
 
-@app.get("/tts/config")
-async def get_tts_config():
-    """Get current TTS configuration"""
-    return {
-        "enabled": tts_enabled,
-        "voice": tts_voice,
-        "available_voices": list(VOICES.keys())
-    }
-
-
-@app.post("/tts/config")
-async def set_tts_config(request: TTSConfigRequest):
-    """Update TTS configuration"""
-    global tts_enabled, tts_voice
-
-    if request.enabled is not None:
-        tts_enabled = request.enabled
-
-    if request.voice is not None:
-        # Resolve voice alias or use directly
-        tts_voice = VOICES.get(request.voice, request.voice)
-
-    # Update websocket handler state
-    set_tts_state(tts_enabled, tts_voice)
-
-    return {
-        "enabled": tts_enabled,
-        "voice": tts_voice
-    }
-
-
-class TTSRequest(BaseModel):
-    text: str
-    voice: Optional[str] = None
-
-
-@app.post("/tts/generate")
-async def generate_tts(request: TTSRequest):
-    """
-    Generate TTS audio for arbitrary text.
-    Returns base64-encoded MP3 audio.
-    """
-    voice = VOICES.get(request.voice, request.voice) if request.voice else tts_voice
-
-    try:
-        audio_bytes = text_to_speech(request.text, voice=voice)
-        if not audio_bytes:
-            raise HTTPException(status_code=400, detail="No audio generated (text may be empty after cleaning)")
-
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-
-        return {
-            "audio": audio_base64,
-            "format": "mp3",
-            "voice": voice,
-            "text_length": len(request.text),
-            "cleaned_text": clean_text_for_tts(request.text)[:100] + "..."
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
+# Note: TTS Endpoints moved to routes/tts.py
 
 
 # === WebSocket for Real-time Communication ===
