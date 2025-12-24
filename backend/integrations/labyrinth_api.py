@@ -16,10 +16,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from .cartographer import Cartographer
-from .models import Palace
-from .navigator import Navigator
-from .storage import PalaceStorage
+from daedalus.labyrinth import Cartographer, Palace, Navigator, PalaceStorage
 
 logger = logging.getLogger(__name__)
 
