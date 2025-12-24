@@ -922,8 +922,9 @@ async def startup_event():
                 "creative": get_creative_runner(),
             }
 
-            # Import dream generation for nightly dreams
+            # Import dream generation and journal generation for nightly tasks
             from dreaming.dream_runner import generate_nightly_dream
+            from journal_generation import generate_missing_journals
 
             # Register all system tasks
             register_system_tasks(synkratos, {

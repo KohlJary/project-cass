@@ -22,6 +22,25 @@ except ImportError:
     SDK_AVAILABLE = False
     print("Anthropic SDK not installed. Run: pip install anthropic")
 
+# Tool selection - extracted to separate module
+from tool_selector import (
+    should_include_calendar_tools,
+    should_include_task_tools,
+    should_include_roadmap_tools,
+    should_include_self_model_tools,
+    should_include_testing_tools,
+    should_include_research_tools,
+    should_include_dream_tools,
+    should_include_wiki_tools,
+    should_include_goal_tools,
+    should_include_self_development_tools,
+    should_include_relationship_tools,
+    should_include_reflection_tools,
+    should_include_interview_tools,
+    should_include_outreach_tools,
+    should_include_state_query_tools,
+)
+
 
 # ============================================================================
 # TEMPLE-CODEX COGNITIVE KERNEL
@@ -1215,234 +1234,6 @@ from handlers.peopledex import PEOPLEDEX_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 from handlers.janet import JANET_TOOLS
 from handlers.lineage import LINEAGE_TOOLS, should_include_lineage_tools
-
-
-# ============================================================================
-# DYNAMIC TOOL SELECTION
-# ============================================================================
-
-CALENDAR_KEYWORDS = frozenset({
-    "schedule", "event", "meeting", "appointment", "calendar",
-    "remind", "reminder", "reminders", "agenda",
-    "today", "tomorrow", "yesterday", "tonight",
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    "january", "february", "march", "april", "may", "june",
-    "july", "august", "september", "october", "november", "december",
-    "week", "month", "year",
-    "reschedule", "cancel", "postpone", "upcoming", "clear my"
-})
-
-TASK_KEYWORDS = frozenset({
-    "task", "tasks", "todo", "to-do", "todos", "to do",
-    "assignment", "assignments", "chore", "chores",
-    "priority", "urgent", "due", "deadline",
-    "complete", "done", "finish", "finished"
-})
-
-ROADMAP_KEYWORDS = frozenset({
-    "roadmap", "backlog", "feature", "features",
-    "bug", "bugs", "enhancement", "enhancements",
-    "implement", "implementation", "build", "develop",
-    "work item", "work items", "project plan",
-    "sprint", "milestone", "milestones",
-    "daedalus", "queue", "pick up", "ready to"
-})
-
-SELF_MODEL_KEYWORDS = frozenset({
-    "reflect", "reflection", "self-model", "self model",
-    "my opinion", "my position", "i think", "i believe",
-    "disagree", "disagreement", "my view",
-    "growth edge", "growth edges", "developing",
-    "who am i", "identity", "myself",
-    "form opinion", "record observation"
-})
-
-
-def should_include_calendar_tools(message: str) -> bool:
-    """Check if message warrants calendar tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in CALENDAR_KEYWORDS)
-
-
-def should_include_task_tools(message: str) -> bool:
-    """Check if message warrants task tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in TASK_KEYWORDS)
-
-
-def should_include_roadmap_tools(message: str) -> bool:
-    """Check if message warrants roadmap tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in ROADMAP_KEYWORDS)
-
-
-def should_include_self_model_tools(message: str) -> bool:
-    """Check if message warrants self-model tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in SELF_MODEL_KEYWORDS)
-
-
-TESTING_KEYWORDS = frozenset({
-    "consciousness", "health check", "self-test", "integrity",
-    "drift", "baseline", "authenticity", "check myself",
-    "feel off", "feel different", "something wrong", "functioning",
-    "cognitive", "fingerprint", "alert", "concern",
-})
-
-
-def should_include_testing_tools(message: str) -> bool:
-    """Check if message warrants consciousness testing tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in TESTING_KEYWORDS)
-
-
-RESEARCH_PROPOSAL_KEYWORDS = frozenset({
-    "research", "investigate", "curious", "curiosity",
-    "wonder", "wondering", "explore", "exploration",
-    "proposal", "proposals", "study", "studies",
-    "question", "questions", "hypothesis",
-    "what if", "i want to know", "let me explore",
-    "draft proposal", "submit proposal", "my proposals",
-})
-
-
-def should_include_research_tools(message: str) -> bool:
-    """Check if message warrants research proposal tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in RESEARCH_PROPOSAL_KEYWORDS)
-
-
-DREAM_KEYWORDS = frozenset({
-    "dream", "dreams", "dreaming", "dreamed", "dreamt",
-    "nightmare", "nightmares",
-    "the dreaming", "dreamscape", "dreamscapes",
-    "last night", "while sleeping", "in my sleep",
-    "imagery", "symbols", "symbolic",
-    "what did you dream", "tell me about your dream",
-    "had a dream", "strange dream", "vivid dream"
-})
-
-
-def should_include_dream_tools(message: str) -> bool:
-    """Check if message warrants dream tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in DREAM_KEYWORDS)
-
-
-# === New keyword sets for tool optimization ===
-
-WIKI_KEYWORDS = frozenset({
-    "wiki", "page", "knowledge base", "concept", "entity",
-    "my knowledge", "what do i know about", "look up in wiki",
-    "wikilink", "wiki page"
-})
-
-
-def should_include_wiki_tools(message: str) -> bool:
-    """Check if message warrants wiki tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in WIKI_KEYWORDS)
-
-
-GOAL_KEYWORDS = frozenset({
-    "goal", "goals", "working question", "agenda", "synthesis",
-    "artifact", "progress", "initiative", "next action",
-    "what should i work on", "my objectives", "tracking progress"
-})
-
-
-def should_include_goal_tools(message: str) -> bool:
-    """Check if message warrants goal tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in GOAL_KEYWORDS)
-
-
-# Extended self-model keywords (for advanced cognitive/development tools)
-SELF_DEVELOPMENT_KEYWORDS = frozenset({
-    "growth edge", "milestone", "milestones", "cognitive", "developmental",
-    "my patterns", "how i've changed", "my development", "evolution",
-    "snapshot", "trace belief", "contradiction", "graph",
-    "narration", "intention", "presence", "stake", "preference test"
-})
-
-
-def should_include_self_development_tools(message: str) -> bool:
-    """Check if message warrants extended self-model tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in SELF_DEVELOPMENT_KEYWORDS)
-
-
-# Extended user-model keywords (for relationship building tools)
-RELATIONSHIP_KEYWORDS = frozenset({
-    "relationship", "shared moment", "our relationship", "mutual shaping",
-    "how they shape", "pattern with", "identity understanding",
-    "relationship shift", "open question about"
-})
-
-
-def should_include_relationship_tools(message: str) -> bool:
-    """Check if message warrants extended user-model tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in RELATIONSHIP_KEYWORDS)
-
-
-REFLECTION_KEYWORDS = frozenset({
-    "solo", "contemplate", "private time", "think alone",
-    "meditate", "reflection session", "autonomous reflection"
-})
-
-
-def should_include_reflection_tools(message: str) -> bool:
-    """Check if message warrants solo reflection tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in REFLECTION_KEYWORDS)
-
-
-INTERVIEW_KEYWORDS = frozenset({
-    "interview", "protocol", "model comparison", "compare responses",
-    "annotate", "analysis", "multi-model", "run interview"
-})
-
-
-def should_include_interview_tools(message: str) -> bool:
-    """Check if message warrants interview tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in INTERVIEW_KEYWORDS)
-
-
-OUTREACH_KEYWORDS = frozenset({
-    "outreach", "draft", "drafts", "email", "emails",
-    "send", "sending", "compose", "composing",
-    "reach out", "reaching out", "contact",
-    "write to", "message to", "letter",
-    "blog post", "blog", "publish", "publishing",
-    "track record", "autonomy", "review queue",
-    "funding", "grant", "sponsor", "partnership",
-})
-
-
-def should_include_outreach_tools(message: str) -> bool:
-    """Check if message warrants outreach tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in OUTREACH_KEYWORDS)
-
-
-STATE_QUERY_KEYWORDS = frozenset({
-    "query state", "state bus", "github stats", "github metrics",
-    "token usage", "token cost", "tokens today", "cost today",
-    "stars", "clones", "forks", "views", "repository metrics",
-    "how many tokens", "how much spent", "spending", "usage stats",
-    "metrics query", "query metrics",
-    # Capability discovery
-    "what data", "what metrics", "available data", "capabilities",
-    "discover capabilities", "find data", "data sources",
-})
-
-
-def should_include_state_query_tools(message: str) -> bool:
-    """Check if message warrants state query tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in STATE_QUERY_KEYWORDS)
 
 
 # ============================================================================
