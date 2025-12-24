@@ -1,0 +1,154 @@
+{
+  "id": "plan-feat-8110feba",
+  "feature_id": "feat-8110feba",
+  "feature_title": "Phase 1: Extract API Routes from main_sdk.py",
+  "summary": "Extract ~800 lines of route handlers from main_sdk.py into modular backend/routes/ package",
+  "affected_files": [
+    "backend/main_sdk.py",
+    "backend/routes/__init__.py",
+    "backend/routes/auth.py",
+    "backend/routes/conversations.py",
+    "backend/routes/memory.py",
+    "backend/routes/projects.py",
+    "backend/routes/users.py",
+    "backend/routes/calendar.py",
+    "backend/routes/roadmap.py"
+  ],
+  "affected_modules": [
+    "main_sdk",
+    "routes"
+  ],
+  "complexity_score": 4,
+  "work_packages": [
+    {
+      "id": "wp-routes-init",
+      "title": "Create routes package structure",
+      "description": "Create backend/routes/__init__.py with router registry and register_routes() function",
+      "files": [
+        "backend/routes/__init__.py"
+      ],
+      "estimated_lines": 50,
+      "estimated_complexity": 1,
+      "depends_on": []
+    },
+    {
+      "id": "wp-routes-auth",
+      "title": "Extract auth routes",
+      "description": "Move /api/auth/* endpoints to backend/routes/auth.py",
+      "files": [
+        "backend/routes/auth.py",
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 100,
+      "estimated_complexity": 2,
+      "depends_on": [
+        "wp-routes-init"
+      ]
+    },
+    {
+      "id": "wp-routes-conversations",
+      "title": "Extract conversation routes",
+      "description": "Move /api/conversations/* endpoints to backend/routes/conversations.py",
+      "files": [
+        "backend/routes/conversations.py",
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 150,
+      "estimated_complexity": 2,
+      "depends_on": [
+        "wp-routes-init"
+      ]
+    },
+    {
+      "id": "wp-routes-memory",
+      "title": "Extract memory routes",
+      "description": "Move /api/memory/* endpoints to backend/routes/memory.py",
+      "files": [
+        "backend/routes/memory.py",
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 80,
+      "estimated_complexity": 2,
+      "depends_on": [
+        "wp-routes-init"
+      ]
+    },
+    {
+      "id": "wp-routes-projects",
+      "title": "Extract project routes",
+      "description": "Move /api/projects/* endpoints to backend/routes/projects.py",
+      "files": [
+        "backend/routes/projects.py",
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 100,
+      "estimated_complexity": 2,
+      "depends_on": [
+        "wp-routes-init"
+      ]
+    },
+    {
+      "id": "wp-routes-users",
+      "title": "Extract user routes",
+      "description": "Move /api/users/* endpoints to backend/routes/users.py",
+      "files": [
+        "backend/routes/users.py",
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 120,
+      "estimated_complexity": 2,
+      "depends_on": [
+        "wp-routes-init"
+      ]
+    },
+    {
+      "id": "wp-routes-calendar",
+      "title": "Extract calendar routes",
+      "description": "Move /api/calendar/* endpoints to backend/routes/calendar.py",
+      "files": [
+        "backend/routes/calendar.py",
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 80,
+      "estimated_complexity": 2,
+      "depends_on": [
+        "wp-routes-init"
+      ]
+    },
+    {
+      "id": "wp-routes-roadmap",
+      "title": "Extract roadmap routes",
+      "description": "Move /api/roadmap/* endpoints to backend/routes/roadmap.py (non-admin)",
+      "files": [
+        "backend/routes/roadmap.py",
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 60,
+      "estimated_complexity": 2,
+      "depends_on": [
+        "wp-routes-init"
+      ]
+    },
+    {
+      "id": "wp-routes-finalize",
+      "title": "Update main_sdk.py to use register_routes()",
+      "description": "Replace all extracted routes with register_routes(app) call, verify service starts",
+      "files": [
+        "backend/main_sdk.py"
+      ],
+      "estimated_lines": 20,
+      "estimated_complexity": 3,
+      "depends_on": [
+        "wp-routes-auth",
+        "wp-routes-conversations",
+        "wp-routes-memory",
+        "wp-routes-projects",
+        "wp-routes-users",
+        "wp-routes-calendar",
+        "wp-routes-roadmap"
+      ]
+    }
+  ],
+  "status": "pending_approval",
+  "created_at": "2025-12-24T15:38:20.404306+00:00"
+}

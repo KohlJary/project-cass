@@ -1,0 +1,92 @@
+{
+  "id": "wp4-action-definitions",
+  "title": "Create Action Definitions JSON",
+  "description": "Create backend/scheduler/actions/definitions.json with metadata for all 30+ actions. Include id, name, description, category, handler path, estimated_cost_usd, duration, priority.",
+  "priority": "P1-HIGH",
+  "type": "feature",
+  "estimated_hours": 2.5,
+  "status": "ready",
+  "phase": 1,
+  "depends_on": ["wp3-validate-actions"],
+  "assigned_to": null,
+  "files_affected": [
+    "backend/scheduler/actions/definitions.json"
+  ],
+  "problem_statement": {
+    "monster": "CERBERUS - Action Definitions Missing [HIGH]",
+    "current_state": "ActionRegistry tries to load definitions.json but file doesn't exist. Handlers registered manually but metadata missing.",
+    "impact": "Budget tracking incomplete without cost estimates. No priority information. Metadata unavailable for decision engine context.",
+    "root_cause": "Action definitions file was not created. Handlers work but lack metadata."
+  },
+  "acceptance_criteria": [
+    "definitions.json created at backend/scheduler/actions/definitions.json",
+    "All 30+ actions defined from spec/atomic-actions-projection.md",
+    "Each action has: id, name, description, category, handler, estimated_cost_usd, default_duration_minutes, priority",
+    "Handler paths match registered handlers in __init__.py",
+    "Cost estimates are reasonable (scale: $0.05-$1.00)",
+    "Categories match budget allocations (reflection, research, growth, curiosity, creative, system, journal, memory)",
+    "File is valid JSON",
+    "ActionRegistry.load_definitions() successfully loads the file"
+  ],
+  "actions_to_define": [
+    {
+      "category": "Reflection",
+      "actions": ["session.reflection", "session.synthesis", "session.meta_reflection"]
+    },
+    {
+      "category": "Research",
+      "actions": ["session.research", "session.knowledge_building", "web.search", "wiki.create_page", "wiki.update_page"]
+    },
+    {
+      "category": "Growth",
+      "actions": ["session.growth_edge", "self.analyze_growth_edge", "self.update_identity"]
+    },
+    {
+      "category": "Curiosity",
+      "actions": ["session.curiosity", "wonderland.explore"]
+    },
+    {
+      "category": "Journal",
+      "actions": ["journal.generate_daily", "journal.reflect_on_work"]
+    },
+    {
+      "category": "Memory",
+      "actions": ["memory.summarize_idle_conversations", "memory.compress_old_messages", "memory.extract_insights"]
+    },
+    {
+      "category": "System",
+      "actions": ["system.validate_state", "system.backup", "outreach.check_contacts"]
+    },
+    {
+      "category": "Creative",
+      "actions": ["creative.explore_synthesis", "creative.generate_artifact"]
+    }
+  ],
+  "json_structure": {
+    "description": "Top-level structure of definitions.json",
+    "structure": {
+      "actions": {
+        "action.id": {
+          "id": "action.id",
+          "name": "Human-readable name",
+          "description": "What this action does",
+          "category": "Category for budgeting",
+          "handler": "module_handlers.function_name",
+          "estimated_cost_usd": 0.15,
+          "default_duration_minutes": 30,
+          "priority": "normal|high|low",
+          "requires_idle": false,
+          "requires_user_context": false,
+          "produces_artifact": false
+        }
+      }
+    }
+  },
+  "reference_sources": [
+    "spec/atomic-actions-projection.md - Full action spec",
+    "backend/scheduler/actions/__init__.py - Registered handlers",
+    "backend/scheduling/templates.py - Action IDs used in templates"
+  ],
+  "notes": "This work is independent of scheduling startup (WP2) but should be done before testing full loops (WP5). Costs should be calibrated to anthropic pricing (~$0.30/M input, $1.20/M output tokens).",
+  "validation": "After creation, run: python -c \"import json; json.load(open('backend/scheduler/actions/definitions.json'))\" to validate JSON. Then check that ActionRegistry.load_definitions() logs successful load."
+}

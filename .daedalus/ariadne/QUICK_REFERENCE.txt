@@ -1,0 +1,65 @@
+AUTONOMOUS SCHEDULER - QUICK REFERENCE
+
+Main Work Plan:          /home/jaryk/cass/cass-vessel/.daedalus/ariadne/
+Work Packages:           /home/jaryk/cass/cass-vessel/.daedalus/ariadne/work-packages/
+Theseus Reports:         /home/jaryk/cass/cass-vessel/.daedalus/theseus/reports/
+
+START READING HERE:
+  1. DISPATCH_SUMMARY.txt       (2 min overview)
+  2. WORK_MANIFEST.md           (15 min detailed)
+  3. wp1-fix-template-execution.json (first work package)
+
+KEY FILES TO MODIFY:
+  WP1: /home/jaryk/cass/cass-vessel/backend/scheduling/templates.py
+  WP2: /home/jaryk/cass/cass-vessel/backend/main_sdk.py
+  WP3: /home/jaryk/cass/cass-vessel/backend/scheduling/templates.py + main_sdk.py
+  WP4: /home/jaryk/cass/cass-vessel/backend/scheduler/actions/definitions.json (NEW)
+  WP5: Testing/monitoring (no code changes)
+
+ARCHITECTURE REFERENCE:
+  Scheduler: /home/jaryk/cass/cass-vessel/backend/scheduling/autonomous_scheduler.py
+  Templates: /home/jaryk/cass/cass-vessel/backend/scheduling/templates.py
+  Phase Tracker: /home/jaryk/cass/cass-vessel/backend/scheduling/day_phase.py
+  Actions: /home/jaryk/cass/cass-vessel/backend/scheduler/actions/__init__.py
+
+THESEUS ANALYSIS:
+  Analysis: /home/jaryk/cass/cass-vessel/.daedalus/theseus/reports/2025-12-24-autonomous-scheduler-analysis.md
+  Architecture: /home/jaryk/cass/cass-vessel/.daedalus/theseus/reports/2025-12-24-autonomous-scheduler-architecture.md
+  Roadmap: /home/jaryk/cass/cass-vessel/.daedalus/theseus/reports/2025-12-24-autonomous-scheduler-roadmap.md
+
+SPEC:
+  Actions: /home/jaryk/cass/cass-vessel/spec/atomic-actions-projection.md
+
+MONITORING COMMANDS:
+  Watch logs:    journalctl -u cass-vessel -f | grep -i 'autonomous\|phase\|work'
+  Check status:  curl http://localhost:8000/admin/scheduler/status | jq
+  Check budget:  curl http://localhost:8000/admin/scheduler/budget | jq
+  Check history: curl http://localhost:8000/admin/scheduler/work-history | jq
+  Restart:       sudo systemctl restart cass-vessel
+
+WORK SEQUENCE:
+  Phase 1: WP1 (1.5 hrs) → WP2 (1.0 hrs)  [Gate: Service starts]
+  Phase 2: WP3 (1.5 hrs) + WP4 (2.5 hrs)  [Gate: Actions validated]
+  Phase 3: WP5 (1.5 hrs)                   [Gate: System operational]
+
+PROBLEM SUMMARY:
+  HYDRA:   Templates route to deprecated runner_key stub (WP1)
+  SPIDER:  Scheduler never started (WP2)
+  CERBERUS: Action definitions missing (WP4)
+
+EXPECTED TIMELINE:
+  WP1+2:    2.5 hours  → Service starts
+  WP3+4:    2.5 hours  → Actions validated (parallel)
+  WP5:      1.5 hours  → System operational
+  TOTAL:    8-10 hours → Autonomous scheduler ready
+
+SUCCESS CRITERIA:
+  ✓ Service starts without errors
+  ✓ Autonomous scheduling logs appear
+  ✓ At least one work unit executes
+  ✓ Budget tracking is accurate
+  ✓ No "Unknown action" errors
+  ✓ Work summaries saved and queryable
+
+STATUS: Ready for dispatch to Daedalus
+CONFIDENCE: HIGH (LOW risk, LOW complexity)

@@ -1,0 +1,72 @@
+{
+  "id": "wp3-validate-actions",
+  "title": "Validate Action Handlers and Create Validation Function",
+  "description": "Verify that all action handlers referenced in templates exist and are properly registered. Create validation function to check at startup. Test action execution with minimal work unit.",
+  "priority": "P1-HIGH",
+  "type": "feature",
+  "estimated_hours": 1.5,
+  "status": "ready",
+  "phase": 1,
+  "depends_on": ["wp1-fix-template-execution", "wp2-start-scheduler"],
+  "assigned_to": null,
+  "files_affected": [
+    "backend/scheduling/templates.py",
+    "backend/scheduler/actions/__init__.py",
+    "backend/main_sdk.py"
+  ],
+  "problem_statement": {
+    "monster": "CHIMERA - Template/Action Mismatch [MEDIUM]",
+    "current_state": "Templates reference action IDs that may not exist or are incorrectly named. No validation at startup. Execution failures are silent.",
+    "impact": "Work units are planned and queued, then fail at execution with 'Unknown action' error. Hard to debug.",
+    "root_cause": "No verification that template action sequences reference real, registered actions."
+  },
+  "acceptance_criteria": [
+    "Validation function created: validate_template_actions(templates, registry)",
+    "Function checks all template action_sequence IDs exist in registry",
+    "Validation called at startup in main_sdk.py",
+    "Warnings logged for missing actions",
+    "All current templates pass validation",
+    "Can manually trigger a work unit and see it execute without unknown action errors"
+  ],
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Create validation function",
+      "description": "Add validate_template_actions() to templates.py. Check each template's action_sequence IDs against registry.",
+      "effort": 0.5
+    },
+    {
+      "id": "task-2",
+      "title": "Call validation at startup",
+      "description": "In main_sdk.py startup sequence, call validation function after action_registry is initialized and log results.",
+      "effort": 0.3
+    },
+    {
+      "id": "task-3",
+      "title": "Verify action handlers exist",
+      "description": "Check that key actions have registered handlers: session.reflection, journal.generate_daily, memory.summarize_idle_conversations",
+      "effort": 0.4
+    },
+    {
+      "id": "task-4",
+      "title": "Test with minimal work unit",
+      "description": "Manually create and execute a simple work unit (e.g., daily_journal) and verify no unknown action errors",
+      "effort": 0.3
+    }
+  ],
+  "handlers_to_verify": [
+    "session.reflection",
+    "session.synthesis",
+    "session.meta_reflection",
+    "session.research",
+    "session.knowledge_building",
+    "session.growth_edge",
+    "session.curiosity",
+    "journal.generate_daily",
+    "memory.summarize_idle_conversations",
+    "memory.compress_old_messages"
+  ],
+  "reference_code": "See scheduler/actions/__init__.py for ActionRegistry.get_definition() and handler registration pattern",
+  "notes": "This is quality assurance work. Can proceed in parallel with WP2. Prevents silent failures during execution.",
+  "validation": "Run startup with validation enabled, check logs for 'Action validation passed' or specific warnings for missing actions"
+}

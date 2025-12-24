@@ -1,0 +1,50 @@
+{
+  "id": "wp1-fix-template-execution",
+  "title": "Fix Template Execution Paths (Remove runner_key References)",
+  "description": "Templates currently reference deprecated session runners via runner_key field, causing work execution to fail with stub return. Remove all runner_key references and verify all templates have valid action_sequence.",
+  "priority": "P0-CRITICAL",
+  "type": "bugfix",
+  "estimated_hours": 1.5,
+  "status": "ready",
+  "phase": 1,
+  "depends_on": [],
+  "assigned_to": null,
+  "files_affected": [
+    "backend/scheduling/templates.py"
+  ],
+  "problem_statement": {
+    "monster": "HYDRA - Work Execution Layer [CRITICAL]",
+    "current_state": "Templates have both runner_key and action_sequence set. Code prefers runner_key, which routes to _run_session() stub that returns failure.",
+    "impact": "Most work units fail to execute at runtime because execution handler returns error stub.",
+    "root_cause": "Incomplete migration from session runners to atomic actions. Deprecated code path still active."
+  },
+  "acceptance_criteria": [
+    "All runner_key fields removed from WORK_TEMPLATES dict in templates.py",
+    "All templates have non-empty action_sequence list",
+    "action_sequence values match registered action handlers",
+    "Code compiles without errors",
+    "Can instantiate all templates without warnings"
+  ],
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Remove runner_key from all templates",
+      "description": "Go through WORK_TEMPLATES dict and remove runner_key field from all template definitions. Keep action_sequence.",
+      "effort": 0.5
+    },
+    {
+      "id": "task-2",
+      "title": "Verify action_sequence values",
+      "description": "For each template, ensure action_sequence is a non-empty list of valid action IDs (e.g., 'session.reflection').",
+      "effort": 0.5
+    },
+    {
+      "id": "task-3",
+      "title": "Verify removal of _run_session stub",
+      "description": "Check that autonomous_scheduler.py's _run_session() method is either removed or no longer reachable from template execution flow.",
+      "effort": 0.5
+    }
+  ],
+  "notes": "This is the critical path blocker. Must be done first. Template file is ~400 lines, change is straightforward - just delete runner_key lines.",
+  "validation": "Run 'python -c \"from backend.scheduling.templates import WORK_TEMPLATES; [t for t in WORK_TEMPLATES.values() if not t.action_sequence]' - should return empty list"
+}
