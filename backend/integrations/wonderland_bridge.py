@@ -12,10 +12,14 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .cartographer import Cartographer
-from .models import Entity, Palace, Room
-from .navigator import Navigator
-from .storage import PalaceStorage
+from daedalus.labyrinth import (
+    Cartographer,
+    Entity,
+    Palace,
+    Room,
+    Navigator,
+    PalaceStorage,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,45 +1,73 @@
-# Mobile Frontend - Mind Palace
-#
-# React Native mobile app for Cass (in development).
-
 name: mobile-frontend
-version: "1.0"
-type: sub-palace
-parent: cass-vessel
-description: |
-  Cass in your pocket - a React Native app for iOS and Android.
-  Currently in early development.
-
-tech_stack:
-  framework: React Native + Expo
-  language: TypeScript
-  state: TBD
-  navigation: TBD
-
-status: early-development
-
-# Planned regions (to be mapped when developed)
-planned_regions:
-  screens:
-    description: |
-      Main app screens - Chat, Conversations, Memory, Growth, Settings.
-    priority: high
-
-  components:
-    description: |
-      Reusable components - MessageBubble, AudioPlayer, etc.
-    priority: medium
-
-  hooks:
-    description: |
-      Custom React hooks - WebSocket, audio, conversations.
-    priority: medium
-
-# Entry points
-entry_files:
-  - App.tsx
-
-# Notes
-notes: |
-  Mobile frontend is planned but not actively developed yet.
-  See CLAUDE.md "Mobile Frontend (Planned)" section for design notes.
+slug: mobile-frontend
+version: '1.0'
+created: null
+last_updated: '2025-12-24T01:21:58.816970'
+references: []
+regions:
+- mobile-frontend
+- src
+- navigation
+- store
+- theme
+- screens
+- hooks
+- api
+- components
+- onboarding
+- assets
+buildings:
+- index
+- app
+- src-navigation-tabnavigator
+- src-store-userstore
+- src-store-chatstore
+- src-store-authstore
+- src-theme-colors
+- src-screens-chatscreen
+- src-screens-growthscreen
+- src-screens-authscreen
+- src-screens-profilescreen
+- src-screens-onboardingscreen
+- src-hooks-useauth
+- src-hooks-usewebsocket
+- src-api-types
+- src-api-client
+- src-components-typingindicator
+- src-components-loginscreen
+- src-components-inputbar
+- src-components-summarypanel
+- src-components-conversationlist
+- src-components-onboardingform
+- src-components-messagelist
+- src-components-messagebubble
+- src-components-connectionstatus
+- src-components-onboarding-onboardingtour
+- src-components-onboarding-onboardingpreferences
+- src-components-onboarding-onboardingwelcome
+- src-components-onboarding-onboardingdemo
+rooms:
+- src-navigation-tabnavigator
+- src-screens-chatscreen
+- src-screens-growthscreen
+- src-screens-authscreen
+- src-screens-profilescreen
+- src-screens-onboardingscreen
+- src-hooks-useauth
+- src-hooks-usewebsocket
+- src-api-client
+- src-api-client-apiclient
+- src-components-typingindicator
+- src-components-loginscreen
+- src-components-inputbar
+- src-components-summarypanel
+- src-components-conversationlist
+- src-components-onboardingform
+- src-components-messagelist
+- src-components-messagebubble
+- src-components-connectionstatus
+- src-components-onboarding-onboardingtour
+- src-components-onboarding-onboardingpreferences
+- src-components-onboarding-onboardingwelcome
+- src-components-onboarding-onboardingdemo
+entities: []
