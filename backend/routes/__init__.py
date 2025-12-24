@@ -17,6 +17,9 @@ from .autonomous_research import router as autonomous_research_router, init_auto
 from .interviews import router as interviews_router, init_interview_routes
 from .tts import router as tts_router, init_tts_routes
 from .attachments import router as attachments_router, init_attachment_routes
+from .settings import router as settings_router, init_settings_routes
+from .users import router as users_router, init_user_routes
+from .cass import router as cass_router, init_cass_routes
 
 __all__ = [
     "tasks_router",
@@ -42,4 +45,10 @@ __all__ = [
     "init_tts_routes",
     "attachments_router",
     "init_attachment_routes",
+    "settings_router",
+    "init_settings_routes",
+    "users_router",
+    "init_user_routes",
+    "cass_router",
+    "init_cass_routes",
 ]
