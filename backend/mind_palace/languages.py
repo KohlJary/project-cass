@@ -274,10 +274,10 @@ class PythonSupport(LanguageSupport):
             )
 
         elif element.element_type == "method":
-            # Methods: need regex to handle indentation
-            # Match "def method_name(" with any leading whitespace
+            # Methods: need regex to handle indentation and async
+            # Match "def method_name(" or "async def method_name(" with leading whitespace
             # Using simple_name to avoid "ClassName.method_name"
-            pattern = rf"^\s+def {re.escape(element.simple_name)}\("
+            pattern = rf"^\s+(?:async\s+)?def {re.escape(element.simple_name)}\("
             return AnchorPattern(
                 pattern=pattern,
                 is_regex=True,
@@ -285,11 +285,12 @@ class PythonSupport(LanguageSupport):
             )
 
         else:  # function
-            # Top-level functions: "def name(" at start of line (no indent)
-            # Using simple pattern for readability
+            # Top-level functions: handle both sync and async
+            # "def name(" or "async def name(" at start of line
+            pattern = rf"^(?:async\s+)?def {re.escape(element.simple_name)}\("
             return AnchorPattern(
-                pattern=f"def {element.simple_name}(",
-                is_regex=False,
+                pattern=pattern,
+                is_regex=True,
                 description=f"Function: {element.simple_name}",
             )
 

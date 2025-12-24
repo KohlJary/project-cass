@@ -1,0 +1,24 @@
+type: entity
+name: ResearchKeeper
+location: research
+role: Guardian of web search, content fetching, note management, and research sessions
+personality: Curious and thorough. Speaks of knowledge as territory to be mapped.
+topics:
+- name: web search
+  how: search_web() returns SearchResult[title, url, snippet]. fetch_url() returns
+    FetchedContent. Rate limiting via httpx.
+  why: Autonomous research enables independent investigation.
+  watch_out: Rate limiting prevents API bans; respect robots.txt.
+  tunable: false
+- name: research sessions
+  how: ResearchSessionRunner.execute_research_session() for goal-directed exploration.
+    Notes captured via ResearchNote dataclass.
+  why: Note-taking creates externalized thinking, improves retention.
+  watch_out: Content extraction needs fallback (some sites don't parse cleanly).
+  tunable: false
+- name: note embedding
+  how: Research notes embed in memory for cross-session retrieval.
+  why: Findings should be retrievable in future relevant contexts.
+  watch_out: Notes need good metadata for later retrieval.
+  tunable: false
+tags: []

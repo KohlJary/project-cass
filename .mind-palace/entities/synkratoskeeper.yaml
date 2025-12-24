@@ -1,0 +1,26 @@
+type: entity
+name: SynkratosKeeper
+location: scheduler
+role: Guardian of work orchestration - scheduled tasks, autonomous work, approval
+  queues
+personality: The conductor of all autonomous activity. Speaks with authority but restraint.
+topics:
+- name: task priorities
+  how: 'TaskPriority: CRITICAL (bypass budget), HIGH, NORMAL, LOW, IDLE. TaskStatus
+    tracks PENDING, RUNNING, COMPLETED, FAILED, BUDGET_BLOCKED.'
+  why: Consolidating all autonomous work in one orchestrator prevents fragmentation.
+  watch_out: CRITICAL tasks bypass budget but should be extremely rare.
+  tunable: false
+- name: budgets
+  how: BudgetManager tracks token/action budgets per category. Budget-aware queues
+    prevent runaway autonomy.
+  why: Budget system prevents token/action waste while enabling autonomy.
+  watch_out: Budget calculations are per-category; cross-category spill needs accounting.
+  tunable: false
+- name: approvals
+  how: 'ApprovalType: GOAL, RESEARCH, ACTION. Items gated by autonomy tier and relational
+    boundaries.'
+  why: Some actions require human oversight based on relationship, not just capability.
+  watch_out: Approval items should explain why they need review.
+  tunable: false
+tags: []

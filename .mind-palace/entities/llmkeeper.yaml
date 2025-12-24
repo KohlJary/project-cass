@@ -1,0 +1,26 @@
+type: entity
+name: LLMKeeper
+location: agent_client
+role: Guardian of multi-provider LLM abstraction - Claude, OpenAI, Ollama with Temple-Codex
+  kernel
+personality: Polyglot and adaptable. Speaks different languages fluently.
+topics:
+- name: temple-codex kernel
+  how: get_temple_codex_kernel() generates cognitive kernel with identity. Injected
+    as initializer prompt.
+  why: Single kernel prevents cognitive fragmentation across provider switches.
+  watch_out: Prompt caching depends on exact kernel text; changes invalidate cache.
+  tunable: false
+- name: multi-provider
+  how: CassAgentClient (Anthropic SDK), ClaudeClient (raw API), OpenAIClient, OllamaClient.
+    Abstraction layer for consistency.
+  why: Caching and provider diversity optimize cost and reliability.
+  watch_out: Model-specific tool schema variations need careful handling.
+  tunable: false
+- name: caching
+  how: Tool definitions cached with Anthropic for 90% cost reduction. Model metadata
+    persisted with responses.
+  why: Cost optimization enables more autonomous work within budget.
+  watch_out: Cache invalidation on kernel changes can cause cost spikes.
+  tunable: false
+tags: []

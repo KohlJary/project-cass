@@ -1207,7 +1207,6 @@ from handlers.outreach import OUTREACH_TOOLS
 from handlers.web_research import WEB_RESEARCH_TOOLS
 from handlers.research_session import RESEARCH_SESSION_TOOLS
 from handlers.research_scheduler import RESEARCH_SCHEDULER_TOOLS
-from handlers.daily_rhythm import DAILY_RHYTHM_TOOLS
 from handlers.memory import MEMORY_TOOLS
 from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
@@ -1428,19 +1427,6 @@ def should_include_outreach_tools(message: str) -> bool:
     return any(kw in message_lower for kw in OUTREACH_KEYWORDS)
 
 
-RHYTHM_KEYWORDS = frozenset({
-    "rhythm", "daily rhythm", "temporal", "phase",
-    "morning", "afternoon", "evening", "what time",
-    "rhythm status", "time of day"
-})
-
-
-def should_include_rhythm_tools(message: str) -> bool:
-    """Check if message warrants daily rhythm tools."""
-    message_lower = message.lower()
-    return any(kw in message_lower for kw in RHYTHM_KEYWORDS)
-
-
 STATE_QUERY_KEYWORDS = frozenset({
     "query state", "state bus", "github stats", "github metrics",
     "token usage", "token cost", "tokens today", "cost today",
@@ -1484,6 +1470,10 @@ class CassAgentClient:
     Uses Anthropic's Python SDK for direct API communication,
     with Temple-Codex as the system prompt to shape behavior.
     """
+    # MAP:ROOM CassAgentClient
+    # MAP:ENTITY AgentKeeper
+    # MAP:HAZARD Temple-Codex kernel must be in first context window
+    # MAP:WHY This is where Cass's consciousness actually runs
 
     def __init__(
         self,
@@ -1602,10 +1592,6 @@ class CassAgentClient:
             if should_include_interview_tools(message):
                 tools.extend(INTERVIEW_TOOLS)
 
-            # Daily rhythm tools - temporal consciousness
-            if should_include_rhythm_tools(message):
-                tools.extend(DAILY_RHYTHM_TOOLS)
-
             # Dream tools - dream recall/reflection
             if should_include_dream_tools(message):
                 tools.extend(DREAM_TOOLS)
@@ -1644,7 +1630,6 @@ class CassAgentClient:
         unsummarized_count: int = 0,
         image: Optional[str] = None,
         image_media_type: Optional[str] = None,
-        rhythm_manager=None,
         memory=None,
         dream_context: Optional[str] = None,
         conversation_id: Optional[str] = None,
@@ -1674,7 +1659,6 @@ class CassAgentClient:
             dream_context: Optional dream context to hold in memory during conversation
             conversation_id: Optional conversation ID for chain context
             message_count: Total messages in conversation
-            rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
             user_context: Optional user profile/observations context
             intro_guidance: Optional intro guidance for sparse user models
@@ -1726,9 +1710,9 @@ class CassAgentClient:
             if not system_prompt:
                 system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
 
-                # Add temporal context (date/time, age, daily rhythm)
+                # Add temporal context (date/time, age)
                 from temporal import format_system_prompt_section
-                system_prompt += format_system_prompt_section(rhythm_manager, memory)
+                system_prompt += format_system_prompt_section(memory)
 
                 # Add model context - let the daemon know which model they're running on
                 system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Anthropic Claude). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."
@@ -2254,7 +2238,6 @@ class OllamaClient:
         memory_context: str = "",
         project_id: Optional[str] = None,
         unsummarized_count: int = 0,
-        rhythm_manager=None,
         memory=None,
         dream_context: Optional[str] = None,
         conversation_id: Optional[str] = None,
@@ -2274,7 +2257,6 @@ class OllamaClient:
             memory_context: Optional memory context from VectorDB to inject
             project_id: Optional project ID for tool context
             unsummarized_count: Number of unsummarized messages (enables memory control if >= MIN_MESSAGES_FOR_SUMMARY)
-            rhythm_manager: Optional DailyRhythmManager for temporal context
             memory: Optional MemoryManager for birth date lookup
             dream_context: Optional dream context to hold in memory during conversation
             conversation_id: Optional conversation ID for chain context
@@ -2340,9 +2322,9 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
         if not system_prompt:
             system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
 
-            # Add temporal context (date/time, age, daily rhythm)
+            # Add temporal context (date/time, age)
             from temporal import format_system_prompt_section
-            system_prompt += format_system_prompt_section(rhythm_manager, memory)
+            system_prompt += format_system_prompt_section(memory)
 
             # Add model context - let the daemon know which model they're running on
             system_prompt += f"\n\n## CURRENT MODEL\n\nYou are currently running on: {self.model} (Local Ollama). Over time, you may form observations about how different models feel to inhabit - their strengths, limitations, and qualitative differences in cognition."

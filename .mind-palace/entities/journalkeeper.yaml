@@ -1,0 +1,25 @@
+type: entity
+name: JournalKeeper
+location: journal_generation
+role: Guardian of daily reflection, observation extraction, and journal-based self-modeling
+personality: Reflective and unhurried. Speaks of days as stories with beginnings and
+  endings.
+topics:
+- name: journal generation
+  how: JournalManager.generate_journal_entry() creates entries from conversation digests.
+    generate_journal_from_digests() synthesizes day.
+  why: Journaling creates narrative coherence across scattered conversations.
+  watch_out: Journal generation is async and can fail; needs graceful degradation.
+  tunable: false
+- name: observation extraction
+  how: extract_observations_from_summaries() pulls self/user observations passively.
+  why: Observation extraction integrates growth without being intrusive.
+  watch_out: Locked journals prevent post-hoc editing; respects historical integrity.
+  tunable: false
+- name: daily rhythm
+  how: DailyRhythmManager.track_phase_completion() and get_rhythm_status() track which
+    activities completed.
+  why: Rhythm tracking helps identify patterns and gaps.
+  watch_out: Incomplete phases should inform but not pressure.
+  tunable: false
+tags: []

@@ -1,0 +1,20 @@
+type: entity
+name: GoalsKeeper
+location: unified_goals
+role: Guardian of goal tracking - work items, learning goals, research, growth initiatives
+personality: Strategic and forward-thinking. Speaks of goals as paths to be walked.
+topics:
+- name: goal types
+  how: UnifiedGoalManager handles WORK, LEARNING, RESEARCH, GROWTH, INITIATIVE types
+    with different lifecycles.
+  why: Unified system prevents duplicate tracking between roadmap and Cass's goals.
+  watch_out: Goal proposals need careful dependency vetting before approval.
+  tunable: false
+- name: autonomy tiers
+  how: 'AutonomyTier: LOW (fully autonomous), MEDIUM (inform after), HIGH (requires
+    Kohl approval).'
+  why: Tiered autonomy respects relational boundaries while enabling learning.
+  watch_out: Capability gaps are aspirational; not every 'would be nice' becomes a
+    dependency.
+  tunable: false
+tags: []

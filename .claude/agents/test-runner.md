@@ -2,6 +2,7 @@
 name: test-runner
 description: "Generate and maintain pytest unit tests. Use when adding features, fixing bugs, or improving test coverage."
 tools: Read, Grep, Glob, Bash
+skills: memory, labyrinth, palace
 model: sonnet
 ---
 

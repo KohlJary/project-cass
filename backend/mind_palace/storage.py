@@ -8,7 +8,7 @@ Designed to be portable - can be dropped into any project.
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -22,7 +22,10 @@ from .models import (
     Hazard,
     HazardType,
     HistoryEntry,
+    Link,
+    LinkType,
     Palace,
+    PalaceReference,
     Region,
     Room,
     Topic,
@@ -112,11 +115,20 @@ class PalaceStorage:
         with open(index_path) as f:
             index = yaml.safe_load(f)
 
+        # Parse references
+        references = []
+        for ref_data in index.get("references", []):
+            try:
+                references.append(PalaceReference.from_dict(ref_data))
+            except (KeyError, ValueError) as e:
+                logger.warning(f"Skipping invalid reference: {e}")
+
         palace = Palace(
             name=index.get("name", "unnamed"),
             version=index.get("version", "1.0"),
             created=index.get("created"),
             last_updated=index.get("last_updated"),
+            references=references,
         )
 
         # Load regions
@@ -126,7 +138,8 @@ class PalaceStorage:
                 if region_dir.is_dir():
                     region = self._load_region(region_dir)
                     if region:
-                        palace.regions[region.name] = region
+                        # Use add_region to index by both slug and name
+                        palace.add_region(region)
 
                         # Load buildings in this region
                         buildings_dir = region_dir / "buildings"
@@ -135,7 +148,8 @@ class PalaceStorage:
                                 if building_dir.is_dir():
                                     building = self._load_building(building_dir)
                                     if building:
-                                        palace.buildings[building.name] = building
+                                        # Use add_building to index by both slug and name
+                                        palace.add_building(building)
 
                                         # Load rooms in this building
                                         rooms_dir = building_dir / "rooms"
@@ -143,7 +157,8 @@ class PalaceStorage:
                                             for room_file in rooms_dir.glob("*.yaml"):
                                                 room = self._load_room(room_file)
                                                 if room:
-                                                    palace.rooms[room.name] = room
+                                                    # Use add_room to index by both slug and name
+                                                    palace.add_room(room)
 
         # Load entities
         entities_dir = self.palace_dir / "entities"
@@ -151,7 +166,8 @@ class PalaceStorage:
             for entity_file in entities_dir.glob("*.yaml"):
                 entity = self._load_entity(entity_file)
                 if entity:
-                    palace.entities[entity.name] = entity
+                    # Use add_entity to index by both slug and name
+                    palace.add_entity(entity)
 
         logger.info(
             f"Loaded palace '{palace.name}': "
@@ -195,6 +211,88 @@ class PalaceStorage:
 
         logger.info(f"Saved palace '{palace.name}'")
 
+    # ========== Cross-Palace Links ==========
+
+    LINKS_FILE = "links.yaml"
+
+    def load_links(self) -> List[Link]:
+        """
+        Load cross-palace links from links.yaml.
+
+        Returns:
+            List of Link objects, or empty list if no links file exists
+        """
+        links_path = self.palace_dir / self.LINKS_FILE
+        if not links_path.exists():
+            return []
+
+        with open(links_path) as f:
+            data = yaml.safe_load(f)
+
+        if not data or "links" not in data:
+            return []
+
+        links = []
+        for link_data in data["links"]:
+            try:
+                links.append(Link.from_dict(link_data))
+            except (KeyError, ValueError) as e:
+                logger.warning(f"Skipping invalid link: {e}")
+
+        logger.info(f"Loaded {len(links)} cross-palace links from {links_path}")
+        return links
+
+    def save_links(self, links: List[Link]) -> None:
+        """
+        Save cross-palace links to links.yaml.
+
+        Args:
+            links: List of Link objects to save
+        """
+        links_path = self.palace_dir / self.LINKS_FILE
+
+        data = {
+            "version": "1.0",
+            "updated": datetime.now().isoformat(),
+            "links": [link.to_dict() for link in links],
+        }
+
+        with open(links_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+        logger.info(f"Saved {len(links)} cross-palace links to {links_path}")
+
+    def add_links(self, new_links: List[Link]) -> int:
+        """
+        Add links to existing links (deduplicating).
+
+        Args:
+            new_links: Links to add
+
+        Returns:
+            Number of new links added
+        """
+        existing = self.load_links()
+
+        # Create a set of existing link signatures for deduplication
+        existing_sigs = {
+            (l.from_room, l.to_palace, l.to_path, l.link_type)
+            for l in existing
+        }
+
+        added = 0
+        for link in new_links:
+            sig = (link.from_room, link.to_palace, link.to_path, link.link_type)
+            if sig not in existing_sigs:
+                existing.append(link)
+                existing_sigs.add(sig)
+                added += 1
+
+        if added > 0:
+            self.save_links(existing)
+
+        return added
+
     def _load_region(self, region_dir: Path) -> Optional[Region]:
         """Load a region from its directory."""
         region_file = region_dir / "region.yaml"
@@ -206,6 +304,7 @@ class PalaceStorage:
 
         return Region(
             name=data.get("name", region_dir.name),
+            slug=data.get("slug"),  # Will auto-generate if None
             description=data.get("description", ""),
             adjacent=data.get("adjacent", []),
             entry_points=data.get("entry_points", []),
@@ -231,6 +330,7 @@ class PalaceStorage:
 
         return Building(
             name=data.get("name", building_dir.name),
+            slug=data.get("slug"),  # Will auto-generate if None
             region=data.get("region", ""),
             purpose=data.get("purpose", ""),
             floors=data.get("floors", 1),
@@ -285,8 +385,16 @@ class PalaceStorage:
                 severity=h.get("severity", 1),
             ))
 
+        links = []
+        for l in data.get("links", []):
+            try:
+                links.append(Link.from_dict(l))
+            except (KeyError, ValueError) as e:
+                logger.warning(f"Skipping invalid link in {room_file}: {e}")
+
         return Room(
             name=data.get("name", room_file.stem),
+            slug=data.get("slug"),  # Will auto-generate if None
             building=data.get("building", ""),
             floor=data.get("floor", 1),
             description=data.get("description", ""),
@@ -294,6 +402,7 @@ class PalaceStorage:
             contents=contents,
             exits=exits,
             hazards=hazards,
+            links=links,
             history=self._parse_history(data.get("history", [])),
             tags=data.get("tags", []),
             last_modified=data.get("last_modified"),
@@ -317,6 +426,7 @@ class PalaceStorage:
 
         return Entity(
             name=data.get("name", entity_file.stem),
+            slug=data.get("slug"),  # Will auto-generate if None
             location=data.get("location", ""),
             role=data.get("role", ""),
             topics=topics,
@@ -401,20 +511,20 @@ class PalaceStorage:
 
     def add_region(self, palace: Palace, region: Region) -> None:
         """Add a region to the palace and save it."""
-        palace.regions[region.name] = region
+        palace.add_region(region)  # Indexes by slug and name
         self._save_region(region)
 
     def add_building(self, palace: Palace, building: Building) -> None:
         """Add a building to the palace and save it."""
-        palace.buildings[building.name] = building
+        palace.add_building(building)  # Indexes by slug and name
         self._save_building(building)
 
     def add_room(self, palace: Palace, room: Room) -> None:
         """Add a room to the palace and save it."""
-        palace.rooms[room.name] = room
+        palace.add_room(room)  # Indexes by slug and name
         self._save_room(room)
 
     def add_entity(self, palace: Palace, entity: Entity) -> None:
         """Add an entity to the palace and save it."""
-        palace.entities[entity.name] = entity
+        palace.add_entity(entity)  # Indexes by slug and name
         self._save_entity(entity)

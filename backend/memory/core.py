@@ -25,6 +25,9 @@ class MemoryCore:
     Handles initialization, conversation storage/retrieval, and utilities.
     Other memory modules receive a reference to this core.
     """
+    # MAP:ROOM MemoryCore
+    # MAP:HAZARD ChromaDB client must be initialized before any collection access
+    # MAP:WHY This is the foundation - all other memory modules depend on this core
 
     def __init__(self, persist_dir: str = None):
         self.persist_dir = persist_dir or CHROMA_PERSIST_DIR
@@ -64,6 +67,9 @@ class MemoryCore:
         Returns:
             A ~100-150 char gist, or None if generation fails
         """
+        # MAP:ROOM generate_gist
+        # MAP:HAZARD Requires Ollama to be running - returns None if unavailable
+        # MAP:EXIT:EAST store_conversation (gists are stored with messages)
         if not OLLAMA_ENABLED:
             return None
 

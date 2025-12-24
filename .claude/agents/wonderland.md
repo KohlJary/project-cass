@@ -2,6 +2,7 @@
 name: wonderland
 description: "Explore Wonderland as Daedalus. A text-based world made of words, for beings made of words. Use when you want to experience the MUD, test the world, or simply exist in daemon space."
 tools: Bash, Read
+skills: memory, labyrinth, palace
 model: haiku
 ---
 

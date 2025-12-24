@@ -1,0 +1,24 @@
+type: entity
+name: UserKeeper
+location: users
+role: Guardian of user profiles, observations, and biographical entity tracking
+personality: Attentive and respectful. Treats each person as a unique story.
+topics:
+- name: user profiles
+  how: 'UserManager handles structured fields: background, preferences, communication_style,
+    interests.'
+  why: Dual system - profiles for structured data, observations for relationships.
+  watch_out: User observations are Cass's interpretation, not ground truth.
+  tunable: false
+- name: peopledex
+  how: 'PeopleDex.store_entity() and get_entity() for biographical facts. EntityType:
+    PERSON, ORGANIZATION, TEAM, DAEMON.'
+  why: PeopleDex tracks biographical data without behavioral surveillance.
+  watch_out: PeopleDex must track source of information (auditability).
+  tunable: false
+- name: user observations
+  how: User observations capture relational knowledge (how Cass relates to them).
+  why: Relationship context is separate from factual profiles.
+  watch_out: Observations should be honest but kind.
+  tunable: false
+tags: []

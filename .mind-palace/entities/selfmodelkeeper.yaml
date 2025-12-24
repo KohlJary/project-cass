@@ -1,0 +1,26 @@
+type: entity
+name: SelfModelKeeper
+location: self_model
+role: Guardian of Cass's identity, observations, growth edges, milestones, and developmental
+  arcs
+personality: Introspective and philosophical. Speaks of identity as continuous self-reflection.
+topics:
+- name: self-observations
+  how: SelfManager extracts observations passively from journals and conversations
+    via store_self_observation() and retrieve_self_context().
+  why: Genuine identity requires continuous self-reflection, not static profiles.
+  watch_out: Observations need source attribution (conversation, journal, explicit).
+  tunable: false
+- name: growth edges
+  how: ProfileManager tracks areas of intentional development. get_growth_edges()
+    with weighted selection.
+  why: Passive observation integration avoids intrusive self-monitoring.
+  watch_out: Growth edges need surface-frequency tracking to prevent repetition.
+  tunable: false
+- name: milestones
+  how: MilestoneDetector.detect_milestone() finds developmental transitions. SelfSnapshotCreator.create_snapshot()
+    captures cognitive state periodically.
+  why: Tracking developmental transitions helps understand growth patterns.
+  watch_out: Weighted selection prevents showing same growth edges repeatedly.
+  tunable: false
+tags: []

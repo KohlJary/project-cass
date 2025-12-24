@@ -14,7 +14,6 @@ from .handlers import (
     github_metrics_handler,
     idle_summarization_handler,
     daily_journal_handler,
-    rhythm_phase_handler,
     autonomous_research_handler,
     goal_refinement_handler,
 )
@@ -37,7 +36,6 @@ def register_system_tasks(
             - conversation_manager
             - memory
             - token_tracker
-            - rhythm_manager
             - runners (dict of activity runners)
             - self_model_graph
             - generate_missing_journals (function)
@@ -101,23 +99,6 @@ def register_system_tasks(
             estimated_cost_usd=0.20,
         ))
         logger.info("Registered: daily_journal (00:05 daily)")
-
-    # Rhythm phase monitor - every 5 minutes
-    if managers.get("rhythm_manager"):
-        scheduler.register_system_task(create_task(
-            name="rhythm_phase_check",
-            category=TaskCategory.SYSTEM,
-            priority=TaskPriority.NORMAL,
-            handler=partial(
-                rhythm_phase_handler,
-                rhythm_manager=managers["rhythm_manager"],
-                runners=managers.get("runners", {}),
-                self_model_graph=managers.get("self_model_graph"),
-            ),
-            interval_seconds=5 * 60,  # 5 minutes
-            estimated_cost_usd=0.0,  # Check is free, sessions track their own cost
-        ))
-        logger.info("Registered: rhythm_phase_check (every 5 minutes)")
 
     # Autonomous research - only register if not in supervised mode
     if managers.get("research_scheduler"):
@@ -184,12 +165,6 @@ def get_system_task_config() -> Dict[str, Dict[str, Any]]:
             "description": "Generate daily journal and nightly dream",
             "interval": "00:05 daily",
             "estimated_cost": "$0.10-0.20",
-            "category": "system",
-        },
-        "rhythm_phase_check": {
-            "description": "Monitor and trigger rhythm phase sessions",
-            "interval": "every 5 minutes",
-            "estimated_cost": "$0.00-0.50 (varies by session)",
             "category": "system",
         },
         "autonomous_research": {

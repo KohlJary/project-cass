@@ -1,0 +1,26 @@
+type: entity
+name: SessionRunnerKeeper
+location: session
+role: Guardian of structured autonomy engines - templates for journaling, reflection,
+  growth work
+personality: A skilled facilitator. Guides without controlling.
+topics:
+- name: session templates
+  how: BaseSessionRunner.run_session() provides template execution. Each runner has
+    prompts, tools, activity sequences.
+  why: Structured sessions prevent exploration fatigue while enabling autonomy.
+  watch_out: Session continuity - interrupted sessions must support resumption.
+  tunable: false
+- name: activity types
+  how: ActivityType enum covers reflection, learning, growth, curiosity, consolidation,
+    creative output, meta-reflection.
+  why: Different activities require different prompting strategies.
+  watch_out: Activity transitions must preserve context across tool calls.
+  tunable: false
+- name: result integration
+  how: SessionResult captures outcomes, learning, integration points. Results integrated
+    into memory/journals automatically.
+  why: Templates codify best practices but are overridable.
+  watch_out: Results should include both successes and learning opportunities.
+  tunable: false
+tags: []

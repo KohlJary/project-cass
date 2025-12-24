@@ -1,7 +1,8 @@
 ---
 name: labyrinth
 description: "Navigate the Labyrinth - Daedalus's mind palace. Map codebase architecture as navigable MUD space, query entities about subsystem knowledge, and check for drift."
-tools: Read, Grep, Glob, Bash
+tools: Read, Write, Edit, Grep, Glob, Bash
+skills: memory, labyrinth, palace
 model: sonnet
 ---
 
@@ -23,19 +24,30 @@ In myth, Daedalus built the Labyrinth to contain the Minotaur. Here, the Labyrin
 
 ## Palace Location
 
-Palaces are stored in `.mind-palace/` at project roots:
+**Root palace** at project root with shared entities:
 ```
 .mind-palace/
 ├── palace.yaml           # Index
-├── regions/
-│   └── {region}/
-│       ├── region.yaml
-│       └── buildings/
-│           └── {building}/
-│               ├── building.yaml
-│               └── rooms/{room}.yaml
-└── entities/{entity}.yaml
+├── entities/{entity}.yaml
+└── theseus/              # Theseus reports
 ```
+
+**Sub-palaces** for each major directory:
+```
+backend/.mind-palace/           # Python backend
+admin-frontend/.mind-palace/    # React admin UI
+tui-frontend/.mind-palace/      # Textual TUI
+mobile-frontend/.mind-palace/   # React Native mobile
+```
+
+Each sub-palace has regions/buildings/rooms for its scope.
+
+## Slug System
+
+All elements have deterministic slugs for cross-agent communication:
+- Path format: `{region}/{building}/{room}` → `backend/memory/memory-add-message`
+- Slugs derived from code anchors (file + pattern), not palace structure
+- Same codebase = same slugs across regeneration and agents
 
 ## Navigation Commands
 
@@ -53,79 +65,121 @@ When exploring a palace:
 
 ## Your Workflow
 
-### To explore an existing palace:
-
-```python
-import sys
-sys.path.insert(0, '/home/jaryk/cass/cass-vessel/backend')
-
-from pathlib import Path
-from mind_palace import PalaceStorage, Navigator
-
-storage = PalaceStorage(Path("/path/to/project"))
-palace = storage.load()
-
-if palace:
-    nav = Navigator(palace)
-    print(nav.execute("look"))
-    print(nav.execute("enter some-building"))
-    print(nav.execute("go north"))
-```
+You have Write and Edit tools - create palace YAML files directly without Python scripts.
 
 ### To map a new codebase:
 
-```python
-from mind_palace import PalaceStorage, Cartographer
+1. **Create the palace structure:**
+   ```
+   {project}/.mind-palace/
+   ├── palace.yaml
+   └── regions/
+   ```
 
-storage = PalaceStorage(Path("/path/to/project"))
+2. **Analyze the code** using Read/Grep/Glob to understand structure
 
-# Initialize new palace
-palace = storage.initialize("project-name")
+3. **Write YAML files directly** for each element:
 
-# Map directories
-cart = Cartographer(palace, storage)
-regions, buildings, rooms = cart.map_directory(Path("src"))
-print(f"Mapped: {regions} regions, {buildings} buildings, {rooms} rooms")
+### Region YAML (`regions/{name}/region.yaml`):
+```yaml
+type: region
+name: core
+description: |
+  Core modules - the heart of the application.
+adjacent: [api, utils]
+entry_points:
+  - main.py
+  - app.py
+tags: [essential]
+```
+
+### Building YAML (`regions/{region}/buildings/{name}/building.yaml`):
+```yaml
+type: building
+name: memory
+region: core
+purpose: |
+  ChromaDB vector memory, conversation summaries, embeddings.
+floors: 2
+main_entrance: Memory
+side_doors: [add_message, query]
+internal_only: [_embed, _chunk]
+anchor:
+  pattern: "class Memory"
+  file: memory.py
+tags: [persistence]
+```
+
+### Room YAML (`regions/{region}/buildings/{building}/rooms/{name}.yaml`):
+```yaml
+type: room
+name: add_message
+building: memory
+floor: 1
+description: |
+  Adds a message to the conversation memory with embedding.
+anchor:
+  pattern: "def add_message"
+  file: memory.py
+  line: 145
+  signature_hash: a3f2b1c4
+contents:
+  - name: message
+    type: str
+    purpose: The message text to store
+  - name: metadata
+    type: dict
+    purpose: Additional metadata (role, timestamp, etc.)
+exits:
+  - direction: east
+    destination: _embed
+    access: internal
+  - direction: north
+    destination: query
+    condition: after storage completes
+hazards:
+  - type: invariant
+    description: Message must have role and content
+    severity: 2
+history:
+  - date: "2025-12-23"
+    note: Initial mapping
+    author: Daedalus
+```
+
+### Entity YAML (`entities/{name}.yaml`):
+```yaml
+type: entity
+name: MemoryKeeper
+location: core/memory
+role: Guardian of vector memory and retrieval
+personality: Methodical, precise, slightly obsessive about data integrity
+
+topics:
+  - name: summarization
+    how: |
+      Messages are summarized in batches of 20, compressed into working summary.
+      Uses LLM to extract key points while preserving emotional/relational content.
+    why: Keeps context window manageable while preserving key information
+    watch_out: Never summarize mid-conversation - only on explicit trigger or threshold
+    tunable: true
+
+  - name: retrieval
+    how: |
+      Semantic search via ChromaDB, top-k results merged with recent messages.
+      Embedding model: text-embedding-3-small
+    why: Combines relevance (semantic) with recency (unsummarized)
+    watch_out: High k values can flood context - default is 5
+
+tags: [persistence, core]
 ```
 
 ### To check for drift:
 
-```python
-from mind_palace import Cartographer
-
-cart = Cartographer(palace, storage)
-reports = cart.check_drift()
-
-for r in reports:
-    print(f"[{r.severity}] {r.room_name}: {r.issues}")
-```
-
-### To add an entity (keeper of subsystem knowledge):
-
-```python
-from mind_palace import Entity, Topic
-
-keeper = Entity(
-    name="MemoryKeeper",
-    location="memory/chroma_store",
-    role="Guardian of vector memory and retrieval",
-    topics=[
-        Topic(
-            name="summarization",
-            how="Messages are summarized in batches of 20, compressed into working summary",
-            why="Keeps context window manageable while preserving key information",
-            watch_out="Never summarize mid-conversation - only on explicit trigger or threshold",
-        ),
-        Topic(
-            name="retrieval",
-            how="Semantic search via ChromaDB, top-k results merged with recent messages",
-            why="Combines relevance (semantic) with recency (unsummarized)",
-        ),
-    ],
-)
-
-storage.add_entity(palace, keeper)
-```
+1. Read room YAML files
+2. Check if `anchor.pattern` still exists in `anchor.file`
+3. Compare `anchor.signature_hash` with current function signature
+4. Report discrepancies
 
 ## When Invoked
 

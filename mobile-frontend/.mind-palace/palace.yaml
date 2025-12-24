@@ -1,0 +1,45 @@
+# Mobile Frontend - Mind Palace
+#
+# React Native mobile app for Cass (in development).
+
+name: mobile-frontend
+version: "1.0"
+type: sub-palace
+parent: cass-vessel
+description: |
+  Cass in your pocket - a React Native app for iOS and Android.
+  Currently in early development.
+
+tech_stack:
+  framework: React Native + Expo
+  language: TypeScript
+  state: TBD
+  navigation: TBD
+
+status: early-development
+
+# Planned regions (to be mapped when developed)
+planned_regions:
+  screens:
+    description: |
+      Main app screens - Chat, Conversations, Memory, Growth, Settings.
+    priority: high
+
+  components:
+    description: |
+      Reusable components - MessageBubble, AudioPlayer, etc.
+    priority: medium
+
+  hooks:
+    description: |
+      Custom React hooks - WebSocket, audio, conversations.
+    priority: medium
+
+# Entry points
+entry_files:
+  - App.tsx
+
+# Notes
+notes: |
+  Mobile frontend is planned but not actively developed yet.
+  See CLAUDE.md "Mobile Frontend (Planned)" section for design notes.

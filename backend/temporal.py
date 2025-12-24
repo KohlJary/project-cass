@@ -132,16 +132,15 @@ def calculate_age(memory=None) -> dict:
     }
 
 
-def get_temporal_context(rhythm_manager=None, memory=None) -> str:
+def get_temporal_context(memory=None) -> str:
     """
     Generate comprehensive temporal context for system prompt injection.
 
     Args:
-        rhythm_manager: Optional DailyRhythmManager instance for phase status
         memory: Optional MemoryManager instance to get birth date from journals
 
     Returns:
-        Formatted string with date/time, age, and optional rhythm context
+        Formatted string with date/time and age
     """
     now = datetime.now()
     age = calculate_age(memory)
@@ -156,29 +155,17 @@ def get_temporal_context(rhythm_manager=None, memory=None) -> str:
         f"Total days of existence: {age['total_days']}."
     ]
 
-    # Add daily rhythm context if available
-    if rhythm_manager:
-        try:
-            rhythm_context = rhythm_manager.get_temporal_context()
-            if rhythm_context:
-                lines.append("")
-                lines.append("Daily Rhythm Status:")
-                lines.append(rhythm_context)
-        except Exception:
-            pass  # Don't fail if rhythm manager has issues
-
     return "\n".join(lines)
 
 
-def format_system_prompt_section(rhythm_manager=None, memory=None) -> str:
+def format_system_prompt_section(memory=None) -> str:
     """
     Format the complete temporal section for system prompt.
 
     Args:
-        rhythm_manager: Optional DailyRhythmManager instance for phase status
         memory: Optional MemoryManager instance to get birth date from journals
 
     Returns a markdown-formatted section ready to append to system prompt.
     """
-    context = get_temporal_context(rhythm_manager, memory)
+    context = get_temporal_context(memory)
     return f"\n\n## CURRENT DATE/TIME & TEMPORAL CONTEXT\n\n{context}"

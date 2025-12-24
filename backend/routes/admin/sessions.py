@@ -2,7 +2,7 @@
 Admin API - Session Management Routes
 All session types: research, synthesis, meta-reflection, consolidation,
 growth edge, knowledge building, curiosity, world state, creative, writing,
-reflection, and daily rhythm endpoints.
+and reflection.
 
 Extracted from admin_api.py for better organization.
 """
@@ -30,7 +30,6 @@ world_state_runner_getter = None
 creative_runner_getter = None
 writing_runner_getter = None
 reflection_runner_getter = None
-daily_rhythm_manager = None
 research_scheduler = None
 research_manager = None
 goal_manager = None
@@ -91,11 +90,6 @@ def init_writing_runner(getter):
 def init_reflection_runner(getter):
     global reflection_runner_getter
     reflection_runner_getter = getter
-
-
-def init_daily_rhythm_manager(manager):
-    global daily_rhythm_manager
-    daily_rhythm_manager = manager
 
 
 def init_research_scheduler(scheduler):
@@ -192,14 +186,6 @@ class TriggerPhaseRequest(BaseModel):
     focus: Optional[str] = None
     duration_minutes: Optional[int] = None
     force: bool = False
-
-
-class MarkPhaseCompleteRequest(BaseModel):
-    session_id: Optional[str] = None
-    session_type: Optional[str] = None
-    summary: Optional[str] = None
-    findings: Optional[List[str]] = None
-    notes_created: Optional[List[str]] = None
 
 
 # ============== Research Session Endpoints ==============
@@ -1482,51 +1468,3 @@ async def list_reflection_sessions(limit: int = Query(default=20, le=100), user:
         ],
         "count": len(sessions)
     }
-
-
-# ============== Daily Rhythm Endpoints ==============
-
-@router.get("/rhythm/status")
-async def get_rhythm_status(user: Dict = Depends(require_auth)):
-    """Get the current daily rhythm status"""
-    if not daily_rhythm_manager:
-        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
-
-    return daily_rhythm_manager.get_rhythm_status()
-
-
-@router.get("/rhythm/phases")
-async def get_rhythm_phases(user: Dict = Depends(require_auth)):
-    """Get all configured rhythm phases"""
-    if not daily_rhythm_manager:
-        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
-
-    return {"phases": daily_rhythm_manager.get_phases()}
-
-
-@router.post("/rhythm/phases/{phase_id}/complete")
-async def mark_phase_complete(
-    phase_id: str,
-    request: MarkPhaseCompleteRequest = None
-):
-    """Mark a rhythm phase as completed"""
-    if not daily_rhythm_manager:
-        raise HTTPException(status_code=503, detail="Daily rhythm manager not initialized")
-
-    req = request or MarkPhaseCompleteRequest()
-    result = daily_rhythm_manager.mark_phase_completed(
-        phase_id=phase_id,
-        session_id=req.session_id,
-        session_type=req.session_type,
-        summary=req.summary,
-        findings=req.findings,
-        notes_created=req.notes_created,
-    )
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error"))
-
-    return result
-
-
-# Note: trigger_phase and other complex rhythm endpoints will remain in admin_api.py
-# due to their complexity and dependencies on multiple session runners

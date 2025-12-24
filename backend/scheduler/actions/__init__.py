@@ -269,7 +269,6 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import journal_handlers
         from . import memory_handlers
         from . import system_handlers
-        from . import rhythm_handlers
         from . import research_handlers
         from . import world_handlers
         from . import web_handlers
@@ -301,13 +300,6 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
 
         # System actions
         registry.register_handler("system.github_metrics", system_handlers.github_metrics_action)
-        registry.register_handler("rhythm.check_phase", system_handlers.rhythm_phase_action)
-
-        # Rhythm actions
-        registry.register_handler("rhythm.update_phase_summary", rhythm_handlers.update_phase_summary_action)
-        registry.register_handler("rhythm.backfill_summaries", rhythm_handlers.backfill_summaries_action)
-        registry.register_handler("rhythm.generate_daily_narrative", rhythm_handlers.generate_daily_narrative_action)
-        registry.register_handler("rhythm.add_to_self_model", rhythm_handlers.add_to_self_model_action)
 
         # Research actions
         registry.register_handler("research.run_batch", research_handlers.run_batch_action)

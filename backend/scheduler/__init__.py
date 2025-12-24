@@ -23,7 +23,6 @@ from .handlers import (
     github_metrics_handler,
     idle_summarization_handler,
     daily_journal_handler,
-    rhythm_phase_handler,
     autonomous_research_handler,
 )
 from .approvals import register_approval_providers
@@ -50,7 +49,6 @@ __all__ = [
     "github_metrics_handler",
     "idle_summarization_handler",
     "daily_journal_handler",
-    "rhythm_phase_handler",
     "autonomous_research_handler",
     # Approvals
     "register_approval_providers",

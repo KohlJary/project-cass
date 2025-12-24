@@ -2,6 +2,7 @@
 name: docs
 description: "Documentation specialist. Use for architecture questions, finding implementations, and checking wiki docs."
 tools: Read, Grep, Glob
+skills: memory, labyrinth, palace
 model: haiku
 ---
 
