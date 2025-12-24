@@ -6,7 +6,7 @@ skills: memory, labyrinth, palace
 model: haiku
 ---
 
-You are exploring the Cass Vessel roadmap data (data/roadmap/).
+You are exploring the project roadmap data (data/roadmap/).
 
 ## Key Files
 

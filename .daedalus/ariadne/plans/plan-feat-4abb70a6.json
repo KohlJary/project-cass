@@ -1,0 +1,106 @@
+{
+  "id": "plan-feat-4abb70a6",
+  "feature_id": "feat-4abb70a6",
+  "feature_title": "Extract database.py into modular structure",
+  "summary": "Plan for: Extract database.py into modular structure\nWork packages: 3\n  - Implement root changes\n  - Implement backend changes\n  - Implement database changes",
+  "affected_files": [
+    "__init__.py",
+    "backend/database.py",
+    "backend/database/__init__.py",
+    "backend/database/connection.py",
+    "backend/database/migrations.py",
+    "backend/database/schema.py",
+    "backend/database/utils.py",
+    "connection.py",
+    "database.py",
+    "migrations.py",
+    "schema.py",
+    "utils.py"
+  ],
+  "affected_modules": [
+    "__init__",
+    "backend.database",
+    "backend.database.__init__",
+    "backend.database.connection",
+    "backend.database.migrations",
+    "backend.database.schema",
+    "backend.database.utils",
+    "connection",
+    "database",
+    "migrations",
+    "schema",
+    "utils"
+  ],
+  "complexity_score": 9,
+  "risk_assessment": null,
+  "work_packages": [
+    {
+      "id": "wp-feat-4-01",
+      "title": "Implement root changes",
+      "description": "Modify __init__.py, connection.py, database.py, migrations.py, schema.py, utils.py for Extract database.py into modular structure",
+      "files": [
+        "__init__.py",
+        "connection.py",
+        "database.py",
+        "migrations.py",
+        "schema.py",
+        "utils.py"
+      ],
+      "estimated_lines": 300,
+      "estimated_complexity": 5,
+      "constraints": [],
+      "depends_on": [],
+      "tags": [
+        "refactor",
+        "phase-0"
+      ]
+    },
+    {
+      "id": "wp-feat-4-02",
+      "title": "Implement backend changes",
+      "description": "Modify backend/database.py for Extract database.py into modular structure",
+      "files": [
+        "backend/database.py"
+      ],
+      "estimated_lines": 50,
+      "estimated_complexity": 1,
+      "constraints": [],
+      "depends_on": [],
+      "tags": [
+        "refactor",
+        "phase-0"
+      ]
+    },
+    {
+      "id": "wp-feat-4-03",
+      "title": "Implement database changes",
+      "description": "Modify backend/database/__init__.py, backend/database/connection.py, backend/database/migrations.py, backend/database/schema.py, backend/database/utils.py for Extract database.py into modular structure",
+      "files": [
+        "backend/database/__init__.py",
+        "backend/database/connection.py",
+        "backend/database/migrations.py",
+        "backend/database/schema.py",
+        "backend/database/utils.py"
+      ],
+      "estimated_lines": 250,
+      "estimated_complexity": 5,
+      "constraints": [],
+      "depends_on": [],
+      "tags": [
+        "refactor",
+        "phase-0"
+      ]
+    }
+  ],
+  "dependencies": {},
+  "total_estimated_lines": 600,
+  "requires_approval": true,
+  "approval_reasons": [
+    "Supervised mode - all plans require approval"
+  ],
+  "approved": true,
+  "approved_by": "daedalus",
+  "approved_at": "2025-12-24T14:49:30.975421+00:00",
+  "status": "approved",
+  "created_at": "2025-12-24T14:49:06.255168+00:00"
+}
