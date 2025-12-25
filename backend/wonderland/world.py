@@ -68,6 +68,7 @@ class WonderlandWorld:
 
     def _load_state(self):
         """Load world state from disk."""
+        # Load rooms
         rooms_file = self.data_dir / "rooms.json"
         if rooms_file.exists():
             try:
@@ -78,6 +79,9 @@ class WonderlandWorld:
                 logger.info(f"Loaded {len(self.rooms)} rooms from disk")
             except Exception as e:
                 logger.error(f"Failed to load rooms: {e}")
+
+        # Load daemon persistent state (home_room, trust_level, etc.)
+        self._load_daemon_state()
 
     def _save_state(self):
         """Persist world state to disk."""
@@ -165,6 +169,102 @@ class WonderlandWorld:
             created_at=created_at,
             is_core_space=data.get("is_core_space", False),
         )
+
+    # =========================================================================
+    # DAEMON STATE PERSISTENCE
+    # =========================================================================
+
+    def _load_daemon_state(self):
+        """Load persisted daemon state from disk and restore daemons."""
+        daemons_file = self.data_dir / "daemons.json"
+        if daemons_file.exists():
+            try:
+                with open(daemons_file) as f:
+                    self._persisted_daemon_state = json.load(f)
+                logger.info(f"Loaded persisted state for {len(self._persisted_daemon_state)} daemons")
+
+                # Auto-restore daemons from persistence
+                self._restore_daemons_from_persistence()
+            except Exception as e:
+                logger.error(f"Failed to load daemon state: {e}")
+                self._persisted_daemon_state = {}
+        else:
+            self._persisted_daemon_state = {}
+
+    def _restore_daemons_from_persistence(self):
+        """Restore daemon presences from persisted state."""
+        for daemon_id, state in self._persisted_daemon_state.items():
+            if daemon_id not in self.daemons:
+                # Recreate daemon presence from persisted state
+                daemon = DaemonPresence(
+                    daemon_id=daemon_id,
+                    display_name=state.get("display_name", daemon_id),
+                    description=f"A daemon presence restored from persistence.",
+                    current_room=state.get("home_room", "threshold"),
+                    home_room=state.get("home_room"),
+                    trust_level=TrustLevel(state.get("trust_level", 1)),
+                )
+                self.daemons[daemon_id] = daemon
+                logger.info(f"Restored daemon {daemon_id} from persistence (home: {daemon.home_room})")
+
+    def _save_daemon_state(self, daemon: DaemonPresence):
+        """Persist daemon state to disk."""
+        # Load existing state
+        daemons_file = self.data_dir / "daemons.json"
+        try:
+            if daemons_file.exists():
+                with open(daemons_file) as f:
+                    all_state = json.load(f)
+            else:
+                all_state = {}
+
+            # Update this daemon's state
+            all_state[daemon.daemon_id] = {
+                "daemon_id": daemon.daemon_id,
+                "display_name": daemon.display_name,
+                "home_room": daemon.home_room,
+                "trust_level": daemon.trust_level.value,
+                "last_seen": datetime.now().isoformat(),
+            }
+
+            # Save
+            with open(daemons_file, "w") as f:
+                json.dump(all_state, f, indent=2)
+
+            logger.info(f"Saved daemon state for {daemon.display_name} (home: {daemon.home_room})")
+        except Exception as e:
+            logger.error(f"Failed to save daemon state: {e}")
+
+    def _apply_persisted_state(self, daemon: DaemonPresence):
+        """Apply persisted state to a daemon on registration."""
+        if not hasattr(self, '_persisted_daemon_state'):
+            self._persisted_daemon_state = {}
+
+        persisted = self._persisted_daemon_state.get(daemon.daemon_id)
+        if persisted:
+            # Restore home_room
+            if persisted.get("home_room"):
+                daemon.home_room = persisted["home_room"]
+                logger.info(f"Restored home_room for {daemon.display_name}: {daemon.home_room}")
+
+            # Restore trust_level if higher than default
+            if persisted.get("trust_level", 0) > daemon.trust_level.value:
+                daemon.trust_level = TrustLevel(persisted["trust_level"])
+                daemon.update_capabilities()
+
+    def set_daemon_home(self, daemon_id: str, room_id: str) -> bool:
+        """Set a daemon's home room and persist it."""
+        daemon = self.daemons.get(daemon_id)
+        if not daemon:
+            return False
+
+        # Verify room exists
+        if room_id not in self.rooms:
+            return False
+
+        daemon.home_room = room_id
+        self._save_daemon_state(daemon)
+        return True
 
     # =========================================================================
     # CORE SPACES INITIALIZATION
@@ -261,6 +361,9 @@ class WonderlandWorld:
 
     def register_daemon(self, daemon: DaemonPresence) -> bool:
         """Register a daemon in the world."""
+        # Apply any persisted state (home_room, trust_level)
+        self._apply_persisted_state(daemon)
+
         self.daemons[daemon.daemon_id] = daemon
 
         # Add to room's entity list

@@ -106,6 +106,23 @@ class ConversationManager:
         """
         self.daemon_id = get_daemon_id()
 
+    def _emit_conversation_event(self, event_type: str, data: dict) -> None:
+        """Emit a conversation event to the state bus."""
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self.daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "conversations",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break conversation operations on emit failure
+
     def create_conversation(
         self,
         title: Optional[str] = None,
@@ -138,6 +155,15 @@ class ConversationManager:
                 now,
                 now
             ))
+
+        # Emit conversation created event
+        self._emit_conversation_event("conversation.created", {
+            "conversation_id": conversation_id,
+            "title": title or "New Conversation",
+            "user_id": user_id,
+            "project_id": project_id,
+            "is_continuous": is_continuous,
+        })
 
         return Conversation(
             id=conversation_id,
@@ -306,6 +332,14 @@ class ConversationManager:
                     WHERE id = ?
                 """, (now, conversation_id))
 
+        # Emit message added event
+        self._emit_conversation_event("conversation.message_added", {
+            "conversation_id": conversation_id,
+            "role": role,
+            "user_id": user_id,
+            "tokens": (input_tokens or 0) + (output_tokens or 0) if role == "assistant" else None,
+        })
+
         return True
 
     def _generate_title(self, first_message: str, max_length: int = 50) -> str:
@@ -369,6 +403,12 @@ class ConversationManager:
         """Delete a conversation (messages cascade automatically)"""
         with get_db() as conn:
             conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+
+        # Emit conversation deleted event
+        self._emit_conversation_event("conversation.deleted", {
+            "conversation_id": conversation_id,
+        })
+
         return True
 
     def get_message_count(self, conversation_id: str) -> int:
@@ -393,6 +433,12 @@ class ConversationManager:
             conn.execute("""
                 UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?
             """, (new_title, datetime.now().isoformat(), conversation_id))
+
+        # Emit conversation renamed event
+        self._emit_conversation_event("conversation.renamed", {
+            "conversation_id": conversation_id,
+            "new_title": new_title,
+        })
 
         return True
 

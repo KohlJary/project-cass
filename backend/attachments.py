@@ -69,6 +69,25 @@ class PersistentAttachmentStorage(BaseAttachmentStorage):
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._metadata_cache: Dict[str, AttachmentMetadata] = {}
 
+    def _emit_attachment_event(self, event_type: str, data: dict) -> None:
+        """Emit an attachment event to the state bus."""
+        try:
+            from database import get_daemon_id
+            from state_bus import get_state_bus
+            daemon_id = get_daemon_id()
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "attachments",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break attachment operations on emit failure
+
     def _get_file_path(self, attachment_id: str, conversation_id: Optional[str] = None) -> Path:
         """Get the filesystem path for an attachment."""
         if conversation_id:
@@ -110,6 +129,16 @@ class PersistentAttachmentStorage(BaseAttachmentStorage):
 
         # Cache metadata
         self._metadata_cache[attachment_id] = metadata
+
+        # Emit upload event
+        self._emit_attachment_event("attachment.uploaded", {
+            "attachment_id": attachment_id,
+            "filename": filename,
+            "media_type": media_type,
+            "size": len(file_data),
+            "is_image": is_image,
+            "conversation_id": conversation_id,
+        })
 
         return metadata
 
@@ -168,6 +197,13 @@ class PersistentAttachmentStorage(BaseAttachmentStorage):
         database.delete_attachment(attachment_id)
 
         self._metadata_cache.pop(attachment_id, None)
+
+        # Emit delete event
+        self._emit_attachment_event("attachment.deleted", {
+            "attachment_id": attachment_id,
+            "filename": metadata.filename,
+        })
+
         return True
 
 

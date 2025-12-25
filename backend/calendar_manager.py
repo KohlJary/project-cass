@@ -105,6 +105,24 @@ class CalendarManager:
             if row:
                 self._daemon_id = row[0]
 
+    def _emit_calendar_event(self, event_type: str, data: dict) -> None:
+        """Emit a calendar event to the state bus."""
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self._daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "calendar",
+                        **data
+                    }
+                )
+        except Exception as e:
+            # Never let event emission break calendar operations
+            print(f"Warning: Failed to emit {event_type}: {e}")
+
     def _row_to_event(self, row) -> Event:
         """Convert database row to Event object"""
         return Event(
@@ -191,6 +209,16 @@ class CalendarManager:
                 json_serialize(tags or []), now, now
             ))
             conn.commit()
+
+        # Emit event creation
+        event_type = "calendar.reminder_created" if is_reminder else "calendar.event_created"
+        self._emit_calendar_event(event_type, {
+            "event_id": event_id,
+            "title": title,
+            "start_time": event.start_time,
+            "user_id": user_id,
+            "is_reminder": is_reminder,
+        })
 
         return event
 
@@ -282,6 +310,13 @@ class CalendarManager:
             """, params)
             conn.commit()
 
+        # Emit event updated
+        self._emit_calendar_event("calendar.event_updated", {
+            "event_id": event_id,
+            "user_id": user_id,
+            "fields_updated": [u.split(" = ")[0] for u in updates if u != "updated_at = ?"],
+        })
+
         return self.get_event(user_id, event_id)
 
     def delete_event(self, user_id: str, event_id: str) -> bool:
@@ -292,11 +327,26 @@ class CalendarManager:
                 WHERE daemon_id = ? AND user_id = ? AND id = ?
             """, (self._daemon_id, user_id, event_id))
             conn.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+
+        if deleted:
+            self._emit_calendar_event("calendar.event_deleted", {
+                "event_id": event_id,
+                "user_id": user_id,
+            })
+
+        return deleted
 
     def complete_reminder(self, user_id: str, event_id: str) -> Optional[Event]:
         """Mark a reminder as completed/acknowledged"""
-        return self.update_event(user_id, event_id, completed=True)
+        result = self.update_event(user_id, event_id, completed=True)
+        if result:
+            self._emit_calendar_event("calendar.reminder_completed", {
+                "event_id": event_id,
+                "title": result.title,
+                "user_id": user_id,
+            })
+        return result
 
     def get_events_for_date(self, user_id: str, date: datetime) -> List[Event]:
         """Get all events for a specific date"""

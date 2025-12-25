@@ -131,6 +131,25 @@ class ProjectManager:
         """
         pass
 
+    def _emit_project_event(self, event_type: str, data: dict) -> None:
+        """Emit a project event to the state bus."""
+        try:
+            from database import get_daemon_id
+            from state_bus import get_state_bus
+            daemon_id = get_daemon_id()
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "projects",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break project operations on emit failure
+
     def create_project(
         self,
         name: str,
@@ -175,6 +194,14 @@ class ProjectManager:
                 now,
                 now
             ))
+
+        # Emit project created event
+        self._emit_project_event("project.created", {
+            "project_id": project_id,
+            "name": name,
+            "working_directory": working_dir,
+            "user_id": user_id,
+        })
 
         return project
 
@@ -360,6 +387,12 @@ class ProjectManager:
             conn.execute("DELETE FROM project_files WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM project_documents WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+        # Emit project deleted event
+        self._emit_project_event("project.deleted", {
+            "project_id": project_id,
+        })
+
         return True
 
     def add_file(

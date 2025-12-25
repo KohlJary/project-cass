@@ -263,6 +263,25 @@ class Synkratos:
         self._approval_providers: Dict[ApprovalType, Callable[[], List[ApprovalItem]]] = {}
         self._approval_handlers: Dict[ApprovalType, Dict[str, Callable]] = {}
 
+    def _emit_scheduler_event(self, event_type: str, data: dict) -> None:
+        """Emit a scheduler event to the state bus."""
+        try:
+            from database import get_daemon_id
+            from state_bus import get_state_bus
+            daemon_id = get_daemon_id()
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "source": "scheduler",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break scheduler operations on emit failure
+
     def _init_default_queues(self) -> None:
         """Initialize default task queues."""
         queue_configs = {
@@ -445,10 +464,29 @@ class Synkratos:
 
             logger.info(f"Completed system task: {task.name}")
 
+            # Emit completion event
+            self._emit_scheduler_event("scheduler.task_completed", {
+                "task_id": task.task_id,
+                "task_name": task.name,
+                "task_type": "system",
+                "category": task.category.value,
+                "duration_seconds": (datetime.now(timezone.utc) - start_time).total_seconds(),
+                "run_count": task.run_count,
+            })
+
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error_message = str(e)
             logger.error(f"System task failed: {task.name} - {e}", exc_info=True)
+
+            # Emit failure event
+            self._emit_scheduler_event("scheduler.task_failed", {
+                "task_id": task.task_id,
+                "task_name": task.name,
+                "task_type": "system",
+                "category": task.category.value,
+                "error": str(e)[:200],
+            })
 
         finally:
             # Schedule next run
@@ -508,9 +546,28 @@ class Synkratos:
 
             logger.info(f"Completed queue task: {task.name}")
 
+            # Emit completion event
+            self._emit_scheduler_event("scheduler.task_completed", {
+                "task_id": task.task_id,
+                "task_name": task.name,
+                "task_type": "queue",
+                "category": queue.category.value,
+                "duration_seconds": (datetime.now(timezone.utc) - start_time).total_seconds(),
+                "run_count": task.run_count,
+            })
+
         except Exception as e:
             queue.complete(task.task_id, success=False, error=str(e))
             logger.error(f"Queue task failed: {task.name} - {e}", exc_info=True)
+
+            # Emit failure event
+            self._emit_scheduler_event("scheduler.task_failed", {
+                "task_id": task.task_id,
+                "task_name": task.name,
+                "task_type": "queue",
+                "category": queue.category.value,
+                "error": str(e)[:200],
+            })
 
         finally:
             self._record_history(task, start_time)

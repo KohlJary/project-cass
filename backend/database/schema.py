@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 25  # Added outreach_drafts table for external communication
+SCHEMA_VERSION = 26  # Added development_requests for Cass-Daedalus coordination
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1324,4 +1324,44 @@ CREATE TABLE IF NOT EXISTS outreach_drafts (
 CREATE INDEX IF NOT EXISTS idx_outreach_drafts_daemon ON outreach_drafts(daemon_id);
 CREATE INDEX IF NOT EXISTS idx_outreach_drafts_status ON outreach_drafts(daemon_id, status);
 CREATE INDEX IF NOT EXISTS idx_outreach_drafts_type ON outreach_drafts(daemon_id, draft_type);
+
+-- =============================================================================
+-- CASS-DAEDALUS COORDINATION - Development Request Bridge
+-- =============================================================================
+
+-- Development requests - async work handoff from Cass to Daedalus
+-- Bridge for human-timescale development work (not instant LLM execution)
+CREATE TABLE IF NOT EXISTS development_requests (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    requested_by TEXT DEFAULT 'cass',       -- who made the request (cass, user)
+
+    -- Request content
+    request_type TEXT NOT NULL,             -- new_action, bug_fix, feature, refactor, capability, integration
+    title TEXT NOT NULL,
+    description TEXT,
+    priority TEXT DEFAULT 'normal',         -- low, normal, high, urgent
+
+    -- Context
+    context TEXT,                           -- why this is needed
+    related_actions_json TEXT,              -- action IDs that relate
+
+    -- Assignment
+    status TEXT DEFAULT 'pending',          -- pending, claimed, in_progress, review, completed, cancelled
+    claimed_by TEXT,                        -- who claimed it (daedalus)
+    claimed_at TEXT,
+
+    -- Completion
+    result TEXT,                            -- what was done
+    result_artifacts_json TEXT,             -- commit hashes, file paths
+    completed_at TEXT,
+
+    -- Timestamps
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dev_requests_daemon ON development_requests(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_dev_requests_status ON development_requests(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_dev_requests_priority ON development_requests(daemon_id, priority);
 """

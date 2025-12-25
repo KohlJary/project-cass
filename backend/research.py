@@ -117,6 +117,23 @@ class ResearchManager:
             if row:
                 self._daemon_id = row[0]
 
+    def _emit_research_event(self, event_type: str, data: dict) -> None:
+        """Emit a research event to the state bus."""
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self._daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "research",
+                        **data
+                    }
+                )
+        except Exception as e:
+            print(f"Warning: Failed to emit {event_type}: {e}")
+
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client"""
         if self._client is None or self._client.is_closed:
@@ -473,6 +490,15 @@ class ResearchManager:
 
         self._save_note(note)
 
+        # Emit research note created event
+        self._emit_research_event("research.note_added", {
+            "note_id": note_id,
+            "title": title,
+            "session_id": session_id,
+            "source_count": len(sources or []),
+            "tag_count": len(tags or []),
+        })
+
         return asdict(note)
 
     def update_research_note(
@@ -505,6 +531,13 @@ class ResearchManager:
 
         if add_source:
             note.sources.append(add_source)
+            # Emit source added event
+            self._emit_research_event("research.source_added", {
+                "note_id": note_id,
+                "note_title": note.title,
+                "source_url": add_source.get("url"),
+                "source_title": add_source.get("title"),
+            })
 
         if add_tag and add_tag not in note.tags:
             note.tags.append(add_tag)

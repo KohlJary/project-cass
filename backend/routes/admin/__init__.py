@@ -67,6 +67,10 @@ from .outreach import (
     router as outreach_router,
     init_outreach_manager as _init_outreach_manager,
 )
+from .development_requests import (
+    router as dev_requests_router,
+    init_development_request_manager as _init_dev_request_manager,
+)
 
 # Create combined router
 router = APIRouter()
@@ -86,6 +90,7 @@ router.include_router(goals_router)
 router.include_router(scheduler_router)
 router.include_router(wonderland_router)
 router.include_router(outreach_router)
+router.include_router(dev_requests_router)
 
 
 # Module-level references for backward compatibility
@@ -145,6 +150,11 @@ def init_outreach_manager(daemon_id: str = "cass"):
     _init_outreach_manager(daemon_id)
 
 
+def init_development_request_manager(daemon_id: str = None, state_bus=None):
+    """Initialize development request manager for Cass-Daedalus coordination."""
+    _init_dev_request_manager(daemon_id, state_bus)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -194,4 +204,5 @@ __all__ = [
     "init_scheduler",
     "get_scheduler",
     "init_outreach_manager",
+    "init_development_request_manager",
 ]

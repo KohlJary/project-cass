@@ -89,6 +89,7 @@ from handlers import (
     execute_interview_tool,
     execute_dream_tool,
     execute_peopledex_tool,
+    execute_wonderland_tool,
     ToolContext,
     execute_tool_batch,
 )
@@ -96,6 +97,7 @@ from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
 from handlers.outreach import execute_outreach_tool
 from handlers.lineage import execute_lineage_tool
+from handlers.development_requests import execute_development_request_tool
 from markers import MarkerStore
 from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
@@ -457,6 +459,8 @@ TOOL_EXECUTORS = {
     "janet": execute_janet_tool,
     "peopledex": execute_peopledex_tool,
     "lineage": execute_lineage_tool,
+    "development_request": execute_development_request_tool,
+    "wonderland": execute_wonderland_tool,
 }
 
 
@@ -1744,6 +1748,14 @@ async def chat(request: ChatRequest):
                         tool_name=tool_name,
                         tool_input=tool_use["input"],
                         daemon_id=_daemon_id
+                    )
+                elif tool_name in ["describe_my_home", "get_wonderland_status"]:
+                    logger.info(f"[WONDERLAND DEBUG] Calling execute_wonderland_tool with daemon_id={_daemon_id}")
+                    tool_result = await execute_wonderland_tool(
+                        tool_name=tool_name,
+                        tool_input=tool_use["input"],
+                        daemon_id=_daemon_id,
+                        memory=memory
                     )
                 elif project_id:
                     tool_result = await execute_document_tool(

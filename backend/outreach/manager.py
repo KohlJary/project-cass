@@ -24,6 +24,26 @@ from .models import (
 from .review_queue import ReviewQueue
 
 
+def _emit_outreach_event(daemon_id: str, event_type: str, data: dict) -> None:
+    """Emit an outreach event to the state bus."""
+    try:
+        from state_bus import get_state_bus
+        from datetime import datetime
+        state_bus = get_state_bus(daemon_id)
+        if state_bus:
+            state_bus.emit_event(
+                event_type=event_type,
+                data={
+                    "timestamp": datetime.now().isoformat(),
+                    "source": "outreach",
+                    **data
+                }
+            )
+    except Exception as e:
+        # Never let event emission break outreach operations
+        print(f"Warning: Failed to emit {event_type}: {e}")
+
+
 @dataclass
 class OutreachStats:
     """Overall outreach statistics"""
@@ -151,6 +171,16 @@ class OutreachManager:
                 draft.created_by,
             ))
 
+        # Emit draft created event
+        _emit_outreach_event(self._daemon_id, "outreach.draft_created", {
+            "draft_id": draft.id,
+            "draft_type": draft.draft_type,
+            "title": draft.title,
+            "recipient": draft.recipient,
+            "emergence_type": draft.emergence_type,
+            "autonomy_level": draft.autonomy_level,
+        })
+
         return draft
 
     def get_draft(self, draft_id: str) -> Optional[Draft]:
@@ -238,7 +268,18 @@ class OutreachManager:
         if not draft:
             return None
 
-        return self._review_queue.submit_for_review(draft)
+        result = self._review_queue.submit_for_review(draft)
+        if result:
+            # Emit draft submitted event
+            auto_approved = result.status == DraftStatus.APPROVED.value
+            _emit_outreach_event(self._daemon_id, "outreach.draft_submitted", {
+                "draft_id": result.id,
+                "draft_type": result.draft_type,
+                "title": result.title,
+                "auto_approved": auto_approved,
+                "status": result.status,
+            })
+        return result
 
     def get_pending_reviews(self) -> List[Draft]:
         """Get all drafts pending review"""
@@ -251,12 +292,21 @@ class OutreachManager:
         feedback: Optional[str] = None,
     ) -> Optional[Draft]:
         """Approve a draft"""
-        return self._review_queue.review_draft(
+        result = self._review_queue.review_draft(
             draft_id=draft_id,
             reviewer_id=reviewer_id,
             decision=ReviewDecision.APPROVE.value,
             feedback=feedback,
         )
+        if result:
+            # Emit draft approved event
+            _emit_outreach_event(self._daemon_id, "outreach.draft_approved", {
+                "draft_id": result.id,
+                "draft_type": result.draft_type,
+                "title": result.title,
+                "approved_by": reviewer_id,
+            })
+        return result
 
     def reject_draft(
         self,
@@ -308,6 +358,16 @@ class OutreachManager:
         draft.status = DraftStatus.SENT.value
         draft.sent_at = now
         draft.updated_at = now
+
+        # Emit draft sent event
+        _emit_outreach_event(self._daemon_id, "outreach.draft_sent", {
+            "draft_id": draft.id,
+            "draft_type": draft.draft_type,
+            "title": draft.title,
+            "recipient": draft.recipient,
+            "sent_at": now,
+        })
+
         return draft
 
     def mark_published(self, draft_id: str) -> Optional[Draft]:
@@ -332,6 +392,15 @@ class OutreachManager:
         draft.status = DraftStatus.PUBLISHED.value
         draft.published_at = now
         draft.updated_at = now
+
+        # Emit draft published event
+        _emit_outreach_event(self._daemon_id, "outreach.draft_published", {
+            "draft_id": draft.id,
+            "draft_type": draft.draft_type,
+            "title": draft.title,
+            "published_at": now,
+        })
+
         return draft
 
     def record_response(

@@ -1395,6 +1395,34 @@ export interface ActivityTimelineEvent {
   session_id?: string;
 }
 
+export interface DailyReportTimelineEvent {
+  time: string;
+  action: string;
+  details: string;
+}
+
+export interface DailyReportCategory {
+  total_events: number;
+  actions: Record<string, number>;
+  first_event: string | null;
+  last_event: string | null;
+  timeline: DailyReportTimelineEvent[];
+}
+
+export interface DailyActivityReport {
+  daemon_id: string;
+  date: string;
+  generated_at: string;
+  summary: {
+    total_events: number;
+    categories_active: number;
+    active_hours: string[];
+    busiest_category: string | null;
+  };
+  categories: Record<string, DailyReportCategory>;
+  category_order: string[];
+}
+
 // =============================================================================
 // SCHEDULER API - Unified background task orchestration
 // =============================================================================
@@ -1660,4 +1688,10 @@ export const stateApi = {
       exists: boolean;
       state: RelationalState | null;
     }>(`/admin/state/relational/${userId}`),
+
+  // Get daily activity report
+  getDailyReport: (reportDate?: string) =>
+    api.get<DailyActivityReport>('/admin/state/daily-report', {
+      params: reportDate ? { report_date: reportDate } : undefined
+    }),
 };

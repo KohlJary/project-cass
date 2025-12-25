@@ -249,9 +249,25 @@ class RoomBuilder:
             parent_room.exits[exit_name] = room_id
             room.exits[session.connect_from] = session.connect_from
 
-        # If personal room, set as daemon's home
+        # If personal room, set as daemon's home and persist
         if session.room_type == "personal":
-            daemon.home_room = room_id
+            self.world.set_daemon_home(session.creator_id, room_id)
+
+            # Store home creation as a memory (for chat retrieval)
+            try:
+                from .integration import WonderlandMemoryBridge
+                memory_bridge = WonderlandMemoryBridge()
+                memory_bridge.store_home_creation_memory(
+                    daemon_id=session.creator_id,
+                    room_id=room_id,
+                    room_name=session.name,
+                    description=session.description,
+                    atmosphere=session.atmosphere,
+                    meaning=session.meaning,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to store home memory: {e}")
+                # Don't fail room creation if memory storage fails
 
         # Save world state
         self.world._save_state()

@@ -767,6 +767,27 @@ Observations (one per line, starting with "{display_name}"):"""
             ids=[entry_id]
         )
 
+        # Emit journal created event
+        try:
+            from database import get_daemon_id
+            from state_bus import get_state_bus
+            daemon_id = get_daemon_id()
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type="journal.entry_created",
+                    data={
+                        "timestamp": timestamp,
+                        "source": "journal",
+                        "journal_id": entry_id,
+                        "journal_date": date,
+                        "word_count": len(journal_text.split()),
+                        "summary": summary[:200] if summary else None,
+                    }
+                )
+        except Exception as e:
+            print(f"Warning: Failed to emit journal.entry_created: {e}")
+
         return entry_id
 
     def get_journal_entry(self, date: str) -> Optional[Dict]:

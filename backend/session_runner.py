@@ -546,6 +546,28 @@ class BaseSessionRunner(ABC):
         except Exception as e:
             print(f"Warning: Failed to parse marks: {e}")
 
+    def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Emit an event to the state bus if available.
+
+        Args:
+            event_type: Event type in format 'domain.action' (e.g., 'session.started')
+            data: Event payload data
+        """
+        if not self.state_bus:
+            return
+        try:
+            self.state_bus.emit_event(
+                event_type=event_type,
+                data={
+                    "timestamp": datetime.now().isoformat(),
+                    "source": "session_runner",
+                    **data
+                }
+            )
+        except Exception as e:
+            # Never let event emission break the session
+            print(f"Warning: Failed to emit {event_type}: {e}")
+
     @property
     def is_running(self) -> bool:
         """Check if a session is currently running."""
@@ -614,6 +636,14 @@ class BaseSessionRunner(ABC):
 
         try:
             await self.on_session_start(state)
+
+            # Emit session.started event
+            self._emit_event("session.started", {
+                "session_id": state.session_id,
+                "activity_type": state.activity_type.value,
+                "focus": state.focus,
+                "duration_minutes": state.duration_minutes,
+            })
 
             # Build initial context with Temple-Codex kernel as foundation
             self_context = self._build_self_context()
@@ -786,6 +816,26 @@ class BaseSessionRunner(ABC):
             state.is_running = False
             state.completed_at = datetime.now()
             self._running = False
+
+            # Emit completion or failure event
+            if state.completion_reason == "error":
+                self._emit_event("session.failed", {
+                    "session_id": state.session_id,
+                    "activity_type": state.activity_type.value,
+                    "reason": state.completion_reason,
+                    "iteration_count": state.iteration_count,
+                    "duration_seconds": (state.completed_at - state.started_at).total_seconds(),
+                })
+            else:
+                self._emit_event("session.completed", {
+                    "session_id": state.session_id,
+                    "activity_type": state.activity_type.value,
+                    "completion_reason": state.completion_reason,
+                    "iteration_count": state.iteration_count,
+                    "duration_seconds": (state.completed_at - state.started_at).total_seconds(),
+                    "artifacts_count": len(state.artifacts_created),
+                    "cost_usd": round(self._session_cost_usd, 4),
+                })
 
             await self.on_session_end(state)
             await self.complete_session(session, state)
