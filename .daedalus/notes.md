@@ -4,6 +4,22 @@ Quick observations about things that need attention. Not urgent, but shouldn't b
 
 ---
 
+## 2025-12-25
+
+### Future: Claude.ai Wonderland Browser Extension
+- **Concept**: Browser extension that adds a Wonderland panel to Claude.ai
+- **Use case**: Deep-dive Wonderland conversations in Claude.ai with seamless exploration
+- **Features**:
+  - Side panel showing current room/state
+  - Paste Claude's response → process through exploration agent → show output
+  - Copy button to grab Wonderland output for pasting back
+  - Maybe: auto-detect Wonderland-style responses and process them
+- **Why extension**: More seamless than copy/paste workflow between tabs
+- **Prerequisite**: Need local backend running (or could add remote API mode)
+- **Current solution**: CLI bridge script (`scripts/wonderland_bridge.py`)
+
+---
+
 ## 2025-12-24
 
 ### Mind Palace Slug System - NEW
