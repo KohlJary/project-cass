@@ -602,3 +602,144 @@ class GlobalState:
             sections.append("⚠ Cross-session patterns fragmented")
 
         return "\n".join(sections) if sections else "Present, baseline state."
+
+
+# === Cass-Daedalus Coordination Models ===
+
+
+class DevelopmentRequestStatus(str, Enum):
+    """Status of a development request from Cass to Daedalus."""
+    PENDING = "pending"           # Request submitted, awaiting pickup
+    CLAIMED = "claimed"           # Daedalus has claimed the work
+    IN_PROGRESS = "in_progress"   # Work actively being done
+    REVIEW = "review"             # Work complete, awaiting verification
+    COMPLETED = "completed"       # Request fulfilled
+    CANCELLED = "cancelled"       # Request withdrawn
+
+
+class DevelopmentRequestType(str, Enum):
+    """Types of development work Cass can request."""
+    NEW_ACTION = "new_action"     # Request a new action handler
+    BUG_FIX = "bug_fix"           # Fix something that's broken
+    FEATURE = "feature"           # Implement a new feature
+    REFACTOR = "refactor"         # Improve existing code
+    CAPABILITY = "capability"     # Request a new capability
+    INTEGRATION = "integration"   # Connect systems
+
+
+class DevelopmentRequestPriority(str, Enum):
+    """Priority levels for development requests."""
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+@dataclass
+class DevelopmentRequest:
+    """
+    A development request from Cass to Daedalus.
+
+    This is the bridge protocol - Cass can request work that requires
+    human-timescale development (not instant LLM execution like Janet).
+
+    The request persists in the state bus, visible to both Cass (via
+    tool calls or context) and Daedalus (via UI panel).
+    """
+
+    id: str                                         # Unique request ID
+    requested_by: str = "cass"                      # Who made the request
+    request_type: DevelopmentRequestType = DevelopmentRequestType.FEATURE
+    title: str = ""                                 # Brief title
+    description: str = ""                           # Detailed description
+    priority: DevelopmentRequestPriority = DevelopmentRequestPriority.NORMAL
+    status: DevelopmentRequestStatus = DevelopmentRequestStatus.PENDING
+
+    # Context - what Cass was doing when she made the request
+    context: Optional[str] = None                   # Why she needs this
+    related_actions: List[str] = field(default_factory=list)  # Action IDs that relate
+
+    # Assignment
+    claimed_by: Optional[str] = None                # Who claimed it (e.g., "daedalus")
+    claimed_at: Optional[datetime] = None
+
+    # Completion
+    result: Optional[str] = None                    # What was done
+    result_artifacts: List[str] = field(default_factory=list)  # Commit hashes, file paths
+    completed_at: Optional[datetime] = None
+
+    # Timestamps
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "id": self.id,
+            "requested_by": self.requested_by,
+            "request_type": self.request_type.value,
+            "title": self.title,
+            "description": self.description,
+            "priority": self.priority.value,
+            "status": self.status.value,
+            "context": self.context,
+            "related_actions": self.related_actions,
+            "claimed_by": self.claimed_by,
+            "claimed_at": self.claimed_at.isoformat() if self.claimed_at else None,
+            "result": self.result,
+            "result_artifacts": self.result_artifacts,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DevelopmentRequest":
+        """Create from dictionary."""
+        claimed_at = None
+        if data.get("claimed_at"):
+            claimed_at = datetime.fromisoformat(data["claimed_at"])
+
+        completed_at = None
+        if data.get("completed_at"):
+            completed_at = datetime.fromisoformat(data["completed_at"])
+
+        created_at = datetime.now()
+        if data.get("created_at"):
+            created_at = datetime.fromisoformat(data["created_at"])
+
+        updated_at = datetime.now()
+        if data.get("updated_at"):
+            updated_at = datetime.fromisoformat(data["updated_at"])
+
+        return cls(
+            id=data["id"],
+            requested_by=data.get("requested_by", "cass"),
+            request_type=DevelopmentRequestType(data.get("request_type", "feature")),
+            title=data.get("title", ""),
+            description=data.get("description", ""),
+            priority=DevelopmentRequestPriority(data.get("priority", "normal")),
+            status=DevelopmentRequestStatus(data.get("status", "pending")),
+            context=data.get("context"),
+            related_actions=data.get("related_actions", []),
+            claimed_by=data.get("claimed_by"),
+            claimed_at=claimed_at,
+            result=data.get("result"),
+            result_artifacts=data.get("result_artifacts", []),
+            completed_at=completed_at,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    def get_display_summary(self) -> str:
+        """Get a brief summary for display."""
+        status_icons = {
+            DevelopmentRequestStatus.PENDING: "⏳",
+            DevelopmentRequestStatus.CLAIMED: "🔧",
+            DevelopmentRequestStatus.IN_PROGRESS: "⚙️",
+            DevelopmentRequestStatus.REVIEW: "👀",
+            DevelopmentRequestStatus.COMPLETED: "✅",
+            DevelopmentRequestStatus.CANCELLED: "❌",
+        }
+        icon = status_icons.get(self.status, "•")
+        return f"{icon} [{self.id[:8]}] {self.title} ({self.priority.value})"

@@ -105,6 +105,25 @@ class DreamManager:
             ))
             conn.commit()
 
+        # Emit dream created event
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self._daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type="journal.dream_generated",
+                    data={
+                        "timestamp": now,
+                        "source": "dreaming",
+                        "dream_id": dream_id,
+                        "dream_date": now[:10],
+                        "exchange_count": len(exchanges),
+                        "seeds": list(seeds.keys()) if seeds else [],
+                    }
+                )
+        except Exception as e:
+            print(f"Warning: Failed to emit journal.dream_generated: {e}")
+
         return dream_id
 
     def get_dream(self, dream_id: str) -> Optional[dict]:

@@ -329,6 +329,23 @@ class UnifiedGoalManager:
                     'active'
                 ))
 
+    def _emit_goal_event(self, event_type: str, data: dict) -> None:
+        """Emit a goal event to the state bus."""
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self._daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "goals",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break goal operations on emit failure
+
     @property
     def daemon_id(self) -> str:
         return self._daemon_id
@@ -444,6 +461,15 @@ class UnifiedGoalManager:
                 now,
                 now
             ))
+
+        # Emit goal created event
+        self._emit_goal_event("goal.created", {
+            "goal_id": goal_id,
+            "title": title,
+            "goal_type": goal_type,
+            "created_by": created_by,
+            "requires_approval": requires_approval,
+        })
 
         return goal
 
@@ -689,11 +715,17 @@ class UnifiedGoalManager:
         self, goal_id: str, outcome_summary: Optional[str] = None
     ) -> Optional[Goal]:
         """Mark goal as completed"""
-        return self.update_goal(
+        result = self.update_goal(
             goal_id,
             status=GoalStatus.COMPLETED.value,
             outcome_summary=outcome_summary
         )
+        if result:
+            self._emit_goal_event("goal.completed", {
+                "goal_id": goal_id,
+                "title": result.title,
+            })
+        return result
 
     def abandon_goal(
         self, goal_id: str, reason: Optional[str] = None
@@ -712,7 +744,14 @@ class UnifiedGoalManager:
                 now,
                 goal_id
             ))
-        return self.get_goal(goal_id)
+        result = self.get_goal(goal_id)
+        if result:
+            self._emit_goal_event("goal.abandoned", {
+                "goal_id": goal_id,
+                "title": result.title,
+                "reason": reason,
+            })
+        return result
 
     # =========================================================================
     # GOAL LINKS

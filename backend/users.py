@@ -613,6 +613,23 @@ class UserManager:
             load_profile_fn=self.load_profile,
         )
 
+    def _emit_user_event(self, event_type: str, data: dict) -> None:
+        """Emit a user event to the state bus."""
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self.daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "users",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break user operations on emit failure
+
     def _get_user_dir(self, user_id: str) -> Path:
         """Get directory for a user's additional data files"""
         user_dir = self.storage_dir / user_id
@@ -665,6 +682,13 @@ class UserManager:
                 now,
                 now
             ))
+
+        # Emit user created event
+        self._emit_user_event("user.created", {
+            "user_id": user_id,
+            "display_name": display_name,
+            "relationship": relationship,
+        })
 
         return UserProfile(
             user_id=user_id,
@@ -810,6 +834,12 @@ class UserManager:
         profile.updated_at = datetime.now().isoformat()
         self._save_profile(profile)
 
+        # Emit profile updated event
+        self._emit_user_event("user.profile_updated", {
+            "user_id": user_id,
+            "display_name": profile.display_name,
+        })
+
         return profile
 
     def delete_user(self, user_id: str) -> bool:
@@ -826,6 +856,11 @@ class UserManager:
             for file in user_dir.iterdir():
                 file.unlink()
             user_dir.rmdir()
+
+        # Emit user deleted event
+        self._emit_user_event("user.deleted", {
+            "user_id": user_id,
+        })
 
         return True
 
@@ -888,6 +923,15 @@ class UserManager:
         )
         if result is None:
             return None
+
+        # Emit observation added event
+        self._emit_user_event("user.observation_added", {
+            "user_id": user_id,
+            "observation_id": result.id,
+            "category": category,
+            "confidence": confidence,
+        })
+
         # Convert to local UserObservation type for backward compatibility
         return UserObservation(
             id=result.id,

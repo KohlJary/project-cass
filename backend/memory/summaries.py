@@ -27,6 +27,25 @@ class SummaryManager:
     def __init__(self, core: MemoryCore):
         self._core = core
 
+    def _emit_memory_event(self, event_type: str, data: dict) -> None:
+        """Emit a memory event to the state bus."""
+        try:
+            from database import get_daemon_id
+            from state_bus import get_state_bus
+            daemon_id = get_daemon_id()
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "memory",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break memory operations on emit failure
+
     @property
     def collection(self):
         return self._core.collection
@@ -550,6 +569,14 @@ Write in first person as yourself. This is your memory - make it feel like one, 
             metadatas=[entry_metadata],
             ids=[entry_id]
         )
+
+        # Emit summary stored event
+        self._emit_memory_event("memory.summary_stored", {
+            "entry_id": entry_id,
+            "conversation_id": conversation_id,
+            "message_count": message_count,
+            "summary_length": len(summary_text),
+        })
 
         return entry_id
 

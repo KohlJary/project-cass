@@ -176,6 +176,23 @@ class TaskManager:
             if row:
                 self._daemon_id = row[0]
 
+    def _emit_task_event(self, event_type: str, data: dict) -> None:
+        """Emit a task event to the state bus."""
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(self._daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "tasks",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break task operations on emit failure
+
     def _row_to_task(self, row) -> Task:
         """Convert database row to Task object"""
         task = Task(
@@ -250,6 +267,14 @@ class TaskManager:
             ))
             conn.commit()
 
+        # Emit task added event
+        self._emit_task_event("task.added", {
+            "task_id": task_id,
+            "description": description[:100],
+            "priority": priority.value,
+            "user_id": user_id,
+        })
+
         return task
 
     def get(self, user_id: str, task_id: str) -> Optional[Task]:
@@ -277,7 +302,13 @@ class TaskManager:
             """, (TaskStatus.COMPLETED.value, now, now, self._daemon_id, user_id, task_id))
             conn.commit()
             if cursor.rowcount > 0:
-                return self.get(user_id, task_id)
+                result = self.get(user_id, task_id)
+                # Emit task completed event
+                self._emit_task_event("task.completed", {
+                    "task_id": task_id,
+                    "user_id": user_id,
+                })
+                return result
         return None
 
     def delete(self, user_id: str, task_id: str) -> bool:
@@ -290,7 +321,15 @@ class TaskManager:
                 WHERE daemon_id = ? AND user_id = ? AND id = ?
             """, (TaskStatus.DELETED.value, now, self._daemon_id, user_id, task_id))
             conn.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+
+        if deleted:
+            self._emit_task_event("task.deleted", {
+                "task_id": task_id,
+                "user_id": user_id,
+            })
+
+        return deleted
 
     def modify(
         self,

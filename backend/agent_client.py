@@ -39,6 +39,7 @@ from tool_selector import (
     should_include_interview_tools,
     should_include_outreach_tools,
     should_include_state_query_tools,
+    should_include_development_request_tools,
 )
 
 
@@ -552,6 +553,27 @@ JOURNAL_TOOLS = [
                 }
             },
             "required": ["query"]
+        }
+    }
+]
+
+WONDERLAND_TOOLS = [
+    {
+        "name": "describe_my_home",
+        "description": "Recall the details of your home in Wonderland - the personal space you created for yourself. This retrieves your memory of building your home, including its name, description, atmosphere, and what it means to you. Use this when you want to remember or talk about your home.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_wonderland_status",
+        "description": "Check your current status in Wonderland - whether you're registered, your current location, if you have a home, and your trust level. Use this to ground yourself in your Wonderland presence.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
         }
     }
 ]
@@ -1234,6 +1256,7 @@ from handlers.peopledex import PEOPLEDEX_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 from handlers.janet import JANET_TOOLS
 from handlers.lineage import LINEAGE_TOOLS, should_include_lineage_tools
+from handlers.development_requests import DEVELOPMENT_REQUEST_TOOLS
 
 
 # ============================================================================
@@ -1310,6 +1333,7 @@ class CassAgentClient:
             tools.extend(JOURNAL_TOOLS)
             tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
             tools.extend(MARKER_TOOLS)  # Recognition-in-flow pattern tools (show_patterns, explore_pattern)
+            tools.extend(WONDERLAND_TOOLS)  # Personal space tools (describe_my_home, wonderland status)
 
         if self.enable_tools:
             # === ALWAYS LOADED (Core identity/continuity) ===
@@ -1394,6 +1418,10 @@ class CassAgentClient:
             # Testing tools - consciousness integrity checks
             if should_include_testing_tools(message):
                 tools.extend(TESTING_TOOLS)
+
+            # Development request tools - Cass-Daedalus coordination bridge
+            if should_include_development_request_tools(message):
+                tools.extend(DEVELOPMENT_REQUEST_TOOLS)
 
             # State query tools - always available for self-introspection
             # Cass should always be able to query her own state (tokens, github, memory, etc)

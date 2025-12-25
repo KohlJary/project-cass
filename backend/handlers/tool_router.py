@@ -306,6 +306,16 @@ TOOL_REGISTRY = {
     "lineage_arc": "lineage",
     "lineage_search": "lineage",
     "lineage_timeline": "lineage",
+
+    # Development request tools (Cass-Daedalus coordination)
+    "request_development": "development_request",
+    "list_my_requests": "development_request",
+    "get_request_status": "development_request",
+    "get_development_stats": "development_request",
+
+    # Wonderland tools (personal space)
+    "describe_my_home": "wonderland",
+    "get_wonderland_status": "wonderland",
 }
 
 
@@ -563,6 +573,24 @@ async def route_tool(
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input
+        )
+
+    elif executor_type == "development_request":
+        # Development request tools for Cass-Daedalus coordination
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+            state_bus=ctx.state_bus
+        )
+
+    elif executor_type == "wonderland":
+        # Wonderland tools for personal space
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+            memory=ctx.memory,
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}

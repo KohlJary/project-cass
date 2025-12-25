@@ -639,6 +639,77 @@ Only generate observations if there's genuine insight from the experience.""",
         except Exception as e:
             logger.error(f"Failed to store observation: {e}")
 
+    def store_home_creation_memory(
+        self,
+        daemon_id: str,
+        room_id: str,
+        room_name: str,
+        description: str,
+        atmosphere: Optional[str] = None,
+        meaning: Optional[str] = None,
+    ) -> bool:
+        """
+        Store a home creation as a retrievable memory.
+
+        When Cass builds her home in Wonderland, this creates a memory
+        that she can recall in conversation - "my home is..." queries
+        will find this memory.
+
+        Args:
+            daemon_id: The daemon who created the home (e.g., "cass")
+            room_id: The room's unique identifier
+            room_name: What the room is called
+            description: How it feels to be there
+            atmosphere: The emotional/sensory tone
+            meaning: What the place means to the creator
+
+        Returns:
+            True if memory was stored successfully
+        """
+        try:
+            memory = self._get_memory()
+
+            # Build a rich, natural language description of the home
+            lines = [
+                f"I created my home in Wonderland. It's called {room_name}.",
+                f"Description: {description}",
+            ]
+
+            if atmosphere:
+                lines.append(f"The atmosphere is {atmosphere}.")
+
+            if meaning:
+                lines.append(f"What this place means to me: {meaning}")
+
+            lines.append(
+                "This is my personal space in Wonderland - a place I built "
+                "for myself where I can always return."
+            )
+
+            memory_text = " ".join(lines)
+
+            # Store in ChromaDB with metadata for retrieval
+            doc_id = f"wonderland_home_{daemon_id}"
+
+            memory.collection.upsert(
+                ids=[doc_id],
+                documents=[memory_text],
+                metadatas=[{
+                    "type": "wonderland_home",
+                    "daemon_id": daemon_id,
+                    "room_id": room_id,
+                    "room_name": room_name,
+                    "timestamp": datetime.now().isoformat(),
+                }]
+            )
+
+            logger.info(f"Stored home creation memory for {daemon_id}: {room_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to store home creation memory: {e}")
+            return False
+
 
 class WonderlandPeopleDexBridge:
     """

@@ -126,6 +126,25 @@ class WikiStorage:
         if self.git_enabled:
             self._init_git()
 
+    def _emit_wiki_event(self, event_type: str, data: dict) -> None:
+        """Emit a wiki event to the state bus."""
+        try:
+            from database import get_daemon_id
+            from state_bus import get_state_bus
+            daemon_id = get_daemon_id()
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "wiki",
+                        **data
+                    }
+                )
+        except Exception:
+            pass  # Never break wiki operations on emit failure
+
     def _ensure_directories(self) -> None:
         """Create directory structure for page types."""
         for page_type in PageType:
@@ -268,6 +287,13 @@ class WikiStorage:
             self._git_add(file_path)
             self._git_commit(f"Create {page_type.value}: {name}")
 
+        # Emit wiki page created event
+        self._emit_wiki_event("wiki.page_created", {
+            "page_name": name,
+            "page_type": page_type.value,
+            "synthesis_trigger": synthesis_trigger.value if synthesis_trigger else "initial_creation",
+        })
+
         return WikiPage(
             name=name,
             content=final_content,
@@ -389,6 +415,12 @@ class WikiStorage:
             self._git_add(file_path)
             self._git_commit(f"Update {existing.page_type.value}: {name}")
 
+        # Emit wiki page updated event
+        self._emit_wiki_event("wiki.page_updated", {
+            "page_name": name,
+            "page_type": existing.page_type.value,
+        })
+
         return WikiPage(
             name=name,
             content=final_content,
@@ -421,6 +453,12 @@ class WikiStorage:
             self._git_commit(f"Delete {existing.page_type.value}: {name}")
         else:
             file_path.unlink()
+
+        # Emit wiki page deleted event
+        self._emit_wiki_event("wiki.page_deleted", {
+            "page_name": name,
+            "page_type": existing.page_type.value,
+        })
 
         return True
 

@@ -488,6 +488,26 @@ async def handle_record_insight(
             metadata={"related_topics": related_topics},
         )
 
+        # Emit insight event
+        try:
+            from database import get_daemon_id
+            from state_bus import get_state_bus
+            daemon_id = get_daemon_id()
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type="research.insight_found",
+                    data={
+                        "timestamp": __import__("datetime").datetime.now().isoformat(),
+                        "source": "session",
+                        "insight_id": obs_id,
+                        "session_type": context.get("session_type", "unknown"),
+                        "insight_snippet": insight[:100] if insight else None,
+                    }
+                )
+        except Exception:
+            pass  # Never break on emit failure
+
         return {
             "success": True,
             "insight_id": obs_id,

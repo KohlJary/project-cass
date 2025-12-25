@@ -135,6 +135,20 @@ STATE_QUERY_KEYWORDS = frozenset({
     "discover capabilities", "find data", "data sources",
 })
 
+DEVELOPMENT_REQUEST_KEYWORDS = frozenset({
+    # Request new development work
+    "need daedalus", "request development", "development request",
+    "need a new", "need new action", "new capability", "new tool",
+    "build me", "build a", "implement a", "create a handler",
+    "can you build", "please build", "would need",
+    # Check on requests
+    "my requests", "development requests", "pending requests",
+    "what am i waiting", "what's daedalus working", "daedalus progress",
+    # Related concepts
+    "action handler", "new action", "capability gap",
+    "need help from", "human work", "human timescale",
+})
+
 
 # =============================================================================
 # TOOL SELECTOR CLASS
@@ -180,6 +194,7 @@ class ToolSelector:
             ToolGroup("interview", INTERVIEW_KEYWORDS, "Interview tools"),
             ToolGroup("outreach", OUTREACH_KEYWORDS, "Outreach tools"),
             ToolGroup("state_query", STATE_QUERY_KEYWORDS, "State query tools"),
+            ToolGroup("development_request", DEVELOPMENT_REQUEST_KEYWORDS, "Development request tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -341,3 +356,8 @@ def should_include_outreach_tools(message: str) -> bool:
 def should_include_state_query_tools(message: str) -> bool:
     """Check if message warrants state query tools."""
     return _default_selector.should_include(message, "state_query")
+
+
+def should_include_development_request_tools(message: str) -> bool:
+    """Check if message warrants development request tools."""
+    return _default_selector.should_include(message, "development_request")

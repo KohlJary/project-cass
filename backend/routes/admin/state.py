@@ -4,8 +4,9 @@ Admin API routes for Global State Bus visibility.
 Provides real-time access to Cass's current state, event stream, emotional arc,
 and unified query interface for all registered queryable sources.
 """
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, date
+from typing import Any, Dict, List, Optional
+from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
@@ -482,3 +483,149 @@ async def search_capabilities(
         "matches": [m.to_dict() for m in matches],
         "formatted": state_bus.format_capabilities_for_llm(matches),
     }
+
+
+# =============================================================================
+# Daily Activity Report
+# =============================================================================
+
+
+@router.get("/state/daily-report")
+async def get_daily_activity_report(
+    report_date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format (defaults to today)"),
+    daemon_id: Optional[str] = Query(None, description="Daemon ID (defaults to primary daemon)"),
+):
+    """
+    Get a comprehensive daily activity report.
+
+    Shows everything Cass did on a given day, grouped by category:
+    - Conversations: messages sent, conversations started
+    - Calendar: events created, reminders set
+    - Tasks: added, completed, deleted
+    - Goals: created, completed, abandoned
+    - Memory: summaries generated
+    - Wiki: pages created/updated
+    - And more...
+
+    Each category includes event counts and timeline of activities.
+    """
+    d_id = get_effective_daemon_id(daemon_id)
+
+    # Parse date or default to today
+    if report_date:
+        try:
+            target_date = datetime.strptime(report_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        target_date = date.today()
+
+    # Query events for the entire day
+    start_of_day = datetime.combine(target_date, datetime.min.time())
+    end_of_day = datetime.combine(target_date, datetime.max.time())
+
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT id, event_type, source, data_json, created_at
+            FROM state_events
+            WHERE daemon_id = ?
+              AND created_at >= ?
+              AND created_at <= ?
+            ORDER BY created_at ASC
+        """, (d_id, start_of_day.isoformat(), end_of_day.isoformat()))
+
+        events = []
+        for row in cursor.fetchall():
+            events.append({
+                "id": row[0],
+                "event_type": row[1],
+                "source": row[2],
+                "data": json_deserialize(row[3]) if row[3] else {},
+                "created_at": row[4],
+            })
+
+    # Group events by category (derived from event_type prefix)
+    categories: Dict[str, List[Dict]] = defaultdict(list)
+    category_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for event in events:
+        event_type = event["event_type"]
+        # Extract category from event_type (e.g., "calendar.event_created" -> "calendar")
+        category = event_type.split(".")[0] if "." in event_type else "other"
+        action = event_type.split(".", 1)[1] if "." in event_type else event_type
+
+        categories[category].append(event)
+        category_counts[category][action] += 1
+
+    # Build summary for each category
+    category_summaries = {}
+    for category, cat_events in categories.items():
+        summary = {
+            "total_events": len(cat_events),
+            "actions": dict(category_counts[category]),
+            "first_event": cat_events[0]["created_at"] if cat_events else None,
+            "last_event": cat_events[-1]["created_at"] if cat_events else None,
+            "timeline": [
+                {
+                    "time": e["created_at"].split("T")[1][:8] if "T" in e["created_at"] else e["created_at"],
+                    "action": e["event_type"].split(".", 1)[1] if "." in e["event_type"] else e["event_type"],
+                    "details": _extract_event_summary(e),
+                }
+                for e in cat_events
+            ],
+        }
+        category_summaries[category] = summary
+
+    # Build overall stats
+    total_events = len(events)
+    active_hours = set()
+    for event in events:
+        if "T" in event["created_at"]:
+            hour = event["created_at"].split("T")[1][:2]
+            active_hours.add(hour)
+
+    return {
+        "daemon_id": d_id,
+        "date": target_date.isoformat(),
+        "generated_at": datetime.now().isoformat(),
+        "summary": {
+            "total_events": total_events,
+            "categories_active": len(categories),
+            "active_hours": sorted(active_hours),
+            "busiest_category": max(categories.keys(), key=lambda k: len(categories[k])) if categories else None,
+        },
+        "categories": category_summaries,
+        "category_order": sorted(categories.keys(), key=lambda k: -len(categories[k])),
+    }
+
+
+def _extract_event_summary(event: Dict) -> str:
+    """Extract a human-readable summary from event data."""
+    data = event.get("data", {})
+    event_type = event.get("event_type", "")
+
+    # Customize based on event type
+    if "conversation" in event_type:
+        return data.get("title", data.get("conversation_id", ""))[:50]
+    elif "calendar" in event_type:
+        return data.get("title", data.get("event_title", ""))[:50]
+    elif "task" in event_type:
+        return data.get("description", "")[:50]
+    elif "goal" in event_type:
+        return data.get("goal_title", data.get("description", ""))[:50]
+    elif "memory" in event_type:
+        return f"{data.get('message_count', '?')} messages → {data.get('summary_length', '?')} chars"
+    elif "attachment" in event_type:
+        return data.get("filename", "")[:50]
+    elif "user" in event_type:
+        return data.get("user_id", "")[:20]
+    elif "project" in event_type:
+        return data.get("name", data.get("project_name", ""))[:50]
+    elif "wiki" in event_type:
+        return data.get("title", data.get("page_title", ""))[:50]
+    else:
+        # Generic: try common fields
+        for field in ["title", "description", "name", "message"]:
+            if field in data:
+                return str(data[field])[:50]
+        return ""

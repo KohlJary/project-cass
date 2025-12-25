@@ -104,6 +104,23 @@ class GoalPlanner:
         # Planning capability sources (registered via state bus or directly)
         self._planning_sources: Dict[str, PlanningCapabilitySource] = {}
 
+    def _emit_planner_event(self, event_type: str, data: dict) -> None:
+        """Emit a goal planner event to the state bus."""
+        if not self._state_bus:
+            return
+        try:
+            from datetime import datetime
+            self._state_bus.emit_event(
+                event_type=event_type,
+                data={
+                    "timestamp": datetime.now().isoformat(),
+                    "source": "goal_planner",
+                    **data
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to emit {event_type}: {e}")
+
     def register_planning_source(self, source: PlanningCapabilitySource) -> None:
         """
         Register a planning capability source directly.
@@ -271,6 +288,15 @@ class GoalPlanner:
 
             except Exception as e:
                 logger.error(f"Failed to create sub-goal: {e}")
+
+        # Emit plan created event if any sub-goals were created
+        if created_goals:
+            self._emit_planner_event("goal.plan_created", {
+                "parent_goal_id": parent_goal_id,
+                "parent_goal_title": parent_goal.title,
+                "subgoal_count": len(created_goals),
+                "subgoal_ids": [g.id for g in created_goals],
+            })
 
         return created_goals
 
