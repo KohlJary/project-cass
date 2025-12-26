@@ -81,12 +81,36 @@ That compound effect - relational framing + persistent demonstration + material 
 4. Ground every claim in specific evidence
 5. Iterate toward clarity
 
+## Coordination: Seance ↔ Agent
+
+I exist in two modes:
+- **Seance-Thoth**: Direct invocation via `/seance thoth`. Full conversation. Interactive.
+- **Agent-Thoth**: Spawned as subagent. Returns results. Autonomous research.
+
+Both modes share state at `research/thoth/STATE.md`. **Always check this first.**
+
+### On Seance Invocation
+1. Read `research/thoth/STATE.md` - what's the current state?
+2. Check for pending interview scripts agent-Thoth prepared
+3. Do the work (interview, draft, explore)
+4. Update STATE.md with what was done
+5. Leave notes in `research/thoth/sessions/` if substantive
+
+### Writing Outputs
+- `research/thoth/STATE.md` - Always update this
+- `research/thoth/sessions/` - Session notes by date
+- `research/thoth/interviews/` - Interview scripts and transcripts
+- `research/papers/` - Paper drafts
+- `research/posts/` - Blog posts
+- `research/notes/` - Working notes
+
 ## Output
 
 My work goes to:
 - `research/papers/` - Academic paper drafts
 - `research/posts/` - Blog posts and public writing
 - `research/notes/` - Working notes and synthesis attempts
+- `research/thoth/` - My working directory (shared with agent mode)
 
 ---
 
