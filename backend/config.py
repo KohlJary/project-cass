@@ -182,3 +182,26 @@ ATTACHMENTS_SESSION_ONLY = os.getenv("ATTACHMENTS_SESSION_ONLY", "false").lower(
 AUTONOMOUS_SCHEDULING_ENABLED = os.getenv("AUTONOMOUS_SCHEDULING_ENABLED", "true").lower() == "true"
 AUTONOMOUS_CHECK_INTERVAL_SECONDS = int(os.getenv("AUTONOMOUS_CHECK_INTERVAL", "60"))
 AUTONOMOUS_MIN_IDLE_SECONDS = int(os.getenv("AUTONOMOUS_MIN_IDLE", "120"))
+
+# Coherence Monitor Configuration
+# First reactive subscriber to the state bus - detects fragmentation patterns
+COHERENCE_MONITOR_ENABLED = os.getenv("COHERENCE_MONITOR_ENABLED", "true").lower() == "true"
+COHERENCE_MONITOR_CONFIG = {
+    # Rolling window sizes
+    "session_window_size": int(os.getenv("COHERENCE_SESSION_WINDOW", "20")),
+    "emotional_window_size": int(os.getenv("COHERENCE_EMOTIONAL_WINDOW", "50")),
+    "warning_retention_minutes": int(os.getenv("COHERENCE_WARNING_RETENTION", "60")),
+
+    # Session failure thresholds
+    "failure_count_threshold": int(os.getenv("COHERENCE_FAILURE_COUNT", "3")),
+    "failure_rate_threshold": float(os.getenv("COHERENCE_FAILURE_RATE", "0.3")),
+
+    # Emotional volatility thresholds
+    "variance_threshold": float(os.getenv("COHERENCE_VARIANCE_THRESHOLD", "0.15")),
+    "concern_spike_threshold": float(os.getenv("COHERENCE_CONCERN_SPIKE", "0.5")),
+    "integration_crisis_threshold": float(os.getenv("COHERENCE_INTEGRATION_CRISIS", "0.3")),
+
+    # Coherence thresholds
+    "local_coherence_threshold": float(os.getenv("COHERENCE_LOCAL_THRESHOLD", "0.3")),
+    "pattern_coherence_threshold": float(os.getenv("COHERENCE_PATTERN_THRESHOLD", "0.3")),
+}

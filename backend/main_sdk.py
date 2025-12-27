@@ -64,7 +64,7 @@ from scripts.migrate_to_graph import populate_graph as populate_self_model_graph
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from roadmap import RoadmapManager
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR, OPENAI_API_KEY, OLLAMA_BASE_URL
+from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR, OPENAI_API_KEY, OLLAMA_BASE_URL, COHERENCE_MONITOR_ENABLED, COHERENCE_MONITOR_CONFIG
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
 from handlers import (
     execute_journal_tool,
@@ -99,6 +99,8 @@ from handlers.outreach import execute_outreach_tool
 from handlers.lineage import execute_lineage_tool
 from handlers.development_requests import execute_development_request_tool
 from markers import MarkerStore
+from coherence_monitor import init_coherence_monitor, get_coherence_monitor
+from coherence_models import CoherenceConfig
 from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
 from research import ResearchManager
@@ -800,6 +802,29 @@ async def health_check():
         "memory_entries": memory.count() if memory else 0
     }
 
+
+@app.get("/api/coherence/health")
+async def coherence_health():
+    """
+    Get coherence monitor health report.
+
+    Returns current fragmentation detection metrics, active warnings,
+    and overall health status.
+    """
+    monitor = get_coherence_monitor()
+    if not monitor:
+        return {
+            "enabled": False,
+            "message": "Coherence monitor not initialized"
+        }
+
+    report = monitor.get_health_report()
+    return {
+        "enabled": True,
+        **report.to_dict()
+    }
+
+
 # TTS Configuration
 tts_enabled = True  # Can be toggled via API
 tts_voice = "amy"  # Default Piper voice
@@ -885,6 +910,12 @@ async def startup_event():
     # (Sources were registered during module load, but async tasks need event loop)
     global_state_bus.start_scheduled_refreshes()
     logger.info("Started scheduled source refreshes")
+
+    # Initialize coherence monitor - first reactive subscriber to state bus
+    if COHERENCE_MONITOR_ENABLED:
+        config = CoherenceConfig.from_dict(COHERENCE_MONITOR_CONFIG)
+        coherence_monitor = init_coherence_monitor(global_state_bus, config)
+        logger.info("Coherence monitor initialized and subscribed to events")
 
     # Note: Capability indexing happens in init_heavy_background after registry is attached
 
