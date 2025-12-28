@@ -399,6 +399,27 @@ class TaskManager:
             """, params)
             conn.commit()
 
+        # Emit task modified event
+        modified_fields = []
+        if description is not None:
+            modified_fields.append("description")
+        if priority is not None:
+            modified_fields.append("priority")
+        if project is not None:
+            modified_fields.append("project")
+        if due is not None:
+            modified_fields.append("due")
+        if notes is not None:
+            modified_fields.append("notes")
+        if tags is not None or add_tags or remove_tags:
+            modified_fields.append("tags")
+
+        self._emit_task_event("task.modified", {
+            "task_id": task_id,
+            "user_id": user_id,
+            "modified_fields": modified_fields,
+        })
+
         return self.get(user_id, task_id)
 
     def list_tasks(
