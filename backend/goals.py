@@ -19,6 +19,8 @@ class GoalManager:
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir / "goals"
+        self._daemon_id = None  # Lazy-loaded for event emission
+
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.synthesis_dir = self.data_dir / "synthesis"
         self.synthesis_dir.mkdir(exist_ok=True)
@@ -30,6 +32,36 @@ class GoalManager:
 
         # Initialize files if they don't exist
         self._ensure_files()
+
+    def _get_daemon_id(self) -> Optional[str]:
+        """Get daemon ID for event emission (lazy-loaded)."""
+        if not self._daemon_id:
+            try:
+                from database import get_daemon_id
+                self._daemon_id = get_daemon_id()
+            except Exception:
+                pass
+        return self._daemon_id
+
+    def _emit_goal_event(self, event_type: str, data: dict) -> None:
+        """Emit a goal event to the state bus."""
+        daemon_id = self._get_daemon_id()
+        if not daemon_id:
+            return
+        try:
+            from state_bus import get_state_bus
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "goals",
+                        **data,
+                    }
+                )
+        except Exception:
+            pass  # Don't let event emission break goal operations
 
     def _ensure_files(self):
         """Create data files if they don't exist."""
@@ -84,6 +116,13 @@ class GoalManager:
         data["questions"].append(question_obj)
         self._save_json(self.questions_file, data)
 
+        # Emit question created event
+        self._emit_goal_event("goal.question_created", {
+            "question_id": question_obj["id"],
+            "question": question[:200],  # Truncate for event payload
+            "has_next_steps": bool(initial_next_steps),
+        })
+
         # Log progress
         self.log_progress(
             entry_type="insight",
@@ -134,6 +173,25 @@ class GoalManager:
                     q["related_agenda_items"].append(add_related_agenda_item)
 
                 self._save_json(self.questions_file, data)
+
+                # Emit question updated event
+                update_type = []
+                if add_insight:
+                    update_type.append("insight_added")
+                if set_status:
+                    update_type.append(f"status_{set_status}")
+                if add_next_step:
+                    update_type.append("step_added")
+                if complete_next_step:
+                    update_type.append("step_completed")
+
+                self._emit_goal_event("goal.question_updated", {
+                    "question_id": question_id,
+                    "update_type": update_type,
+                    "new_status": q["status"],
+                    "insight_count": len(q["insights"]),
+                })
+
                 return q
 
         return None
@@ -318,6 +376,14 @@ Initial draft.
             for qid in related_questions:
                 self.update_working_question(qid, add_related_artifact=slug)
 
+        # Emit synthesis created event
+        self._emit_goal_event("goal.synthesis_created", {
+            "slug": slug,
+            "title": title,
+            "confidence": confidence,
+            "related_questions": related_questions or [],
+        })
+
         self.log_progress(
             entry_type="synthesis",
             description=f"Created synthesis artifact: {title}",
@@ -386,6 +452,14 @@ Initial draft.
 
                 with open(artifact_path, 'w') as f:
                     f.write(full_content)
+
+                # Emit synthesis updated event
+                self._emit_goal_event("goal.synthesis_updated", {
+                    "slug": slug,
+                    "new_confidence": new_confidence,
+                    "new_status": new_status,
+                    "revision_note": revision_note[:200] if revision_note else None,
+                })
 
                 self.log_progress(
                     entry_type="synthesis",
