@@ -460,6 +460,12 @@ class ConversationManager:
                 UPDATE conversations SET project_id = ?, updated_at = ? WHERE id = ?
             """, (project_id, datetime.now().isoformat(), conversation_id))
 
+        # Emit project assignment event
+        self._emit_conversation_event("conversation.project_assigned", {
+            "conversation_id": conversation_id,
+            "project_id": project_id,
+        })
+
         return True
 
     def assign_to_user(
@@ -479,6 +485,12 @@ class ConversationManager:
             conn.execute("""
                 UPDATE conversations SET user_id = ?, updated_at = ? WHERE id = ?
             """, (user_id, datetime.now().isoformat(), conversation_id))
+
+        # Emit user assignment event
+        self._emit_conversation_event("conversation.user_assigned", {
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+        })
 
         return True
 
@@ -716,6 +728,12 @@ class ConversationManager:
                 "UPDATE conversations SET working_summary = ? WHERE id = ?",
                 (working_summary, conversation_id)
             )
+
+        # Emit summary updated event
+        self._emit_conversation_event("conversation.summary_updated", {
+            "conversation_id": conversation_id,
+            "summary_length": len(working_summary) if working_summary else 0,
+        })
 
         return True
 

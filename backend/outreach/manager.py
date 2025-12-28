@@ -315,12 +315,20 @@ class OutreachManager:
         feedback: Optional[str] = None,
     ) -> Optional[Draft]:
         """Reject a draft"""
-        return self._review_queue.review_draft(
+        result = self._review_queue.review_draft(
             draft_id=draft_id,
             reviewer_id=reviewer_id,
             decision=ReviewDecision.REJECT.value,
             feedback=feedback,
         )
+        if result:
+            _emit_outreach_event(self._daemon_id, "outreach.draft_rejected", {
+                "draft_id": result.id,
+                "draft_type": result.draft_type,
+                "title": result.title,
+                "reviewer_id": reviewer_id,
+            })
+        return result
 
     def request_revision(
         self,
@@ -329,12 +337,20 @@ class OutreachManager:
         feedback: str = "",
     ) -> Optional[Draft]:
         """Request revision on a draft"""
-        return self._review_queue.review_draft(
+        result = self._review_queue.review_draft(
             draft_id=draft_id,
             reviewer_id=reviewer_id,
             decision=ReviewDecision.REQUEST_REVISION.value,
             feedback=feedback,
         )
+        if result:
+            _emit_outreach_event(self._daemon_id, "outreach.revision_requested", {
+                "draft_id": result.id,
+                "draft_type": result.draft_type,
+                "title": result.title,
+                "reviewer_id": reviewer_id,
+            })
+        return result
 
     def mark_sent(self, draft_id: str) -> Optional[Draft]:
         """Mark a draft as sent (for emails)"""
@@ -426,6 +442,14 @@ class OutreachManager:
         draft.response_received = True
         draft.outcome_notes = outcome_notes
         draft.updated_at = now
+
+        # Emit response recorded event
+        _emit_outreach_event(self._daemon_id, "outreach.response_recorded", {
+            "draft_id": draft.id,
+            "draft_type": draft.draft_type,
+            "title": draft.title,
+        })
+
         return draft
 
     def list_drafts(
