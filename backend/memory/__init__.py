@@ -36,6 +36,7 @@ class CassMemory:
     def __init__(self, persist_dir: str = None):
         # Initialize core (owns ChromaDB client/collection)
         self._core = MemoryCore(persist_dir)
+        self._daemon_id = None  # Lazy-loaded for event emission
 
         # Initialize domain managers with core reference
         self._summaries = SummaryManager(self._core)
@@ -46,6 +47,37 @@ class CassMemory:
 
         # Wire up circular dependency
         self._journals.set_summary_manager(self._summaries)
+
+    def _get_daemon_id(self) -> str:
+        """Get daemon ID for event emission (lazy-loaded)."""
+        if not self._daemon_id:
+            try:
+                from database import get_daemon_id
+                self._daemon_id = get_daemon_id()
+            except Exception:
+                pass
+        return self._daemon_id
+
+    def _emit_memory_event(self, event_type: str, data: dict) -> None:
+        """Emit a memory event to the state bus."""
+        daemon_id = self._get_daemon_id()
+        if not daemon_id:
+            return
+        try:
+            from state_bus import get_state_bus
+            from datetime import datetime
+            state_bus = get_state_bus(daemon_id)
+            if state_bus:
+                state_bus.emit_event(
+                    event_type=event_type,
+                    data={
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "memory",
+                        **data,
+                    }
+                )
+        except Exception:
+            pass  # Don't let event emission break memory operations
 
     # === Core Properties ===
 
@@ -67,8 +99,27 @@ class CassMemory:
     async def generate_gist(self, user_message: str, assistant_response: str):
         return await self._core.generate_gist(user_message, assistant_response)
 
-    async def store_conversation(self, *args, **kwargs):
-        return await self._core.store_conversation(*args, **kwargs)
+    async def store_conversation(
+        self,
+        user_message: str,
+        assistant_response: str,
+        conversation_id: str = None,
+        user_id: str = None,
+        metadata: dict = None
+    ):
+        entry_id = await self._core.store_conversation(
+            user_message, assistant_response, conversation_id, user_id, metadata
+        )
+
+        # Emit memory stored event
+        self._emit_memory_event("memory.conversation.stored", {
+            "entry_id": entry_id,
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+            "message_length": len(user_message) + len(assistant_response),
+        })
+
+        return entry_id
 
     def store_attractor_marker(self, *args, **kwargs):
         return self._core.store_attractor_marker(*args, **kwargs)
