@@ -1138,7 +1138,10 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
             conversation_id=conversation_id,
             role="assistant",
             content=response_text,
-            metadata=token_info,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            provider=token_info["provider"],
+            model=token_info["model"],
         )
 
         return {
