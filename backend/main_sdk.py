@@ -1015,9 +1015,11 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
     """
     Process a chat message from a mobile client via the relay.
 
-    This is a simplified version of the WebSocket handler for relay use.
+    Uses continuous chat mode with semantic memory retrieval.
     Returns the response to send back to the client.
     """
+    global agent_client, memory, conversation_manager, user_manager
+
     message_type = payload.get("type")
 
     if message_type == "ping":
@@ -1032,40 +1034,106 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
     if not message_text:
         return {"type": "error", "message": "Empty message"}
 
-    # Get or create conversation
-    if not conversation_id:
-        conv = conversation_manager.create_conversation(user_id=user_id)
-        conversation_id = conv["id"]
+    # Check if essential services are initialized
+    if agent_client is None or memory is None:
+        return {"type": "error", "message": "Server is still initializing. Please try again."}
 
-    # Store user message
-    conversation_manager.add_message(
-        conversation_id=conversation_id,
-        role="user",
-        content=message_text,
-        user_id=user_id,
-    )
-
-    # Build context and generate response (simplified)
-    # This uses the SDK-based agent
     try:
-        # Import here to avoid circular imports
-        from websocket_handlers import build_context_for_chat, run_agent_with_tools
+        # Use continuous conversation for this user (like mobile expects)
+        if not conversation_id:
+            continuous_conv = conversation_manager.get_or_create_continuous(user_id)
+            conversation_id = continuous_conv.id
+            logger.info(f"[Relay] Using continuous conversation {conversation_id} for user {user_id}")
 
-        context = await build_context_for_chat(
-            user_id=user_id,
+        # Store user message
+        conversation_manager.add_message(
             conversation_id=conversation_id,
-            message=message_text,
+            role="user",
+            content=message_text,
+            user_id=user_id,
         )
 
-        # Run agent
-        response_text, token_info = await run_agent_with_tools(
-            message=message_text,
-            context=context,
+        # Build continuous context for semantic memory retrieval
+        from continuous_context import build_continuous_context, get_recent_messages_for_continuous
+        from memory import ThreadManager, OpenQuestionManager
+        from database import get_daemon_id
+
+        daemon_id = get_daemon_id()
+        thread_manager = ThreadManager(daemon_id) if daemon_id else None
+        question_manager = OpenQuestionManager(daemon_id) if daemon_id else None
+
+        continuous_ctx = build_continuous_context(
             user_id=user_id,
             conversation_id=conversation_id,
+            user_manager=user_manager,
+            thread_manager=thread_manager,
+            question_manager=question_manager,
+            conversation_manager=conversation_manager,
+            daemon_name="Cass",
+            daemon_id=daemon_id,
+            memory=memory,
+            query=message_text,
         )
+
+        # Get recent messages for conversation continuity
+        continuous_messages = get_recent_messages_for_continuous(
+            conversation_manager=conversation_manager,
+            conversation_id=conversation_id,
+            limit=12  # Last 12 messages (6 exchanges)
+        )
+
+        logger.info(f"[Relay] Built continuous context, messages={len(continuous_messages)}")
+
+        # Call agent with continuous chat mode
+        response = await agent_client.send_message(
+            message=message_text,
+            memory_context="",  # Context is in continuous_system_prompt
+            project_id=None,
+            unsummarized_count=0,
+            conversation_id=conversation_id,
+            continuous_system_prompt=continuous_ctx.system_prompt,
+            continuous_messages=continuous_messages,
+        )
+
+        response_text = response.text
+        total_input_tokens = response.input_tokens
+        total_output_tokens = response.output_tokens
+
+        # Handle tool execution (simplified - single iteration)
+        # Full tool loop support can be added if needed
+        if response.stop_reason == "tool_use" and response.tool_uses:
+            tool_names = [t['tool'] for t in response.tool_uses]
+            logger.info(f"[Relay] Tool calls: {tool_names}")
+
+            # Get user info for tool context
+            user_name = None
+            if user_id:
+                user_profile = user_manager.load_profile(user_id)
+                user_name = user_profile.display_name if user_profile else None
+
+            # Execute tools
+            tool_ctx = create_tool_context(
+                user_id=user_id,
+                user_name=user_name,
+                conversation_id=conversation_id,
+                project_id=None
+            )
+            all_tool_results = await execute_tool_batch(response.tool_uses, tool_ctx, TOOL_EXECUTORS)
+
+            # Continue with tool results
+            response = await agent_client.continue_with_tool_results(all_tool_results)
+            response_text = response.text
+            total_input_tokens += response.input_tokens
+            total_output_tokens += response.output_tokens
 
         # Store assistant response
+        token_info = {
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "provider": "anthropic",
+            "model": agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514",
+        }
+
         conversation_manager.add_message(
             conversation_id=conversation_id,
             role="assistant",
@@ -1077,15 +1145,15 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
             "type": "response",
             "text": response_text,
             "conversation_id": conversation_id,
-            "inputTokens": token_info.get("input_tokens", 0),
-            "outputTokens": token_info.get("output_tokens", 0),
-            "provider": token_info.get("provider", "unknown"),
-            "model": token_info.get("model", "unknown"),
+            "inputTokens": total_input_tokens,
+            "outputTokens": total_output_tokens,
+            "provider": token_info["provider"],
+            "model": token_info["model"],
             "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
-        logger.error(f"Error processing relay message: {e}")
+        logger.error(f"Error processing relay message: {e}", exc_info=True)
         return {"type": "error", "message": str(e)}
 
 

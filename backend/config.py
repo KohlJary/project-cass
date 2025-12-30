@@ -6,7 +6,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from the same directory as this config file
+_config_dir = Path(__file__).parent
+load_dotenv(_config_dir / ".env")
 
 # Data directory - resolve to absolute path
 # Can be overridden with DATA_DIR env var

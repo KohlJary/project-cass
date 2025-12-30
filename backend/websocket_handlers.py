@@ -318,13 +318,21 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 conversation_id = data.get("conversation_id")
 
                 # Auto-create conversation if none provided
+                # Default to continuous chat mode for authenticated users
                 if not conversation_id:
-                    new_conv = conversation_manager.create_conversation(
-                        title=None,  # Will be auto-generated after first exchange
-                        user_id=ws_user_id
-                    )
-                    conversation_id = new_conv.id
-                    print(f"[WebSocket] Auto-created conversation {conversation_id} for user {ws_user_id}")
+                    if ws_user_id:
+                        # Use continuous conversation for this user
+                        continuous_conv = conversation_manager.get_or_create_continuous(ws_user_id)
+                        conversation_id = continuous_conv.id
+                        print(f"[WebSocket] Using continuous conversation {conversation_id} for user {ws_user_id}")
+                    else:
+                        # No user - create a regular conversation
+                        new_conv = conversation_manager.create_conversation(
+                            title=None,
+                            user_id=ws_user_id
+                        )
+                        conversation_id = new_conv.id
+                        print(f"[WebSocket] Auto-created conversation {conversation_id} (no user)")
 
                 image_data = data.get("image")  # Base64 encoded image
                 image_media_type = data.get("image_media_type")  # e.g., "image/png"
