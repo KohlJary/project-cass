@@ -1045,14 +1045,6 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
             conversation_id = continuous_conv.id
             logger.info(f"[Relay] Using continuous conversation {conversation_id} for user {user_id}")
 
-        # Store user message
-        conversation_manager.add_message(
-            conversation_id=conversation_id,
-            role="user",
-            content=message_text,
-            user_id=user_id,
-        )
-
         # Build continuous context for semantic memory retrieval
         from continuous_context import build_continuous_context, get_recent_messages_for_continuous
         from memory import ThreadManager, OpenQuestionManager
@@ -1075,7 +1067,7 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
             query=message_text,
         )
 
-        # Get recent messages for conversation continuity
+        # Get recent messages for conversation continuity (BEFORE storing new message)
         continuous_messages = get_recent_messages_for_continuous(
             conversation_manager=conversation_manager,
             conversation_id=conversation_id,
@@ -1083,6 +1075,14 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
         )
 
         logger.info(f"[Relay] Built continuous context, messages={len(continuous_messages)}")
+
+        # Store user message AFTER fetching history (send_message will add it to API call)
+        conversation_manager.add_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=message_text,
+            user_id=user_id,
+        )
 
         # Call agent with continuous chat mode
         response = await agent_client.send_message(
