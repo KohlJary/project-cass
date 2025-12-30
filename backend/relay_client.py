@@ -89,12 +89,14 @@ class RelayClient:
                 try:
                     data = json.loads(message)
                     msg_type = data.get("type")
+                    logger.debug(f"Received relay message type: {msg_type}")
 
                     if msg_type == "chat_message":
                         # Extract fields for the handler
                         client_id = data.get("client_id", "")
                         user_id = data.get("user_id", "")
                         payload = data.get("payload", {})
+                        logger.info(f"[Relay] Received chat from {user_id}: {payload.get('message', '')[:50]}...")
                         await self.message_handler(client_id, user_id, payload)
                     elif msg_type == "auth_success":
                         logger.info("Relay authentication successful")
