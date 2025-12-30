@@ -1244,7 +1244,7 @@ from handlers.research import RESEARCH_PROPOSAL_TOOLS
 from handlers.solo_reflection import SOLO_REFLECTION_TOOLS
 from handlers.insights import CROSS_SESSION_INSIGHT_TOOLS
 from handlers.goals import GOAL_TOOLS
-from handlers.outreach import OUTREACH_TOOLS
+from handlers.outreach import OUTREACH_TOOLS, DIRECT_MESSAGE_TOOLS
 from handlers.web_research import WEB_RESEARCH_TOOLS
 from handlers.research_session import RESEARCH_SESSION_TOOLS
 from handlers.research_scheduler import RESEARCH_SCHEDULER_TOOLS
@@ -1391,6 +1391,7 @@ class CassAgentClient:
             # Outreach tools - external communication with graduated autonomy
             if should_include_outreach_tools(message):
                 tools.extend(OUTREACH_TOOLS)
+                tools.extend(DIRECT_MESSAGE_TOOLS)  # Direct push notification to mobile
 
             # Research tools - all research-related (proposals, web, sessions, scheduler)
             if should_include_research_tools(message):

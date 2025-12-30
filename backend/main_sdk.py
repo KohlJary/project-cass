@@ -95,7 +95,7 @@ from handlers import (
 )
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
-from handlers.outreach import execute_outreach_tool
+from handlers.outreach import execute_outreach_tool, execute_direct_message_tool
 from handlers.lineage import execute_lineage_tool
 from handlers.development_requests import execute_development_request_tool
 from markers import MarkerStore
@@ -467,6 +467,7 @@ TOOL_EXECUTORS = {
     "lineage": execute_lineage_tool,
     "development_request": execute_development_request_tool,
     "wonderland": execute_wonderland_tool,
+    "direct_message": execute_direct_message_tool,
 }
 
 

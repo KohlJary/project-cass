@@ -316,6 +316,9 @@ TOOL_REGISTRY = {
     # Wonderland tools (personal space)
     "describe_my_home": "wonderland",
     "get_wonderland_status": "wonderland",
+
+    # Direct message tools (push notification to mobile)
+    "send_direct_message": "direct_message",
 }
 
 
@@ -591,6 +594,14 @@ async def route_tool(
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
             memory=ctx.memory,
+        )
+
+    elif executor_type == "direct_message":
+        # Direct message tools for push notifications
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            conversation_manager=ctx.conversation_manager,
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}
