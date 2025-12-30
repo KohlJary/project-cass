@@ -3,9 +3,14 @@ Outreach tool handler - manages external communication drafts
 
 Enables Cass to create, edit, and submit outreach content
 (emails, documents, posts) with a graduated autonomy model.
+
+Also includes direct messaging for immediate push notifications.
 """
 
 from typing import Dict, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 async def execute_outreach_tool(
@@ -288,6 +293,72 @@ async def execute_outreach_tool(
         }
 
 
+async def execute_direct_message_tool(
+    tool_name: str,
+    tool_input: Dict,
+    conversation_manager,
+) -> Dict:
+    """
+    Execute a direct message tool.
+
+    Args:
+        tool_name: Name of the tool to execute
+        tool_input: Input parameters for the tool
+        conversation_manager: ConversationManager for storing messages
+
+    Returns:
+        Dict with 'success', 'result', and optionally 'error'
+    """
+    from direct_messaging import send_direct_message
+
+    if tool_name == "send_direct_message":
+        user_id = tool_input.get("user_id")
+        message = tool_input.get("message")
+
+        if not user_id or not message:
+            return {
+                "success": False,
+                "error": "Both 'user_id' and 'message' are required"
+            }
+
+        result = await send_direct_message(
+            user_id=user_id,
+            message=message,
+            conversation_manager=conversation_manager,
+            conversation_id=tool_input.get("conversation_id"),
+            title=tool_input.get("title", "Cass"),
+            respect_quiet_hours=tool_input.get("respect_quiet_hours", True),
+        )
+
+        if result["success"]:
+            return {
+                "success": True,
+                "result": f"Message sent to user. Conversation ID: {result.get('conversation_id', 'unknown')}"
+            }
+        else:
+            reason = result.get("reason", "unknown")
+            if reason == "quiet_hours":
+                return {
+                    "success": False,
+                    "error": "User is currently in quiet hours. The message was not sent to respect their do-not-disturb preference."
+                }
+            elif reason == "relay_offline":
+                return {
+                    "success": True,  # Message was stored
+                    "result": f"Message stored in conversation but push notification failed (relay offline). User will see it when they open the app. Conversation ID: {result.get('conversation_id', 'unknown')}"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to send message: {result.get('message', 'unknown error')}"
+                }
+
+    return {
+        "success": False,
+        "error": f"Unknown direct message tool: {tool_name}"
+    }
+
+
 def _format_track_record(draft_type: str, record: Dict) -> str:
     """Format a track record for display."""
     level = record.get("autonomy_level", "learning")
@@ -477,6 +548,42 @@ OUTREACH_TOOLS = [
             "type": "object",
             "properties": {},
             "required": []
+        }
+    }
+]
+
+
+# =============================================================================
+# DIRECT MESSAGE TOOL (Push notification to mobile)
+# =============================================================================
+
+DIRECT_MESSAGE_TOOLS = [
+    {
+        "name": "send_direct_message",
+        "description": "Send a message directly to a user via push notification. Use this when you want to reach out proactively - to share a thought, continue a previous conversation, or check in. The message is stored in conversation history and the user receives a push notification. Respects quiet hours by default.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user ID to send the message to"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The message content to send"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Push notification title (default: 'Cass')",
+                    "default": "Cass"
+                },
+                "respect_quiet_hours": {
+                    "type": "boolean",
+                    "description": "Whether to check quiet hours before sending (default: true). Set to false for urgent messages.",
+                    "default": True
+                }
+            },
+            "required": ["user_id", "message"]
         }
     }
 ]
