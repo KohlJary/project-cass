@@ -71,6 +71,12 @@ class CoherenceMonitor:
         self._emotional_snapshots: Deque[EmotionalSnapshot] = deque(maxlen=self.config.emotional_window_size)
         self._activity_counts: Dict[str, int] = {}
 
+        # Goal/synthesis tracking for intellectual health
+        self._questions_created: int = 0
+        self._questions_resolved: int = 0
+        self._synthesis_artifacts: Dict[str, float] = {}  # slug -> confidence
+        self._recent_insights: int = 0
+
         # Active warnings (cleared after retention period)
         self._active_warnings: List[FragmentationWarning] = []
 
@@ -95,10 +101,16 @@ class CoherenceMonitor:
         self.state_bus.subscribe("session.ended", self._on_session_ended)
         self.state_bus.subscribe("state_delta", self._on_state_delta)
 
+        # Subscribe to goal/synthesis events for intellectual health tracking
+        self.state_bus.subscribe("goal.question_created", self._on_question_created)
+        self.state_bus.subscribe("goal.question_updated", self._on_question_updated)
+        self.state_bus.subscribe("goal.synthesis_created", self._on_synthesis_created)
+        self.state_bus.subscribe("goal.synthesis_updated", self._on_synthesis_updated)
+
         self._started_at = datetime.now()
         self._subscribed = True
 
-        logger.info("CoherenceMonitor started - subscribed to session and state_delta events")
+        logger.info("CoherenceMonitor started - subscribed to session, state_delta, and goal events")
 
     def stop(self) -> None:
         """
@@ -112,6 +124,10 @@ class CoherenceMonitor:
         self.state_bus.unsubscribe("session.started", self._on_session_started)
         self.state_bus.unsubscribe("session.ended", self._on_session_ended)
         self.state_bus.unsubscribe("state_delta", self._on_state_delta)
+        self.state_bus.unsubscribe("goal.question_created", self._on_question_created)
+        self.state_bus.unsubscribe("goal.question_updated", self._on_question_updated)
+        self.state_bus.unsubscribe("goal.synthesis_created", self._on_synthesis_created)
+        self.state_bus.unsubscribe("goal.synthesis_updated", self._on_synthesis_updated)
 
         self._subscribed = False
         logger.info("CoherenceMonitor stopped")
@@ -151,6 +167,12 @@ class CoherenceMonitor:
             all(w.level in (WarningLevel.INFO, WarningLevel.CAUTION) for w in self._active_warnings)
         )
 
+        # Calculate intellectual health metrics
+        synthesis_count = len(self._synthesis_artifacts)
+        avg_synthesis_confidence = 0.0
+        if self._synthesis_artifacts:
+            avg_synthesis_confidence = mean(self._synthesis_artifacts.values())
+
         return CoherenceHealthReport(
             is_healthy=is_healthy,
             active_warnings=list(self._active_warnings),
@@ -162,6 +184,11 @@ class CoherenceMonitor:
             local_coherence=local_coherence,
             pattern_coherence=pattern_coherence,
             activity_distribution=dict(self._activity_counts),
+            questions_created=self._questions_created,
+            questions_resolved=self._questions_resolved,
+            recent_insights=self._recent_insights,
+            synthesis_count=synthesis_count,
+            avg_synthesis_confidence=avg_synthesis_confidence,
             monitor_started_at=self._started_at,
             last_event_at=self._last_event_at,
             events_processed=self._events_processed,
@@ -237,6 +264,71 @@ class CoherenceMonitor:
 
         # Check for coherence crisis
         self._check_coherence_crisis()
+
+    def _on_question_created(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Handle goal.question_created events."""
+        self._events_processed += 1
+        self._last_event_at = datetime.now()
+        self._questions_created += 1
+
+        logger.debug(f"CoherenceMonitor: question created - {data.get('question_id')}")
+
+    def _on_question_updated(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Handle goal.question_updated events."""
+        self._events_processed += 1
+        self._last_event_at = datetime.now()
+
+        update_types = data.get("update_type", [])
+
+        # Track insights
+        if "insight_added" in update_types:
+            self._recent_insights += 1
+
+        # Track resolutions
+        if "status_resolved" in update_types:
+            self._questions_resolved += 1
+
+        logger.debug(f"CoherenceMonitor: question updated - {data.get('question_id')} ({update_types})")
+
+    def _on_synthesis_created(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Handle goal.synthesis_created events."""
+        self._events_processed += 1
+        self._last_event_at = datetime.now()
+
+        slug = data.get("slug", "unknown")
+        confidence = data.get("confidence", 0.3)
+        self._synthesis_artifacts[slug] = confidence
+
+        logger.debug(f"CoherenceMonitor: synthesis created - {slug} (confidence: {confidence})")
+
+    def _on_synthesis_updated(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Handle goal.synthesis_updated events."""
+        self._events_processed += 1
+        self._last_event_at = datetime.now()
+
+        slug = data.get("slug", "unknown")
+        new_confidence = data.get("new_confidence")
+
+        if new_confidence is not None and slug in self._synthesis_artifacts:
+            old_confidence = self._synthesis_artifacts[slug]
+            self._synthesis_artifacts[slug] = new_confidence
+
+            # Check for significant confidence drop
+            if old_confidence - new_confidence >= 0.2:
+                self._emit_warning(
+                    warning_type=FragmentationType.COHERENCE_CRISIS,
+                    level=WarningLevel.CAUTION,
+                    message=f"Synthesis confidence dropped: {slug} ({old_confidence:.2f} → {new_confidence:.2f})",
+                    metrics={
+                        "slug": slug,
+                        "old_confidence": old_confidence,
+                        "new_confidence": new_confidence,
+                        "drop": old_confidence - new_confidence,
+                    },
+                    trigger_event="goal.synthesis_updated",
+                )
+
+        logger.debug(f"CoherenceMonitor: synthesis updated - {slug}")
 
     # === Pattern Detection ===
 

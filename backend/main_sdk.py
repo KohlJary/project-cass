@@ -64,7 +64,7 @@ from scripts.migrate_to_graph import populate_graph as populate_self_model_graph
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from roadmap import RoadmapManager
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR, OPENAI_API_KEY, OLLAMA_BASE_URL, COHERENCE_MONITOR_ENABLED, COHERENCE_MONITOR_CONFIG
+from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR, OPENAI_API_KEY, OLLAMA_BASE_URL, COHERENCE_MONITOR_ENABLED, COHERENCE_MONITOR_CONFIG, RELAY_ENABLED, RELAY_URL, RELAY_SECRET
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
 from handlers import (
     execute_journal_tool,
@@ -101,6 +101,10 @@ from handlers.development_requests import execute_development_request_tool
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
+from activity_dashboard import init_activity_dashboard, get_activity_dashboard
+from relay_client import init_relay_client, get_relay_client
+from push_tokens import get_push_manager
+from quiet_hours import get_quiet_hours_manager, is_quiet_hours
 from narration import get_metrics_dict as get_narration_metrics
 from goals import GoalManager
 from research import ResearchManager
@@ -825,6 +829,266 @@ async def coherence_health():
     }
 
 
+@app.get("/api/activity/current")
+async def activity_current():
+    """
+    Get current activity counters.
+
+    Returns real-time activity for the current hour plus meta info.
+    """
+    dashboard = get_activity_dashboard()
+    if not dashboard:
+        return {
+            "enabled": False,
+            "message": "Activity dashboard not initialized"
+        }
+
+    return {
+        "enabled": True,
+        **dashboard.get_current_activity()
+    }
+
+
+@app.get("/api/activity/summary")
+async def activity_summary(period: str = "24h"):
+    """
+    Get activity summary for a time period.
+
+    Args:
+        period: One of "1h", "24h", "7d"
+
+    Returns aggregated activity metrics.
+    """
+    dashboard = get_activity_dashboard()
+    if not dashboard:
+        return {
+            "enabled": False,
+            "message": "Activity dashboard not initialized"
+        }
+
+    summary = dashboard.get_summary(period)
+    return {
+        "enabled": True,
+        **summary.to_dict()
+    }
+
+
+@app.get("/api/activity/trend")
+async def activity_trend(hours: int = 24):
+    """
+    Get hourly activity trend.
+
+    Args:
+        hours: Number of hours to include (default 24, max 168)
+
+    Returns list of hourly buckets.
+    """
+    dashboard = get_activity_dashboard()
+    if not dashboard:
+        return {
+            "enabled": False,
+            "message": "Activity dashboard not initialized"
+        }
+
+    # Cap at 7 days
+    hours = min(hours, 168)
+    trend = dashboard.get_hourly_trend(hours)
+    return {
+        "enabled": True,
+        "hours": hours,
+        "buckets": trend
+    }
+
+
+# === Push Notification Endpoints ===
+
+@app.post("/push/register")
+async def register_push_token(request: Request):
+    """
+    Register a device for push notifications.
+
+    Body: { "token": "ExponentPushToken[...]", "platform": "android" }
+    Requires Authorization header with JWT token.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse({"error": "Missing authorization"}, status_code=401)
+
+    jwt_token = auth_header[7:]
+    try:
+        from auth import decode_token
+        payload = decode_token(jwt_token)
+        user_id = payload.get("user_id")
+        if not user_id:
+            return JSONResponse({"error": "Invalid token"}, status_code=401)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=401)
+
+    body = await request.json()
+    push_token = body.get("token")
+    platform = body.get("platform", "android")
+
+    if not push_token:
+        return JSONResponse({"error": "Missing token"}, status_code=400)
+
+    push_manager = get_push_manager()
+    token_id = push_manager.register_token(user_id, push_token, platform)
+
+    return {"success": True, "token_id": token_id}
+
+
+@app.delete("/push/register")
+async def unregister_push_token(request: Request):
+    """Unregister a device from push notifications."""
+    body = await request.json()
+    push_token = body.get("token")
+
+    if not push_token:
+        return JSONResponse({"error": "Missing token"}, status_code=400)
+
+    push_manager = get_push_manager()
+    removed = push_manager.unregister_token(push_token)
+
+    return {"success": removed}
+
+
+# === Quiet Hours Endpoints ===
+
+@app.get("/users/me/quiet-hours")
+async def get_quiet_hours(request: Request):
+    """Get the current user's quiet hours preferences."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse({"error": "Missing authorization"}, status_code=401)
+
+    jwt_token = auth_header[7:]
+    try:
+        from auth import decode_token
+        payload = decode_token(jwt_token)
+        user_id = payload.get("user_id")
+        if not user_id:
+            return JSONResponse({"error": "Invalid token"}, status_code=401)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=401)
+
+    manager = get_quiet_hours_manager()
+    pref = manager.get_preference(user_id)
+
+    return pref.to_dict()
+
+
+@app.put("/users/me/quiet-hours")
+async def update_quiet_hours(request: Request):
+    """Update the current user's quiet hours preferences."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse({"error": "Missing authorization"}, status_code=401)
+
+    jwt_token = auth_header[7:]
+    try:
+        from auth import decode_token
+        payload = decode_token(jwt_token)
+        user_id = payload.get("user_id")
+        if not user_id:
+            return JSONResponse({"error": "Invalid token"}, status_code=401)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=401)
+
+    body = await request.json()
+    manager = get_quiet_hours_manager()
+
+    pref = manager.update_preference(
+        user_id=user_id,
+        enabled=body.get("enabled"),
+        start_hour=body.get("start_hour"),
+        end_hour=body.get("end_hour"),
+        timezone=body.get("timezone"),
+        days=body.get("days"),
+    )
+
+    return pref.to_dict()
+
+
+# === Relay Message Handler ===
+
+async def process_relay_chat_message(client_id: str, user_id: str, payload: dict) -> dict:
+    """
+    Process a chat message from a mobile client via the relay.
+
+    This is a simplified version of the WebSocket handler for relay use.
+    Returns the response to send back to the client.
+    """
+    message_type = payload.get("type")
+
+    if message_type == "ping":
+        return {"type": "pong"}
+
+    if message_type != "chat":
+        return {"type": "error", "message": f"Unknown message type: {message_type}"}
+
+    message_text = payload.get("message", "")
+    conversation_id = payload.get("conversation_id")
+
+    if not message_text:
+        return {"type": "error", "message": "Empty message"}
+
+    # Get or create conversation
+    if not conversation_id:
+        conv = conversation_manager.create_conversation(user_id=user_id)
+        conversation_id = conv["id"]
+
+    # Store user message
+    conversation_manager.add_message(
+        conversation_id=conversation_id,
+        role="user",
+        content=message_text,
+        user_id=user_id,
+    )
+
+    # Build context and generate response (simplified)
+    # This uses the SDK-based agent
+    try:
+        # Import here to avoid circular imports
+        from websocket_handlers import build_context_for_chat, run_agent_with_tools
+
+        context = await build_context_for_chat(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            message=message_text,
+        )
+
+        # Run agent
+        response_text, token_info = await run_agent_with_tools(
+            message=message_text,
+            context=context,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+
+        # Store assistant response
+        conversation_manager.add_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=response_text,
+            metadata=token_info,
+        )
+
+        return {
+            "type": "response",
+            "text": response_text,
+            "conversation_id": conversation_id,
+            "inputTokens": token_info.get("input_tokens", 0),
+            "outputTokens": token_info.get("output_tokens", 0),
+            "provider": token_info.get("provider", "unknown"),
+            "model": token_info.get("model", "unknown"),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Error processing relay message: {e}")
+        return {"type": "error", "message": str(e)}
+
+
 # TTS Configuration
 tts_enabled = True  # Can be toggled via API
 tts_voice = "amy"  # Default Piper voice
@@ -916,6 +1180,41 @@ async def startup_event():
         config = CoherenceConfig.from_dict(COHERENCE_MONITOR_CONFIG)
         coherence_monitor = init_coherence_monitor(global_state_bus, config)
         logger.info("Coherence monitor initialized and subscribed to events")
+
+    # Initialize activity dashboard - tracks activity across the vessel
+    activity_dashboard = init_activity_dashboard(global_state_bus)
+    logger.info("Activity dashboard initialized and subscribed to events")
+
+    # Initialize relay client for remote access (if configured)
+    if RELAY_ENABLED and RELAY_URL and RELAY_SECRET:
+        async def handle_relay_message(client_id: str, user_id: str, payload: dict):
+            """Handle messages from mobile clients via relay."""
+            # Forward to the WebSocket handler logic
+            relay = get_relay_client()
+            if not relay:
+                return
+
+            try:
+                # Process the message using the same logic as direct WebSocket
+                response = await process_relay_chat_message(client_id, user_id, payload)
+                if response:
+                    await relay.send_response(client_id, response)
+            except Exception as e:
+                logger.error(f"Error handling relay message: {e}")
+                await relay.send_response(client_id, {
+                    "type": "error",
+                    "message": str(e)
+                })
+
+        await init_relay_client(
+            url=RELAY_URL,
+            secret=RELAY_SECRET,
+            daemon_id=_daemon_id,
+            message_handler=handle_relay_message,
+        )
+        logger.info(f"Relay client initialized, connecting to {RELAY_URL}")
+    elif RELAY_ENABLED:
+        logger.warning("Relay enabled but RELAY_URL or RELAY_SECRET not configured")
 
     # Note: Capability indexing happens in init_heavy_background after registry is attached
 

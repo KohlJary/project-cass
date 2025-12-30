@@ -126,7 +126,7 @@ class RelayClient:
 
     async def send(self, message: dict) -> bool:
         """Send a message to the relay server."""
-        if not self.ws or self.ws.closed:
+        if not self.ws:
             logger.warning("Cannot send - not connected to relay")
             return False
 
@@ -204,7 +204,7 @@ class RelayClient:
     @property
     def is_connected(self) -> bool:
         """Check if connected to the relay."""
-        return self.ws is not None and not self.ws.closed
+        return self.ws is not None and self._running
 
 
 async def init_relay_client(

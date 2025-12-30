@@ -14,6 +14,7 @@ import { AuthScreen } from './src/screens/AuthScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { TabNavigator } from './src/navigation/TabNavigator';
 import { useAuth } from './src/hooks/useAuth';
+import { usePushNotifications } from './src/hooks/usePushNotifications';
 import { useChatStore } from './src/store/chatStore';
 import { apiClient } from './src/api/client';
 import { colors } from './src/theme/colors';
@@ -22,6 +23,10 @@ import { UserProfileData } from './src/api/types';
 export default function App() {
   const { user, isLoading, isAuthenticated, login, register, logout } = useAuth();
   const { setCurrentConversationId } = useChatStore();
+
+  // Initialize push notifications when authenticated
+  const { expoPushToken, error: pushError } = usePushNotifications();
+
   const [pendingOnboarding, setPendingOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<Partial<UserProfileData>>({});
   const [authError, setAuthError] = useState<string | null>(null);

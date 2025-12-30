@@ -205,3 +205,9 @@ COHERENCE_MONITOR_CONFIG = {
     "local_coherence_threshold": float(os.getenv("COHERENCE_LOCAL_THRESHOLD", "0.3")),
     "pattern_coherence_threshold": float(os.getenv("COHERENCE_PATTERN_THRESHOLD", "0.3")),
 }
+
+# Relay Server Configuration
+# Enables remote access without port forwarding via a cloud relay
+RELAY_ENABLED = os.getenv("RELAY_ENABLED", "false").lower() == "true"
+RELAY_URL = os.getenv("RELAY_URL", "")  # e.g., "wss://your-relay.up.railway.app/home"
+RELAY_SECRET = os.getenv("RELAY_SECRET", "")  # Shared secret with relay server

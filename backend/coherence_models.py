@@ -150,6 +150,13 @@ class CoherenceHealthReport:
     # Activity metrics
     activity_distribution: Dict[str, int] = field(default_factory=dict)  # activity -> count
 
+    # Intellectual health metrics
+    questions_created: int = 0
+    questions_resolved: int = 0
+    recent_insights: int = 0
+    synthesis_count: int = 0
+    avg_synthesis_confidence: float = 0.0
+
     # Monitor meta
     monitor_started_at: Optional[datetime] = None
     last_event_at: Optional[datetime] = None
@@ -174,6 +181,13 @@ class CoherenceHealthReport:
                 "pattern": round(self.pattern_coherence, 3),
             },
             "activity_distribution": self.activity_distribution,
+            "intellectual": {
+                "questions_created": self.questions_created,
+                "questions_resolved": self.questions_resolved,
+                "recent_insights": self.recent_insights,
+                "synthesis_count": self.synthesis_count,
+                "avg_synthesis_confidence": round(self.avg_synthesis_confidence, 3),
+            },
             "monitor": {
                 "started_at": self.monitor_started_at.isoformat() if self.monitor_started_at else None,
                 "last_event_at": self.last_event_at.isoformat() if self.last_event_at else None,

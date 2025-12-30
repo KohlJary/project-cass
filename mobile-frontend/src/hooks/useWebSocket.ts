@@ -6,12 +6,13 @@ import { useEffect, useCallback } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import { WebSocketMessage, WebSocketResponse } from '../api/types';
+import { config } from '../config';
 
-// Backend WebSocket URL
-const WS_BASE_URL = 'wss://serial-around-described-cut.trycloudflare.com/ws';
+// Use configured WebSocket URL
+const WS_BASE_URL = config.wsUrl;
 
-const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000];
-const PING_INTERVAL = 30000;
+const RECONNECT_DELAYS = config.reconnectDelays;
+const PING_INTERVAL = config.pingInterval;
 
 // Global WebSocket state - persists across component remounts
 let globalWs: WebSocket | null = null;
