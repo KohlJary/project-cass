@@ -17,9 +17,10 @@ import {
   ConversationObservations,
   UserJournalsResponse,
 } from './types';
+import { config } from '../config';
 
-// Same base URL as WebSocket, just HTTP
-const API_BASE = 'https://serial-around-described-cut.trycloudflare.com';
+// Use configured API base URL
+const API_BASE = config.apiBaseUrl;
 
 // Token getter function - will be set by auth store
 let getAccessToken: (() => string | null) | null = null;

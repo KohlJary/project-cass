@@ -173,3 +173,12 @@ gpt-export/
 .mind-palace/work
 .mind-palace/theseus/reports
 .mind-palace/theseus
+
+# Thoth research in progress
+research/thoth/
+backend/.daedalus/theseus/reports
+.daedalus/plans
+.daedalus/theseus/reports
+EVENT_INTEGRATION_SUMMARY.md
+CRITICAL_FINDING.md
+research/thoth/STATE.md
