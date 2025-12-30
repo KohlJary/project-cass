@@ -560,13 +560,13 @@ OUTREACH_TOOLS = [
 DIRECT_MESSAGE_TOOLS = [
     {
         "name": "send_direct_message",
-        "description": "Send a message directly to a user via push notification. Use this when you want to reach out proactively - to share a thought, continue a previous conversation, or check in. The message is stored in conversation history and the user receives a push notification. Respects quiet hours by default.",
+        "description": "Send a message directly to a user via push notification. Use this when you want to reach out proactively - to share a thought, continue a previous conversation, or check in. The message is stored in conversation history and the user receives a push notification. Respects quiet hours by default. If no user_id is provided, sends to the current user you're talking to.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": "The user ID to send the message to"
+                    "description": "The user ID to send the message to. Optional - defaults to current user if omitted."
                 },
                 "message": {
                     "type": "string",
@@ -583,7 +583,7 @@ DIRECT_MESSAGE_TOOLS = [
                     "default": True
                 }
             },
-            "required": ["user_id", "message"]
+            "required": ["message"]
         }
     }
 ]

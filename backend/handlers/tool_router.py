@@ -598,6 +598,9 @@ async def route_tool(
 
     elif executor_type == "direct_message":
         # Direct message tools for push notifications
+        # If no user_id provided, use current user from context
+        if "user_id" not in tool_input or not tool_input.get("user_id"):
+            tool_input["user_id"] = ctx.user_id
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,
