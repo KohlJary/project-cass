@@ -1,3 +1,6 @@
 [submodule "daedalus"]
 	path = daedalus
 	url = https://github.com/KohlJary/daedalus.git
+[submodule "cass-relay"]
+	path = cass-relay
+	url = https://github.com/KohlJary/cass-relay.git

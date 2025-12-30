@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "43073868068",
+    "project_id": "project-cass-dedb0",
+    "storage_bucket": "project-cass-dedb0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:43073868068:android:50580372718396dca0a3b1",
+        "android_client_info": {
+          "package_name": "com.jaryrigged.projectcass"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDBxmvjWb-UBPnX3W6djfu6EaASUPVoNhI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
