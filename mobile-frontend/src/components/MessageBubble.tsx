@@ -1,12 +1,13 @@
 /**
- * Message bubble component with markdown rendering and token display
+ * Message bubble component with markdown rendering, token display, and internal thoughts
  */
 
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { Message } from '../api/types';
 import { colors } from '../theme/colors';
+import { parseGestureTags } from '../utils/gestures';
 
 interface Props {
   message: Message;
@@ -26,8 +27,13 @@ function shortenModel(model?: string): string {
 }
 
 export function MessageBubble({ message }: Props) {
+  const [showThinking, setShowThinking] = useState(false);
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+
+  // Parse gesture tags for assistant messages
+  const parsed = !isUser && !isSystem ? parseGestureTags(message.content) : null;
+  const displayContent = parsed ? parsed.text : message.content;
 
   if (isSystem) {
     return (
@@ -40,8 +46,29 @@ export function MessageBubble({ message }: Props) {
   return (
     <View style={[styles.container, isUser ? styles.userContainer : styles.assistantContainer]}>
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.assistantBubble]}>
+        {/* Internal thinking/reasoning section */}
+        {parsed?.thinking && (
+          <View style={styles.thinkingContainer}>
+            <TouchableOpacity
+              style={styles.thinkingHeader}
+              onPress={() => setShowThinking(!showThinking)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.thinkingToggle}>
+                {showThinking ? '▼' : '▶'} Internal reasoning
+              </Text>
+            </TouchableOpacity>
+            {showThinking && (
+              <View style={styles.thinkingContent}>
+                <Text style={styles.thinkingText}>{parsed.thinking}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Main message content */}
         <Markdown style={isUser ? userMarkdownStyles : assistantMarkdownStyles}>
-          {message.content}
+          {displayContent}
         </Markdown>
 
         <View style={styles.footer}>
@@ -93,6 +120,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  // Internal thinking styles
+  thinkingContainer: {
+    marginBottom: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+  },
+  thinkingHeader: {
+    padding: 8,
+    paddingHorizontal: 10,
+  },
+  thinkingToggle: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+  thinkingContent: {
+    padding: 10,
+    paddingTop: 0,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  thinkingText: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 13,
+    lineHeight: 18,
   },
   footer: {
     flexDirection: 'row',

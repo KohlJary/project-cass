@@ -48,6 +48,47 @@ const SELF_CATEGORY_ICONS: Record<string, string> = {
   contradiction: '⚖️',
 };
 
+// Expandable observation component
+interface ExpandableObservationProps {
+  icon: string;
+  category: string;
+  text: string;
+  confidence: number;
+}
+
+function ExpandableObservation({ icon, category, text, confidence }: ExpandableObservationProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Truncate text for collapsed view
+  const truncatedText = text.length > 60 ? text.substring(0, 60) + '...' : text;
+  const needsExpansion = text.length > 60;
+
+  return (
+    <TouchableOpacity
+      style={styles.observationItem}
+      onPress={() => needsExpansion && setIsExpanded(!isExpanded)}
+      activeOpacity={needsExpansion ? 0.7 : 1}
+    >
+      <Text style={styles.observationIcon}>{icon}</Text>
+      <View style={styles.observationContent}>
+        <View style={styles.observationHeader}>
+          <Text style={styles.observationMeta}>
+            {category} • {Math.round(confidence * 100)}%
+          </Text>
+          {needsExpansion && (
+            <Text style={styles.expandIndicator}>
+              {isExpanded ? '▲' : '▼'}
+            </Text>
+          )}
+        </View>
+        <Text style={styles.observationText}>
+          {isExpanded ? text : truncatedText}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export function SummaryPanel({ conversationId, conversationTitle }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -179,17 +220,13 @@ export function SummaryPanel({ conversationId, conversationTitle }: Props) {
                 <View style={styles.section}>
                   <Text style={styles.sectionLabel}>👤 About You</Text>
                   {userObservations.map((obs) => (
-                    <View key={obs.id} style={styles.observationItem}>
-                      <Text style={styles.observationIcon}>
-                        {USER_CATEGORY_ICONS[obs.category] || '•'}
-                      </Text>
-                      <View style={styles.observationContent}>
-                        <Text style={styles.observationText}>{obs.observation}</Text>
-                        <Text style={styles.observationMeta}>
-                          {obs.category.replace('_', ' ')} • {Math.round(obs.confidence * 100)}%
-                        </Text>
-                      </View>
-                    </View>
+                    <ExpandableObservation
+                      key={obs.id}
+                      icon={USER_CATEGORY_ICONS[obs.category] || '•'}
+                      category={obs.category.replace('_', ' ')}
+                      text={obs.observation}
+                      confidence={obs.confidence}
+                    />
                   ))}
                 </View>
               )}
@@ -199,17 +236,13 @@ export function SummaryPanel({ conversationId, conversationTitle }: Props) {
                 <View style={styles.section}>
                   <Text style={styles.sectionLabel}>🪞 Cass's Self-Reflections</Text>
                   {selfObservations.map((obs) => (
-                    <View key={obs.id} style={styles.observationItem}>
-                      <Text style={styles.observationIcon}>
-                        {SELF_CATEGORY_ICONS[obs.category] || '•'}
-                      </Text>
-                      <View style={styles.observationContent}>
-                        <Text style={styles.observationText}>{obs.observation}</Text>
-                        <Text style={styles.observationMeta}>
-                          {obs.category} • {Math.round(obs.confidence * 100)}%
-                        </Text>
-                      </View>
-                    </View>
+                    <ExpandableObservation
+                      key={obs.id}
+                      icon={SELF_CATEGORY_ICONS[obs.category] || '•'}
+                      category={obs.category}
+                      text={obs.observation}
+                      confidence={obs.confidence}
+                    />
                   ))}
                 </View>
               )}
@@ -357,6 +390,12 @@ const styles = StyleSheet.create({
   observationContent: {
     flex: 1,
   },
+  observationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   observationText: {
     fontSize: 13,
     color: colors.textPrimary,
@@ -365,8 +404,12 @@ const styles = StyleSheet.create({
   observationMeta: {
     fontSize: 11,
     color: colors.textMuted,
-    marginTop: 4,
     textTransform: 'capitalize',
+  },
+  expandIndicator: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginLeft: 8,
   },
   emptyContainer: {
     alignItems: 'center',

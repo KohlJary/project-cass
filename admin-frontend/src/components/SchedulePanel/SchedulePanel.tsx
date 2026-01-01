@@ -56,7 +56,7 @@ export const SchedulePanel: React.FC<SchedulePanelProps> = ({ className }) => {
     queryKey: ['workHistory', today],
     queryFn: () => fetchWorkHistory({ date: today, limit: 20 }),
     refetchInterval: 30000,
-    enabled: viewMode === 'completed',
+    // Always fetch so the count is available in the tab header
   });
 
   const schedule = data?.autonomousSchedule;

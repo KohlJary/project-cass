@@ -86,8 +86,10 @@ async def send_direct_message(
         title=title,
         body=push_body,
         data={
+            "type": "cass_message",  # Mobile expects this to handle foreground notifications
             "conversation_id": conversation_id,
             "source": source,
+            "text": message,  # Full message text for foreground display
             "timestamp": datetime.now().isoformat(),
         },
     )

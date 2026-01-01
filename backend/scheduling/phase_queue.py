@@ -379,15 +379,18 @@ class PhaseQueueManager:
                         )
 
                         # Build action summaries from recorded results
-                        action_summaries = [
-                            ActionSummary(
-                                action_id=ar["action_id"],
-                                action_type=ar["action_type"],
-                                summary=ar["summary"],
-                                artifacts=ar.get("artifacts", []),
+                        action_summaries = []
+                        for i, ar in enumerate(work_unit.action_results):
+                            action_slug = f"{slug}/action-{i}-{ar['action_id'].replace('.', '-')}"
+                            action_summaries.append(
+                                ActionSummary(
+                                    action_id=ar["action_id"],
+                                    action_type=ar["action_type"],
+                                    slug=action_slug,
+                                    summary=ar["summary"],
+                                    artifacts=ar.get("artifacts", []),
+                                )
                             )
-                            for ar in work_unit.action_results
-                        ]
 
                         summary = WorkSummary(
                             work_unit_id=work_unit.id,
