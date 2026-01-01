@@ -107,6 +107,26 @@ async def create_conversation(
     }
 
 
+@router.get("/conversations/continuous")
+async def get_continuous_conversation(
+    current_user: str = Depends(get_current_user)
+):
+    """Get or create the continuous conversation for the authenticated user.
+
+    The continuous conversation is a single stream where all messages flow.
+    This is the primary conversation used by mobile clients.
+    """
+    conversation = _conversation_manager.get_or_create_continuous(current_user)
+    return {
+        "id": conversation.id,
+        "title": conversation.title,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at,
+        "message_count": len(conversation.messages) if conversation.messages else 0,
+        "is_continuous": True,
+    }
+
+
 @router.get("/conversations")
 async def list_conversations(
     request: Request,
@@ -227,6 +247,70 @@ async def get_conversation_observations(
         "self_count": len(self_observations),
         "marks_count": len(marks)
     }
+
+
+@router.get("/conversations/{conversation_id}/messages")
+async def get_conversation_messages(
+    conversation_id: str,
+    limit: int = 0,
+    since_hours: float = 0,
+    current_user: str = Depends(get_current_user)
+):
+    """Get messages from a conversation with optional filtering.
+
+    Args:
+        limit: Maximum number of messages to return (0 = all)
+        since_hours: Only return messages from the last N hours (0 = all)
+    """
+    from database import get_db
+    from datetime import datetime, timedelta
+
+    _verify_conversation_access(conversation_id, current_user)
+
+    try:
+        with get_db() as conn:
+            # Build query with optional filters
+            query = """
+                SELECT role, content, timestamp, provider, model,
+                       input_tokens, output_tokens, user_id
+                FROM messages
+                WHERE conversation_id = ?
+            """
+            params = [conversation_id]
+
+            if since_hours > 0:
+                # Use local time since DB timestamps are local
+                cutoff = (datetime.now() - timedelta(hours=since_hours)).isoformat()
+                query += " AND timestamp >= ?"
+                params.append(cutoff)
+
+            query += " ORDER BY timestamp DESC"  # Get most recent first for limit
+
+            if limit > 0:
+                query += f" LIMIT {limit}"
+
+            cursor = conn.execute(query, params)
+
+            messages = []
+            for row in cursor.fetchall():
+                messages.append({
+                    "id": f"msg-{len(messages)}",  # Generate ID for frontend
+                    "role": row[0],
+                    "content": row[1],
+                    "timestamp": row[2],
+                    "provider": row[3],
+                    "model": row[4],
+                    "inputTokens": row[5],
+                    "outputTokens": row[6],
+                    "user_id": row[7]
+                })
+
+            # Reverse back to chronological order (we queried DESC for limit)
+            messages.reverse()
+
+            return {"messages": messages, "count": len(messages)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/conversations/{conversation_id}/summarize")

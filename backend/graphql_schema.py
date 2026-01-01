@@ -440,6 +440,44 @@ class WorkSummaryType:
         return f"{self.name} ({duration}){focus_str}"
 
 
+def _convert_work_summary(summary) -> WorkSummaryType:
+    """Convert WorkSummary to GraphQL WorkSummaryType."""
+    return WorkSummaryType(
+        work_unit_id=summary.work_unit_id,
+        slug=summary.slug,
+        name=summary.name,
+        template_id=summary.template_id,
+        phase=summary.phase,
+        category=summary.category,
+        focus=summary.focus,
+        motivation=summary.motivation,
+        date=summary.date.isoformat(),
+        started_at=summary.started_at.isoformat() if summary.started_at else None,
+        completed_at=summary.completed_at.isoformat() if summary.completed_at else None,
+        duration_minutes=summary.duration_minutes,
+        summary=summary.summary,
+        key_insights=summary.key_insights,
+        questions_addressed=summary.questions_addressed,
+        questions_raised=summary.questions_raised,
+        action_summaries=[
+            ActionSummaryType(
+                action_id=a.action_id,
+                action_type=a.action_type,
+                slug=a.slug,
+                summary=a.summary,
+                started_at=a.started_at.isoformat() if a.started_at else None,
+                completed_at=a.completed_at.isoformat() if a.completed_at else None,
+                artifacts=a.artifacts,
+            )
+            for a in summary.action_summaries
+        ],
+        artifacts=summary.artifacts,
+        success=summary.success,
+        error=summary.error,
+        cost_usd=summary.cost_usd,
+    )
+
+
 @strawberry.type
 class DayPhaseType:
     """Current day phase information."""
@@ -1581,7 +1619,7 @@ class Query:
         if not summary:
             return None
 
-        return self._work_summary_to_type(summary)
+        return _convert_work_summary(summary)
 
     @strawberry.field
     async def work_history(
@@ -1607,7 +1645,7 @@ class Query:
         else:
             summaries = store.get_recent(limit)
 
-        return [self._work_summary_to_type(s) for s in summaries[:limit]]
+        return [_convert_work_summary(s) for s in summaries[:limit]]
 
     @strawberry.field
     async def work_stats(
@@ -1798,43 +1836,6 @@ class Query:
             created_at=conv.created_at,
             updated_at=conv.updated_at,
             has_working_summary=conv.working_summary is not None,
-        )
-
-    def _work_summary_to_type(self, summary) -> WorkSummaryType:
-        """Convert WorkSummary to GraphQL type."""
-        return WorkSummaryType(
-            work_unit_id=summary.work_unit_id,
-            slug=summary.slug,
-            name=summary.name,
-            template_id=summary.template_id,
-            phase=summary.phase,
-            category=summary.category,
-            focus=summary.focus,
-            motivation=summary.motivation,
-            date=summary.date.isoformat(),
-            started_at=summary.started_at.isoformat() if summary.started_at else None,
-            completed_at=summary.completed_at.isoformat() if summary.completed_at else None,
-            duration_minutes=summary.duration_minutes,
-            summary=summary.summary,
-            key_insights=summary.key_insights,
-            questions_addressed=summary.questions_addressed,
-            questions_raised=summary.questions_raised,
-            action_summaries=[
-                ActionSummaryType(
-                    action_id=a.action_id,
-                    action_type=a.action_type,
-                    slug=a.slug,
-                    summary=a.summary,
-                    started_at=a.started_at.isoformat() if a.started_at else None,
-                    completed_at=a.completed_at.isoformat() if a.completed_at else None,
-                    artifacts=a.artifacts,
-                )
-                for a in summary.action_summaries
-            ],
-            artifacts=summary.artifacts,
-            success=summary.success,
-            error=summary.error,
-            cost_usd=summary.cost_usd,
         )
 
 

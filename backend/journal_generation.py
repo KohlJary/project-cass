@@ -79,6 +79,11 @@ async def generate_missing_journals(days_to_check: int = 7):
     # Get dependencies at runtime
     memory, token_tracker, self_manager, user_manager = _get_dependencies()
 
+    # Guard against uninitialized dependencies
+    if memory is None:
+        print("  Warning: Memory system not initialized, skipping journal generation")
+        return []
+
     # Check activity mode
     activity_mode = _get_daemon_activity_mode()
     is_dormant = activity_mode == "dormant"

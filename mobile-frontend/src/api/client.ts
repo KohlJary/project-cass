@@ -135,6 +135,17 @@ class ApiClient {
     });
   }
 
+  async getContinuousConversation(): Promise<{
+    id: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+    message_count: number;
+    is_continuous: boolean;
+  }> {
+    return this.fetch('/conversations/continuous');
+  }
+
   async renameConversation(id: string, title: string): Promise<{ id: string; title: string }> {
     return this.fetch(`/conversations/${id}/title`, {
       method: 'PUT',
@@ -144,6 +155,17 @@ class ApiClient {
 
   async getConversationSummary(id: string): Promise<{ working_summary: string | null; summaries: any[]; count: number }> {
     return this.fetch(`/conversations/${id}/summaries`);
+  }
+
+  async getConversationMessages(
+    id: string,
+    options?: { limit?: number; sinceHours?: number }
+  ): Promise<{ messages: Message[]; count: number }> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.sinceHours) params.append('since_hours', options.sinceHours.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.fetch(`/conversations/${id}/messages${query}`);
   }
 
   async getConversationObservations(id: string): Promise<ConversationObservations> {

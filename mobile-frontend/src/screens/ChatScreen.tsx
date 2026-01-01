@@ -2,7 +2,7 @@
  * Chat screen - main conversation interface
  */
 
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -25,6 +25,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useChatStore } from '../store/chatStore';
 import { apiClient } from '../api/client';
 import { colors } from '../theme/colors';
+import { Message } from '../api/types';
 
 interface Props {
   userId: string;
@@ -38,13 +39,73 @@ export function ChatScreen({
   onLogout,
 }: Props) {
   const { sendMessage, isConnected } = useWebSocket();
-  const { messages, addMessage, conversations, currentConversationId } = useChatStore();
+  const {
+    messages,
+    addMessage,
+    setMessages,
+    conversations,
+    setConversations,
+    currentConversationId,
+    setCurrentConversationId,
+  } = useChatStore();
+
+  // Track if we've initialized to avoid duplicate loads
+  const hasInitialized = useRef(false);
 
   // Get current conversation title
   const currentConversation = conversations.find(c => c.id === currentConversationId);
   const conversationTitle = currentConversation?.title;
   const [showConversations, setShowConversations] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Load continuous conversation and recent history on mount
+  useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    const initializeChat = async () => {
+      try {
+        // Get or create the continuous conversation (the main stream for this user)
+        const continuousConv = await apiClient.getContinuousConversation();
+        setCurrentConversationId(continuousConv.id);
+        console.log(`Using continuous conversation: ${continuousConv.id}`);
+
+        // Also load conversations list for the sidebar
+        const convs = await apiClient.listConversations(userId);
+        setConversations(convs);
+
+        // Load recent messages from the past 2 hours
+        try {
+          const { messages: recentMessages } = await apiClient.getConversationMessages(
+            continuousConv.id,
+            { sinceHours: 2 }
+          );
+
+          if (recentMessages.length > 0) {
+            // Map to our Message format
+            const formattedMessages: Message[] = recentMessages.map((m, i) => ({
+              id: `history-${i}`,
+              role: m.role,
+              content: m.content,
+              timestamp: m.timestamp,
+              inputTokens: m.inputTokens,
+              outputTokens: m.outputTokens,
+              provider: m.provider,
+              model: m.model,
+            }));
+            setMessages(formattedMessages);
+            console.log(`Loaded ${formattedMessages.length} recent messages from continuous conversation`);
+          }
+        } catch (err) {
+          console.error('Failed to load recent messages:', err);
+        }
+      } catch (err) {
+        console.error('Failed to initialize chat:', err);
+      }
+    };
+
+    initializeChat();
+  }, [userId, setConversations, setCurrentConversationId, setMessages]);
 
   const handleSend = useCallback(
     (text: string) => {

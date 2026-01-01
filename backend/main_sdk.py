@@ -1012,12 +1012,23 @@ async def update_quiet_hours(request: Request):
 
 # === Relay Message Handler ===
 
-async def process_relay_chat_message(client_id: str, user_id: str, payload: dict) -> dict:
+async def process_relay_chat_message(
+    client_id: str,
+    user_id: str,
+    payload: dict,
+    send_status: callable = None
+) -> dict:
     """
     Process a chat message from a mobile client via the relay.
 
     Uses continuous chat mode with semantic memory retrieval.
     Returns the response to send back to the client.
+
+    Args:
+        client_id: Relay client ID
+        user_id: User ID
+        payload: Message payload
+        send_status: Optional callback to send intermediate status updates (thinking, tool calls)
     """
     global agent_client, memory, conversation_manager, user_manager
 
@@ -1077,6 +1088,14 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
 
         logger.info(f"[Relay] Built continuous context, messages={len(continuous_messages)}")
 
+        # Send thinking status: retrieving context
+        if send_status:
+            await send_status({
+                "type": "thinking",
+                "status": "Retrieving memories...",
+                "timestamp": datetime.now().isoformat(),
+            })
+
         # Store user message AFTER fetching history (send_message will add it to API call)
         conversation_manager.add_message(
             conversation_id=conversation_id,
@@ -1084,6 +1103,14 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
             content=message_text,
             user_id=user_id,
         )
+
+        # Send thinking status: generating response
+        if send_status:
+            await send_status({
+                "type": "thinking",
+                "status": "Generating response (Claude)...",
+                "timestamp": datetime.now().isoformat(),
+            })
 
         # Call agent with continuous chat mode
         response = await agent_client.send_message(
@@ -1100,11 +1127,21 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
         total_input_tokens = response.input_tokens
         total_output_tokens = response.output_tokens
 
-        # Handle tool execution (simplified - single iteration)
-        # Full tool loop support can be added if needed
-        if response.stop_reason == "tool_use" and response.tool_uses:
+        # Handle tool execution with full loop support
+        tool_iteration = 0
+        max_tool_iterations = 10  # Prevent infinite loops
+        while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < max_tool_iterations:
+            tool_iteration += 1
             tool_names = [t['tool'] for t in response.tool_uses]
-            logger.info(f"[Relay] Tool calls: {tool_names}")
+            logger.info(f"[Relay] Tool calls (iteration {tool_iteration}): {tool_names}")
+
+            # Send thinking status for tool execution
+            if send_status:
+                await send_status({
+                    "type": "thinking",
+                    "status": f"Executing: {', '.join(tool_names)}...",
+                    "timestamp": datetime.now().isoformat(),
+                })
 
             # Get user info for tool context
             user_name = None
@@ -1120,6 +1157,14 @@ async def process_relay_chat_message(client_id: str, user_id: str, payload: dict
                 project_id=None
             )
             all_tool_results = await execute_tool_batch(response.tool_uses, tool_ctx, TOOL_EXECUTORS)
+
+            # Send thinking status for continuation
+            if send_status:
+                await send_status({
+                    "type": "thinking",
+                    "status": "Generating response (Claude)...",
+                    "timestamp": datetime.now().isoformat(),
+                })
 
             # Continue with tool results
             response = await agent_client.continue_with_tool_results(all_tool_results)
@@ -1266,9 +1311,16 @@ async def startup_event():
             if not relay:
                 return
 
+            # Create callback for sending status updates
+            async def send_status(status_payload: dict):
+                await relay.send_response(client_id, status_payload)
+
             try:
                 # Process the message using the same logic as direct WebSocket
-                response = await process_relay_chat_message(client_id, user_id, payload)
+                response = await process_relay_chat_message(
+                    client_id, user_id, payload,
+                    send_status=send_status
+                )
                 if response:
                     await relay.send_response(client_id, response)
             except Exception as e:
@@ -1639,6 +1691,7 @@ async def startup_event():
                         synkratos=synkratos,
                         decision_engine=decision_engine,
                         state_bus=global_state_bus,
+                        daemon_id=_daemon_id,
                         action_registry=action_registry,
                     )
 
