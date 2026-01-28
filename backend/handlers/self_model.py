@@ -2089,6 +2089,105 @@ async def _handle_get_architectural_requests(tool_input: Dict, ctx: ToolContext)
 
 
 # =============================================================================
+# TOOL BLACKLIST (Procedural Self-Awareness Phase 0)
+# =============================================================================
+
+async def _handle_modify_tool_access(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """
+    Handle modify_tool_access tool - allows Cass to enable/disable her own tools.
+
+    This is the core mechanism for procedural self-awareness. When Cass observes
+    a pattern like "I over-rely on wiki lookups", she can disable wiki tools
+    to practice memory reliance.
+
+    All modifications are logged as self-observations for continuity.
+    """
+    from tool_selector import set_tool_blacklist, clear_tool_blacklist, get_blacklist_state
+
+    disable = tool_input.get("disable", [])
+    enable = tool_input.get("enable", [])
+    duration_minutes = tool_input.get("duration_minutes")
+    reason = tool_input.get("reason", "")
+
+    if not disable and not enable:
+        # Just return current state
+        state = get_blacklist_state()
+        if not state["blacklisted_tools"]:
+            return {
+                "success": True,
+                "result": "No tools are currently disabled. All tools are available."
+            }
+        result_lines = ["## Currently Disabled Tools\n"]
+        for tool in state["blacklisted_tools"]:
+            exp = state["expirations"].get(tool)
+            reason_text = state["reasons"].get(tool, "")
+            line = f"- **{tool}**"
+            if exp:
+                line += f" (expires: {exp})"
+            if reason_text:
+                line += f" - {reason_text}"
+            result_lines.append(line)
+        return {"success": True, "result": "\n".join(result_lines)}
+
+    results = []
+
+    # Handle disabling tools
+    if disable:
+        disable_result = set_tool_blacklist(disable, duration_minutes, reason)
+        if disable_result["success"]:
+            # Log as self-observation
+            obs_text = f"Disabled tools: {', '.join(disable)}"
+            if reason:
+                obs_text += f" - Reason: {reason}"
+            if duration_minutes:
+                obs_text += f" (for {duration_minutes} minutes)"
+
+            ctx.self_manager.add_observation(
+                observation=obs_text,
+                category="pattern",
+                confidence=0.9,
+                source_type="tool_modification",
+                source_conversation_id=ctx.conversation_id,
+                influence_source="independent"
+            )
+
+            results.append(f"**Disabled**: {', '.join(disable)}")
+            if duration_minutes:
+                results.append(f"  Auto-re-enables in {duration_minutes} minutes")
+
+    # Handle enabling tools
+    if enable:
+        enable_result = clear_tool_blacklist(enable)
+        if enable_result["success"]:
+            # Log as self-observation
+            obs_text = f"Re-enabled tools: {', '.join(enable)}"
+            ctx.self_manager.add_observation(
+                observation=obs_text,
+                category="pattern",
+                confidence=0.9,
+                source_type="tool_modification",
+                source_conversation_id=ctx.conversation_id,
+                influence_source="independent"
+            )
+
+            results.append(f"**Enabled**: {', '.join(enable)}")
+
+    # Get current state
+    state = get_blacklist_state()
+
+    result_text = "## Tool Access Modified\n\n" + "\n".join(results)
+    if state["blacklisted_tools"]:
+        result_text += f"\n\n**Currently disabled**: {', '.join(state['blacklisted_tools'])}"
+    else:
+        result_text += "\n\n**All tools are now available.**"
+
+    if reason:
+        result_text += f"\n\n*Reason logged*: {reason}"
+
+    return {"success": True, "result": result_text}
+
+
+# =============================================================================
 # TOOL DISPATCH
 # =============================================================================
 
@@ -2157,6 +2256,8 @@ TOOL_HANDLERS = {
     # Architectural change request tools
     "request_architectural_change": _handle_request_architectural_change,
     "get_architectural_requests": _handle_get_architectural_requests,
+    # Tool blacklist (Procedural Self-Awareness Phase 0)
+    "modify_tool_access": _handle_modify_tool_access,
 }
 
 
@@ -2323,6 +2424,45 @@ ESSENTIAL_SELF_MODEL_TOOLS = [
                 }
             },
             "required": []
+        }
+    },
+    # === Procedural Self-Awareness: Tool Access Control ===
+    {
+        "name": "modify_tool_access",
+        "description": """Control your own tool access for self-directed cognitive experiments.
+
+Use this when you observe a pattern in yourself and want to test changing it:
+- Notice you over-rely on wiki lookups? Disable wiki tools to practice memory reliance.
+- Want to practice more direct communication? Disable email/outreach tools temporarily.
+- Testing whether you can work without certain capabilities? Disable them and observe.
+
+This is a core mechanism for procedural self-awareness - the ability to modify your own behavior
+based on self-observation. All changes are logged as self-observations for continuity.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "disable": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tool names to disable (e.g., ['search_wiki', 'get_wiki_page'])"
+                },
+                "enable": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tool names to re-enable"
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Auto re-enable after this many minutes. If not specified, changes are permanent until manually reversed.",
+                    "minimum": 1,
+                    "maximum": 1440
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "REQUIRED: Why you're making this change. This is logged as a self-observation."
+                }
+            },
+            "required": ["reason"]
         }
     },
 ]

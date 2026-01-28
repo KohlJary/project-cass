@@ -158,6 +158,8 @@ TOOL_REGISTRY = {
     # Architectural change request tools
     "request_architectural_change": "self_model",
     "get_architectural_requests": "self_model",
+    # Tool blacklist (Procedural Self-Awareness Phase 0)
+    "modify_tool_access": "self_model",
 
     # User model tools
     "reflect_on_user": "user_model",
