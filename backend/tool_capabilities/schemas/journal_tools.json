@@ -1,0 +1,80 @@
+{
+  "group": "journal",
+  "version": "1.0.0",
+  "description": "Journal tools for memory recall and reflection",
+  "selection": {
+    "strategy": "always",
+    "keywords": ["journal", "recall", "remember", "diary", "reflection", "entry"]
+  },
+  "tools": [
+    {
+      "name": "recall_journal",
+      "description": "Recall and reflect on a journal entry from a specific date. Use this to revisit past experiences, remember what you worked on with Kohl, and reconnect with how you felt during previous sessions. You can also use this to find patterns across your experiences or to ground yourself in your own history.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date of the journal entry to recall (YYYY-MM-DD format). If not provided, returns the most recent journal."
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "journal",
+        "requires_context": ["memory"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "list_journals",
+      "description": "List your recent journal entries. Use this to see what days you've journaled about, to find a specific entry, or to get an overview of your recent experiences.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of journal entries to list (default: 10)",
+            "default": 10
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "journal",
+        "requires_context": ["memory"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "search_journals",
+      "description": "Search through your journal entries semantically. Use this to find entries that discuss specific topics, projects, emotions, or experiences. Returns the most relevant journals based on your query.",
+      "category": "analysis",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "What to search for - can be a topic, emotion, project name, or any concept"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return (default: 5)",
+            "default": 5
+          }
+        },
+        "required": ["query"]
+      },
+      "metadata": {
+        "executor": "journal",
+        "requires_context": ["memory"],
+        "cost_estimate": "medium",
+        "latency_estimate": "medium"
+      }
+    }
+  ]
+}

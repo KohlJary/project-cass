@@ -18,6 +18,11 @@ from .autonomous_scheduler import AutonomousScheduler
 from .day_phase import DayPhase, DayPhaseTracker, PhaseWindow, PhaseTransition
 from .phase_queue import PhaseQueueManager, QueuedWorkUnit
 from .work_summary_store import WorkSummaryStore, WorkSummary, ActionSummary, generate_slug
+from .contradiction_scheduler import (
+    ContradictionDetectionTask,
+    format_contradictions_for_prompt,
+    build_contradiction_reflection_prompt,
+)
 
 __all__ = [
     # Models
@@ -49,4 +54,8 @@ __all__ = [
     "WorkSummary",
     "ActionSummary",
     "generate_slug",
+    # Contradiction Detection
+    "ContradictionDetectionTask",
+    "format_contradictions_for_prompt",
+    "build_contradiction_reflection_prompt",
 ]

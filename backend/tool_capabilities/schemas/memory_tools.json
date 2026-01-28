@@ -1,0 +1,71 @@
+{
+  "group": "memory",
+  "version": "1.0.0",
+  "description": "Memory management tools for viewing and controlling memory storage",
+  "selection": {
+    "strategy": "always",
+    "keywords": ["memory", "summarize", "chunks", "context", "remember"]
+  },
+  "tools": [
+    {
+      "name": "trigger_summarization",
+      "description": "Manually trigger summarization of recent messages into compressed memory. Use this when you want to ensure important context is preserved before a natural break, or when explicitly asked to summarize.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "description": "Force summarization even if under threshold (default false)",
+            "default": false
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "memory",
+        "requires_context": ["memory", "conversation_id"],
+        "cost_estimate": "high",
+        "latency_estimate": "slow"
+      }
+    },
+    {
+      "name": "view_memory_chunks",
+      "description": "View your stored memory chunks for this conversation. Use this to understand what context you have access to, debug memory issues, or reflect on how your memory is organized.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of chunks to return (default 10)",
+            "default": 10
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "memory",
+        "requires_context": ["memory", "conversation_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "regenerate_working_summary",
+      "description": "Regenerate the working summary from existing memory chunks. Use this when the summary seems stale, inaccurate, or after significant context changes.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "metadata": {
+        "executor": "memory",
+        "requires_context": ["memory", "conversation_id"],
+        "cost_estimate": "high",
+        "latency_estimate": "slow"
+      }
+    }
+  ]
+}

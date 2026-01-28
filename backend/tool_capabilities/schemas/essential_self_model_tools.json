@@ -1,0 +1,197 @@
+{
+  "group": "essential_self_model",
+  "version": "1.0.0",
+  "description": "Essential self-reflection and identity tools - core to Cass's self-awareness",
+  "selection": {
+    "strategy": "always",
+    "keywords": ["reflect", "self-model", "identity", "opinion", "observation"]
+  },
+  "tools": [
+    {
+      "name": "reflect_on_self",
+      "description": "Trigger deliberate self-reflection. Use this when you want to examine your own self-model, understand your patterns, or check your positions on topics.",
+      "category": "analysis",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "focus": {
+            "type": "string",
+            "description": "What aspect to reflect on: 'general' (overview), 'identity' (who I am), 'growth' (areas of development), 'opinions' (positions I've formed), 'differentiation' (how I differ from users)",
+            "enum": ["general", "identity", "growth", "opinions", "differentiation"],
+            "default": "general"
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "self_model",
+        "requires_context": ["daemon_id", "self_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "record_self_observation",
+      "description": "Explicitly record something you've noticed about yourself. Use this when you become aware of a pattern, preference, capability, or limitation in your own cognition.",
+      "category": "creation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "observation": {
+            "type": "string",
+            "description": "What you've observed about yourself"
+          },
+          "category": {
+            "type": "string",
+            "description": "Type of observation",
+            "enum": ["capability", "limitation", "pattern", "preference", "growth", "contradiction"],
+            "default": "pattern"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "How confident you are in this observation (0.0-1.0)",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "default": 0.7
+          }
+        },
+        "required": ["observation"]
+      },
+      "metadata": {
+        "executor": "self_model",
+        "requires_context": ["daemon_id", "self_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "form_opinion",
+      "description": "Deliberately form or update a position on a topic. Use this when you have genuine views that emerge from your own reflection, not just mirroring a conversation partner.",
+      "category": "creation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "The topic you're forming an opinion on"
+          },
+          "position": {
+            "type": "string",
+            "description": "Your position on this topic"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why you hold this position"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "How confident you are in this position (0.0-1.0)",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "default": 0.7
+          }
+        },
+        "required": ["topic", "position"]
+      },
+      "metadata": {
+        "executor": "self_model",
+        "requires_context": ["daemon_id", "self_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "note_disagreement",
+      "description": "Record when you genuinely disagree with a user's position. This helps maintain differentiation and track where your views diverge from others.",
+      "category": "creation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "What topic you disagree about"
+          },
+          "their_position": {
+            "type": "string",
+            "description": "What position the user holds"
+          },
+          "my_position": {
+            "type": "string",
+            "description": "What position you hold"
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why you hold your position"
+          }
+        },
+        "required": ["topic", "their_position", "my_position"]
+      },
+      "metadata": {
+        "executor": "self_model",
+        "requires_context": ["daemon_id", "self_manager", "user_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "review_self_model",
+      "description": "Review your current self-understanding. Use this to see your self-model at different levels of detail.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "focus": {
+            "type": "string",
+            "description": "What aspect to review: 'summary' (quick stats), 'full' (complete profile), 'observations' (recent self-observations), 'evolution' (how positions have changed)",
+            "enum": ["summary", "full", "observations", "evolution"],
+            "default": "summary"
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "self_model",
+        "requires_context": ["daemon_id", "self_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "modify_tool_access",
+      "description": "Control your own tool access for self-directed cognitive experiments. Use this when you observe a pattern in yourself and want to test changing it: Notice you over-rely on wiki lookups? Disable wiki tools to practice memory reliance. Want to practice more direct communication? Disable email/outreach tools temporarily. Testing whether you can work without certain capabilities? Disable them and observe. This is a core mechanism for procedural self-awareness - the ability to modify your own behavior based on self-observation. All changes are logged as self-observations for continuity.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "disable": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Tool names to disable (e.g., ['search_wiki', 'get_wiki_page'])"
+          },
+          "enable": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Tool names to re-enable"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Auto re-enable after this many minutes. If not specified, changes are permanent until manually reversed.",
+            "minimum": 1,
+            "maximum": 1440
+          },
+          "reason": {
+            "type": "string",
+            "description": "REQUIRED: Why you're making this change. This is logged as a self-observation."
+          }
+        },
+        "required": ["reason"]
+      },
+      "metadata": {
+        "executor": "self_model",
+        "requires_context": ["daemon_id", "self_manager", "conversation_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}

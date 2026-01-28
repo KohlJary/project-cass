@@ -1,0 +1,189 @@
+{
+  "group": "calendar",
+  "version": "1.0.0",
+  "description": "Calendar and scheduling tools",
+  "selection": {
+    "strategy": "keyword",
+    "keywords": [
+      "schedule", "event", "meeting", "appointment", "calendar",
+      "remind", "reminder", "reminders", "agenda",
+      "today", "tomorrow", "yesterday", "tonight",
+      "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+      "january", "february", "march", "april", "may", "june",
+      "july", "august", "september", "october", "november", "december",
+      "week", "month", "year",
+      "reschedule", "cancel", "postpone", "upcoming", "clear my"
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_event",
+      "description": "Create a new calendar event. Use this when Kohl asks you to schedule something, set a reminder, or mark a date for any activity.",
+      "category": "creation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Title/name of the event"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Start datetime (ISO format: 2024-01-15T14:30:00). Required."
+          },
+          "end_time": {
+            "type": "string",
+            "description": "End datetime (ISO format). Optional - defaults to 1 hour after start."
+          },
+          "description": {
+            "type": "string",
+            "description": "Additional details about the event"
+          },
+          "location": {
+            "type": "string",
+            "description": "Event location (physical address or virtual meeting link)"
+          },
+          "recurrence": {
+            "type": "string",
+            "description": "Recurrence rule: 'daily', 'weekly', 'monthly', or 'yearly'. Optional."
+          }
+        },
+        "required": ["title", "start_time"]
+      },
+      "metadata": {
+        "executor": "calendar",
+        "requires_context": ["user_id", "calendar_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "get_agenda",
+      "description": "Get calendar events for a date range. Use this to check Kohl's schedule, see what's coming up, or find free time.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD). Defaults to today."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD). Defaults to start_date."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum events to return. Default 20.",
+            "default": 20
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "calendar",
+        "requires_context": ["user_id", "calendar_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "update_event",
+      "description": "Update an existing calendar event. Use when Kohl wants to change event details, reschedule, or modify an appointment.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "ID of the event to update (from get_agenda)"
+          },
+          "title": {
+            "type": "string",
+            "description": "New title (optional)"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "New start datetime (optional)"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "New end datetime (optional)"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description (optional)"
+          },
+          "location": {
+            "type": "string",
+            "description": "New location (optional)"
+          }
+        },
+        "required": ["event_id"]
+      },
+      "metadata": {
+        "executor": "calendar",
+        "requires_context": ["user_id", "calendar_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "delete_event",
+      "description": "Delete/cancel a calendar event. Use when Kohl wants to cancel an appointment or remove something from the schedule.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "ID of the event to delete (from get_agenda)"
+          }
+        },
+        "required": ["event_id"]
+      },
+      "metadata": {
+        "executor": "calendar",
+        "requires_context": ["user_id", "calendar_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "find_free_time",
+      "description": "Find available time slots in the calendar. Use when scheduling needs to work around existing commitments.",
+      "category": "analysis",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date to check for free time (YYYY-MM-DD). Defaults to today."
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Minimum slot duration needed (in minutes). Default 30.",
+            "default": 30
+          },
+          "start_hour": {
+            "type": "integer",
+            "description": "Earliest hour to consider (0-23). Default 9.",
+            "default": 9
+          },
+          "end_hour": {
+            "type": "integer",
+            "description": "Latest hour to consider (0-23). Default 21.",
+            "default": 21
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "calendar",
+        "requires_context": ["user_id", "calendar_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}

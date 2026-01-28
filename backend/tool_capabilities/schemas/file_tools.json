@@ -1,0 +1,72 @@
+{
+  "group": "file",
+  "version": "1.0.0",
+  "description": "File reading tools for accessing local files",
+  "selection": {
+    "strategy": "always",
+    "keywords": ["file", "read", "content", "code", "document"]
+  },
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read the contents of a file. Use this when you need to examine code, configuration files, documents, or any text-based file that Kohl references.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to read (can be relative to project or absolute)"
+          },
+          "start_line": {
+            "type": "integer",
+            "description": "Starting line number (1-indexed, optional for partial reads)",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "description": "Ending line number (optional, if start_line specified)",
+            "minimum": 1
+          }
+        },
+        "required": ["path"]
+      },
+      "metadata": {
+        "executor": "file",
+        "requires_context": ["project_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "list_directory",
+      "description": "List contents of a directory. Use this to explore project structure, find files, or understand how code is organized.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path to list"
+          },
+          "recursive": {
+            "type": "boolean",
+            "description": "If true, list recursively (limited depth)",
+            "default": false
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to filter results (e.g., '*.py', '**/*.ts')"
+          }
+        },
+        "required": ["path"]
+      },
+      "metadata": {
+        "executor": "file",
+        "requires_context": ["project_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}

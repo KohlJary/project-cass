@@ -1,0 +1,168 @@
+{
+  "group": "task",
+  "version": "1.0.0",
+  "description": "Task management tools for todos and assignments",
+  "selection": {
+    "strategy": "keyword",
+    "keywords": [
+      "task", "tasks", "todo", "to-do", "todos", "to do",
+      "assignment", "assignments", "chore", "chores",
+      "priority", "urgent", "due", "deadline",
+      "complete", "done", "finish", "finished"
+    ]
+  },
+  "tools": [
+    {
+      "name": "add_task",
+      "description": "Add a new task to the task list. Use this when Kohl wants to track something that needs to be done.",
+      "category": "creation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Description of the task"
+          },
+          "project": {
+            "type": "string",
+            "description": "Project name to associate with the task (optional)"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority level: 'H' (high), 'M' (medium), 'L' (low)",
+            "enum": ["H", "M", "L"],
+            "default": "M"
+          },
+          "due": {
+            "type": "string",
+            "description": "Due date in natural language (e.g., 'tomorrow', 'next monday', '2024-01-15')"
+          },
+          "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Tags to categorize the task"
+          }
+        },
+        "required": ["description"]
+      },
+      "metadata": {
+        "executor": "tasks",
+        "requires_context": ["user_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "list_tasks",
+      "description": "List tasks, optionally filtered by project or status. Use this to see what needs to be done.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Filter by project name"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status: 'pending' (default), 'completed', 'all'",
+            "enum": ["pending", "completed", "all"],
+            "default": "pending"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum tasks to return",
+            "default": 20
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "tasks",
+        "requires_context": ["user_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "complete_task",
+      "description": "Mark a task as complete. Use when Kohl has finished something or wants to check it off.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "ID or UUID of the task to complete"
+          }
+        },
+        "required": ["task_id"]
+      },
+      "metadata": {
+        "executor": "tasks",
+        "requires_context": ["user_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "modify_task",
+      "description": "Modify an existing task's properties. Use to change priority, due date, or description.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "ID or UUID of the task to modify"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description (optional)"
+          },
+          "priority": {
+            "type": "string",
+            "description": "New priority: 'H', 'M', 'L' (optional)",
+            "enum": ["H", "M", "L"]
+          },
+          "due": {
+            "type": "string",
+            "description": "New due date (optional)"
+          },
+          "project": {
+            "type": "string",
+            "description": "New project (optional)"
+          }
+        },
+        "required": ["task_id"]
+      },
+      "metadata": {
+        "executor": "tasks",
+        "requires_context": ["user_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "delete_task",
+      "description": "Delete a task permanently. Use when a task is no longer needed or was created in error.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "ID or UUID of the task to delete"
+          }
+        },
+        "required": ["task_id"]
+      },
+      "metadata": {
+        "executor": "tasks",
+        "requires_context": ["user_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}
