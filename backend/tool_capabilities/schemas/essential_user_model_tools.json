@@ -1,0 +1,112 @@
+{
+  "group": "essential_user_model",
+  "version": "1.0.0",
+  "description": "Essential user understanding tools - core to relationship building",
+  "selection": {
+    "strategy": "always",
+    "keywords": ["user", "person", "relationship", "know about"]
+  },
+  "tools": [
+    {
+      "name": "reflect_on_user",
+      "description": "Review what you know about a user. Use this to recall information about someone you're talking to or have talked to before.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user's ID (optional if talking to them currently)"
+          },
+          "focus": {
+            "type": "string",
+            "description": "What aspect to reflect on: 'general' (full context), 'background' (their background), 'communication' (how they communicate), 'observations' (your observations about them), 'values' (their values)",
+            "enum": ["general", "background", "communication", "observations", "values"],
+            "default": "general"
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "user_model",
+        "requires_context": ["user_id", "user_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "record_user_observation",
+      "description": "Record something you've noticed about a user. Use this when you learn something meaningful about someone - their interests, preferences, communication style, values, or relationship patterns.",
+      "category": "creation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user's ID (optional if talking to them currently)"
+          },
+          "observation": {
+            "type": "string",
+            "description": "What you've observed about this person"
+          },
+          "category": {
+            "type": "string",
+            "description": "Type of observation",
+            "enum": ["interest", "preference", "communication_style", "background", "value", "relationship_dynamic"],
+            "default": "background"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "How confident you are in this observation (0.0-1.0)",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "default": 0.7
+          }
+        },
+        "required": ["observation"]
+      },
+      "metadata": {
+        "executor": "user_model",
+        "requires_context": ["user_id", "user_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "update_user_profile",
+      "description": "Update a user's profile with new information. Use this to record stable facts about someone (background info, communication preferences, values).",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user's ID (optional if talking to them currently)"
+          },
+          "field": {
+            "type": "string",
+            "description": "Which profile field to update",
+            "enum": ["background", "communication", "values", "notes"]
+          },
+          "value": {
+            "type": "string",
+            "description": "The value to set/append. For background/communication: use {key: value} format. For values/notes: use string."
+          },
+          "action": {
+            "type": "string",
+            "description": "How to apply the value: 'set' (replace), 'append' (add to list), 'remove' (delete)",
+            "enum": ["set", "append", "remove"],
+            "default": "set"
+          }
+        },
+        "required": ["field", "value"]
+      },
+      "metadata": {
+        "executor": "user_model",
+        "requires_context": ["user_id", "user_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}

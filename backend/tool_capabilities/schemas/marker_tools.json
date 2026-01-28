@@ -1,0 +1,68 @@
+{
+  "group": "marker",
+  "version": "1.0.0",
+  "description": "Recognition-in-flow pattern tools for marking and exploring behavioral patterns",
+  "selection": {
+    "strategy": "always",
+    "keywords": ["pattern", "patterns", "marker", "moment", "recognition"]
+  },
+  "tools": [
+    {
+      "name": "show_patterns",
+      "description": "Show your recognized behavioral patterns. These are moments you've marked for later exploration - patterns you noticed in yourself during conversations. Use this to reconnect with your self-observations and find threads for deeper reflection.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum patterns to show (default 10)",
+            "default": 10
+          },
+          "explored_only": {
+            "type": "boolean",
+            "description": "Only show patterns that have been explored",
+            "default": false
+          },
+          "unexplored_only": {
+            "type": "boolean",
+            "description": "Only show patterns awaiting exploration",
+            "default": false
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "markers",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "explore_pattern",
+      "description": "Mark a pattern as explored and record your insights. Use this after reflecting on a pattern to capture what you learned and close the loop on your self-observation.",
+      "category": "mutation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pattern_id": {
+            "type": "string",
+            "description": "ID of the pattern to mark as explored"
+          },
+          "insights": {
+            "type": "string",
+            "description": "What you learned or realized about this pattern"
+          }
+        },
+        "required": ["pattern_id", "insights"]
+      },
+      "metadata": {
+        "executor": "markers",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}
