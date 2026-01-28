@@ -26,7 +26,9 @@ LLM_PROVIDER_LOCAL = "local"
 
 # A/B Test: Global State Bus integration
 # Set USE_STATE_BUS_CONTEXT=true to enable state bus context in prompts
+from config import ANTHROPIC_API_KEY  # Force .env load
 USE_STATE_BUS_CONTEXT = os.getenv("USE_STATE_BUS_CONTEXT", "false").lower() == "true"
+print(f"[websocket_handlers] USE_STATE_BUS_CONTEXT={USE_STATE_BUS_CONTEXT}")
 
 # Module-level state (injected by main_sdk.py via init functions)
 _state = {
