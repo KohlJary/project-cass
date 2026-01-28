@@ -298,6 +298,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 26:
         print("Adding development_requests table for Cass-Daedalus coordination bridge (v26)")
 
+    # v26 -> v27: Add world_state_rollups table for ambient world awareness
+    # Table is created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 27:
+        print("Adding world_state_rollups table for ambient world awareness (v27)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)

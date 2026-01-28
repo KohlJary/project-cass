@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 26  # Added development_requests for Cass-Daedalus coordination
+SCHEMA_VERSION = 27  # Added world_state_rollups for ambient world awareness
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1135,6 +1135,13 @@ CREATE INDEX IF NOT EXISTS idx_source_rollups_lookup
     ON source_rollups(daemon_id, source_id, rollup_type);
 CREATE INDEX IF NOT EXISTS idx_source_rollups_date
     ON source_rollups(daemon_id, rollup_key);
+
+-- World state rollups - ambient world awareness (location, weather, time)
+CREATE TABLE IF NOT EXISTS world_state_rollups (
+    daemon_id TEXT PRIMARY KEY REFERENCES daemons(id),
+    rollups_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 
 -- =============================================================================
 -- WORK PLANNING TABLES - Cass's taskboard and calendar

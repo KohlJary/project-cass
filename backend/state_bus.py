@@ -36,6 +36,7 @@ from state_models import (
     RelationalState,
     StateDelta,
     ActivityType,
+    WorldStateData,
 )
 
 
@@ -290,6 +291,8 @@ class GlobalStateBus:
                     state.activity = GlobalActivityState.from_dict(data)
                 elif state_type == "day_phase":
                     state.day_phase = DayPhaseState.from_dict(data)
+                elif state_type == "world":
+                    state.world = WorldStateData.from_dict(data)
 
             # Load relational states
             cursor = conn.execute("""
@@ -359,6 +362,17 @@ class GlobalStateBus:
                 now,
             ))
 
+            # Save world state
+            conn.execute("""
+                INSERT OR REPLACE INTO global_state (id, daemon_id, state_type, state_json, updated_at)
+                VALUES (?, ?, 'world', ?, ?)
+            """, (
+                f"{self.daemon_id}-world",
+                self.daemon_id,
+                json_serialize(state.world.to_dict()),
+                now,
+            ))
+
             # Save relational baselines
             for user_id, rel_state in state.relational.items():
                 conn.execute("""
@@ -409,6 +423,38 @@ class GlobalStateBus:
                 datetime.now().isoformat(),
             ))
             conn.commit()
+
+    def sync_world_state_from_source(self, world_source) -> None:
+        """
+        Sync world state from WorldStateSource into global state.
+
+        Called after world state rollups refresh.
+        """
+        rollups = world_source.get_precomputed_rollups()
+
+        # Build WorldStateData from rollups
+        world_data = WorldStateData(
+            server_location=rollups.get("server_location"),
+            server_coords=tuple(rollups["server_coords"]) if rollups.get("server_coords") else None,
+            server_timezone=rollups.get("server_timezone"),
+            current_weather=rollups.get("current_weather"),
+            temperature=rollups.get("temperature"),
+            weather_description=rollups.get("weather_description"),
+            current_date=rollups.get("current_date", ""),
+            season=rollups.get("season"),
+            time_of_day=rollups.get("time_of_day"),
+            day_of_week=rollups.get("day_of_week"),
+            is_weekend=rollups.get("is_weekend", False),
+            last_updated=datetime.fromisoformat(rollups["last_updated"]) if rollups.get("last_updated") else None,
+        )
+
+        # Update state
+        state = self.read_state()
+        state.world = world_data
+        self._save_to_db(state)
+        self._state_cache = state
+
+        logger.info(f"[state_bus] Synced world state: {world_data.server_location}, {world_data.current_weather}")
 
     def _apply_emotional_delta(
         self,
