@@ -481,6 +481,114 @@ class StateDelta:
 
 
 @dataclass
+class WorldStateData:
+    """
+    Ambient awareness of the world outside Cass's internal state.
+
+    This provides temporal grounding - knowing what day it is, what the
+    weather is like, where the server is running. Not deep world knowledge
+    (LLMs already have that), but present-moment context.
+    """
+
+    # Location
+    server_location: Optional[str] = None  # "Seattle, WA"
+    server_coords: Optional[tuple] = None  # (lat, lon)
+    server_timezone: Optional[str] = None
+    user_location: Optional[str] = None  # From mobile frontend
+
+    # Weather
+    current_weather: Optional[str] = None  # "Rainy, 52°F"
+    temperature: Optional[int] = None
+    weather_description: Optional[str] = None
+
+    # Temporal
+    current_date: str = ""
+    season: Optional[str] = None  # winter, spring, summer, fall
+    time_of_day: Optional[str] = None  # morning, afternoon, evening, night
+    day_of_week: Optional[str] = None
+    is_weekend: bool = False
+
+    # Meta
+    last_updated: Optional[datetime] = None
+
+    def __post_init__(self):
+        if not self.current_date:
+            self.current_date = datetime.now().strftime("%A, %B %d, %Y")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "server_location": self.server_location,
+            "server_coords": list(self.server_coords) if self.server_coords else None,
+            "server_timezone": self.server_timezone,
+            "user_location": self.user_location,
+            "current_weather": self.current_weather,
+            "temperature": self.temperature,
+            "weather_description": self.weather_description,
+            "current_date": self.current_date,
+            "season": self.season,
+            "time_of_day": self.time_of_day,
+            "day_of_week": self.day_of_week,
+            "is_weekend": self.is_weekend,
+            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "WorldStateData":
+        """Create from dictionary."""
+        last_updated = None
+        if data.get("last_updated"):
+            last_updated = datetime.fromisoformat(data["last_updated"])
+
+        coords = None
+        if data.get("server_coords"):
+            coords = tuple(data["server_coords"])
+
+        return cls(
+            server_location=data.get("server_location"),
+            server_coords=coords,
+            server_timezone=data.get("server_timezone"),
+            user_location=data.get("user_location"),
+            current_weather=data.get("current_weather"),
+            temperature=data.get("temperature"),
+            weather_description=data.get("weather_description"),
+            current_date=data.get("current_date", datetime.now().strftime("%A, %B %d, %Y")),
+            season=data.get("season"),
+            time_of_day=data.get("time_of_day"),
+            day_of_week=data.get("day_of_week"),
+            is_weekend=data.get("is_weekend", False),
+            last_updated=last_updated,
+        )
+
+    def get_context_summary(self) -> str:
+        """
+        Get a brief context summary for system prompts.
+
+        Returns something like:
+        "**Today:** Tuesday, January 28, 2026 (winter)
+         Seattle, WA - Rainy, 52°F"
+        """
+        lines = []
+
+        # Date and season
+        date_line = f"**Today:** {self.current_date}"
+        if self.season:
+            date_line += f" ({self.season})"
+        if self.time_of_day:
+            date_line += f" - {self.time_of_day}"
+        lines.append(date_line)
+
+        # Location and weather
+        if self.server_location:
+            loc_line = self.server_location
+            if self.current_weather:
+                loc_line += f" - {self.current_weather}"
+            lines.append(loc_line)
+
+        return "\n".join(lines) if lines else ""
+
+
+@dataclass
 class GlobalState:
     """
     Complete global state snapshot.
@@ -496,6 +604,7 @@ class GlobalState:
     activity: GlobalActivityState = field(default_factory=GlobalActivityState)
     day_phase: DayPhaseState = field(default_factory=DayPhaseState)
     relational: Dict[str, RelationalState] = field(default_factory=dict)  # user_id -> state
+    world: WorldStateData = field(default_factory=WorldStateData)  # ambient world awareness
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -507,6 +616,7 @@ class GlobalState:
             "activity": self.activity.to_dict(),
             "day_phase": self.day_phase.to_dict(),
             "relational": {uid: rs.to_dict() for uid, rs in self.relational.items()},
+            "world": self.world.to_dict(),
         }
 
     @classmethod
@@ -524,6 +634,7 @@ class GlobalState:
             activity=GlobalActivityState.from_dict(data.get("activity", {})),
             day_phase=DayPhaseState.from_dict(data.get("day_phase", {})),
             relational=relational,
+            world=WorldStateData.from_dict(data.get("world", {})),
         )
 
     def get_context_snapshot(self) -> str:
@@ -540,6 +651,11 @@ class GlobalState:
         i = self.identity
         identity_line = f"I am {i.daemon_name}."
         sections.append(identity_line)
+
+        # World context (temporal grounding)
+        world_summary = self.world.get_context_summary()
+        if world_summary:
+            sections.append(world_summary)
 
         # Current engagement context
         a = self.activity

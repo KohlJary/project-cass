@@ -364,8 +364,9 @@ token_tracker = TokenUsageTracker()
 from sources import (
     GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource,
     MemoryQueryableSource, SelfQueryableSource, GoalQueryableSource, ActionQueryableSource,
-    WorkItemQueryableSource, ScheduleQueryableSource
+    WorkItemQueryableSource, ScheduleQueryableSource, WorldStateSource
 )
+from config import SERVER_LOCATION
 from unified_goals import UnifiedGoalManager
 from work_planning import WorkItemManager, ScheduleManager
 
@@ -382,6 +383,7 @@ work_manager = WorkItemManager(_daemon_id)
 schedule_manager = ScheduleManager(_daemon_id)
 work_source = WorkItemQueryableSource(_daemon_id, work_manager)
 schedule_source = ScheduleQueryableSource(_daemon_id, schedule_manager)
+world_state_source = WorldStateSource(_daemon_id, str(DATA_DIR), SERVER_LOCATION)
 
 global_state_bus.register_source(github_source)
 global_state_bus.register_source(token_source)
@@ -392,7 +394,8 @@ global_state_bus.register_source(goal_source)
 global_state_bus.register_source(action_source)
 global_state_bus.register_source(work_source)
 global_state_bus.register_source(schedule_source)
-print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals, actions, work, schedule)")
+global_state_bus.register_source(world_state_source)
+print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals, actions, work, schedule, world_state)")
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes
@@ -1293,6 +1296,14 @@ async def startup_event():
     # (Sources were registered during module load, but async tasks need event loop)
     global_state_bus.start_scheduled_refreshes()
     logger.info("Started scheduled source refreshes")
+
+    # Initialize world state (location, weather, time) - do initial refresh and sync
+    try:
+        await world_state_source.refresh_rollups()
+        global_state_bus.sync_world_state_from_source(world_state_source)
+        logger.info("World state initialized")
+    except Exception as e:
+        logger.warning(f"World state initialization failed (non-fatal): {e}")
 
     # Initialize coherence monitor - first reactive subscriber to state bus
     if COHERENCE_MONITOR_ENABLED:
