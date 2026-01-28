@@ -88,6 +88,18 @@ def build_continuous_context(
     context_sections["temporal"] = temporal_summary
 
     # ==========================================================================
+    # 2.5. GLOBAL STATE (World awareness from Locus of Self)
+    # ==========================================================================
+    # Ambient awareness: location, weather, world state
+    if daemon_id:
+        from state_bus import get_state_bus
+        state_bus = get_state_bus(daemon_id)
+        state_context = state_bus.get_context_snapshot()
+        if state_context:
+            context_sections["global_state"] = state_context
+
+
+    # ==========================================================================
     # 3. USER & RELATIONSHIP MODEL
     # ==========================================================================
     # Who we're talking to and how we relate
@@ -268,6 +280,11 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2. Temporal awareness
     if "temporal" in sections:
         parts.append(f"## CURRENT TIME\n\n{sections['temporal']}")
+
+    # 2.5. Global state (world awareness)
+    if "global_state" in sections:
+        parts.append(f"## CURRENT STATE\n\n{sections['global_state']}")
+
 
     # 3. User understanding
     if "user_model" in sections:
