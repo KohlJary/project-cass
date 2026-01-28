@@ -1435,6 +1435,11 @@ class CassAgentClient:
         if project_id and self.enable_tools:
             tools.extend(PROJECT_DOCUMENT_TOOLS)
 
+        # === Procedural Self-Awareness: Filter blacklisted tools ===
+        # Cass can disable her own tools via modify_tool_access for self-directed experiments
+        from tool_selector import filter_blacklisted_tools
+        tools = filter_blacklisted_tools(tools)
+
         # Add cache_control to the last tool for Anthropic prompt caching
         # This caches all tools as a prefix, reducing costs by 90% on cache hits
         if tools:
@@ -2049,6 +2054,10 @@ class OllamaClient:
 
         if should_include_task_tools(message):
             tools.extend(TASK_TOOLS)
+
+        # === Procedural Self-Awareness: Filter blacklisted tools ===
+        from tool_selector import filter_blacklisted_tools
+        tools = filter_blacklisted_tools(tools)
 
         return tools
 

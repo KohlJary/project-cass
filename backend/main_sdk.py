@@ -1055,7 +1055,9 @@ async def process_relay_chat_message(
         if not conversation_id:
             continuous_conv = conversation_manager.get_or_create_continuous(user_id)
             conversation_id = continuous_conv.id
-            logger.info(f"[Relay] Using continuous conversation {conversation_id} for user {user_id}")
+            logger.info(f"[Relay] No conversation_id provided, using continuous: {conversation_id} for user {user_id}")
+        else:
+            logger.info(f"[Relay] Using provided conversation_id: {conversation_id} for user {user_id}")
 
         # Build continuous context for semantic memory retrieval
         from continuous_context import build_continuous_context, get_recent_messages_for_continuous
@@ -1911,9 +1913,24 @@ async def chat(request: ChatRequest):
 
         # Add Cass's self-model context (flat profile - identity/values/edges)
         # Note: observations now handled by graph context with message-relevance
-        self_context = self_manager.get_self_context(include_observations=False)
+        # Phase 1 Procedural Self-Awareness: Pass message for semantic matching of growth edges
+        self_context = self_manager.get_self_context(
+            include_observations=False,
+            message=request.message,
+            conversation_id=request.conversation_id,
+            directive_growth_edges=True  # Phase 1: Edges actively shape behavior
+        )
         if self_context:
             memory_context = self_context + "\n\n" + memory_context
+
+        # Phase 2 Procedural Self-Awareness: Add active intentions that should guide behavior
+        intention_context = self_model_graph.get_intention_directive_context(
+            message=request.message,
+            conversation_id=request.conversation_id,
+            top_n=3
+        )
+        if intention_context:
+            memory_context = intention_context + "\n\n" + memory_context
 
         # Add self-model graph context (message-relevant observations, marks, changes)
         graph_context = self_model_graph.get_graph_context(

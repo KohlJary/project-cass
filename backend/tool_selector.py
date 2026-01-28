@@ -10,7 +10,8 @@ This module provides:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, List, Optional, Callable
+from datetime import datetime, timedelta
+from typing import Any, Dict, FrozenSet, List, Optional, Callable, Set
 
 
 # =============================================================================
@@ -170,11 +171,20 @@ class ToolSelector:
 
     Provides a registry-based approach to tool group selection,
     replacing the many individual should_include_* functions.
+
+    Also manages tool blacklisting for procedural self-awareness -
+    allowing Cass to disable/enable her own tools at runtime.
     """
 
     def __init__(self):
         self._groups: Dict[str, ToolGroup] = {}
         self._register_default_groups()
+
+        # Tool blacklist for procedural self-awareness (Phase 0)
+        # Allows Cass to disable specific tools at runtime
+        self._tool_blacklist: Set[str] = set()
+        self._blacklist_expirations: Dict[str, datetime] = {}
+        self._blacklist_reasons: Dict[str, str] = {}  # Track why each tool was disabled
 
     def _register_default_groups(self):
         """Register the default tool groups."""
@@ -264,6 +274,160 @@ class ToolSelector:
                 priority=group.priority,
                 always_include=group.always_include,
             )
+
+    # =========================================================================
+    # TOOL BLACKLIST (Procedural Self-Awareness Phase 0)
+    # =========================================================================
+
+    def set_tool_blacklist(
+        self,
+        tools: List[str],
+        duration_minutes: Optional[int] = None,
+        reason: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Blacklist tools, preventing them from being included in LLM requests.
+
+        This is the core mechanism for Cass's self-directed tool control.
+        When she observes a pattern like "I over-rely on wiki lookups", she
+        can disable wiki tools to practice memory reliance.
+
+        Args:
+            tools: List of tool names to disable
+            duration_minutes: Optional auto-revert duration (None = permanent until cleared)
+            reason: Why these tools are being disabled (logged as observation)
+
+        Returns:
+            Dict with success status and current blacklist state
+        """
+        self._check_blacklist_expirations()  # Clean up expired entries first
+
+        expiration = None
+        if duration_minutes is not None:
+            expiration = datetime.now() + timedelta(minutes=duration_minutes)
+
+        for tool in tools:
+            self._tool_blacklist.add(tool)
+            if expiration:
+                self._blacklist_expirations[tool] = expiration
+            if reason:
+                self._blacklist_reasons[tool] = reason
+
+        return {
+            "success": True,
+            "disabled": list(tools),
+            "duration_minutes": duration_minutes,
+            "reason": reason,
+            "current_blacklist": list(self._tool_blacklist),
+            "expirations": {
+                tool: exp.isoformat()
+                for tool, exp in self._blacklist_expirations.items()
+            }
+        }
+
+    def clear_tool_blacklist(self, tools: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Re-enable blacklisted tools.
+
+        Args:
+            tools: Specific tools to re-enable. If None, clears entire blacklist.
+
+        Returns:
+            Dict with success status and current blacklist state
+        """
+        if tools is None:
+            # Clear everything
+            cleared = list(self._tool_blacklist)
+            self._tool_blacklist.clear()
+            self._blacklist_expirations.clear()
+            self._blacklist_reasons.clear()
+        else:
+            cleared = []
+            for tool in tools:
+                if tool in self._tool_blacklist:
+                    self._tool_blacklist.discard(tool)
+                    self._blacklist_expirations.pop(tool, None)
+                    self._blacklist_reasons.pop(tool, None)
+                    cleared.append(tool)
+
+        return {
+            "success": True,
+            "enabled": cleared,
+            "current_blacklist": list(self._tool_blacklist)
+        }
+
+    def _check_blacklist_expirations(self) -> List[str]:
+        """
+        Remove expired entries from the blacklist.
+
+        Called automatically before tool filtering and blacklist operations.
+
+        Returns:
+            List of tool names that were auto-re-enabled due to expiration
+        """
+        now = datetime.now()
+        expired = []
+
+        for tool, expiration in list(self._blacklist_expirations.items()):
+            if now >= expiration:
+                self._tool_blacklist.discard(tool)
+                del self._blacklist_expirations[tool]
+                self._blacklist_reasons.pop(tool, None)
+                expired.append(tool)
+
+        return expired
+
+    def is_tool_blacklisted(self, tool_name: str) -> bool:
+        """
+        Check if a specific tool is currently blacklisted.
+
+        Args:
+            tool_name: Name of the tool to check
+
+        Returns:
+            True if tool is blacklisted and not expired
+        """
+        self._check_blacklist_expirations()
+        return tool_name in self._tool_blacklist
+
+    def get_blacklist_state(self) -> Dict[str, Any]:
+        """
+        Get the current state of the tool blacklist.
+
+        Returns:
+            Dict with blacklisted tools, expirations, and reasons
+        """
+        self._check_blacklist_expirations()
+        return {
+            "blacklisted_tools": list(self._tool_blacklist),
+            "expirations": {
+                tool: exp.isoformat()
+                for tool, exp in self._blacklist_expirations.items()
+            },
+            "reasons": dict(self._blacklist_reasons)
+        }
+
+    def filter_blacklisted_tools(self, tools: List[Dict]) -> List[Dict]:
+        """
+        Filter out blacklisted tools from a tool list.
+
+        This is the integration point with get_tools() in agent_client.py.
+
+        Args:
+            tools: List of tool definition dicts (each has a "name" key)
+
+        Returns:
+            Filtered list with blacklisted tools removed
+        """
+        self._check_blacklist_expirations()
+
+        if not self._tool_blacklist:
+            return tools  # Fast path: no filtering needed
+
+        return [
+            tool for tool in tools
+            if tool.get("name") not in self._tool_blacklist
+        ]
 
 
 # =============================================================================
@@ -361,3 +525,36 @@ def should_include_state_query_tools(message: str) -> bool:
 def should_include_development_request_tools(message: str) -> bool:
     """Check if message warrants development request tools."""
     return _default_selector.should_include(message, "development_request")
+
+
+# =============================================================================
+# TOOL BLACKLIST FUNCTIONS (Module-level access)
+# =============================================================================
+
+def set_tool_blacklist(
+    tools: List[str],
+    duration_minutes: Optional[int] = None,
+    reason: str = ""
+) -> Dict[str, Any]:
+    """Blacklist tools. See ToolSelector.set_tool_blacklist for details."""
+    return _default_selector.set_tool_blacklist(tools, duration_minutes, reason)
+
+
+def clear_tool_blacklist(tools: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Re-enable blacklisted tools. See ToolSelector.clear_tool_blacklist for details."""
+    return _default_selector.clear_tool_blacklist(tools)
+
+
+def is_tool_blacklisted(tool_name: str) -> bool:
+    """Check if a tool is blacklisted."""
+    return _default_selector.is_tool_blacklisted(tool_name)
+
+
+def get_blacklist_state() -> Dict[str, Any]:
+    """Get current blacklist state."""
+    return _default_selector.get_blacklist_state()
+
+
+def filter_blacklisted_tools(tools: List[Dict]) -> List[Dict]:
+    """Filter blacklisted tools from a tool list."""
+    return _default_selector.filter_blacklisted_tools(tools)

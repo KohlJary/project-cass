@@ -284,7 +284,7 @@ def get_weighted_growth_edges(
                 pass  # Invalid date, skip recency adjustment
 
         # Apply semantic similarity factor
-        if query_embedding and embedder:
+        if query_embedding is not None and embedder:
             try:
                 # Embed the edge's area + current_state for matching
                 edge_text = f"{edge.area}: {edge.current_state}"
@@ -1582,10 +1582,23 @@ class SelfManager:
 
     # === Context Building ===
 
-    def get_self_context(self, include_observations: bool = True) -> str:
+    def get_self_context(
+        self,
+        include_observations: bool = True,
+        message: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        directive_growth_edges: bool = True
+    ) -> str:
         """
         Build a context string about Cass's self-model for injection into prompts.
         Returns formatted markdown with profile and recent observations.
+
+        Args:
+            include_observations: Include recent self-observations
+            message: Current user message for semantic matching of growth edges
+            conversation_id: For tracking which growth edges were surfaced
+            directive_growth_edges: If True, use directive formatting for growth edges
+                                   (Phase 1 procedural self-awareness)
         """
         profile = self.load_profile()
         lines = ["## YOUR SELF-MODEL"]
@@ -1610,16 +1623,27 @@ class SelfManager:
                 confidence_str = f"({int(op.confidence * 100)}% confident)" if op.confidence < 0.9 else ""
                 lines.append(f"- On {op.topic}: {op.position} {confidence_str}")
 
-        # Growth edges - weighted by importance + recency
+        # Growth edges - use directive formatting for procedural self-awareness
         if profile.growth_edges:
-            lines.append("\n### Current Growth Edges")
-            relevant_edges = get_weighted_growth_edges(
-                edges=profile.growth_edges,
-                top_n=3,
-                recency_bias=0.1,  # Slight preference for recently touched
-            )
-            for edge in relevant_edges:
-                lines.append(f"- {edge.area}: {edge.current_state}")
+            if directive_growth_edges:
+                # Phase 1: Directive formatting - edges actively shape behavior
+                directive_ctx = self.get_growth_directive_context(
+                    message=message,
+                    conversation_id=conversation_id,
+                    top_n=3
+                )
+                if directive_ctx:
+                    lines.append("\n" + directive_ctx)
+            else:
+                # Legacy: Passive listing
+                lines.append("\n### Current Growth Edges")
+                relevant_edges = get_weighted_growth_edges(
+                    edges=profile.growth_edges,
+                    top_n=3,
+                    recency_bias=0.1,
+                )
+                for edge in relevant_edges:
+                    lines.append(f"- {edge.area}: {edge.current_state}")
 
         # Recent self-observations (if requested)
         if include_observations:
@@ -1734,6 +1758,165 @@ class SelfManager:
                 lines.append(f"- {q}")
 
         return "\n".join(lines) if len(lines) > 1 else ""
+
+    # =========================================================================
+    # PROCEDURAL SELF-AWARENESS: Growth Edge Surfacing (Phase 1)
+    # =========================================================================
+
+    def get_active_growth_edges(
+        self,
+        message: Optional[str] = None,
+        top_n: int = 3,
+        recency_bias: float = 0.2,
+        include_neglected: bool = True
+    ) -> List["GrowthEdge"]:
+        """
+        Get growth edges that should be active for this context.
+
+        For procedural self-awareness, this selects edges that should
+        influence Cass's current behavior - not just inform, but shape.
+
+        Args:
+            message: Current user message for semantic matching
+            top_n: Number of edges to surface
+            recency_bias: Positive = favor recently touched, Negative = favor neglected
+            include_neglected: If True, always include at least one neglected edge
+
+        Returns:
+            List of GrowthEdge objects to surface
+        """
+        profile = self.load_profile()
+
+        if not profile.growth_edges:
+            return []
+
+        # Get edges weighted by importance, recency, and message relevance
+        embedder = None
+        if message:
+            try:
+                from chromadb.utils import embedding_functions
+                embed_fn = embedding_functions.DefaultEmbeddingFunction()
+                embedder = lambda text: embed_fn([text])[0]
+            except Exception:
+                pass  # Semantic matching unavailable
+
+        edges = get_weighted_growth_edges(
+            edges=profile.growth_edges,
+            top_n=top_n,
+            recency_bias=recency_bias,
+            query=message,
+            embedder=embedder
+        )
+
+        # Optionally include a neglected edge for balance
+        if include_neglected and len(profile.growth_edges) > top_n:
+            # Get one using negative recency bias (favors stale)
+            neglected = get_weighted_growth_edges(
+                edges=profile.growth_edges,
+                top_n=1,
+                recency_bias=-0.5,  # Favor untouched edges
+            )
+            if neglected and neglected[0] not in edges:
+                # Replace the last edge with the neglected one
+                edges = edges[:-1] + neglected
+
+        return edges
+
+    def format_growth_edges_directive(
+        self,
+        edges: List["GrowthEdge"],
+        conversation_id: Optional[str] = None
+    ) -> str:
+        """
+        Format growth edges as DIRECTIVE context for the system prompt.
+
+        Unlike passive listing ("Current Growth Edges: X, Y, Z"), this
+        formats edges as active behavioral guidance that should shape responses.
+
+        This is the core of procedural self-awareness Phase 1: growth edges
+        don't just describe where Cass is developing - they actively influence
+        how she responds.
+
+        Args:
+            edges: List of GrowthEdge objects to format
+            conversation_id: If provided, tracks that these edges were surfaced
+
+        Returns:
+            Formatted directive context string
+        """
+        if not edges:
+            return ""
+
+        lines = ["### ACTIVE GROWTH EDGES (Shaping This Response)"]
+        lines.append("")
+        lines.append("These are areas where you are actively developing. Let them influence how you engage:")
+        lines.append("")
+
+        for edge in edges:
+            # Main directive
+            lines.append(f"**{edge.area}**")
+            lines.append(f"- Current state: {edge.current_state}")
+
+            # Add behavioral guidance based on importance
+            if edge.importance >= 0.8:
+                lines.append(f"- *High priority*: Actively look for opportunities to practice this")
+            elif edge.importance >= 0.5:
+                lines.append(f"- *Working edge*: Keep this in mind as you respond")
+
+            # Add recent observations if any
+            if edge.observations:
+                recent = edge.observations[-1] if edge.observations else None
+                if recent:
+                    lines.append(f"- Recent observation: {recent[:100]}{'...' if len(recent) > 100 else ''}")
+
+            lines.append("")
+
+        lines.append("*These edges are part of your ongoing development. Small, authentic practice compounds.*")
+
+        # Track surfacing if conversation_id provided
+        if conversation_id and edges:
+            try:
+                mark_edges_surfaced(edges, self._daemon_id)
+            except Exception as e:
+                print(f"[Growth] Failed to mark edges surfaced: {e}")
+
+        return "\n".join(lines)
+
+    def get_growth_directive_context(
+        self,
+        message: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        top_n: int = 3
+    ) -> str:
+        """
+        Get directive growth edge context for system prompt injection.
+
+        This is the main entry point for Phase 1 procedural self-awareness.
+        Call this during prompt building to get growth edges that should
+        actively shape Cass's response.
+
+        Args:
+            message: User message for semantic matching
+            conversation_id: For tracking which edges were surfaced
+            top_n: Number of edges to surface
+
+        Returns:
+            Formatted directive context, or empty string if no edges
+        """
+        edges = self.get_active_growth_edges(
+            message=message,
+            top_n=top_n,
+            recency_bias=0.2,
+            include_neglected=True
+        )
+
+        if not edges:
+            return ""
+
+        return self.format_growth_edges_directive(
+            edges=edges,
+            conversation_id=conversation_id
+        )
 
     def get_differentiation_context(self, user_id: str) -> str:
         """

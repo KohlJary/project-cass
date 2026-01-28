@@ -479,10 +479,28 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 # Add Cass's self-model context (flat profile - identity/values/edges)
                 # Note: observations now handled by graph context with message-relevance
-                self_context = self_manager.get_self_context(include_observations=False) if self_manager else ""
+                # Phase 1 Procedural Self-Awareness: Pass message for semantic matching of growth edges
+                self_context = self_manager.get_self_context(
+                    include_observations=False,
+                    message=user_message,
+                    conversation_id=conversation_id,
+                    directive_growth_edges=True  # Phase 1: Edges actively shape behavior
+                ) if self_manager else ""
                 if self_context:
                     memory_context = self_context + "\n\n" + memory_context
                 context_sizes["self_model"] = len(self_context)
+
+                # Phase 2 Procedural Self-Awareness: Add active intentions that should guide behavior
+                intention_context = ""
+                if self_model_graph:
+                    intention_context = self_model_graph.get_intention_directive_context(
+                        message=user_message,
+                        conversation_id=conversation_id,
+                        top_n=3
+                    )
+                    if intention_context:
+                        memory_context = intention_context + "\n\n" + memory_context
+                context_sizes["intentions"] = len(intention_context)
 
                 # Add self-model graph context (message-relevant observations, marks, changes)
                 graph_context = ""

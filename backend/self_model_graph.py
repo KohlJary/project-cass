@@ -1624,6 +1624,170 @@ class SelfModelGraph:
         self.save()
         return True
 
+    # ==================== Procedural Self-Awareness: Intention Surfacing (Phase 2) ====================
+
+    def get_contextual_intentions(
+        self,
+        message: Optional[str] = None,
+        top_n: int = 3
+    ) -> List[Dict]:
+        """
+        Get active intentions relevant to current context.
+
+        For procedural self-awareness Phase 2: intentions should be surfaced
+        when their conditions might apply, not just listed.
+
+        Args:
+            message: Current user message for context matching
+            top_n: Maximum intentions to return
+
+        Returns:
+            List of intention dicts, prioritized by relevance
+        """
+        all_intentions = self.get_active_intentions()
+
+        if not all_intentions:
+            return []
+
+        if not message:
+            # No context - return by recency
+            return all_intentions[:top_n]
+
+        # Score intentions by relevance to current message
+        message_lower = message.lower()
+        scored = []
+
+        for intention in all_intentions:
+            score = 0.5  # Base score
+
+            condition = intention.get("condition", "").lower()
+            intent_text = intention.get("intention", "").lower()
+
+            # Keyword matching in condition
+            condition_words = set(condition.split())
+            message_words = set(message_lower.split())
+            overlap = len(condition_words & message_words)
+            if overlap > 0:
+                score += 0.3 * min(overlap / 3, 1.0)  # Cap at 0.3 for 3+ overlaps
+
+            # Check for trigger phrases in condition
+            trigger_phrases = ["when", "if", "during", "while", "notice"]
+            for phrase in trigger_phrases:
+                if phrase in condition and any(w in message_lower for w in condition.split(phrase)[-1].split()[:5]):
+                    score += 0.2
+                    break
+
+            # Boost intentions with low success rates (need more practice)
+            success_rate = intention.get("success_rate")
+            if success_rate is not None and success_rate < 0.5:
+                score += 0.1
+
+            # Boost recently created intentions
+            # (new intentions need more attention)
+            total_attempts = intention.get("success_count", 0) + intention.get("failure_count", 0)
+            if total_attempts < 5:
+                score += 0.1
+
+            scored.append((score, intention))
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        return [intention for _, intention in scored[:top_n]]
+
+    def format_intentions_for_prompt(
+        self,
+        intentions: List[Dict],
+        include_stats: bool = True
+    ) -> str:
+        """
+        Format intentions as DIRECTIVE context for system prompt injection.
+
+        Similar to growth edge directive formatting - these aren't just
+        informational, they should actively guide behavior.
+
+        Args:
+            intentions: List of intention dicts from get_contextual_intentions
+            include_stats: Include success/failure statistics
+
+        Returns:
+            Formatted directive context string
+        """
+        if not intentions:
+            return ""
+
+        lines = ["### ACTIVE INTENTIONS (Check Your Behavior)"]
+        lines.append("")
+        lines.append("You have registered these behavioral intentions. Check if they apply to this response:")
+        lines.append("")
+
+        for intention in intentions:
+            condition = intention.get("condition", "unspecified")
+            intent = intention.get("intention", "")
+
+            lines.append(f"**When**: {condition}")
+            lines.append(f"**Intend to**: {intent}")
+
+            if include_stats:
+                success = intention.get("success_count", 0)
+                failure = intention.get("failure_count", 0)
+                total = success + failure
+
+                if total > 0:
+                    rate = intention.get("success_rate", 0)
+                    if rate is not None:
+                        rate_pct = int(rate * 100)
+                        if rate_pct < 50:
+                            lines.append(f"- *Struggling* ({rate_pct}% success over {total} attempts) - extra attention needed")
+                        else:
+                            lines.append(f"- *Progress* ({rate_pct}% success over {total} attempts)")
+                else:
+                    lines.append("- *New intention* - no attempts yet")
+
+            # Link to growth edge if applicable
+            growth_area = intention.get("growth_edge_area")
+            if growth_area:
+                lines.append(f"- Develops growth edge: {growth_area}")
+
+            lines.append("")
+
+        lines.append("*After responding, reflect: Did you follow these intentions? Log the outcome.*")
+
+        return "\n".join(lines)
+
+    def get_intention_directive_context(
+        self,
+        message: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        top_n: int = 3
+    ) -> str:
+        """
+        Get directive intention context for system prompt injection.
+
+        Main entry point for Phase 2 procedural self-awareness.
+        Call during prompt building to get intentions that should guide behavior.
+
+        Args:
+            message: User message for context matching
+            conversation_id: For tracking (future use)
+            top_n: Number of intentions to surface
+
+        Returns:
+            Formatted directive context, or empty string if no intentions
+        """
+        intentions = self.get_contextual_intentions(
+            message=message,
+            top_n=top_n
+        )
+
+        if not intentions:
+            return ""
+
+        return self.format_intentions_for_prompt(
+            intentions=intentions,
+            include_stats=True
+        )
+
     # ==================== Situational Inference Operations ====================
 
     def log_situational_inference(
