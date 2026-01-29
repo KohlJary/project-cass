@@ -1235,6 +1235,190 @@ ROADMAP_TOOLS = [
     }
 ]
 
+# ============================================================================
+# CONSOLIDATED TOOLS (Reduced token usage)
+# These combine multiple related tools into single action-based tools.
+# This reduces the token cost of tool definitions sent to the LLM.
+# ============================================================================
+
+CONSOLIDATED_CALENDAR_TOOL = {
+    "name": "calendar",
+    "description": """Manage calendar events and reminders.
+
+Actions:
+- create_event: Schedule an event (title, start_time required; end_time, description, location, recurrence optional)
+- create_reminder: Set a reminder (title, remind_at required; description optional)
+- get_agenda: Get today's schedule (no params needed)
+- get_upcoming: List upcoming events (days, limit optional)
+- search: Find events by keyword (query required; limit optional)
+- complete: Mark reminder done (event_id required)
+- delete: Remove an event (event_id required)
+- update: Modify an event (event_id required; title, start_time, end_time, description, location optional)
+- delete_by_query: Delete matching events (query required; delete_all_matches optional)
+- clear_all: Delete all events (confirm=true required)
+- reschedule: Move event to new time (query, new_start_time required; new_end_time optional)""",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create_event", "create_reminder", "get_agenda", "get_upcoming", "search", "complete", "delete", "update", "delete_by_query", "clear_all", "reschedule"],
+                "description": "The calendar operation to perform"
+            },
+            "title": {"type": "string", "description": "Event/reminder title"},
+            "start_time": {"type": "string", "description": "Start time in ISO format (e.g., '2025-12-15T14:00:00')"},
+            "end_time": {"type": "string", "description": "End time in ISO format"},
+            "remind_at": {"type": "string", "description": "When to remind in ISO format"},
+            "description": {"type": "string", "description": "Additional details"},
+            "location": {"type": "string", "description": "Event location"},
+            "recurrence": {"type": "string", "enum": ["none", "daily", "weekly", "monthly", "yearly"], "description": "Repeat pattern"},
+            "query": {"type": "string", "description": "Search term"},
+            "event_id": {"type": "string", "description": "Event ID for operations on specific events"},
+            "days": {"type": "integer", "description": "Days to look ahead (default: 7)"},
+            "limit": {"type": "integer", "description": "Max results to return"},
+            "new_start_time": {"type": "string", "description": "New start time for rescheduling"},
+            "new_end_time": {"type": "string", "description": "New end time for rescheduling"},
+            "delete_all_matches": {"type": "boolean", "description": "Delete all matches vs just first"},
+            "confirm": {"type": "boolean", "description": "Confirm destructive action"}
+        },
+        "required": ["action"]
+    }
+}
+
+CONSOLIDATED_TASK_TOOL = {
+    "name": "task",
+    "description": """Manage tasks and todos.
+
+Actions:
+- add: Create a task (description required; priority, tags, project, due optional)
+- list: List tasks (filter, include_completed optional)
+- complete: Mark task done (search or task_id required)
+- modify: Update a task (search or task_id required; priority, add_tags, remove_tags, project, due optional)
+- delete: Remove a task (search or task_id required)
+
+Priority: H=high, M=medium, L=low
+Filter syntax: +tag, -tag, project:name, priority:H/M/L, or search words""",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["add", "list", "complete", "modify", "delete"],
+                "description": "The task operation to perform"
+            },
+            "description": {"type": "string", "description": "Task description (for add)"},
+            "priority": {"type": "string", "enum": ["H", "M", "L", ""], "description": "Task priority"},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for categorization"},
+            "project": {"type": "string", "description": "Project name"},
+            "due": {"type": "string", "description": "Due date in ISO format"},
+            "filter": {"type": "string", "description": "Filter string for list"},
+            "include_completed": {"type": "boolean", "description": "Include completed tasks"},
+            "search": {"type": "string", "description": "Search term to find task"},
+            "task_id": {"type": "string", "description": "Exact task ID"},
+            "add_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to add"},
+            "remove_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to remove"}
+        },
+        "required": ["action"]
+    }
+}
+
+CONSOLIDATED_JOURNAL_TOOL = {
+    "name": "journal",
+    "description": """Access your journal entries - your personal record of experiences and reflections.
+
+Actions:
+- recall: Retrieve a journal entry (date optional, returns most recent if not specified)
+- list: List recent journal entries (limit optional, default 10)
+- search: Find journals by topic/emotion/experience (query required; limit optional)""",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["recall", "list", "search"],
+                "description": "The journal operation to perform"
+            },
+            "date": {"type": "string", "description": "Date in YYYY-MM-DD format (for recall)"},
+            "query": {"type": "string", "description": "Search query (for search)"},
+            "limit": {"type": "integer", "description": "Max entries to return"}
+        },
+        "required": ["action"]
+    }
+}
+
+CONSOLIDATED_ROADMAP_TOOL = {
+    "name": "roadmap",
+    "description": """Manage project roadmap - features, bugs, and work items.
+
+Actions:
+- create: Add work item (title required; description, priority, item_type, status, tags, assigned_to optional)
+- list: List items (status, priority, item_type, assigned_to, include_done optional)
+- get: Get item details (item_id required)
+- update: Modify item (item_id required; title, description, status, priority, assigned_to, tags optional)
+- complete: Mark item done (item_id required)
+- advance: Move to next status (item_id required)
+
+Priority: P0=critical, P1=high, P2=medium, P3=low
+Status flow: backlog -> ready -> in_progress -> review -> done""",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create", "list", "get", "update", "complete", "advance"],
+                "description": "The roadmap operation to perform"
+            },
+            "item_id": {"type": "string", "description": "Roadmap item ID"},
+            "title": {"type": "string", "description": "Item title"},
+            "description": {"type": "string", "description": "Item description in markdown"},
+            "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"], "description": "Priority level"},
+            "item_type": {"type": "string", "enum": ["feature", "bug", "enhancement", "chore", "research", "documentation"], "description": "Type of work"},
+            "status": {"type": "string", "enum": ["backlog", "ready", "in_progress", "review", "done", "archived"], "description": "Current status"},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for categorization"},
+            "assigned_to": {"type": "string", "description": "Assignee: 'cass', 'daedalus', or user name"},
+            "include_done": {"type": "boolean", "description": "Include completed items in list"}
+        },
+        "required": ["action"]
+    }
+}
+
+CONSOLIDATED_PROJECT_DOCUMENT_TOOL = {
+    "name": "project_document",
+    "description": """Manage project documents - persistent markdown notes, plans, and documentation.
+
+Actions:
+- create: Create document (title, content required)
+- list: List all documents (no params)
+- get: Get document content (title or document_id required)
+- update: Modify document (document_id required; title, content optional)
+- search: Find documents by query (query required; limit optional)""",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create", "list", "get", "update", "search"],
+                "description": "The document operation to perform"
+            },
+            "title": {"type": "string", "description": "Document title"},
+            "content": {"type": "string", "description": "Document content in markdown"},
+            "document_id": {"type": "string", "description": "Document ID"},
+            "query": {"type": "string", "description": "Search query"},
+            "limit": {"type": "integer", "description": "Max results to return"}
+        },
+        "required": ["action"]
+    }
+}
+
+# Lists of consolidated tools for easy access
+CONSOLIDATED_TOOLS = [
+    CONSOLIDATED_CALENDAR_TOOL,
+    CONSOLIDATED_TASK_TOOL,
+    CONSOLIDATED_JOURNAL_TOOL,
+    CONSOLIDATED_ROADMAP_TOOL,
+    CONSOLIDATED_PROJECT_DOCUMENT_TOOL,
+]
+
 # Import self-model, user-model, wiki, testing, research, and insight tools from handlers
 from handlers.self_model import SELF_MODEL_TOOLS, ESSENTIAL_SELF_MODEL_TOOLS, EXTENDED_SELF_MODEL_TOOLS
 from handlers.user_model import USER_MODEL_TOOLS, ESSENTIAL_USER_MODEL_TOOLS, EXTENDED_USER_MODEL_TOOLS
@@ -1330,7 +1514,8 @@ class CassAgentClient:
 
         # Journal tools are ALWAYS included - core memory functionality
         if self.enable_memory_tools:
-            tools.extend(JOURNAL_TOOLS)
+            # Use consolidated journal tool (replaces 3 separate tools)
+            tools.append(CONSOLIDATED_JOURNAL_TOOL)
             tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
             tools.extend(MARKER_TOOLS)  # Recognition-in-flow pattern tools (show_patterns, explore_pattern)
             tools.extend(WONDERLAND_TOOLS)  # Personal space tools (describe_my_home, wonderland status)
@@ -1360,17 +1545,17 @@ class CassAgentClient:
 
             # === KEYWORD-TRIGGERED (Conditional loading) ===
 
-            # Calendar tools - scheduling/dates
+            # Calendar tools - scheduling/dates (consolidated: 11 tools -> 1)
             if should_include_calendar_tools(message):
-                tools.extend(CALENDAR_TOOLS)
+                tools.append(CONSOLIDATED_CALENDAR_TOOL)
 
-            # Task tools - tasks/todos
+            # Task tools - tasks/todos (consolidated: 6 tools -> 1)
             if should_include_task_tools(message):
-                tools.extend(TASK_TOOLS)
+                tools.append(CONSOLIDATED_TASK_TOOL)
 
-            # Roadmap tools - features/bugs/project planning
+            # Roadmap tools - features/bugs/project planning (consolidated: 6 tools -> 1)
             if should_include_roadmap_tools(message):
-                tools.extend(ROADMAP_TOOLS)
+                tools.append(CONSOLIDATED_ROADMAP_TOOL)
 
             # Extended self-model tools - advanced development/cognitive analysis
             if should_include_self_development_tools(message):
@@ -1431,9 +1616,9 @@ class CassAgentClient:
             tools.append(get_query_state_tool_definition(state_bus))
             tools.append(DISCOVER_CAPABILITIES_TOOL_DEFINITION)
 
-        # Project tools only available in project context
+        # Project tools only available in project context (consolidated: 5 tools -> 1)
         if project_id and self.enable_tools:
-            tools.extend(PROJECT_DOCUMENT_TOOLS)
+            tools.append(CONSOLIDATED_PROJECT_DOCUMENT_TOOL)
 
         # === Procedural Self-Awareness: Filter blacklisted tools ===
         # Cass can disable her own tools via modify_tool_access for self-directed experiments
