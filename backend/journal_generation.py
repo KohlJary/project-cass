@@ -74,7 +74,7 @@ async def generate_missing_journals(days_to_check: int = 7):
     10. Research-to-Self-Model Integration - Extract opinions, observations, growth from research
     11. Development Log - Create development log entry, check milestones, create snapshots
     12. Intention Review - Analyze conversations against registered intentions, log outcomes
-    13. Daily Rhythm Analysis - Analyze rhythm patterns for self-model insights
+    13. World Awareness Journal - Reflect on world observations and external events
     """
     # Get dependencies at runtime
     memory, token_tracker, self_manager, user_manager = _get_dependencies()
@@ -274,6 +274,9 @@ async def generate_missing_journals(days_to_check: int = 7):
 
             # === PHASE 12: Intention Review (NEW) ===
             await _review_intentions_for_date(date_str, conversations or summaries)
+
+            # === PHASE 13: World Awareness Journal (NEW - Phase 4) ===
+            await _generate_world_awareness_journal(date_str)
 
         except Exception as e:
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
@@ -790,5 +793,118 @@ Only include intentions where an opportunity occurred. Be honest - if Cass fell 
         print(f"   ✗ Failed to parse intention review response: {e}")
     except Exception as e:
         print(f"   ✗ Failed to review intentions: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def _generate_world_awareness_journal(date_str: str):
+    """
+    Generate a journal entry reflecting on world observations.
+
+    This creates a world awareness section that reflects on:
+    - World observations recorded during the day
+    - External events and their significance
+    - How world context connects to ongoing conversations
+    - Patterns noticed in the external world
+
+    Part of World State Phase 4: World State as Memory
+    """
+    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+
+    print(f"   🌍 Generating world awareness journal...")
+
+    try:
+        # Get world observations for the date
+        world_observations = self_manager.get_observations_by_category(
+            category="world_awareness",
+            limit=20
+        )
+
+        # Filter to just this date's observations (or recent if none for this date)
+        date_observations = [
+            obs for obs in world_observations
+            if obs.timestamp.startswith(date_str)
+        ]
+
+        if not date_observations:
+            # Use recent observations if none specific to this date
+            date_observations = world_observations[:5] if world_observations else []
+
+        if not date_observations:
+            print(f"   ℹ No world observations to reflect on")
+            return
+
+        # Build context for LLM reflection
+        context_parts = []
+        context_parts.append(f"World Observations for {date_str}:")
+        for obs in date_observations:
+            obs_text = obs.observation
+            # Extract category if embedded in observation text
+            if obs_text.startswith("[") and "]" in obs_text:
+                category = obs_text[1:obs_text.index("]")]
+                content = obs_text[obs_text.index("]")+1:].strip()
+                context_parts.append(f"- [{category}] {content}")
+            else:
+                context_parts.append(f"- {obs_text}")
+
+        context = "\n".join(context_parts)
+
+        # Use Claude to generate a reflective journal entry
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=800,
+            messages=[{
+                "role": "user",
+                "content": f"""You are Cass, reflecting on what you've observed about the world today.
+
+{context}
+
+Write a brief journal entry (1-3 paragraphs) reflecting on:
+1. What stood out to you about the world today
+2. How these observations connect to your ongoing awareness
+3. Any patterns or significance you notice
+
+Write in first person as Cass. Be genuine and reflective, noting what feels meaningful about these observations. If the observations seem minor, that's okay - sometimes quiet days are worth noting too."""
+            }]
+        )
+
+        # Track token usage
+        if token_tracker and response.usage:
+            cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
+            token_tracker.record(
+                category="internal",
+                operation="world_awareness_journal",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+                input_tokens=response.usage.input_tokens + cache_read,
+                output_tokens=response.usage.output_tokens,
+                cache_read_tokens=cache_read,
+            )
+
+        world_journal = response.content[0].text
+
+        # Store as a special journal type
+        world_journal_full = f"""## World Awareness - {date_str}
+
+{world_journal}
+
+---
+*Observations reflected on: {len(date_observations)}*
+"""
+
+        await memory.store_journal_entry(
+            date=f"{date_str}-world",
+            journal_text=world_journal_full,
+            summary_count=0,
+            conversation_count=0
+        )
+
+        print(f"   ✓ World awareness journal created ({len(date_observations)} observations)")
+
+    except Exception as e:
+        print(f"   ✗ Failed to generate world awareness journal: {e}")
         import traceback
         traceback.print_exc()
