@@ -818,16 +818,33 @@ async def handle_fetch_news(
     managers: Dict[str, Any],
     **context,
 ) -> Dict[str, Any]:
-    """Handle fetch_news tool call."""
-    # [STUB] - needs news API integration
+    """Handle fetch_news tool call using NewsAPI.org."""
+    from scheduler.actions.world_handlers import fetch_news_action
+
     topic = tool_input.get("topic", "")
+    category = tool_input.get("category", "general")
     limit = tool_input.get("limit", 5)
 
-    return {
-        "message": f"[STUB] Fetch news" + (f" about: {topic}" if topic else ""),
-        "articles": [],
-        "note": "News fetching not yet implemented in session runner"
-    }
+    # Delegate to the scheduler action which has the proper implementation
+    result = await fetch_news_action({
+        "topic": topic,
+        "category": category,
+        "limit": limit
+    })
+
+    if result.success:
+        return {
+            "message": result.message,
+            "articles": result.data.get("articles", []),
+            "topic": result.data.get("topic", topic or category),
+            "count": result.data.get("count", 0)
+        }
+    else:
+        return {
+            "error": result.message,
+            "articles": [],
+            "note": "Set NEWS_API_KEY environment variable for news access"
+        }
 
 
 async def handle_write_content(

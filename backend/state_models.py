@@ -513,6 +513,9 @@ class WorldStateData:
     cultural_context: Optional[str] = None  # "approaching winter solstice", etc.
     seasonal_note: Optional[str] = None  # Weather-appropriate suggestions
 
+    # News awareness (NewsAPI integration)
+    recent_headlines: List[Dict[str, Any]] = field(default_factory=list)
+
     # Meta
     last_updated: Optional[datetime] = None
 
@@ -538,6 +541,7 @@ class WorldStateData:
             "upcoming_holidays": self.upcoming_holidays,
             "cultural_context": self.cultural_context,
             "seasonal_note": self.seasonal_note,
+            "recent_headlines": self.recent_headlines,
             "last_updated": self.last_updated.isoformat() if self.last_updated else None,
         }
 
@@ -568,6 +572,7 @@ class WorldStateData:
             upcoming_holidays=data.get("upcoming_holidays", []),
             cultural_context=data.get("cultural_context"),
             seasonal_note=data.get("seasonal_note"),
+            recent_headlines=data.get("recent_headlines", []),
             last_updated=last_updated,
         )
 
@@ -610,6 +615,12 @@ class WorldStateData:
         # Seasonal note (Phase 3) - only if weather-relevant
         if self.seasonal_note and self.weather_description:
             lines.append(f"💡 {self.seasonal_note}")
+
+        # Recent headlines (NewsAPI integration)
+        if self.recent_headlines:
+            headlines_preview = [h.get("title", "")[:60] for h in self.recent_headlines[:3] if h.get("title")]
+            if headlines_preview:
+                lines.append(f"📰 Headlines: {'; '.join(headlines_preview)}...")
 
         return "\n".join(lines) if lines else ""
 
