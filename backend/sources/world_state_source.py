@@ -9,9 +9,10 @@ Provides ambient awareness of:
 """
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -111,6 +112,12 @@ class WorldStateSource(QueryableSource):
                     data_type="object",
                     tags=["location", "user", "mobile"]
                 ),
+                MetricDefinition(
+                    name="recent_headlines",
+                    description="Recent news headlines for world awareness",
+                    data_type="array",
+                    tags=["news", "headlines", "awareness"]
+                ),
             ],
             aggregations=["current"],
             group_by_options=["user_id"],
@@ -200,6 +207,12 @@ class WorldStateSource(QueryableSource):
                 "upcoming_holidays": temporal.get("upcoming_holidays", []),
                 "cultural_context": temporal.get("cultural_context"),
                 "seasonal_note": temporal.get("seasonal_note"),
+            })
+
+            # Step 4: Fetch news headlines (optional, requires NEWS_API_KEY)
+            headlines = await self._fetch_headlines()
+            self._rollups.update({
+                "recent_headlines": headlines,
 
                 # Meta
                 "last_updated": datetime.now().isoformat()
@@ -211,9 +224,11 @@ class WorldStateSource(QueryableSource):
 
             # Log enhanced context
             holidays_str = ", ".join(temporal.get("upcoming_holidays", [])[:2]) or "none"
+            headlines_count = len(headlines) if headlines else 0
             logger.info(
                 f"[{self.source_id}] Rollups refreshed: {self._rollups.get('server_location')}, "
-                f"{self._rollups.get('current_weather')}, holidays: {holidays_str}"
+                f"{self._rollups.get('current_weather')}, holidays: {holidays_str}, "
+                f"headlines: {headlines_count}"
             )
 
         except Exception as e:
@@ -324,6 +339,78 @@ class WorldStateSource(QueryableSource):
         )
 
         return temporal.to_dict()
+
+    async def _fetch_headlines(self, categories: List[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch recent news headlines from NewsAPI.org.
+
+        Requires NEWS_API_KEY environment variable.
+        Returns empty list if not configured (graceful degradation).
+
+        Args:
+            categories: News categories to fetch (default: general, technology, science)
+
+        Returns:
+            List of headline dicts: [{title, source, description, url, published, category}]
+        """
+        api_key = os.getenv("NEWS_API_KEY")
+        if not api_key:
+            logger.debug("NEWS_API_KEY not configured, skipping headlines")
+            return []
+
+        if categories is None:
+            categories = ["general", "technology", "science"]
+
+        all_headlines = []
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                for category in categories:
+                    try:
+                        response = await client.get(
+                            "https://newsapi.org/v2/top-headlines",
+                            params={
+                                "category": category,
+                                "apiKey": api_key,
+                                "pageSize": 5,
+                                "country": "us"
+                            }
+                        )
+
+                        if response.status_code == 200:
+                            data = response.json()
+                            if data.get("status") == "ok":
+                                for article in data.get("articles", []):
+                                    all_headlines.append({
+                                        "title": article.get("title"),
+                                        "source": article.get("source", {}).get("name"),
+                                        "description": article.get("description"),
+                                        "url": article.get("url"),
+                                        "published": article.get("publishedAt"),
+                                        "category": category
+                                    })
+                        else:
+                            logger.warning(f"NewsAPI returned {response.status_code} for {category}")
+
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch {category} headlines: {e}")
+                        continue
+
+            # Deduplicate by title (same story in multiple categories)
+            seen_titles = set()
+            unique_headlines = []
+            for headline in all_headlines:
+                title = headline.get("title", "")
+                if title and title not in seen_titles:
+                    seen_titles.add(title)
+                    unique_headlines.append(headline)
+
+            logger.info(f"Fetched {len(unique_headlines)} unique headlines from {len(categories)} categories")
+            return unique_headlines[:15]  # Cap at 15 headlines
+
+        except Exception as e:
+            logger.error(f"Headlines fetch failed: {e}")
+            return []
 
     def _load_rollups(self) -> None:
         """Load rollups from database."""
