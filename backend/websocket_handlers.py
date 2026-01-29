@@ -387,6 +387,40 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     current_activity = state.activity.current_activity.value if state.activity else None
                     print(f"[StateBus] Context: {global_state_context}")
 
+                # === Session Initialization (Continuity Awareness) ===
+                # Build context that helps Cass "wake up" with awareness of her recent state
+                session_init_context = ""
+                if conversation_id and self_manager:
+                    try:
+                        from session_init import (
+                            build_session_init_context,
+                            should_rebuild_session_context,
+                        )
+
+                        # Check if we need to build/rebuild session context
+                        # Use a simple heuristic: first message or conversation has few messages
+                        conversation = conversation_manager.load_conversation(conversation_id)
+                        is_session_start = (
+                            conversation and
+                            len(conversation.messages) < 3  # First few messages
+                        )
+
+                        if is_session_start:
+                            session_ctx = await build_session_init_context(
+                                conversation_id=conversation_id,
+                                user_id=ws_user_id,
+                                self_manager=self_manager,
+                                memory=memory,
+                                conversation_manager=conversation_manager,
+                                state_bus=state_bus,
+                                profile_manager=profile_manager if 'profile_manager' in dir() else None,
+                            )
+                            session_init_context = session_ctx.format_for_prompt()
+                            if session_init_context:
+                                print(f"[Session] Built init context: ~{session_ctx.token_estimate} tokens")
+                    except Exception as e:
+                        print(f"[Session] Init context failed: {e}")
+
                 # === Continuous Chat Mode ===
                 # If this is a continuous conversation, use simplified context with semantic retrieval
                 continuous_system_prompt = None
@@ -603,6 +637,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 # NOTE: intro_guidance is NOT merged into memory_context here
                 # It's passed separately to send_message for proper chain system support
                 context_sizes["intro"] = len(intro_guidance) if intro_guidance else 0
+
+                # Inject session initialization context at the start of memory context
+                # This gives Cass continuity awareness at the beginning of conversations
+                if session_init_context:
+                    memory_context = session_init_context + "\n\n" + memory_context
+                    context_sizes["session_init"] = len(session_init_context)
 
                 # Total context size
                 context_sizes["total"] = len(memory_context)
