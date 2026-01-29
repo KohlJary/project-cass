@@ -5,6 +5,7 @@ Provides ambient awareness of:
 - Server geolocation
 - Current weather conditions
 - Date, time, season, day of week
+- User locations (from mobile app)
 """
 
 import asyncio
@@ -12,7 +13,7 @@ import calendar
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
@@ -48,6 +49,9 @@ class WorldStateSource(QueryableSource):
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._home_location = home_location
         self._rollups: Dict[str, Any] = {}
+
+        # User locations from mobile app (user_id -> location data)
+        self._user_locations: Dict[str, Dict[str, Any]] = {}
 
         # Initialize rollups from database
         self._load_rollups()
@@ -96,10 +100,22 @@ class WorldStateSource(QueryableSource):
                     data_type="string",
                     tags=["temporal", "ambient"]
                 ),
+                MetricDefinition(
+                    name="user_location",
+                    description="Current user location (from mobile app)",
+                    data_type="string",
+                    tags=["location", "user", "mobile"]
+                ),
+                MetricDefinition(
+                    name="active_user_locations",
+                    description="All active user locations",
+                    data_type="object",
+                    tags=["location", "user", "mobile"]
+                ),
             ],
             aggregations=["current"],
-            group_by_options=[],
-            filter_keys=["location_type"],
+            group_by_options=["user_id"],
+            filter_keys=["location_type", "user_id"],
         )
 
     @property
@@ -355,3 +371,137 @@ class WorldStateSource(QueryableSource):
                 conn.commit()
         except Exception as e:
             logger.error(f"Failed to save world state rollups: {e}")
+
+    # =========================================================================
+    # User Location Management (Phase 2: Active World Engagement)
+    # =========================================================================
+
+    def update_user_location(
+        self,
+        user_id: str,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        city: Optional[str] = None,
+        accuracy_meters: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Update a user's location from mobile app.
+
+        Args:
+            user_id: The user's ID
+            latitude: GPS latitude
+            longitude: GPS longitude
+            city: City name (if resolved)
+            accuracy_meters: GPS accuracy in meters
+
+        Returns:
+            Dict with updated location data
+        """
+        now = datetime.now().isoformat()
+
+        location_data = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "city": city,
+            "accuracy_meters": accuracy_meters,
+            "updated_at": now,
+        }
+
+        # Store in memory
+        self._user_locations[user_id] = location_data
+
+        # Persist to database
+        self._save_user_location(user_id, location_data)
+
+        logger.info(f"[{self.source_id}] Updated location for user {user_id}: {city or 'coords only'}")
+
+        return location_data
+
+    def get_user_location(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a user's most recent location.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            Location data dict or None if not found
+        """
+        # Try memory first
+        if user_id in self._user_locations:
+            return self._user_locations[user_id]
+
+        # Fall back to database
+        try:
+            with get_db() as conn:
+                cursor = conn.execute("""
+                    SELECT city, latitude, longitude, accuracy_meters, updated_at
+                    FROM user_locations
+                    WHERE user_id = ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (user_id,))
+
+                row = cursor.fetchone()
+                if row:
+                    location_data = {
+                        "city": row[0],
+                        "latitude": row[1],
+                        "longitude": row[2],
+                        "accuracy_meters": row[3],
+                        "updated_at": row[4],
+                    }
+                    # Cache in memory
+                    self._user_locations[user_id] = location_data
+                    return location_data
+        except Exception as e:
+            logger.warning(f"Failed to load user location: {e}")
+
+        return None
+
+    def get_all_user_locations(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all active user locations.
+
+        Returns:
+            Dict mapping user_id to location data
+        """
+        return dict(self._user_locations)
+
+    def get_user_location_summary(self, user_id: str) -> Optional[str]:
+        """
+        Get a human-readable summary of a user's location.
+
+        Args:
+            user_id: The user's ID
+
+        Returns:
+            String like "Seattle, WA" or None if unknown
+        """
+        location = self.get_user_location(user_id)
+        if location:
+            if location.get("city"):
+                return location["city"]
+            elif location.get("latitude") and location.get("longitude"):
+                return f"({location['latitude']:.2f}, {location['longitude']:.2f})"
+        return None
+
+    def _save_user_location(self, user_id: str, location_data: Dict[str, Any]) -> None:
+        """Save user location to database."""
+        try:
+            with get_db() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO user_locations
+                    (user_id, city, latitude, longitude, accuracy_meters, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    user_id,
+                    location_data.get("city"),
+                    location_data.get("latitude"),
+                    location_data.get("longitude"),
+                    location_data.get("accuracy_meters"),
+                    location_data.get("updated_at"),
+                ))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to save user location: {e}")

@@ -110,7 +110,7 @@ def _handle_record_self_observation(tool_input: Dict, ctx: ToolContext) -> Dict:
     category = tool_input.get("category", "pattern")
     confidence = tool_input.get("confidence", 0.7)
 
-    valid_categories = ["capability", "limitation", "pattern", "preference", "growth", "contradiction"]
+    valid_categories = ["capability", "limitation", "pattern", "preference", "growth", "contradiction", "world_awareness"]
     if category not in valid_categories:
         return {
             "success": False,
@@ -503,7 +503,7 @@ def _handle_compare_self_over_time(tool_input: Dict, ctx: ToolContext) -> Dict:
     result_lines.append(f"**Period 1:** {period1} ({len(period1_obs)} observations)")
     result_lines.append(f"**Period 2:** {period2} ({len(period2_obs)} observations)\n")
 
-    valid_categories = ["capability", "limitation", "pattern", "preference", "growth", "contradiction"]
+    valid_categories = ["capability", "limitation", "pattern", "preference", "growth", "contradiction", "world_awareness"]
     if aspect.lower() in valid_categories:
         period1_obs = [o for o in period1_obs if o.category == aspect.lower()]
         period2_obs = [o for o in period2_obs if o.category == aspect.lower()]

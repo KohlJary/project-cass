@@ -255,6 +255,10 @@ def get_query_state_tool_definition(state_bus: Optional[GlobalStateBus] = None) 
         "memory": "Journals, threads, questions, embeddings",
         "self": "Self-model graph nodes and edges",
         "goals": "Unified goals and capability gaps",
+        "world_state": "Location, weather, date/time, season - ambient world awareness",
+        "actions": "Autonomous session action definitions",
+        "work": "Work items and roadmap progress",
+        "schedule": "Autonomous scheduler state and history",
     }
 
     source_list = "\n".join([

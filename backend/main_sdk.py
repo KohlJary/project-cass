@@ -1015,6 +1015,51 @@ async def update_quiet_hours(request: Request):
 
 # === Relay Message Handler ===
 
+async def _handle_location_update(user_id: str, payload: dict) -> dict:
+    """
+    Handle location update from mobile app.
+
+    Updates the world_state_source with the user's current location.
+
+    Args:
+        user_id: The user's ID
+        payload: Location data with latitude, longitude, city, accuracy_meters
+
+    Returns:
+        Acknowledgement response
+    """
+    try:
+        latitude = payload.get("latitude")
+        longitude = payload.get("longitude")
+        city = payload.get("city")
+        accuracy_meters = payload.get("accuracy_meters")
+
+        # Update the world state source
+        location_data = world_state_source.update_user_location(
+            user_id=user_id,
+            latitude=latitude,
+            longitude=longitude,
+            city=city,
+            accuracy_meters=accuracy_meters
+        )
+
+        logger.info(f"[Relay] Updated location for user {user_id}: {city or 'coords only'}")
+
+        return {
+            "type": "location_ack",
+            "success": True,
+            "location": location_data
+        }
+
+    except Exception as e:
+        logger.error(f"[Relay] Failed to update location for user {user_id}: {e}")
+        return {
+            "type": "location_ack",
+            "success": False,
+            "error": str(e)
+        }
+
+
 async def process_relay_chat_message(
     client_id: str,
     user_id: str,
@@ -1039,6 +1084,10 @@ async def process_relay_chat_message(
 
     if message_type == "ping":
         return {"type": "pong"}
+
+    if message_type == "location_update":
+        # Handle location update from mobile app
+        return await _handle_location_update(user_id, payload)
 
     if message_type != "chat":
         return {"type": "error", "message": f"Unknown message type: {message_type}"}

@@ -442,7 +442,7 @@ Only include genuine insights. If nothing notable, respond with: NONE"""
     def _parse_self_observations(self, text: str) -> List[Dict]:
         """Parse self-observation output into structured list."""
         observations = []
-        valid_categories = {"capability", "limitation", "pattern", "preference", "growth", "contradiction"}
+        valid_categories = {"capability", "limitation", "pattern", "preference", "growth", "contradiction", "world_awareness"}
         valid_sources = {"independent", "kohl_influenced", "other_user_influenced", "synthesis"}
 
         for line in text.strip().split("\n"):

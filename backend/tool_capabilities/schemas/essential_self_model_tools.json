@@ -44,7 +44,7 @@
           "category": {
             "type": "string",
             "description": "Type of observation",
-            "enum": ["capability", "limitation", "pattern", "preference", "growth", "contradiction"],
+            "enum": ["capability", "limitation", "pattern", "preference", "growth", "contradiction", "world_awareness"],
             "default": "pattern"
           },
           "confidence": {
