@@ -303,6 +303,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 27:
         print("Adding world_state_rollups table for ambient world awareness (v27)")
 
+    # v27 -> v28: Add user_locations table for mobile location sharing
+    # Table is created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 28:
+        print("Adding user_locations table for mobile location sharing (v28)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)

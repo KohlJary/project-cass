@@ -63,6 +63,9 @@ class ToolContext:
     # State bus for query_state tools
     state_bus: Any = None
 
+    # World state source for location updates
+    world_state_source: Any = None
+
 
 # Tool name -> executor mapping
 # Each entry is (tool_names_list, executor_import_path, requires_special_handling)
@@ -297,6 +300,10 @@ TOOL_REGISTRY = {
     # State query tools
     "query_state": "state_query",
     "discover_capabilities": "state_query",
+
+    # World observation tools
+    "record_world_observation": "world_observation",
+    "get_world_context": "world_observation",
 
     # PeopleDex tools (biographical entity database)
     "lookup_person": "peopledex",
@@ -562,6 +569,17 @@ async def route_tool(
             tool_name=tool_name,
             tool_input=tool_input,
             state_bus=ctx.state_bus
+        )
+
+    elif executor_type == "world_observation":
+        return executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+            self_manager=ctx.self_manager,
+            state_bus=ctx.state_bus,
+            world_state_source=ctx.world_state_source,
+            user_id=ctx.user_id
         )
 
     elif executor_type == "peopledex":

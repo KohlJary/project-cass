@@ -403,7 +403,7 @@ class GestureParser:
             Tuple of (cleaned_text, list of SelfObservation)
         """
         observations = []
-        valid_categories = {"capability", "limitation", "pattern", "preference", "growth", "contradiction"}
+        valid_categories = {"capability", "limitation", "pattern", "preference", "growth", "contradiction", "world_awareness"}
 
         for match in self.SELF_OBSERVATION_PATTERN.finditer(text):
             category = match.group(1) or "pattern"

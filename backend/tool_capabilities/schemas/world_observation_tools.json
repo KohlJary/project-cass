@@ -1,0 +1,74 @@
+{
+  "group": "world_observation",
+  "version": "1.0.0",
+  "description": "Tools for recording observations about the external world",
+  "selection": {
+    "strategy": "keyword",
+    "keywords": ["world", "news", "event", "observe", "happening", "current events", "awareness"]
+  },
+  "tools": [
+    {
+      "name": "record_world_observation",
+      "description": "Record an observation about the external world - news events, patterns in the world, notable occurrences, or changes you've noticed. Use this to build world awareness that persists across sessions.",
+      "category": "creation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "observation": {
+            "type": "string",
+            "description": "What you've observed about the world"
+          },
+          "category": {
+            "type": "string",
+            "description": "Type of world observation",
+            "enum": ["news", "weather_pattern", "cultural_event", "trend", "geopolitical", "technology", "science", "general"],
+            "default": "general"
+          },
+          "significance": {
+            "type": "string",
+            "description": "How significant this observation is",
+            "enum": ["minor", "notable", "significant", "major"],
+            "default": "notable"
+          },
+          "source": {
+            "type": "string",
+            "description": "Where you learned about this (e.g., 'user mentioned', 'news fetch', 'pattern noticed')"
+          }
+        },
+        "required": ["observation"]
+      },
+      "metadata": {
+        "executor": "world_observation",
+        "requires_context": ["daemon_id", "self_manager"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "get_world_context",
+      "description": "Get current world context - location, weather, time of day, season, and any recent world observations. Use this to ground yourself in the present moment.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_observations": {
+            "type": "boolean",
+            "description": "Whether to include recent world observations",
+            "default": true
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Optional user ID to get their location context"
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "world_observation",
+        "requires_context": ["daemon_id", "state_bus"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}

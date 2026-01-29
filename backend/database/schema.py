@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 27  # Added world_state_rollups for ambient world awareness
+SCHEMA_VERSION = 28  # Added user_locations for mobile location sharing
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1142,6 +1142,18 @@ CREATE TABLE IF NOT EXISTS world_state_rollups (
     rollups_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- User locations - location sharing from mobile app
+CREATE TABLE IF NOT EXISTS user_locations (
+    user_id TEXT PRIMARY KEY REFERENCES users(id),
+    city TEXT,
+    latitude REAL,
+    longitude REAL,
+    accuracy_meters REAL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_locations_updated
+    ON user_locations(updated_at);
 
 -- =============================================================================
 -- WORK PLANNING TABLES - Cass's taskboard and calendar
