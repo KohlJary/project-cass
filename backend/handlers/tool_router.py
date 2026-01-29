@@ -328,7 +328,105 @@ TOOL_REGISTRY = {
 
     # Direct message tools (push notification to mobile)
     "send_direct_message": "direct_message",
+
+    # =========================================================================
+    # CONSOLIDATED TOOLS
+    # These are action-based tools that get translated to the original tool names
+    # =========================================================================
+    "calendar": "consolidated_calendar",
+    "task": "consolidated_task",
+    "journal": "consolidated_journal",
+    "roadmap": "consolidated_roadmap",
+    "project_document": "consolidated_document",
 }
+
+
+# Mapping from consolidated action names to original tool names
+CONSOLIDATED_ACTION_MAP = {
+    # Calendar actions -> original tool names
+    "consolidated_calendar": {
+        "create_event": "create_event",
+        "create_reminder": "create_reminder",
+        "get_agenda": "get_todays_agenda",
+        "get_upcoming": "get_upcoming_events",
+        "search": "search_events",
+        "complete": "complete_reminder",
+        "delete": "delete_event",
+        "update": "update_event",
+        "delete_by_query": "delete_events_by_query",
+        "clear_all": "clear_all_events",
+        "reschedule": "reschedule_event_by_query",
+    },
+    # Task actions -> original tool names
+    "consolidated_task": {
+        "add": "add_task",
+        "list": "list_tasks",
+        "complete": "complete_task",
+        "modify": "modify_task",
+        "delete": "delete_task",
+    },
+    # Journal actions -> original tool names
+    "consolidated_journal": {
+        "recall": "recall_journal",
+        "list": "list_journals",
+        "search": "search_journals",
+    },
+    # Roadmap actions -> original tool names
+    "consolidated_roadmap": {
+        "create": "create_roadmap_item",
+        "list": "list_roadmap_items",
+        "get": "get_roadmap_item",
+        "update": "update_roadmap_item",
+        "complete": "complete_roadmap_item",
+        "advance": "advance_roadmap_item",
+    },
+    # Document actions -> original tool names
+    "consolidated_document": {
+        "create": "create_project_document",
+        "list": "list_project_documents",
+        "get": "get_project_document",
+        "update": "update_project_document",
+        "search": "search_project_documents",
+    },
+}
+
+
+def translate_consolidated_tool(
+    tool_name: str,
+    tool_input: Dict
+) -> tuple[str, Dict]:
+    """
+    Translate consolidated tool calls to original tool format.
+
+    If the tool is a consolidated tool (calendar, task, journal, roadmap, project_document),
+    extracts the action parameter and maps it to the original tool name.
+
+    Args:
+        tool_name: The tool name (may be consolidated or original)
+        tool_input: The tool input dict
+
+    Returns:
+        Tuple of (translated_tool_name, cleaned_tool_input)
+    """
+    executor_type = TOOL_REGISTRY.get(tool_name)
+
+    # Check if this is a consolidated tool
+    if executor_type and executor_type.startswith("consolidated_"):
+        action = tool_input.get("action")
+        if not action:
+            # No action provided - return error will be handled downstream
+            return tool_name, tool_input
+
+        action_map = CONSOLIDATED_ACTION_MAP.get(executor_type, {})
+        original_tool_name = action_map.get(action)
+
+        if original_tool_name:
+            # Remove the action key from input since the handler doesn't expect it
+            cleaned_input = {k: v for k, v in tool_input.items() if k != "action"}
+            return original_tool_name, cleaned_input
+
+    # Not a consolidated tool or unknown action - return as-is
+    return tool_name, tool_input
 
 
 async def route_tool(
@@ -351,6 +449,11 @@ async def route_tool(
         Dict with 'success', 'result', and optionally 'error'
     """
     import json as json_module
+
+    # Translate consolidated tools to original format
+    # This allows action-based tools like "calendar" with action="create_event"
+    # to be routed to the original "create_event" handler
+    tool_name, tool_input = translate_consolidated_tool(tool_name, tool_input)
 
     executor_type = TOOL_REGISTRY.get(tool_name)
 
