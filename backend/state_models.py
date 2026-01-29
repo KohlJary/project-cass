@@ -694,6 +694,32 @@ class GlobalState:
         if world_summary:
             sections.append(world_summary)
 
+        # Day phase and autonomous work context
+        dp = self.day_phase
+        if dp.current_phase:
+            phase_emoji = {
+                "morning": "🌅",
+                "afternoon": "☀️",
+                "evening": "🌆",
+                "night": "🌙"
+            }.get(dp.current_phase, "")
+
+            # Build day phase line
+            phase_parts = [f"{phase_emoji} {dp.current_phase.capitalize()}"]
+
+            # Add today's work summary if any
+            total_work_today = len(dp.todays_work_slugs)
+            if total_work_today > 0:
+                # Summarize work by phase
+                work_summary_parts = []
+                for phase, count in dp.work_by_phase.items():
+                    if count > 0:
+                        work_summary_parts.append(f"{phase}: {count}")
+                if work_summary_parts:
+                    phase_parts.append(f"Today's work: {', '.join(work_summary_parts)}")
+
+            sections.append(" | ".join(phase_parts))
+
         # Current engagement context
         a = self.activity
         engagement_parts = []

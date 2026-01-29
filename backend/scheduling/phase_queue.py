@@ -321,6 +321,7 @@ class PhaseQueueManager:
 
             # Capture references for closure
             action_registry = self._action_registry
+            state_bus = self.state_bus
 
             # Create handler that executes actions and saves summary
             async def handler(**kwargs) -> Dict[str, Any]:
@@ -420,6 +421,27 @@ class PhaseQueueManager:
 
                         saved_slug = summary_store.save(summary)
                         logger.info(f"Saved work summary: {saved_slug}")
+
+                        # Emit state bus delta for day_phase work tracking
+                        if state_bus:
+                            from state_models import StateDelta
+                            delta = StateDelta(
+                                source="phase_queue_manager",
+                                day_phase_delta={
+                                    "work_slug": saved_slug,
+                                    "current_phase": target_phase.value,
+                                },
+                                event="work_unit.completed",
+                                event_data={
+                                    "work_unit_id": work_unit.id,
+                                    "name": work_unit.name,
+                                    "phase": target_phase.value,
+                                    "success": success,
+                                    "slug": saved_slug,
+                                },
+                                reason=f"Phase queue work completed: {work_unit.name}",
+                            )
+                            state_bus.write_delta(delta)
                     except Exception as e:
                         logger.error(f"Failed to save work summary: {e}")
 
