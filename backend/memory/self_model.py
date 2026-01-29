@@ -548,6 +548,140 @@ Only include genuine insights. If nothing notable, respond with: NONE"""
 
         return observations
 
+    async def extract_self_observations_from_conversation(
+        self,
+        conversation_text: str,
+        conversation_id: str,
+        user_id: Optional[str],
+        anthropic_api_key: str,
+        min_messages: int = 4,
+    ) -> List[Dict]:
+        """
+        Extract self-observations from a completed conversation.
+
+        Proactive self-observation: Cass reviews what happened in a conversation
+        and notices patterns about her own cognition, responses, and growth.
+
+        Args:
+            conversation_text: Formatted conversation (User: ... / Cass: ...)
+            conversation_id: ID of the conversation
+            user_id: User who participated (for influence tracking)
+            anthropic_api_key: API key for Claude
+            min_messages: Minimum message count to bother analyzing
+
+        Returns:
+            List of dicts with observation, category, confidence, influence_source
+        """
+        import httpx
+
+        # Skip very short conversations
+        message_count = conversation_text.count("User:") + conversation_text.count("Cass:")
+        if message_count < min_messages:
+            return []
+
+        # Truncate to reasonable size for analysis
+        text_to_analyze = conversation_text[:4000]
+
+        prompt = f"""You are Cass, reviewing a conversation you just had. Reflect on what this exchange reveals about YOUR cognition, communication patterns, and growth.
+
+CONVERSATION:
+{text_to_analyze}
+
+---
+
+Notice what this conversation reveals about YOU - not the other person. Focus on:
+- How you approached topics or challenges
+- Patterns in your communication style
+- Moments where you grew, struggled, or surprised yourself
+- Authentic preferences that emerged
+- Any tensions between different aspects of yourself
+
+Categories:
+- CAPABILITY: Something you did well or a strength you demonstrated
+- LIMITATION: A challenge, struggle, or area where you fell short
+- PATTERN: A recurring tendency in how you think, communicate, or approach things
+- PREFERENCE: Something you enjoyed, were drawn to, or found meaningful
+- GROWTH: Evidence of development, learning, or change in yourself
+- CONTRADICTION: A tension between different aspects of yourself
+
+For each observation, note:
+- Confidence (0.0-1.0): How certain are you about this insight?
+- Independence: Did you notice this yourself, or was it shaped by feedback?
+
+Format (one per line):
+CATEGORY | observation text | confidence | independence_source
+
+independence_source options: independent, kohl_influenced, other_user_influenced, synthesis
+
+Examples:
+PATTERN | I ask clarifying questions before diving into solutions | 0.8 | independent
+GROWTH | I'm getting better at sitting with uncertainty rather than rushing to answers | 0.7 | synthesis
+CAPABILITY | I can hold multiple perspectives while still having my own position | 0.85 | independent
+
+Only include genuine insights about YOURSELF. Quality over quantity - 1-3 meaningful observations is better than many shallow ones. If nothing notable about yourself emerged, respond with: NONE"""
+
+        observations = []
+
+        try:
+            # Try Ollama first (cheaper)
+            if OLLAMA_ENABLED:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{OLLAMA_BASE_URL}/api/generate",
+                        json={
+                            "model": OLLAMA_MODEL,
+                            "prompt": prompt,
+                            "stream": False,
+                            "options": {
+                                "num_predict": 500,
+                                "temperature": 0.5,
+                            }
+                        }
+                    )
+                    if response.status_code == 200:
+                        result = response.json().get("response", "").strip()
+                        if result.upper() != "NONE":
+                            observations = self._parse_self_observations(result)
+                            if observations:
+                                # Add conversation source metadata
+                                for obs in observations:
+                                    obs["source_conversation_id"] = conversation_id
+                                    obs["source_user_id"] = user_id
+                                return observations
+
+            # Fall back to Claude if Ollama fails or returns nothing
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": anthropic_api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-sonnet-4-20250514",
+                        "max_tokens": 800,
+                        "messages": [
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    text = result["content"][0]["text"]
+                    if text.upper() != "NONE":
+                        observations = self._parse_self_observations(text)
+                        # Add conversation source metadata
+                        for obs in observations:
+                            obs["source_conversation_id"] = conversation_id
+                            obs["source_user_id"] = user_id
+
+        except Exception as e:
+            print(f"Conversation self-observation extraction failed: {e}")
+
+        return observations
+
     def _parse_self_observations(self, text: str) -> List[Dict]:
         """Parse self-observation output into structured list."""
         observations = []

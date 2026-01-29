@@ -1374,6 +1374,25 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     except WebSocketDisconnect:
         print(f"[WebSocket] Client disconnected normally")
         manager.disconnect(websocket)
+
+        # Proactive self-observation: Extract insights from this conversation
+        # Run asynchronously to not block disconnect
+        if conversation_id and self_manager and memory and conversation_manager:
+            try:
+                from background_tasks import extract_post_conversation_observations
+                asyncio.create_task(
+                    extract_post_conversation_observations(
+                        conversation_id=conversation_id,
+                        user_id=ws_user_id,
+                        conversation_manager=conversation_manager,
+                        memory=memory,
+                        self_manager=self_manager,
+                        min_messages=4,
+                    )
+                )
+            except Exception as obs_error:
+                print(f"[WebSocket] Failed to queue observation extraction: {obs_error}")
+
     except Exception as e:
         print(f"[WebSocket] Unexpected error: {type(e).__name__}: {e}")
         import traceback
