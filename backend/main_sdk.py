@@ -1822,6 +1822,16 @@ async def startup_event():
             asyncio.create_task(synkratos.start())
             logger.info("Synkratos started with all system tasks enabled")
 
+            # Start periodic conversation observation task (proactive self-awareness)
+            from background_tasks import periodic_conversation_observation_task
+            asyncio.create_task(periodic_conversation_observation_task(
+                conversation_manager=conversation_manager,
+                memory=memory,
+                self_manager=self_manager,
+                check_interval_minutes=30,
+            ))
+            logger.info("Periodic conversation observation task started")
+
         except Exception as e:
             logger.error(f"Failed to initialize Synkratos: {e}")
             import traceback
@@ -1835,6 +1845,14 @@ async def startup_event():
                 conversation_manager=conversation_manager,
                 memory=memory,
                 token_tracker=token_tracker
+            ))
+            # Start periodic conversation observation in fallback mode too
+            from background_tasks import periodic_conversation_observation_task
+            asyncio.create_task(periodic_conversation_observation_task(
+                conversation_manager=conversation_manager,
+                memory=memory,
+                self_manager=self_manager,
+                check_interval_minutes=30,
             ))
 
     asyncio.create_task(start_deferred_tasks())

@@ -204,4 +204,180 @@ async def autonomous_research_task():
             await asyncio.sleep(60)  # Wait a bit before retrying
 
 
+async def extract_post_conversation_observations(
+    conversation_id: str,
+    user_id: Optional[str],
+    conversation_manager,
+    memory,
+    self_manager,
+    min_messages: int = 4,
+) -> int:
+    """
+    Extract self-observations from a completed conversation.
+
+    This is the proactive self-observation hook - Cass automatically reviews
+    conversations and notices patterns about her own cognition.
+
+    Args:
+        conversation_id: ID of the completed conversation
+        user_id: User who participated
+        conversation_manager: ConversationManager instance
+        memory: CassMemory instance
+        self_manager: SelfManager instance
+        min_messages: Minimum messages to bother analyzing
+
+    Returns:
+        Number of observations extracted
+    """
+    from config import ANTHROPIC_API_KEY
+
+    try:
+        # Get the conversation
+        conversation = conversation_manager.get_conversation(conversation_id)
+        if not conversation or len(conversation.messages) < min_messages:
+            return 0
+
+        # Format conversation for analysis
+        conversation_text = ""
+        for msg in conversation.messages[-20:]:  # Last 20 messages
+            role = "User" if msg.role == "user" else "Cass"
+            content = msg.content[:500] if len(msg.content) > 500 else msg.content
+            conversation_text += f"{role}: {content}\n\n"
+
+        if not conversation_text.strip():
+            return 0
+
+        # Extract observations using LLM
+        observations = await memory.extract_self_observations_from_conversation(
+            conversation_text=conversation_text,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            anthropic_api_key=ANTHROPIC_API_KEY,
+            min_messages=min_messages,
+        )
+
+        if not observations:
+            logger.debug(f"No self-observations extracted from conversation {conversation_id[:8]}")
+            return 0
+
+        # Add each observation to self-model
+        added_count = 0
+        for obs_data in observations:
+            try:
+                obs = self_manager.add_observation(
+                    observation=obs_data["observation"],
+                    category=obs_data["category"],
+                    confidence=obs_data["confidence"],
+                    source_type="conversation",
+                    source_conversation_id=conversation_id,
+                    source_user_id=user_id,
+                    influence_source=obs_data["influence_source"],
+                )
+
+                if obs:
+                    # Embed for semantic retrieval
+                    memory.embed_self_observation(
+                        observation_id=obs.id,
+                        observation_text=obs.observation,
+                        category=obs.category,
+                        confidence=obs.confidence,
+                        influence_source=obs.influence_source,
+                        timestamp=obs.timestamp,
+                    )
+                    added_count += 1
+                    logger.info(
+                        f"  📝 Self-observation ({obs.category}): {obs.observation[:60]}..."
+                    )
+            except Exception as e:
+                logger.error(f"Failed to add observation: {e}")
+
+        if added_count > 0:
+            logger.info(
+                f"Extracted {added_count} self-observation(s) from conversation {conversation_id[:8]}"
+            )
+
+        return added_count
+
+    except Exception as e:
+        logger.error(f"Post-conversation observation extraction failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+
+async def periodic_conversation_observation_task(
+    conversation_manager,
+    memory,
+    self_manager,
+    check_interval_minutes: int = 30,
+):
+    """
+    Background task that periodically extracts self-observations from recent conversations.
+
+    This complements the post-disconnect hook by catching conversations that
+    didn't get analyzed (e.g., if the hook failed or was skipped).
+
+    Args:
+        conversation_manager: ConversationManager instance
+        memory: CassMemory instance
+        self_manager: SelfManager instance
+        check_interval_minutes: How often to check for conversations
+    """
+    from config import ANTHROPIC_API_KEY
+
+    # Wait for startup
+    await asyncio.sleep(120)
+    logger.info("Periodic conversation observation task started")
+
+    # Track which conversations we've already analyzed
+    analyzed_conversations = set()
+
+    while True:
+        try:
+            # Check if daemon is dormant
+            if get_active_daemon_activity_mode() == "dormant":
+                await asyncio.sleep(300)
+                continue
+
+            # Find recent conversations that haven't been analyzed
+            recent = conversation_manager.get_recent_conversations(limit=10)
+
+            for conv in recent:
+                if conv.id in analyzed_conversations:
+                    continue
+
+                # Skip if too few messages
+                if len(conv.messages) < 4:
+                    analyzed_conversations.add(conv.id)
+                    continue
+
+                # Skip if conversation is still active (updated recently)
+                updated_at = datetime.fromisoformat(conv.updated_at.replace("Z", "+00:00"))
+                if datetime.now(updated_at.tzinfo) - updated_at < timedelta(minutes=15):
+                    continue
+
+                # Extract observations
+                count = await extract_post_conversation_observations(
+                    conversation_id=conv.id,
+                    user_id=conv.user_id,
+                    conversation_manager=conversation_manager,
+                    memory=memory,
+                    self_manager=self_manager,
+                )
+
+                analyzed_conversations.add(conv.id)
+
+                if count > 0:
+                    # Small delay between conversations to avoid rate limits
+                    await asyncio.sleep(5)
+
+            # Limit the set size to prevent memory growth
+            if len(analyzed_conversations) > 500:
+                analyzed_conversations = set(list(analyzed_conversations)[-250:])
+
+        except Exception as e:
+            logger.error(f"Periodic conversation observation task error: {e}")
+
+        await asyncio.sleep(check_interval_minutes * 60)
+
 
