@@ -508,6 +508,11 @@ class WorldStateData:
     day_of_week: Optional[str] = None
     is_weekend: bool = False
 
+    # Enhanced temporal (Phase 3)
+    upcoming_holidays: List[str] = field(default_factory=list)  # Within next 2 weeks
+    cultural_context: Optional[str] = None  # "approaching winter solstice", etc.
+    seasonal_note: Optional[str] = None  # Weather-appropriate suggestions
+
     # Meta
     last_updated: Optional[datetime] = None
 
@@ -530,6 +535,9 @@ class WorldStateData:
             "time_of_day": self.time_of_day,
             "day_of_week": self.day_of_week,
             "is_weekend": self.is_weekend,
+            "upcoming_holidays": self.upcoming_holidays,
+            "cultural_context": self.cultural_context,
+            "seasonal_note": self.seasonal_note,
             "last_updated": self.last_updated.isoformat() if self.last_updated else None,
         }
 
@@ -557,6 +565,9 @@ class WorldStateData:
             time_of_day=data.get("time_of_day"),
             day_of_week=data.get("day_of_week"),
             is_weekend=data.get("is_weekend", False),
+            upcoming_holidays=data.get("upcoming_holidays", []),
+            cultural_context=data.get("cultural_context"),
+            seasonal_note=data.get("seasonal_note"),
             last_updated=last_updated,
         )
 
@@ -565,8 +576,10 @@ class WorldStateData:
         Get a brief context summary for system prompts.
 
         Returns something like:
-        "**Today:** Tuesday, January 28, 2026 (winter)
-         Seattle, WA - Rainy, 52°F"
+        "**Today:** Tuesday, January 28, 2026 (winter) - afternoon
+         Seattle, WA - Rainy, 52°F
+         📅 Christmas Day (in 3 days), New Year's Eve (in 8 days)
+         🌟 holiday season, approaching the winter solstice"
         """
         lines = []
 
@@ -584,6 +597,19 @@ class WorldStateData:
             if self.current_weather:
                 loc_line += f" - {self.current_weather}"
             lines.append(loc_line)
+
+        # Upcoming holidays (Phase 3)
+        if self.upcoming_holidays:
+            holidays_str = ", ".join(self.upcoming_holidays[:3])  # Show up to 3
+            lines.append(f"📅 {holidays_str}")
+
+        # Cultural context (Phase 3)
+        if self.cultural_context:
+            lines.append(f"🌟 {self.cultural_context}")
+
+        # Seasonal note (Phase 3) - only if weather-relevant
+        if self.seasonal_note and self.weather_description:
+            lines.append(f"💡 {self.seasonal_note}")
 
         return "\n".join(lines) if lines else ""
 

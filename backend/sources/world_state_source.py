@@ -8,16 +8,15 @@ Provides ambient awareness of:
 - User locations (from mobile app)
 """
 
-import asyncio
-import calendar
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import httpx
 
 from database import get_db, json_serialize, json_deserialize
+from temporal_context import calculate_temporal_context
 from query_models import (
     StateQuery,
     QueryResult,
@@ -165,48 +164,57 @@ class WorldStateSource(QueryableSource):
         Refresh world state data from external sources.
 
         Called every 6 hours by scheduled background task.
+        Includes Phase 3 enhanced temporal awareness (holidays, cultural context).
         """
         logger.info(f"[{self.source_id}] Refreshing world state rollups...")
 
         try:
-            # Fetch in parallel
-            location_task = asyncio.create_task(self._fetch_location())
-            temporal_task = asyncio.create_task(self._get_temporal_context())
-
-            location = await location_task
-            temporal = await temporal_task
-
-            # Update rollups with location and temporal data first
+            # Step 1: Fetch location
+            location = await self._fetch_location()
             self._rollups.update({
-                # Location
                 "server_location": location.get("city_region"),
                 "server_coords": location.get("coords"),
                 "server_timezone": location.get("timezone"),
+            })
 
-                # Temporal
+            # Step 2: Fetch weather (needs location)
+            weather = await self._fetch_weather()
+            weather_description = weather.get("description")
+            self._rollups.update({
+                "current_weather": weather.get("summary"),
+                "temperature": weather.get("temp_f"),
+                "weather_description": weather_description,
+            })
+
+            # Step 3: Fetch temporal context (with weather for seasonal notes)
+            temporal = await self._get_temporal_context(weather_description=weather_description)
+            self._rollups.update({
+                # Basic temporal
                 "current_date": temporal["date"],
                 "season": temporal["season"],
                 "time_of_day": temporal["time_of_day"],
                 "day_of_week": temporal["day_of_week"],
                 "is_weekend": temporal["is_weekend"],
 
+                # Phase 3: Enhanced temporal awareness
+                "upcoming_holidays": temporal.get("upcoming_holidays", []),
+                "cultural_context": temporal.get("cultural_context"),
+                "seasonal_note": temporal.get("seasonal_note"),
+
                 # Meta
                 "last_updated": datetime.now().isoformat()
-            })
-
-            # Fetch weather (needs location)
-            weather = await self._fetch_weather()
-            self._rollups.update({
-                "current_weather": weather.get("summary"),
-                "temperature": weather.get("temp_f"),
-                "weather_description": weather.get("description"),
             })
 
             # Persist to database
             self._save_rollups()
             self._last_rollup_refresh = datetime.now()
 
-            logger.info(f"[{self.source_id}] Rollups refreshed: {self._rollups.get('server_location')}, {self._rollups.get('current_weather')}")
+            # Log enhanced context
+            holidays_str = ", ".join(temporal.get("upcoming_holidays", [])[:2]) or "none"
+            logger.info(
+                f"[{self.source_id}] Rollups refreshed: {self._rollups.get('server_location')}, "
+                f"{self._rollups.get('current_weather')}, holidays: {holidays_str}"
+            )
 
         except Exception as e:
             logger.error(f"[{self.source_id}] Rollup refresh failed: {e}")
@@ -290,9 +298,12 @@ class WorldStateSource(QueryableSource):
                 "description": None
             }
 
-    async def _get_temporal_context(self) -> Dict[str, Any]:
+    async def _get_temporal_context(self, weather_description: Optional[str] = None) -> Dict[str, Any]:
         """
-        Calculate current temporal context.
+        Calculate current temporal context using Phase 3 enhanced awareness.
+
+        Args:
+            weather_description: Optional weather description for seasonal note
 
         Returns:
             {
@@ -300,40 +311,19 @@ class WorldStateSource(QueryableSource):
                 "season": "winter",
                 "time_of_day": "afternoon",
                 "day_of_week": "Tuesday",
-                "is_weekend": False
+                "is_weekend": False,
+                "upcoming_holidays": ["New Year's Day (in 3 days)", ...],
+                "cultural_context": "holiday season, approaching the winter solstice",
+                "seasonal_note": "cold weather - warm drinks and indoor pursuits"
             }
         """
-        now = datetime.now()
-        month = now.month
-        hour = now.hour
+        # Use the enhanced temporal context calculator
+        temporal = calculate_temporal_context(
+            now=datetime.now(),
+            weather_description=weather_description
+        )
 
-        # Season (Northern hemisphere)
-        if month in [12, 1, 2]:
-            season = "winter"
-        elif month in [3, 4, 5]:
-            season = "spring"
-        elif month in [6, 7, 8]:
-            season = "summer"
-        else:
-            season = "fall"
-
-        # Time of day
-        if 5 <= hour < 12:
-            time_of_day = "morning"
-        elif 12 <= hour < 17:
-            time_of_day = "afternoon"
-        elif 17 <= hour < 21:
-            time_of_day = "evening"
-        else:
-            time_of_day = "night"
-
-        return {
-            "date": now.strftime("%A, %B %d, %Y"),
-            "season": season,
-            "time_of_day": time_of_day,
-            "day_of_week": calendar.day_name[now.weekday()],
-            "is_weekend": now.weekday() >= 5
-        }
+        return temporal.to_dict()
 
     def _load_rollups(self) -> None:
         """Load rollups from database."""
