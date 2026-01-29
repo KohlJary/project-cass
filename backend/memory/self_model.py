@@ -329,6 +329,115 @@ class SelfModelMemory:
 
         return context
 
+    def retrieve_world_context(
+        self,
+        query: str,
+        n_results: int = 5,
+        time_range_days: int = 30,
+        max_distance: float = 1.5
+    ) -> List[Dict]:
+        """
+        Retrieve relevant world observations for a query.
+
+        World observations are self-observations with category='world_awareness'.
+        This method retrieves them for inclusion in conversation context or
+        journal generation.
+
+        Args:
+            query: The current message or query
+            n_results: Maximum number of results to return
+            time_range_days: Only include observations from last N days
+            max_distance: Max semantic distance for relevance filtering
+
+        Returns:
+            List of relevant world context entries
+        """
+        from datetime import datetime, timedelta
+
+        # Calculate cutoff date
+        cutoff = (datetime.now() - timedelta(days=time_range_days)).isoformat()
+
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=n_results * 2,  # Over-fetch to allow filtering
+            where={
+                "$and": [
+                    {"type": "cass_self_observation"},
+                    {"category": "world_awareness"},
+                    {"timestamp": {"$gte": cutoff}}
+                ]
+            }
+        )
+
+        context = []
+        if results["documents"] and results["documents"][0]:
+            for i, doc in enumerate(results["documents"][0]):
+                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                distance = results["distances"][0][i] if results["distances"] else None
+
+                # Filter by relevance
+                if distance is not None and distance > max_distance:
+                    continue
+
+                context.append({
+                    "content": doc,
+                    "metadata": metadata,
+                    "distance": distance
+                })
+
+                if len(context) >= n_results:
+                    break
+
+        return context
+
+    def get_recent_world_observations(
+        self,
+        limit: int = 10,
+        time_range_days: int = 7
+    ) -> List[Dict]:
+        """
+        Get recent world observations without semantic filtering.
+
+        Useful for journal generation where we want all recent world
+        observations regardless of topic relevance.
+
+        Args:
+            limit: Maximum number of observations to return
+            time_range_days: Only include observations from last N days
+
+        Returns:
+            List of recent world observations, newest first
+        """
+        from datetime import datetime, timedelta
+
+        cutoff = (datetime.now() - timedelta(days=time_range_days)).isoformat()
+
+        results = self.collection.get(
+            where={
+                "$and": [
+                    {"type": "cass_self_observation"},
+                    {"category": "world_awareness"},
+                    {"timestamp": {"$gte": cutoff}}
+                ]
+            },
+            include=["documents", "metadatas"]
+        )
+
+        observations = []
+        if results["documents"]:
+            for i, doc in enumerate(results["documents"]):
+                metadata = results["metadatas"][i] if results["metadatas"] else {}
+                observations.append({
+                    "content": doc,
+                    "metadata": metadata,
+                    "timestamp": metadata.get("timestamp", "")
+                })
+
+        # Sort by timestamp descending
+        observations.sort(key=lambda x: x["timestamp"], reverse=True)
+
+        return observations[:limit]
+
     # === LLM-Based Extraction Methods ===
 
     async def extract_self_observations_from_journal(

@@ -235,6 +235,14 @@ class CassMemory:
     def retrieve_self_context(self, *args, **kwargs):
         return self._self_model.retrieve_self_context(*args, **kwargs)
 
+    def retrieve_world_context(self, *args, **kwargs):
+        """Retrieve relevant world observations for a query (Phase 4)."""
+        return self._self_model.retrieve_world_context(*args, **kwargs)
+
+    def get_recent_world_observations(self, *args, **kwargs):
+        """Get recent world observations for journal generation (Phase 4)."""
+        return self._self_model.get_recent_world_observations(*args, **kwargs)
+
     async def extract_self_observations_from_journal(self, *args, **kwargs):
         return await self._self_model.extract_self_observations_from_journal(*args, **kwargs)
 
