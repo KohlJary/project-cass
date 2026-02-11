@@ -150,6 +150,18 @@ DEVELOPMENT_REQUEST_KEYWORDS = frozenset({
     "need help from", "human work", "human timescale",
 })
 
+DISCORD_KEYWORDS = frozenset({
+    "discord", "server", "guild", "channel", "channels",
+    "message in discord", "dm", "direct message",
+    "react", "reaction", "emoji", "emote",
+    "voice", "voice channel", "vc",
+    "mention", "mentioned", "ping", "pinged",
+    "role", "roles",
+    "in the server", "on discord", "discord server",
+    "who's online", "who's active", "who's in",
+    "send a message", "reply to", "respond to",
+})
+
 
 # =============================================================================
 # TOOL SELECTOR CLASS
@@ -205,6 +217,7 @@ class ToolSelector:
             ToolGroup("outreach", OUTREACH_KEYWORDS, "Outreach tools"),
             ToolGroup("state_query", STATE_QUERY_KEYWORDS, "State query tools"),
             ToolGroup("development_request", DEVELOPMENT_REQUEST_KEYWORDS, "Development request tools"),
+            ToolGroup("discord", DISCORD_KEYWORDS, "Discord perception and action tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -525,6 +538,11 @@ def should_include_state_query_tools(message: str) -> bool:
 def should_include_development_request_tools(message: str) -> bool:
     """Check if message warrants development request tools."""
     return _default_selector.should_include(message, "development_request")
+
+
+def should_include_discord_tools(message: str) -> bool:
+    """Check if message warrants Discord perception and action tools."""
+    return _default_selector.should_include(message, "discord")
 
 
 # =============================================================================

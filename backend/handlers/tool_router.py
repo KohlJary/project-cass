@@ -329,6 +329,13 @@ TOOL_REGISTRY = {
     # Direct message tools (push notification to mobile)
     "send_direct_message": "direct_message",
 
+    # Discord perception tools (social environment awareness)
+    "discord_respond": "discord",
+    "discord_react": "discord",
+    "discord_expand": "discord",
+    "discord_history": "discord",
+    "discord_snapshot": "discord",
+
     # =========================================================================
     # CONSOLIDATED TOOLS
     # These are action-based tools that get translated to the original tool names
@@ -728,6 +735,14 @@ async def route_tool(
             tool_name=tool_name,
             tool_input=tool_input,
             conversation_manager=ctx.conversation_manager,
+        )
+
+    elif executor_type == "discord":
+        # Discord perception tools
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
         )
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}

@@ -40,6 +40,7 @@ from tool_selector import (
     should_include_outreach_tools,
     should_include_state_query_tools,
     should_include_development_request_tools,
+    should_include_discord_tools,
 )
 
 
@@ -1608,6 +1609,13 @@ class CassAgentClient:
             # Development request tools - Cass-Daedalus coordination bridge
             if should_include_development_request_tools(message):
                 tools.extend(DEVELOPMENT_REQUEST_TOOLS)
+
+            # Discord tools - perception and action in Discord servers
+            if should_include_discord_tools(message):
+                from handlers.discord import DISCORD_TOOLS
+                from discord_bot.config import DISCORD_ENABLED
+                if DISCORD_ENABLED:
+                    tools.extend(DISCORD_TOOLS)
 
             # State query tools - always available for self-introspection
             # Cass should always be able to query her own state (tokens, github, memory, etc)

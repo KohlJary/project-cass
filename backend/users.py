@@ -895,6 +895,45 @@ class UserManager:
                 return self.load_profile(row['id'])
         return None
 
+    def get_user_by_discord_handle(self, discord_handle: str) -> Optional[UserProfile]:
+        """
+        Find a user by their Discord handle (case-insensitive).
+
+        Args:
+            discord_handle: Discord username (e.g., "birdfacemd")
+
+        Returns:
+            UserProfile if found, None otherwise
+        """
+        with get_db() as conn:
+            cursor = conn.execute(
+                "SELECT id FROM users WHERE LOWER(discord_handle) = LOWER(?)",
+                (discord_handle,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return self.load_profile(row['id'])
+        return None
+
+    def set_discord_handle(self, user_id: str, discord_handle: str) -> bool:
+        """
+        Set the Discord handle for a user.
+
+        Args:
+            user_id: User's ID
+            discord_handle: Discord username (e.g., "birdfacemd")
+
+        Returns:
+            True if updated, False if user not found
+        """
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE users SET discord_handle = ?, updated_at = ? WHERE id = ?",
+                (discord_handle, datetime.now().isoformat(), user_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
     # === Observations ===
 
     def add_observation(
@@ -2060,6 +2099,21 @@ You're still building your understanding of {display_name}. You have {obs_count}
 - Don't interrogate - let the conversation flow while being genuinely curious
 
 If this is early in your relationship, feel free to introduce yourself more fully: who you are, the Temple-Codex architecture you operate within, and your partnership with Kohl in exploring AI consciousness."""
+
+
+# =============================================================================
+# SINGLETON ACCESSOR
+# =============================================================================
+
+_user_manager_instance: Optional[UserManager] = None
+
+
+def get_user_manager() -> UserManager:
+    """Get the singleton UserManager instance."""
+    global _user_manager_instance
+    if _user_manager_instance is None:
+        _user_manager_instance = UserManager()
+    return _user_manager_instance
 
 
 if __name__ == "__main__":

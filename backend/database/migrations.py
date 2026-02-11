@@ -308,6 +308,20 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 28:
         print("Adding user_locations table for mobile location sharing (v28)")
 
+    # v28 -> v29: Add Discord perception tables
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 29:
+        print("Adding Discord perception tables (discord_servers, discord_events, discord_snapshots, discord_flagged_entities) (v29)")
+
+    # v29 -> v30: Add discord_handle column to users table
+    if from_version < 30:
+        cursor = conn.execute("PRAGMA table_info(users)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'discord_handle' not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN discord_handle TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_discord_handle ON users(discord_handle)")
+            print("Added discord_handle column to users table (v30)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)
