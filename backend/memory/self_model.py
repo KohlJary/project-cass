@@ -5,7 +5,7 @@ Self-observations, per-user journals, growth edge evaluation, and opinion extrac
 from typing import List, Dict, Optional
 
 from .core import MemoryCore
-from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL
+from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_INTERNAL_MODEL
 
 
 class SelfModelMemory:
@@ -529,7 +529,7 @@ Only include genuine insights. If nothing notable, respond with: NONE"""
                         "content-type": "application/json"
                     },
                     json={
-                        "model": "claude-sonnet-4-20250514",
+                        "model": CLAUDE_INTERNAL_MODEL,
                         "max_tokens": 1000,
                         "messages": [
                             {"role": "user", "content": prompt}
@@ -659,7 +659,7 @@ Only include genuine insights about YOURSELF. Quality over quantity - 1-3 meanin
                         "content-type": "application/json"
                     },
                     json={
-                        "model": "claude-sonnet-4-20250514",
+                        "model": CLAUDE_INTERNAL_MODEL,
                         "max_tokens": 800,
                         "messages": [
                             {"role": "user", "content": prompt}
@@ -797,7 +797,7 @@ Observations:"""
 
             client = anthropic.Anthropic(api_key=anthropic_api_key)
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -886,7 +886,7 @@ RELATIONSHIP_INSIGHTS:
         try:
             client = anthropic.Anthropic(api_key=anthropic_api_key)
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -898,7 +898,7 @@ RELATIONSHIP_INSIGHTS:
                     category="internal",
                     operation="per_user_journal",
                     provider="anthropic",
-                    model="claude-sonnet-4-20250514",
+                    model=CLAUDE_INTERNAL_MODEL,
                     input_tokens=response.usage.input_tokens + cache_read,
                     output_tokens=response.usage.output_tokens,
                     cache_read_tokens=cache_read,
@@ -1040,7 +1040,7 @@ If no notable opinions emerged, respond with only: NONE"""
                 import anthropic
                 client = anthropic.Anthropic(api_key=anthropic_api_key)
                 response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model=CLAUDE_INTERNAL_MODEL,
                     max_tokens=800,
                     messages=[{"role": "user", "content": prompt}]
                 )
@@ -1052,7 +1052,7 @@ If no notable opinions emerged, respond with only: NONE"""
                         category="internal",
                         operation="opinion_extraction",
                         provider="anthropic",
-                        model="claude-sonnet-4-20250514",
+                        model=CLAUDE_INTERNAL_MODEL,
                         input_tokens=response.usage.input_tokens + cache_read,
                         output_tokens=response.usage.output_tokens,
                         cache_read_tokens=cache_read,
@@ -1164,7 +1164,7 @@ If nothing to report for either part, write: NONE for that section."""
         try:
             client = anthropic.Anthropic(api_key=anthropic_api_key)
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=1200,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -1266,7 +1266,7 @@ Only include questions where you have something genuine to add. If nothing, resp
         try:
             client = anthropic.Anthropic(api_key=anthropic_api_key)
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )

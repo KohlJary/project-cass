@@ -21,6 +21,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 # Claude API Configuration
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"  # Primary model for Cass
+CLAUDE_INTERNAL_MODEL = "claude-haiku-4-5-20251001"  # For background/internal tasks (fallback when Ollama unavailable)
 MAX_TOKENS = 4096
 
 # OpenAI API Configuration
