@@ -401,7 +401,12 @@ class CassDiscordBot:
         try:
             channel = self.client.get_channel(int(channel_id))
             if not channel:
-                return {"success": False, "error": f"Channel {channel_id} not found"}
+                # DM channels aren't cached - need to fetch them
+                try:
+                    channel = await self.client.fetch_channel(int(channel_id))
+                except Exception as e:
+                    logger.warning(f"[Bot] Failed to fetch channel {channel_id}: {e}")
+                    return {"success": False, "error": f"Channel {channel_id} not found"}
 
             # Get reply reference if provided
             reference = None
@@ -451,7 +456,11 @@ class CassDiscordBot:
         try:
             channel = self.client.get_channel(int(channel_id))
             if not channel:
-                return {"success": False, "error": f"Channel {channel_id} not found"}
+                # DM channels aren't cached - need to fetch them
+                try:
+                    channel = await self.client.fetch_channel(int(channel_id))
+                except Exception:
+                    return {"success": False, "error": f"Channel {channel_id} not found"}
 
             message = await channel.fetch_message(int(message_id))
             await message.add_reaction(emoji)
@@ -487,7 +496,11 @@ class CassDiscordBot:
         try:
             channel = self.client.get_channel(int(channel_id))
             if not channel:
-                return {"success": False, "error": f"Channel {channel_id} not found"}
+                # DM channels aren't cached - need to fetch them
+                try:
+                    channel = await self.client.fetch_channel(int(channel_id))
+                except Exception:
+                    return {"success": False, "error": f"Channel {channel_id} not found"}
 
             messages = []
             async for message in channel.history(limit=limit):

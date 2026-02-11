@@ -1966,6 +1966,39 @@ async def startup_event():
                                     )
                                     if result.get("success"):
                                         logger.info(f"[Discord] Responded to {entity_name} in #{channel_name}")
+
+                                        # Store in memory so Cass can learn from Discord interactions
+                                        try:
+                                            # Get the linked user_id from the entity
+                                            linked_user_id = None
+                                            if entity_slug:
+                                                entity = discord_bot.parser.registry.get_by_slug(entity_slug)
+                                                if entity:
+                                                    linked_user_id = entity.user_id
+
+                                            # Format the message for memory storage
+                                            if is_dm:
+                                                memory_user_msg = f"[Discord DM from {entity_name}]: {message_content}"
+                                            else:
+                                                memory_user_msg = f"[Discord #{channel_name} - {entity_name}]: {message_content}"
+
+                                            # Get the raw response (before Discord formatting) for memory
+                                            raw_response_text = ""
+                                            if isinstance(response, dict):
+                                                raw_response_text = response.get("text", "") or response.get("response", "") or response.get("content", "")
+                                            elif hasattr(response, 'text'):
+                                                raw_response_text = response.text
+
+                                            if memory and raw_response_text:
+                                                memory.store_conversation(
+                                                    user_message=memory_user_msg,
+                                                    assistant_response=raw_response_text,
+                                                    user_id=linked_user_id,
+                                                    metadata={"source": "discord", "channel": channel_name}
+                                                )
+                                                logger.info(f"[Discord] Stored interaction in memory")
+                                        except Exception as mem_err:
+                                            logger.warning(f"[Discord] Failed to store in memory: {mem_err}")
                                     else:
                                         logger.error(f"[Discord] Failed to send response: {result.get('error')}")
 
