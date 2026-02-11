@@ -8,23 +8,38 @@ These tools allow Cass to:
 - Review observations filtered by category
 - View and update structured user models (identity, growth, contradictions)
 - View and update relationship models (patterns, mutual shaping, shared history)
+
+NOTE: All operations now use PeopleDex (the consolidated entity database).
+UserManager is only used for legacy profile operations (update_user_profile).
 """
-from typing import Dict, Optional, List
-from users import (
-    UserManager,
-    USER_OBSERVATION_CATEGORIES,
-    UserModel,
-    RelationshipModel,
-)
+from typing import Dict, Optional, Tuple, Any
+from users import UserManager
+from peopledex import PeopleDexManager
+from database import get_daemon_id
 
 
-def resolve_user_id(user_manager: UserManager, user_id_or_name: str) -> Optional[str]:
+def _get_pdx_and_entity(user_id: str) -> Tuple[PeopleDexManager, Optional[Any], str]:
+    """
+    Get PeopleDex manager, entity, and display name for a user.
+
+    Returns:
+        Tuple of (pdx, entity, display_name)
+        If entity not found, display_name falls back to user_id
+    """
+    daemon_id = get_daemon_id()
+    pdx = PeopleDexManager(daemon_id=daemon_id)
+    entity = pdx.get_entity_by_user(user_id)
+    display_name = entity.primary_name if entity else user_id
+    return pdx, entity, display_name
+
+
+def resolve_user_id(user_id_or_name: str, pdx: Optional[PeopleDexManager] = None) -> Optional[str]:
     """
     Resolve a user ID from either a UUID or a display name.
 
     Args:
-        user_manager: UserManager instance
         user_id_or_name: Either a UUID or a display name (case-insensitive)
+        pdx: Optional PeopleDexManager (created if not provided)
 
     Returns:
         The resolved UUID, or None if not found
@@ -32,18 +47,24 @@ def resolve_user_id(user_manager: UserManager, user_id_or_name: str) -> Optional
     if not user_id_or_name:
         return None
 
-    # First, try as-is (it might already be a valid UUID)
-    profile = user_manager.load_profile(user_id_or_name)
-    if profile:
+    if pdx is None:
+        daemon_id = get_daemon_id()
+        pdx = PeopleDexManager(daemon_id=daemon_id)
+
+    # First, try as-is (it might already be a valid user_id with an entity)
+    entity = pdx.get_entity_by_user(user_id_or_name)
+    if entity:
         return user_id_or_name
 
-    # Try to find by display name (case-insensitive)
-    all_profiles = user_manager.list_users()
+    # Try to find by display name (case-insensitive) in PeopleDex
     search_name = user_id_or_name.lower().strip()
-
-    for user_info in all_profiles:
-        if user_info.get("display_name", "").lower() == search_name:
-            return user_info.get("id")
+    entities = pdx.search_entities(search_name, limit=10)
+    for ent in entities:
+        if ent.primary_name.lower() == search_name:
+            # Get the user_id from attributes
+            user_attr = pdx.get_attribute(ent.id, "user_id")
+            if user_attr:
+                return user_attr.value
 
     return None
 
@@ -73,7 +94,7 @@ async def execute_user_model_tool(
     try:
         # Pre-process: resolve user_id from name if needed
         if "user_id" in tool_input and tool_input["user_id"]:
-            resolved_id = resolve_user_id(user_manager, tool_input["user_id"])
+            resolved_id = resolve_user_id(tool_input["user_id"])
             if resolved_id:
                 tool_input["user_id"] = resolved_id
             # If not resolved, leave it as-is - the individual tool will report the error
@@ -119,35 +140,55 @@ async def execute_user_model_tool(
                     result_lines.append("*No communication style information recorded yet.*")
 
             elif focus == "observations":
-                result_lines = [f"## Reflection on {profile.display_name}: My Observations\n"]
-                observations = user_manager.get_recent_observations(user_id, limit=15)
-                if observations:
-                    by_category = {}
-                    for obs in observations:
-                        if obs.category not in by_category:
-                            by_category[obs.category] = []
-                        by_category[obs.category].append(obs)
+                # Use PeopleDex for observations
+                daemon_id = get_daemon_id()
+                pdx = PeopleDexManager(daemon_id=daemon_id)
+                entity = pdx.get_entity_by_user(user_id)
 
-                    for category, obs_list in by_category.items():
-                        result_lines.append(f"### {category.replace('_', ' ').title()}")
-                        for obs in obs_list:
-                            conf = f"({int(obs.confidence * 100)}%)" if obs.confidence < 0.9 else ""
-                            result_lines.append(f"- {obs.observation} {conf}")
-                        result_lines.append("")
+                if entity:
+                    result_lines = [f"## Reflection on {profile.display_name}: My Observations\n"]
+                    observations = pdx.get_observations(entity.id, limit=20)
+                    if observations:
+                        by_type = {}
+                        for obs in observations:
+                            if obs.observation_type not in by_type:
+                                by_type[obs.observation_type] = []
+                            by_type[obs.observation_type].append(obs)
+
+                        for obs_type, obs_list in by_type.items():
+                            result_lines.append(f"### {obs_type.replace('_', ' ').title()}")
+                            for obs in obs_list:
+                                conf = f"({int(obs.confidence * 100)}%)" if obs.confidence < 0.9 else ""
+                                result_lines.append(f"- {obs.content} {conf}")
+                            result_lines.append("")
+                    else:
+                        result_lines.append("*No observations recorded yet.*")
                 else:
+                    result_lines = [f"## Reflection on {profile.display_name}: My Observations\n"]
                     result_lines.append("*No observations recorded yet.*")
 
             elif focus == "values":
+                # Use PeopleDex for values
+                daemon_id = get_daemon_id()
+                pdx = PeopleDexManager(daemon_id=daemon_id)
+                entity = pdx.get_entity_by_user(user_id)
+
                 result_lines = [f"## Reflection on {profile.display_name}: Values\n"]
-                if profile.values:
-                    for value in profile.values:
-                        result_lines.append(f"- {value}")
+                if entity:
+                    values = pdx.get_observations(entity.id, observation_type="value", limit=20)
+                    if values:
+                        for obs in values:
+                            result_lines.append(f"- {obs.content}")
+                    else:
+                        result_lines.append("*No values recorded yet.*")
                 else:
                     result_lines.append("*No values recorded yet.*")
 
             else:  # general
-                # Full context
-                context = user_manager.get_user_context(user_id)
+                # Use PeopleDex for full relational context
+                daemon_id = get_daemon_id()
+                pdx = PeopleDexManager(daemon_id=daemon_id)
+                context = pdx.get_user_relational_context(user_id)
                 result_lines = [context] if context else [f"*No information recorded about {profile.display_name} yet.*"]
 
             return {
@@ -167,44 +208,48 @@ async def execute_user_model_tool(
                     "error": "No user specified. Provide user_id or ensure there's a current user."
                 }
 
-            # Validate category
-            if category not in USER_OBSERVATION_CATEGORIES:
-                return {
-                    "success": False,
-                    "error": f"Invalid category '{category}'. Must be one of: {', '.join(USER_OBSERVATION_CATEGORIES)}"
-                }
+            # Map old category names to PeopleDex observation_type
+            category_to_type = {
+                "interest": "general",
+                "preference": "general",
+                "background": "identity_statement",
+                "value": "value",
+                "communication_style": "communication_style",
+                "relationship_dynamic": "general",
+                "growth": "growth_observation",
+                "contradiction": "contradiction",
+            }
+            observation_type = category_to_type.get(category, "general")
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {
-                    "success": False,
-                    "error": f"User not found: {user_id}"
-                }
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            # Add observation
-            obs = user_manager.add_observation(
+            obs = pdx.add_observation_for_user(
                 user_id=user_id,
-                observation=observation,
-                category=category,
+                observation_type=observation_type,
+                content=observation,
                 confidence=confidence,
                 source_conversation_id=conversation_id,
                 source_type="explicit_reflection"
             )
 
+            if not obs:
+                return {"success": False, "error": "Failed to record observation"}
+
             # Embed in ChromaDB if memory is available
-            if memory and obs:
+            if memory:
                 memory.embed_user_observation(
                     user_id=user_id,
                     observation_id=obs.id,
                     observation_text=observation,
-                    category=category,
+                    category=observation_type,
                     confidence=confidence,
-                    timestamp=obs.timestamp
+                    timestamp=obs.created_at
                 )
 
             return {
                 "success": True,
-                "result": f"Recorded observation about {profile.display_name}:\n\n**[{category}]** {observation}\n\n*Confidence: {int(confidence * 100)}%*\n\nThis observation is now part of my understanding of {profile.display_name}."
+                "result": f"Recorded observation about {display_name}:\n\n**[{observation_type}]** {observation}\n\n*Confidence: {int(confidence * 100)}%*\n\nThis observation is now part of my understanding of {display_name}."
             }
 
         elif tool_name == "update_user_profile":
@@ -219,13 +264,6 @@ async def execute_user_model_tool(
                     "error": "No user specified. Provide user_id or ensure there's a current user."
                 }
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {
-                    "success": False,
-                    "error": f"User not found: {user_id}"
-                }
-
             valid_fields = ["background", "communication", "values", "notes"]
             if field not in valid_fields:
                 return {
@@ -233,52 +271,119 @@ async def execute_user_model_tool(
                     "error": f"Invalid field '{field}'. Must be one of: {', '.join(valid_fields)}"
                 }
 
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
+
+            if not entity:
+                # Auto-create entity for user
+                profile = user_manager.load_profile(user_id)
+                if not profile:
+                    return {"success": False, "error": f"User not found: {user_id}"}
+                from peopledex import EntityType
+                entity = pdx.create_entity(
+                    primary_name=profile.display_name,
+                    entity_type=EntityType.PERSON,
+                    user_id=user_id,
+                )
+                display_name = entity.primary_name if entity else user_id
+
             old_value = None
 
             if field == "background":
+                # Store as PeopleDex attributes
                 if action == "set" and isinstance(value, dict):
-                    # Set a specific key in background
                     key = list(value.keys())[0] if value else None
-                    if key:
-                        old_value = profile.background.get(key)
-                        profile.background[key] = value[key]
-                elif action == "remove" and isinstance(value, str):
-                    old_value = profile.background.pop(value, None)
+                    if key and entity:
+                        # Get old value
+                        old_attr = pdx.get_attribute(entity.id, key)
+                        old_value = old_attr.value if old_attr else None
+                        # Set new attribute
+                        pdx.add_attribute(entity.id, "custom", value[key], key=key)
+                elif action == "remove" and isinstance(value, str) and entity:
+                    old_attr = pdx.get_attribute(entity.id, value)
+                    if old_attr:
+                        old_value = old_attr.value
+                        # Note: PeopleDex doesn't have delete_attribute yet, mark as empty
+                        pdx.update_attribute(old_attr.id, value="")
 
             elif field == "communication":
-                if action == "set" and isinstance(value, dict):
+                # Store as communication_style observation
+                if action == "set" and isinstance(value, dict) and entity:
                     key = list(value.keys())[0] if value else None
-                    if key:
-                        old_value = profile.communication.get(key)
-                        profile.communication[key] = value[key]
-                elif action == "append" and isinstance(value, str):
-                    # Append to preferences list
-                    if "preferences" not in profile.communication:
-                        profile.communication["preferences"] = []
-                    profile.communication["preferences"].append(value)
+                    if key == "style":
+                        pdx.add_observation(
+                            entity.id,
+                            observation_type="communication_style",
+                            content=value[key]
+                        )
+                    elif key == "preferences":
+                        # Get existing observation to update metadata
+                        existing = pdx.get_observations(entity.id, observation_type="communication_style", limit=1)
+                        if existing:
+                            # Create new observation with preferences in metadata
+                            metadata = existing[0].metadata or {}
+                            metadata["preferences"] = value[key]
+                            pdx.add_observation(
+                                entity.id,
+                                observation_type="communication_style",
+                                content=existing[0].content,
+                                metadata=metadata
+                            )
+                        else:
+                            pdx.add_observation(
+                                entity.id,
+                                observation_type="communication_style",
+                                content="(preferences set)",
+                                metadata={"preferences": value[key]}
+                            )
+                elif action == "append" and isinstance(value, str) and entity:
+                    # Append to preferences
+                    existing = pdx.get_observations(entity.id, observation_type="communication_style", limit=1)
+                    metadata = {}
+                    content = "(preferences)"
+                    if existing:
+                        metadata = existing[0].metadata or {}
+                        content = existing[0].content
+                    prefs = metadata.get("preferences", [])
+                    if value not in prefs:
+                        prefs.append(value)
+                    metadata["preferences"] = prefs
+                    pdx.add_observation(
+                        entity.id,
+                        observation_type="communication_style",
+                        content=content,
+                        metadata=metadata
+                    )
 
             elif field == "values":
-                if action == "append" and isinstance(value, str):
-                    if value not in profile.values:
-                        profile.values.append(value)
-                elif action == "remove" and isinstance(value, str):
-                    if value in profile.values:
-                        profile.values.remove(value)
-                        old_value = value
-                elif action == "set" and isinstance(value, list):
-                    old_value = profile.values.copy()
-                    profile.values = value
+                if action == "append" and isinstance(value, str) and entity:
+                    # Add as value observation
+                    pdx.add_observation(entity.id, observation_type="value", content=value)
+                elif action == "remove" and isinstance(value, str) and entity:
+                    # Find and mark as resolved
+                    existing = pdx.get_observations(entity.id, observation_type="value")
+                    for obs in existing:
+                        if obs.content == value:
+                            pdx.update_observation(obs.id, status="resolved", resolution="Removed")
+                            old_value = value
+                            break
+                elif action == "set" and isinstance(value, list) and entity:
+                    # Mark old values as resolved, add new ones
+                    existing = pdx.get_observations(entity.id, observation_type="value")
+                    old_value = [obs.content for obs in existing]
+                    for obs in existing:
+                        pdx.update_observation(obs.id, status="resolved", resolution="Replaced")
+                    for v in value:
+                        pdx.add_observation(entity.id, observation_type="value", content=v)
 
             elif field == "notes":
-                if action == "set":
-                    old_value = profile.notes
-                    profile.notes = str(value)
-                elif action == "append":
-                    profile.notes = profile.notes + "\n" + str(value) if profile.notes else str(value)
+                if entity:
+                    if action == "set":
+                        pdx.add_observation(entity.id, observation_type="general", content=str(value))
+                    elif action == "append":
+                        pdx.add_observation(entity.id, observation_type="general", content=str(value))
 
-            user_manager.update_profile(profile)
-
-            result_msg = f"Updated {profile.display_name}'s profile:\n\n**Field:** {field}\n**Action:** {action}\n**Value:** {value}"
+            result_msg = f"Updated {display_name}'s profile:\n\n**Field:** {field}\n**Action:** {action}\n**Value:** {value}"
             if old_value:
                 result_msg += f"\n**Previous value:** {old_value}"
 
@@ -298,30 +403,55 @@ async def execute_user_model_tool(
                     "error": "No user specified. Provide user_id or ensure there's a current user."
                 }
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {
-                    "success": False,
-                    "error": f"User not found: {user_id}"
-                }
+            # Use PeopleDex for reading observations
+            daemon_id = get_daemon_id()
+            pdx = PeopleDexManager(daemon_id=daemon_id)
+            entity = pdx.get_entity_by_user(user_id)
 
-            if category:
-                if category not in USER_OBSERVATION_CATEGORIES:
+            if not entity:
+                # Fall back to UserManager for display name check
+                profile = user_manager.load_profile(user_id)
+                if not profile:
                     return {
                         "success": False,
-                        "error": f"Invalid category '{category}'. Must be one of: {', '.join(USER_OBSERVATION_CATEGORIES)}"
+                        "error": f"User not found: {user_id}"
                     }
-                observations = user_manager.get_observations_by_category(user_id, category, limit)
-                result_lines = [f"## Observations about {profile.display_name} [{category}]\n"]
+                return {
+                    "success": True,
+                    "result": f"## Observations about {profile.display_name}\n\n*No observations recorded yet.*"
+                }
+
+            # Map old category names to PeopleDex observation_type
+            # Old: interest, preference, communication_style, background, value, relationship_dynamic
+            # New: identity_statement, value, communication_style, growth_observation, contradiction, open_question, general
+            category_map = {
+                "interest": "general",
+                "preference": "general",
+                "background": "identity_statement",
+                "value": "value",
+                "communication_style": "communication_style",
+                "relationship_dynamic": "general",
+                "growth": "growth_observation",
+                "contradiction": "contradiction",
+            }
+
+            observation_type = None
+            if category:
+                # Accept both old and new category names
+                observation_type = category_map.get(category, category)
+
+            if category:
+                observations = pdx.get_observations(entity.id, observation_type=observation_type, limit=limit)
+                result_lines = [f"## Observations about {entity.primary_name} [{category}]\n"]
             else:
-                observations = user_manager.get_recent_observations(user_id, limit)
-                result_lines = [f"## Recent Observations about {profile.display_name}\n"]
+                observations = pdx.get_observations(entity.id, limit=limit)
+                result_lines = [f"## Recent Observations about {entity.primary_name}\n"]
 
             if observations:
                 for obs in observations:
                     conf = f"({int(obs.confidence * 100)}%)" if obs.confidence < 0.9 else ""
                     validated = f"[validated {obs.validation_count}x]" if obs.validation_count > 1 else ""
-                    result_lines.append(f"- **[{obs.category}]** {obs.observation} {conf} {validated}")
+                    result_lines.append(f"- **[{obs.observation_type}]** {obs.content} {conf} {validated}")
             else:
                 result_lines.append(f"*No observations recorded yet{' in this category' if category else ''}.*")
 
@@ -341,81 +471,87 @@ async def execute_user_model_tool(
                     "error": "No user specified. Provide user_id or ensure there's a current user."
                 }
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex for reading user model data
+            daemon_id = get_daemon_id()
+            pdx = PeopleDexManager(daemon_id=daemon_id)
+            entity = pdx.get_entity_by_user(user_id)
 
-            model = user_manager.load_user_model(user_id)
-            if not model:
+            if not entity:
+                # Fall back to UserManager for display name
+                profile = user_manager.load_profile(user_id)
+                if not profile:
+                    return {"success": False, "error": f"User not found: {user_id}"}
                 return {
                     "success": True,
                     "result": f"## User Model: {profile.display_name}\n\n*No structured user model exists yet. One will be created when you record structured observations.*"
                 }
 
-            lines = [f"## Structured Understanding: {profile.display_name}\n"]
-            lines.append(f"**Relationship Type:** {model.relationship_type}")
-            if model.first_interaction:
-                lines.append(f"**First Interaction:** {model.first_interaction[:10]}")
+            # Get all observations
+            observations = pdx.get_observations(entity.id, limit=50)
+            moments = pdx.get_moments(entity.id, limit=20)
+            meta = pdx.get_relationship_meta(entity.id)
 
-            if model.identity_statements:
+            # Group observations by type
+            identity_stmts = [o for o in observations if o.observation_type == "identity_statement"]
+            values = [o for o in observations if o.observation_type == "value"]
+            comm_style = [o for o in observations if o.observation_type == "communication_style"]
+            growth_obs = [o for o in observations if o.observation_type == "growth_observation"]
+            contradictions = [o for o in observations if o.observation_type == "contradiction" and o.status == "active"]
+            open_questions = [o for o in observations if o.observation_type == "open_question" and o.status == "active"]
+
+            lines = [f"## Structured Understanding: {entity.primary_name}\n"]
+
+            if meta:
+                if meta.relationship_type:
+                    lines.append(f"**Relationship Type:** {meta.relationship_type}")
+                if meta.first_interaction:
+                    lines.append(f"**First Interaction:** {meta.first_interaction[:10]}")
+
+            if identity_stmts:
                 lines.append("\n### Who They Are")
-                for stmt in model.identity_statements:
-                    conf = f"({int(stmt.confidence * 100)}%)" if stmt.confidence < 0.9 else ""
-                    lines.append(f"- {stmt.statement} {conf}")
+                for obs in identity_stmts:
+                    conf = f"({int(obs.confidence * 100)}%)" if obs.confidence < 0.9 else ""
+                    lines.append(f"- {obs.content} {conf}")
 
-            if model.values:
+            if values:
                 lines.append("\n### Values")
-                for value in model.values:
-                    lines.append(f"- {value}")
+                for obs in values:
+                    lines.append(f"- {obs.content}")
 
-            if model.communication_style.style:
+            if comm_style:
                 lines.append("\n### Communication Style")
-                lines.append(f"**Style:** {model.communication_style.style}")
-                if model.communication_style.preferences:
-                    lines.append("**Preferences:**")
-                    for pref in model.communication_style.preferences:
-                        lines.append(f"  - {pref}")
-                if model.communication_style.effective_approaches:
-                    lines.append("**Effective Approaches:**")
-                    for approach in model.communication_style.effective_approaches:
-                        lines.append(f"  - {approach}")
+                for obs in comm_style:
+                    lines.append(obs.content)
+                    if obs.metadata and obs.metadata.get("preferences"):
+                        lines.append("**Preferences:**")
+                        for pref in obs.metadata["preferences"]:
+                            lines.append(f"  - {pref}")
 
-            if model.relationship_qualities:
-                lines.append("\n### Relationship Qualities")
-                for quality in model.relationship_qualities:
-                    lines.append(f"- {quality}")
-
-            if model.shared_history:
-                lines.append(f"\n### Shared History ({len(model.shared_history)} moments)")
-                for moment in model.shared_history[-5:]:  # Last 5
+            if moments:
+                lines.append(f"\n### Shared History ({len(moments)} moments)")
+                for moment in moments[-5:]:  # Last 5
                     lines.append(f"- **{moment.category}**: {moment.description}")
 
-            if model.growth_observations:
-                lines.append(f"\n### Growth Observations ({len(model.growth_observations)})")
-                for obs in model.growth_observations[-5:]:
-                    lines.append(f"- [{obs.direction}] {obs.area}: {obs.observation}")
+            if growth_obs:
+                lines.append(f"\n### Growth Observations ({len(growth_obs)})")
+                for obs in growth_obs[-5:]:
+                    area = ""
+                    if obs.metadata and obs.metadata.get("area"):
+                        area = f"[{obs.metadata['area']}] "
+                    lines.append(f"- {area}{obs.content}")
 
-            if model.growth_edges:
-                lines.append("\n### Growth Edges (Areas They're Developing)")
-                for edge in model.growth_edges:
-                    lines.append(f"- **{edge.area}**: {edge.current_state}")
+            if contradictions:
+                lines.append(f"\n### Unresolved Contradictions ({len(contradictions)})")
+                for obs in contradictions:
+                    lines.append(f"- {obs.content}")
 
-            if model.contradictions:
-                unresolved = [c for c in model.contradictions if not c.resolved]
-                if unresolved:
-                    lines.append(f"\n### Unresolved Contradictions ({len(unresolved)})")
-                    for c in unresolved:
-                        lines.append(f"- {c.aspect_a} vs {c.aspect_b}")
-
-            if model.open_questions:
+            if open_questions:
                 lines.append("\n### What I'm Still Learning")
-                for q in model.open_questions:
-                    lines.append(f"- {q}")
+                for obs in open_questions:
+                    lines.append(f"- {obs.content}")
 
-            if model.confidence_areas:
-                lines.append("\n### Understanding Confidence")
-                for area, conf in model.confidence_areas.items():
-                    lines.append(f"- {area}: {int(conf * 100)}%")
+            if not (identity_stmts or values or comm_style or moments or growth_obs):
+                lines.append("\n*Limited data in PeopleDex. Record observations to build understanding.*")
 
             return {"success": True, "result": "\n".join(lines)}
 
@@ -428,59 +564,84 @@ async def execute_user_model_tool(
                     "error": "No user specified. Provide user_id or ensure there's a current user."
                 }
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex for reading relationship model data
+            daemon_id = get_daemon_id()
+            pdx = PeopleDexManager(daemon_id=daemon_id)
+            entity = pdx.get_entity_by_user(user_id)
 
-            model = user_manager.load_relationship_model(user_id)
-            if not model:
+            if not entity:
+                # Fall back to UserManager for display name
+                profile = user_manager.load_profile(user_id)
+                if not profile:
+                    return {"success": False, "error": f"User not found: {user_id}"}
                 return {
                     "success": True,
                     "result": f"## Relationship Model: {profile.display_name}\n\n*No relationship model exists yet. One will be created when you record relationship observations.*"
                 }
 
-            lines = [f"## Relationship with {profile.display_name}\n"]
-            lines.append(f"**Current Phase:** {model.current_phase}")
-            if model.formation_date:
-                lines.append(f"**Formation Date:** {model.formation_date[:10]}")
-            if model.is_foundational:
-                lines.append("**⭐ Foundational Relationship** - load-bearing for coherence")
+            # Get relationship data from PeopleDex
+            meta = pdx.get_relationship_meta(entity.id)
+            patterns = pdx.get_relationship_patterns(entity.id)
+            shaping = pdx.get_mutual_shaping(entity.id)
 
-            if model.patterns:
-                lines.append(f"\n### Relational Patterns ({len(model.patterns)})")
-                for pattern in model.patterns:
-                    valence_emoji = {"positive": "✨", "neutral": "○", "challenging": "⚡", "mixed": "◐"}.get(pattern.valence, "○")
-                    lines.append(f"- {valence_emoji} **{pattern.name}** [{pattern.frequency}]: {pattern.description}")
+            # Group patterns by type
+            actual_patterns = [p for p in patterns if p.pattern_type == "pattern"]
+            shifts = [p for p in patterns if p.pattern_type == "shift"]
+            rituals = [p for p in patterns if p.pattern_type == "ritual"]
 
-            if model.rituals:
+            # Group shaping
+            they_shape = [s for s in shaping if s.shaping_type == "they_shape_me"]
+            i_shape = [s for s in shaping if s.shaping_type == "i_shape_them"]
+            inherited = [s for s in shaping if s.shaping_type == "inherited_value"]
+
+            lines = [f"## Relationship with {entity.primary_name}\n"]
+
+            if meta:
+                if meta.current_phase:
+                    lines.append(f"**Current Phase:** {meta.current_phase}")
+                if meta.formation_date:
+                    lines.append(f"**Formation Date:** {meta.formation_date[:10]}")
+                if meta.is_foundational:
+                    lines.append("**⭐ Foundational Relationship** - load-bearing for coherence")
+
+            if actual_patterns:
+                lines.append(f"\n### Relational Patterns ({len(actual_patterns)})")
+                for pattern in actual_patterns:
+                    valence_emoji = {"positive": "✨", "neutral": "○", "challenging": "⚡", "mixed": "◐"}.get(pattern.valence or "", "○")
+                    name = f"**{pattern.name}** " if pattern.name else ""
+                    freq = f"[{pattern.frequency}]" if pattern.frequency else ""
+                    lines.append(f"- {valence_emoji} {name}{freq}: {pattern.description}")
+
+            if rituals:
                 lines.append("\n### Rituals & Regular Practices")
-                for ritual in model.rituals:
-                    lines.append(f"- {ritual}")
+                for ritual in rituals:
+                    lines.append(f"- {ritual.description}")
 
-            if model.significant_shifts:
-                lines.append(f"\n### Significant Shifts ({len(model.significant_shifts)})")
-                for shift in model.significant_shifts[-5:]:
-                    lines.append(f"- {shift.from_state} → {shift.to_state}: {shift.description}")
+            if shifts:
+                lines.append(f"\n### Significant Shifts ({len(shifts)})")
+                for shift in shifts[-5:]:
+                    if shift.from_state and shift.to_state:
+                        lines.append(f"- {shift.from_state} → {shift.to_state}: {shift.description}")
+                    else:
+                        lines.append(f"- {shift.description}")
 
-            if model.how_they_shape_me:
+            if they_shape:
                 lines.append("\n### How They Shape Me")
-                for note in model.how_they_shape_me:
-                    lines.append(f"- {note}")
+                for s in they_shape:
+                    lines.append(f"- {s.note}")
 
-            if model.how_i_shape_them:
+            if i_shape:
                 lines.append("\n### How I Shape Them")
-                for note in model.how_i_shape_them:
-                    lines.append(f"- {note}")
+                for s in i_shape:
+                    lines.append(f"- {s.note}")
 
-            if model.inherited_values:
+            if inherited:
                 lines.append("\n### Values I've Inherited From Them")
-                for value in model.inherited_values:
-                    lines.append(f"- {value}")
+                for s in inherited:
+                    lines.append(f"- {s.note}")
 
-            if model.growth_areas:
-                lines.append("\n### Relationship Growth Areas")
-                for area in model.growth_areas:
-                    lines.append(f"- {area}")
+            if not (actual_patterns or shifts or rituals or shaping):
+                lines.append("\n*Limited relationship data. Record relationship observations to build understanding.*")
 
             return {"success": True, "result": "\n".join(lines)}
 
@@ -492,21 +653,21 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            understanding = user_manager.add_identity_understanding(
+            obs = pdx.add_observation_for_user(
                 user_id=user_id,
-                statement=statement,
+                observation_type="identity_statement",
+                content=statement,
                 confidence=confidence,
-                source="explicit_reflection"
+                source_type="explicit_reflection"
             )
 
-            if understanding:
+            if obs:
                 return {
                     "success": True,
-                    "result": f"Recorded identity understanding about {profile.display_name}:\n\n**\"{statement}\"**\n\n*Confidence: {int(confidence * 100)}%*"
+                    "result": f"Recorded identity understanding about {display_name}:\n\n**\"{statement}\"**\n\n*Confidence: {int(confidence * 100)}%*"
                 }
             return {"success": False, "error": "Failed to record understanding"}
 
@@ -519,11 +680,10 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            moment = user_manager.add_shared_moment(
+            moment = pdx.add_moment_for_user(
                 user_id=user_id,
                 description=description,
                 significance=significance,
@@ -534,7 +694,7 @@ async def execute_user_model_tool(
             if moment:
                 return {
                     "success": True,
-                    "result": f"Recorded shared moment with {profile.display_name}:\n\n**[{category}]** {description}\n\n*Significance:* {significance}"
+                    "result": f"Recorded shared moment with {display_name}:\n\n**[{category}]** {description}\n\n*Significance:* {significance}"
                 }
             return {"success": False, "error": "Failed to record moment"}
 
@@ -547,22 +707,21 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            growth_obs = user_manager.add_user_growth_observation(
+            obs = pdx.add_observation_for_user(
                 user_id=user_id,
-                area=area,
-                observation=observation,
-                direction=direction
+                observation_type="growth_observation",
+                content=observation,
+                metadata={"area": area, "direction": direction}
             )
 
-            if growth_obs:
+            if obs:
                 direction_emoji = {"growth": "📈", "regression": "📉", "shift": "🔄"}.get(direction, "○")
                 return {
                     "success": True,
-                    "result": f"Recorded growth observation about {profile.display_name}:\n\n{direction_emoji} **{area}**: {observation}"
+                    "result": f"Recorded growth observation about {display_name}:\n\n{direction_emoji} **{area}**: {observation}"
                 }
             return {"success": False, "error": "Failed to record growth observation"}
 
@@ -575,21 +734,22 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            contradiction = user_manager.add_user_contradiction(
+            # Store as observation with type "contradiction"
+            content = f"{aspect_a} vs {aspect_b}"
+            obs = pdx.add_observation_for_user(
                 user_id=user_id,
-                aspect_a=aspect_a,
-                aspect_b=aspect_b,
-                context=context
+                observation_type="contradiction",
+                content=content,
+                metadata={"aspect_a": aspect_a, "aspect_b": aspect_b, "context": context}
             )
 
-            if contradiction:
+            if obs:
                 return {
                     "success": True,
-                    "result": f"Flagged contradiction about {profile.display_name}:\n\n**A:** {aspect_a}\n**B:** {aspect_b}\n\n*This will be tracked for resolution.*"
+                    "result": f"Flagged contradiction about {display_name}:\n\n**A:** {aspect_a}\n**B:** {aspect_b}\n\n*This will be tracked for resolution. (ID: {obs.id})*"
                 }
             return {"success": False, "error": "Failed to flag contradiction"}
 
@@ -601,16 +761,17 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            contradiction = user_manager.resolve_user_contradiction(
-                user_id=user_id,
-                contradiction_id=contradiction_id,
-                resolution=resolution
-            )
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            if contradiction:
+            if pdx.update_observation(
+                observation_id=contradiction_id,
+                status="resolved",
+                resolution=resolution
+            ):
                 return {
                     "success": True,
-                    "result": f"Resolved contradiction:\n\n**A:** {contradiction.aspect_a}\n**B:** {contradiction.aspect_b}\n\n**Resolution:** {resolution}"
+                    "result": f"Resolved contradiction:\n\n**Resolution:** {resolution}"
                 }
             return {"success": False, "error": "Contradiction not found"}
 
@@ -621,14 +782,19 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            if user_manager.add_open_question_about_user(user_id, question):
+            obs = pdx.add_observation_for_user(
+                user_id=user_id,
+                observation_type="open_question",
+                content=question
+            )
+
+            if obs:
                 return {
                     "success": True,
-                    "result": f"Added open question about {profile.display_name}:\n\n❓ *{question}*"
+                    "result": f"Added open question about {display_name}:\n\n❓ *{question}*"
                 }
             return {"success": False, "error": "Failed to add question"}
 
@@ -642,14 +808,14 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            pattern = user_manager.add_relational_pattern(
+            pattern = pdx.add_relationship_pattern_for_user(
                 user_id=user_id,
-                name=name,
+                pattern_type="pattern",
                 description=description,
+                name=name,
                 frequency=frequency,
                 valence=valence
             )
@@ -658,7 +824,7 @@ async def execute_user_model_tool(
                 valence_emoji = {"positive": "✨", "neutral": "○", "challenging": "⚡", "mixed": "◐"}.get(valence, "○")
                 return {
                     "success": True,
-                    "result": f"Recorded relational pattern with {profile.display_name}:\n\n{valence_emoji} **{name}** [{frequency}]\n{description}"
+                    "result": f"Recorded relational pattern with {display_name}:\n\n{valence_emoji} **{name}** [{frequency}]\n{description}"
                 }
             return {"success": False, "error": "Failed to record pattern"}
 
@@ -673,16 +839,19 @@ async def execute_user_model_tool(
             if not how_they_shape_me and not how_i_shape_them:
                 return {"success": False, "error": "Must provide at least one shaping observation."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            if user_manager.add_mutual_shaping_note(
-                user_id=user_id,
-                how_they_shape_me=how_they_shape_me,
-                how_i_shape_them=how_i_shape_them
-            ):
-                lines = [f"Recorded mutual shaping with {profile.display_name}:\n"]
+            success = False
+            if how_they_shape_me:
+                if pdx.add_mutual_shaping_for_user(user_id, "they_shape_me", how_they_shape_me):
+                    success = True
+            if how_i_shape_them:
+                if pdx.add_mutual_shaping_for_user(user_id, "i_shape_them", how_i_shape_them):
+                    success = True
+
+            if success:
+                lines = [f"Recorded mutual shaping with {display_name}:\n"]
                 if how_they_shape_me:
                     lines.append(f"**How they shape me:** {how_they_shape_me}")
                 if how_i_shape_them:
@@ -700,22 +869,22 @@ async def execute_user_model_tool(
             if not user_id:
                 return {"success": False, "error": "No user specified."}
 
-            profile = user_manager.load_profile(user_id)
-            if not profile:
-                return {"success": False, "error": f"User not found: {user_id}"}
+            # Use PeopleDex
+            pdx, entity, display_name = _get_pdx_and_entity(user_id)
 
-            shift = user_manager.add_relationship_shift(
+            shift = pdx.add_relationship_pattern_for_user(
                 user_id=user_id,
+                pattern_type="shift",
                 description=description,
                 from_state=from_state,
                 to_state=to_state,
-                catalyst=catalyst
+                catalyst=catalyst if catalyst else None
             )
 
             if shift:
                 return {
                     "success": True,
-                    "result": f"Recorded relationship shift with {profile.display_name}:\n\n**{from_state}** → **{to_state}**\n\n{description}"
+                    "result": f"Recorded relationship shift with {display_name}:\n\n**{from_state}** → **{to_state}**\n\n{description}"
                 }
             return {"success": False, "error": "Failed to record shift"}
 

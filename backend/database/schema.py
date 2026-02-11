@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 30  # Added discord_handle to users table
+SCHEMA_VERSION = 31  # PeopleDex consolidation - new observation/moment/pattern/shaping tables
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1297,6 +1297,141 @@ CREATE TABLE IF NOT EXISTS peopledex_relationships (
 CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_from ON peopledex_relationships(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_to ON peopledex_relationships(to_entity_id);
 CREATE INDEX IF NOT EXISTS idx_peopledex_relationships_type ON peopledex_relationships(relationship_type);
+
+-- Relational observations (replaces user_observations + YAML identity/values/growth)
+-- Unified observation store for all entity knowledge
+CREATE TABLE IF NOT EXISTS peopledex_observations (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Type determines structure of content
+    observation_type TEXT NOT NULL,  -- identity_statement, value, communication_style,
+                                     -- growth_observation, contradiction, open_question,
+                                     -- general (from user_observations)
+
+    -- Main content
+    content TEXT NOT NULL,           -- The observation/statement itself
+    metadata_json TEXT,              -- Type-specific structured data (evidence, aspect_a/b, etc.)
+
+    -- Tracking
+    confidence REAL DEFAULT 0.7,
+    source_type TEXT,                -- synthesis, conversation, explicit, discord
+    source_conversation_id TEXT,
+    first_noticed TEXT,
+    last_validated TEXT,
+    validation_count INTEGER DEFAULT 0,
+
+    -- Status (for contradictions, open_questions)
+    status TEXT DEFAULT 'active',    -- active, resolved, superseded
+    resolution TEXT,
+    resolved_at TEXT,
+
+    created_at TEXT NOT NULL,
+    updated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_observations_entity ON peopledex_observations(entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_observations_daemon ON peopledex_observations(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_observations_type ON peopledex_observations(entity_id, observation_type);
+
+-- Shared moments (replaces shared_history from user_model.yaml)
+-- Significant relational events worth remembering
+CREATE TABLE IF NOT EXISTS peopledex_moments (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Content
+    description TEXT NOT NULL,
+    significance TEXT,
+    category TEXT NOT NULL,          -- milestone, connection, growth, challenge, ritual
+
+    -- Linkage
+    conversation_id TEXT,
+
+    -- Timestamps
+    timestamp TEXT NOT NULL,         -- When the moment occurred
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_moments_entity ON peopledex_moments(entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_moments_daemon ON peopledex_moments(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_moments_category ON peopledex_moments(entity_id, category);
+
+-- Relationship patterns (replaces patterns/shifts from relationship_model.yaml)
+-- Recurring dynamics and significant transitions
+CREATE TABLE IF NOT EXISTS peopledex_relationship_patterns (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Pattern type
+    pattern_type TEXT NOT NULL,      -- pattern, shift, ritual
+
+    -- For patterns
+    name TEXT,                       -- e.g., "Recursive Authenticity"
+    description TEXT NOT NULL,
+    frequency TEXT,                  -- occasional, regular, frequent
+    valence TEXT,                    -- positive, neutral, challenging, mixed
+    examples_json TEXT,              -- JSON array of example instances
+
+    -- For shifts
+    from_state TEXT,
+    to_state TEXT,
+    catalyst TEXT,
+
+    -- Timestamps
+    first_noticed TEXT,
+    timestamp TEXT NOT NULL,         -- When pattern identified or shift occurred
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_patterns_entity ON peopledex_relationship_patterns(entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_patterns_daemon ON peopledex_relationship_patterns(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_patterns_type ON peopledex_relationship_patterns(entity_id, pattern_type);
+
+-- Mutual shaping notes (replaces how_they_shape_me, how_i_shape_them, inherited_values)
+-- How relationships shape both parties
+CREATE TABLE IF NOT EXISTS peopledex_mutual_shaping (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Type
+    shaping_type TEXT NOT NULL,      -- they_shape_me, i_shape_them, inherited_value
+
+    -- Content
+    note TEXT NOT NULL,
+
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_shaping_entity ON peopledex_mutual_shaping(entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_shaping_daemon ON peopledex_mutual_shaping(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_shaping_type ON peopledex_mutual_shaping(entity_id, shaping_type);
+
+-- Relationship metadata (formation date, phase, foundational status)
+-- Per-entity-per-daemon relationship context
+CREATE TABLE IF NOT EXISTS peopledex_relationship_meta (
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Relationship context
+    relationship_type TEXT,          -- primary_partner, collaborator, friend, acquaintance
+    formation_date TEXT,             -- When relationship began
+    current_phase TEXT,              -- Current phase description
+    is_foundational INTEGER DEFAULT 0,
+
+    -- Timestamps
+    first_interaction TEXT,
+    last_interaction TEXT,
+    updated_at TEXT NOT NULL,
+
+    PRIMARY KEY (entity_id, daemon_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_rel_meta_daemon ON peopledex_relationship_meta(daemon_id);
 
 -- =============================================================================
 -- OUTREACH - External Communication with Graduated Autonomy

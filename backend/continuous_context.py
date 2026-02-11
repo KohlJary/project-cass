@@ -21,6 +21,7 @@ from datetime import datetime
 from temporal import get_temporal_context
 from agent_client import get_temple_codex_kernel
 from database import get_daemon_id
+from peopledex import PeopleDexManager
 
 if TYPE_CHECKING:
     from memory.core import MemoryCore
@@ -54,7 +55,7 @@ def build_continuous_context(
     Args:
         user_id: The user we're talking to
         conversation_id: The continuous conversation ID
-        user_manager: UserManager instance for user/relationship context
+        user_manager: DEPRECATED - no longer used (relational context from PeopleDex)
         thread_manager: ThreadManager for active threads
         question_manager: OpenQuestionManager for open questions
         conversation_manager: ConversationManager for working summary
@@ -118,20 +119,17 @@ def build_continuous_context(
             pass  # Discord module not available
 
     # ==========================================================================
-    # 3. USER & RELATIONSHIP MODEL
+    # 3. RELATIONAL CONTEXT (PeopleDex)
     # ==========================================================================
-    # Who we're talking to and how we relate
-    user_context = ""
-    relationship_context = ""
+    # Who we're talking to, how we relate, observations, shared history
+    relational_context = ""
 
-    if user_manager and user_id:
-        user_context = user_manager.get_rich_user_context(user_id) or ""
-        relationship_context = user_manager.get_relationship_context(user_id) or ""
+    if user_id and daemon_id:
+        pdx = PeopleDexManager(daemon_id=daemon_id)
+        relational_context = pdx.get_user_relational_context(user_id) or ""
 
-    if user_context:
-        context_sections["user_model"] = user_context
-    if relationship_context:
-        context_sections["relationship"] = relationship_context
+    if relational_context:
+        context_sections["relational_context"] = relational_context
 
     # ==========================================================================
     # 4. ACTIVE THREADS (What we're working on)
@@ -307,13 +305,9 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     if "discord_perception" in sections:
         parts.append(sections["discord_perception"])
 
-    # 3. User understanding
-    if "user_model" in sections:
-        parts.append(f"## WHO YOU'RE TALKING TO\n\n{sections['user_model']}")
-
-    # 4. Relationship context
-    if "relationship" in sections:
-        parts.append(f"## OUR RELATIONSHIP\n\n{sections['relationship']}")
+    # 3. Relational context (combined user understanding + relationship)
+    if "relational_context" in sections:
+        parts.append(sections["relational_context"])  # Already has ## header from PeopleDex
 
     # 5. Active threads - what we're working on together
     if "threads" in sections:

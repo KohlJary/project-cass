@@ -419,7 +419,40 @@ class CassDiscordBot:
                 except Exception:
                     pass  # Ignore invalid reference
 
-            message = await channel.send(content, reference=reference)
+            # Discord has a 2000 character limit - split if needed
+            DISCORD_MAX_LENGTH = 2000
+            if len(content) <= DISCORD_MAX_LENGTH:
+                message = await channel.send(content, reference=reference)
+            else:
+                # Split into chunks, trying to break at newlines
+                chunks = []
+                remaining = content
+                while remaining:
+                    if len(remaining) <= DISCORD_MAX_LENGTH:
+                        chunks.append(remaining)
+                        break
+                    # Find a good break point (newline or space)
+                    break_at = DISCORD_MAX_LENGTH
+                    # Try to break at a newline
+                    newline_pos = remaining.rfind('\n', 0, DISCORD_MAX_LENGTH)
+                    if newline_pos > DISCORD_MAX_LENGTH // 2:
+                        break_at = newline_pos + 1
+                    else:
+                        # Try to break at a space
+                        space_pos = remaining.rfind(' ', 0, DISCORD_MAX_LENGTH)
+                        if space_pos > DISCORD_MAX_LENGTH // 2:
+                            break_at = space_pos + 1
+                    chunks.append(remaining[:break_at])
+                    remaining = remaining[break_at:]
+
+                # Send all chunks - first one with reply reference
+                message = None
+                for i, chunk in enumerate(chunks):
+                    ref = reference if i == 0 else None
+                    message = await channel.send(chunk, reference=ref)
+                    # Small delay between chunks to avoid rate limits
+                    if i < len(chunks) - 1:
+                        await asyncio.sleep(0.5)
 
             return {
                 "success": True,

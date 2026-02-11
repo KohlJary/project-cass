@@ -5,10 +5,25 @@ Supports multi-user with SQLite storage.
 
 Now uses SQLite database for core data (profiles, observations)
 while keeping complex nested models (UserModel, RelationshipModel) in files.
+
+DEPRECATION NOTICE: Many methods in this module are deprecated in favor of
+PeopleDex (backend/peopledex.py). The following are deprecated:
+- add_observation() -> use PeopleDexManager.add_observation_for_user()
+- add_identity_understanding() -> use PeopleDexManager.add_observation_for_user(observation_type="identity_statement")
+- add_shared_moment() -> use PeopleDexManager.add_moment_for_user()
+- add_user_growth_observation() -> use PeopleDexManager.add_observation_for_user(observation_type="growth_observation")
+- add_user_contradiction() -> use PeopleDexManager.add_observation_for_user(observation_type="contradiction")
+- add_open_question_about_user() -> use PeopleDexManager.add_observation_for_user(observation_type="open_question")
+- add_relational_pattern() -> use PeopleDexManager.add_relationship_pattern_for_user()
+- add_mutual_shaping_note() -> use PeopleDexManager.add_mutual_shaping_for_user()
+- add_relationship_shift() -> use PeopleDexManager.add_relationship_pattern_for_user(pattern_type="shift")
+- get_rich_user_context() -> use PeopleDexManager.get_user_relational_context()
+- get_relationship_context() -> use PeopleDexManager.get_relational_context()
 """
 import json
 import hashlib
 import secrets
+import warnings
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict, field
@@ -948,7 +963,16 @@ class UserManager:
         source_journal_date: Optional[str] = None,
         source_type: str = "conversation"
     ) -> Optional[UserObservation]:
-        """Add an observation about a user. Delegates to UserObservationManager."""
+        """
+        Add an observation about a user. Delegates to UserObservationManager.
+
+        DEPRECATED: Use PeopleDexManager.add_observation_for_user() instead.
+        """
+        warnings.warn(
+            "UserManager.add_observation() is deprecated. Use PeopleDexManager.add_observation_for_user() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         result = self._observation_manager.add_observation(
             user_id=user_id,
             observation=observation,
@@ -1629,7 +1653,14 @@ class UserManager:
         and open questions - the enhanced modeling beyond basic profile/observations.
 
         Returns None if no UserModel exists for this user.
+
+        DEPRECATED: Use PeopleDexManager.get_user_relational_context() instead.
         """
+        warnings.warn(
+            "UserManager.get_rich_user_context() is deprecated. Use PeopleDexManager.get_user_relational_context() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         model = self.load_user_model(user_id)
         if not model:
             return None
@@ -1694,7 +1725,14 @@ class UserManager:
         and the dynamics of how the relationship itself functions.
 
         Returns None if no RelationshipModel exists for this user.
+
+        DEPRECATED: Use PeopleDexManager.get_relational_context() instead.
         """
+        warnings.warn(
+            "UserManager.get_relationship_context() is deprecated. Use PeopleDexManager.get_relational_context() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         model = self.load_relationship_model(user_id)
         if not model:
             return None
