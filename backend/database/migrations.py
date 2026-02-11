@@ -322,6 +322,11 @@ def _apply_schema_updates(conn, from_version: int):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_users_discord_handle ON users(discord_handle)")
             print("Added discord_handle column to users table (v30)")
 
+    # v30 -> v31: PeopleDex consolidation - new tables for unified entity knowledge
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 31:
+        print("Adding PeopleDex consolidation tables (peopledex_observations, peopledex_moments, peopledex_relationship_patterns, peopledex_mutual_shaping, peopledex_relationship_meta) (v31)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)
