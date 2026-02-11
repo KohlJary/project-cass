@@ -2,6 +2,30 @@
 
 *Significant architectural and design decisions with rationale*
 
+## Entity Knowledge Architecture (Feb 2026)
+
+**Decision**: Keep users/PeopleDex split for now, plan consolidation for later
+
+**Context**: Discord perception integration revealed overlap between `users` table (observations, relationships) and `peopledex` (biographical facts, handles).
+
+**Options considered**:
+1. Auto-create user accounts for Discord users (quick fix)
+2. Consolidate all entity knowledge into PeopleDex (cleaner architecture)
+
+**Current approach**:
+- Link Discord users to existing Cass users by matching `discord_handle`
+- Known users get full relationship context in Discord perception
+- Unknown Discord users tracked only in PeopleDex (no observations yet)
+
+**Deferred**: Full consolidation where observations/relationships move to PeopleDex level. See `.daedalus/plans/peopledex-consolidation.md` for detailed plan.
+
+**Rationale**:
+- Discord works now for known users (like Kohl)
+- Consolidation is ~5-6 sessions of work
+- Can defer until we need observations for Discord-only people
+
+---
+
 ## Event-Driven State (Dec 2025)
 
 **Decision**: State bus uses event-driven updates, not time-based decay

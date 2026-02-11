@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 28  # Added user_locations for mobile location sharing
+SCHEMA_VERSION = 30  # Added discord_handle to users table
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -48,9 +48,11 @@ CREATE TABLE IF NOT EXISTS users (
     rejection_reason TEXT,
     email TEXT,
     registration_reason TEXT,
+    discord_handle TEXT,  -- Discord username for linking Discord perception
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_users_discord_handle ON users(discord_handle);
 
 -- Conversations
 CREATE TABLE IF NOT EXISTS conversations (
@@ -1383,4 +1385,70 @@ CREATE TABLE IF NOT EXISTS development_requests (
 CREATE INDEX IF NOT EXISTS idx_dev_requests_daemon ON development_requests(daemon_id);
 CREATE INDEX IF NOT EXISTS idx_dev_requests_status ON development_requests(daemon_id, status);
 CREATE INDEX IF NOT EXISTS idx_dev_requests_priority ON development_requests(daemon_id, priority);
+
+-- =============================================================================
+-- DISCORD PERCEPTION - Social environment awareness
+-- =============================================================================
+
+-- Discord server tracking
+CREATE TABLE IF NOT EXISTS discord_servers (
+    id TEXT PRIMARY KEY,
+    guild_id TEXT UNIQUE NOT NULL,
+    guild_name TEXT,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    joined_at TEXT NOT NULL,
+    last_snapshot_at TEXT,
+    config_json TEXT,  -- per-server settings (channels to watch, etc.)
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_discord_servers_daemon ON discord_servers(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_discord_servers_guild ON discord_servers(guild_id);
+
+-- Discord-specific event log (ephemeral, pruned periodically)
+-- Stores structured perception events, not full message content
+CREATE TABLE IF NOT EXISTS discord_events (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    guild_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,           -- message, presence, reaction, voice, member_join, member_leave
+    entity_slug TEXT,                   -- 4-char Ophanic slug
+    channel_id TEXT,
+    channel_name TEXT,
+    summary TEXT,                       -- content summary, not full content
+    metadata_json TEXT,                 -- event-specific data
+    is_triggered INTEGER DEFAULT 0,     -- whether this triggered attention
+    trigger_name TEXT,                  -- which trigger fired
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_discord_events_daemon ON discord_events(daemon_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_discord_events_guild ON discord_events(guild_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_discord_events_entity ON discord_events(entity_slug);
+CREATE INDEX IF NOT EXISTS idx_discord_events_triggered ON discord_events(daemon_id, is_triggered);
+
+-- Discord perception snapshots (Ophanic format)
+-- Cached snapshots for each server, refreshed periodically
+CREATE TABLE IF NOT EXISTS discord_snapshots (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    guild_id TEXT NOT NULL,
+    snapshot_text TEXT NOT NULL,        -- Full Ophanic snapshot text
+    online_count INTEGER,
+    activity_level TEXT,                -- QUIET, LIGHT, MODERATE, ACTIVE
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_discord_snapshots_daemon ON discord_snapshots(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_discord_snapshots_guild ON discord_snapshots(guild_id, created_at);
+
+-- Discord flagged entities (entities to watch)
+CREATE TABLE IF NOT EXISTS discord_flagged_entities (
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    entity_slug TEXT NOT NULL,
+    reason TEXT,
+    flagged_at TEXT NOT NULL,
+    flagged_by TEXT DEFAULT 'cass',     -- cass, user, system
+    PRIMARY KEY (daemon_id, entity_slug)
+);
 """

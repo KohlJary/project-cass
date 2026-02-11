@@ -98,6 +98,24 @@ def build_continuous_context(
         if state_context:
             context_sections["global_state"] = state_context
 
+    # ==========================================================================
+    # 2.6. DISCORD PERCEPTION (Social environment awareness)
+    # ==========================================================================
+    # Spatial snapshots and triggered events from Discord
+    if daemon_id:
+        try:
+            from discord_bot.config import DISCORD_ENABLED
+            if DISCORD_ENABLED:
+                from discord_bot.context import get_perception_context
+                discord_context = get_perception_context(daemon_id)
+                perception_str = discord_context.get_perception_context(
+                    include_actions=True,
+                    max_triggered=5,
+                )
+                if perception_str:
+                    context_sections["discord_perception"] = perception_str
+        except ImportError:
+            pass  # Discord module not available
 
     # ==========================================================================
     # 3. USER & RELATIONSHIP MODEL
@@ -285,6 +303,9 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     if "global_state" in sections:
         parts.append(f"## CURRENT STATE\n\n{sections['global_state']}")
 
+    # 2.6. Discord perception (social environment awareness)
+    if "discord_perception" in sections:
+        parts.append(sections["discord_perception"])
 
     # 3. User understanding
     if "user_model" in sections:

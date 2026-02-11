@@ -1832,6 +1832,160 @@ async def startup_event():
             ))
             logger.info("Periodic conversation observation task started")
 
+            # === Discord Perception Bot ===
+            # Start Discord bot for social environment perception (if enabled)
+            try:
+                from discord_bot.bot import start_discord_bot, DISCORD_PY_AVAILABLE
+                from discord_bot.config import DISCORD_ENABLED
+                from discord_bot.context import build_discord_perception_context, get_user_context_for_discord_entity
+
+                if DISCORD_ENABLED and DISCORD_PY_AVAILABLE:
+                    discord_bot = await start_discord_bot(_daemon_id)
+                    if discord_bot:
+                        # Wire up state bus for perception deltas
+                        discord_bot.set_state_bus(global_state_bus)
+
+                        # Create wake callback for when Cass is @mentioned
+                        async def discord_wake_callback(event, trigger_result, wake_context):
+                            """Handle WAKE_CASS trigger - invoke Cass and respond to Discord."""
+                            global agent_client
+                            if not agent_client:
+                                logger.warning("[Discord] Wake callback: agent_client not available")
+                                return
+
+                            try:
+                                # Build prompt with Discord context
+                                channel_name = wake_context.get("channel_name", "unknown")
+                                entity_name = wake_context.get("entity_name", "someone")
+                                message_content = wake_context.get("message_content", "")
+                                is_dm = wake_context.get("is_dm", False)
+                                channel_id = wake_context.get("channel_id")
+
+                                # Get user context if this is a known user
+                                user_context = ""
+                                entity_slug = wake_context.get("entity_slug")
+                                if entity_slug:
+                                    ctx = get_user_context_for_discord_entity(_daemon_id, entity_slug)
+                                    if ctx:
+                                        user_context = f"\n\n**About {entity_name}:**\n{ctx}"
+
+                                # Build the prompt
+                                if is_dm:
+                                    prompt = f"[Discord DM from {entity_name}]: {message_content}{user_context}"
+                                else:
+                                    prompt = f"[Discord #{channel_name} - {entity_name} mentioned you]: {message_content}{user_context}"
+
+                                logger.info(f"[Discord] Invoking Cass for message from {entity_name}")
+
+                                # Call Cass with Discord-specific guidance
+                                response = await agent_client.send_message(
+                                    prompt,
+                                    intro_guidance="You are responding to a Discord message. Keep your response conversational and appropriate for Discord (not too long). You can use Discord markdown formatting.",
+                                )
+
+                                # Extract text response - log the structure for debugging
+                                logger.info(f"[Discord] Response type: {type(response)}, keys: {response.keys() if isinstance(response, dict) else 'N/A'}")
+
+                                response_text = ""
+                                if isinstance(response, dict):
+                                    # Try common keys
+                                    response_text = response.get("text", "") or response.get("response", "") or response.get("content", "")
+                                    if not response_text:
+                                        logger.info(f"[Discord] Response dict contents: {list(response.keys())}")
+                                elif hasattr(response, 'content'):
+                                    # Fallback for raw Anthropic response
+                                    for block in response.content:
+                                        if hasattr(block, 'text'):
+                                            response_text += block.text
+                                elif hasattr(response, 'text'):
+                                    response_text = response.text
+
+                                logger.info(f"[Discord] Got response: {len(response_text)} chars")
+
+                                # Format response for Discord
+                                def format_for_discord(text: str) -> str:
+                                    import re
+
+                                    # Gesture tag → emoji mapping
+                                    gesture_emojis = {
+                                        "wave": "👋",
+                                        "smile": "😊",
+                                        "think": "🤔",
+                                        "thinking": "🤔",
+                                        "nod": "😌",
+                                        "laugh": "😄",
+                                        "curious": "🧐",
+                                        "excited": "✨",
+                                        "love": "💜",
+                                        "heart": "💜",
+                                        "hug": "🤗",
+                                        "sad": "😢",
+                                        "concern": "😟",
+                                        "surprised": "😮",
+                                        "wink": "😉",
+                                        "peace": "✌️",
+                                        "thumbsup": "👍",
+                                    }
+
+                                    # Replace gesture tags with emojis
+                                    # Matches <gesture:name> or </gesture:name>
+                                    def replace_gesture(match):
+                                        gesture = match.group(1).lower()
+                                        return gesture_emojis.get(gesture, "")
+
+                                    text = re.sub(r'</?gesture:(\w+)>', replace_gesture, text)
+
+                                    # Replace emote tags similarly
+                                    text = re.sub(r'</?emote:(\w+)>', replace_gesture, text)
+
+                                    # Format observation tags nicely
+                                    # <observe target="...">content</observe> → 💭 *content*
+                                    def replace_observe(match):
+                                        content = match.group(1).strip()
+                                        if content:
+                                            return f"\n\n💭 *{content}*"
+                                        return ""
+
+                                    text = re.sub(r'<observe[^>]*>([^<]*)</observe>', replace_observe, text)
+
+                                    # Clean up any remaining XML-like tags
+                                    text = re.sub(r'</?observe[^>]*>', '', text)
+
+                                    # Clean up extra whitespace
+                                    text = re.sub(r'\n{3,}', '\n\n', text)
+
+                                    return text.strip()
+
+                                response_text = format_for_discord(response_text)
+
+                                if response_text and channel_id:
+                                    # Send response back to Discord
+                                    result = await discord_bot.send_message(
+                                        channel_id=channel_id,
+                                        content=response_text,
+                                    )
+                                    if result.get("success"):
+                                        logger.info(f"[Discord] Responded to {entity_name} in #{channel_name}")
+                                    else:
+                                        logger.error(f"[Discord] Failed to send response: {result.get('error')}")
+
+                            except Exception as e:
+                                logger.error(f"[Discord] Wake callback error: {e}")
+                                import traceback
+                                traceback.print_exc()
+
+                        # Set the wake callback
+                        discord_bot.set_wake_callback(discord_wake_callback)
+                        logger.info("Discord perception bot started with wake callback")
+                    else:
+                        logger.info("Discord bot not started (configuration issue)")
+                elif DISCORD_ENABLED:
+                    logger.warning("Discord enabled but discord.py not installed")
+            except ImportError:
+                logger.debug("Discord bot module not available (discord.py not installed)")
+            except Exception as e:
+                logger.error(f"Failed to start Discord bot: {e}")
+
         except Exception as e:
             logger.error(f"Failed to initialize Synkratos: {e}")
             import traceback

@@ -24,6 +24,7 @@ from .interviews import execute_interview_tool, INTERVIEW_TOOLS
 from .dreams import execute_dream_tool, DREAM_TOOLS
 from .peopledex import execute_peopledex_tool, PEOPLEDEX_TOOLS
 from .wonderland import execute_wonderland_tool
+from .discord import execute_discord_tool, DISCORD_TOOLS
 from .tool_router import ToolContext, route_tool, execute_tool_batch, TOOL_REGISTRY
 
 __all__ = [
@@ -66,6 +67,8 @@ __all__ = [
     "execute_peopledex_tool",
     "PEOPLEDEX_TOOLS",
     "execute_wonderland_tool",
+    "execute_discord_tool",
+    "DISCORD_TOOLS",
     "ToolContext",
     "route_tool",
     "execute_tool_batch",
