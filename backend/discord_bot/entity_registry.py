@@ -101,15 +101,38 @@ class DiscordEntityRegistry:
                     if attr.attribute_key == "discord":
                         discord_id = attr.value
 
+                        # Skip if we already have this discord_id (avoid duplicates)
+                        if discord_id in self._by_discord_id:
+                            continue
+
                         # Generate or retrieve slug
                         slug = self._generate_slug(discord_id)
+
+                        # Derive relationship tier from linked user if available
+                        relationship_tier = "known"
+                        linked_user_id = entity.user_id
+                        if linked_user_id:
+                            try:
+                                from users import get_user_manager
+                                user_manager = get_user_manager()
+                                cass_user = user_manager.load_profile(linked_user_id)
+                                if cass_user:
+                                    rel = cass_user.relationship.lower() if cass_user.relationship else ""
+                                    if rel in ("primary_partner", "partner", "close"):
+                                        relationship_tier = "close_friend"
+                                    elif rel in ("friend", "collaborator"):
+                                        relationship_tier = "friend"
+                                    logger.info(f"[EntityRegistry] Loaded {entity.primary_name} linked to user {cass_user.display_name} (tier: {relationship_tier})")
+                            except Exception as e:
+                                logger.warning(f"[EntityRegistry] Failed to load user context for {entity.primary_name}: {e}")
 
                         discord_entity = DiscordEntity(
                             discord_id=discord_id,
                             slug=slug,
                             display_name=entity.primary_name,
                             entity_id=entity.id,
-                            relationship_tier="known",  # TODO: derive from PeopleDex
+                            user_id=linked_user_id,
+                            relationship_tier=relationship_tier,
                             first_seen=datetime.fromisoformat(entity.created_at) if entity.created_at else None,
                         )
 
