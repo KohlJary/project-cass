@@ -275,14 +275,15 @@ class DiscordEventParser:
         # Direct mention = actual @mention OR text pattern match
         is_direct_mention = is_bot_mentioned or mentions_cass_in_text
 
-        # Only store full content if configured and relevant
-        content = None
-        if DISCORD_CONTENT_LOGGING or is_direct_mention:
-            content = message.content
-
         # Get guild ID (None for DMs)
         guild_id = str(message.guild.id) if message.guild else "dm"
         is_dm = message.guild is None
+
+        # Store full content if: content logging enabled, direct mention, OR DM
+        # DMs always need content since they're direct communication with Cass
+        content = None
+        if DISCORD_CONTENT_LOGGING or is_direct_mention or is_dm:
+            content = message.content
 
         return ParsedEvent(
             event_type=EventType.MESSAGE,
