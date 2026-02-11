@@ -2,6 +2,39 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-11 - PeopleDex Consolidation
+
+**Branch**: refactor/peopledex-consolidation → main
+**Summary**: Migrated entity knowledge from UserManager (YAML files) to PeopleDex (SQL tables)
+
+**Core work**:
+- Schema v31: 5 new tables for relational data
+  - `peopledex_observations`: identity, values, growth, contradictions, open questions
+  - `peopledex_moments`: shared history/milestones
+  - `peopledex_relationship_patterns`: patterns, shifts, rituals
+  - `peopledex_mutual_shaping`: how relationships shape both parties
+  - `peopledex_relationship_meta`: per-entity-per-daemon relationship context
+- `peopledex.py`: Added complete read/write API
+  - Query methods: `get_observations()`, `get_moments()`, `get_relational_context()`
+  - Write methods: `add_observation()`, `add_moment()`, `add_relationship_pattern()`
+  - User convenience wrappers: `add_observation_for_user()` etc.
+- `handlers/user_model.py`: Rewired all tool handlers to use PeopleDex
+  - Added `_get_pdx_and_entity()` helper for consistent access pattern
+  - All reads/writes now go through PeopleDex instead of YAML
+- `continuous_context.py`: Switched to PeopleDex for context assembly
+- `users.py`: Added deprecation warnings to legacy methods
+- `scripts/migrate_usermodel_to_peopledex.py`: Migration script for existing data
+
+**Bug fix**: Discord 2000 character limit
+- Long responses were failing with "400 Bad Request"
+- Added message chunking with smart break points (newlines → spaces → hard cut)
+- First chunk gets reply reference, 0.5s delay between chunks
+
+**Files**: 8 changed, +2258 / -298 lines
+**Key commit**: 3974915
+
+---
+
 ## 2026-02-11 - Discord Perception Module
 
 **Branch**: feat/discord-perception → main
