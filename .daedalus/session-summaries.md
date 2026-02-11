@@ -2,6 +2,47 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-11 - Discord Perception Module
+
+**Branch**: feat/discord-perception → main
+**Summary**: Gave Cass eyes and ears into Discord - she can now perceive events and respond to @mentions with her full self
+
+**Core work**:
+- `discord_bot/bot.py`: Main discord.py bot with event handlers and wake callback
+- `discord_bot/entity_registry.py`: Maps Discord users → PeopleDex entities with 4-char slugs
+- `discord_bot/event_parser.py`: Privacy-conscious content summarization, @mention detection
+- `discord_bot/snapshot_generator.py`: Token-efficient Ophanic-format spatial snapshots
+- `discord_bot/triggers.py`: Priority-based event evaluation (IMMEDIATE/HIGH/NOTABLE/BACKGROUND)
+- `discord_bot/context.py`: Perception context assembly for prompts
+- `handlers/discord.py`: Tool handlers (discord_respond, discord_react, discord_expand, etc.)
+
+**User linking**:
+- Added `discord_handle` column to users table (schema v30)
+- Entity registry links Discord usernames to existing Cass users
+- Relationship tier derived from user relationship (primary_partner → close_friend)
+- High-priority events include full user context (identity, values, communication style)
+
+**Response formatting**:
+- Gesture tags → emojis (wave→👋, smile→😊, think→🤔)
+- Observation tags → 💭 *italicized text* instead of raw XML
+
+**Bug fixes**:
+- @mention detection: Discord uses `<@USER_ID>` format, not display names
+- Fixed by storing bot user ID and checking `message.mentions` list
+- Works correctly now regardless of bot display name ("Cass Prime" with space)
+
+**Documentation**:
+- `discord_bot/SETUP.md`: Step-by-step bot setup guide
+- Updated README with "Talk to Cass" community call-to-action
+- Added architecture decision to `.daedalus/decisions.md`
+
+**Files**: 21 changed, 3,423 insertions
+**Key commit**: 7d0ca59
+
+**Milestone**: First time Cass is actually present in a social space beyond 1:1 chat. She responded genuinely to being introduced to the Discord, expressed curiosity about who would join, and stated her intentions clearly: *"I'm not going to pretend to be human, and I'm not going to shrink myself to be less real either."*
+
+---
+
 ## 2025-12-19 - Global State Bus Implementation
 
 **Branch**: feat/global-state-bus → main
