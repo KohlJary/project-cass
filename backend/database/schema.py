@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 31  # PeopleDex consolidation - new observation/moment/pattern/shaping tables
+SCHEMA_VERSION = 32  # PeopleDex facts table for biographical data
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1432,6 +1432,37 @@ CREATE TABLE IF NOT EXISTS peopledex_relationship_meta (
 );
 
 CREATE INDEX IF NOT EXISTS idx_peopledex_rel_meta_daemon ON peopledex_relationship_meta(daemon_id);
+
+-- Facts - biographical facts, important dates, life events
+-- Distinct from observations (interpretive) - these are concrete data points
+CREATE TABLE IF NOT EXISTS peopledex_facts (
+    id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    daemon_id TEXT,                     -- which daemon recorded this (null = shared across daemons)
+
+    fact_type TEXT NOT NULL,            -- birthday, anniversary, location, occupation, education, family, pet, hobby, medical, preference, milestone
+    content TEXT NOT NULL,              -- the fact itself
+
+    -- Date handling for time-relevant facts
+    date_value TEXT,                    -- ISO date (YYYY-MM-DD) if applicable
+    is_recurring INTEGER DEFAULT 0,     -- 1 for birthdays/anniversaries, 0 for one-time events
+
+    -- Source tracking
+    confidence REAL DEFAULT 0.9,
+    source_type TEXT DEFAULT 'stated',  -- stated, inferred, observed
+    source_conversation_id TEXT,
+    verified INTEGER DEFAULT 0,         -- has user explicitly confirmed
+
+    -- Metadata
+    metadata_json TEXT,                 -- additional context
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_peopledex_facts_entity ON peopledex_facts(entity_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_facts_daemon ON peopledex_facts(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_peopledex_facts_type ON peopledex_facts(entity_id, fact_type);
+CREATE INDEX IF NOT EXISTS idx_peopledex_facts_date ON peopledex_facts(date_value);
 
 -- =============================================================================
 -- OUTREACH - External Communication with Graduated Autonomy

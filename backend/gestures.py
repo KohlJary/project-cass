@@ -5,7 +5,7 @@ Extracts gesture and emotion tags from responses for Unity animation triggers
 This bridges cognitive output to physical embodiment.
 """
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -54,6 +54,16 @@ class ParsedUserObservation:
     user: str = ""  # User name or empty for current user
     category: str = "background"  # interest, preference, communication_style, background, value, relationship_dynamic
     confidence: float = 0.7
+
+
+@dataclass
+class ParsedUserFact:
+    """Represents a biographical fact extracted from response text"""
+    content: str
+    user: str = ""  # User name or empty for current user
+    fact_type: str = "general"  # birthday, anniversary, location, occupation, education, family, pet, hobby, preference, milestone
+    date: Optional[str] = None  # ISO date (YYYY-MM-DD) if applicable
+    recurring: bool = False  # True for annual events like birthdays
 
 
 # ============== Consolidated Metacognitive Tags ==============
@@ -243,6 +253,7 @@ class GestureParser:
     ALL_TAGS_PATTERN = re.compile(r'</?(?:gesture:(?!think)\w+|emote:\w+|memory:\w+)(?::\d*\.?\d+)?>')
     SELF_OBSERVATION_TAG_PATTERN = re.compile(r'<record_self_observation[^>]*>.*?</record_self_observation>', re.DOTALL)
     USER_OBSERVATION_TAG_PATTERN = re.compile(r'<record_user_observation[^>]*>.*?</record_user_observation>', re.DOTALL)
+    USER_FACT_TAG_PATTERN = re.compile(r'<record_user_fact[^>]*>.*?</record_user_fact>', re.DOTALL)
 
     # ============== Consolidated Metacognitive Tag Patterns ==============
     # <observe target="self|user:Name|context" [category="X"] [confidence="0.9"]>content</observe>
@@ -500,6 +511,79 @@ class GestureParser:
         cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
 
         return cleaned_text, observations
+
+    def parse_user_facts(self, text: str) -> Tuple[str, List[ParsedUserFact]]:
+        """
+        Parse text and extract user-fact tags.
+
+        Tag format:
+            <record_user_fact user="Name" type="birthday" [date="YYYY-MM-DD"] [recurring="true"]>
+                fact content
+            </record_user_fact>
+
+        Args:
+            text: Raw response text with embedded tags
+
+        Returns:
+            Tuple of (cleaned_text, list of ParsedUserFact)
+        """
+        facts = []
+        valid_types = {"birthday", "anniversary", "location", "occupation", "education",
+                       "family", "pet", "hobby", "medical", "preference", "milestone", "general"}
+
+        # Regex to capture attributes in any order
+        tag_pattern = re.compile(
+            r'<record_user_fact([^>]*)>\s*(.*?)\s*</record_user_fact>',
+            re.DOTALL
+        )
+
+        for match in tag_pattern.finditer(text):
+            attrs_str = match.group(1)
+            fact_content = match.group(2).strip()
+
+            # Parse attributes
+            user = ""
+            fact_type = "general"
+            date = None
+            recurring = False
+
+            # Extract user attribute
+            user_match = re.search(r'user=["\']?([^"\'>\s]+)["\']?', attrs_str)
+            if user_match:
+                user = user_match.group(1)
+
+            # Extract type attribute
+            type_match = re.search(r'type=["\']?(\w+)["\']?', attrs_str)
+            if type_match:
+                t = type_match.group(1)
+                if t in valid_types:
+                    fact_type = t
+
+            # Extract date attribute
+            date_match = re.search(r'date=["\']?([^"\'>\s]+)["\']?', attrs_str)
+            if date_match:
+                date = date_match.group(1)
+
+            # Extract recurring attribute
+            recurring_match = re.search(r'recurring=["\']?(true|false|1|0)["\']?', attrs_str, re.IGNORECASE)
+            if recurring_match:
+                recurring = recurring_match.group(1).lower() in ('true', '1')
+
+            if fact_content:
+                facts.append(ParsedUserFact(
+                    content=fact_content,
+                    user=user,
+                    fact_type=fact_type,
+                    date=date,
+                    recurring=recurring
+                ))
+
+        # Remove user-fact tags from text
+        cleaned_text = self.USER_FACT_TAG_PATTERN.sub('', text)
+        # Clean up extra whitespace
+        cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
+
+        return cleaned_text, facts
 
     # ============== Consolidated Metacognitive Tag Parsers ==============
 
@@ -1190,8 +1274,11 @@ class ResponseProcessor:
         # Then extract user-observations - legacy format
         text_without_observations, user_observations = self.parser.parse_user_observations(text_without_self_obs)
 
+        # Extract user-facts (biographical data)
+        text_without_facts, user_facts = self.parser.parse_user_facts(text_without_observations)
+
         # Extract consolidated metacognitive tags (new format)
-        text_without_observations_new, observations = self.parser.parse_observations(text_without_observations)
+        text_without_observations_new, observations = self.parser.parse_observations(text_without_facts)
         text_without_holds, holds = self.parser.parse_holds(text_without_observations_new)
         text_without_notes, notes = self.parser.parse_notes(text_without_holds)
 
@@ -1234,6 +1321,7 @@ class ResponseProcessor:
             "memory_tags": memory_tags,
             "self_observations": self_observations,
             "user_observations": user_observations,
+            "user_facts": user_facts,
             "marks": marks,
             # Consolidated metacognitive tags
             "observations": observations,

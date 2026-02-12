@@ -31,6 +31,10 @@ INLINE_USER_OBSERVATION_PATTERN = re.compile(
     r'<record_user_observation[^>]*>\s*(.*?)\s*</record_user_observation>',
     re.DOTALL
 )
+INLINE_USER_FACT_PATTERN = re.compile(
+    r'<record_user_fact[^>]*>\s*(.*?)\s*</record_user_fact>',
+    re.DOTALL
+)
 INLINE_ROADMAP_ITEM_PATTERN = re.compile(
     r'<create_roadmap_item>\s*(.*?)\s*</create_roadmap_item>',
     re.DOTALL
@@ -240,6 +244,7 @@ async def process_inline_tags(
     cleaned_text = text
     extracted_self_observations: List[Dict] = []
     extracted_user_observations: List[Dict] = []
+    extracted_user_facts: List[Dict] = []
     extracted_holds: List[Dict] = []
     extracted_notes: List[Dict] = []
     extracted_intentions: List[Dict] = []
@@ -375,6 +380,66 @@ async def process_inline_tags(
                 logger.debug(f"Processed inline user-observation: {content[:50]}...")
             except Exception as e:
                 logger.error(f"Failed to process inline user-observation: {e}")
+
+    # Process user facts (biographical data)
+    for match in INLINE_USER_FACT_PATTERN.finditer(text):
+        full_match = match.group(0)
+        content = match.group(1).strip()
+
+        # Parse attributes
+        attrs_match = re.search(r'<record_user_fact([^>]*)>', full_match)
+        attrs_str = attrs_match.group(1) if attrs_match else ""
+
+        # Extract fact type
+        fact_type = "general"
+        type_match = re.search(r'type=["\']?(\w+)["\']?', attrs_str)
+        if type_match:
+            fact_type = type_match.group(1)
+
+        # Extract date (optional)
+        date_value = None
+        date_match = re.search(r'date=["\']?([^"\'>\s]+)["\']?', attrs_str)
+        if date_match:
+            date_value = date_match.group(1)
+
+        # Extract recurring flag
+        is_recurring = False
+        recurring_match = re.search(r'recurring=["\']?(true|false|1|0)["\']?', attrs_str, re.IGNORECASE)
+        if recurring_match:
+            is_recurring = recurring_match.group(1).lower() in ('true', '1')
+
+        # Handle <parameter> style tags
+        if '<parameter' in content:
+            fact_match = re.search(r'<parameter\s+name=["\']?content["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
+            if fact_match:
+                content = fact_match.group(1).strip()
+
+        # Store the fact using PeopleDex
+        if content and user_id:
+            try:
+                from peopledex import PeopleDexManager
+                from database.daemon import get_daemon_id
+                daemon_id = get_daemon_id()
+                pdx = PeopleDexManager(daemon_id=daemon_id)
+                fact = pdx.add_fact_for_user(
+                    user_id=user_id,
+                    fact_type=fact_type,
+                    content=content,
+                    date_value=date_value,
+                    is_recurring=is_recurring,
+                    source_conversation_id=conversation_id,
+                    source_type="stated",
+                )
+                if fact:
+                    extracted_user_facts.append({
+                        "content": content,
+                        "fact_type": fact_type,
+                        "date": date_value,
+                        "recurring": is_recurring
+                    })
+                    logger.debug(f"Processed inline user-fact: {content[:50]}...")
+            except Exception as e:
+                logger.error(f"Failed to process inline user-fact: {e}")
 
     # Process roadmap items
     for match in INLINE_ROADMAP_ITEM_PATTERN.finditer(text):
@@ -941,6 +1006,7 @@ async def process_inline_tags(
         "text": cleaned_text,
         "self_observations": extracted_self_observations,
         "user_observations": extracted_user_observations,
+        "user_facts": extracted_user_facts,
         "holds": extracted_holds,
         "notes": extracted_notes,
         "intentions": extracted_intentions,
