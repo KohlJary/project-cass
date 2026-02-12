@@ -2,6 +2,37 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-12 - PeopleDex Admin Relational Data
+
+**Branch**: feat/peopledex-admin-relational-data → main
+**Summary**: Exposed all PeopleDex relational data in the admin frontend with a tabbed interface
+
+**Backend work** (`graphql_schema.py`):
+- Added 6 new GraphQL types:
+  - `PeopleDexObservation` - Cass's observations about entities
+  - `PeopleDexFact` - Biographical facts (birthdays, locations, etc.)
+  - `PeopleDexMoment` - Significant shared moments
+  - `PeopleDexRelationshipPattern` - Recurring patterns and shifts
+  - `PeopleDexMutualShaping` - How relationships shape both parties
+  - `PeopleDexRelationshipMeta` - Relationship metadata
+- Updated `PeopleDexProfile` to include all relational data
+- Updated `peopledex_entity` resolver to fetch and convert all data types
+
+**Frontend work** (`admin-frontend/`):
+- Added TypeScript interfaces for all new types in `graphql.ts`
+- Updated GraphQL query to fetch complete relational data
+- Implemented tabbed interface in `PeopleDex.tsx`:
+  - **Overview**: Attributes, relationships, relationship meta, entity metadata
+  - **Facts**: Biographical facts with type badges, dates, recurring indicators
+  - **Cass's View**: Observations (with confidence), patterns, mutual shaping
+  - **History**: Shared moments timeline with category icons
+- Added comprehensive CSS styling for all new components
+
+**Files**: 4 changed, +1183 / -86 lines
+**Key commit**: 2e5de22
+
+---
+
 ## 2026-02-11 - PeopleDex Consolidation
 
 **Branch**: refactor/peopledex-consolidation → main
