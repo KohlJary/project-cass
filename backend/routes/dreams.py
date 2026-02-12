@@ -102,7 +102,8 @@ async def get_dream(
         "seeds": dream.get("seeds", {}),
         "reflections": dream.get("reflections", []),
         "discussed": dream.get("discussed", False),
-        "integrated": dream.get("integrated", False)
+        "integrated": dream.get("integrated", False),
+        "integration_insights": dream.get("integration_insights")
     }
 
 
