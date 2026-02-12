@@ -582,3 +582,468 @@
 .detail-content::-webkit-scrollbar-thumb:hover {
   background: #444;
 }
+
+/* =============================================================================
+   DETAIL PANEL TABS
+   ============================================================================= */
+
+.detail-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  background: #0f0f0f;
+}
+
+.detail-tab {
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #888;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-tab:hover {
+  background: #1a1a1a;
+  color: #e0e0e0;
+}
+
+.detail-tab.active {
+  background: #1e3a5f;
+  color: #4ecdc4;
+}
+
+.tab-count {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(78, 205, 196, 0.2);
+  border-radius: 10px;
+  color: #4ecdc4;
+}
+
+/* =============================================================================
+   RELATIONSHIP META
+   ============================================================================= */
+
+.relationship-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #1a1a1a;
+  border-radius: 6px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-label {
+  font-size: 12px;
+  color: #666;
+}
+
+.meta-value {
+  font-size: 13px;
+  color: #e0e0e0;
+}
+
+.relationship-type-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: rgba(78, 205, 196, 0.15);
+  color: #4ecdc4;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.foundational-badge {
+  color: #ffd93d;
+  font-size: 12px;
+}
+
+/* =============================================================================
+   FACTS TAB
+   ============================================================================= */
+
+.facts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fact-item {
+  padding: 14px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border-left: 3px solid #4ecdc4;
+}
+
+.fact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.fact-type-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  background: #252525;
+  color: #888;
+}
+
+.fact-type-badge.birthday { color: #ff6b9d; background: rgba(255, 107, 157, 0.15); }
+.fact-type-badge.anniversary { color: #ff6b6b; background: rgba(255, 107, 107, 0.15); }
+.fact-type-badge.location { color: #74c0fc; background: rgba(116, 192, 252, 0.15); }
+.fact-type-badge.occupation { color: #69db7c; background: rgba(105, 219, 124, 0.15); }
+.fact-type-badge.education { color: #ffd93d; background: rgba(255, 217, 61, 0.15); }
+.fact-type-badge.family { color: #da77f2; background: rgba(218, 119, 242, 0.15); }
+.fact-type-badge.pet { color: #faa2c1; background: rgba(250, 162, 193, 0.15); }
+.fact-type-badge.hobby { color: #63e6be; background: rgba(99, 230, 190, 0.15); }
+
+.recurring-badge {
+  font-size: 10px;
+  color: #74c0fc;
+}
+
+.verified-badge {
+  font-size: 10px;
+  color: #69db7c;
+}
+
+.fact-content {
+  font-size: 14px;
+  color: #e0e0e0;
+  margin-bottom: 8px;
+}
+
+.fact-date {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.fact-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: #555;
+}
+
+/* =============================================================================
+   OBSERVATIONS (CASS'S VIEW)
+   ============================================================================= */
+
+.observations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.observation-item {
+  padding: 14px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border-left: 3px solid #c77dff;
+}
+
+.observation-item.resolved {
+  border-left-color: #555;
+  opacity: 0.7;
+}
+
+.observation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.observation-type-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  background: #252525;
+  color: #888;
+}
+
+.observation-type-badge.identity_statement { color: #da77f2; background: rgba(218, 119, 242, 0.15); }
+.observation-type-badge.value { color: #4ecdc4; background: rgba(78, 205, 196, 0.15); }
+.observation-type-badge.communication_style { color: #74c0fc; background: rgba(116, 192, 252, 0.15); }
+.observation-type-badge.growth_observation { color: #69db7c; background: rgba(105, 219, 124, 0.15); }
+.observation-type-badge.contradiction { color: #ff6b6b; background: rgba(255, 107, 107, 0.15); }
+.observation-type-badge.open_question { color: #ffd93d; background: rgba(255, 217, 61, 0.15); }
+
+.confidence {
+  font-size: 11px;
+  color: #666;
+}
+
+.observation-content {
+  font-size: 14px;
+  color: #e0e0e0;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.observation-resolution {
+  font-size: 13px;
+  color: #888;
+  padding: 8px 12px;
+  background: #151515;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.resolution-label {
+  color: #666;
+  margin-right: 4px;
+}
+
+.observation-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: #555;
+}
+
+.observation-date {
+  margin-left: auto;
+}
+
+/* =============================================================================
+   PATTERNS
+   ============================================================================= */
+
+.patterns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pattern-item {
+  padding: 14px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border-left: 3px solid #74c0fc;
+}
+
+.pattern-item.positive { border-left-color: #69db7c; }
+.pattern-item.challenging { border-left-color: #ff6b6b; }
+.pattern-item.mixed { border-left-color: #ffd93d; }
+
+.pattern-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.pattern-type-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  background: #252525;
+  color: #888;
+}
+
+.pattern-type-badge.pattern { color: #74c0fc; background: rgba(116, 192, 252, 0.15); }
+.pattern-type-badge.shift { color: #ffd93d; background: rgba(255, 217, 61, 0.15); }
+.pattern-type-badge.ritual { color: #da77f2; background: rgba(218, 119, 242, 0.15); }
+
+.pattern-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.pattern-frequency {
+  font-size: 11px;
+  color: #666;
+  padding: 2px 6px;
+  background: #252525;
+  border-radius: 3px;
+}
+
+.pattern-content {
+  font-size: 14px;
+  color: #ccc;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.pattern-shift {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #151515;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #e0e0e0;
+}
+
+.shift-arrow {
+  color: #ffd93d;
+  font-weight: bold;
+}
+
+.catalyst {
+  color: #666;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.pattern-examples {
+  font-size: 13px;
+  color: #888;
+}
+
+.examples-label {
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.pattern-examples ul {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+}
+
+.pattern-examples li {
+  margin-bottom: 4px;
+}
+
+/* =============================================================================
+   MUTUAL SHAPING
+   ============================================================================= */
+
+.shaping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shaping-item {
+  padding: 12px 14px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  border-left: 3px solid #888;
+}
+
+.shaping-item.they_shape_me { border-left-color: #ff6b9d; }
+.shaping-item.i_shape_them { border-left-color: #4ecdc4; }
+.shaping-item.inherited_value { border-left-color: #da77f2; }
+
+.shaping-type {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #666;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.shaping-note {
+  font-size: 14px;
+  color: #e0e0e0;
+  line-height: 1.5;
+}
+
+/* =============================================================================
+   HISTORY TAB - MOMENTS TIMELINE
+   ============================================================================= */
+
+.moments-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.moment-item {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  background: #1a1a1a;
+  border-radius: 8px;
+}
+
+.moment-marker {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #252525;
+  border-radius: 50%;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.moment-content {
+  flex: 1;
+}
+
+.moment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.moment-category-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  background: #252525;
+  color: #888;
+}
+
+.moment-category-badge.milestone { color: #ffd93d; background: rgba(255, 217, 61, 0.15); }
+.moment-category-badge.connection { color: #da77f2; background: rgba(218, 119, 242, 0.15); }
+.moment-category-badge.growth { color: #69db7c; background: rgba(105, 219, 124, 0.15); }
+.moment-category-badge.challenge { color: #ff6b6b; background: rgba(255, 107, 107, 0.15); }
+.moment-category-badge.ritual { color: #c77dff; background: rgba(199, 125, 255, 0.15); }
+
+.moment-date {
+  font-size: 11px;
+  color: #666;
+}
+
+.moment-description {
+  font-size: 14px;
+  color: #e0e0e0;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.moment-significance {
+  font-size: 13px;
+  color: #888;
+  padding: 8px 12px;
+  background: #151515;
+  border-radius: 4px;
+}
+
+.significance-label {
+  color: #666;
+  font-size: 11px;
+  margin-right: 4px;
+}

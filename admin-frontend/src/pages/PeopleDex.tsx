@@ -14,6 +14,7 @@ import {
 import './PeopleDex.css';
 
 type ModalType = 'create-entity' | 'add-attribute' | 'add-relationship' | null;
+type DetailTab = 'overview' | 'facts' | 'cass-view' | 'history';
 
 const ENTITY_TYPES = ['person', 'organization', 'team', 'daemon'];
 const REALMS = ['meatspace', 'wonderland'];
@@ -32,6 +33,7 @@ export function PeopleDex() {
   const [filterType, setFilterType] = useState<string>('');
   const [filterRealm, setFilterRealm] = useState<string>('');
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
 
   // Form states
   const [newEntityName, setNewEntityName] = useState('');
@@ -346,99 +348,345 @@ export function PeopleDex() {
                 </div>
               </div>
 
+              {/* Tab Navigation */}
+              <div className="detail-tabs">
+                <button
+                  className={`detail-tab ${activeTab === 'overview' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('overview')}
+                >
+                  Overview
+                </button>
+                <button
+                  className={`detail-tab ${activeTab === 'facts' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('facts')}
+                >
+                  Facts {profile.facts?.length > 0 && <span className="tab-count">{profile.facts.length}</span>}
+                </button>
+                <button
+                  className={`detail-tab ${activeTab === 'cass-view' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('cass-view')}
+                >
+                  Cass's View {profile.observations?.length > 0 && <span className="tab-count">{profile.observations.length}</span>}
+                </button>
+                <button
+                  className={`detail-tab ${activeTab === 'history' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('history')}
+                >
+                  History {profile.moments?.length > 0 && <span className="tab-count">{profile.moments.length}</span>}
+                </button>
+              </div>
+
               <div className="detail-content">
-                {/* Attributes Section */}
-                <div className="detail-section">
-                  <h3>
-                    Attributes
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => setActiveModal('add-attribute')}
-                    >
-                      + Add
-                    </button>
-                  </h3>
-                  {profile.attributes.length === 0 ? (
-                    <p style={{ color: '#666', fontSize: '13px' }}>No attributes yet</p>
-                  ) : (
-                    <div className="attribute-list">
-                      {profile.attributes.map((attr) => (
-                        <div key={attr.id} className="attribute-item">
-                          <div className="attribute-info">
-                            <div className="attribute-type">
-                              {attr.attributeType}
-                              {attr.attributeKey && <span className="attribute-key"> ({attr.attributeKey})</span>}
-                              {attr.isPrimary && <span style={{ color: '#4ecdc4' }}> ★</span>}
+                {/* Overview Tab */}
+                {activeTab === 'overview' && (
+                  <>
+                    {/* Attributes Section */}
+                    <div className="detail-section">
+                      <h3>
+                        Attributes
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => setActiveModal('add-attribute')}
+                        >
+                          + Add
+                        </button>
+                      </h3>
+                      {profile.attributes.length === 0 ? (
+                        <p style={{ color: '#666', fontSize: '13px' }}>No attributes yet</p>
+                      ) : (
+                        <div className="attribute-list">
+                          {profile.attributes.map((attr) => (
+                            <div key={attr.id} className="attribute-item">
+                              <div className="attribute-info">
+                                <div className="attribute-type">
+                                  {attr.attributeType}
+                                  {attr.attributeKey && <span className="attribute-key"> ({attr.attributeKey})</span>}
+                                  {attr.isPrimary && <span style={{ color: '#4ecdc4' }}> ★</span>}
+                                </div>
+                                <div className="attribute-value">{attr.value}</div>
+                              </div>
+                              <div className="attribute-actions">
+                                <button
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => deleteAttributeMutation.mutate(attr.id)}
+                                >
+                                  ×
+                                </button>
+                              </div>
                             </div>
-                            <div className="attribute-value">{attr.value}</div>
-                          </div>
-                          <div className="attribute-actions">
-                            <button
-                              className="btn btn-danger btn-sm"
-                              onClick={() => deleteAttributeMutation.mutate(attr.id)}
-                            >
-                              ×
-                            </button>
-                          </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* Relationships Section */}
-                <div className="detail-section">
-                  <h3>
-                    Relationships
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => setActiveModal('add-relationship')}
-                    >
-                      + Add
-                    </button>
-                  </h3>
-                  {profile.relationships.length === 0 ? (
-                    <p style={{ color: '#666', fontSize: '13px' }}>No relationships yet</p>
-                  ) : (
-                    <div className="relationship-list">
-                      {profile.relationships.map((rel) => (
-                        <div key={rel.relationshipId} className="relationship-item">
-                          <span className="relationship-arrow">
-                            {rel.direction === 'to' ? '→' : '←'}
-                          </span>
-                          <span className="relationship-type">{rel.relationshipType}</span>
-                          <span
-                            className="relationship-entity"
-                            onClick={() => setSelectedEntityId(rel.relatedEntity.id)}
-                          >
-                            {rel.relatedEntity.primaryName}
-                          </span>
-                          <button
-                            className="btn btn-danger btn-sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteRelationshipMutation.mutate(rel.relationshipId);
-                            }}
-                          >
-                            ×
-                          </button>
+                    {/* Relationships Section */}
+                    <div className="detail-section">
+                      <h3>
+                        Relationships
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => setActiveModal('add-relationship')}
+                        >
+                          + Add
+                        </button>
+                      </h3>
+                      {profile.relationships.length === 0 ? (
+                        <p style={{ color: '#666', fontSize: '13px' }}>No relationships yet</p>
+                      ) : (
+                        <div className="relationship-list">
+                          {profile.relationships.map((rel) => (
+                            <div key={rel.relationshipId} className="relationship-item">
+                              <span className="relationship-arrow">
+                                {rel.direction === 'to' ? '→' : '←'}
+                              </span>
+                              <span className="relationship-type">{rel.relationshipType}</span>
+                              <span
+                                className="relationship-entity"
+                                onClick={() => setSelectedEntityId(rel.relatedEntity.id)}
+                              >
+                                {rel.relatedEntity.primaryName}
+                              </span>
+                              <button
+                                className="btn btn-danger btn-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteRelationshipMutation.mutate(rel.relationshipId);
+                                }}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* Metadata */}
-                <div className="detail-section">
-                  <h3>Metadata</h3>
-                  <div style={{ color: '#666', fontSize: '12px' }}>
-                    <p>ID: {profile.entity.id}</p>
-                    {profile.entity.userId && <p>User ID: {profile.entity.userId}</p>}
-                    {profile.entity.npcId && <p>NPC ID: {profile.entity.npcId}</p>}
-                    <p>Created: {new Date(profile.entity.createdAt).toLocaleString()}</p>
-                    <p>Updated: {new Date(profile.entity.updatedAt).toLocaleString()}</p>
+                    {/* Relationship Meta (if exists) */}
+                    {profile.relationshipMeta && (
+                      <div className="detail-section">
+                        <h3>Relationship with Cass</h3>
+                        <div className="relationship-meta">
+                          {profile.relationshipMeta.relationshipType && (
+                            <div className="meta-item">
+                              <span className="meta-label">Type:</span>
+                              <span className="meta-value relationship-type-badge">
+                                {profile.relationshipMeta.relationshipType}
+                              </span>
+                            </div>
+                          )}
+                          {profile.relationshipMeta.currentPhase && (
+                            <div className="meta-item">
+                              <span className="meta-label">Phase:</span>
+                              <span className="meta-value">{profile.relationshipMeta.currentPhase}</span>
+                            </div>
+                          )}
+                          {profile.relationshipMeta.isFoundational && (
+                            <div className="meta-item">
+                              <span className="meta-value foundational-badge">⭐ Foundational Relationship</span>
+                            </div>
+                          )}
+                          {profile.relationshipMeta.formationDate && (
+                            <div className="meta-item">
+                              <span className="meta-label">Since:</span>
+                              <span className="meta-value">{profile.relationshipMeta.formationDate}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Metadata */}
+                    <div className="detail-section">
+                      <h3>Metadata</h3>
+                      <div style={{ color: '#666', fontSize: '12px' }}>
+                        <p>ID: {profile.entity.id}</p>
+                        {profile.entity.userId && <p>User ID: {profile.entity.userId}</p>}
+                        {profile.entity.npcId && <p>NPC ID: {profile.entity.npcId}</p>}
+                        <p>Created: {new Date(profile.entity.createdAt).toLocaleString()}</p>
+                        <p>Updated: {new Date(profile.entity.updatedAt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Facts Tab */}
+                {activeTab === 'facts' && (
+                  <div className="detail-section">
+                    <h3>Biographical Facts</h3>
+                    {!profile.facts || profile.facts.length === 0 ? (
+                      <p style={{ color: '#666', fontSize: '13px' }}>No facts recorded yet</p>
+                    ) : (
+                      <div className="facts-list">
+                        {profile.facts.map((fact) => (
+                          <div key={fact.id} className="fact-item">
+                            <div className="fact-header">
+                              <span className={`fact-type-badge ${fact.factType}`}>
+                                {fact.factType}
+                              </span>
+                              {fact.isRecurring && <span className="recurring-badge">🔄 Recurring</span>}
+                              {fact.verified && <span className="verified-badge">✓ Verified</span>}
+                            </div>
+                            <div className="fact-content">{fact.content}</div>
+                            {fact.dateValue && (
+                              <div className="fact-date">📅 {fact.dateValue}</div>
+                            )}
+                            <div className="fact-meta">
+                              <span className="confidence">
+                                Confidence: {Math.round(fact.confidence * 100)}%
+                              </span>
+                              <span className="source">Source: {fact.sourceType}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
+
+                {/* Cass's View Tab */}
+                {activeTab === 'cass-view' && (
+                  <>
+                    {/* Observations */}
+                    <div className="detail-section">
+                      <h3>Observations</h3>
+                      {!profile.observations || profile.observations.length === 0 ? (
+                        <p style={{ color: '#666', fontSize: '13px' }}>No observations yet</p>
+                      ) : (
+                        <div className="observations-list">
+                          {profile.observations.map((obs) => (
+                            <div key={obs.id} className={`observation-item ${obs.status}`}>
+                              <div className="observation-header">
+                                <span className={`observation-type-badge ${obs.observationType}`}>
+                                  {obs.observationType.replace(/_/g, ' ')}
+                                </span>
+                                <span className="confidence">
+                                  {Math.round(obs.confidence * 100)}%
+                                </span>
+                              </div>
+                              <div className="observation-content">{obs.content}</div>
+                              {obs.resolution && (
+                                <div className="observation-resolution">
+                                  <span className="resolution-label">Resolution:</span> {obs.resolution}
+                                </div>
+                              )}
+                              <div className="observation-meta">
+                                {obs.validationCount > 0 && (
+                                  <span>Validated {obs.validationCount}×</span>
+                                )}
+                                <span className="observation-date">
+                                  {new Date(obs.createdAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Patterns */}
+                    {profile.patterns && profile.patterns.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Relationship Patterns</h3>
+                        <div className="patterns-list">
+                          {profile.patterns.map((pattern) => (
+                            <div key={pattern.id} className={`pattern-item ${pattern.valence || ''}`}>
+                              <div className="pattern-header">
+                                <span className={`pattern-type-badge ${pattern.patternType}`}>
+                                  {pattern.patternType}
+                                </span>
+                                {pattern.name && <span className="pattern-name">{pattern.name}</span>}
+                                {pattern.frequency && (
+                                  <span className="pattern-frequency">{pattern.frequency}</span>
+                                )}
+                              </div>
+                              <div className="pattern-content">{pattern.description}</div>
+                              {pattern.patternType === 'shift' && (
+                                <div className="pattern-shift">
+                                  <span>{pattern.fromState}</span>
+                                  <span className="shift-arrow">→</span>
+                                  <span>{pattern.toState}</span>
+                                  {pattern.catalyst && (
+                                    <span className="catalyst">({pattern.catalyst})</span>
+                                  )}
+                                </div>
+                              )}
+                              {pattern.examples && pattern.examples.length > 0 && (
+                                <div className="pattern-examples">
+                                  <span className="examples-label">Examples:</span>
+                                  <ul>
+                                    {pattern.examples.map((ex, i) => (
+                                      <li key={i}>{ex}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Mutual Shaping */}
+                    {profile.mutualShaping && profile.mutualShaping.length > 0 && (
+                      <div className="detail-section">
+                        <h3>Mutual Shaping</h3>
+                        <div className="shaping-list">
+                          {profile.mutualShaping.map((shaping) => (
+                            <div key={shaping.id} className={`shaping-item ${shaping.shapingType}`}>
+                              <div className="shaping-type">
+                                {shaping.shapingType === 'they_shape_me' && '↓ They shape me'}
+                                {shaping.shapingType === 'i_shape_them' && '↑ I shape them'}
+                                {shaping.shapingType === 'inherited_value' && '⟳ Inherited value'}
+                              </div>
+                              <div className="shaping-note">{shaping.note}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* History Tab */}
+                {activeTab === 'history' && (
+                  <div className="detail-section">
+                    <h3>Shared Moments</h3>
+                    {!profile.moments || profile.moments.length === 0 ? (
+                      <p style={{ color: '#666', fontSize: '13px' }}>No moments recorded yet</p>
+                    ) : (
+                      <div className="moments-timeline">
+                        {profile.moments.map((moment) => (
+                          <div key={moment.id} className={`moment-item ${moment.category}`}>
+                            <div className="moment-marker">
+                              {moment.category === 'milestone' && '🏆'}
+                              {moment.category === 'connection' && '💫'}
+                              {moment.category === 'growth' && '🌱'}
+                              {moment.category === 'challenge' && '⚡'}
+                              {moment.category === 'ritual' && '🔮'}
+                            </div>
+                            <div className="moment-content">
+                              <div className="moment-header">
+                                <span className={`moment-category-badge ${moment.category}`}>
+                                  {moment.category}
+                                </span>
+                                <span className="moment-date">
+                                  {new Date(moment.timestamp).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <div className="moment-description">{moment.description}</div>
+                              {moment.significance && (
+                                <div className="moment-significance">
+                                  <span className="significance-label">Significance:</span>
+                                  {moment.significance}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           ) : (

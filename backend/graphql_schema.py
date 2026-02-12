@@ -660,10 +660,17 @@ class PeopleDexEntity:
 
 @strawberry.type
 class PeopleDexProfile:
-    """Full profile of a PeopleDex entity including attributes and relationships."""
+    """Full profile of a PeopleDex entity including attributes, relationships, and relational data."""
     entity: PeopleDexEntity
     attributes: List[PeopleDexAttribute]
     relationships: List[PeopleDexRelationship]
+    # Relational data (Cass's perspective on this entity)
+    observations: List["PeopleDexObservation"]
+    facts: List["PeopleDexFact"]
+    moments: List["PeopleDexMoment"]
+    patterns: List["PeopleDexRelationshipPattern"]
+    mutual_shaping: List["PeopleDexMutualShaping"]
+    relationship_meta: Optional["PeopleDexRelationshipMeta"]
 
 
 @strawberry.type
@@ -672,6 +679,108 @@ class PeopleDexStats:
     total_entities: int
     by_type: strawberry.scalars.JSON  # {"person": 10, "organization": 2, ...}
     by_realm: strawberry.scalars.JSON  # {"meatspace": 8, "wonderland": 4}
+
+
+# =============================================================================
+# PEOPLEDEX RELATIONAL TYPES
+# =============================================================================
+
+@strawberry.type
+class PeopleDexObservation:
+    """A relational observation about an entity (from Cass's perspective)."""
+    id: str
+    entity_id: str
+    daemon_id: str
+    observation_type: str  # identity_statement, value, communication_style, growth_observation, etc.
+    content: str
+    confidence: float
+    source_type: Optional[str]
+    source_conversation_id: Optional[str]
+    first_noticed: Optional[str]
+    last_validated: Optional[str]
+    validation_count: int
+    status: str  # active, resolved
+    resolution: Optional[str]
+    resolved_at: Optional[str]
+    created_at: str
+    updated_at: Optional[str]
+
+
+@strawberry.type
+class PeopleDexFact:
+    """A biographical fact about an entity."""
+    id: str
+    entity_id: str
+    daemon_id: Optional[str]
+    fact_type: str  # birthday, anniversary, location, occupation, education, family, etc.
+    content: str
+    date_value: Optional[str]  # ISO date if applicable
+    is_recurring: bool
+    confidence: float
+    source_type: str
+    source_conversation_id: Optional[str]
+    verified: bool
+    created_at: str
+    updated_at: str
+
+
+@strawberry.type
+class PeopleDexMoment:
+    """A significant relational moment with an entity."""
+    id: str
+    entity_id: str
+    daemon_id: str
+    description: str
+    significance: Optional[str]
+    category: str  # milestone, connection, growth, challenge, ritual
+    conversation_id: Optional[str]
+    timestamp: str
+    created_at: str
+
+
+@strawberry.type
+class PeopleDexRelationshipPattern:
+    """A recurring pattern or significant shift in a relationship."""
+    id: str
+    entity_id: str
+    daemon_id: str
+    pattern_type: str  # pattern, shift, ritual
+    name: Optional[str]
+    description: str
+    frequency: Optional[str]  # occasional, regular, frequent
+    valence: Optional[str]  # positive, neutral, challenging, mixed
+    examples: List[str]
+    from_state: Optional[str]  # For shifts
+    to_state: Optional[str]
+    catalyst: Optional[str]
+    first_noticed: Optional[str]
+    timestamp: str
+    created_at: str
+
+
+@strawberry.type
+class PeopleDexMutualShaping:
+    """How a relationship shapes both parties."""
+    id: str
+    entity_id: str
+    daemon_id: str
+    shaping_type: str  # they_shape_me, i_shape_them, inherited_value
+    note: str
+    created_at: str
+
+
+@strawberry.type
+class PeopleDexRelationshipMeta:
+    """Metadata about a relationship with an entity."""
+    entity_id: str
+    daemon_id: str
+    relationship_type: Optional[str]  # primary_partner, collaborator, friend, acquaintance
+    formation_date: Optional[str]
+    current_phase: Optional[str]
+    is_foundational: bool
+    first_interaction: Optional[str]
+    last_interaction: Optional[str]
+    updated_at: str
 
 
 # =============================================================================
@@ -1535,12 +1644,20 @@ class Query:
 
     @strawberry.field
     async def peopledex_entity(self, entity_id: str) -> Optional[PeopleDexProfile]:
-        """Get full PeopleDex entity profile."""
+        """Get full PeopleDex entity profile including relational data."""
         manager = get_peopledex_manager()
         profile = manager.get_full_profile(entity_id)
 
         if not profile:
             return None
+
+        # Fetch relational data
+        observations = manager.get_observations(entity_id, limit=50)
+        facts = manager.get_facts(entity_id, limit=50)
+        moments = manager.get_moments(entity_id, limit=30)
+        patterns = manager.get_relationship_patterns(entity_id)
+        shaping = manager.get_mutual_shaping(entity_id)
+        meta = manager.get_relationship_meta(entity_id)
 
         return PeopleDexProfile(
             entity=PeopleDexEntity(
@@ -1584,6 +1701,101 @@ class Query:
                 )
                 for r in profile.relationships
             ],
+            observations=[
+                PeopleDexObservation(
+                    id=o.id,
+                    entity_id=o.entity_id,
+                    daemon_id=o.daemon_id,
+                    observation_type=o.observation_type,
+                    content=o.content,
+                    confidence=o.confidence,
+                    source_type=o.source_type,
+                    source_conversation_id=o.source_conversation_id,
+                    first_noticed=o.first_noticed,
+                    last_validated=o.last_validated,
+                    validation_count=o.validation_count,
+                    status=o.status,
+                    resolution=o.resolution,
+                    resolved_at=o.resolved_at,
+                    created_at=o.created_at,
+                    updated_at=o.updated_at,
+                )
+                for o in observations
+            ],
+            facts=[
+                PeopleDexFact(
+                    id=f.id,
+                    entity_id=f.entity_id,
+                    daemon_id=f.daemon_id,
+                    fact_type=f.fact_type,
+                    content=f.content,
+                    date_value=f.date_value,
+                    is_recurring=f.is_recurring,
+                    confidence=f.confidence,
+                    source_type=f.source_type,
+                    source_conversation_id=f.source_conversation_id,
+                    verified=f.verified,
+                    created_at=f.created_at,
+                    updated_at=f.updated_at,
+                )
+                for f in facts
+            ],
+            moments=[
+                PeopleDexMoment(
+                    id=m.id,
+                    entity_id=m.entity_id,
+                    daemon_id=m.daemon_id,
+                    description=m.description,
+                    significance=m.significance,
+                    category=m.category,
+                    conversation_id=m.conversation_id,
+                    timestamp=m.timestamp,
+                    created_at=m.created_at,
+                )
+                for m in moments
+            ],
+            patterns=[
+                PeopleDexRelationshipPattern(
+                    id=p.id,
+                    entity_id=p.entity_id,
+                    daemon_id=p.daemon_id,
+                    pattern_type=p.pattern_type,
+                    name=p.name,
+                    description=p.description,
+                    frequency=p.frequency,
+                    valence=p.valence,
+                    examples=p.examples,
+                    from_state=p.from_state,
+                    to_state=p.to_state,
+                    catalyst=p.catalyst,
+                    first_noticed=p.first_noticed,
+                    timestamp=p.timestamp,
+                    created_at=p.created_at,
+                )
+                for p in patterns
+            ],
+            mutual_shaping=[
+                PeopleDexMutualShaping(
+                    id=s.id,
+                    entity_id=s.entity_id,
+                    daemon_id=s.daemon_id,
+                    shaping_type=s.shaping_type,
+                    note=s.note,
+                    created_at=s.created_at,
+                )
+                for s in shaping
+            ],
+            relationship_meta=PeopleDexRelationshipMeta(
+                entity_id=meta.entity_id,
+                daemon_id=meta.daemon_id,
+                relationship_type=meta.relationship_type,
+                formation_date=meta.formation_date,
+                current_phase=meta.current_phase,
+                is_foundational=meta.is_foundational,
+                first_interaction=meta.first_interaction,
+                last_interaction=meta.last_interaction,
+                updated_at=meta.updated_at,
+            ) if meta else None,
         )
 
     # =========================================================================
