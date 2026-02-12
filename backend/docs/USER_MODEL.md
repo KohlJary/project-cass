@@ -143,6 +143,41 @@ When Cass uses these tags:
 3. A system message is sent to the TUI showing what was recorded (👤 emoji)
 4. The tags are stripped from the displayed response
 
+### Recording User Facts
+
+For biographical facts (birthdays, locations, jobs, etc.), Cass can use the `<record_user_fact>` tag:
+
+```xml
+<!-- Basic fact -->
+<record_user_fact user="Kohl" type="occupation">
+Works as a software engineer building AI systems.
+</record_user_fact>
+
+<!-- Fact with date (for birthdays, anniversaries, etc.) -->
+<record_user_fact user="Kohl" type="birthday" date="1990-03-15" recurring="true">
+Kohl's birthday is March 15th.
+</record_user_fact>
+
+<!-- Other fact types -->
+<record_user_fact user="Kohl" type="location">
+Based in Seattle, Washington.
+</record_user_fact>
+
+<record_user_fact user="Kohl" type="family">
+Has a cat named Luna.
+</record_user_fact>
+```
+
+**Attributes:**
+- `user` - The person this fact is about
+- `type` - Category: birthday, anniversary, location, occupation, education, family, pet, hobby, medical, preference, milestone, general
+- `date` - Optional ISO date (YYYY-MM-DD) if the fact has an associated date
+- `recurring` - "true" for annual events like birthdays/anniversaries
+
+**Difference from observations:**
+- **Observations** are interpretive (what Cass notices about someone's communication style, values, growth)
+- **Facts** are concrete data points (birthdays, where they live, what they do for work)
+
 ## Context Injection
 
 User context is automatically injected into Cass's context for every conversation via `get_user_context()`. This includes:

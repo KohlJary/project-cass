@@ -327,6 +327,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 31:
         print("Adding PeopleDex consolidation tables (peopledex_observations, peopledex_moments, peopledex_relationship_patterns, peopledex_mutual_shaping, peopledex_relationship_meta) (v31)")
 
+    # v31 -> v32: PeopleDex facts table for biographical data
+    # Table is created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 32:
+        print("Adding PeopleDex facts table (peopledex_facts) for biographical data (v32)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)

@@ -219,6 +219,25 @@ class RelationshipMeta:
     updated_at: str = ""
 
 
+@dataclass
+class Fact:
+    """A biographical fact about an entity."""
+    id: str
+    entity_id: str
+    daemon_id: Optional[str]
+    fact_type: str  # birthday, anniversary, location, occupation, education, family, pet, hobby, medical, preference, milestone
+    content: str
+    date_value: Optional[str] = None  # ISO date if applicable
+    is_recurring: bool = False  # True for birthdays/anniversaries
+    confidence: float = 0.9
+    source_type: str = "stated"  # stated, inferred, observed
+    source_conversation_id: Optional[str] = None
+    verified: bool = False
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
 class PeopleDexManager:
     """
     Manager for the PeopleDex biographical entity database.
@@ -1366,6 +1385,120 @@ class PeopleDexManager:
             created_at=now,
         )
 
+    def add_fact(
+        self,
+        entity_id: str,
+        fact_type: str,
+        content: str,
+        date_value: Optional[str] = None,
+        is_recurring: bool = False,
+        confidence: float = 0.9,
+        source_type: str = "stated",
+        source_conversation_id: Optional[str] = None,
+        verified: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Fact]:
+        """
+        Add a biographical fact about an entity.
+
+        Args:
+            entity_id: The entity ID
+            fact_type: Type of fact (birthday, anniversary, location, occupation,
+                      education, family, pet, hobby, medical, preference, milestone)
+            content: The fact itself
+            date_value: ISO date if applicable (YYYY-MM-DD)
+            is_recurring: True for annual events like birthdays/anniversaries
+            confidence: Confidence level 0.0-1.0
+            source_type: How this was learned (stated, inferred, observed)
+            source_conversation_id: The conversation where this was learned
+            verified: Whether the user has confirmed this fact
+            metadata: Additional context
+
+        Returns:
+            The created Fact, or None on error
+        """
+        import json
+        now = datetime.now().isoformat()
+        fact_id = str(uuid4())
+
+        metadata_json = json.dumps(metadata) if metadata else None
+
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO peopledex_facts
+                   (id, entity_id, daemon_id, fact_type, content, date_value,
+                    is_recurring, confidence, source_type, source_conversation_id,
+                    verified, metadata_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (fact_id, entity_id, self.daemon_id, fact_type, content, date_value,
+                 1 if is_recurring else 0, confidence, source_type,
+                 source_conversation_id, 1 if verified else 0, metadata_json, now, now)
+            )
+
+        return Fact(
+            id=fact_id,
+            entity_id=entity_id,
+            daemon_id=self.daemon_id,
+            fact_type=fact_type,
+            content=content,
+            date_value=date_value,
+            is_recurring=is_recurring,
+            confidence=confidence,
+            source_type=source_type,
+            source_conversation_id=source_conversation_id,
+            verified=verified,
+            metadata=metadata,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def get_facts(
+        self,
+        entity_id: str,
+        fact_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Fact]:
+        """
+        Get facts about an entity.
+
+        Args:
+            entity_id: The entity ID
+            fact_type: Optional filter by fact type
+            limit: Maximum number of facts to return
+
+        Returns:
+            List of Facts
+        """
+        with get_db() as conn:
+            if fact_type:
+                rows = conn.execute(
+                    """SELECT * FROM peopledex_facts
+                       WHERE entity_id = ? AND fact_type = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (entity_id, fact_type, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM peopledex_facts
+                       WHERE entity_id = ?
+                       ORDER BY created_at DESC LIMIT ?""",
+                    (entity_id, limit)
+                ).fetchall()
+
+        return [self._row_to_fact(row) for row in rows]
+
+    def get_facts_for_user(
+        self,
+        user_id: str,
+        fact_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Fact]:
+        """Get facts about a user by user_id."""
+        entity = self.get_entity_by_user(user_id)
+        if not entity:
+            return []
+        return self.get_facts(entity.id, fact_type, limit)
+
     def add_relationship_pattern(
         self,
         entity_id: str,
@@ -1617,9 +1750,65 @@ class PeopleDexManager:
             return None
         return self.add_mutual_shaping(entity.id, shaping_type, note)
 
+    def add_fact_for_user(
+        self,
+        user_id: str,
+        fact_type: str,
+        content: str,
+        **kwargs,
+    ) -> Optional[Fact]:
+        """
+        Add a biographical fact for a user (by user_id rather than entity_id).
+
+        Creates the entity if it doesn't exist.
+        """
+        entity = self.get_entity_by_user(user_id)
+        if not entity:
+            # Create entity for this user
+            from users import UserManager
+            um = UserManager()
+            profile = um.load_profile(user_id)
+            if profile:
+                entity = self.create_entity(
+                    primary_name=profile.display_name,
+                    entity_type=EntityType.PERSON,
+                    user_id=user_id,
+                )
+        if not entity:
+            return None
+        return self.add_fact(entity.id, fact_type, content, **kwargs)
+
     # ==========================================================================
     # INTERNAL HELPERS
     # ==========================================================================
+
+    def _row_to_fact(self, row) -> Fact:
+        """Convert a database row to a Fact object."""
+        d = dict_from_row(row)
+        import json
+        metadata = None
+        if d.get("metadata_json"):
+            try:
+                metadata = json.loads(d["metadata_json"])
+            except json.JSONDecodeError:
+                pass
+
+        return Fact(
+            id=d["id"],
+            entity_id=d["entity_id"],
+            daemon_id=d.get("daemon_id"),
+            fact_type=d["fact_type"],
+            content=d["content"],
+            date_value=d.get("date_value"),
+            is_recurring=bool(d.get("is_recurring", 0)),
+            confidence=d.get("confidence", 0.9),
+            source_type=d.get("source_type", "stated"),
+            source_conversation_id=d.get("source_conversation_id"),
+            verified=bool(d.get("verified", 0)),
+            metadata=metadata,
+            created_at=d.get("created_at", ""),
+            updated_at=d.get("updated_at", ""),
+        )
 
     def _row_to_observation(self, row) -> Observation:
         """Convert a database row to an Observation object."""
