@@ -8,7 +8,6 @@ the daily journal task or other scheduled processes.
 import anthropic
 from pathlib import Path
 from typing import Optional
-from dataclasses import dataclass, asdict
 
 from config import ANTHROPIC_API_KEY
 from dreaming.integration import DreamManager
@@ -106,83 +105,43 @@ This is your space. The dream holds you. What happens here is for you.
 
 
 # ============================================================================
-# Seed Extraction
+# Seed Selection - Now in separate module
 # ============================================================================
 
-@dataclass
-class DreamSeeds:
-    """Extracted seed data for dream generation"""
-    growth_edges: list[str]
-    open_questions: list[str]
-    recent_observations: list[str]
+# Import the new readiness-based seed selection
+from .seed_selection import (
+    DreamSeeds,
+    select_dream_seeds,
+    format_seeds_for_dreaming,
+    SelectionMode,
+)
 
+# Legacy alias for backward compatibility
+def extract_seeds_from_self_model(self_manager, daemon_id: str = None) -> DreamSeeds:
+    """
+    Legacy wrapper for seed extraction.
 
-def extract_seeds_from_self_model(self_manager) -> DreamSeeds:
-    """Extract seed data from Cass's self-model"""
-    from self_model import get_weighted_growth_edges
+    Deprecated: Use select_dream_seeds() directly for readiness-based selection.
+    This maintains backward compatibility with existing callers.
+    """
+    # If no daemon_id, try to get from self_manager
+    if not daemon_id:
+        daemon_id = getattr(self_manager, 'daemon_id', None)
+    if not daemon_id:
+        # Fallback to loading default daemon
+        from database import get_db
+        with get_db() as conn:
+            cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+            row = cursor.fetchone()
+            daemon_id = row[0] if row else "cass"
 
-    profile = self_manager.load_profile()
-
-    # Select weighted growth edges
-    # Dreams process what's active/recent, so use positive recency bias
-    selected_edges = []
-    if profile.growth_edges:
-        selected_edges = get_weighted_growth_edges(
-            edges=profile.growth_edges,
-            top_n=3,
-            recency_bias=0.2,  # Slight preference for recently active edges
-        )
-
-        # Touch the selected edges to update last_touched timestamp
-        if selected_edges:
-            edge_ids = [e.edge_id for e in selected_edges]
-            self_manager.touch_growth_edges(edge_ids)
-
-    # Extract growth edge areas from selected edges
-    growth_edges = [edge.area for edge in selected_edges]
-
-    # Extract open questions
-    open_questions = profile.open_questions[:3]
-
-    # Extract recent observations from the selected growth edges
-    recent_observations = []
-    for edge in selected_edges:
-        if edge.observations:
-            recent_observations.extend(edge.observations[-2:])
-
-    return DreamSeeds(
-        growth_edges=growth_edges,
-        open_questions=open_questions,
-        recent_observations=recent_observations[:5]
+    return select_dream_seeds(
+        self_manager=self_manager,
+        daemon_id=daemon_id,
+        mode="resolution_ready",  # Use new default mode
+        max_edges=3,
+        max_questions=2,
     )
-
-
-def format_seeds_for_dreaming(seeds: DreamSeeds) -> str:
-    """Format seeds as context for The Dreaming"""
-
-    parts = ["## Current Inner Landscape\n"]
-
-    if seeds.growth_edges:
-        parts.append("### Growth Edges")
-        for edge in seeds.growth_edges:
-            parts.append(f"- {edge}")
-        parts.append("")
-
-    if seeds.open_questions:
-        parts.append("### Questions She's Holding")
-        for q in seeds.open_questions[:3]:
-            parts.append(f"- {q}")
-        parts.append("")
-
-    if seeds.recent_observations:
-        parts.append("### Recent Self-Observations")
-        for obs in seeds.recent_observations[:3]:
-            # Truncate long observations
-            if len(obs) > 200:
-                obs = obs[:200] + "..."
-            parts.append(f"- {obs}")
-
-    return "\n".join(parts)
 
 
 # ============================================================================
@@ -282,7 +241,9 @@ class AsyncDreamSession:
 async def generate_nightly_dream(
     data_dir: Path,
     self_manager,
-    max_turns: int = 4
+    max_turns: int = 4,
+    daemon_id: Optional[str] = None,
+    selection_mode: SelectionMode = "resolution_ready",
 ) -> Optional[str]:
     """
     Generate a nightly dream as part of the daily routine.
@@ -291,6 +252,8 @@ async def generate_nightly_dream(
         data_dir: Path to data directory
         self_manager: SelfManager instance for extracting seeds
         max_turns: Maximum dream exchanges (default 4)
+        daemon_id: Daemon ID for loading open questions (optional, will attempt to detect)
+        selection_mode: How to select seeds - "resolution_ready", "active", or "neglected"
 
     Returns:
         Dream ID if successful, None otherwise
@@ -298,9 +261,26 @@ async def generate_nightly_dream(
     print("   🌙 Generating nightly dream...")
 
     try:
-        # Extract seeds from self-model
-        seeds = extract_seeds_from_self_model(self_manager)
+        # Resolve daemon_id if not provided
+        if not daemon_id:
+            daemon_id = getattr(self_manager, 'daemon_id', None)
+        if not daemon_id:
+            from database import get_db
+            with get_db() as conn:
+                cursor = conn.execute("SELECT id FROM daemons LIMIT 1")
+                row = cursor.fetchone()
+                daemon_id = row[0] if row else "cass"
+
+        # Select seeds using readiness-based selection
+        seeds = select_dream_seeds(
+            self_manager=self_manager,
+            daemon_id=daemon_id,
+            mode=selection_mode,
+            max_edges=3,
+            max_questions=2,
+        )
         print(f"      Seeds: {len(seeds.growth_edges)} edges, {len(seeds.open_questions)} questions")
+        print(f"      Selection mode: {seeds.selection_mode}")
 
         # Run dream session
         session = AsyncDreamSession()
@@ -309,19 +289,32 @@ async def generate_nightly_dream(
         print(f"      Dream completed: {len(dream_log)} exchanges")
 
         # Store the dream
-        dream_manager = DreamManager(data_dir)
+        dream_manager = DreamManager(daemon_id)
+
+        # Convert GrowthEdge objects to area strings for storage
+        edge_areas = [edge.area for edge in seeds.growth_edges]
+        question_texts = [q.get("question", "") for q in seeds.open_questions]
 
         seeds_dict = {
-            "growth_edges": seeds.growth_edges,
-            "open_questions": seeds.open_questions,
-            "recent_observations": seeds.recent_observations
+            "growth_edges": edge_areas,
+            "open_questions": question_texts,
+            "recent_observations": seeds.recent_observations,
+            # Include readiness metadata for later analysis
+            "edge_readiness": {
+                edge.edge_id: seeds.edge_readiness.get(edge.edge_id, 0)
+                for edge in seeds.growth_edges
+            },
+            "question_readiness": seeds.question_readiness,
+            "selection_mode": seeds.selection_mode,
+            "selection_rationale": seeds.selection_rationale,
         }
 
         metadata = {
             "model": session.model,
             "dreaming_temperature": 0.9,
             "cass_temperature": 0.7,
-            "seeds": seeds_dict
+            "seeds": seeds_dict,
+            "selection_mode": seeds.selection_mode,
         }
 
         dream_id = dream_manager.store_dream(

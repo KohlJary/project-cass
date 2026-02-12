@@ -159,12 +159,24 @@
     "dream.nightly": {
       "id": "dream.nightly",
       "name": "Nightly Dream",
-      "description": "Generate nightly dream sequence",
-      "category": "journal",
+      "description": "Generate nightly dream sequence using readiness-scored seeds",
+      "category": "growth",
       "handler": "journal_handlers.nightly_dream_action",
       "estimated_cost_usd": 0.10,
       "default_duration_minutes": 5,
       "priority": "normal",
+      "requires_idle": false,
+      "follow_up_actions": ["dream.integrate_insights"]
+    },
+    "dream.integrate_insights": {
+      "id": "dream.integrate_insights",
+      "name": "Integrate Dream Insights",
+      "description": "Extract and integrate insights from most recent dream into self-model",
+      "category": "growth",
+      "handler": "journal_handlers.integrate_dream_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 3,
+      "priority": "high",
       "requires_idle": false
     },
     "memory.summarize_conversation": {
