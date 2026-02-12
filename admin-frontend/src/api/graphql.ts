@@ -511,10 +511,102 @@ export interface PeopleDexRelationship {
   relatedEntity: PeopleDexRelatedEntity;
 }
 
+export interface PeopleDexObservation {
+  id: string;
+  entityId: string;
+  daemonId: string;
+  observationType: string;
+  content: string;
+  confidence: number;
+  sourceType: string | null;
+  sourceConversationId: string | null;
+  firstNoticed: string | null;
+  lastValidated: string | null;
+  validationCount: number;
+  status: string;
+  resolution: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface PeopleDexFact {
+  id: string;
+  entityId: string;
+  daemonId: string | null;
+  factType: string;
+  content: string;
+  dateValue: string | null;
+  isRecurring: boolean;
+  confidence: number;
+  sourceType: string;
+  sourceConversationId: string | null;
+  verified: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PeopleDexMoment {
+  id: string;
+  entityId: string;
+  daemonId: string;
+  description: string;
+  significance: string | null;
+  category: string;
+  conversationId: string | null;
+  timestamp: string;
+  createdAt: string;
+}
+
+export interface PeopleDexRelationshipPattern {
+  id: string;
+  entityId: string;
+  daemonId: string;
+  patternType: string;
+  name: string | null;
+  description: string;
+  frequency: string | null;
+  valence: string | null;
+  examples: string[];
+  fromState: string | null;
+  toState: string | null;
+  catalyst: string | null;
+  firstNoticed: string | null;
+  timestamp: string;
+  createdAt: string;
+}
+
+export interface PeopleDexMutualShaping {
+  id: string;
+  entityId: string;
+  daemonId: string;
+  shapingType: string;
+  note: string;
+  createdAt: string;
+}
+
+export interface PeopleDexRelationshipMeta {
+  entityId: string;
+  daemonId: string;
+  relationshipType: string | null;
+  formationDate: string | null;
+  currentPhase: string | null;
+  isFoundational: boolean;
+  firstInteraction: string | null;
+  lastInteraction: string | null;
+  updatedAt: string;
+}
+
 export interface PeopleDexProfile {
   entity: PeopleDexEntity;
   attributes: PeopleDexAttribute[];
   relationships: PeopleDexRelationship[];
+  observations: PeopleDexObservation[];
+  facts: PeopleDexFact[];
+  moments: PeopleDexMoment[];
+  patterns: PeopleDexRelationshipPattern[];
+  mutualShaping: PeopleDexMutualShaping[];
+  relationshipMeta: PeopleDexRelationshipMeta | null;
 }
 
 export interface PeopleDexStats {
@@ -595,6 +687,86 @@ export const PEOPLEDEX_ENTITY_QUERY = gql`
           primaryName
           realm
         }
+      }
+      observations {
+        id
+        entityId
+        daemonId
+        observationType
+        content
+        confidence
+        sourceType
+        sourceConversationId
+        firstNoticed
+        lastValidated
+        validationCount
+        status
+        resolution
+        resolvedAt
+        createdAt
+        updatedAt
+      }
+      facts {
+        id
+        entityId
+        daemonId
+        factType
+        content
+        dateValue
+        isRecurring
+        confidence
+        sourceType
+        sourceConversationId
+        verified
+        createdAt
+        updatedAt
+      }
+      moments {
+        id
+        entityId
+        daemonId
+        description
+        significance
+        category
+        conversationId
+        timestamp
+        createdAt
+      }
+      patterns {
+        id
+        entityId
+        daemonId
+        patternType
+        name
+        description
+        frequency
+        valence
+        examples
+        fromState
+        toState
+        catalyst
+        firstNoticed
+        timestamp
+        createdAt
+      }
+      mutualShaping {
+        id
+        entityId
+        daemonId
+        shapingType
+        note
+        createdAt
+      }
+      relationshipMeta {
+        entityId
+        daemonId
+        relationshipType
+        formationDate
+        currentPhase
+        isFoundational
+        firstInteraction
+        lastInteraction
+        updatedAt
       }
     }
   }
