@@ -32,7 +32,7 @@ INLINE_USER_OBSERVATION_PATTERN = re.compile(
     re.DOTALL
 )
 INLINE_USER_FACT_PATTERN = re.compile(
-    r'<record_user_fact[^>]*>\s*(.*?)\s*</record_user_fact>',
+    r'<record_user_fact[^>]*(?:>\s*(.*?)\s*</record_user_fact>|/>)',
     re.DOTALL
 )
 INLINE_ROADMAP_ITEM_PATTERN = re.compile(
@@ -384,10 +384,10 @@ async def process_inline_tags(
     # Process user facts (biographical data)
     for match in INLINE_USER_FACT_PATTERN.finditer(text):
         full_match = match.group(0)
-        content = match.group(1).strip()
+        content = (match.group(1) or "").strip()
 
-        # Parse attributes
-        attrs_match = re.search(r'<record_user_fact([^>]*)>', full_match)
+        # Parse attributes from tag
+        attrs_match = re.search(r'<record_user_fact([^>]*)(?:>|/>)', full_match)
         attrs_str = attrs_match.group(1) if attrs_match else ""
 
         # Extract fact type
@@ -408,8 +408,27 @@ async def process_inline_tags(
         if recurring_match:
             is_recurring = recurring_match.group(1).lower() in ('true', '1')
 
+        # Handle `fact=` attribute (alternative format for self-closing tags)
+        # e.g., <record_user_fact user="Kohl" fact="birthday: October 16, 1995" />
+        if not content:
+            fact_attr_match = re.search(r'fact=["\']?([^"\']+)["\']?', attrs_str)
+            if fact_attr_match:
+                content = fact_attr_match.group(1).strip()
+                # Try to infer fact_type from content prefix like "birthday: ..."
+                if ':' in content:
+                    prefix, rest = content.split(':', 1)
+                    prefix_lower = prefix.strip().lower()
+                    valid_types = {"birthday", "anniversary", "location", "occupation", "education",
+                                   "family", "pet", "hobby", "medical", "preference", "milestone"}
+                    if prefix_lower in valid_types:
+                        fact_type = prefix_lower
+                        content = rest.strip()
+                        # For birthdays, set recurring=True by default
+                        if fact_type == "birthday":
+                            is_recurring = True
+
         # Handle <parameter> style tags
-        if '<parameter' in content:
+        if content and '<parameter' in content:
             fact_match = re.search(r'<parameter\s+name=["\']?content["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
             if fact_match:
                 content = fact_match.group(1).strip()

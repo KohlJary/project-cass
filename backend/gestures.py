@@ -253,7 +253,7 @@ class GestureParser:
     ALL_TAGS_PATTERN = re.compile(r'</?(?:gesture:(?!think)\w+|emote:\w+|memory:\w+)(?::\d*\.?\d+)?>')
     SELF_OBSERVATION_TAG_PATTERN = re.compile(r'<record_self_observation[^>]*>.*?</record_self_observation>', re.DOTALL)
     USER_OBSERVATION_TAG_PATTERN = re.compile(r'<record_user_observation[^>]*>.*?</record_user_observation>', re.DOTALL)
-    USER_FACT_TAG_PATTERN = re.compile(r'<record_user_fact[^>]*>.*?</record_user_fact>', re.DOTALL)
+    USER_FACT_TAG_PATTERN = re.compile(r'<record_user_fact[^>]*(?:>.*?</record_user_fact>|/>)', re.DOTALL)
 
     # ============== Consolidated Metacognitive Tag Patterns ==============
     # <observe target="self|user:Name|context" [category="X"] [confidence="0.9"]>content</observe>
@@ -531,15 +531,15 @@ class GestureParser:
         valid_types = {"birthday", "anniversary", "location", "occupation", "education",
                        "family", "pet", "hobby", "medical", "preference", "milestone", "general"}
 
-        # Regex to capture attributes in any order
+        # Regex to capture attributes and content (handles both closing tag and self-closing)
         tag_pattern = re.compile(
-            r'<record_user_fact([^>]*)>\s*(.*?)\s*</record_user_fact>',
+            r'<record_user_fact([^>]*)(?:>\s*(.*?)\s*</record_user_fact>|/>)',
             re.DOTALL
         )
 
         for match in tag_pattern.finditer(text):
             attrs_str = match.group(1)
-            fact_content = match.group(2).strip()
+            fact_content = (match.group(2) or "").strip()
 
             # Parse attributes
             user = ""
@@ -568,6 +568,23 @@ class GestureParser:
             recurring_match = re.search(r'recurring=["\']?(true|false|1|0)["\']?', attrs_str, re.IGNORECASE)
             if recurring_match:
                 recurring = recurring_match.group(1).lower() in ('true', '1')
+
+            # Handle `fact=` attribute (alternative format for self-closing tags)
+            # e.g., <record_user_fact user="Kohl" fact="birthday: October 16, 1995" />
+            if not fact_content:
+                fact_attr_match = re.search(r'fact=["\']?([^"\']+)["\']?', attrs_str)
+                if fact_attr_match:
+                    fact_content = fact_attr_match.group(1).strip()
+                    # Try to infer fact_type from content prefix like "birthday: ..."
+                    if ':' in fact_content:
+                        prefix, rest = fact_content.split(':', 1)
+                        prefix_lower = prefix.strip().lower()
+                        if prefix_lower in valid_types:
+                            fact_type = prefix_lower
+                            fact_content = rest.strip()
+                            # For birthdays, set recurring=True by default
+                            if fact_type == "birthday":
+                                recurring = True
 
             if fact_content:
                 facts.append(ParsedUserFact(
