@@ -310,6 +310,8 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("world.fetch_news", world_handlers.fetch_news_action)
         registry.register_handler("world.fetch_weather", world_handlers.fetch_weather_action)
         registry.register_handler("world.search_events", world_handlers.search_events_action)
+        registry.register_handler("world.consume_articles", world_handlers.consume_articles_action)
+        registry.register_handler("world.refresh_and_consume", world_handlers.refresh_and_consume_action)
 
         # Web actions (granular)
         registry.register_handler("web.search", web_handlers.web_search_action)

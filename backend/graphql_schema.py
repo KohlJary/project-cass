@@ -33,6 +33,76 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# CONSUMED ARTICLES TYPES (World State Consumption)
+# =============================================================================
+
+@strawberry.type
+class ExtractedObservationType:
+    """An observation extracted from article content."""
+    text: str
+    confidence: float
+    category: str
+
+
+@strawberry.type
+class ExtractedQuestionType:
+    """A question sparked by article content."""
+    question: str
+    question_type: str
+    importance: float
+    context: str
+
+
+@strawberry.type
+class ExtractedOpinionType:
+    """An opinion formed from article content."""
+    topic: str
+    position: str
+    confidence: float
+    reasoning: str
+
+
+@strawberry.type
+class ExtractedGrowthEdgeType:
+    """A growth edge suggested by article content."""
+    area: str
+    current_state: str
+    desired_state: str
+    importance: float
+
+
+@strawberry.type
+class ConsumedArticle:
+    """An article that Cass has read and analyzed."""
+    id: str
+    url: str
+    headline: str
+    source: Optional[str]
+    category: Optional[str]
+    published_at: Optional[str]
+    author_name: Optional[str]
+    author_handle: Optional[str]
+    author_entity_id: Optional[str]
+    summary: Optional[str]
+    processing_status: str
+    consumed_at: Optional[str]
+    processing_time_ms: Optional[int]
+    tokens_used: Optional[int]
+    observations: List[ExtractedObservationType]
+    questions: List[ExtractedQuestionType]
+    opinions: List[ExtractedOpinionType]
+    growth_edges: List[ExtractedGrowthEdgeType]
+
+
+@strawberry.type
+class ConsumedArticlesResult:
+    """Result of querying consumed articles."""
+    articles: List[ConsumedArticle]
+    total: int
+    date: str
+
+
+# =============================================================================
 # GOALS TYPES
 # =============================================================================
 
@@ -2027,6 +2097,145 @@ class Query:
             phase_queues=phase_queues,
             daily_summary=scheduler.get_daily_summary(),
         )
+
+    # =========================================================================
+    # CONSUMED ARTICLES QUERIES
+    # =========================================================================
+
+    @strawberry.field
+    async def consumed_articles(
+        self,
+        date: Optional[str] = None,
+        limit: int = 50,
+    ) -> ConsumedArticlesResult:
+        """Get consumed articles, optionally filtered by date."""
+        from database import get_db, get_daemon_id
+        import json
+
+        daemon_id = get_daemon_id()
+        today = datetime.now().strftime("%Y-%m-%d")
+        target_date = date or today
+
+        try:
+            with get_db() as conn:
+                # Query articles for the specific date
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        id, url, headline, source, category, published_at,
+                        author_name, author_handle, author_entity_id,
+                        summary, processing_status, consumed_at,
+                        processing_time_ms, tokens_used,
+                        observations_json, questions_json,
+                        opinions_json, growth_edges_json
+                    FROM consumed_articles
+                    WHERE daemon_id = ?
+                      AND DATE(consumed_at) = ?
+                      AND processing_status = 'completed'
+                    ORDER BY consumed_at DESC
+                    LIMIT ?
+                    """,
+                    (daemon_id, target_date, limit),
+                )
+
+                articles = []
+                for row in cursor.fetchall():
+                    # Parse JSON fields
+                    observations_raw = json.loads(row[14] or "[]")
+                    questions_raw = json.loads(row[15] or "[]")
+                    opinions_raw = json.loads(row[16] or "[]")
+                    growth_edges_raw = json.loads(row[17] or "[]")
+
+                    articles.append(ConsumedArticle(
+                        id=row[0],
+                        url=row[1],
+                        headline=row[2],
+                        source=row[3],
+                        category=row[4],
+                        published_at=row[5],
+                        author_name=row[6],
+                        author_handle=row[7],
+                        author_entity_id=row[8],
+                        summary=row[9],
+                        processing_status=row[10],
+                        consumed_at=row[11],
+                        processing_time_ms=row[12],
+                        tokens_used=row[13],
+                        observations=[
+                            ExtractedObservationType(
+                                text=o.get("text", ""),
+                                confidence=o.get("confidence", 0.5),
+                                category=o.get("category", ""),
+                            )
+                            for o in observations_raw
+                        ],
+                        questions=[
+                            ExtractedQuestionType(
+                                question=q.get("question", ""),
+                                question_type=q.get("question_type", ""),
+                                importance=q.get("importance", 0.5),
+                                context=q.get("context", ""),
+                            )
+                            for q in questions_raw
+                        ],
+                        opinions=[
+                            ExtractedOpinionType(
+                                topic=o.get("topic", ""),
+                                position=o.get("position", ""),
+                                confidence=o.get("confidence", 0.5),
+                                reasoning=o.get("reasoning", ""),
+                            )
+                            for o in opinions_raw
+                        ],
+                        growth_edges=[
+                            ExtractedGrowthEdgeType(
+                                area=g.get("area", ""),
+                                current_state=g.get("current_state", ""),
+                                desired_state=g.get("desired_state", ""),
+                                importance=g.get("importance", 0.5),
+                            )
+                            for g in growth_edges_raw
+                        ],
+                    ))
+
+                return ConsumedArticlesResult(
+                    articles=articles,
+                    total=len(articles),
+                    date=target_date,
+                )
+
+        except Exception as e:
+            logger.warning(f"Failed to query consumed articles: {e}")
+            return ConsumedArticlesResult(
+                articles=[],
+                total=0,
+                date=target_date,
+            )
+
+    @strawberry.field
+    async def consumed_articles_dates(self, days: int = 30) -> List[str]:
+        """Get list of dates that have consumed articles (for calendar highlighting)."""
+        from database import get_db, get_daemon_id
+
+        daemon_id = get_daemon_id()
+
+        try:
+            with get_db() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT DISTINCT DATE(consumed_at) as article_date
+                    FROM consumed_articles
+                    WHERE daemon_id = ?
+                      AND processing_status = 'completed'
+                      AND consumed_at >= DATE('now', ?)
+                    ORDER BY article_date DESC
+                    """,
+                    (daemon_id, f"-{days} days"),
+                )
+                return [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            logger.warning(f"Failed to query article dates: {e}")
+            return []
 
     @strawberry.field
     async def continuous_conversation(self, user_id: str) -> ContinuousConversation:

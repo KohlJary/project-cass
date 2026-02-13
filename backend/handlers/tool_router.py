@@ -305,6 +305,12 @@ TOOL_REGISTRY = {
     "record_world_observation": "world_observation",
     "get_world_context": "world_observation",
 
+    # World consumption tools (article recall)
+    "search_articles": "world_consumption",
+    "get_article": "world_consumption",
+    "list_article_sources": "world_consumption",
+    "get_reading_stats": "world_consumption",
+
     # PeopleDex tools (biographical entity database)
     "lookup_person": "peopledex",
     "remember_person": "peopledex",
@@ -690,6 +696,13 @@ async def route_tool(
             state_bus=ctx.state_bus,
             world_state_source=ctx.world_state_source,
             user_id=ctx.user_id
+        )
+
+    elif executor_type == "world_consumption":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
         )
 
     elif executor_type == "peopledex":

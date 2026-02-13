@@ -332,6 +332,23 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 32:
         print("Adding PeopleDex facts table (peopledex_facts) for biographical data (v32)")
 
+    # v32 -> v33: World state consumption - consumed_articles table
+    # Table is created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 33:
+        print("Adding consumed_articles table for world state consumption (v33)")
+
+    # v33 -> v34: Author entity tracking for consumed articles
+    if from_version < 34:
+        cursor = conn.execute("PRAGMA table_info(consumed_articles)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'author_name' not in columns:
+            conn.execute("ALTER TABLE consumed_articles ADD COLUMN author_name TEXT")
+            conn.execute("ALTER TABLE consumed_articles ADD COLUMN author_handle TEXT")
+            conn.execute("ALTER TABLE consumed_articles ADD COLUMN author_handle_type TEXT")
+            conn.execute("ALTER TABLE consumed_articles ADD COLUMN author_entity_id TEXT REFERENCES peopledex_entities(id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_consumed_articles_author ON consumed_articles(author_entity_id)")
+            print("Added author tracking columns to consumed_articles (v34)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)

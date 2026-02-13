@@ -278,6 +278,29 @@
       "priority": "low",
       "requires_idle": false
     },
+    "world.consume_articles": {
+      "id": "world.consume_articles",
+      "name": "Consume News Articles",
+      "description": "Read and analyze articles from recent headlines, extracting observations, questions, and growth edges",
+      "category": "world",
+      "handler": "world_handlers.consume_articles_action",
+      "estimated_cost_usd": 0.15,
+      "default_duration_minutes": 10,
+      "priority": "normal",
+      "requires_idle": false,
+      "follow_up_actions": []
+    },
+    "world.refresh_and_consume": {
+      "id": "world.refresh_and_consume",
+      "name": "Refresh Headlines and Consume",
+      "description": "Fetch fresh headlines then consume articles from them",
+      "category": "world",
+      "handler": "world_handlers.refresh_and_consume_action",
+      "estimated_cost_usd": 0.15,
+      "default_duration_minutes": 12,
+      "priority": "normal",
+      "requires_idle": false
+    },
     "web.search": {
       "id": "web.search",
       "name": "Web Search",

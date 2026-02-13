@@ -27,6 +27,7 @@ import { Homepage } from './pages/Homepage';
 import { Architecture } from './pages/Architecture';
 import { Wonderland } from './pages/Wonderland';
 import { PeopleDex } from './pages/PeopleDex';
+import { News } from './pages/News';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -134,6 +135,7 @@ function AppRoutes() {
         <Route path="architecture" element={<AdminRoute><Architecture /></AdminRoute>} />
         <Route path="wonderland" element={<AdminRoute><Wonderland /></AdminRoute>} />
         <Route path="peopledex" element={<AdminRoute><PeopleDex /></AdminRoute>} />
+        <Route path="news" element={<AdminRoute><News /></AdminRoute>} />
       </Route>
     </Routes>
   );

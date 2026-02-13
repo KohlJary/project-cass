@@ -1209,6 +1209,70 @@ class PeopleDexManager:
             return ""
         return self.get_relational_context(entity.id, **kwargs)
 
+    def get_author_context(
+        self,
+        entity_id: str,
+        max_observations: int = 10,
+        max_facts: int = 10,
+    ) -> str:
+        """
+        Get context about an author/public figure for article analysis.
+
+        This is a simplified version of relational context designed for
+        non-user entities like journalists, researchers, public figures.
+
+        Args:
+            entity_id: The entity ID
+            max_observations: Max observations to include
+            max_facts: Max facts to include
+
+        Returns:
+            Formatted markdown string for prompt injection
+        """
+        entity = self.get_entity(entity_id)
+        if not entity:
+            return ""
+
+        sections = []
+
+        # Header with name and any handles
+        header = f"## Known Author: {entity.primary_name}"
+        sections.append(header)
+
+        # Get attributes (handles, roles, etc.)
+        attributes = self.get_attributes(entity_id)
+        handles = [a for a in attributes if a.attribute_type == AttributeType.HANDLE]
+        roles = [a for a in attributes if a.attribute_type == AttributeType.ROLE]
+        bios = [a for a in attributes if a.attribute_type == AttributeType.BIO]
+
+        attr_lines = []
+        if handles:
+            handle_strs = [f"{h.attribute_key}: {h.value}" for h in handles]
+            attr_lines.append(f"- Handles: {', '.join(handle_strs)}")
+        if roles:
+            attr_lines.append(f"- Role: {roles[0].value}")
+        if bios:
+            attr_lines.append(f"- Bio: {bios[0].value}")
+
+        if attr_lines:
+            sections.append("\n".join(attr_lines))
+
+        # Get facts (biographical data)
+        facts = self.get_facts(entity_id, limit=max_facts)
+        if facts:
+            sections.append("\n**Known Facts:**")
+            for fact in facts:
+                sections.append(f"- {fact.fact_type}: {fact.content}")
+
+        # Get observations (Cass's previous observations about this person)
+        observations = self.get_observations(entity_id, limit=max_observations)
+        if observations:
+            sections.append("\n**My Previous Observations:**")
+            for obs in observations:
+                sections.append(f"- [{obs.observation_type}] {obs.content}")
+
+        return "\n".join(sections) if len(sections) > 1 else ""
+
     # ==========================================================================
     # RELATIONAL DATA WRITES (PeopleDex Consolidation)
     # ==========================================================================

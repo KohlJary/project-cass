@@ -181,16 +181,18 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
     # === World awareness ===
     "world_check": WorkUnitTemplate(
         id="world_check",
-        name="World State Check",
-        description="Check current world state - news, events, trends. Stay connected to external reality.",
-        action_sequence=["session.world_state"],
-        default_duration_minutes=20,
-        estimated_cost_usd=0.10,
+        name="News Consumption",
+        description="Read and analyze news articles, extracting observations, questions, and growth edges. Stay connected to world events.",
+        action_sequence=["world.refresh_and_consume"],
+        default_duration_minutes=15,
+        estimated_cost_usd=0.15,
         preferred_time_windows=[
-            TimeWindow(start_hour=8, end_hour=10, preference_weight=1.2),   # Morning check
-            TimeWindow(start_hour=18, end_hour=20, preference_weight=1.0),  # Evening check
+            TimeWindow(start_hour=7, end_hour=9, preference_weight=1.2),    # Morning news
+            TimeWindow(start_hour=12, end_hour=14, preference_weight=1.0),  # Midday catch-up
+            TimeWindow(start_hour=18, end_hour=20, preference_weight=1.1),  # Evening news
+            TimeWindow(start_hour=22, end_hour=24, preference_weight=0.8),  # Late night summary
         ],
-        category="research",
+        category="world",
     ),
 
     # === Creative work ===
