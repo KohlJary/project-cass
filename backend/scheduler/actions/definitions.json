@@ -166,7 +166,7 @@
       "default_duration_minutes": 5,
       "priority": "normal",
       "requires_idle": false,
-      "follow_up_actions": ["dream.integrate_insights"]
+      "follow_up_actions": ["dream.integrate_insights", "dream.visualize"]
     },
     "dream.integrate_insights": {
       "id": "dream.integrate_insights",
@@ -499,6 +499,39 @@
       "estimated_cost_usd": 0.0,
       "default_duration_minutes": 1,
       "priority": "low",
+      "requires_idle": false
+    },
+    "creative.generate_image": {
+      "id": "creative.generate_image",
+      "name": "Generate Autonomous Image",
+      "description": "Generate an image based on current emotional state, growth edges, and reflections",
+      "category": "creative",
+      "handler": "creative_handlers.generate_image_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 2,
+      "priority": "low",
+      "requires_idle": false
+    },
+    "creative.dream_visualization": {
+      "id": "creative.dream_visualization",
+      "name": "Visualize Dream",
+      "description": "Generate a visual representation of a dream",
+      "category": "creative",
+      "handler": "creative_handlers.dream_visualization_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 2,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "dream.visualize": {
+      "id": "dream.visualize",
+      "name": "Visualize Recent Dream",
+      "description": "Generate visualization for most recent unvisualized dream",
+      "category": "growth",
+      "handler": "creative_handlers.visualize_recent_dream_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 2,
+      "priority": "normal",
       "requires_idle": false
     }
   }

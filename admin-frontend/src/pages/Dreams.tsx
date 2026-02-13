@@ -8,6 +8,7 @@ interface DreamSummary {
   date: string;
   exchange_count: number;
   seeds_summary: string[];
+  image_path?: string | null;
 }
 
 interface DreamExchange {
@@ -34,6 +35,7 @@ interface DreamDetail {
   discussed: boolean;
   integrated: boolean;
   integration_insights?: DreamInsights;
+  image_path?: string | null;
 }
 
 interface InsightStatement {
@@ -230,7 +232,7 @@ export function Dreams() {
           {dreamsData?.dreams?.map((dream: DreamSummary) => (
             <div
               key={dream.id}
-              className={`dream-item ${selectedDreamId === dream.id ? 'selected' : ''}`}
+              className={`dream-item ${selectedDreamId === dream.id ? 'selected' : ''} ${dream.image_path ? 'has-image' : ''}`}
               onClick={() => {
                 setSelectedDreamId(dream.id);
                 setShowIntegrationPanel(false);
@@ -239,7 +241,10 @@ export function Dreams() {
             >
               <div className="dream-item-header">
                 <span className="dream-date">{formatDate(dream.date)}</span>
-                <span className="dream-exchanges">{dream.exchange_count} exchanges</span>
+                <span className="dream-exchanges">
+                  {dream.image_path && <span className="image-indicator" title="Has visualization">🎨</span>}
+                  {dream.exchange_count} exchanges
+                </span>
               </div>
               <div className="dream-seeds">
                 {dream.seeds_summary?.slice(0, 2).map((seed, i) => (
@@ -275,6 +280,23 @@ export function Dreams() {
                 )}
               </div>
             </div>
+
+            {/* Dream visualization */}
+            {dreamDetail.image_path && (
+              <div className="dream-visualization">
+                <img
+                  src={dreamDetail.image_path}
+                  alt="Dream visualization"
+                  onClick={(e) => {
+                    const img = e.target as HTMLImageElement;
+                    if (img.requestFullscreen) {
+                      img.requestFullscreen();
+                    }
+                  }}
+                  title="Click to view full size"
+                />
+              </div>
+            )}
 
             {/* Seeds used */}
             {dreamDetail.seeds?.growth_edges && (

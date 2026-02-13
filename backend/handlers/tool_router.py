@@ -342,6 +342,10 @@ TOOL_REGISTRY = {
     "discord_history": "discord",
     "discord_snapshot": "discord",
 
+    # Image generation tools (local Stable Diffusion)
+    "generate_image": "image_generation",
+    "get_my_images": "image_generation",
+
     # =========================================================================
     # CONSOLIDATED TOOLS
     # These are action-based tools that get translated to the original tool names
@@ -703,6 +707,14 @@ async def route_tool(
             tool_name=tool_name,
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
+        )
+
+    elif executor_type == "image_generation":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+            state_bus=ctx.state_bus,
         )
 
     elif executor_type == "peopledex":

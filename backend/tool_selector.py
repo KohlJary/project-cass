@@ -162,6 +162,17 @@ DISCORD_KEYWORDS = frozenset({
     "send a message", "reply to", "respond to",
 })
 
+IMAGE_KEYWORDS = frozenset({
+    "image", "images", "picture", "pictures",
+    "art", "artwork", "artworks", "artistic",
+    "draw", "drawing", "paint", "painting",
+    "create image", "generate image", "make image",
+    "visual", "visually", "visualize", "visualization",
+    "illustration", "illustrate", "illustrating",
+    "portrait", "landscape", "abstract",
+    "my art", "my images", "what i've drawn", "what i've created",
+})
+
 
 # =============================================================================
 # TOOL SELECTOR CLASS
@@ -218,6 +229,7 @@ class ToolSelector:
             ToolGroup("state_query", STATE_QUERY_KEYWORDS, "State query tools"),
             ToolGroup("development_request", DEVELOPMENT_REQUEST_KEYWORDS, "Development request tools"),
             ToolGroup("discord", DISCORD_KEYWORDS, "Discord perception and action tools"),
+            ToolGroup("image", IMAGE_KEYWORDS, "Image generation tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -543,6 +555,11 @@ def should_include_development_request_tools(message: str) -> bool:
 def should_include_discord_tools(message: str) -> bool:
     """Check if message warrants Discord perception and action tools."""
     return _default_selector.should_include(message, "discord")
+
+
+def should_include_image_tools(message: str) -> bool:
+    """Check if message warrants image generation tools."""
+    return _default_selector.should_include(message, "image")
 
 
 # =============================================================================

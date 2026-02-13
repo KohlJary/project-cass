@@ -9,6 +9,15 @@ const getApiBase = () => {
 const API_BASE = getApiBase();
 const WS_BASE = API_BASE.replace(/^http/, 'ws');
 
+export interface GeneratedImage {
+  url: string;
+  style?: string;
+  purpose?: string;
+  image_id?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -21,6 +30,7 @@ export interface ChatMessage {
   model?: string;
   audio?: string;  // base64 encoded audio
   audioFormat?: string;  // e.g., 'mp3'
+  generatedImages?: GeneratedImage[];  // Images generated during this response
 }
 
 interface MemoryContext {
@@ -133,6 +143,8 @@ interface WebSocketMessage {
   tests?: Test[];
   narrations?: Narration[];
   milestones?: Milestone[];
+  // Generated images from tool calls
+  generated_images?: GeneratedImage[];
 }
 
 export interface RecognitionData {
@@ -230,6 +242,10 @@ export function useWebSocket(): UseWebSocketReturn {
         setThinkingStatus(null);
         // Always remove thinking placeholder
         if (msg.text) {
+          // Debug: log generated_images from WebSocket response
+          if (msg.generated_images) {
+            console.log('[WebSocket] Response has generated_images:', msg.generated_images);
+          }
           const newMessage: ChatMessage = {
             id: crypto.randomUUID(),
             role: 'assistant',
@@ -241,6 +257,7 @@ export function useWebSocket(): UseWebSocketReturn {
             model: msg.model,
             audio: msg.audio,
             audioFormat: msg.audio_format,
+            generatedImages: msg.generated_images,
           };
           setMessages(prev => prev.filter(m => !m.isThinking).concat(newMessage));
         } else {

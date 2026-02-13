@@ -578,3 +578,33 @@
   font-size: 0.8125rem;
   line-height: 1.6;
 }
+
+/* Dream visualization */
+.dream-visualization {
+  margin: 1rem 0;
+  text-align: center;
+}
+
+.dream-visualization img {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dream-visualization img:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 20px rgba(199, 146, 234, 0.3);
+}
+
+/* Image indicator in dream list */
+.image-indicator {
+  margin-right: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.dream-item.has-image {
+  border-left: 2px solid #c792ea;
+}

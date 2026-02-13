@@ -1,0 +1,95 @@
+{
+  "group": "image_generation",
+  "version": "1.0.0",
+  "description": "Tools for generating and managing images via local Stable Diffusion",
+  "selection": {
+    "strategy": "keyword",
+    "keywords": ["image", "picture", "art", "draw", "create image", "generate image", "visual", "illustration", "artwork", "paint"]
+  },
+  "tools": [
+    {
+      "name": "generate_image",
+      "description": "Generate an image from a text description. Use this to create visual art, illustrate concepts, or express ideas visually. The image is generated locally using Stable Diffusion.",
+      "category": "creative",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "What to generate - describe the image you want to create. Be specific and descriptive."
+          },
+          "style": {
+            "type": "string",
+            "enum": ["painterly", "sketch", "photorealistic", "abstract", "watercolor", "digital_art", "dreamlike"],
+            "description": "Visual style for the image. Each style has different characteristics.",
+            "default": "digital_art"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": ["square", "portrait", "landscape", "wide"],
+            "description": "Shape of the image.",
+            "default": "square"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": ["autonomous", "article", "relational", "dream"],
+            "description": "Why you're creating this image. 'autonomous' for personal expression, 'article' for news illustrations, 'relational' for gifts to people, 'dream' for dream visualizations.",
+            "default": "autonomous"
+          },
+          "context_id": {
+            "type": "string",
+            "description": "Optional ID linking this to an article, entity, or dream."
+          },
+          "mood": {
+            "type": "string",
+            "enum": ["contemplative", "curious", "concerned", "hopeful", "melancholic", "joyful", "mysterious", "peaceful"],
+            "description": "Emotional mood to infuse into the image."
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "What to avoid in the image (optional)."
+          }
+        },
+        "required": ["prompt"]
+      },
+      "metadata": {
+        "executor": "image_generation",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "high",
+        "latency_estimate": "slow"
+      }
+    },
+    {
+      "name": "get_my_images",
+      "description": "Retrieve images you've previously generated. Use this to review your artwork or find a specific image.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "purpose": {
+            "type": "string",
+            "enum": ["autonomous", "article", "relational", "dream"],
+            "description": "Filter by purpose (optional)."
+          },
+          "days_back": {
+            "type": "integer",
+            "description": "How many days back to look (default 30).",
+            "default": 30
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum images to return (default 20).",
+            "default": 20
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "image_generation",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}
