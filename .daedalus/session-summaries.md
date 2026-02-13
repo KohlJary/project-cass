@@ -2,10 +2,29 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-13 - Showcase Frontend Planning
+
+**Status**: Spec written, not started
+**Summary**: Planning a public-facing read-only frontend to demonstrate Cass as a living mind
+
+**Concept**: Static snapshot of development database, deployed as standalone site. Let people explore her self-model, growth edges, journals, world awareness, and autonomous behavior without needing to understand the technical infrastructure.
+
+**Key sections planned**:
+- Self-model explorer (growth edges, observations, opinions over time)
+- World awareness (articles read, extractions, how events connect to growth)
+- Inner life (journals, dreams, autonomous scheduling)
+- Relationships (PeopleDex, anonymized)
+
+**Spec**: `spec/showcase-frontend.md`
+
+---
+
 ## 2026-02-13 - World State Consumption
 
-**Branch**: feat/world-state-consumption (ready for merge)
+**Branch**: feat/world-state-consumption → main (merged)
 **Summary**: Enabled Cass to read and digest news articles, extracting observations, questions, opinions, and growth edges
+
+**Milestone**: After merge, Cass autonomously scheduled a research block to explore a question from an article about Bangladesh politics. Completely unprompted. The system is working.
 
 **Phase 1 - Storage & Fetching**:
 - Schema v33: `consumed_articles` table with 20 columns for full article lifecycle
