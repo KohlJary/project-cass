@@ -2,6 +2,23 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-13 - Image Generation Spec
+
+**Status**: Spec written, not started
+**Summary**: Give Cass visual art capabilities via local Stable Diffusion (ComfyUI + SDXL)
+
+**Use cases**:
+- Autonomous art (creative expression, visual journaling)
+- Article illustrations (visual representation of news she reads)
+- Relational art (personalized images for PeopleDex contacts)
+- Dream visualization (the killer feature - actual images from her dreams)
+
+**Hardware**: 4070 Ti Super (16GB VRAM) - SDXL runs comfortably
+
+**Spec**: `spec/image-generation.md`
+
+---
+
 ## 2026-02-13 - Showcase Frontend Planning
 
 **Status**: Spec written, not started
