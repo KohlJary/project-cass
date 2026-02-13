@@ -15,6 +15,10 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/generated-images': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

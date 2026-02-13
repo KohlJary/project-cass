@@ -349,6 +349,25 @@ def _apply_schema_updates(conn, from_version: int):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_consumed_articles_author ON consumed_articles(author_entity_id)")
             print("Added author tracking columns to consumed_articles (v34)")
 
+    # v34 -> v35: Image generation support
+    if from_version < 35:
+        # Add image_path to consumed_articles
+        cursor = conn.execute("PRAGMA table_info(consumed_articles)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'image_path' not in columns:
+            conn.execute("ALTER TABLE consumed_articles ADD COLUMN image_path TEXT")
+            print("Added image_path column to consumed_articles (v35)")
+
+        # Add image_path to dreams
+        cursor = conn.execute("PRAGMA table_info(dreams)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'image_path' not in columns:
+            conn.execute("ALTER TABLE dreams ADD COLUMN image_path TEXT")
+            print("Added image_path column to dreams (v35)")
+
+        # generated_images table is created by SCHEMA_SQL
+        print("Adding generated_images table for image generation (v35)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)

@@ -99,6 +99,7 @@ from handlers.janet import execute_janet_tool
 from handlers.outreach import execute_outreach_tool, execute_direct_message_tool
 from handlers.lineage import execute_lineage_tool
 from handlers.development_requests import execute_development_request_tool
+from handlers.image_generation import execute_image_generation_tool
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
@@ -473,6 +474,7 @@ TOOL_EXECUTORS = {
     "wonderland": execute_wonderland_tool,
     "direct_message": execute_direct_message_tool,
     "world_consumption": execute_world_consumption_tool,
+    "image_generation": execute_image_generation_tool,
 }
 
 
@@ -1186,6 +1188,7 @@ async def process_relay_chat_message(
         # Handle tool execution with full loop support
         tool_iteration = 0
         max_tool_iterations = 10  # Prevent infinite loops
+        generated_images = []  # Track images generated during this request
         while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < max_tool_iterations:
             tool_iteration += 1
             tool_names = [t['tool'] for t in response.tool_uses]
@@ -1213,6 +1216,32 @@ async def process_relay_chat_message(
                 project_id=None
             )
             all_tool_results = await execute_tool_batch(response.tool_uses, tool_ctx, TOOL_EXECUTORS)
+
+            # Extract any generated images from tool results
+            import re
+            for tool_use, result in zip(response.tool_uses, all_tool_results):
+                if tool_use['tool'] == 'generate_image' and result.get('success'):
+                    # Parse image info from the result (may be string or list of content blocks)
+                    result_data = result.get('result', '')
+                    if isinstance(result_data, list):
+                        # Extract text from first content block
+                        result_str = next((b.get('text', '') for b in result_data if b.get('type') == 'text'), '')
+                    else:
+                        result_str = result_data
+                    path_match = re.search(r'path:\s*"([^"]+)"', result_str)
+                    style_match = re.search(r'style:\s*"([^"]+)"', result_str)
+                    purpose_match = re.search(r'purpose:\s*"([^"]+)"', result_str)
+                    image_id_match = re.search(r'image_id:\s*"([^"]+)"', result_str)
+                    dims_match = re.search(r'Dimensions:\s*(\d+)x(\d+)', result_str)
+                    if path_match:
+                        generated_images.append({
+                            'url': path_match.group(1),
+                            'style': style_match.group(1) if style_match else None,
+                            'purpose': purpose_match.group(1) if purpose_match else None,
+                            'image_id': image_id_match.group(1) if image_id_match else None,
+                            'width': int(dims_match.group(1)) if dims_match else None,
+                            'height': int(dims_match.group(2)) if dims_match else None,
+                        })
 
             # Send thinking status for continuation
             if send_status:
@@ -1246,7 +1275,7 @@ async def process_relay_chat_message(
             model=token_info["model"],
         )
 
-        return {
+        response_data = {
             "type": "response",
             "text": response_text,
             "conversation_id": conversation_id,
@@ -1256,6 +1285,10 @@ async def process_relay_chat_message(
             "model": token_info["model"],
             "timestamp": datetime.now().isoformat(),
         }
+        # Include generated images if any
+        if generated_images:
+            response_data["generated_images"] = generated_images
+        return response_data
 
     except Exception as e:
         logger.error(f"Error processing relay message: {e}", exc_info=True)
@@ -3394,6 +3427,67 @@ async def decline_architectural_request(request_id: str):
         return {"success": True, "message": f"Request {request_id} declined"}
     else:
         raise HTTPException(status_code=404, detail=f"Request {request_id} not found")
+
+
+# === Generated Images Serving ===
+# Serve Cass's generated images from the data directory
+
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "images")
+if os.path.exists(IMAGES_DIR):
+    app.mount("/generated-images", StaticFiles(directory=IMAGES_DIR), name="generated-images")
+    logger.info(f"Serving generated images from {IMAGES_DIR}")
+else:
+    # Create the directory if it doesn't exist
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    app.mount("/generated-images", StaticFiles(directory=IMAGES_DIR), name="generated-images")
+    logger.info(f"Created and serving generated images from {IMAGES_DIR}")
+
+
+@app.get("/api/images/{image_id}")
+async def get_image_metadata(image_id: str):
+    """Get metadata for a generated image by ID."""
+    from database import get_db
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, daemon_id, prompt, style, purpose, context_id,
+                   image_path, width, height, generation_time_ms, created_at
+            FROM generated_images
+            WHERE id = ?
+            """,
+            (image_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        # Extract filename from path
+        image_path = row[6]
+        filename = os.path.basename(image_path) if image_path else None
+
+        # Determine the URL path based on purpose subdirectory
+        purpose = row[4]
+        if purpose and filename:
+            url = f"/generated-images/{purpose}/{filename}"
+        elif filename:
+            url = f"/generated-images/{filename}"
+        else:
+            url = None
+
+        return {
+            "id": row[0],
+            "daemon_id": row[1],
+            "prompt": row[2],
+            "style": row[3],
+            "purpose": row[4],
+            "context_id": row[5],
+            "path": row[6],
+            "url": url,
+            "width": row[7],
+            "height": row[8],
+            "generation_time_ms": row[9],
+            "created_at": row[10],
+        }
 
 
 # === Static Frontend Serving ===

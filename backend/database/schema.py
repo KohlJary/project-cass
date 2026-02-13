@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 34  # Author entity tracking for consumed articles
+SCHEMA_VERSION = 35  # Image generation support
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -400,6 +400,7 @@ CREATE TABLE IF NOT EXISTS dreams (
     discussed INTEGER DEFAULT 0,
     integrated INTEGER DEFAULT 0,
     integration_insights_json TEXT,
+    image_path TEXT,                    -- Generated dream visualization (v35)
     created_at TEXT NOT NULL
 );
 
@@ -1663,6 +1664,9 @@ CREATE TABLE IF NOT EXISTS consumed_articles (
     processing_status TEXT DEFAULT 'pending',  -- pending, fetching, analyzing, completed, failed
     error_message TEXT,
 
+    -- Generated image (v35)
+    image_path TEXT,                    -- Path to generated illustration
+
     UNIQUE(daemon_id, url)
 );
 
@@ -1671,4 +1675,43 @@ CREATE INDEX IF NOT EXISTS idx_consumed_articles_status ON consumed_articles(pro
 CREATE INDEX IF NOT EXISTS idx_consumed_articles_consumed ON consumed_articles(consumed_at);
 CREATE INDEX IF NOT EXISTS idx_consumed_articles_category ON consumed_articles(category);
 CREATE INDEX IF NOT EXISTS idx_consumed_articles_author ON consumed_articles(author_entity_id);
+
+-- =============================================================================
+-- IMAGE GENERATION (v35)
+-- =============================================================================
+
+-- Generated images - all images Cass creates
+CREATE TABLE IF NOT EXISTS generated_images (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Generation details
+    prompt TEXT NOT NULL,
+    negative_prompt TEXT,
+    style TEXT,                         -- painterly, sketch, photorealistic, etc.
+
+    -- Purpose and context
+    purpose TEXT NOT NULL,              -- autonomous, article, relational, dream
+    context_id TEXT,                    -- article_id, entity_id, or dream_id
+
+    -- Output
+    image_path TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
+
+    -- Metadata
+    generation_time_ms INTEGER,
+    seed INTEGER,                       -- For reproducibility
+    workflow_name TEXT,                 -- ComfyUI workflow used
+
+    -- Emotional context at generation time
+    emotional_state_json TEXT,          -- State bus snapshot
+
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_generated_images_daemon ON generated_images(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_generated_images_purpose ON generated_images(daemon_id, purpose);
+CREATE INDEX IF NOT EXISTS idx_generated_images_context ON generated_images(context_id);
+CREATE INDEX IF NOT EXISTS idx_generated_images_created ON generated_images(created_at);
 """

@@ -6,6 +6,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import type { ChatMessage } from '../hooks/useWebSocket';
 import { parseGestureTags, formatTokens } from '../utils/gestures';
 import { AudioPlayer } from '../components/AudioPlayer';
+import { ImageThumbnail, parseImagesFromMessage } from '../components/ImageThumbnail';
 import './Chat.css';
 
 interface Conversation {
@@ -565,6 +566,11 @@ export function Chat() {
           {messages.map((msg) => {
             const parsed = msg.role === 'assistant' ? parseGestureTags(msg.content) : null;
             const displayContent = parsed ? parsed.text : msg.content;
+            // Check for generated images in assistant messages
+            // Prefer explicit generatedImages field, fall back to parsing content
+            const images = msg.role === 'assistant' && !msg.isThinking
+              ? (msg.generatedImages || parseImagesFromMessage(msg.content))
+              : [];
 
             return (
               <div
@@ -587,6 +593,22 @@ export function Chat() {
                       </details>
                     )}
                     <div className="message-content">{displayContent}</div>
+                    {/* Generated images */}
+                    {images.length > 0 && (
+                      <div className="message-images">
+                        {images.map((img, idx) => (
+                          <ImageThumbnail
+                            key={img.url || idx}
+                            src={img.url}
+                            alt={'prompt' in img ? img.prompt : undefined}
+                            width={img.width}
+                            height={img.height}
+                            style={img.style}
+                            purpose={img.purpose}
+                          />
+                        ))}
+                      </div>
+                    )}
                     <div className="message-meta">
                       <span className="message-time">{formatTime(msg.timestamp)}</span>
                       {msg.audio && (

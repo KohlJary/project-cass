@@ -41,6 +41,7 @@ from tool_selector import (
     should_include_state_query_tools,
     should_include_development_request_tools,
     should_include_discord_tools,
+    should_include_image_tools,
 )
 
 
@@ -1442,6 +1443,7 @@ from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPAB
 from handlers.janet import JANET_TOOLS
 from handlers.lineage import LINEAGE_TOOLS, should_include_lineage_tools
 from handlers.development_requests import DEVELOPMENT_REQUEST_TOOLS
+from handlers.image_generation import IMAGE_GENERATION_TOOLS
 
 
 # ============================================================================
@@ -1616,6 +1618,10 @@ class CassAgentClient:
                 from discord_bot.config import DISCORD_ENABLED
                 if DISCORD_ENABLED:
                     tools.extend(DISCORD_TOOLS)
+
+            # Image generation tools - create visual art via local Stable Diffusion
+            if should_include_image_tools(message):
+                tools.extend(IMAGE_GENERATION_TOOLS)
 
             # State query tools - always available for self-introspection
             # Cass should always be able to query her own state (tokens, github, memory, etc)

@@ -64,12 +64,96 @@ async def list_dreams(
                 "id": d["id"],
                 "date": d["date"],
                 "exchange_count": d["exchange_count"],
-                "seeds_summary": d.get("seeds_summary", [])
+                "seeds_summary": d.get("seeds_summary", []),
+                "image_path": d.get("image_path")
             }
             for d in recent
         ],
         "count": len(recent)
     }
+
+
+@router.post("/generate")
+async def generate_dream(
+    visualize: bool = True,
+    daemon_id: Optional[str] = Query(None, description="Daemon ID")
+):
+    """
+    Trigger dream generation.
+
+    Args:
+        visualize: Whether to generate a visualization after the dream
+        daemon_id: Optional daemon ID (defaults to current daemon)
+    """
+    from dreaming.dream_runner import generate_nightly_dream
+
+    if not _self_manager:
+        raise HTTPException(
+            status_code=503,
+            detail="Self manager not initialized"
+        )
+
+    try:
+        # Generate the dream
+        dream_id = await generate_nightly_dream(
+            data_dir=_data_dir,
+            self_manager=_self_manager,
+            max_turns=4,
+            daemon_id=daemon_id,
+            selection_mode="resolution_ready",
+        )
+
+        if not dream_id:
+            return {
+                "success": False,
+                "message": "No dream generated (insufficient content or already dreamed today)"
+            }
+
+        result = {
+            "success": True,
+            "dream_id": dream_id,
+            "message": f"Dream {dream_id} generated"
+        }
+
+        # Optionally generate visualization
+        if visualize:
+            try:
+                from scheduler.actions.creative_handlers import visualize_recent_dream_action
+                from scheduler.actions import ActionDefinition
+
+                viz_context = {
+                    "definition": ActionDefinition(
+                        id="dream.visualize",
+                        name="Visualize Dream",
+                        description="",
+                        category="creative",
+                        handler="",
+                    ),
+                    "managers": {
+                        "self_manager": _self_manager,
+                        "daemon_id": daemon_id,
+                    }
+                }
+
+                viz_result = await visualize_recent_dream_action(viz_context)
+                result["visualization"] = {
+                    "success": viz_result.success,
+                    "message": viz_result.message,
+                    "image_path": viz_result.data.get("image_path") if viz_result.data else None
+                }
+            except Exception as e:
+                result["visualization"] = {
+                    "success": False,
+                    "message": f"Visualization failed: {e}"
+                }
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Dream generation failed: {e}"
+        )
 
 
 @router.get("/{dream_id}")
@@ -103,7 +187,8 @@ async def get_dream(
         "reflections": dream.get("reflections", []),
         "discussed": dream.get("discussed", False),
         "integrated": dream.get("integrated", False),
-        "integration_insights": dream.get("integration_insights")
+        "integration_insights": dream.get("integration_insights"),
+        "image_path": dream.get("image_path")
     }
 
 

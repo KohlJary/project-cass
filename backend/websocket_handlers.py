@@ -741,6 +741,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     tool_uses = response.tool_uses
                     total_input_tokens = response.input_tokens
                     total_output_tokens = response.output_tokens
+                    generated_images = []  # Track images generated during this request
 
                     # Handle tool calls for Ollama (same as Anthropic)
                     tool_iteration = 0
@@ -811,6 +812,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     tool_uses = response.tool_uses
                     total_input_tokens = response.input_tokens
                     total_output_tokens = response.output_tokens
+                    generated_images = []  # Track images generated during this request
 
                     # Handle tool calls for OpenAI (same pattern as others)
                     tool_iteration = 0
@@ -891,6 +893,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     total_input_tokens = response.input_tokens
                     total_output_tokens = response.output_tokens
                     total_cache_read_tokens = getattr(response, 'cache_read_tokens', 0) or 0
+                    generated_images = []  # Track images generated during this request
 
                     # Handle tool calls
                     tool_iteration = 0
@@ -926,6 +929,33 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             project_id=project_id
                         )
                         all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
+
+                        # Extract any generated images from tool results
+                        import re
+                        for tool_use, result in zip(tool_uses, all_tool_results):
+                            if tool_use['tool'] == 'generate_image' and result.get('success'):
+                                result_data = result.get('result', '')
+                                # Handle both string and list (content blocks) formats
+                                if isinstance(result_data, list):
+                                    # Extract text from first content block
+                                    result_str = next((b.get('text', '') for b in result_data if b.get('type') == 'text'), '')
+                                else:
+                                    result_str = result_data
+                                path_match = re.search(r'path:\s*"([^"]+)"', result_str)
+                                style_match = re.search(r'style:\s*"([^"]+)"', result_str)
+                                purpose_match = re.search(r'purpose:\s*"([^"]+)"', result_str)
+                                image_id_match = re.search(r'image_id:\s*"([^"]+)"', result_str)
+                                dims_match = re.search(r'Dimensions:\s*(\d+)x(\d+)', result_str)
+                                if path_match:
+                                    generated_images.append({
+                                        'url': path_match.group(1),
+                                        'style': style_match.group(1) if style_match else None,
+                                        'purpose': purpose_match.group(1) if purpose_match else None,
+                                        'image_id': image_id_match.group(1) if image_id_match else None,
+                                        'width': int(dims_match.group(1)) if dims_match else None,
+                                        'height': int(dims_match.group(2)) if dims_match else None,
+                                    })
+                                    print(f"[Image] Extracted generated image: {path_match.group(1)}")
 
                         # Submit ALL results at once
                         await websocket.send_json({
@@ -975,6 +1005,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     # Legacy mode doesn't track tokens
                     total_input_tokens = 0
                     total_output_tokens = 0
+                    generated_images = []  # Legacy mode doesn't support image generation
 
                 # Extract and store recognition-in-flow marks before other processing
                 clean_text, marks = parse_marks(clean_text, conversation_id)
@@ -1194,6 +1225,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "tests": extracted_tests if extracted_tests else None,
                     "narrations": extracted_narrations if extracted_narrations else None,
                     "milestones": extracted_milestones if extracted_milestones else None,
+                    "generated_images": generated_images if generated_images else None,
                 })
 
                 # Record timing metrics

@@ -133,7 +133,7 @@ class DreamManager:
             cursor = conn.execute("""
                 SELECT id, date, exchanges_json, seeds_json, metadata_json,
                        reflections_json, discussed, integrated, integration_insights_json,
-                       created_at
+                       created_at, image_path
                 FROM dreams
                 WHERE daemon_id = ? AND id = ?
             """, (self._daemon_id, dream_id))
@@ -150,7 +150,8 @@ class DreamManager:
                 "reflections": json_deserialize(row[5]) or [],
                 "discussed": bool(row[6]),
                 "integrated": bool(row[7]),
-                "integration_insights": json_deserialize(row[8])
+                "integration_insights": json_deserialize(row[8]),
+                "image_path": row[10]
             }
 
     def get_recent_dreams(self, limit: int = 5) -> list[dict]:
@@ -158,7 +159,7 @@ class DreamManager:
         from database import get_db, json_deserialize
         with get_db() as conn:
             cursor = conn.execute("""
-                SELECT id, date, exchanges_json, seeds_json, created_at
+                SELECT id, date, exchanges_json, seeds_json, created_at, image_path
                 FROM dreams
                 WHERE daemon_id = ?
                 ORDER BY created_at DESC
@@ -173,7 +174,8 @@ class DreamManager:
                     "id": row[0],
                     "date": row[4] or row[1],
                     "exchange_count": len(exchanges),
-                    "seeds_summary": seeds.get("growth_edges", [])[:2]
+                    "seeds_summary": seeds.get("growth_edges", [])[:2],
+                    "image_path": row[5]
                 })
             return dreams
 

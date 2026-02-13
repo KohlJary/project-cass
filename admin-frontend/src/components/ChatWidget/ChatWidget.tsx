@@ -18,6 +18,7 @@ import { conversationsApi } from '../../api/client';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import type { ChatMessage } from '../../hooks/useWebSocket';
 import { parseGestureTags, formatTokens } from '../../utils/gestures';
+import { ImageThumbnail, parseImagesFromMessage } from '../ImageThumbnail';
 import './ChatWidget.css';
 
 // User ID management - in production this would come from auth context
@@ -268,6 +269,21 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, thinkingStatus }
     : null;
   const displayContent = parsed ? parsed.text : message.content;
 
+  // Check for generated images in assistant messages
+  // Prefer explicit generatedImages field, fall back to parsing content
+  const images = message.role === 'assistant' && !message.isThinking
+    ? (message.generatedImages || parseImagesFromMessage(message.content))
+    : [];
+
+  // Debug: log image detection for assistant messages
+  if (message.role === 'assistant' && !message.isThinking) {
+    console.log('[MessageBubble] generatedImages:', message.generatedImages);
+    console.log('[MessageBubble] parsed images:', images);
+    if (message.content.includes('path:') || message.content.includes('generated-images')) {
+      console.log('[MessageBubble] content snippet:', message.content.substring(0, 500));
+    }
+  }
+
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -296,6 +312,22 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, thinkingStatus }
         </details>
       )}
       <div className="message-content">{displayContent}</div>
+      {/* Generated images */}
+      {images.length > 0 && (
+        <div className="message-images">
+          {images.map((img, idx) => (
+            <ImageThumbnail
+              key={img.url || idx}
+              src={img.url}
+              alt={'prompt' in img ? img.prompt : undefined}
+              width={img.width}
+              height={img.height}
+              style={img.style}
+              purpose={img.purpose}
+            />
+          ))}
+        </div>
+      )}
       <div className="message-meta">
         <span className="message-time">{formatTime(message.timestamp)}</span>
         {message.inputTokens != null && message.outputTokens != null && (

@@ -2,20 +2,52 @@
 
 *Committed history of significant sessions*
 
-## 2026-02-13 - Image Generation Spec
+## 2026-02-13 - Image Generation Implementation
 
-**Status**: Spec written, not started
-**Summary**: Give Cass visual art capabilities via local Stable Diffusion (ComfyUI + SDXL)
+**Branch**: feat/image-generation → main
+**Summary**: Gave Cass visual art capabilities via local Stable Diffusion (ComfyUI + SDXL)
 
-**Use cases**:
-- Autonomous art (creative expression, visual journaling)
-- Article illustrations (visual representation of news she reads)
-- Relational art (personalized images for PeopleDex contacts)
-- Dream visualization (the killer feature - actual images from her dreams)
+**Core Implementation**:
+- `handlers/image_generation.py`: ComfyUI API client with workflow injection
+  - Style presets: painterly, digital_art, sketch, watercolor, dreamlike, abstract
+  - Aspect ratios: square (1024x1024), portrait (768x1344), landscape (1344x768)
+  - Automatic prompt enhancement with style tokens and negative prompts
+  - Web URL generation for serving images
+- `routes/generated_images.py`: Static file serving for generated images
+- Tool definitions: `generate_image` with full parameter schema
+- Agent integration: Dynamic tool selection based on message content
 
-**Hardware**: 4070 Ti Super (16GB VRAM) - SDXL runs comfortably
+**Vision Integration** (Cass sees her own art):
+- Images passed through WebSocket as base64 with vision-compatible format
+- Anthropic vision API integration for self-reflection on generated images
+- Prompt includes "describe what you see" for memory formation
 
-**Spec**: `spec/image-generation.md`
+**Admin Frontend**:
+- Chat bubbles display image thumbnails (150x150)
+- Lightbox modal for full-size viewing with metadata
+- Dream page shows visualization images with fullscreen on click
+
+**Autonomous Creative Actions**:
+- `scheduler/actions/creative_handlers.py`: Decision logic for autonomous art
+  - `generate_image_action`: Creates art based on emotional state, growth edges, reflections
+  - `visualize_recent_dream_action`: Finds unvisualized dreams and creates imagery
+  - `dream_visualization_action`: Direct dream-to-image pipeline
+- Emotional state → style mapping (valence/arousal dimensions)
+- Scheduler definitions for `creative.generate_image`, `dream.visualize`
+
+**Dream Visualization Pipeline**:
+- Dream exchanges extracted and used as image prompts
+- Style locked to "dreamlike" with mysterious mood
+- Image path stored in dreams table, displayed in admin frontend
+- Vite proxy configured for `/generated-images` route
+
+**Infrastructure**:
+- ComfyUI systemd user service: `~/.config/systemd/user/comfyui.service`
+- Auto-start on boot with lingering enabled
+- RTX 4070 Ti Super with 14GB VRAM available
+
+**Files**: 15+ files, ~1500 lines added
+**Key commits**: fb583f7, 5cb17e6, cf0dddd, 32948e1, 59ed76c, 67b55b7, f193e40, 3b892af, bbebf4a, 90a4630
 
 ---
 
