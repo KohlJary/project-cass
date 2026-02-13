@@ -22,6 +22,7 @@ const adminNavItems = [
   { path: '/self-development', label: 'Self-Dev', icon: '%' },
   { path: '/activity', label: 'Activity', icon: '>' },
   { path: '/knowledge', label: 'Knowledge', icon: 'K' },
+  { path: '/news', label: 'News', icon: 'N' },
   { path: '/projects', label: 'Projects', icon: 'P' },
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
   { path: '/dreams', label: 'Dreams', icon: 'D' },

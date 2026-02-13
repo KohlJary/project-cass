@@ -1345,3 +1345,167 @@ export const fetchWorkHistory = async (params?: {
 export const fetchWorkSummary = async (slug: string): Promise<{ workSummary: WorkSummary | null }> => {
   return getGraphQLClient().request(WORK_SUMMARY_QUERY, { slug });
 };
+
+// =============================================================================
+// CONSUMED ARTICLES (World State Consumption)
+// =============================================================================
+
+export interface ExtractedObservation {
+  text: string;
+  confidence: number;
+  category: string;
+}
+
+export interface ExtractedQuestion {
+  question: string;
+  question_type: string;
+  importance: number;
+  context: string;
+}
+
+export interface ExtractedOpinion {
+  topic: string;
+  position: string;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface ExtractedGrowthEdge {
+  area: string;
+  current_state: string;
+  desired_state: string;
+  importance: number;
+}
+
+export interface ConsumedArticle {
+  id: string;
+  url: string;
+  headline: string;
+  source: string | null;
+  category: string | null;
+  published_at: string | null;
+  author_name: string | null;
+  author_handle: string | null;
+  author_entity_id: string | null;
+  summary: string | null;
+  processing_status: string;
+  consumed_at: string | null;
+  processing_time_ms: number | null;
+  tokens_used: number | null;
+  observations: ExtractedObservation[];
+  questions: ExtractedQuestion[];
+  opinions: ExtractedOpinion[];
+  growth_edges: ExtractedGrowthEdge[];
+}
+
+export interface ConsumedArticlesResult {
+  articles: ConsumedArticle[];
+  total: number;
+  date: string;
+}
+
+export const CONSUMED_ARTICLES_QUERY = gql`
+  query ConsumedArticles($date: String, $limit: Int) {
+    consumedArticles(date: $date, limit: $limit) {
+      articles {
+        id
+        url
+        headline
+        source
+        category
+        publishedAt
+        authorName
+        authorHandle
+        authorEntityId
+        summary
+        processingStatus
+        consumedAt
+        processingTimeMs
+        tokensUsed
+        observations {
+          text
+          confidence
+          category
+        }
+        questions {
+          question
+          questionType
+          importance
+          context
+        }
+        opinions {
+          topic
+          position
+          confidence
+          reasoning
+        }
+        growthEdges {
+          area
+          currentState
+          desiredState
+          importance
+        }
+      }
+      total
+      date
+    }
+  }
+`;
+
+export const CONSUMED_ARTICLES_DATES_QUERY = gql`
+  query ConsumedArticlesDates($days: Int) {
+    consumedArticlesDates(days: $days)
+  }
+`;
+
+// Transform camelCase from GraphQL to snake_case for frontend
+const transformArticle = (article: any): ConsumedArticle => ({
+  id: article.id,
+  url: article.url,
+  headline: article.headline,
+  source: article.source,
+  category: article.category,
+  published_at: article.publishedAt,
+  author_name: article.authorName,
+  author_handle: article.authorHandle,
+  author_entity_id: article.authorEntityId,
+  summary: article.summary,
+  processing_status: article.processingStatus,
+  consumed_at: article.consumedAt,
+  processing_time_ms: article.processingTimeMs,
+  tokens_used: article.tokensUsed,
+  observations: article.observations || [],
+  questions: (article.questions || []).map((q: any) => ({
+    question: q.question,
+    question_type: q.questionType,
+    importance: q.importance,
+    context: q.context,
+  })),
+  opinions: article.opinions || [],
+  growth_edges: (article.growthEdges || []).map((g: any) => ({
+    area: g.area,
+    current_state: g.currentState,
+    desired_state: g.desiredState,
+    importance: g.importance,
+  })),
+});
+
+export const fetchConsumedArticles = async (date?: string, limit?: number): Promise<ConsumedArticlesResult> => {
+  const result = await getGraphQLClient().request<{ consumedArticles: any }>(
+    CONSUMED_ARTICLES_QUERY,
+    { date, limit }
+  );
+  return {
+    articles: result.consumedArticles.articles.map(transformArticle),
+    total: result.consumedArticles.total,
+    date: result.consumedArticles.date,
+  };
+};
+
+export const fetchConsumedArticlesDates = async (days?: number): Promise<string[]> => {
+  const result = await getGraphQLClient().request<{ consumedArticlesDates: string[] }>(
+    CONSUMED_ARTICLES_DATES_QUERY,
+    { days }
+  );
+  return result.consumedArticlesDates;
+};

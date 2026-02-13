@@ -90,6 +90,7 @@ from handlers import (
     execute_dream_tool,
     execute_peopledex_tool,
     execute_wonderland_tool,
+    execute_world_consumption_tool,
     ToolContext,
     execute_tool_batch,
 )
@@ -471,6 +472,7 @@ TOOL_EXECUTORS = {
     "development_request": execute_development_request_tool,
     "wonderland": execute_wonderland_tool,
     "direct_message": execute_direct_message_tool,
+    "world_consumption": execute_world_consumption_tool,
 }
 
 

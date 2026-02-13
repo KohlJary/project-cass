@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 32  # PeopleDex facts table for biographical data
+SCHEMA_VERSION = 34  # Author entity tracking for consumed articles
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1617,4 +1617,58 @@ CREATE TABLE IF NOT EXISTS discord_flagged_entities (
     flagged_by TEXT DEFAULT 'cass',     -- cass, user, system
     PRIMARY KEY (daemon_id, entity_slug)
 );
+
+-- =============================================================================
+-- WORLD STATE CONSUMPTION - Article reading and insight extraction
+-- =============================================================================
+
+-- Consumed articles - full articles Cass has read and processed
+CREATE TABLE IF NOT EXISTS consumed_articles (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+
+    -- Source metadata
+    url TEXT NOT NULL,
+    headline TEXT NOT NULL,
+    source TEXT,                        -- e.g. "CNN", "The Atlantic"
+    category TEXT,                      -- general, technology, science, etc.
+    published_at TEXT,                  -- ISO timestamp from NewsAPI
+
+    -- Author tracking (v34)
+    author_name TEXT,                   -- Author name from article metadata
+    author_handle TEXT,                 -- Digital handle (email, twitter, etc.)
+    author_handle_type TEXT,            -- Type of handle: email, twitter, linkedin, website
+    author_entity_id TEXT REFERENCES peopledex_entities(id),  -- Link to PeopleDex entity
+
+    -- Content
+    full_content TEXT,                  -- Raw article text (may be null if fetch failed)
+    summary TEXT,                       -- LLM-generated summary
+
+    -- Processing metadata
+    consumed_at TEXT NOT NULL,          -- When Cass read this
+    processing_time_ms INTEGER,         -- Performance tracking
+    tokens_used INTEGER,                -- Cost tracking
+
+    -- Extracted insights (JSON)
+    observations_json TEXT,             -- [{text, confidence, category}]
+    growth_edges_json TEXT,             -- [{area, current_state, importance}]
+    opinions_json TEXT,                 -- [{topic, position, confidence, reasoning}]
+    questions_json TEXT,                -- [{question, type, importance, context}]
+
+    -- Links to created self-model items
+    observation_ids_json TEXT,          -- IDs of created observations
+    question_ids_json TEXT,             -- IDs of created questions
+
+    -- Status
+    processing_status TEXT DEFAULT 'pending',  -- pending, fetching, analyzing, completed, failed
+    error_message TEXT,
+
+    UNIQUE(daemon_id, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_consumed_articles_daemon ON consumed_articles(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_consumed_articles_status ON consumed_articles(processing_status);
+CREATE INDEX IF NOT EXISTS idx_consumed_articles_consumed ON consumed_articles(consumed_at);
+CREATE INDEX IF NOT EXISTS idx_consumed_articles_category ON consumed_articles(category);
+CREATE INDEX IF NOT EXISTS idx_consumed_articles_author ON consumed_articles(author_entity_id);
 """

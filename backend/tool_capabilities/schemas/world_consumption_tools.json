@@ -1,0 +1,110 @@
+{
+  "group": "world_consumption",
+  "version": "1.0.0",
+  "description": "Tools for recalling and searching consumed articles from world state",
+  "selection": {
+    "strategy": "keyword",
+    "keywords": ["article", "articles", "read", "news", "consumed", "headline", "source", "what did I read", "remember reading"]
+  },
+  "tools": [
+    {
+      "name": "search_articles",
+      "description": "Search articles you've consumed. Use this to recall what you've read about a topic, find articles from a specific source, or review recent reading. Recent articles (last 7 days) are also in ambient memory and may surface naturally.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search text to match in headlines or summaries"
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by category",
+            "enum": ["technology", "science", "business", "politics", "culture", "health", "general"]
+          },
+          "source": {
+            "type": "string",
+            "description": "Filter by news source name"
+          },
+          "days_back": {
+            "type": "integer",
+            "description": "How many days back to search (default: 30)",
+            "default": 30
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results to return (default: 10)",
+            "default": 10
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "world_consumption",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "get_article",
+      "description": "Get full details of a specific article you've consumed, including all extracted observations, questions, opinions, and growth edges.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "article_id": {
+            "type": "string",
+            "description": "The article ID to retrieve"
+          }
+        },
+        "required": ["article_id"]
+      },
+      "metadata": {
+        "executor": "world_consumption",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "list_article_sources",
+      "description": "List news sources you've been reading from, with article counts. Useful for understanding your information diet.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "days_back": {
+            "type": "integer",
+            "description": "How many days back to look (default: 30)",
+            "default": 30
+          }
+        },
+        "required": []
+      },
+      "metadata": {
+        "executor": "world_consumption",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    },
+    {
+      "name": "get_reading_stats",
+      "description": "Get statistics about your article consumption - total articles read, breakdown by category, tokens used, recent activity.",
+      "category": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "metadata": {
+        "executor": "world_consumption",
+        "requires_context": ["daemon_id"],
+        "cost_estimate": "low",
+        "latency_estimate": "fast"
+      }
+    }
+  ]
+}

@@ -2,6 +2,65 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-13 - World State Consumption
+
+**Branch**: feat/world-state-consumption (ready for merge)
+**Summary**: Enabled Cass to read and digest news articles, extracting observations, questions, opinions, and growth edges
+
+**Phase 1 - Storage & Fetching**:
+- Schema v33: `consumed_articles` table with 20 columns for full article lifecycle
+- `ArticleConsumer`: Fetches content via trafilatura, caches locally, priority scoring for headline selection
+- Database CRUD for article storage with processing status tracking
+
+**Phase 2 - Content Analysis**:
+- `ContentAnalyzer` with two reading modes:
+  - `progressive`: Paragraph-by-paragraph with revision capability (better for books)
+  - `single_pass`: Whole article at once (more efficient for articles)
+- Structured extraction: observations, questions, opinions, growth edges
+- `InsightIntegrator`: Stores extractions in self-model tables
+
+**A/B Testing Results** (112k char article):
+| Config | Tokens | Obs | Ques | Opin | Edges |
+|--------|--------|-----|------|------|-------|
+| Single Pass + Haiku 4.5 | 4,403 | 5 | 4 | 3 | 2 |
+| Progressive + Haiku 4.5 | 38,442 | 6 | 3 | 2 | 1 |
+
+Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
+
+**Phase 3 - Scheduler Integration**:
+- `world.consume_articles`: Consume from cached headlines
+- `world.refresh_and_consume`: Refresh world state then consume
+- Budget tracking: daily limits on articles and tokens
+
+**Memory Integration**:
+- Recent articles (7 days) stored in ChromaDB for ambient retrieval
+- Older articles in SQL, accessible via tools:
+  - `search_articles`, `get_article`, `list_article_sources`, `get_reading_stats`
+
+**Phase 4 - Author Entity Tracking**:
+- Schema v34: Added author columns (`author_name`, `author_handle`, `author_handle_type`, `author_entity_id`)
+- trafilatura `bare_extraction()` for author metadata
+- Digital handle extraction: email, @twitter, LinkedIn from author string and metadata
+- PeopleDex integration: Only create entities when author has verifiable digital handle
+  - Prevents duplicate entities for common names (e.g., "John Smith" at different outlets)
+  - Links articles to author entities for "show me works by X" queries
+- New tool: `get_articles_by_author` for author-centric search
+- Updated `search_articles` to support author filter
+
+**Phase 5 - Author Context Integration**:
+- PeopleDex `get_author_context()` method for prompt injection
+- ContentAnalyzer injects author context (handles, facts, previous observations) into analysis prompt
+- New extraction types: `ExtractedAuthorObservation`, `ExtractedAuthorFact`
+- Analyzer now extracts author observations (writing_style, expertise, perspective, bias, credibility)
+- Analyzer now extracts author facts (affiliation, expertise_area, publication_history, background)
+- InsightIntegrator stores author extractions back to PeopleDex
+- Builds knowledge about writers/journalists/researchers over time
+
+**Files**: 17+ files, ~2700 lines added
+**Key commits**: acd9c9e, 2ef5e3f, 6b5b0ce, 860bd62, ee810fb, 5c7ce09, 8981702
+
+---
+
 ## 2026-02-12 - PeopleDex Admin Relational Data
 
 **Branch**: feat/peopledex-admin-relational-data → main
