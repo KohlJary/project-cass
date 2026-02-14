@@ -276,6 +276,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import self_handlers
         from . import outreach_handlers
         from . import creative_handlers
+        from . import wonderland_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -338,6 +339,14 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("creative.generate_image", creative_handlers.generate_image_action)
         registry.register_handler("creative.dream_visualization", creative_handlers.dream_visualization_action)
         registry.register_handler("dream.visualize", creative_handlers.visualize_recent_dream_action)
+
+        # Wonderland actions (exploration, reflection, creation)
+        registry.register_handler("wonderland.enter", wonderland_handlers.enter_action)
+        registry.register_handler("wonderland.explore", wonderland_handlers.explore_action)
+        registry.register_handler("wonderland.reflect", wonderland_handlers.reflect_action)
+        registry.register_handler("wonderland.create", wonderland_handlers.create_action)
+        registry.register_handler("wonderland.socialize", wonderland_handlers.socialize_action)
+        registry.register_handler("wonderland.journal_experience", wonderland_handlers.journal_experience_action)
 
         logger.info("Registered all action handlers")
 
