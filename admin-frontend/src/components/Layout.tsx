@@ -27,6 +27,7 @@ const adminNavItems = [
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
   { path: '/thymos', label: 'Thymos', icon: 'θ' },
   { path: '/dreams', label: 'Dreams', icon: 'D' },
+  { path: '/gallery', label: 'Gallery', icon: '▣' },
   { path: '/wonderland', label: 'Wonderland', icon: 'W' },
   { path: '/peopledex', label: 'PeopleDex', icon: '♺' },
   { path: '/homepage', label: 'GeoCass', icon: '~' },

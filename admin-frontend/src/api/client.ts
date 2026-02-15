@@ -945,6 +945,41 @@ export const attachmentsApi = {
   delete: (id: string) => api.delete(`/attachments/${id}`),
 };
 
+// Generated image type
+export interface GeneratedImage {
+  id: string;
+  daemon_id: string;
+  prompt: string;
+  style: string | null;
+  purpose: string;
+  context_id: string | null;
+  path: string;
+  url: string | null;
+  width: number | null;
+  height: number | null;
+  generation_time_ms: number | null;
+  created_at: string;
+}
+
+// Gallery API - for viewing Cass's generated images
+export const galleryApi = {
+  /**
+   * List generated images with optional filtering
+   */
+  list: (params?: { purpose?: string; style?: string; limit?: number; offset?: number }) =>
+    api.get<{ images: GeneratedImage[]; total: number; limit: number; offset: number }>('/api/images', { params }),
+
+  /**
+   * Get a single image by ID
+   */
+  get: (id: string) => api.get<GeneratedImage>(`/api/images/${id}`),
+
+  /**
+   * Get the full URL for an image
+   */
+  getUrl: (image: GeneratedImage) => image.url ? `${API_BASE}${image.url}` : null,
+};
+
 // Prompt Configuration endpoints (System Prompt Composer)
 export const promptConfigApi = {
   // List all configurations for a daemon

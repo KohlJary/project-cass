@@ -29,6 +29,7 @@ import { Wonderland } from './pages/Wonderland';
 import { PeopleDex } from './pages/PeopleDex';
 import { News } from './pages/News';
 import { Thymos } from './pages/Thymos';
+import { Gallery } from './pages/Gallery';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -138,6 +139,7 @@ function AppRoutes() {
         <Route path="peopledex" element={<AdminRoute><PeopleDex /></AdminRoute>} />
         <Route path="news" element={<AdminRoute><News /></AdminRoute>} />
         <Route path="thymos" element={<AdminRoute><Thymos /></AdminRoute>} />
+        <Route path="gallery" element={<AdminRoute><Gallery /></AdminRoute>} />
       </Route>
     </Routes>
   );
