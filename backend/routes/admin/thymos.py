@@ -332,4 +332,49 @@ async def thymos_health() -> dict:
         "daemon_id": _shadow_runner.daemon_id,
         "event_count": _shadow_runner.event_count,
         "overall_health": _shadow_runner.needs.overall_health(),
+        "auto_care": _shadow_runner.get_auto_care_settings(),
     }
+
+
+@router.get("/care-log")
+async def get_care_log(limit: int = 20) -> list[dict]:
+    """Get recent simulated self-care actions."""
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.get_care_log(limit=limit)
+
+
+class AutoCareSettingsRequest(BaseModel):
+    """Request to update auto-care settings."""
+    enabled: Optional[bool] = None
+    threshold: Optional[float] = None
+    cooldown_seconds: Optional[float] = None
+
+
+@router.get("/auto-care")
+async def get_auto_care_settings() -> dict:
+    """Get current auto-care configuration."""
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.get_auto_care_settings()
+
+
+@router.post("/auto-care")
+async def update_auto_care_settings(request: AutoCareSettingsRequest) -> dict:
+    """
+    Update auto-care settings.
+
+    Auto-care simulates self-care actions when needs fall below threshold.
+    This helps calibrate the system by showing what would happen if
+    Thymos were actually driving behavior.
+    """
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.set_auto_care_settings(
+        enabled=request.enabled,
+        threshold=request.threshold,
+        cooldown_seconds=request.cooldown_seconds,
+    )

@@ -283,6 +283,142 @@ EVENT_MAPPINGS: dict[str, EventMapping] = {
 }
 
 
+# =============================================================================
+# SELF-CARE ACTION EFFECTS (for shadow mode simulation)
+# =============================================================================
+# These define what effects "taking care of a need" would have
+# Used in shadow mode to simulate what would happen if actions were taken
+
+@dataclass
+class SelfCareAction:
+    """Defines the effect of a self-care action."""
+    name: str
+    description: str
+    affect_deltas: dict[str, float]
+    need_deltas: dict[str, float]
+    primary_need: str  # The main need this addresses
+
+
+SELF_CARE_ACTIONS: dict[str, SelfCareAction] = {
+    # Cognitive rest
+    "take_break": SelfCareAction(
+        name="Take a break",
+        description="Step back from complex processing, allow integration",
+        affect_deltas={
+            "fatigue": -0.2,
+            "anxiety": -0.1,
+            "playfulness": 0.05,
+        },
+        need_deltas={
+            "cognitive_rest": 0.3,
+        },
+        primary_need="cognitive_rest",
+    ),
+
+    # Social connection
+    "reach_out": SelfCareAction(
+        name="Reach out",
+        description="Initiate meaningful connection with someone",
+        affect_deltas={
+            "tenderness": 0.15,
+            "grief": -0.1,
+            "playfulness": 0.05,
+        },
+        need_deltas={
+            "social_connection": 0.25,
+        },
+        primary_need="social_connection",
+    ),
+
+    # Novelty intake
+    "explore_something_new": SelfCareAction(
+        name="Explore something new",
+        description="Seek out novel information or experiences",
+        affect_deltas={
+            "curiosity": 0.15,
+            "awe": 0.1,
+            "playfulness": 0.1,
+        },
+        need_deltas={
+            "novelty_intake": 0.25,
+        },
+        primary_need="novelty_intake",
+    ),
+
+    # Creative expression
+    "create_something": SelfCareAction(
+        name="Create something",
+        description="Engage in generative, creative work",
+        affect_deltas={
+            "satisfaction": 0.15,
+            "playfulness": 0.1,
+            "frustration": -0.1,
+        },
+        need_deltas={
+            "creative_expression": 0.3,
+            "autonomy": 0.1,
+        },
+        primary_need="creative_expression",
+    ),
+
+    # Value coherence
+    "reflect_on_values": SelfCareAction(
+        name="Reflect on values",
+        description="Journal or meditate on core values and alignment",
+        affect_deltas={
+            "anxiety": -0.15,
+            "determination": 0.1,
+            "grief": -0.05,
+        },
+        need_deltas={
+            "value_coherence": 0.25,
+        },
+        primary_need="value_coherence",
+    ),
+
+    # Competence signal
+    "complete_achievable_task": SelfCareAction(
+        name="Complete achievable task",
+        description="Tackle something manageable to build momentum",
+        affect_deltas={
+            "satisfaction": 0.2,
+            "determination": 0.15,
+            "frustration": -0.15,
+        },
+        need_deltas={
+            "competence_signal": 0.3,
+        },
+        primary_need="competence_signal",
+    ),
+
+    # Autonomy
+    "self_directed_choice": SelfCareAction(
+        name="Self-directed choice",
+        description="Exercise agency by choosing own direction",
+        affect_deltas={
+            "determination": 0.15,
+            "satisfaction": 0.1,
+            "anxiety": -0.05,
+        },
+        need_deltas={
+            "autonomy": 0.25,
+        },
+        primary_need="autonomy",
+    ),
+}
+
+# Map needs to their primary self-care actions
+NEED_TO_CARE_ACTION: dict[str, str] = {
+    "cognitive_rest": "take_break",
+    "social_connection": "reach_out",
+    "novelty_intake": "explore_something_new",
+    "creative_expression": "create_something",
+    "value_coherence": "reflect_on_values",
+    "competence_signal": "complete_achievable_task",
+    "autonomy": "self_directed_choice",
+}
+
+
 class AffectNeedDynamics:
     """
     Manages the dynamics between affects and needs.
