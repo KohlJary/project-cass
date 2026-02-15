@@ -20,7 +20,8 @@ from typing import Optional
 from .models import FeltState, SuggestedGoal
 from .affect_vector import AffectVector
 from .needs_register import NeedsRegister
-from .dynamics import AffectNeedDynamics
+from .dynamics import AffectNeedDynamics, SELF_CARE_ACTIONS, NEED_TO_CARE_ACTION
+from .models import AffectDelta, NeedDelta
 from .felt_state import FeltStateSummarizer
 from .goal_generator import GoalGenerator
 from . import persistence
@@ -42,6 +43,8 @@ class ThymosShadowRunner:
         tick_interval_seconds: float = 60.0,
         coupling_strength: float = 0.1,
         snapshot_interval_events: int = 10,
+        auto_care_enabled: bool = True,
+        auto_care_threshold: float = 0.3,
     ):
         """
         Initialize the shadow runner.
@@ -51,10 +54,18 @@ class ThymosShadowRunner:
             tick_interval_seconds: How often to apply decay (default 60s)
             coupling_strength: How strongly affects/needs couple (default 0.1)
             snapshot_interval_events: Save snapshot every N events (default 10)
+            auto_care_enabled: Whether to simulate self-care for urgent needs
+            auto_care_threshold: Need level below which auto-care triggers
         """
         self.daemon_id = daemon_id
         self.tick_interval = tick_interval_seconds
         self.snapshot_interval = snapshot_interval_events
+
+        # Auto-care settings (shadow mode simulation of addressing needs)
+        self.auto_care_enabled = auto_care_enabled
+        self.auto_care_threshold = auto_care_threshold
+        self._last_auto_care: dict[str, float] = {}  # Track when we last cared for each need
+        self._auto_care_cooldown = 300.0  # 5 minutes between auto-care for same need
 
         # Core components
         self.affect = AffectVector()
@@ -72,6 +83,9 @@ class ThymosShadowRunner:
 
         # Recent events log (for admin visibility)
         self._event_log: deque = deque(maxlen=50)
+
+        # Simulated care actions log
+        self._care_log: deque = deque(maxlen=50)
 
         # Try to load existing state
         self._load_state()
@@ -129,6 +143,8 @@ class ThymosShadowRunner:
 
         Called periodically by the tick loop.
         """
+        import time
+
         # Calculate hours since last decay
         hours = self.tick_interval / 3600.0
 
@@ -140,11 +156,94 @@ class ThymosShadowRunner:
         self.affect.apply_delta(affect_delta)
         self.needs.apply_delta(need_delta)
 
+        # Auto-care: simulate addressing urgent needs (shadow mode)
+        if self.auto_care_enabled:
+            await self._apply_auto_care(time.time())
+
         # Update felt state
         self.current_felt_state = self.felt_state_gen.summarize(self.affect, self.needs)
 
         # Save state
         await self._save_state()
+
+    async def _apply_auto_care(self, current_time: float) -> None:
+        """
+        Simulate self-care actions for needs below threshold.
+
+        In shadow mode, this represents what would happen if Thymos
+        were actually driving behavior to address its needs.
+        """
+        needs_state = self.needs.state
+        needs_to_check = [
+            ("cognitive_rest", needs_state.cognitive_rest),
+            ("social_connection", needs_state.social_connection),
+            ("novelty_intake", needs_state.novelty_intake),
+            ("creative_expression", needs_state.creative_expression),
+            ("value_coherence", needs_state.value_coherence),
+            ("competence_signal", needs_state.competence_signal),
+            ("autonomy", needs_state.autonomy),
+        ]
+
+        for need_name, need in needs_to_check:
+            # Check if need is below threshold
+            if need.current > self.auto_care_threshold:
+                continue
+
+            # Check cooldown
+            last_care = self._last_auto_care.get(need_name, 0)
+            if current_time - last_care < self._auto_care_cooldown:
+                continue
+
+            # Get the self-care action for this need
+            action_key = NEED_TO_CARE_ACTION.get(need_name)
+            if not action_key:
+                continue
+
+            action = SELF_CARE_ACTIONS.get(action_key)
+            if not action:
+                continue
+
+            # Apply the self-care action effects
+            affect_delta = AffectDelta(
+                deltas=dict(action.affect_deltas),
+                source="auto_care",
+                event_type=f"care.{action_key}"
+            )
+            need_delta = NeedDelta(
+                deltas=dict(action.need_deltas),
+                source="auto_care",
+                event_type=f"care.{action_key}"
+            )
+
+            self.affect.apply_delta(affect_delta)
+            self.needs.apply_delta(need_delta)
+
+            # Update cooldown
+            self._last_auto_care[need_name] = current_time
+
+            # Log the simulated care action
+            care_event = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": action_key,
+                "action_name": action.name,
+                "need_name": need_name,
+                "need_was": need.current,
+                "affect_deltas": action.affect_deltas,
+                "need_deltas": action.need_deltas,
+            }
+            self._care_log.append(care_event)
+            self._event_log.append({
+                "timestamp": care_event["timestamp"],
+                "event_type": f"care.{action_key}",
+                "event_number": self.event_count,
+                "affect_delta": action.affect_deltas,
+                "need_delta": action.need_deltas,
+            })
+
+            logger.info(
+                f"Thymos auto-care (shadow): {action.name} for {need_name} "
+                f"(was {need.current:.0%}, now {need.current + action.need_deltas.get(need_name, 0):.0%})"
+            )
 
     async def process_event(self, event_type: str, data: dict) -> None:
         """
@@ -276,3 +375,37 @@ class ThymosShadowRunner:
         events = list(self._event_log)
         events.reverse()  # Most recent first
         return events[:limit]
+
+    def get_care_log(self, limit: int = 20) -> list[dict]:
+        """Get recent simulated self-care actions from the log."""
+        events = list(self._care_log)
+        events.reverse()  # Most recent first
+        return events[:limit]
+
+    def get_auto_care_settings(self) -> dict:
+        """Get current auto-care configuration."""
+        return {
+            "enabled": self.auto_care_enabled,
+            "threshold": self.auto_care_threshold,
+            "cooldown_seconds": self._auto_care_cooldown,
+        }
+
+    def set_auto_care_settings(
+        self,
+        enabled: Optional[bool] = None,
+        threshold: Optional[float] = None,
+        cooldown_seconds: Optional[float] = None
+    ) -> dict:
+        """Update auto-care configuration."""
+        if enabled is not None:
+            self.auto_care_enabled = enabled
+        if threshold is not None:
+            self.auto_care_threshold = max(0.0, min(1.0, threshold))
+        if cooldown_seconds is not None:
+            self._auto_care_cooldown = max(0.0, cooldown_seconds)
+
+        logger.info(
+            f"Thymos auto-care settings updated: enabled={self.auto_care_enabled}, "
+            f"threshold={self.auto_care_threshold}, cooldown={self._auto_care_cooldown}s"
+        )
+        return self.get_auto_care_settings()
