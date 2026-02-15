@@ -532,6 +532,7 @@ Future phases:
 - Reference image integration (IP-Adapter)
 - Style LoRA management
 - Art market integrations
+- **3D sculpture analysis**: Render multiple viewpoints from scanned models (Smithsonian Open Access, Scan the World, Sketchfab museum partnerships). Analyze form, spatial composition, how pieces change when viewed in the round. Captures what photos miss about sculptural work.
 
 ## Copyright Policy
 

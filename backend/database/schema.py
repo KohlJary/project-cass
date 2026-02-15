@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 36  # Thymos homeostatic system
+SCHEMA_VERSION = 37  # Art study system
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1757,4 +1757,113 @@ CREATE TABLE IF NOT EXISTS thymos_suggestions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_thymos_suggestions_daemon ON thymos_suggestions(daemon_id, suggested_at);
+
+-- =============================================================================
+-- ART STUDY SYSTEM (v37)
+-- =============================================================================
+
+-- Artists that Cass can study
+CREATE TABLE IF NOT EXISTS artists (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    period TEXT,                        -- "Post-Impressionist", "Renaissance"
+    years_active TEXT,                  -- "1853-1890"
+    movements TEXT,                     -- JSON array of movements
+    wikipedia_url TEXT,
+    biography TEXT,                     -- Fetched/summarized from Wikipedia
+    public_domain INTEGER DEFAULT 1,    -- Safe for reference image use
+    created_at TEXT NOT NULL,
+    studied_at TEXT,                    -- When Cass first studied them
+    works_studied INTEGER DEFAULT 0,
+    cass_notes TEXT                     -- Her overall impression
+);
+
+CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
+
+-- Individual artworks for study
+CREATE TABLE IF NOT EXISTS artworks (
+    id TEXT PRIMARY KEY,
+    artist_id TEXT REFERENCES artists(id),
+    title TEXT NOT NULL,
+    year INTEGER,
+    medium TEXT,
+    image_path TEXT,                    -- Local path to image
+    image_url TEXT,                     -- Original source URL
+    dimensions TEXT,
+    location TEXT,                      -- Museum/collection
+    public_domain INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_artworks_artist ON artworks(artist_id);
+
+-- Cass's study/analysis of individual artworks
+CREATE TABLE IF NOT EXISTS artwork_studies (
+    id TEXT PRIMARY KEY,
+    artwork_id TEXT REFERENCES artworks(id),
+    daemon_id TEXT NOT NULL,
+    studied_at TEXT NOT NULL,
+    first_impression TEXT,
+    composition_analysis TEXT,
+    color_analysis TEXT,
+    brushwork_notes TEXT,
+    emotional_quality TEXT,
+    thematic_elements TEXT,
+    technical_observations TEXT,
+    biographical_context TEXT,
+    key_learnings TEXT,                 -- JSON array
+    prompt_vocabulary TEXT,             -- JSON array
+    reminds_me_of TEXT,                 -- JSON array of artwork IDs
+    could_inform TEXT                   -- JSON array
+);
+
+CREATE INDEX IF NOT EXISTS idx_artwork_studies_artwork ON artwork_studies(artwork_id);
+CREATE INDEX IF NOT EXISTS idx_artwork_studies_daemon ON artwork_studies(daemon_id, studied_at);
+
+-- Synthesized understanding of an artist after studying multiple works
+CREATE TABLE IF NOT EXISTS artist_syntheses (
+    id TEXT PRIMARY KEY,
+    artist_id TEXT REFERENCES artists(id),
+    daemon_id TEXT NOT NULL,
+    last_updated TEXT NOT NULL,
+    works_studied INTEGER DEFAULT 0,
+    signature_elements TEXT,            -- JSON array
+    color_tendencies TEXT,
+    compositional_habits TEXT,
+    emotional_palette TEXT,
+    technical_characteristics TEXT,
+    thematic_preoccupations TEXT,
+    style_descriptors TEXT,             -- JSON array
+    what_to_borrow TEXT,                -- JSON array
+    what_makes_them_unique TEXT,
+    what_draws_me TEXT,
+    what_i_learned TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_artist_syntheses_artist ON artist_syntheses(artist_id);
+CREATE INDEX IF NOT EXISTS idx_artist_syntheses_daemon ON artist_syntheses(daemon_id);
+
+-- Creative process tracking for generated images
+CREATE TABLE IF NOT EXISTS creative_processes (
+    id TEXT PRIMARY KEY,
+    image_id TEXT REFERENCES generated_images(id),
+    daemon_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    initial_impulse TEXT,
+    thymos_state TEXT,                  -- JSON of emotional state
+    recent_context TEXT,
+    studied_artists TEXT,               -- JSON array of artist IDs
+    specific_works TEXT,                -- JSON array of artwork IDs
+    borrowed_elements TEXT,             -- JSON array
+    movement_influences TEXT,           -- JSON array
+    initial_concept TEXT,
+    iterations TEXT,                    -- JSON array of prompt iterations
+    technical_choices TEXT,
+    title TEXT,
+    artist_statement TEXT,
+    what_i_was_exploring TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_creative_processes_image ON creative_processes(image_id);
+CREATE INDEX IF NOT EXISTS idx_creative_processes_daemon ON creative_processes(daemon_id, created_at);
 """

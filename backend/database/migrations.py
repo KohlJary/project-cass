@@ -373,6 +373,10 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 36:
         print("Adding Thymos tables (thymos_state, thymos_snapshots, thymos_suggestions) for homeostatic emotional/motivational system (v36)")
 
+    # v36 -> v37: Art study system tables
+    if from_version < 37:
+        print("Adding art study tables (artists, artworks, artwork_studies, artist_syntheses, creative_processes) (v37)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)
