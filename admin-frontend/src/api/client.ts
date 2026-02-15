@@ -1766,6 +1766,22 @@ export interface ThymosEvent {
   need_delta: Record<string, number>;
 }
 
+export interface ThymosCareEvent {
+  timestamp: string;
+  action: string;
+  action_name: string;
+  need_name: string;
+  need_was: number;
+  affect_deltas: Record<string, number>;
+  need_deltas: Record<string, number>;
+}
+
+export interface AutoCareSettings {
+  enabled: boolean;
+  threshold: number;
+  cooldown_seconds: number;
+}
+
 export const thymosApi = {
   // Get current state
   getState: () =>
@@ -1822,6 +1838,18 @@ export const thymosApi = {
   // Health check
   getHealth: () =>
     api.get<ThymosHealth>('/admin/thymos/health'),
+
+  // Get care log (simulated self-care actions)
+  getCareLog: (limit: number = 20) =>
+    api.get<ThymosCareEvent[]>('/admin/thymos/care-log', { params: { limit } }),
+
+  // Get auto-care settings
+  getAutoCareSettings: () =>
+    api.get<AutoCareSettings>('/admin/thymos/auto-care'),
+
+  // Update auto-care settings
+  updateAutoCareSettings: (settings: Partial<AutoCareSettings>) =>
+    api.post<AutoCareSettings>('/admin/thymos/auto-care', settings),
 };
 
 export const stateApi = {
