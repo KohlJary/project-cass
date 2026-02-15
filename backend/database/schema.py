@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 35  # Image generation support
+SCHEMA_VERSION = 36  # Thymos homeostatic system
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1714,4 +1714,47 @@ CREATE INDEX IF NOT EXISTS idx_generated_images_daemon ON generated_images(daemo
 CREATE INDEX IF NOT EXISTS idx_generated_images_purpose ON generated_images(daemon_id, purpose);
 CREATE INDEX IF NOT EXISTS idx_generated_images_context ON generated_images(context_id);
 CREATE INDEX IF NOT EXISTS idx_generated_images_created ON generated_images(created_at);
+
+-- =============================================================================
+-- THYMOS - Homeostatic Emotional/Motivational System (v36)
+-- =============================================================================
+
+-- Thymos state (current affect vector and needs register per daemon)
+CREATE TABLE IF NOT EXISTS thymos_state (
+    daemon_id TEXT PRIMARY KEY REFERENCES daemons(id),
+    affect_json TEXT NOT NULL,          -- Current affect dimensions
+    needs_json TEXT NOT NULL,           -- Current needs with thresholds
+    felt_state TEXT,                    -- Natural language felt state summary
+    updated_at TEXT NOT NULL
+);
+
+-- Thymos snapshots (historical state for trends/analysis)
+CREATE TABLE IF NOT EXISTS thymos_snapshots (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    snapshot_at TEXT NOT NULL,
+    affect_json TEXT NOT NULL,
+    needs_json TEXT NOT NULL,
+    felt_state TEXT,
+    trigger_event TEXT                  -- What event triggered this snapshot
+);
+
+CREATE INDEX IF NOT EXISTS idx_thymos_snapshots_daemon ON thymos_snapshots(daemon_id, snapshot_at);
+
+-- Thymos goal suggestions (shadow mode log - what Thymos would have suggested)
+CREATE TABLE IF NOT EXISTS thymos_suggestions (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    suggested_at TEXT NOT NULL,
+    need_name TEXT NOT NULL,            -- Which need triggered this
+    need_current REAL NOT NULL,         -- Need level at suggestion time
+    need_threshold REAL NOT NULL,       -- Need threshold for reference
+    urgency REAL NOT NULL,              -- Calculated urgency (0.0-1.0)
+    suggested_action TEXT,              -- Action that was suggested
+    is_urgent INTEGER DEFAULT 0,        -- Was need below threshold?
+    feedback TEXT,                      -- Calibration feedback (good/bad/neutral)
+    feedback_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_thymos_suggestions_daemon ON thymos_suggestions(daemon_id, suggested_at);
 """

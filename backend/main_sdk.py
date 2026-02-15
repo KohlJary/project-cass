@@ -250,7 +250,11 @@ question_manager = OpenQuestionManager(_daemon_id)
 # Initialize global state bus (Cass's Locus of Self)
 from state_bus import get_state_bus
 global_state_bus = get_state_bus(_daemon_id)
-print("STARTUP: Lightweight components initialized (including thread/question managers, state bus)")
+
+# Initialize Thymos (homeostatic emotional/motivational system) in shadow mode
+from thymos import ThymosShadowRunner
+thymos_runner = ThymosShadowRunner(daemon_id=_daemon_id)
+print("STARTUP: Lightweight components initialized (including thread/question managers, state bus, thymos)")
 
 # Defer heavy initialization (ChromaDB, embeddings) to avoid blocking health checks
 # These will be initialized in startup_event background task
@@ -1399,6 +1403,17 @@ async def startup_event():
     activity_dashboard = init_activity_dashboard(global_state_bus)
     logger.info("Activity dashboard initialized and subscribed to events")
 
+    # Start Thymos shadow runner and subscribe to state bus events
+    # Thymos runs in shadow mode - observing and logging suggestions without driving behavior
+    await thymos_runner.start()
+
+    def thymos_event_handler(event_type: str, data: dict):
+        """Forward state bus events to Thymos."""
+        asyncio.create_task(thymos_runner.process_event(event_type, data))
+
+    global_state_bus.subscribe("*", thymos_event_handler)
+    logger.info("Thymos shadow runner started and subscribed to events")
+
     # Initialize relay client for remote access (if configured)
     if RELAY_ENABLED and RELAY_URL and RELAY_SECRET:
         async def handle_relay_message(client_id: str, user_id: str, payload: dict):
@@ -1719,6 +1734,10 @@ async def startup_event():
 
             # Initialize admin API access
             init_scheduler(synkratos)
+
+            # Initialize Thymos admin routes
+            from routes.admin import init_thymos_runner
+            init_thymos_runner(thymos_runner)
 
             # Initialize autonomous scheduling (Cass decides her own work)
             from config import AUTONOMOUS_SCHEDULING_ENABLED

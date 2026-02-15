@@ -368,6 +368,11 @@ def _apply_schema_updates(conn, from_version: int):
         # generated_images table is created by SCHEMA_SQL
         print("Adding generated_images table for image generation (v35)")
 
+    # v35 -> v36: Thymos homeostatic system tables
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 36:
+        print("Adding Thymos tables (thymos_state, thymos_snapshots, thymos_suggestions) for homeostatic emotional/motivational system (v36)")
+
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
     conn.executescript(SCHEMA_SQL)
