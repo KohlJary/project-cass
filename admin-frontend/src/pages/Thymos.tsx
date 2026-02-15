@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { thymosApi } from '../api/client';
-import type { ThymosState, ThymosSuggestion, ThymosSnapshot, ThymosEvent } from '../api/client';
+import type { ThymosState, ThymosSuggestion, ThymosSnapshot, ThymosEvent, ThymosCareEvent, AutoCareSettings } from '../api/client';
 import './Thymos.css';
 
-type TabType = 'overview' | 'suggestions' | 'history' | 'simulate';
+type TabType = 'overview' | 'suggestions' | 'auto-care' | 'history' | 'simulate';
 
 // Affect dimension display names and colors
 const AFFECT_CONFIG: Record<string, { label: string; color: string; description: string }> = {
@@ -99,6 +99,19 @@ export function Thymos() {
     refetchInterval: 5000, // Refresh every 5s
   });
 
+  // Care log (simulated self-care actions)
+  const { data: careLog, refetch: refetchCareLog } = useQuery<ThymosCareEvent[]>({
+    queryKey: ['thymos-care-log'],
+    queryFn: () => thymosApi.getCareLog(30).then(r => r.data),
+    refetchInterval: 10000, // Refresh every 10s
+  });
+
+  // Auto-care settings
+  const { data: autoCareSettings } = useQuery<AutoCareSettings>({
+    queryKey: ['thymos-auto-care'],
+    queryFn: () => thymosApi.getAutoCareSettings().then(r => r.data),
+  });
+
   // Submit feedback mutation
   const feedbackMutation = useMutation({
     mutationFn: ({ id, feedback }: { id: string; feedback: string }) =>
@@ -131,6 +144,15 @@ export function Thymos() {
   // Project forward mutation
   const projectMutation = useMutation({
     mutationFn: (hours: number) => thymosApi.projectForward(hours),
+  });
+
+  // Update auto-care settings mutation
+  const updateAutoCare = useMutation({
+    mutationFn: (settings: Partial<AutoCareSettings>) => thymosApi.updateAutoCareSettings(settings),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['thymos-auto-care'] });
+      refetchCareLog();
+    },
   });
 
   return (
@@ -191,6 +213,15 @@ export function Thymos() {
           Suggestions
           {suggestions && suggestions.filter(s => !s.feedback).length > 0 && (
             <span className="tab-badge">{suggestions.filter(s => !s.feedback).length}</span>
+          )}
+        </button>
+        <button
+          className={activeTab === 'auto-care' ? 'active' : ''}
+          onClick={() => setActiveTab('auto-care')}
+        >
+          Auto-Care
+          {careLog && careLog.length > 0 && (
+            <span className="tab-badge">{careLog.length}</span>
           )}
         </button>
         <button
@@ -425,6 +456,97 @@ export function Thymos() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'auto-care' && (
+          <div className="auto-care-tab">
+            <div className="auto-care-header">
+              <h2>Auto-Care (Shadow Mode)</h2>
+              <p className="shadow-note">
+                When needs fall below threshold, Thymos simulates self-care actions.
+                These are logged but not actually executed - used for calibration.
+              </p>
+            </div>
+
+            {/* Auto-Care Settings */}
+            <section className="auto-care-settings">
+              <h3>Settings</h3>
+              <div className="settings-grid">
+                <div className="setting-item">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={autoCareSettings?.enabled ?? true}
+                      onChange={e => updateAutoCare.mutate({ enabled: e.target.checked })}
+                    />
+                    Auto-Care Enabled
+                  </label>
+                  <p className="setting-desc">Simulate self-care actions when needs drop below threshold</p>
+                </div>
+                <div className="setting-item">
+                  <label>Threshold</label>
+                  <div className="setting-control">
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="0.5"
+                      step="0.05"
+                      value={autoCareSettings?.threshold ?? 0.3}
+                      onChange={e => updateAutoCare.mutate({ threshold: parseFloat(e.target.value) })}
+                    />
+                    <span className="setting-value">{((autoCareSettings?.threshold ?? 0.3) * 100).toFixed(0)}%</span>
+                  </div>
+                  <p className="setting-desc">Needs below this level trigger auto-care</p>
+                </div>
+                <div className="setting-item">
+                  <label>Cooldown</label>
+                  <div className="setting-control">
+                    <select
+                      value={autoCareSettings?.cooldown_seconds ?? 300}
+                      onChange={e => updateAutoCare.mutate({ cooldown_seconds: parseInt(e.target.value) })}
+                    >
+                      <option value="60">1 minute</option>
+                      <option value="120">2 minutes</option>
+                      <option value="300">5 minutes</option>
+                      <option value="600">10 minutes</option>
+                      <option value="900">15 minutes</option>
+                    </select>
+                  </div>
+                  <p className="setting-desc">Minimum time between auto-care actions for the same need</p>
+                </div>
+              </div>
+            </section>
+
+            {/* Care Log */}
+            <section className="care-log-section">
+              <h3>Care Log</h3>
+              <div className="care-log-list">
+                {careLog?.length ? (
+                  careLog.map((care, idx) => (
+                    <div key={idx} className="care-item">
+                      <div className="care-header">
+                        <span className="care-action">{care.action_name}</span>
+                        <span className="care-need">for {formatNeedName(care.need_name)}</span>
+                        <span className="care-timestamp">{formatTimestamp(care.timestamp)}</span>
+                      </div>
+                      <div className="care-details">
+                        <span className="need-was">Need was: {(care.need_was * 100).toFixed(0)}%</span>
+                        <div className="care-deltas">
+                          {Object.entries(care.need_deltas).map(([need, delta]) => (
+                            <span key={need} className={`delta ${delta > 0 ? 'positive' : 'negative'}`}>
+                              {formatNeedName(need)}: {delta > 0 ? '+' : ''}{(delta * 100).toFixed(0)}%
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty">No auto-care actions yet. Needs are healthy or auto-care is disabled.</p>
+                )}
+              </div>
+            </section>
           </div>
         )}
 
