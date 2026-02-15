@@ -75,6 +75,10 @@ from .thymos import (
     router as thymos_router,
     init_thymos_runner as _init_thymos_runner,
 )
+from .art_study import (
+    router as art_study_router,
+    init_art_study_routes as _init_art_study_routes,
+)
 
 # Create combined router
 router = APIRouter()
@@ -96,6 +100,7 @@ router.include_router(wonderland_router)
 router.include_router(outreach_router)
 router.include_router(dev_requests_router)
 router.include_router(thymos_router)
+router.include_router(art_study_router)
 
 
 # Module-level references for backward compatibility
@@ -165,6 +170,11 @@ def init_thymos_runner(runner):
     _init_thymos_runner(runner)
 
 
+def init_art_study_routes(anthropic_client, daemon_id: str):
+    """Initialize art study routes with anthropic client."""
+    _init_art_study_routes(anthropic_client, daemon_id)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -216,4 +226,5 @@ __all__ = [
     "init_outreach_manager",
     "init_development_request_manager",
     "init_thymos_runner",
+    "init_art_study_routes",
 ]
