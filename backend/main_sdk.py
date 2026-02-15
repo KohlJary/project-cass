@@ -1744,7 +1744,7 @@ async def startup_event():
             if ANTHROPIC_API_KEY:
                 import anthropic
                 art_study_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-                init_art_study_routes(art_study_client, daemon_id)
+                init_art_study_routes(art_study_client, _daemon_id)
                 logger.info("Art study routes initialized")
 
             # Initialize autonomous scheduling (Cass decides her own work)
