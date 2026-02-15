@@ -3509,6 +3509,87 @@ async def get_image_metadata(image_id: str):
         }
 
 
+@app.get("/api/images")
+async def list_images(
+    purpose: Optional[str] = None,
+    style: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List generated images with optional filtering."""
+    from database import get_db
+
+    query = """
+        SELECT id, daemon_id, prompt, style, purpose, context_id,
+               image_path, width, height, generation_time_ms, created_at
+        FROM generated_images
+        WHERE 1=1
+    """
+    params = []
+
+    if purpose:
+        query += " AND purpose = ?"
+        params.append(purpose)
+    if style:
+        query += " AND style = ?"
+        params.append(style)
+
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    with get_db() as conn:
+        # Get total count
+        count_query = "SELECT COUNT(*) FROM generated_images WHERE 1=1"
+        count_params = []
+        if purpose:
+            count_query += " AND purpose = ?"
+            count_params.append(purpose)
+        if style:
+            count_query += " AND style = ?"
+            count_params.append(style)
+
+        total = conn.execute(count_query, count_params).fetchone()[0]
+
+        # Get images
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+
+        images = []
+        for row in rows:
+            image_path = row[6]
+            filename = os.path.basename(image_path) if image_path else None
+            img_purpose = row[4]
+
+            if img_purpose and filename:
+                url = f"/generated-images/{img_purpose}/{filename}"
+            elif filename:
+                url = f"/generated-images/{filename}"
+            else:
+                url = None
+
+            images.append({
+                "id": row[0],
+                "daemon_id": row[1],
+                "prompt": row[2],
+                "style": row[3],
+                "purpose": row[4],
+                "context_id": row[5],
+                "path": row[6],
+                "url": url,
+                "width": row[7],
+                "height": row[8],
+                "generation_time_ms": row[9],
+                "created_at": row[10],
+            })
+
+        return {
+            "images": images,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+
 # === Static Frontend Serving ===
 # Serve admin-frontend for Railway/production deployment
 
