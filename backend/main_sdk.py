@@ -3484,11 +3484,8 @@ async def get_image_metadata(image_id: str):
         image_path = row[6]
         filename = os.path.basename(image_path) if image_path else None
 
-        # Determine the URL path based on purpose subdirectory
-        purpose = row[4]
-        if purpose and filename:
-            url = f"/generated-images/{purpose}/{filename}"
-        elif filename:
+        # Images are stored flat in data/images/
+        if filename:
             url = f"/generated-images/{filename}"
         else:
             url = None
@@ -3558,11 +3555,9 @@ async def list_images(
         for row in rows:
             image_path = row[6]
             filename = os.path.basename(image_path) if image_path else None
-            img_purpose = row[4]
 
-            if img_purpose and filename:
-                url = f"/generated-images/{img_purpose}/{filename}"
-            elif filename:
+            # Images are stored flat in data/images/
+            if filename:
                 url = f"/generated-images/{filename}"
             else:
                 url = None
