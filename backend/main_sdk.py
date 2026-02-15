@@ -1739,6 +1739,14 @@ async def startup_event():
             from routes.admin import init_thymos_runner
             init_thymos_runner(thymos_runner)
 
+            # Initialize Art Study admin routes
+            from routes.admin import init_art_study_routes
+            if ANTHROPIC_API_KEY:
+                import anthropic
+                art_study_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+                init_art_study_routes(art_study_client, daemon_id)
+                logger.info("Art study routes initialized")
+
             # Initialize autonomous scheduling (Cass decides her own work)
             from config import AUTONOMOUS_SCHEDULING_ENABLED
             if AUTONOMOUS_SCHEDULING_ENABLED:
