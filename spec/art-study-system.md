@@ -533,9 +533,28 @@ Future phases:
 - Style LoRA management
 - Art market integrations
 
+## Copyright Policy
+
+**Text-based analysis (Phase 1)**: Permitted for any publicly accessible artwork. Viewing art and writing observations constitutes criticism/scholarship - the output is Cass's own understanding, not reproduction. This is what art students, critics, and historians do.
+
+**Reference image injection (Phase 2 hybrid)**: Limited to **public domain sources only**. Using actual images as IP-Adapter input means using the work itself, so we restrict to:
+- Artists deceased 70+ years (US public domain threshold)
+- Explicitly licensed works (CC0, etc.)
+
+**Practical implications**:
+- Cass can *study* any publicly viewable artist through analysis (including living artists, recent works)
+- She develops understanding of techniques, vocabulary for styles
+- But reference image features only activate for public domain sources
+- Example: She could study Rothko's color field techniques through observation, but wouldn't use his paintings as IP-Adapter references until 2040
+
+**Safe sources for reference images**:
+- WikiArt (filter by public domain)
+- Museum APIs with open access programs (Met, Rijksmuseum, etc.)
+- Wikimedia Commons (verify license)
+
 ## Open Questions
 
-1. **Image sourcing**: Where do reference artworks come from? WikiArt API? Manual curation? Copyright considerations for stored references?
+1. **Image sourcing**: WikiArt API? Museum APIs? Manual curation? Need to verify public domain status per-work.
 
 2. **Study depth**: How many works constitute "studying" an artist? Minimum threshold before synthesis?
 
