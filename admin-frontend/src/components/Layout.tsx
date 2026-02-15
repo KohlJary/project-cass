@@ -25,6 +25,7 @@ const adminNavItems = [
   { path: '/news', label: 'News', icon: 'N' },
   { path: '/projects', label: 'Projects', icon: 'P' },
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
+  { path: '/thymos', label: 'Thymos', icon: 'θ' },
   { path: '/dreams', label: 'Dreams', icon: 'D' },
   { path: '/wonderland', label: 'Wonderland', icon: 'W' },
   { path: '/peopledex', label: 'PeopleDex', icon: '♺' },

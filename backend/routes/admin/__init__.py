@@ -71,6 +71,10 @@ from .development_requests import (
     router as dev_requests_router,
     init_development_request_manager as _init_dev_request_manager,
 )
+from .thymos import (
+    router as thymos_router,
+    init_thymos_runner as _init_thymos_runner,
+)
 
 # Create combined router
 router = APIRouter()
@@ -91,6 +95,7 @@ router.include_router(scheduler_router)
 router.include_router(wonderland_router)
 router.include_router(outreach_router)
 router.include_router(dev_requests_router)
+router.include_router(thymos_router)
 
 
 # Module-level references for backward compatibility
@@ -155,6 +160,11 @@ def init_development_request_manager(daemon_id: str = None, state_bus=None):
     _init_dev_request_manager(daemon_id, state_bus)
 
 
+def init_thymos_runner(runner):
+    """Initialize Thymos shadow runner for admin API access."""
+    _init_thymos_runner(runner)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -205,4 +215,5 @@ __all__ = [
     "get_scheduler",
     "init_outreach_manager",
     "init_development_request_manager",
+    "init_thymos_runner",
 ]

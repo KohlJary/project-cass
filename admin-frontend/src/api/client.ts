@@ -1645,6 +1645,150 @@ export const outreachApi = {
     api.post(`/admin/outreach/drafts/${draftId}/published`),
 };
 
+// =============================================================================
+// THYMOS API - Homeostatic Emotional/Motivational System
+// =============================================================================
+
+export interface ThymosAffectState {
+  curiosity: number;
+  determination: number;
+  anxiety: number;
+  satisfaction: number;
+  frustration: number;
+  tenderness: number;
+  grief: number;
+  playfulness: number;
+  awe: number;
+  fatigue: number;
+}
+
+export interface ThymosNeedState {
+  name: string;
+  current: number;
+  threshold: number;
+  preferred_low: number;
+  preferred_high: number;
+  decay_rate: number;
+  urgency_score: number;
+  is_urgent: boolean;
+  is_below_preferred: boolean;
+}
+
+export interface ThymosFeltState {
+  summary: string;
+  dominant_affect: string | null;
+  pressing_needs: string[];
+  urgent_needs: string[];
+  overall_tone: string;
+  generated_at: string;
+}
+
+export interface ThymosState {
+  affect: ThymosAffectState;
+  needs: Record<string, ThymosNeedState>;
+  felt_state: ThymosFeltState | null;
+  valence: number;
+  arousal: number;
+  overall_health: number;
+  event_count: number;
+}
+
+export interface ThymosSuggestion {
+  id: string;
+  suggested_at: string;
+  need_name: string;
+  need_current: number;
+  need_threshold: number;
+  urgency: number;
+  suggested_action: string | null;
+  is_urgent: boolean;
+  feedback: string | null;
+  feedback_at: string | null;
+}
+
+export interface ThymosSnapshot {
+  id: string;
+  snapshot_at: string;
+  affect: ThymosAffectState;
+  needs: Record<string, any>;
+  felt_state: string | null;
+  trigger_event: string | null;
+}
+
+export interface ThymosHealth {
+  status: string;
+  running: boolean;
+  daemon_id?: string;
+  event_count?: number;
+  overall_health?: number;
+}
+
+export interface ThymosEvent {
+  timestamp: string;
+  event_type: string;
+  event_number: number;
+  affect_delta: Record<string, number>;
+  need_delta: Record<string, number>;
+}
+
+export const thymosApi = {
+  // Get current state
+  getState: () =>
+    api.get<ThymosState>('/admin/thymos/state'),
+
+  // Get affect state only
+  getAffect: () =>
+    api.get<ThymosAffectState>('/admin/thymos/state/affect'),
+
+  // Get needs state only
+  getNeeds: () =>
+    api.get<Record<string, ThymosNeedState>>('/admin/thymos/state/needs'),
+
+  // Get felt state summary
+  getFeltState: () =>
+    api.get<ThymosFeltState>('/admin/thymos/state/felt'),
+
+  // Get suggestions history
+  getSuggestions: (limit: number = 20) =>
+    api.get<ThymosSuggestion[]>('/admin/thymos/suggestions', { params: { limit } }),
+
+  // Submit feedback on a suggestion
+  submitFeedback: (suggestionId: string, feedback: string) =>
+    api.post(`/admin/thymos/suggestions/${suggestionId}/feedback`, { feedback }),
+
+  // Get snapshots
+  getSnapshots: (limit: number = 20) =>
+    api.get<ThymosSnapshot[]>('/admin/thymos/snapshots', { params: { limit } }),
+
+  // Get recent events
+  getEvents: (limit: number = 20) =>
+    api.get<ThymosEvent[]>('/admin/thymos/events', { params: { limit } }),
+
+  // Get need trend
+  getNeedTrend: (needName: string, hours: number = 24) =>
+    api.get<Array<{ timestamp: string; value: number }>>(`/admin/thymos/trends/need/${needName}`, { params: { hours } }),
+
+  // Get affect trend
+  getAffectTrend: (dimension: string, hours: number = 24) =>
+    api.get<Array<{ timestamp: string; value: number }>>(`/admin/thymos/trends/affect/${dimension}`, { params: { hours } }),
+
+  // Simulate an event (for testing)
+  simulateEvent: (eventType: string, data?: Record<string, any>) =>
+    api.post<{ status: string; event_type: string; new_state: ThymosState }>('/admin/thymos/simulate/event', { event_type: eventType, data }),
+
+  // Project state forward in time (without modifying actual state)
+  projectForward: (hours: number) =>
+    api.post<{ hours_projected: number; current_state: ThymosState; projected_state: ThymosState }>('/admin/thymos/simulate/forward', { hours }),
+
+  // Reset to baseline
+  reset: () =>
+    api.post<{ status: string; new_state: ThymosState }>('/admin/thymos/reset'),
+
+  // Health check
+  getHealth: () =>
+    api.get<ThymosHealth>('/admin/thymos/health'),
+};
+
 export const stateApi = {
   // Get current global state
   getCurrentState: () =>
