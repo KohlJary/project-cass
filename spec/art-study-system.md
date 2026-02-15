@@ -551,6 +551,94 @@ Future phases:
 - WikiArt (filter by public domain)
 - Museum APIs with open access programs (Met, Rijksmuseum, etc.)
 - Wikimedia Commons (verify license)
+- Manual curation (see directory structure below)
+
+## Artwork Sources
+
+### WikiArt Integration
+
+For prototyping and bulk access, WikiArt provides good coverage of classical artists. API or scraping for public domain works.
+
+### Manual Curation Directory
+
+Local directory structure for manually curated artworks:
+
+```
+data/art_study/
+  artists/
+    van_gogh/
+      artist.json          # Metadata, Wikipedia URL, etc.
+      artworks/
+        starry_night.jpg
+        sunflowers.jpg
+        bedroom_in_arles.jpg
+    monet/
+      artist.json
+      artworks/
+        water_lilies_1906.jpg
+        impression_sunrise.jpg
+    vermeer/
+      artist.json
+      artworks/
+        girl_with_pearl_earring.jpg
+        milkmaid.jpg
+```
+
+`artist.json` example:
+```json
+{
+  "name": "Vincent van Gogh",
+  "wikipedia_url": "https://en.wikipedia.org/wiki/Vincent_van_Gogh",
+  "years": "1853-1890",
+  "movements": ["Post-Impressionism"],
+  "public_domain": true
+}
+```
+
+This allows:
+- Manual addition of high-quality reference images
+- Curated selections (not every work, just important ones)
+- Works not easily available via APIs
+- Full control over what she studies
+
+### Biographical Context
+
+Before or during artist study, Cass reads the Wikipedia article on the artist using WebFetch. This provides:
+
+- **Life context**: Events that shaped their work, personal struggles, relationships
+- **Historical context**: What was happening in art/world during their career
+- **Artistic development**: Early work vs. late work, periods/phases
+- **Influences**: Who influenced them, who they influenced
+- **Critical reception**: How their work was received, legacy
+
+This biographical understanding enriches her analysis - knowing Van Gogh's mental health struggles or that he only sold one painting in his lifetime changes how she reads the emotional intensity in his brushwork.
+
+```python
+async def study_artist_background(artist_id: str) -> str:
+    """
+    Read Wikipedia article on artist before studying their works.
+    Returns biographical summary that informs subsequent analysis.
+    """
+    artist = get_artist(artist_id)
+
+    if artist.wikipedia_url:
+        bio_context = await web_fetch(
+            artist.wikipedia_url,
+            prompt="Summarize this artist's life, artistic development, "
+                   "major influences, historical context, and legacy. "
+                   "Focus on aspects that would inform understanding of their work."
+        )
+
+        # Store with artist record
+        update_artist_biography(artist_id, bio_context)
+
+        return bio_context
+```
+
+Study workflow becomes:
+1. Read biographical context (Wikipedia)
+2. Study individual works (with bio in mind)
+3. Synthesize understanding (technique + life + context)
 
 ## Open Questions
 
