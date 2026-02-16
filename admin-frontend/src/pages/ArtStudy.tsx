@@ -1473,10 +1473,17 @@ export function ArtStudy() {
               {houseStyleCreatedPieces.map((piece, index) => (
                 <div key={piece.process_id || index} className="created-piece-card">
                   <div className="created-piece-image">
-                    <img
-                      src={`/generated-images/${piece.filename}`}
-                      alt={piece.title}
-                    />
+                    {piece.filename ? (
+                      <img
+                        src={`/generated-images/${piece.filename}`}
+                        alt={piece.title}
+                        onError={(e) => {
+                          console.error('House style image failed to load:', piece.filename, e);
+                        }}
+                      />
+                    ) : (
+                      <div className="no-image">No filename</div>
+                    )}
                   </div>
                   <div className="created-piece-info">
                     <h4 className="created-piece-title">{piece.title}</h4>
