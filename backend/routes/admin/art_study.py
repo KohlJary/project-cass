@@ -7,12 +7,15 @@ Endpoints for managing and viewing Cass's art studies.
 import os
 import uuid
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 
 from art_study import persistence
 from art_study.models import Artist, Artwork
 from art_study.study_session import study_artwork, study_artist_background, synthesize_artist_understanding
+from art_study.creative_session import create_from_synthesis
+from art_study.wikiart import import_artist_from_provider, get_provider_url_for_artist, list_providers
 
 router = APIRouter(prefix="/art-study", tags=["art-study"])
 
@@ -61,6 +64,7 @@ class ArtistResponse(BaseModel):
     wikipedia_url: Optional[str]
     biography: Optional[str]
     public_domain: bool
+    entity_id: Optional[str]  # PeopleDex entity link
     studied_at: Optional[str]
     works_studied: int
     cass_notes: Optional[str]
@@ -130,6 +134,7 @@ async def list_artists(studied_only: bool = False) -> list[ArtistResponse]:
             wikipedia_url=a.wikipedia_url,
             biography=a.biography,
             public_domain=a.public_domain,
+            entity_id=a.entity_id,
             studied_at=a.studied_at,
             works_studied=a.works_studied,
             cass_notes=a.cass_notes,
@@ -161,6 +166,7 @@ async def create_artist(request: CreateArtistRequest) -> ArtistResponse:
         wikipedia_url=artist.wikipedia_url,
         biography=artist.biography,
         public_domain=artist.public_domain,
+        entity_id=artist.entity_id,
         studied_at=artist.studied_at,
         works_studied=artist.works_studied,
         cass_notes=artist.cass_notes,
@@ -183,6 +189,7 @@ async def get_artist(artist_id: str) -> ArtistResponse:
         wikipedia_url=artist.wikipedia_url,
         biography=artist.biography,
         public_domain=artist.public_domain,
+        entity_id=artist.entity_id,
         studied_at=artist.studied_at,
         works_studied=artist.works_studied,
         cass_notes=artist.cass_notes,
@@ -191,9 +198,14 @@ async def get_artist(artist_id: str) -> ArtistResponse:
 
 @router.post("/artists/{artist_id}/fetch-biography")
 async def fetch_artist_biography(artist_id: str) -> dict:
-    """Fetch and summarize the artist's Wikipedia biography."""
+    """Fetch and summarize the artist's Wikipedia biography.
+
+    Also creates/links a PeopleDex entity and observations about the artist.
+    """
     if not _anthropic_client:
         raise HTTPException(status_code=503, detail="Anthropic client not initialized")
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
 
     artist = persistence.get_artist(artist_id)
     if not artist:
@@ -202,11 +214,53 @@ async def fetch_artist_biography(artist_id: str) -> dict:
     if not artist.wikipedia_url:
         raise HTTPException(status_code=400, detail="Artist has no Wikipedia URL")
 
-    biography = await study_artist_background(artist_id, _anthropic_client)
+    # Pass daemon_id to create PeopleDex entity and observations
+    biography = await study_artist_background(artist_id, _anthropic_client, _daemon_id)
     if not biography:
         raise HTTPException(status_code=500, detail="Failed to fetch biography")
 
-    return {"status": "success", "biography": biography}
+    # Reload artist to get updated entity_id
+    updated_artist = persistence.get_artist(artist_id)
+
+    return {
+        "status": "success",
+        "biography": biography,
+        "entity_id": updated_artist.entity_id if updated_artist else None,
+    }
+
+
+@router.get("/artists/{artist_id}/observations")
+async def get_artist_observations(artist_id: str) -> dict:
+    """Get Cass's PeopleDex observations about an artist."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    artist = persistence.get_artist(artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    if not artist.entity_id:
+        return {"observations": [], "entity_id": None}
+
+    from peopledex import get_peopledex_manager
+
+    manager = get_peopledex_manager(_daemon_id)
+    observations = manager.get_observations(artist.entity_id, limit=50)
+
+    return {
+        "entity_id": artist.entity_id,
+        "observations": [
+            {
+                "id": obs.id,
+                "type": obs.observation_type,
+                "content": obs.content,
+                "confidence": obs.confidence,
+                "source": obs.source_type,
+                "created_at": obs.created_at,
+            }
+            for obs in observations
+        ],
+    }
 
 
 # =============================================================================
@@ -313,7 +367,36 @@ async def upload_artwork_image(
     artwork.image_path = filepath
     persistence.save_artwork(artwork)
 
+    # Link image to artist's PeopleDex entity if exists
+    if artist.entity_id and _daemon_id:
+        from peopledex import get_peopledex_manager, AttributeType
+
+        manager = get_peopledex_manager(_daemon_id)
+        manager.add_attribute(
+            entity_id=artist.entity_id,
+            attribute_type=AttributeType.IMAGE_URL,
+            value=filepath,
+            attribute_key=f"artwork:{artwork.id}",
+            source_type="art_study",
+        )
+
     return {"status": "success", "image_path": filepath}
+
+
+@router.get("/artworks/{artwork_id}/image")
+async def get_artwork_image(artwork_id: str):
+    """Serve the artwork image file."""
+    artwork = persistence.get_artwork(artwork_id)
+    if not artwork:
+        raise HTTPException(status_code=404, detail="Artwork not found")
+
+    if not artwork.image_path:
+        raise HTTPException(status_code=404, detail="No image for this artwork")
+
+    if not os.path.exists(artwork.image_path):
+        raise HTTPException(status_code=404, detail="Image file not found")
+
+    return FileResponse(artwork.image_path)
 
 
 # =============================================================================
@@ -489,3 +572,620 @@ async def get_artist_synthesis(artist_id: str) -> SynthesisResponse:
         what_draws_me=synthesis.what_draws_me,
         what_i_learned=synthesis.what_i_learned,
     )
+
+
+# =============================================================================
+# CREATIVE GENERATION ENDPOINTS
+# =============================================================================
+
+class CreateFromSynthesisRequest(BaseModel):
+    num_pieces: int = 5  # Default to 5 pieces
+    aspect_ratio: str = "square"  # square, portrait, landscape, wide
+
+
+class CreatedPieceResponse(BaseModel):
+    image_path: str
+    filename: str
+    seed: int
+    title: str
+    artist_statement: str
+    borrowed_elements: list[str]
+    prompt_used: str
+    process_id: str
+
+
+@router.post("/artists/{artist_id}/create")
+async def create_from_artist(
+    artist_id: str,
+    request: CreateFromSynthesisRequest = CreateFromSynthesisRequest(),
+) -> list[CreatedPieceResponse]:
+    """Create original artwork inspired by a studied artist.
+
+    Uses Cass's synthesis of the artist to generate new pieces with
+    demonstrable influence and artistic reasoning. Requires an existing
+    synthesis (study at least 3 works and synthesize first).
+    """
+    if not _anthropic_client:
+        raise HTTPException(status_code=503, detail="Anthropic client not initialized")
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    artist = persistence.get_artist(artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    # Check if synthesis exists
+    synthesis = persistence.get_synthesis(artist_id, _daemon_id)
+    if not synthesis:
+        raise HTTPException(
+            status_code=400,
+            detail="No synthesis found. Study at least 3 works and synthesize first."
+        )
+
+    results = await create_from_synthesis(
+        artist_id=artist_id,
+        daemon_id=_daemon_id,
+        anthropic_client=_anthropic_client,
+        num_pieces=request.num_pieces,
+        aspect_ratio=request.aspect_ratio,
+    )
+
+    if not results:
+        raise HTTPException(status_code=500, detail="Failed to create artwork")
+
+    return [
+        CreatedPieceResponse(
+            image_path=r["image_path"],
+            filename=r["filename"],
+            seed=r["seed"],
+            title=r["title"],
+            artist_statement=r["artist_statement"],
+            borrowed_elements=r["borrowed_elements"],
+            prompt_used=r["prompt_used"],
+            process_id=r["process_id"],
+        )
+        for r in results
+    ]
+
+
+@router.get("/artists/{artist_id}/creations")
+async def list_artist_creations(artist_id: str) -> list[CreatedPieceResponse]:
+    """List all pieces created inspired by this artist."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    artist = persistence.get_artist(artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    from database import get_db, json_deserialize
+
+    results = []
+    with get_db() as conn:
+        # Join creative_processes with generated_images to get all creations for this artist
+        rows = conn.execute("""
+            SELECT
+                cp.id as process_id,
+                cp.title,
+                cp.artist_statement,
+                cp.borrowed_elements,
+                cp.initial_concept,
+                gi.image_path,
+                gi.prompt,
+                gi.seed
+            FROM creative_processes cp
+            JOIN generated_images gi ON cp.image_id = gi.id
+            WHERE cp.daemon_id = ?
+            AND cp.studied_artists LIKE ?
+            ORDER BY cp.created_at DESC
+        """, (_daemon_id, f'%{artist_id}%')).fetchall()
+
+        for row in rows:
+            # Extract relative path for URL construction
+            image_path = row[5] or ""
+            if image_path and '/data/images/' in image_path:
+                filename = image_path.split('/data/images/')[1]
+            elif image_path:
+                filename = image_path.split("/")[-1]
+            else:
+                filename = ""
+
+            borrowed = row[3]
+            if borrowed:
+                try:
+                    borrowed = json_deserialize(borrowed)
+                except:
+                    borrowed = []
+            else:
+                borrowed = []
+
+            results.append(CreatedPieceResponse(
+                image_path=image_path,
+                filename=filename,
+                seed=row[7] or 0,
+                title=row[1] or "Untitled",
+                artist_statement=row[2] or "",
+                borrowed_elements=borrowed if isinstance(borrowed, list) else [],
+                prompt_used=row[6] or "",
+                process_id=row[0],
+            ))
+
+    return results
+
+
+# =============================================================================
+# IMPORT ENDPOINTS
+# =============================================================================
+
+class ArtImportRequest(BaseModel):
+    max_works: int = 10
+    provider: Optional[str] = None  # None = use default (met)
+
+
+@router.get("/providers")
+async def get_art_providers() -> list[dict]:
+    """List available art data providers."""
+    return list_providers()
+
+
+@router.post("/artists/{artist_id}/import")
+async def import_artworks(artist_id: str, request: ArtImportRequest = ArtImportRequest()) -> dict:
+    """Import artworks for an artist from an external provider.
+
+    Downloads artwork images and metadata.
+    Available providers: met (Metropolitan Museum), wikiart (WikiArt.org)
+    """
+    artist = persistence.get_artist(artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    result = await import_artist_from_provider(
+        artist_id,
+        max_works=request.max_works,
+        provider_name=request.provider,
+    )
+
+    if result["status"] == "error":
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    return result
+
+
+# Alias for backwards compatibility
+@router.post("/artists/{artist_id}/import-wikiart")
+async def import_from_wikiart(artist_id: str, request: ArtImportRequest = ArtImportRequest()) -> dict:
+    """Legacy endpoint - use /import instead."""
+    request.provider = "wikiart"
+    return await import_artworks(artist_id, request)
+
+
+@router.get("/artists/{artist_id}/provider-url")
+async def get_artist_provider_url(artist_id: str, provider: Optional[str] = None) -> dict:
+    """Get the URL to view an artist on a provider's site."""
+    artist = persistence.get_artist(artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    url = await get_provider_url_for_artist(artist.name, provider)
+    return {"url": url, "provider": provider or "met"}
+
+
+# Alias for backwards compatibility
+@router.get("/artists/{artist_id}/wikiart-url")
+async def get_artist_wikiart_url(artist_id: str) -> dict:
+    """Legacy endpoint - use /provider-url instead."""
+    return await get_artist_provider_url(artist_id, "wikiart")
+
+
+# =============================================================================
+# HOUSE STYLE ENDPOINTS
+# =============================================================================
+
+class AdoptedElementResponse(BaseModel):
+    id: str
+    source_artist_id: Optional[str]
+    adopted_at: str
+    element: str
+    category: str
+    why_it_speaks: Optional[str]
+    how_i_use_it: Optional[str]
+    example_use: Optional[str]
+    adoption_strength: float
+    active: bool
+
+
+class PersonalStyleResponse(BaseModel):
+    id: str
+    version: int
+    created_at: str
+    last_updated: str
+    artists_studied: int
+    elements_adopted: int
+    color_philosophy: Optional[str]
+    light_approach: Optional[str]
+    compositional_voice: Optional[str]
+    texture_sensibility: Optional[str]
+    emotional_register: Optional[str]
+    recurring_themes: list[str]
+    philosophical_concerns: list[str]
+    subjects_drawn_to: list[str]
+    signature_techniques: list[str]
+    prompt_vocabulary: list[str]
+    style_manifesto: Optional[str]
+    what_makes_it_mine: Optional[str]
+    style_descriptors: list[str]
+
+
+class HouseStyleStatsResponse(BaseModel):
+    artists_studied: int
+    elements_adopted: int
+    elements_by_category: dict[str, int]
+    style_version: int
+    has_manifesto: bool
+
+
+class CreateFromHouseStyleRequest(BaseModel):
+    num_pieces: int = 5
+    aspect_ratio: str = "square"
+
+
+class HouseStyleCreatedPieceResponse(BaseModel):
+    image_path: str
+    filename: str
+    seed: int
+    title: str
+    artist_statement: str
+    elements_used: list[str]
+    style_aspects: list[str]
+    prompt_used: str
+    process_id: str
+    style_version: int
+
+
+@router.get("/house-style/stats")
+async def get_house_style_stats_endpoint() -> HouseStyleStatsResponse:
+    """Get statistics about Cass's house style development."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    stats = persistence.get_house_style_stats(_daemon_id)
+
+    return HouseStyleStatsResponse(
+        artists_studied=stats["artists_studied"],
+        elements_adopted=stats["elements_adopted"],
+        elements_by_category=stats["elements_by_category"],
+        style_version=stats["style_version"],
+        has_manifesto=stats["has_manifesto"],
+    )
+
+
+@router.get("/house-style/elements")
+async def list_adopted_elements_endpoint(
+    artist_id: Optional[str] = None,
+    category: Optional[str] = None,
+    active_only: bool = True,
+) -> list[AdoptedElementResponse]:
+    """List adopted elements with optional filters."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    elements = persistence.list_adopted_elements(
+        _daemon_id,
+        artist_id=artist_id,
+        category=category,
+        active_only=active_only,
+    )
+
+    return [
+        AdoptedElementResponse(
+            id=e.id,
+            source_artist_id=e.source_artist_id,
+            adopted_at=e.adopted_at,
+            element=e.element,
+            category=e.category,
+            why_it_speaks=e.why_it_speaks,
+            how_i_use_it=e.how_i_use_it,
+            example_use=e.example_use,
+            adoption_strength=e.adoption_strength,
+            active=e.active,
+        )
+        for e in elements
+    ]
+
+
+@router.get("/house-style")
+async def get_house_style_endpoint() -> Optional[PersonalStyleResponse]:
+    """Get Cass's current house style."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    style = persistence.get_personal_style(_daemon_id)
+    if not style:
+        return None
+
+    return PersonalStyleResponse(
+        id=style.id,
+        version=style.version,
+        created_at=style.created_at,
+        last_updated=style.last_updated,
+        artists_studied=style.artists_studied,
+        elements_adopted=style.elements_adopted,
+        color_philosophy=style.color_philosophy,
+        light_approach=style.light_approach,
+        compositional_voice=style.compositional_voice,
+        texture_sensibility=style.texture_sensibility,
+        emotional_register=style.emotional_register,
+        recurring_themes=style.recurring_themes,
+        philosophical_concerns=style.philosophical_concerns,
+        subjects_drawn_to=style.subjects_drawn_to,
+        signature_techniques=style.signature_techniques,
+        prompt_vocabulary=style.prompt_vocabulary,
+        style_manifesto=style.style_manifesto,
+        what_makes_it_mine=style.what_makes_it_mine,
+        style_descriptors=style.style_descriptors,
+    )
+
+
+@router.post("/house-style/extract/{artist_id}")
+async def extract_adopted_elements_endpoint(artist_id: str) -> list[AdoptedElementResponse]:
+    """Extract elements from an artist's synthesis that speak to Cass.
+
+    Call this after synthesizing understanding of an artist to have Cass
+    identify which elements she wants to adopt into her own style.
+    """
+    if not _anthropic_client:
+        raise HTTPException(status_code=503, detail="Anthropic client not initialized")
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    artist = persistence.get_artist(artist_id)
+    if not artist:
+        raise HTTPException(status_code=404, detail="Artist not found")
+
+    synthesis = persistence.get_synthesis(artist_id, _daemon_id)
+    if not synthesis:
+        raise HTTPException(
+            status_code=400,
+            detail="No synthesis found. Synthesize understanding first."
+        )
+
+    from art_study.house_style import extract_adopted_elements
+
+    elements = await extract_adopted_elements(
+        artist_id=artist_id,
+        daemon_id=_daemon_id,
+        anthropic_client=_anthropic_client,
+    )
+
+    return [
+        AdoptedElementResponse(
+            id=e.id,
+            source_artist_id=e.source_artist_id,
+            adopted_at=e.adopted_at,
+            element=e.element,
+            category=e.category,
+            why_it_speaks=e.why_it_speaks,
+            how_i_use_it=e.how_i_use_it,
+            example_use=e.example_use,
+            adoption_strength=e.adoption_strength,
+            active=e.active,
+        )
+        for e in elements
+    ]
+
+
+@router.post("/house-style/synthesize")
+async def synthesize_house_style_endpoint(min_artists: int = 3) -> Optional[PersonalStyleResponse]:
+    """Synthesize Cass's personal house style from all adopted elements.
+
+    Requires studying and extracting elements from at least min_artists (default: 3).
+    Creates a new version of the house style.
+    """
+    if not _anthropic_client:
+        raise HTTPException(status_code=503, detail="Anthropic client not initialized")
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    from art_study.house_style import synthesize_house_style
+
+    style = await synthesize_house_style(
+        daemon_id=_daemon_id,
+        anthropic_client=_anthropic_client,
+        min_artists=min_artists,
+    )
+
+    if not style:
+        stats = persistence.get_house_style_stats(_daemon_id)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Need at least {min_artists} artists studied. Currently have {stats['artists_studied']}."
+        )
+
+    return PersonalStyleResponse(
+        id=style.id,
+        version=style.version,
+        created_at=style.created_at,
+        last_updated=style.last_updated,
+        artists_studied=style.artists_studied,
+        elements_adopted=style.elements_adopted,
+        color_philosophy=style.color_philosophy,
+        light_approach=style.light_approach,
+        compositional_voice=style.compositional_voice,
+        texture_sensibility=style.texture_sensibility,
+        emotional_register=style.emotional_register,
+        recurring_themes=style.recurring_themes,
+        philosophical_concerns=style.philosophical_concerns,
+        subjects_drawn_to=style.subjects_drawn_to,
+        signature_techniques=style.signature_techniques,
+        prompt_vocabulary=style.prompt_vocabulary,
+        style_manifesto=style.style_manifesto,
+        what_makes_it_mine=style.what_makes_it_mine,
+        style_descriptors=style.style_descriptors,
+    )
+
+
+@router.post("/house-style/create")
+async def create_from_house_style_endpoint(
+    request: CreateFromHouseStyleRequest = CreateFromHouseStyleRequest(),
+) -> list[HouseStyleCreatedPieceResponse]:
+    """Create original artwork using Cass's house style.
+
+    Unlike creating from a single artist's influence, this uses Cass's
+    synthesized personal style - the combination of elements she's adopted
+    from all studied artists into her own artistic voice.
+    """
+    if not _anthropic_client:
+        raise HTTPException(status_code=503, detail="Anthropic client not initialized")
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    style = persistence.get_personal_style(_daemon_id)
+    if not style:
+        raise HTTPException(
+            status_code=400,
+            detail="No house style found. Study artists, extract elements, and synthesize first."
+        )
+
+    from art_study.creative_session import create_from_house_style
+
+    results = await create_from_house_style(
+        daemon_id=_daemon_id,
+        anthropic_client=_anthropic_client,
+        num_pieces=request.num_pieces,
+        aspect_ratio=request.aspect_ratio,
+    )
+
+    if not results:
+        raise HTTPException(status_code=500, detail="Failed to create artwork")
+
+    return [
+        HouseStyleCreatedPieceResponse(
+            image_path=r["image_path"],
+            filename=r["filename"],
+            seed=r["seed"],
+            title=r["title"],
+            artist_statement=r["artist_statement"],
+            elements_used=r.get("elements_used", []),
+            style_aspects=r.get("style_aspects", []),
+            prompt_used=r["prompt_used"],
+            process_id=r["process_id"],
+            style_version=r.get("style_version", 1),
+        )
+        for r in results
+    ]
+
+
+@router.get("/house-style/creations")
+async def list_house_style_creations() -> list[HouseStyleCreatedPieceResponse]:
+    """List all pieces created using Cass's house style."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    from database import get_db, json_deserialize
+
+    results = []
+    with get_db() as conn:
+        # Get all house style creations
+        rows = conn.execute("""
+            SELECT
+                cp.id as process_id,
+                cp.title,
+                cp.artist_statement,
+                cp.borrowed_elements,
+                cp.movement_influences,
+                gi.image_path,
+                gi.prompt,
+                gi.seed,
+                gi.context_id
+            FROM creative_processes cp
+            JOIN generated_images gi ON cp.image_id = gi.id
+            WHERE cp.daemon_id = ?
+            AND gi.purpose = 'house_style'
+            ORDER BY cp.created_at DESC
+        """, (_daemon_id,)).fetchall()
+
+        for row in rows:
+            image_path = row[5] or ""
+            # Extract relative path for URL construction
+            if image_path and '/data/images/' in image_path:
+                filename = image_path.split('/data/images/')[1]
+            elif image_path:
+                filename = image_path.split("/")[-1]
+            else:
+                filename = ""
+
+            elements_used = row[3]
+            if elements_used:
+                try:
+                    elements_used = json_deserialize(elements_used)
+                except Exception:
+                    elements_used = []
+            else:
+                elements_used = []
+
+            style_aspects = row[4]
+            if style_aspects:
+                try:
+                    style_aspects = json_deserialize(style_aspects)
+                except Exception:
+                    style_aspects = []
+            else:
+                style_aspects = []
+
+            # Extract style version from context_id (style ID)
+            style_version = 1
+            context_id = row[8]
+            if context_id:
+                # Get version from personal_style table
+                style_row = conn.execute(
+                    "SELECT version FROM personal_style WHERE id = ?",
+                    (context_id,)
+                ).fetchone()
+                if style_row:
+                    style_version = style_row[0]
+
+            results.append(HouseStyleCreatedPieceResponse(
+                image_path=image_path,
+                filename=filename,
+                seed=row[7] or 0,
+                title=row[1] or "Untitled",
+                artist_statement=row[2] or "",
+                elements_used=elements_used if isinstance(elements_used, list) else [],
+                style_aspects=style_aspects if isinstance(style_aspects, list) else [],
+                prompt_used=row[6] or "",
+                process_id=row[0],
+                style_version=style_version,
+            ))
+
+    return results
+
+
+@router.put("/house-style/elements/{element_id}/strength")
+async def update_element_strength_endpoint(element_id: str, strength: float) -> dict:
+    """Update an adopted element's strength (0.0-1.0)."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    if strength < 0.0 or strength > 1.0:
+        raise HTTPException(status_code=400, detail="Strength must be between 0.0 and 1.0")
+
+    element = persistence.get_adopted_element(element_id)
+    if not element or element.daemon_id != _daemon_id:
+        raise HTTPException(status_code=404, detail="Element not found")
+
+    persistence.update_element_strength(element_id, strength)
+    return {"status": "success", "new_strength": strength}
+
+
+@router.delete("/house-style/elements/{element_id}")
+async def deactivate_element_endpoint(element_id: str) -> dict:
+    """Deactivate an adopted element (remove from current style without deleting)."""
+    if not _daemon_id:
+        raise HTTPException(status_code=503, detail="Daemon ID not initialized")
+
+    element = persistence.get_adopted_element(element_id)
+    if not element or element.daemon_id != _daemon_id:
+        raise HTTPException(status_code=404, detail="Element not found")
+
+    persistence.deactivate_adopted_element(element_id)
+    return {"status": "success", "element_id": element_id}

@@ -51,20 +51,21 @@ async def handle_generate_image(
     mood = params.get("mood")
     user_negative = params.get("negative_prompt", "")
 
-    # Build the full prompt
+    # Build the full prompt (incorporates house style if available)
     positive_prompt, negative_prompt = build_image_prompt(
         subject=prompt_text,
         style=style,
         mood=mood,
+        daemon_id=daemon_id,
+        use_house_style=True,
     )
 
     # Combine user negative with style negative
     if user_negative:
         negative_prompt = f"{user_negative}, {negative_prompt}"
 
-    # Initialize client with purpose-specific output directory
+    # Initialize client
     client = ComfyUIClient()
-    output_dir = client.get_output_dir(purpose)
 
     try:
         # Check if ComfyUI is available
@@ -75,12 +76,13 @@ async def handle_generate_image(
                 "hint": "Start ComfyUI with: cd ~/ComfyUI && source venv/bin/activate && python main.py --listen"
             }
 
-        # Generate the image
+        # Generate the image with organized path
         result = await client.generate(
             prompt=positive_prompt,
             negative_prompt=negative_prompt,
             style=style,
             aspect_ratio=aspect_ratio,
+            category=purpose,  # autonomous, relational, dreams, articles
         )
 
         # Store in database

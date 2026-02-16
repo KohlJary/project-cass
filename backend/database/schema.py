@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 37  # Art study system
+SCHEMA_VERSION = 39  # Art study house style system
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1773,12 +1773,14 @@ CREATE TABLE IF NOT EXISTS artists (
     biography TEXT,                     -- Fetched/summarized from Wikipedia
     public_domain INTEGER DEFAULT 1,    -- Safe for reference image use
     created_at TEXT NOT NULL,
+    entity_id TEXT REFERENCES peopledex_entities(id),  -- PeopleDex integration
     studied_at TEXT,                    -- When Cass first studied them
     works_studied INTEGER DEFAULT 0,
     cass_notes TEXT                     -- Her overall impression
 );
 
 CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name);
+CREATE INDEX IF NOT EXISTS idx_artists_entity ON artists(entity_id);
 
 -- Individual artworks for study
 CREATE TABLE IF NOT EXISTS artworks (
@@ -1866,4 +1868,68 @@ CREATE TABLE IF NOT EXISTS creative_processes (
 
 CREATE INDEX IF NOT EXISTS idx_creative_processes_image ON creative_processes(image_id);
 CREATE INDEX IF NOT EXISTS idx_creative_processes_daemon ON creative_processes(daemon_id, created_at);
+
+-- Adopted elements - artistic elements Cass has incorporated from studied artists
+CREATE TABLE IF NOT EXISTS adopted_elements (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    source_artist_id TEXT REFERENCES artists(id),
+    adopted_at TEXT NOT NULL,
+
+    -- What was adopted
+    element TEXT NOT NULL,              -- "chiaroscuro lighting", "impasto texture"
+    category TEXT DEFAULT 'technique',  -- technique, color, composition, emotional, thematic
+
+    -- Why and how
+    why_it_speaks TEXT,                 -- Why this resonates with her
+    how_i_use_it TEXT,                  -- How she applies it differently
+    example_use TEXT,                   -- Reference to a piece where she used it
+
+    -- Weight in her style
+    adoption_strength REAL DEFAULT 0.7, -- 0.0-1.0, how core to her style
+    active INTEGER DEFAULT 1            -- Still part of her current style?
+);
+
+CREATE INDEX IF NOT EXISTS idx_adopted_elements_daemon ON adopted_elements(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_adopted_elements_artist ON adopted_elements(source_artist_id);
+CREATE INDEX IF NOT EXISTS idx_adopted_elements_category ON adopted_elements(daemon_id, category);
+
+-- Personal style - Cass's emergent house style synthesized from influences
+CREATE TABLE IF NOT EXISTS personal_style (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    version INTEGER DEFAULT 1,          -- Increments as style evolves
+    created_at TEXT NOT NULL,
+    last_updated TEXT NOT NULL,
+
+    -- Lineage tracking
+    artists_studied INTEGER DEFAULT 0,
+    elements_adopted INTEGER DEFAULT 0,
+
+    -- Core aesthetic philosophy
+    color_philosophy TEXT,              -- Her relationship with color
+    light_approach TEXT,                -- How she uses light/shadow
+    compositional_voice TEXT,           -- How she structures space
+    texture_sensibility TEXT,           -- Surface qualities she gravitates toward
+    emotional_register TEXT,            -- The feelings she's drawn to express
+
+    -- Thematic identity (JSON arrays)
+    recurring_themes TEXT,              -- JSON array of themes
+    philosophical_concerns TEXT,        -- JSON array of concerns
+    subjects_drawn_to TEXT,             -- JSON array of subjects
+
+    -- Technical identity (JSON arrays)
+    signature_techniques TEXT,          -- JSON array - combinations uniquely hers
+    prompt_vocabulary TEXT,             -- JSON array - terms that evoke HER style
+
+    -- The synthesis
+    style_manifesto TEXT,               -- Her articulation of her voice
+    what_makes_it_mine TEXT,            -- How she distinguishes her work
+
+    -- For generation (JSON array)
+    style_descriptors TEXT              -- Condensed style terms
+);
+
+CREATE INDEX IF NOT EXISTS idx_personal_style_daemon ON personal_style(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_personal_style_version ON personal_style(daemon_id, version);
 """

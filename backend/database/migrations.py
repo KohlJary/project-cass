@@ -379,7 +379,23 @@ def _apply_schema_updates(conn, from_version: int):
 
     # Re-run the full schema - CREATE IF NOT EXISTS is idempotent
     # This handles adding new tables without affecting existing data
+    # NOTE: Must run BEFORE column ALTER migrations
     conn.executescript(SCHEMA_SQL)
+
+    # v37 -> v38: Art study PeopleDex integration
+    # NOTE: Runs after SCHEMA_SQL ensures artists table exists
+    if from_version < 38 and from_version >= 37:
+        # Add entity_id column to artists table (only if upgrading from v37)
+        cursor = conn.execute("PRAGMA table_info(artists)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'entity_id' not in columns:
+            conn.execute("ALTER TABLE artists ADD COLUMN entity_id TEXT REFERENCES peopledex_entities(id)")
+            print("Added entity_id column to artists table (v38)")
+
+    # v38 -> v39: Art study house style system
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 39:
+        print("Adding house style tables (adopted_elements, personal_style) for Cass's emergent artistic identity (v39)")
 
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:

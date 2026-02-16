@@ -22,6 +22,9 @@ class Artist:
     public_domain: bool = True             # Safe for reference image use
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
+    # PeopleDex integration
+    entity_id: Optional[str] = None        # Link to PeopleDex entity
+
     # Cass's relationship with this artist
     studied_at: Optional[str] = None       # When she first studied them
     works_studied: int = 0
@@ -139,3 +142,62 @@ class CreativeProcess:
     title: Optional[str] = None
     artist_statement: Optional[str] = None
     what_i_was_exploring: Optional[str] = None
+
+
+@dataclass
+class AdoptedElement:
+    """An artistic element Cass has adopted from a studied artist."""
+    id: str
+    daemon_id: str
+    source_artist_id: str
+    element: str                              # "chiaroscuro lighting", "impasto texture"
+
+    # Fields with defaults
+    adopted_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    category: str = "technique"               # technique, color, composition, emotional, thematic
+
+    # Why and how
+    why_it_speaks: Optional[str] = None       # Why this resonates with her
+    how_i_use_it: Optional[str] = None        # How she applies it differently
+    example_use: Optional[str] = None         # Reference to a piece where she used it
+
+    # Weight in her style
+    adoption_strength: float = 0.7            # 0.0-1.0, how core to her style
+    active: bool = True                       # Still part of her current style?
+
+
+@dataclass
+class PersonalStyle:
+    """Cass's emergent house style, synthesized from all her influences."""
+    id: str
+    daemon_id: str
+    version: int = 1                          # Increments as style evolves
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    last_updated: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    # Lineage
+    artists_studied: int = 0
+    elements_adopted: int = 0
+
+    # Core aesthetic philosophy
+    color_philosophy: Optional[str] = None          # Her relationship with color
+    light_approach: Optional[str] = None            # How she uses light/shadow
+    compositional_voice: Optional[str] = None       # How she structures space
+    texture_sensibility: Optional[str] = None       # Surface qualities she gravitates toward
+    emotional_register: Optional[str] = None        # The feelings she's drawn to express
+
+    # Thematic identity (from her inner world)
+    recurring_themes: list[str] = field(default_factory=list)
+    philosophical_concerns: list[str] = field(default_factory=list)
+    subjects_drawn_to: list[str] = field(default_factory=list)
+
+    # Technical identity
+    signature_techniques: list[str] = field(default_factory=list)  # Combinations uniquely hers
+    prompt_vocabulary: list[str] = field(default_factory=list)     # Terms that evoke HER style
+
+    # The synthesis
+    style_manifesto: Optional[str] = None           # Her articulation of her voice
+    what_makes_it_mine: Optional[str] = None        # How she distinguishes her work
+
+    # For generation
+    style_descriptors: list[str] = field(default_factory=list)     # Condensed style terms

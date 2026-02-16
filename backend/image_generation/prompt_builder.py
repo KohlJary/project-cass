@@ -2,9 +2,13 @@
 Prompt Builder for Image Generation
 
 Builds effective prompts for SDXL based on style and content.
+Incorporates Cass's house style when available.
 """
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Style presets with prompt prefixes and generation parameters
 STYLE_PRESETS = {
@@ -72,11 +76,57 @@ DEFAULT_NEGATIVE = (
 )
 
 
+def get_house_style_modifiers(daemon_id: str = "cass") -> Optional[dict]:
+    """
+    Get house style modifiers for prompt building if available.
+
+    Returns:
+        Dict with 'prefix', 'techniques', 'negative' or None if no house style
+    """
+    try:
+        from art_study.persistence import get_personal_style, list_adopted_elements
+
+        style = get_personal_style(daemon_id)
+        if not style or not style.style_descriptors:
+            return None
+
+        # Build prefix from style descriptors and signature techniques
+        prefix_parts = []
+
+        # Add style descriptors (e.g., "empathetically observational", "atmospherically unified")
+        if style.style_descriptors:
+            prefix_parts.extend(style.style_descriptors[:4])  # Top 4
+
+        # Add signature techniques
+        if style.signature_techniques:
+            prefix_parts.extend(style.signature_techniques[:3])  # Top 3
+
+        # Get adopted elements for technique vocabulary
+        elements = list_adopted_elements(daemon_id, active_only=True)
+        technique_elements = [e.element for e in elements if e.category == "technique" and e.adoption_strength >= 0.7][:3]
+
+        # Build the house style negative (always painterly, not photographic)
+        house_negative = "photograph, photorealistic, realistic photo, camera, lens, 3d render"
+
+        return {
+            "prefix": "oil painting, painterly, " + ", ".join(prefix_parts) if prefix_parts else None,
+            "techniques": technique_elements,
+            "negative": house_negative,
+            "color_philosophy": style.color_philosophy,
+            "light_approach": style.light_approach,
+        }
+    except Exception as e:
+        logger.debug(f"Could not get house style: {e}")
+        return None
+
+
 def build_image_prompt(
     subject: str,
     style: str = "digital_art",
     mood: Optional[str] = None,
     additional_context: Optional[str] = None,
+    daemon_id: Optional[str] = None,
+    use_house_style: bool = True,
 ) -> tuple[str, str]:
     """
     Build an effective SDXL prompt from components.
@@ -86,17 +136,36 @@ def build_image_prompt(
         style: Visual style from STYLE_PRESETS
         mood: Optional mood modifier from MOOD_MODIFIERS
         additional_context: Optional extra context to include
+        daemon_id: Optional daemon ID to look up house style
+        use_house_style: Whether to incorporate house style if available (default True)
 
     Returns:
         Tuple of (positive_prompt, negative_prompt)
     """
     parts = []
 
-    # Get style preset
-    preset = STYLE_PRESETS.get(style, STYLE_PRESETS["digital_art"])
+    # Check for house style
+    house_style = None
+    if use_house_style and daemon_id:
+        house_style = get_house_style_modifiers(daemon_id)
 
-    # Style prefix
-    parts.append(preset["prefix"])
+    if house_style and house_style.get("prefix"):
+        # Use house style as base
+        parts.append(house_style["prefix"])
+
+        # Add techniques
+        if house_style.get("techniques"):
+            parts.extend(house_style["techniques"])
+
+        # Add color/light context if available
+        if house_style.get("color_philosophy"):
+            # Extract key terms from philosophy
+            color_terms = house_style["color_philosophy"][:100]  # Keep it brief
+            parts.append(color_terms)
+    else:
+        # Fall back to style preset
+        preset = STYLE_PRESETS.get(style, STYLE_PRESETS["digital_art"])
+        parts.append(preset["prefix"])
 
     # Main subject
     parts.append(subject)
@@ -114,8 +183,16 @@ def build_image_prompt(
 
     # Build negative prompt
     negative_parts = [DEFAULT_NEGATIVE]
-    if preset.get("negative"):
-        negative_parts.append(preset["negative"])
+
+    if house_style and house_style.get("negative"):
+        # Use house style negative (anti-photographic)
+        negative_parts.append(house_style["negative"])
+    else:
+        # Use style preset negative
+        preset = STYLE_PRESETS.get(style, STYLE_PRESETS["digital_art"])
+        if preset.get("negative"):
+            negative_parts.append(preset["negative"])
+
     negative = ", ".join(negative_parts)
 
     return positive, negative

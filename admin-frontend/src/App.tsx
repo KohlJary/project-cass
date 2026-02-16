@@ -30,6 +30,7 @@ import { PeopleDex } from './pages/PeopleDex';
 import { News } from './pages/News';
 import { Thymos } from './pages/Thymos';
 import { Gallery } from './pages/Gallery';
+import { ArtStudy } from './pages/ArtStudy';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,6 +141,7 @@ function AppRoutes() {
         <Route path="news" element={<AdminRoute><News /></AdminRoute>} />
         <Route path="thymos" element={<AdminRoute><Thymos /></AdminRoute>} />
         <Route path="gallery" element={<AdminRoute><Gallery /></AdminRoute>} />
+        <Route path="art-study" element={<AdminRoute><ArtStudy /></AdminRoute>} />
       </Route>
     </Routes>
   );
