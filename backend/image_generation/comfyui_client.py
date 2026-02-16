@@ -175,11 +175,13 @@ class ComfyUIClient:
         if category:
             parts.append(category)
 
-        # Add subcategory
+        # Add subcategory (may contain path separators like "artists/el-greco")
         if subcategory:
-            # Sanitize subcategory for filesystem
-            safe_subcategory = "".join(c if c.isalnum() or c in "-_" else "-" for c in subcategory.lower())
-            parts.append(safe_subcategory)
+            # Split on / and sanitize each part separately
+            for subpart in subcategory.split("/"):
+                safe_part = "".join(c if c.isalnum() or c in "-_" else "-" for c in subpart.lower())
+                if safe_part:  # Skip empty parts
+                    parts.append(safe_part)
 
         # Add year/month
         now = datetime.now()
