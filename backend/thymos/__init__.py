@@ -53,7 +53,13 @@ from .needs_register import NeedsRegister
 from .dynamics import AffectNeedDynamics, EVENT_MAPPINGS
 from .felt_state import FeltStateSummarizer
 from .goal_generator import GoalGenerator, NEED_ACTION_MAP
-from .shadow_runner import ThymosShadowRunner
+from .shadow_runner import (
+    ThymosShadowRunner,
+    # Safety controls
+    THYMOS_ENABLED,
+    thymos_kill_switch,
+    is_thymos_enabled,
+)
 
 # Persistence functions
 from . import persistence
@@ -82,6 +88,10 @@ __all__ = [
     "NEED_ACTION_MAP",
     # Main runner
     "ThymosShadowRunner",
+    # Safety controls
+    "THYMOS_ENABLED",
+    "thymos_kill_switch",
+    "is_thymos_enabled",
     # Persistence
     "persistence",
 ]
