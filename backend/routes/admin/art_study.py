@@ -789,6 +789,7 @@ class CuratedArtistResponse(BaseModel):
     movement: str
     why_study: str
     techniques: list[str]
+    wikipedia_url: str
     already_added: bool = False
     artist_id: Optional[str] = None
 
@@ -830,6 +831,7 @@ async def get_curated_artists() -> list[CuratedArtistResponse]:
             movement=artist.movement,
             why_study=artist.why_study,
             techniques=artist.techniques,
+            wikipedia_url=artist.wikipedia_url,
             already_added=name_lower in existing_names,
             artist_id=existing_by_name.get(name_lower),
         ))
@@ -881,15 +883,17 @@ async def seed_curated_artist(request: SeedArtistRequest) -> dict:
         period=curated.nationality,  # Use nationality as period indicator
         years_active=years_active,
         movements=[curated.movement],
+        wikipedia_url=curated.wikipedia_url,
         created_at=datetime.utcnow().isoformat(),
     )
     persistence.save_artist(artist)
 
-    # Import artworks from the Met
+    # Import artworks from the Met (use met_search_name for accurate results)
     import_result = await import_artist_from_provider(
         artist_id,
         max_works=request.max_works,
         provider_name="met",
+        search_name=curated.met_search_name,
     )
 
     return {
