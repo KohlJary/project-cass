@@ -71,6 +71,8 @@ class ComfyUIClient:
         seed: int = None,
         steps: int = None,
         cfg: float = None,
+        category: str = None,
+        subcategory: str = None,
     ) -> dict:
         """
         Generate an image from a prompt.
@@ -83,11 +85,14 @@ class ComfyUIClient:
             seed: Random seed for reproducibility (None = random)
             steps: Number of sampling steps (None = from style preset)
             cfg: CFG scale (None = from style preset)
+            category: Top-level category (autonomous, art-study, relational, dreams, articles)
+            subcategory: Optional subcategory (e.g., artist name, house-style)
 
         Returns:
             Dict with:
                 - path: Path to saved image
                 - filename: Image filename
+                - relative_path: Path relative to images root (for URLs)
                 - seed: Seed used
                 - generation_time_ms: Time taken
         """
@@ -123,23 +128,69 @@ class ComfyUIClient:
             logger.error(f"ComfyUI generation failed: {e}")
             raise
 
+        # Determine output directory with organization
+        output_path = self._get_organized_path(category, subcategory)
+
         # Save image
         filename = f"{uuid.uuid4()}.png"
-        filepath = Path(self.output_dir) / filename
+        filepath = output_path / filename
         filepath.write_bytes(image_data)
+
+        # Calculate relative path from images root for URL construction
+        relative_path = str(filepath.relative_to(Path(self.output_dir)))
 
         generation_time_ms = int((time.time() - start_time) * 1000)
 
-        logger.info(f"Generated image: {filename} ({generation_time_ms}ms)")
+        logger.info(f"Generated image: {relative_path} ({generation_time_ms}ms)")
 
         return {
             "path": str(filepath),
             "filename": filename,
+            "relative_path": relative_path,
             "seed": seed,
             "generation_time_ms": generation_time_ms,
             "width": width,
             "height": height,
         }
+
+    def _get_organized_path(self, category: str = None, subcategory: str = None) -> Path:
+        """
+        Get organized output path based on category and date.
+
+        Structure: images/{category}/{subcategory}/{year}/{month}/
+
+        Args:
+            category: Top-level category (autonomous, art-study, relational, dreams, articles)
+            subcategory: Optional subcategory (e.g., artist slug, house-style)
+
+        Returns:
+            Path to output directory (created if needed)
+        """
+        from datetime import datetime
+
+        base = Path(self.output_dir)
+        parts = []
+
+        # Add category
+        if category:
+            parts.append(category)
+
+        # Add subcategory
+        if subcategory:
+            # Sanitize subcategory for filesystem
+            safe_subcategory = "".join(c if c.isalnum() or c in "-_" else "-" for c in subcategory.lower())
+            parts.append(safe_subcategory)
+
+        # Add year/month
+        now = datetime.now()
+        parts.append(str(now.year))
+        parts.append(f"{now.month:02d}")
+
+        # Build and create path
+        output_path = base.joinpath(*parts) if parts else base
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        return output_path
 
     def _build_workflow(
         self,

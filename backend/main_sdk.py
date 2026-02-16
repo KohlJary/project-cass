@@ -1743,7 +1743,7 @@ async def startup_event():
             from routes.admin import init_art_study_routes
             if ANTHROPIC_API_KEY:
                 import anthropic
-                art_study_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+                art_study_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
                 init_art_study_routes(art_study_client, _daemon_id)
                 logger.info("Art study routes initialized")
 
@@ -3488,12 +3488,14 @@ async def get_image_metadata(image_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Image not found")
 
-        # Extract filename from path
+        # Extract relative path from full path
         image_path = row[6]
-        filename = os.path.basename(image_path) if image_path else None
-
-        # Images are stored flat in data/images/
-        if filename:
+        if image_path and '/data/images/' in image_path:
+            relative_path = image_path.split('/data/images/')[1]
+            url = f"/generated-images/{relative_path}"
+        elif image_path:
+            # Fallback to filename only for legacy paths
+            filename = os.path.basename(image_path)
             url = f"/generated-images/{filename}"
         else:
             url = None
@@ -3562,10 +3564,13 @@ async def list_images(
         images = []
         for row in rows:
             image_path = row[6]
-            filename = os.path.basename(image_path) if image_path else None
-
-            # Images are stored flat in data/images/
-            if filename:
+            # Extract relative path from full path
+            if image_path and '/data/images/' in image_path:
+                relative_path = image_path.split('/data/images/')[1]
+                url = f"/generated-images/{relative_path}"
+            elif image_path:
+                # Fallback to filename only for legacy paths
+                filename = os.path.basename(image_path)
                 url = f"/generated-images/{filename}"
             else:
                 url = None
