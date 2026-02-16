@@ -20,6 +20,7 @@ class CuratedArtist:
     why_study: str  # What Cass can learn from this artist
     techniques: list[str]  # Key techniques to observe
     met_search_name: str  # Name to use when searching Met API
+    wikipedia_url: str  # Wikipedia article for biographical context
 
 
 # Artists organized by what they can teach
@@ -36,6 +37,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "in seeing beyond surface appearances.",
         techniques=["broken color", "wet-on-wet", "plein air", "series painting"],
         met_search_name="Claude Monet",
+        wikipedia_url="https://en.wikipedia.org/wiki/Claude_Monet",
     ),
     CuratedArtist(
         name="J.M.W. Turner",
@@ -48,6 +50,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "and abstract expressionism.",
         techniques=["atmospheric perspective", "vortex compositions", "glazing", "impasto highlights"],
         met_search_name="Joseph Mallord William Turner",
+        wikipedia_url="https://en.wikipedia.org/wiki/J._M._W._Turner",
     ),
     CuratedArtist(
         name="Johannes Vermeer",
@@ -59,6 +62,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "scenes teach careful observation and the poetry of everyday moments.",
         techniques=["pointillé highlights", "optical effects", "limited palette", "camera obscura composition"],
         met_search_name="Johannes Vermeer",
+        wikipedia_url="https://en.wikipedia.org/wiki/Johannes_Vermeer",
     ),
 
     # === DRAMA & EMOTION ===
@@ -72,6 +76,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "His theatrical lighting and raw emotional intensity changed Western art.",
         techniques=["tenebrism", "chiaroscuro", "dramatic staging", "direct observation"],
         met_search_name="Caravaggio",
+        wikipedia_url="https://en.wikipedia.org/wiki/Caravaggio",
     ),
     CuratedArtist(
         name="El Greco",
@@ -83,6 +88,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "His unique vision shows how personal style transcends convention.",
         techniques=["figure elongation", "expressive color", "dynamic composition", "visible brushwork"],
         met_search_name="El Greco",
+        wikipedia_url="https://en.wikipedia.org/wiki/El_Greco",
     ),
     CuratedArtist(
         name="Edvard Munch",
@@ -94,6 +100,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "how internal states can be externalized through color and form.",
         techniques=["psychological color", "simplified forms", "woodcut influence", "symbolic imagery"],
         met_search_name="Edvard Munch",
+        wikipedia_url="https://en.wikipedia.org/wiki/Edvard_Munch",
     ),
 
     # === COLOR & FORM ===
@@ -107,6 +114,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "and abstraction. Shows how to build structure through color planes.",
         techniques=["constructive brushstroke", "passage", "modulated color", "multiple viewpoints"],
         met_search_name="Paul Cézanne",
+        wikipedia_url="https://en.wikipedia.org/wiki/Paul_C%C3%A9zanne",
     ),
     CuratedArtist(
         name="Henri Matisse",
@@ -118,6 +126,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "simplified forms teach that less can express more.",
         techniques=["arbitrary color", "flat planes", "decorative pattern", "expressive line"],
         met_search_name="Henri Matisse",
+        wikipedia_url="https://en.wikipedia.org/wiki/Henri_Matisse",
     ),
     CuratedArtist(
         name="Titian",
@@ -129,6 +138,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "late brushwork influenced everyone from Rubens to the Impressionists.",
         techniques=["Venetian color", "glazing", "colorito vs disegno", "loose late style"],
         met_search_name="Titian",
+        wikipedia_url="https://en.wikipedia.org/wiki/Titian",
     ),
 
     # === MOVEMENT & LIFE ===
@@ -142,6 +152,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "asymmetric framing and cropped figures bring modern dynamism.",
         techniques=["cropped composition", "unusual viewpoints", "pastel technique", "movement capture"],
         met_search_name="Edgar Degas",
+        wikipedia_url="https://en.wikipedia.org/wiki/Edgar_Degas",
     ),
     CuratedArtist(
         name="Peter Paul Rubens",
@@ -153,6 +164,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "energetic brushwork and monumental vision define Baroque grandeur.",
         techniques=["flesh tones", "dynamic composition", "rich impasto", "workshop collaboration"],
         met_search_name="Peter Paul Rubens",
+        wikipedia_url="https://en.wikipedia.org/wiki/Peter_Paul_Rubens",
     ),
     CuratedArtist(
         name="John Singer Sargent",
@@ -164,6 +176,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "brushwork captures character and surface with apparent effortlessness.",
         techniques=["alla prima", "bravura brushwork", "selective detail", "confident marks"],
         met_search_name="John Singer Sargent",
+        wikipedia_url="https://en.wikipedia.org/wiki/John_Singer_Sargent",
     ),
 
     # === MODERN VISION ===
@@ -177,6 +190,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "and modern subject matter revolutionized what painting could be.",
         techniques=["flat modeling", "bold contrasts", "modern subjects", "Spanish influence"],
         met_search_name="Édouard Manet",
+        wikipedia_url="https://en.wikipedia.org/wiki/%C3%89douard_Manet",
     ),
     CuratedArtist(
         name="Mary Cassatt",
@@ -188,6 +202,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "Her pastel technique and Japanese-influenced compositions are distinctive.",
         techniques=["pastel mastery", "Japanese influence", "intimate observation", "warm palette"],
         met_search_name="Mary Cassatt",
+        wikipedia_url="https://en.wikipedia.org/wiki/Mary_Cassatt",
     ),
     CuratedArtist(
         name="Winslow Homer",
@@ -199,6 +214,7 @@ CURATED_ARTISTS: list[CuratedArtist] = [
                   "capture nature's power and human resilience with directness.",
         techniques=["watercolor mastery", "dramatic light", "narrative clarity", "natural observation"],
         met_search_name="Winslow Homer",
+        wikipedia_url="https://en.wikipedia.org/wiki/Winslow_Homer",
     ),
 ]
 
