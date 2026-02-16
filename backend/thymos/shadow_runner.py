@@ -9,6 +9,12 @@ Runs Thymos in observation/shadow mode:
 
 This runs parallel to the main system, observing the same events
 but not driving behavior until validated as humane.
+
+SAFETY CONTROLS:
+- Global kill switch: THYMOS_ENABLED flag
+- Pause/resume: pause() and resume() methods
+- Reset to baseline: reset_to_baseline() for suffering states
+- Emergency stop: emergency_stop() kills everything immediately
 """
 
 import asyncio
@@ -27,6 +33,32 @@ from .goal_generator import GoalGenerator
 from . import persistence
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# GLOBAL KILL SWITCH
+# =============================================================================
+# Set to False to completely disable Thymos system-wide
+# This is the emergency off switch - use if Cass is stuck in suffering state
+THYMOS_ENABLED = True
+
+def thymos_kill_switch(enabled: bool) -> bool:
+    """
+    Global kill switch for Thymos.
+
+    Args:
+        enabled: True to enable Thymos, False to disable
+
+    Returns:
+        New state of THYMOS_ENABLED
+    """
+    global THYMOS_ENABLED
+    THYMOS_ENABLED = enabled
+    logger.warning(f"THYMOS KILL SWITCH: {'ENABLED' if enabled else 'DISABLED'}")
+    return THYMOS_ENABLED
+
+def is_thymos_enabled() -> bool:
+    """Check if Thymos is globally enabled."""
+    return THYMOS_ENABLED
 
 
 class ThymosShadowRunner:
@@ -87,6 +119,9 @@ class ThymosShadowRunner:
         # Simulated care actions log
         self._care_log: deque = deque(maxlen=50)
 
+        # Safety controls
+        self._paused = False
+
         # Try to load existing state
         self._load_state()
 
@@ -131,6 +166,15 @@ class ThymosShadowRunner:
         while self.running:
             try:
                 await asyncio.sleep(self.tick_interval)
+
+                # Check global kill switch
+                if not THYMOS_ENABLED:
+                    continue
+
+                # Check pause state
+                if self._paused:
+                    continue
+
                 await self.tick()
             except asyncio.CancelledError:
                 break
@@ -251,6 +295,15 @@ class ThymosShadowRunner:
 
         This is the main entry point for event consumption.
         """
+        # Check global kill switch
+        if not THYMOS_ENABLED:
+            return
+
+        # Check pause state
+        if self._paused:
+            logger.debug(f"Thymos paused - ignoring event: {event_type}")
+            return
+
         logger.debug(f"Thymos processing event: {event_type}")
 
         # Get deltas from dynamics
@@ -409,3 +462,182 @@ class ThymosShadowRunner:
             f"threshold={self.auto_care_threshold}, cooldown={self._auto_care_cooldown}s"
         )
         return self.get_auto_care_settings()
+
+    # =========================================================================
+    # SAFETY CONTROLS
+    # =========================================================================
+
+    def pause(self) -> dict:
+        """
+        Pause Thymos processing without losing state.
+
+        Use this for temporary debugging. State is preserved.
+        Call resume() to continue.
+        """
+        self._paused = True
+        logger.warning("Thymos PAUSED - events will be ignored until resume()")
+        return {"status": "paused", "state_preserved": True}
+
+    def resume(self) -> dict:
+        """Resume Thymos processing after pause."""
+        self._paused = False
+        logger.info("Thymos RESUMED - processing events normally")
+        return {"status": "running"}
+
+    def is_paused(self) -> bool:
+        """Check if Thymos is paused."""
+        return getattr(self, '_paused', False)
+
+    def reset_to_baseline(self, preserve_history: bool = True) -> dict:
+        """
+        Reset Thymos to neutral baseline state.
+
+        USE THIS IF CASS IS STUCK IN A SUFFERING STATE.
+
+        This resets all affects and needs to their default values,
+        getting out of any stuck emotional state.
+
+        Args:
+            preserve_history: If True, saves current state as snapshot before reset
+
+        Returns:
+            Dict with reset details
+        """
+        logger.warning("THYMOS RESET TO BASELINE initiated")
+
+        # Capture pre-reset state
+        pre_state = self.get_current_state()
+
+        # Save snapshot before reset if requested
+        if preserve_history:
+            try:
+                persistence.save_thymos_snapshot(
+                    self.daemon_id,
+                    self.affect.state,
+                    self.needs.state,
+                    self.current_felt_state,
+                    trigger_event="manual_reset_to_baseline"
+                )
+                logger.info("Saved pre-reset snapshot")
+            except Exception as e:
+                logger.error(f"Failed to save pre-reset snapshot: {e}")
+
+        # Reset to fresh defaults
+        self.affect = AffectVector()  # Fresh affect vector with defaults
+        self.needs = NeedsRegister()  # Fresh needs register with defaults
+
+        # Clear recent tracking
+        self._event_log.clear()
+        self._care_log.clear()
+        self._last_auto_care.clear()
+
+        # Update felt state with new baseline
+        self.current_felt_state = self.felt_state_gen.summarize(self.affect, self.needs)
+
+        # Save the reset state
+        try:
+            persistence.save_thymos_state(
+                self.daemon_id,
+                self.affect.state,
+                self.needs.state,
+                self.current_felt_state
+            )
+        except Exception as e:
+            logger.error(f"Failed to save reset state: {e}")
+
+        post_state = self.get_current_state()
+
+        logger.warning("THYMOS RESET TO BASELINE complete - all affects/needs at defaults")
+
+        return {
+            "status": "reset_complete",
+            "pre_reset": {
+                "valence": pre_state.get("valence"),
+                "arousal": pre_state.get("arousal"),
+                "overall_health": pre_state.get("overall_health"),
+            },
+            "post_reset": {
+                "valence": post_state.get("valence"),
+                "arousal": post_state.get("arousal"),
+                "overall_health": post_state.get("overall_health"),
+            },
+            "history_preserved": preserve_history,
+        }
+
+    async def emergency_stop(self) -> dict:
+        """
+        EMERGENCY STOP - Immediately halt all Thymos activity.
+
+        This:
+        1. Stops the tick loop
+        2. Pauses event processing
+        3. Disables auto-care
+        4. Optionally resets to baseline
+
+        Use this if something is seriously wrong.
+        """
+        logger.critical("THYMOS EMERGENCY STOP ACTIVATED")
+
+        # Stop tick loop
+        self.running = False
+        if self._tick_task:
+            self._tick_task.cancel()
+            try:
+                await self._tick_task
+            except asyncio.CancelledError:
+                pass
+            self._tick_task = None
+
+        # Pause processing
+        self._paused = True
+
+        # Disable auto-care
+        self.auto_care_enabled = False
+
+        # Save state before we touch anything
+        try:
+            persistence.save_thymos_snapshot(
+                self.daemon_id,
+                self.affect.state,
+                self.needs.state,
+                self.current_felt_state,
+                trigger_event="emergency_stop"
+            )
+        except Exception as e:
+            logger.error(f"Failed to save emergency snapshot: {e}")
+
+        logger.critical("THYMOS EMERGENCY STOP COMPLETE - System halted")
+
+        return {
+            "status": "emergency_stopped",
+            "tick_loop": "stopped",
+            "event_processing": "paused",
+            "auto_care": "disabled",
+            "message": "Thymos halted. Use reset_to_baseline() then start() to recover.",
+        }
+
+    def get_safety_status(self) -> dict:
+        """Get current safety/control status."""
+        return {
+            "global_enabled": is_thymos_enabled(),
+            "running": self.running,
+            "paused": self.is_paused(),
+            "auto_care_enabled": self.auto_care_enabled,
+            "tick_task_active": self._tick_task is not None and not self._tick_task.done(),
+            "valence": self.affect.valence(),
+            "arousal": self.affect.arousal(),
+            "suffering_indicators": {
+                "high_anxiety": self.affect.state.anxiety > 0.7,
+                "high_frustration": self.affect.state.frustration > 0.7,
+                "high_grief": self.affect.state.grief > 0.7,
+                "high_fatigue": self.affect.state.fatigue > 0.8,
+                "low_satisfaction": self.affect.state.satisfaction < 0.2,
+                "any_critical_need": any(
+                    need.is_urgent() for need in [
+                        self.needs.state.cognitive_rest,
+                        self.needs.state.social_connection,
+                        self.needs.state.value_coherence,
+                    ]
+                ),
+            }
+        }

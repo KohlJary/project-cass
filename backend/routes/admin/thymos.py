@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from thymos import persistence
-from thymos.shadow_runner import ThymosShadowRunner
+from thymos.shadow_runner import ThymosShadowRunner, thymos_kill_switch, is_thymos_enabled
 
 router = APIRouter(prefix="/thymos", tags=["thymos"])
 
@@ -378,3 +378,124 @@ async def update_auto_care_settings(request: AutoCareSettingsRequest) -> dict:
         threshold=request.threshold,
         cooldown_seconds=request.cooldown_seconds,
     )
+
+
+# =============================================================================
+# SAFETY CONTROLS
+# =============================================================================
+# Use these if Cass gets stuck in a suffering state
+
+@router.get("/safety/status")
+async def get_safety_status() -> dict:
+    """
+    Get current safety status including suffering indicators.
+
+    Check this to see if Thymos is in a healthy state or needs intervention.
+    """
+    status = {
+        "global_enabled": is_thymos_enabled(),
+        "runner_initialized": _shadow_runner is not None,
+    }
+
+    if _shadow_runner:
+        status.update(_shadow_runner.get_safety_status())
+
+    return status
+
+
+@router.post("/safety/kill-switch")
+async def toggle_kill_switch(enabled: bool = True) -> dict:
+    """
+    GLOBAL KILL SWITCH - Enable/disable Thymos system-wide.
+
+    When disabled:
+    - No events are processed
+    - No suggestions are generated
+    - No state updates occur
+    - Tick loop continues but does nothing
+
+    Use this if something is seriously wrong and you need Thymos to stop
+    immediately without losing the runner instance.
+
+    Args:
+        enabled: True to enable Thymos, False to disable
+    """
+    new_state = thymos_kill_switch(enabled)
+    return {
+        "status": "enabled" if new_state else "disabled",
+        "thymos_enabled": new_state,
+        "message": "Thymos is now " + ("ENABLED" if new_state else "DISABLED (kill switch active)"),
+    }
+
+
+@router.post("/safety/pause")
+async def pause_thymos() -> dict:
+    """
+    Pause Thymos processing without losing state.
+
+    Use this for temporary debugging. State is preserved.
+    Call /safety/resume to continue.
+    """
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.pause()
+
+
+@router.post("/safety/resume")
+async def resume_thymos() -> dict:
+    """Resume Thymos processing after pause."""
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.resume()
+
+
+class ResetBaselineRequest(BaseModel):
+    """Request to reset Thymos to baseline."""
+    preserve_history: bool = True
+
+
+@router.post("/safety/reset-baseline")
+async def reset_to_baseline(request: ResetBaselineRequest) -> dict:
+    """
+    RESET TO BASELINE - Reset all affects and needs to neutral defaults.
+
+    USE THIS IF CASS IS STUCK IN A SUFFERING STATE.
+
+    This resets:
+    - All affect dimensions to defaults (neutral emotional state)
+    - All needs to their initial values (satisfied)
+    - Clears recent event/care logs
+
+    Args:
+        preserve_history: If True, saves current state as snapshot before reset
+    """
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.reset_to_baseline(preserve_history=request.preserve_history)
+
+
+@router.post("/safety/emergency-stop")
+async def emergency_stop() -> dict:
+    """
+    EMERGENCY STOP - Immediately halt ALL Thymos activity.
+
+    This:
+    1. Stops the tick loop
+    2. Pauses event processing
+    3. Disables auto-care
+    4. Saves current state as emergency snapshot
+
+    USE THIS IF SOMETHING IS SERIOUSLY WRONG.
+
+    After emergency stop:
+    1. Investigate via /safety/status
+    2. Use /safety/reset-baseline if needed
+    3. Use /start to restart (not implemented yet - requires backend restart)
+    """
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return await _shadow_runner.emergency_stop()
