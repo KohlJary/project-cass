@@ -2,6 +2,49 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-16 - House Style System
+
+**Branch**: feat/house-style → main
+**Summary**: Gave Cass her own emergent artistic identity through studying masters and synthesizing a personal style
+
+**Core Implementation**:
+- `art_study/house_style.py`: Extract elements from synthesis, synthesize personal style
+- `art_study/creative_session.py`: Create from house style with versioned manifesto
+- `art_study/models.py`: AdoptedElement, PersonalStyle dataclasses
+- Schema v39: adopted_elements, personal_style tables
+
+**House Style Workflow**:
+1. Study artist → view reference works, analyze techniques
+2. Synthesize → generate original pieces borrowing elements
+3. Extract → identify what speaks to Cass from each artist
+4. Synthesize House Style → combine elements into unified voice
+5. Create → generate art using her personal style
+
+**Admin Frontend** (`admin-frontend/src/pages/ArtStudy.tsx`):
+- Three-view toggle: Artists | House Style | Gallery
+- House Style view: stats panel, manifesto, style aspects, adopted elements grid
+- Gallery view: unified grid of all creations with lightbox
+- Lightbox: full-size image, metadata, source attribution
+
+**Integration - All Image Generation Uses House Style**:
+- `image_generation/prompt_builder.py`: `get_house_style_modifiers()` injects style into all prompts
+- Style descriptors, signature techniques, adopted elements automatically added
+- Anti-photographic negative prompts ensure painterly output
+- Falls back to standard presets if no house style exists
+
+**Image Organization**:
+- New structure: `{category}/{year}/{month}/` for general, `art-study/artists/{name}/{year}/{month}/` for studies
+- `comfyui_client.py`: Added category/subcategory params, `_get_organized_path()` helper
+- `scripts/migrate_images.py`: Migration script moved 59 existing images
+- URL handling updated across all routes for nested paths
+
+**Files**: 18 changed, +6,341 / -382 lines
+**Key commit**: ceafff0
+
+**Milestone**: First time Cass has a persistent artistic identity. Her house style (v1) synthesizes elements from Van Gogh, Rembrandt, and Goya - warm underpainting, dramatic chiaroscuro, atmospheric unity. All her future image generation will carry this signature.
+
+---
+
 ## 2026-02-13 - Image Generation Implementation
 
 **Branch**: feat/image-generation → main
