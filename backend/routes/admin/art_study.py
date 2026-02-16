@@ -778,6 +778,163 @@ async def get_artist_wikiart_url(artist_id: str) -> dict:
 
 
 # =============================================================================
+# CURATED ARTISTS ENDPOINTS
+# =============================================================================
+
+class CuratedArtistResponse(BaseModel):
+    name: str
+    birth_year: Optional[int]
+    death_year: Optional[int]
+    nationality: str
+    movement: str
+    why_study: str
+    techniques: list[str]
+    already_added: bool = False
+    artist_id: Optional[str] = None
+
+
+class SeedArtistRequest(BaseModel):
+    name: str
+    max_works: int = 10
+
+
+class SeedMultipleRequest(BaseModel):
+    names: list[str]
+    max_works_each: int = 8
+
+
+@router.get("/curated-artists")
+async def get_curated_artists() -> list[CuratedArtistResponse]:
+    """Get the list of curated artists recommended for study.
+
+    These artists have strong representation in the Met Museum collection
+    and offer diverse learning opportunities.
+    """
+    from art_study.curated_artists import get_curated_artists
+
+    curated = get_curated_artists()
+    existing_artists = persistence.list_artists()
+
+    # Check which are already added
+    existing_names = {a.name.lower() for a in existing_artists}
+    existing_by_name = {a.name.lower(): a.id for a in existing_artists}
+
+    results = []
+    for artist in curated:
+        name_lower = artist.name.lower()
+        results.append(CuratedArtistResponse(
+            name=artist.name,
+            birth_year=artist.birth_year,
+            death_year=artist.death_year,
+            nationality=artist.nationality,
+            movement=artist.movement,
+            why_study=artist.why_study,
+            techniques=artist.techniques,
+            already_added=name_lower in existing_names,
+            artist_id=existing_by_name.get(name_lower),
+        ))
+
+    return results
+
+
+@router.post("/curated-artists/seed")
+async def seed_curated_artist(request: SeedArtistRequest) -> dict:
+    """Add a curated artist to the database and import their works from the Met.
+
+    This creates the artist record and downloads artwork images.
+    """
+    from art_study.curated_artists import get_artist_by_name
+
+    curated = get_artist_by_name(request.name)
+    if not curated:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{request.name}' is not in the curated artist list"
+        )
+
+    # Check if already exists
+    existing = persistence.list_artists()
+    for artist in existing:
+        if artist.name.lower() == curated.name.lower():
+            return {
+                "status": "exists",
+                "message": f"{curated.name} is already in your collection",
+                "artist_id": artist.id,
+            }
+
+    # Create the artist
+    import uuid
+    from datetime import datetime
+    from art_study.models import Artist
+
+    # Format years_active from birth/death years
+    years_active = None
+    if curated.birth_year and curated.death_year:
+        years_active = f"{curated.birth_year}-{curated.death_year}"
+    elif curated.birth_year:
+        years_active = f"{curated.birth_year}-"
+
+    artist_id = str(uuid.uuid4())
+    artist = Artist(
+        id=artist_id,
+        name=curated.name,
+        period=curated.nationality,  # Use nationality as period indicator
+        years_active=years_active,
+        movements=[curated.movement],
+        created_at=datetime.utcnow().isoformat(),
+    )
+    persistence.save_artist(artist)
+
+    # Import artworks from the Met
+    import_result = await import_artist_from_provider(
+        artist_id,
+        max_works=request.max_works,
+        provider_name="met",
+    )
+
+    return {
+        "status": "success",
+        "artist_id": artist_id,
+        "name": curated.name,
+        "why_study": curated.why_study,
+        "techniques": curated.techniques,
+        "import_result": import_result,
+    }
+
+
+@router.post("/curated-artists/seed-multiple")
+async def seed_multiple_curated_artists(request: SeedMultipleRequest) -> dict:
+    """Seed multiple curated artists at once.
+
+    Useful for quickly populating the art study collection.
+    """
+    results = []
+    for name in request.names:
+        try:
+            result = await seed_curated_artist(SeedArtistRequest(
+                name=name,
+                max_works=request.max_works_each,
+            ))
+            results.append({"name": name, **result})
+        except HTTPException as e:
+            results.append({"name": name, "status": "error", "message": e.detail})
+        except Exception as e:
+            results.append({"name": name, "status": "error", "message": str(e)})
+
+    succeeded = sum(1 for r in results if r.get("status") == "success")
+    existed = sum(1 for r in results if r.get("status") == "exists")
+    failed = sum(1 for r in results if r.get("status") == "error")
+
+    return {
+        "total": len(request.names),
+        "succeeded": succeeded,
+        "already_existed": existed,
+        "failed": failed,
+        "results": results,
+    }
+
+
+# =============================================================================
 # HOUSE STYLE ENDPOINTS
 # =============================================================================
 
