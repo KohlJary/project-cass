@@ -62,9 +62,10 @@
   font-size: 13px;
 }
 
-/* Top Section: Timeline + Detail */
+/* Top Section: Timeline + Detail (stacked vertically) */
 .schedule-top-section {
   display: flex;
+  flex-direction: column;
   flex: 1;
   overflow: hidden;
   min-height: 0;
@@ -193,10 +194,10 @@
 
 /* Work Unit Detail Panel */
 .work-unit-detail {
-  width: 180px;
   flex-shrink: 0;
-  border-left: 1px solid var(--border-color, #2a2a4a);
+  border-top: 1px solid var(--border-color, #2a2a4a);
   overflow-y: auto;
+  max-height: 200px;
 }
 
 .work-detail-content {
@@ -311,18 +312,12 @@
   margin-top: 8px;
 }
 
-/* Responsive - hide detail panel on narrow screens */
+/* Responsive - detail panel behavior on narrow screens */
 @media (max-width: 1200px) {
   .work-unit-detail,
   .work-summary-detail {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 200px;
     background: var(--card-bg, #1a1a2e);
-    border-left: 1px solid var(--border-color, #2a2a4a);
-    z-index: 10;
+    border-top: 1px solid var(--border-color, #2a2a4a);
   }
 }
 
@@ -417,10 +412,10 @@
 
 /* Work Summary Detail Panel */
 .work-summary-detail {
-  width: 220px;
   flex-shrink: 0;
-  border-left: 1px solid var(--border-color, #2a2a4a);
+  border-top: 1px solid var(--border-color, #2a2a4a);
   overflow-y: auto;
+  max-height: 200px;
 }
 
 .detail-value.success {

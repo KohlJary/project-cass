@@ -1227,6 +1227,8 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-height: 400px;
+  max-height: calc(100vh - 180px);
 }
 
 .activity-section .section-header {
@@ -1250,7 +1252,7 @@
 
 /* Grimoire execution log */
 .grimoire-section {
-  max-height: calc(100vh - 200px);
+  /* inherits from .activity-section */
 }
 
 .execution-log {
