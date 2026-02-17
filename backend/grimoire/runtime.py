@@ -605,6 +605,8 @@ class Spellcaster:
 
     async def _exec_reflect(self, ctx: SpellContext, stmt: ReflectStatement) -> None:
         """Execute REFLECT action."""
+        from datetime import date as date_module
+
         prompt = await self._eval_expr(ctx, stmt.prompt)
         context_data = {}
         if stmt.context:
@@ -615,6 +617,34 @@ class Spellcaster:
         if not ctx.shadow_mode:
             reflection = await self.services.agent.reflect(str(prompt), context_data, stmt.save_as)
             ctx.set_variable("REFLECTION", reflection)
+
+            # Save if requested
+            if stmt.save_as and reflection:
+                if stmt.save_as == "OBSERVATION":
+                    try:
+                        obs_id = await self.services.storage.save_observation(
+                            reflection,
+                            "grimoire_reflection",
+                            "spell"
+                        )
+                        if obs_id:
+                            logger.info(f"Saved reflection as observation: {obs_id}")
+                            ctx.set_variable("SAVED_OBSERVATION_ID", obs_id)
+                    except Exception as e:
+                        logger.error(f"Failed to save reflection as observation: {e}")
+
+                elif stmt.save_as == "JOURNAL":
+                    try:
+                        today = date_module.today().isoformat()
+                        journal_id = await self.services.storage.save_journal(
+                            today,
+                            reflection
+                        )
+                        if journal_id:
+                            logger.info(f"Saved reflection as journal: {journal_id}")
+                            ctx.set_variable("SAVED_JOURNAL_ID", journal_id)
+                    except Exception as e:
+                        logger.error(f"Failed to save reflection as journal: {e}")
         else:
             logger.debug(f"Shadow mode: would reflect on '{prompt}'")
             ctx.set_variable("REFLECTION", "[Shadow mode - no reflection]")

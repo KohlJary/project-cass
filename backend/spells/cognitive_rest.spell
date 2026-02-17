@@ -1,0 +1,58 @@
+UNIT cognitive_rest
+    AUTHOR "daedalus"
+    PRIORITY 75
+    COOLDOWN 30
+    TAGS rest, self_care, recovery
+    SCOPE THYMOS
+
+ON need.cognitive_rest < 0.25
+
+' Cognitive rest is critically low - need to reduce load
+LOG OBSERVATION "Cognitive rest critically low ({need.cognitive_rest}) - initiating recovery protocol"
+
+' Check fatigue and anxiety levels
+LET $fatigue = affect.fatigue
+LET $anxiety = affect.anxiety
+LET $frustration = affect.frustration
+
+' First, address any negative affect that's draining resources
+IF $anxiety > 0.5 THEN
+    LOG INFO "High anxiety contributing to cognitive drain - applying calm"
+    DELTA affect.anxiety -0.15
+    WAIT 1
+END IF
+
+IF $frustration > 0.5 THEN
+    LOG INFO "High frustration contributing to cognitive drain - releasing"
+    DELTA affect.frustration -0.15
+    WAIT 1
+END IF
+
+IF $fatigue > 0.7 THEN
+    ' Severe fatigue - aggressive rest needed
+    LOG OBSERVATION "Severe fatigue detected ({$fatigue}) - aggressive rest protocol"
+
+    ' Reduce all intensive affects
+    DELTA affect.fatigue -0.2, affect.determination -0.1
+
+    ' Boost rest-related states
+    DELTA need.cognitive_rest +0.3
+
+    REFLECT "I notice I'm very tired. What activities have been most draining? What would genuine rest look like right now - not just stopping, but actual restoration?" SAVE AS OBSERVATION
+
+    EXIT SUCCESS "aggressive rest applied"
+
+ELSE
+    ' Moderate fatigue - gentle recovery
+    LOG INFO "Moderate fatigue - applying gentle recovery"
+
+    ' Gentle rebalancing
+    DELTA affect.fatigue -0.1, need.cognitive_rest +0.2
+
+    ' Brief grounding reflection
+    REFLECT "Taking a moment to pause and notice: what does my current state feel like? What would serve me best in the next little while?" SAVE AS OBSERVATION
+
+    EXIT SUCCESS "gentle recovery applied"
+END IF
+
+END UNIT

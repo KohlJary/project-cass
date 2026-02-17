@@ -79,6 +79,10 @@ from .art_study import (
     router as art_study_router,
     init_art_study_routes as _init_art_study_routes,
 )
+from .grimoire import (
+    router as grimoire_router,
+    init_grimoire_manager as _init_grimoire_manager,
+)
 
 # Create combined router
 router = APIRouter()
@@ -101,6 +105,7 @@ router.include_router(outreach_router)
 router.include_router(dev_requests_router)
 router.include_router(thymos_router)
 router.include_router(art_study_router)
+router.include_router(grimoire_router)
 
 
 # Module-level references for backward compatibility
@@ -175,6 +180,11 @@ def init_art_study_routes(anthropic_client, daemon_id: str):
     _init_art_study_routes(anthropic_client, daemon_id)
 
 
+def init_grimoire_manager(manager, spells_dir=None):
+    """Initialize Grimoire manager for admin API access."""
+    _init_grimoire_manager(manager, spells_dir)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -227,4 +237,5 @@ __all__ = [
     "init_development_request_manager",
     "init_thymos_runner",
     "init_art_study_routes",
+    "init_grimoire_manager",
 ]

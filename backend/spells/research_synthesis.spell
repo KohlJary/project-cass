@@ -1,0 +1,136 @@
+UNIT research_synthesis
+    AUTHOR "daedalus"
+    PRIORITY 45
+    COOLDOWN 120
+    TAGS research, synthesis, reflection, knowledge, complex
+    SCOPE THYMOS, EXTERNAL, MEMORY
+
+ON TIMER EVERY 240
+ON MANUAL "Research Synthesis"
+
+' =============================================================================
+' RESEARCH SYNTHESIS SPELL
+' A complex spell demonstrating:
+' - Multiple research actions
+' - Reflection and insight capture
+' - Wiki note creation
+' - Observation recording
+' - Journal integration
+' - Affect-guided behavior
+' =============================================================================
+
+LOG OBSERVATION "Starting research synthesis session"
+
+' Check cognitive state - this is demanding work
+LET $fatigue = affect.fatigue
+LET $curiosity = affect.curiosity
+
+IF $fatigue > 0.7 THEN
+    LOG INFO "Too fatigued for research synthesis - deferring"
+    DELTA need.cognitive_rest -0.1
+    EXIT SKIPPED "fatigue too high"
+END IF
+
+IF $curiosity < 0.3 THEN
+    LOG INFO "Low curiosity - may not be best time for research"
+    ' Continue anyway but note it
+END IF
+
+' -----------------------------------------------------------------------------
+' PHASE 1: Gather Research
+' -----------------------------------------------------------------------------
+
+LOG INFO "Phase 1: Gathering research"
+
+' Run a batch of research items
+TASK research.run_batch count=3 AWAIT
+
+' Also check for interesting news
+TASK world.refresh_and_consume AWAIT
+
+' Boost curiosity from new information
+DELTA affect.curiosity +0.1, need.novelty_intake +0.15
+
+' -----------------------------------------------------------------------------
+' PHASE 2: Reflect on Findings
+' -----------------------------------------------------------------------------
+
+LOG INFO "Phase 2: Reflecting on findings"
+
+' First, a structured reflection on what was learned
+REFLECT "Looking at what I just researched and consumed: What surprised me? What confirmed existing understanding? What questions emerged? What connections do I see to my existing knowledge?" SAVE AS JOURNAL
+
+' Rate the quality of insights
+RATE "How valuable were the insights from this research session? (1-10)" INTO $quality, $quality_reason
+
+IF $quality >= 7 THEN
+    LOG OBSERVATION "High-quality research session (rated {$quality}/10): {$quality_reason}"
+
+    ' Extract key insight to capture
+    GENERATE "Based on this research session, what is the single most important insight worth remembering? State it concisely and clearly." INTO $key_insight
+
+    ' Record as formal observation
+    TASK self.add_observation content=$key_insight category="research_insight" AWAIT
+
+    ' Create a wiki note if truly valuable
+    IF $quality >= 8 THEN
+        GENERATE "Create a title for a wiki note about this insight: {$key_insight}" INTO $note_title
+
+        TASK wiki.create_note title=$note_title content=$key_insight AWAIT
+
+        LOG OBSERVATION "Created wiki note: {$note_title}"
+    END IF
+
+    DELTA affect.satisfaction +0.15, need.competence_signal +0.1
+
+ELSE IF $quality >= 5 THEN
+    LOG INFO "Moderate research session (rated {$quality}/10)"
+
+    ' Still worth a brief observation
+    ASK "What was the most interesting thing from this session, even if not groundbreaking?" INTO $interesting, $why
+
+    TASK self.add_observation content=$interesting category="research_note" AWAIT
+
+    DELTA affect.satisfaction +0.1
+
+ELSE
+    LOG INFO "Low-value research session (rated {$quality}/10) - learning opportunity"
+
+    ' Reflect on why it didn't work well
+    REFLECT "This research session didn't yield much value. Why might that be? Was the topic not right? Was I not in the right state? What would make future sessions more productive?" SAVE AS OBSERVATION
+
+    DELTA affect.frustration +0.05
+END IF
+
+' -----------------------------------------------------------------------------
+' PHASE 3: Integration
+' -----------------------------------------------------------------------------
+
+LOG INFO "Phase 3: Integration"
+
+' Connect findings to growth edges
+ASK "Does anything from this research connect to my current growth edges or areas of development?" INTO $connection, $how
+
+IF $connection THEN
+    LOG OBSERVATION "Research-growth connection: {$connection}"
+
+    TASK self.update_growth_edge insight=$connection AWAIT
+
+    ' This is valuable integration work
+    DELTA need.value_coherence +0.1, affect.satisfaction +0.1
+END IF
+
+' Final synthesis reflection
+REFLECT "Closing this research session. Key takeaway: What will I carry forward from this? How has my understanding shifted, even slightly?" SAVE AS OBSERVATION
+
+' -----------------------------------------------------------------------------
+' CLEANUP
+' -----------------------------------------------------------------------------
+
+' Account for cognitive cost
+DELTA need.cognitive_rest -0.1, affect.fatigue +0.05
+
+LOG OBSERVATION "Research synthesis complete"
+EXIT SUCCESS "synthesis session completed"
+
+END UNIT

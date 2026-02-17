@@ -21,7 +21,7 @@ import asyncio
 import logging
 from collections import deque
 from datetime import datetime, timezone
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 
 from .models import FeltState, SuggestedGoal
 from .affect_vector import AffectVector
@@ -162,7 +162,13 @@ class ThymosShadowRunner:
         except Exception as e:
             logger.warning(f"Could not load Thymos state: {e}")
 
-    def attach_grimoire(self, grimoire: "GrimoireManager") -> None:
+    def attach_grimoire(
+        self,
+        grimoire: "GrimoireManager",
+        agent: Optional[Any] = None,
+        self_manager: Optional[Any] = None,
+        memory_manager: Optional[Any] = None,
+    ) -> None:
         """
         Attach a GrimoireManager for spell-based behavior.
 
@@ -171,6 +177,9 @@ class ThymosShadowRunner:
 
         Args:
             grimoire: Configured GrimoireManager instance
+            agent: Optional agent client for agentic nodes (ASK, RATE, etc.)
+            self_manager: Optional SelfManager for saving observations
+            memory_manager: Optional MemoryManager for saving journals
         """
         if not GRIMOIRE_AVAILABLE:
             logger.warning("Grimoire not available - cannot attach")
@@ -178,8 +187,13 @@ class ThymosShadowRunner:
 
         self._grimoire = grimoire
 
-        # Configure services (pass self for Thymos access)
-        grimoire.configure_services(thymos_runner=self)
+        # Configure services (pass self for Thymos access, agent, and storage managers)
+        grimoire.configure_services(
+            thymos_runner=self,
+            agent=agent,
+            self_manager=self_manager,
+            memory_manager=memory_manager,
+        )
 
         # Create hooks
         self._grimoire_on_tick, self._grimoire_on_event = create_grimoire_hooks(grimoire)

@@ -402,6 +402,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 40:
         print("Adding thymos_shadow_log table for scheduler integration (v40)")
 
+    # v40 -> v41: Grimoire spell persistence
+    # Tables are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 41:
+        print("Adding grimoire_spell_state and grimoire_executions tables (v41)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

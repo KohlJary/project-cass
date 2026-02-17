@@ -33,6 +33,7 @@ from .ast import (
     AffectTrigger,
     EventTrigger,
     TimerTrigger,
+    ManualTrigger,
     # Expressions
     Expression,
     BinaryOp,
@@ -75,6 +76,7 @@ __all__ = [
     "AffectTrigger",
     "EventTrigger",
     "TimerTrigger",
+    "ManualTrigger",
     "Expression",
     "BinaryOp",
     "UnaryOp",

@@ -204,6 +204,40 @@ class AgentInterface:
     reflect: Callable[[str, dict[str, Any], Optional[str]], Awaitable[str]]
 
 
+async def _noop_save_observation(obs: str, cat: str, src: str) -> Optional[str]:
+    """Default no-op save observation."""
+    return None
+
+
+async def _noop_save_journal(date: str, content: str) -> Optional[str]:
+    """Default no-op save journal."""
+    return None
+
+
+@dataclass
+class StorageInterface:
+    """
+    Interface for persistent storage.
+
+    Used by REFLECT...SAVE AS and standalone SAVE actions.
+    """
+    # Save a self-observation
+    # Args: observation_text, category, source_type
+    # Returns: observation_id or None on failure
+    save_observation: Callable[
+        [str, str, str],
+        Awaitable[Optional[str]]
+    ] = field(default=_noop_save_observation)
+
+    # Save a journal entry
+    # Args: date (YYYY-MM-DD), content
+    # Returns: journal_id or None on failure
+    save_journal: Callable[
+        [str, str],
+        Awaitable[Optional[str]]
+    ] = field(default=_noop_save_journal)
+
+
 @dataclass
 class RuntimeServices:
     """
@@ -229,6 +263,9 @@ class RuntimeServices:
     # Spell loader (for CAST - loads a spell by reference name)
     # Returns None if spell not found
     load_spell: Optional[Callable[[str], Awaitable[Optional["Spell"]]]] = None
+
+    # Storage (for REFLECT...SAVE AS and SAVE actions)
+    storage: StorageInterface = field(default_factory=StorageInterface)
 
     def check_cooldown(self, key: str, minutes: float) -> bool:
         """Check if cooldown has elapsed."""

@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 40  # Thymos scheduler shadow logging
+SCHEMA_VERSION = 41  # Grimoire spell persistence
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1973,4 +1973,39 @@ CREATE TABLE IF NOT EXISTS personal_style (
 
 CREATE INDEX IF NOT EXISTS idx_personal_style_daemon ON personal_style(daemon_id);
 CREATE INDEX IF NOT EXISTS idx_personal_style_version ON personal_style(daemon_id, version);
+
+-- =============================================================================
+-- GRIMOIRE - Spell System Persistence (v41)
+-- =============================================================================
+
+-- Grimoire spell state (cooldowns and timer tracking)
+CREATE TABLE IF NOT EXISTS grimoire_spell_state (
+    daemon_id TEXT NOT NULL,
+    spell_name TEXT NOT NULL,
+    last_executed_at TEXT,              -- Last cooldown execution time
+    timer_last_run_at TEXT,             -- Last timer trigger run time
+    execution_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (daemon_id, spell_name)
+);
+
+-- Grimoire execution log (historical spell executions)
+CREATE TABLE IF NOT EXISTS grimoire_executions (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL,
+    spell_name TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,         -- need, affect, event, timer, manual
+    status TEXT NOT NULL,               -- completed, ok, failure, skipped, error
+    reason TEXT,                        -- Exit reason or error message
+    execution_time_ms REAL,
+    context_json TEXT,                  -- JSON of trigger context
+    trace_json TEXT,                    -- JSON array of trace entries
+    executed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_grimoire_executions_daemon ON grimoire_executions(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_grimoire_executions_spell ON grimoire_executions(daemon_id, spell_name);
+CREATE INDEX IF NOT EXISTS idx_grimoire_executions_time ON grimoire_executions(executed_at);
+CREATE INDEX IF NOT EXISTS idx_grimoire_executions_status ON grimoire_executions(status);
 """

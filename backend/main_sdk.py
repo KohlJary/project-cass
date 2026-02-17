@@ -254,6 +254,10 @@ global_state_bus = get_state_bus(_daemon_id)
 # Initialize Thymos (homeostatic emotional/motivational system) in shadow mode
 from thymos import ThymosShadowRunner
 thymos_runner = ThymosShadowRunner(daemon_id=_daemon_id)
+
+# Grimoire (spell system) - initialized at startup, attached to Thymos after heavy components load
+_grimoire = None  # Set during startup, attached with storage managers later
+
 print("STARTUP: Lightweight components initialized (including thread/question managers, state bus, thymos)")
 
 # Defer heavy initialization (ChromaDB, embeddings) to avoid blocking health checks
@@ -1414,22 +1418,23 @@ async def startup_event():
     global_state_bus.subscribe("*", thymos_event_handler)
     logger.info("Thymos shadow runner started and subscribed to events")
 
-    # Initialize Grimoire spell system and attach to Thymos
+    # Initialize Grimoire spell system (attached after heavy components load)
     # Spells run in shadow mode alongside Thymos - they observe state and log
     # what actions they would take, without actually executing them yet
+    global _grimoire
     try:
         from pathlib import Path
         from grimoire import GrimoireManager
 
         spells_dir = Path(__file__).parent / "spells"
         if spells_dir.exists():
-            grimoire = GrimoireManager(
+            _grimoire = GrimoireManager(
                 spells_directory=spells_dir,
                 shadow_mode=True,  # Log actions but don't execute
                 enable_trace=False,  # Disable verbose tracing in production
+                daemon_id=_daemon_id,  # Enable persistence
             )
-            thymos_runner.attach_grimoire(grimoire)
-            logger.info(f"Grimoire attached with {len(grimoire.registry.spells)} spell(s)")
+            logger.info(f"Grimoire initialized with {len(_grimoire.registry.spells)} spell(s) (attachment pending)")
         else:
             logger.warning(f"Spells directory not found: {spells_dir}")
     except Exception as e:
@@ -1611,6 +1616,21 @@ async def startup_event():
             init_context_helpers(self_manager, user_manager, roadmap_manager, memory, thread_manager, question_manager)
             logger.info("Background: Context helpers updated with heavy components")
 
+            # Attach Grimoire to Thymos now that storage managers are ready
+            if _grimoire:
+                try:
+                    from grimoire.agent import GrimoireAgentClient
+                    grimoire_agent = GrimoireAgentClient(daemon_id=_daemon_id)
+                    thymos_runner.attach_grimoire(
+                        _grimoire,
+                        agent=grimoire_agent,
+                        self_manager=self_manager,
+                        memory_manager=memory,
+                    )
+                    logger.info(f"Background: Grimoire attached with storage ({len(_grimoire.registry.spells)} spell(s))")
+                except Exception as e:
+                    logger.error(f"Background: Failed to attach Grimoire: {e}")
+
             # Index source capabilities now that registry is attached
             await global_state_bus.start_capability_indexing()
             logger.info("Background: Indexed source capabilities")
@@ -1767,6 +1787,13 @@ async def startup_event():
                 art_study_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
                 init_art_study_routes(art_study_client, _daemon_id)
                 logger.info("Art study routes initialized")
+
+            # Initialize Grimoire admin routes
+            from routes.admin import init_grimoire_manager
+            if thymos_runner and hasattr(thymos_runner, '_grimoire') and thymos_runner._grimoire:
+                spells_dir = Path(__file__).parent / "spells"
+                init_grimoire_manager(thymos_runner._grimoire, spells_dir)
+                logger.info("Grimoire admin routes initialized")
 
             # Initialize autonomous scheduling (Cass decides her own work)
             from config import AUTONOMOUS_SCHEDULING_ENABLED
