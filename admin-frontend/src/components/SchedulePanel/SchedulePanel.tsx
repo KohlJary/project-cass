@@ -344,37 +344,44 @@ const WorkUnitDetail: React.FC<WorkUnitDetailProps> = ({ workUnit, phase, onClos
         <h4>{workUnit.name}</h4>
         <button className="close-btn" onClick={onClose}>×</button>
       </div>
-      <div className="work-detail-body">
-        {workUnit.category && (
+      <div className="work-detail-body two-column">
+        {/* Left: Task Info */}
+        <div className="detail-column detail-info">
+          {workUnit.category && (
+            <div className="detail-row">
+              <span className="detail-label">Category</span>
+              <span className="detail-value">{workUnit.category}</span>
+            </div>
+          )}
           <div className="detail-row">
-            <span className="detail-label">Category</span>
-            <span className="detail-value">{workUnit.category}</span>
+            <span className="detail-label">Phase</span>
+            <span className="detail-value">{phase}</span>
           </div>
-        )}
-        <div className="detail-row">
-          <span className="detail-label">Phase</span>
-          <span className="detail-value">{phase}</span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">Duration</span>
-          <span className="detail-value">{workUnit.estimatedDurationMinutes} min</span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">Status</span>
-          <span className="detail-value">{workUnit.status}</span>
-        </div>
-        {workUnit.focus && (
-          <div className="detail-section">
-            <span className="detail-label">Focus</span>
-            <p className="detail-text">{workUnit.focus}</p>
+          <div className="detail-row">
+            <span className="detail-label">Duration</span>
+            <span className="detail-value">{workUnit.estimatedDurationMinutes} min</span>
           </div>
-        )}
-        {workUnit.motivation && (
-          <div className="detail-section">
-            <span className="detail-label">Motivation</span>
-            <p className="detail-text">{workUnit.motivation}</p>
+          <div className="detail-row">
+            <span className="detail-label">Status</span>
+            <span className="detail-value">{workUnit.status}</span>
           </div>
-        )}
+        </div>
+
+        {/* Right: Focus & Motivation */}
+        <div className="detail-column detail-narrative">
+          {workUnit.focus && (
+            <div className="detail-section">
+              <span className="detail-label">Focus</span>
+              <p className="detail-text">{workUnit.focus}</p>
+            </div>
+          )}
+          {workUnit.motivation && (
+            <div className="detail-section">
+              <span className="detail-label">Motivation</span>
+              <p className="detail-text">{workUnit.motivation}</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -430,96 +437,98 @@ const WorkSummaryDetail: React.FC<WorkSummaryDetailProps> = ({ summary, onClose 
         <h4>{summary.name}</h4>
         <button className="close-btn" onClick={onClose}>×</button>
       </div>
-      <div className="work-detail-body">
-        {/* Status */}
-        <div className="detail-row">
-          <span className="detail-label">Status</span>
-          <span className={`detail-value ${summary.success ? 'success' : 'failed'}`}>
-            {summary.success ? '✓ Completed' : '✕ Failed'}
-          </span>
-        </div>
-
-        {/* Timing */}
-        <div className="detail-row">
-          <span className="detail-label">Time</span>
-          <span className="detail-value">
-            {formatTime(summary.startedAt)} → {formatTime(summary.completedAt)}
-          </span>
-        </div>
-
-        <div className="detail-row">
-          <span className="detail-label">Duration</span>
-          <span className="detail-value">{summary.durationMinutes} min</span>
-        </div>
-
-        {summary.category && (
+      <div className="work-detail-body two-column">
+        {/* Left: Task Info */}
+        <div className="detail-column detail-info">
           <div className="detail-row">
-            <span className="detail-label">Category</span>
-            <span className="detail-value">{summary.category}</span>
+            <span className="detail-label">Status</span>
+            <span className={`detail-value ${summary.success ? 'success' : 'failed'}`}>
+              {summary.success ? '✓ Completed' : '✕ Failed'}
+            </span>
           </div>
-        )}
 
-        {summary.costUsd > 0 && (
           <div className="detail-row">
-            <span className="detail-label">Cost</span>
-            <span className="detail-value">${summary.costUsd.toFixed(3)}</span>
+            <span className="detail-label">Time</span>
+            <span className="detail-value">
+              {formatTime(summary.startedAt)} → {formatTime(summary.completedAt)}
+            </span>
           </div>
-        )}
 
-        {/* Summary text */}
-        {summary.summary && (
-          <div className="detail-section">
-            <span className="detail-label">Summary</span>
-            <p className="detail-text summary-text">{summary.summary}</p>
+          <div className="detail-row">
+            <span className="detail-label">Duration</span>
+            <span className="detail-value">{summary.durationMinutes} min</span>
           </div>
-        )}
 
-        {/* Focus & Motivation */}
-        {summary.focus && (
-          <div className="detail-section">
-            <span className="detail-label">Focus</span>
-            <p className="detail-text">{summary.focus}</p>
-          </div>
-        )}
+          {summary.category && (
+            <div className="detail-row">
+              <span className="detail-label">Category</span>
+              <span className="detail-value">{summary.category}</span>
+            </div>
+          )}
 
-        {summary.motivation && (
-          <div className="detail-section">
-            <span className="detail-label">Motivation</span>
-            <p className="detail-text">{summary.motivation}</p>
-          </div>
-        )}
+          {summary.costUsd > 0 && (
+            <div className="detail-row">
+              <span className="detail-label">Cost</span>
+              <span className="detail-value">${summary.costUsd.toFixed(3)}</span>
+            </div>
+          )}
 
-        {/* Key Insights */}
-        {summary.keyInsights && summary.keyInsights.length > 0 && (
-          <div className="detail-section">
-            <span className="detail-label">Key Insights</span>
-            <ul className="insights-list">
-              {summary.keyInsights.map((insight, i) => (
-                <li key={i}>{insight}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+          {/* Key Insights */}
+          {summary.keyInsights && summary.keyInsights.length > 0 && (
+            <div className="detail-section">
+              <span className="detail-label">Key Insights</span>
+              <ul className="insights-list">
+                {summary.keyInsights.map((insight, i) => (
+                  <li key={i}>{insight}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-        {/* Questions Raised */}
-        {summary.questionsRaised && summary.questionsRaised.length > 0 && (
-          <div className="detail-section">
-            <span className="detail-label">Questions Raised</span>
-            <ul className="questions-list">
-              {summary.questionsRaised.map((q, i) => (
-                <li key={i}>{q}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+          {/* Questions Raised */}
+          {summary.questionsRaised && summary.questionsRaised.length > 0 && (
+            <div className="detail-section">
+              <span className="detail-label">Questions Raised</span>
+              <ul className="questions-list">
+                {summary.questionsRaised.map((q, i) => (
+                  <li key={i}>{q}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-        {/* Error (if failed) */}
-        {summary.error && (
-          <div className="detail-section error-section">
-            <span className="detail-label">Error</span>
-            <p className="detail-text error-text">{summary.error}</p>
-          </div>
-        )}
+          {/* Error (if failed) */}
+          {summary.error && (
+            <div className="detail-section error-section">
+              <span className="detail-label">Error</span>
+              <p className="detail-text error-text">{summary.error}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Summary, Focus & Motivation */}
+        <div className="detail-column detail-narrative">
+          {summary.summary && (
+            <div className="detail-section">
+              <span className="detail-label">Summary</span>
+              <p className="detail-text summary-text">{summary.summary}</p>
+            </div>
+          )}
+
+          {summary.focus && (
+            <div className="detail-section">
+              <span className="detail-label">Focus</span>
+              <p className="detail-text">{summary.focus}</p>
+            </div>
+          )}
+
+          {summary.motivation && (
+            <div className="detail-section">
+              <span className="detail-label">Motivation</span>
+              <p className="detail-text">{summary.motivation}</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
