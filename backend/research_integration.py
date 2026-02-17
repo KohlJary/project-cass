@@ -6,7 +6,7 @@ self-model, including opinion extraction, self-observations, and growth
 edge evaluation.
 """
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 from wiki import WikiStorage, WikiRetrieval, ResearchQueue, ProposalQueue
 import re
 import json
@@ -197,7 +197,7 @@ async def _integrate_research_into_self_model(date_str: str):
         existing_opinions = [op.to_dict() for op in profile.opinions]
 
         opinion_response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_INTERNAL_MODEL,
             max_tokens=2000,
             messages=[{
                 "role": "user",
@@ -248,7 +248,7 @@ Example format:
         print(f"   🔍 Extracting self-observations from research...")
 
         observation_response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_INTERNAL_MODEL,
             max_tokens=1500,
             messages=[{
                 "role": "user",
@@ -303,7 +303,7 @@ Example:
 
         if existing_edges:
             growth_response = await anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=1500,
                 messages=[{
                     "role": "user",

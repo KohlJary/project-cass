@@ -9,16 +9,20 @@ These endpoints allow:
 - Reviewing suggestion history
 - Providing feedback for calibration
 - Viewing state trends
+- Shadow log visibility (what scheduler would have done)
 """
 
 import copy
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 from thymos import persistence
 from thymos.shadow_runner import ThymosShadowRunner, thymos_kill_switch, is_thymos_enabled
+from thymos.goal_generator import get_need_action_map
+from database import get_db
 
 router = APIRouter(prefix="/thymos", tags=["thymos"])
 
@@ -74,6 +78,47 @@ class SnapshotResponse(BaseModel):
 class FeedbackRequest(BaseModel):
     """Feedback for a suggestion."""
     feedback: str  # e.g., "good", "bad", "neutral", or freeform
+
+
+class ShadowLogEntry(BaseModel):
+    """A shadow log entry from scheduler evaluation."""
+    id: str
+    daemon_id: str
+    suggested_at: str
+    suggestion_id: str
+    need_name: str
+    need_current: float
+    need_threshold: float
+    need_deficit: float
+    urgency: float
+    suggested_action: str
+    action_category: Optional[str]
+    action_cost_usd: Optional[float]
+    would_execute: bool
+    blocked_reason: Optional[str]
+    budget_available: Optional[float]
+    budget_spent_today: Optional[float]
+    feedback: Optional[str]
+    feedback_at: Optional[str]
+    feedback_helpful: Optional[bool]
+    created_at: str
+
+
+class ShadowLogStats(BaseModel):
+    """Statistics about shadow suggestions."""
+    total: int
+    by_need: List[dict]
+    by_action: List[dict]
+    by_blocked_reason: List[dict]
+    would_execute_count: int
+    would_execute_pct: float
+    period_days: int
+
+
+class ShadowLogFeedbackRequest(BaseModel):
+    """Feedback for a shadow log entry."""
+    feedback: str
+    helpful: bool
 
 
 class SimulateEventRequest(BaseModel):
@@ -345,6 +390,214 @@ async def get_care_log(limit: int = 20) -> list[dict]:
     return _shadow_runner.get_care_log(limit=limit)
 
 
+# =============================================================================
+# SHADOW LOG ENDPOINTS (Scheduler Integration)
+# =============================================================================
+# These endpoints query the thymos_shadow_log table to show what the scheduler
+# would have done with Thymos suggestions (shadow mode visibility)
+
+@router.get("/shadow-log")
+async def get_shadow_log(
+    need_name: Optional[str] = None,
+    action: Optional[str] = None,
+    would_execute: Optional[bool] = None,
+    limit: int = Query(50, le=500),
+) -> List[ShadowLogEntry]:
+    """
+    Get shadow log entries from scheduler evaluation.
+
+    Shows what the scheduler would have done with each Thymos suggestion.
+    Use this to calibrate parameters and verify action mappings.
+
+    Args:
+        need_name: Filter by need (e.g., "novelty_intake")
+        action: Filter by suggested action (e.g., "wonderland.explore")
+        would_execute: Filter by execution status (True/False)
+        limit: Maximum entries to return (default 50, max 500)
+    """
+    with get_db() as conn:
+        query = "SELECT * FROM thymos_shadow_log WHERE 1=1"
+        params: List = []
+
+        if need_name:
+            query += " AND need_name = ?"
+            params.append(need_name)
+        if action:
+            query += " AND suggested_action = ?"
+            params.append(action)
+        if would_execute is not None:
+            query += " AND would_execute = ?"
+            params.append(would_execute)
+
+        query += " ORDER BY suggested_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+
+    return [
+        ShadowLogEntry(
+            id=row["id"],
+            daemon_id=row["daemon_id"],
+            suggested_at=row["suggested_at"],
+            suggestion_id=row["suggestion_id"],
+            need_name=row["need_name"],
+            need_current=row["need_current"],
+            need_threshold=row["need_threshold"],
+            need_deficit=row["need_deficit"],
+            urgency=row["urgency"],
+            suggested_action=row["suggested_action"],
+            action_category=row["action_category"],
+            action_cost_usd=row["action_cost_usd"],
+            would_execute=bool(row["would_execute"]),
+            blocked_reason=row["blocked_reason"],
+            budget_available=row["budget_available"],
+            budget_spent_today=row["budget_spent_today"],
+            feedback=row["feedback"],
+            feedback_at=row["feedback_at"],
+            feedback_helpful=bool(row["feedback_helpful"]) if row["feedback_helpful"] is not None else None,
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+@router.get("/shadow-log/stats")
+async def get_shadow_log_stats(days: int = Query(7, le=90)) -> ShadowLogStats:
+    """
+    Get statistics about shadow suggestions over a period.
+
+    Shows aggregated data for calibration:
+    - Suggestions by need
+    - Suggestions by action
+    - Blocked reasons distribution
+    - Would-execute percentage
+
+    Args:
+        days: Number of days to analyze (default 7, max 90)
+    """
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+
+    with get_db() as conn:
+        # Total count
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM thymos_shadow_log WHERE suggested_at > ?",
+            (since,)
+        )
+        total = cursor.fetchone()[0]
+
+        # By need
+        cursor = conn.execute(
+            """
+            SELECT
+                need_name,
+                COUNT(*) as count,
+                AVG(urgency) as avg_urgency,
+                SUM(CASE WHEN would_execute THEN 1 ELSE 0 END) as would_execute_count
+            FROM thymos_shadow_log
+            WHERE suggested_at > ?
+            GROUP BY need_name
+            ORDER BY count DESC
+            """,
+            (since,)
+        )
+        by_need = [dict(row) for row in cursor.fetchall()]
+
+        # By action
+        cursor = conn.execute(
+            """
+            SELECT
+                suggested_action,
+                COUNT(*) as count,
+                SUM(CASE WHEN would_execute THEN 1 ELSE 0 END) as would_execute_count
+            FROM thymos_shadow_log
+            WHERE suggested_at > ?
+            GROUP BY suggested_action
+            ORDER BY count DESC
+            """,
+            (since,)
+        )
+        by_action = [dict(row) for row in cursor.fetchall()]
+
+        # By blocked reason
+        cursor = conn.execute(
+            """
+            SELECT
+                COALESCE(blocked_reason, 'none') as blocked_reason,
+                COUNT(*) as count
+            FROM thymos_shadow_log
+            WHERE suggested_at > ?
+            GROUP BY blocked_reason
+            ORDER BY count DESC
+            """,
+            (since,)
+        )
+        by_blocked_reason = [dict(row) for row in cursor.fetchall()]
+
+        # Would execute count
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM thymos_shadow_log WHERE suggested_at > ? AND would_execute = 1",
+            (since,)
+        )
+        would_execute_count = cursor.fetchone()[0]
+
+    return ShadowLogStats(
+        total=total,
+        by_need=by_need,
+        by_action=by_action,
+        by_blocked_reason=by_blocked_reason,
+        would_execute_count=would_execute_count,
+        would_execute_pct=(would_execute_count / total * 100) if total > 0 else 0,
+        period_days=days,
+    )
+
+
+@router.post("/shadow-log/{entry_id}/feedback")
+async def add_shadow_log_feedback(
+    entry_id: str,
+    request: ShadowLogFeedbackRequest,
+) -> dict:
+    """
+    Add feedback to a shadow log entry for calibration.
+
+    Mark whether a suggestion was helpful or not. This data
+    can be used to tune Thymos parameters over time.
+
+    Args:
+        entry_id: The shadow log entry ID
+        request: Feedback details (text and helpful boolean)
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT id FROM thymos_shadow_log WHERE id = ?",
+            (entry_id,)
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Shadow log entry not found")
+
+        conn.execute(
+            """
+            UPDATE thymos_shadow_log
+            SET feedback = ?, feedback_at = ?, feedback_helpful = ?
+            WHERE id = ?
+            """,
+            (request.feedback, datetime.now().isoformat(), request.helpful, entry_id)
+        )
+
+    return {"success": True, "entry_id": entry_id}
+
+
+@router.get("/need-action-map")
+async def get_need_action_mappings() -> dict:
+    """
+    Get the need → action mappings used by Thymos.
+
+    Shows which actions are suggested for each need type.
+    Useful for understanding and calibrating the system.
+    """
+    return {"mappings": get_need_action_map()}
+
+
 class AutoCareSettingsRequest(BaseModel):
     """Request to update auto-care settings."""
     enabled: Optional[bool] = None
@@ -377,6 +630,50 @@ async def update_auto_care_settings(request: AutoCareSettingsRequest) -> dict:
         enabled=request.enabled,
         threshold=request.threshold,
         cooldown_seconds=request.cooldown_seconds,
+    )
+
+
+# =============================================================================
+# TIMING CONFIGURATION
+# =============================================================================
+
+
+class TimingConfigRequest(BaseModel):
+    """Request to update timing configuration."""
+    tick_interval_seconds: Optional[float] = None
+    suggestion_cooldown_minutes: Optional[int] = None
+    snapshot_interval_events: Optional[int] = None
+
+
+@router.get("/timing")
+async def get_timing_config() -> dict:
+    """
+    Get current timing/tick configuration.
+
+    Returns tick interval (decay rate), suggestion cooldown, and snapshot interval.
+    """
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.get_timing_config()
+
+
+@router.post("/timing")
+async def update_timing_config(request: TimingConfigRequest) -> dict:
+    """
+    Update timing configuration.
+
+    - tick_interval_seconds: How often to apply decay (10-300s)
+    - suggestion_cooldown_minutes: Min time between suggestions for same need (1-120min)
+    - snapshot_interval_events: Save snapshot every N events (1-100)
+    """
+    if not _shadow_runner:
+        raise HTTPException(status_code=503, detail="Thymos not initialized")
+
+    return _shadow_runner.set_timing_config(
+        tick_interval_seconds=request.tick_interval_seconds,
+        suggestion_cooldown_minutes=request.suggestion_cooldown_minutes,
+        snapshot_interval_events=request.snapshot_interval_events,
     )
 
 

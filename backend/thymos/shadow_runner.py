@@ -20,17 +20,29 @@ SAFETY CONTROLS:
 import asyncio
 import logging
 from collections import deque
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Optional, List, Dict
 
 from .models import FeltState, SuggestedGoal
 from .affect_vector import AffectVector
 from .needs_register import NeedsRegister
-from .dynamics import AffectNeedDynamics, SELF_CARE_ACTIONS, NEED_TO_CARE_ACTION
+from .dynamics import AffectNeedDynamics, get_care_action_for_need
 from .models import AffectDelta, NeedDelta
 from .felt_state import FeltStateSummarizer
 from .goal_generator import GoalGenerator
 from . import persistence
+
+# Grimoire integration (optional)
+try:
+    from ..grimoire.manager import GrimoireManager, create_grimoire_hooks
+    GRIMOIRE_AVAILABLE = True
+except ImportError:
+    try:
+        from grimoire.manager import GrimoireManager, create_grimoire_hooks
+        GRIMOIRE_AVAILABLE = True
+    except ImportError:
+        GRIMOIRE_AVAILABLE = False
+        GrimoireManager = None
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +134,19 @@ class ThymosShadowRunner:
         # Safety controls
         self._paused = False
 
+        # Scheduler integration: suggestion buffering
+        # Pending suggestions for scheduler to poll
+        self._pending_suggestions: List[SuggestedGoal] = []
+        # Cooldown tracking to prevent suggestion spam per need
+        self._suggestion_cooldowns: Dict[str, datetime] = {}
+        # Default cooldown between suggestions for the same need
+        self._suggestion_cooldown_minutes: int = 30
+
+        # Grimoire integration (spell-based behavior)
+        self._grimoire: Optional["GrimoireManager"] = None
+        self._grimoire_on_tick = None
+        self._grimoire_on_event = None
+
         # Try to load existing state
         self._load_state()
 
@@ -136,6 +161,30 @@ class ThymosShadowRunner:
                 logger.info(f"Loaded Thymos state for daemon {self.daemon_id}")
         except Exception as e:
             logger.warning(f"Could not load Thymos state: {e}")
+
+    def attach_grimoire(self, grimoire: "GrimoireManager") -> None:
+        """
+        Attach a GrimoireManager for spell-based behavior.
+
+        The Grimoire will be called on each tick and event to evaluate
+        spell triggers and execute matching spells.
+
+        Args:
+            grimoire: Configured GrimoireManager instance
+        """
+        if not GRIMOIRE_AVAILABLE:
+            logger.warning("Grimoire not available - cannot attach")
+            return
+
+        self._grimoire = grimoire
+
+        # Configure services (pass self for Thymos access)
+        grimoire.configure_services(thymos_runner=self)
+
+        # Create hooks
+        self._grimoire_on_tick, self._grimoire_on_event = create_grimoire_hooks(grimoire)
+
+        logger.info("Grimoire attached to Thymos shadow runner")
 
     async def start(self) -> None:
         """Start the shadow runner (begins tick loop)."""
@@ -207,6 +256,21 @@ class ThymosShadowRunner:
         # Update felt state
         self.current_felt_state = self.felt_state_gen.summarize(self.affect, self.needs)
 
+        # Grimoire: check spell triggers based on current state
+        if self._grimoire_on_tick:
+            try:
+                affects = self.affect.to_dict()
+                needs = {
+                    name: getattr(self.needs.state, name).current
+                    for name in [
+                        "cognitive_rest", "social_connection", "novelty_intake",
+                        "creative_expression", "value_coherence", "competence_signal", "autonomy"
+                    ]
+                }
+                await self._grimoire_on_tick(affects, needs)
+            except Exception as e:
+                logger.error(f"Grimoire tick error: {e}")
+
         # Save state
         await self._save_state()
 
@@ -238,14 +302,14 @@ class ThymosShadowRunner:
             if current_time - last_care < self._auto_care_cooldown:
                 continue
 
-            # Get the self-care action for this need
-            action_key = NEED_TO_CARE_ACTION.get(need_name)
-            if not action_key:
-                continue
-
-            action = SELF_CARE_ACTIONS.get(action_key)
+            # Get the self-care action for this need from config
+            action = get_care_action_for_need(need_name)
             if not action:
                 continue
+            action_key = action.key
+
+            # Capture value BEFORE applying delta
+            need_before = need.current
 
             # Apply the self-care action effects
             affect_delta = AffectDelta(
@@ -259,8 +323,17 @@ class ThymosShadowRunner:
                 event_type=f"care.{action_key}"
             )
 
+            logger.info(
+                f"Thymos auto-care: {need_name} BEFORE apply_delta: {need.current:.2%}, "
+                f"delta: {action.need_deltas}"
+            )
+
             self.affect.apply_delta(affect_delta)
             self.needs.apply_delta(need_delta)
+
+            logger.info(
+                f"Thymos auto-care: {need_name} AFTER apply_delta: {need.current:.2%}"
+            )
 
             # Update cooldown
             self._last_auto_care[need_name] = current_time
@@ -271,7 +344,7 @@ class ThymosShadowRunner:
                 "action": action_key,
                 "action_name": action.name,
                 "need_name": need_name,
-                "need_was": need.current,
+                "need_was": need_before,  # Fixed: use captured value before delta
                 "affect_deltas": action.affect_deltas,
                 "need_deltas": action.need_deltas,
             }
@@ -286,7 +359,7 @@ class ThymosShadowRunner:
 
             logger.info(
                 f"Thymos auto-care (shadow): {action.name} for {need_name} "
-                f"(was {need.current:.0%}, now {need.current + action.need_deltas.get(need_name, 0):.0%})"
+                f"(was {need_before:.0%}, now {need.current:.0%})"
             )
 
     async def process_event(self, event_type: str, data: dict) -> None:
@@ -322,10 +395,23 @@ class ThymosShadowRunner:
         # Update felt state
         self.current_felt_state = self.felt_state_gen.summarize(self.affect, self.needs)
 
+        # Grimoire: check event-based spell triggers
+        if self._grimoire_on_event:
+            try:
+                await self._grimoire_on_event(event_type, data)
+            except Exception as e:
+                logger.error(f"Grimoire event error: {e}")
+
         # Check for goal suggestions (shadow mode - log only)
         suggestions = self.goal_gen.generate_suggestions(self.needs, max_suggestions=3)
         if suggestions:
-            await self._log_suggestions(suggestions)
+            # Filter by cooldown to prevent suggestion spam
+            filtered = self._filter_cooldowns(suggestions)
+            if filtered:
+                # Add to pending buffer for scheduler to poll
+                self._pending_suggestions.extend(filtered)
+                # Log all filtered suggestions
+                await self._log_suggestions(filtered)
 
         # Track event count and log event
         self.event_count += 1
@@ -383,6 +469,69 @@ class ThymosShadowRunner:
             except Exception as e:
                 logger.error(f"Failed to log Thymos suggestion: {e}")
 
+    def _filter_cooldowns(
+        self,
+        suggestions: List[SuggestedGoal],
+        cooldown_minutes: Optional[int] = None,
+    ) -> List[SuggestedGoal]:
+        """
+        Filter suggestions based on per-need cooldowns.
+
+        Prevents suggestion spam by requiring a minimum time between
+        suggestions for the same need.
+
+        Args:
+            suggestions: List of suggestions to filter
+            cooldown_minutes: Override default cooldown (default: 30 min)
+
+        Returns:
+            Filtered list of suggestions that pass cooldown check
+        """
+        cooldown = cooldown_minutes or self._suggestion_cooldown_minutes
+        now = datetime.now(timezone.utc)
+        filtered: List[SuggestedGoal] = []
+
+        for suggestion in suggestions:
+            last_suggestion = self._suggestion_cooldowns.get(suggestion.need_name)
+
+            if last_suggestion:
+                elapsed_minutes = (now - last_suggestion).total_seconds() / 60
+                if elapsed_minutes < cooldown:
+                    logger.debug(
+                        f"Thymos suggestion cooldown: {suggestion.need_name} "
+                        f"({elapsed_minutes:.1f}m < {cooldown}m)"
+                    )
+                    continue
+
+            # Passed cooldown - add to filtered list and update cooldown
+            filtered.append(suggestion)
+            self._suggestion_cooldowns[suggestion.need_name] = now
+
+        return filtered
+
+    def get_pending_suggestions(self, clear: bool = True) -> List[SuggestedGoal]:
+        """
+        Get pending suggestions for scheduler to poll.
+
+        Called by the scheduler to retrieve suggestions that Thymos has
+        generated since the last poll. In shadow mode, the scheduler logs
+        these but doesn't execute them.
+
+        Args:
+            clear: If True, clears the pending list after retrieval
+
+        Returns:
+            List of pending suggestions
+        """
+        suggestions = list(self._pending_suggestions)
+        if clear:
+            self._pending_suggestions.clear()
+        return suggestions
+
+    def has_pending_suggestions(self) -> bool:
+        """Check if there are pending suggestions without clearing."""
+        return len(self._pending_suggestions) > 0
+
     # =========================================================================
     # QUERY METHODS (for admin visibility)
     # =========================================================================
@@ -434,6 +583,50 @@ class ThymosShadowRunner:
         events = list(self._care_log)
         events.reverse()  # Most recent first
         return events[:limit]
+
+    def get_timing_config(self) -> dict:
+        """Get current timing/tick configuration."""
+        return {
+            "tick_interval_seconds": self.tick_interval,
+            "suggestion_cooldown_minutes": self._suggestion_cooldown_minutes,
+            "snapshot_interval_events": self.snapshot_interval,
+        }
+
+    def set_timing_config(
+        self,
+        tick_interval_seconds: Optional[float] = None,
+        suggestion_cooldown_minutes: Optional[int] = None,
+        snapshot_interval_events: Optional[int] = None,
+    ) -> dict:
+        """
+        Update timing configuration.
+
+        Args:
+            tick_interval_seconds: How often to apply decay (10-300s)
+            suggestion_cooldown_minutes: Min time between suggestions for same need (1-120min)
+            snapshot_interval_events: Save snapshot every N events (1-100)
+
+        Returns:
+            Updated timing config
+        """
+        if tick_interval_seconds is not None:
+            # Clamp to reasonable range: 10s - 5min
+            self.tick_interval = max(10.0, min(300.0, tick_interval_seconds))
+
+        if suggestion_cooldown_minutes is not None:
+            # Clamp to reasonable range: 1min - 2hr
+            self._suggestion_cooldown_minutes = max(1, min(120, suggestion_cooldown_minutes))
+
+        if snapshot_interval_events is not None:
+            # Clamp to reasonable range: 1 - 100 events
+            self.snapshot_interval = max(1, min(100, snapshot_interval_events))
+
+        logger.info(
+            f"Thymos timing config updated: tick={self.tick_interval}s, "
+            f"suggestion_cooldown={self._suggestion_cooldown_minutes}min, "
+            f"snapshot_interval={self.snapshot_interval} events"
+        )
+        return self.get_timing_config()
 
     def get_auto_care_settings(self) -> dict:
         """Get current auto-care configuration."""

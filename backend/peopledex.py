@@ -54,6 +54,8 @@ class AttributeType(Enum):
     BIO = "bio"             # Biographical notes
     NOTE = "note"           # Miscellaneous notes
     LOCATION = "location"   # Where they're based
+    LINK = "link"           # URLs (key: wikipedia/website/portfolio)
+    IMAGE_URL = "image_url" # Image URLs (key: portrait/artwork/etc)
 
 
 class RelationshipType(Enum):

@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 import anthropic
 
 from agent_client import get_temple_codex_kernel
+from config import DEFAULT_SESSION_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -105,18 +106,23 @@ class GenericSessionRunner:
     the full transcript for review.
     """
 
-    # Claude Sonnet pricing (as of Dec 2024)
-    INPUT_COST_PER_1K = 0.003
-    OUTPUT_COST_PER_1K = 0.015
+    # Model pricing per 1K tokens (updated for Haiku 4.5 / Sonnet defaults)
+    # These are approximations - actual cost depends on model used
+    MODEL_PRICING = {
+        "claude-haiku-4-5-20251001": {"input": 0.0008, "output": 0.004},
+        "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
+    }
+    DEFAULT_INPUT_COST_PER_1K = 0.001  # Fallback if model not in pricing table
+    DEFAULT_OUTPUT_COST_PER_1K = 0.005
 
     def __init__(
         self,
         data_dir: Path,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = None,  # Defaults to DEFAULT_SESSION_MODEL from config
         daemon_id: str = "cass",
     ):
         self.data_dir = Path(data_dir)
-        self.model = model
+        self.model = model or DEFAULT_SESSION_MODEL
         self.daemon_id = daemon_id
 
         # Session logs directory
@@ -313,10 +319,13 @@ class GenericSessionRunner:
         result.duration_seconds = (completed_at - started_at).total_seconds()
         result.total_turns = turn_count
 
-        # Calculate cost
+        # Calculate cost based on model pricing
+        pricing = self.MODEL_PRICING.get(self.model, {})
+        input_cost = pricing.get("input", self.DEFAULT_INPUT_COST_PER_1K)
+        output_cost = pricing.get("output", self.DEFAULT_OUTPUT_COST_PER_1K)
         result.estimated_cost_usd = (
-            (result.total_input_tokens / 1000) * self.INPUT_COST_PER_1K +
-            (result.total_output_tokens / 1000) * self.OUTPUT_COST_PER_1K
+            (result.total_input_tokens / 1000) * input_cost +
+            (result.total_output_tokens / 1000) * output_cost
         )
 
         # Save full session log

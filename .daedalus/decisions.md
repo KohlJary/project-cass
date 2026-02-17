@@ -2,6 +2,41 @@
 
 *Significant architectural and design decisions with rationale*
 
+## Grimoire ThymosBASIC DSL (Feb 2026)
+
+**Decision**: Use BASIC-inspired text DSL for daemon behavioral spells
+
+**Context**: Needed a way to define behavioral patterns that trigger on Thymos emotional/need state. These patterns should be editable, versionable, and human-readable.
+
+**Options considered**:
+1. JSON/YAML configuration (declarative)
+2. Python functions registered as handlers (code)
+3. Visual node-based editor only (graphical)
+4. Custom DSL (ThymosBASIC)
+
+**Approach**:
+- ThymosBASIC: BASIC-inspired syntax with `UNIT/END UNIT`, `IF/THEN/END IF`, `FOR/NEXT`
+- Trigger types: `ON need.X < Y`, `ON affect.X > Y`, `ON EVENT`, `ON TIMER`, `ON MANUAL`
+- Actions: `DELTA`, `CARE`, `TASK`, `EMIT`, `LOG`, `WAIT`, `CAST` (nested spells)
+- Agentic actions: `ASK`, `CHOOSE`, `RATE`, `GENERATE`, `REFLECT` (LLM calls)
+- Shadow mode: Agentic actions log intent but don't execute
+
+**Rationale**:
+- BASIC is readable by non-programmers (Kohl wanted visual editor eventually)
+- Text files are git-friendly and versionable
+- Spell triggers can be indexed for fast matching (vs. evaluating every handler)
+- Shadow mode allows validation before enabling real behavioral effects
+- Agentic actions give spells LLM reasoning capabilities
+
+**Trade-offs**:
+- Another DSL to maintain (parser, runtime, tooling)
+- Visual editor not yet built
+- Learning curve for spell authors
+
+**Future**: Visual node editor that compiles to/from ThymosBASIC
+
+---
+
 ## Entity Knowledge Architecture (Feb 2026)
 
 **Decision**: Keep users/PeopleDex split for now, plan consolidation for later

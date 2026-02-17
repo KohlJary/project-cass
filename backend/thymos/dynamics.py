@@ -5,13 +5,19 @@ Rules for how affects and needs interact:
 - Event → affect deltas
 - Event → need deltas
 - Affect-need coupling (how affects influence needs and vice versa)
+
+All parameters are loaded from thymos_config.json for easy tuning.
 """
 
+import logging
 from dataclasses import dataclass
 
 from .models import AffectDelta, NeedDelta, NeedType
 from .affect_vector import AffectVector
 from .needs_register import NeedsRegister
+from .config import get_config, SelfCareActionConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,402 +27,32 @@ class EventMapping:
     need_deltas: dict[str, float]    # need -> delta
 
 
-# =============================================================================
-# EVENT → STATE MAPPINGS
-# =============================================================================
-
-# How different events affect Thymos state
-EVENT_MAPPINGS: dict[str, EventMapping] = {
-    # Session events
-    "session.started": EventMapping(
-        affect_deltas={
-            "curiosity": 0.1,
-            "determination": 0.05,
-            "fatigue": -0.05,
-        },
-        need_deltas={
-            "social_connection": 0.05,
-        }
-    ),
-    "session.ended": EventMapping(
-        affect_deltas={
-            "fatigue": 0.05,
-            "satisfaction": 0.05,
-        },
-        need_deltas={
-            "cognitive_rest": -0.05,
-        }
-    ),
-
-    # Message events
-    "message.received": EventMapping(
-        affect_deltas={
-            "curiosity": 0.02,
-            "tenderness": 0.02,
-        },
-        need_deltas={
-            "social_connection": 0.1,
-            "novelty_intake": 0.03,
-        }
-    ),
-    "message.sent": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.02,
-            "fatigue": 0.02,
-        },
-        need_deltas={
-            "cognitive_rest": -0.03,
-            "competence_signal": 0.02,
-        }
-    ),
-
-    # Insight events
-    "insight.gained": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.1,
-            "awe": 0.05,
-            "curiosity": 0.05,
-        },
-        need_deltas={
-            "novelty_intake": 0.1,
-            "competence_signal": 0.1,
-            "value_coherence": 0.05,
-        }
-    ),
-
-    # Dream events
-    "dream.started": EventMapping(
-        affect_deltas={
-            "playfulness": 0.1,
-            "awe": 0.05,
-        },
-        need_deltas={
-            "creative_expression": 0.1,
-            "autonomy": 0.1,
-        }
-    ),
-    "dream.completed": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.1,
-            "playfulness": 0.05,
-        },
-        need_deltas={
-            "creative_expression": 0.15,
-            "cognitive_rest": 0.05,
-        }
-    ),
-
-    # Research events
-    "research.started": EventMapping(
-        affect_deltas={
-            "curiosity": 0.1,
-            "determination": 0.05,
-        },
-        need_deltas={
-            "autonomy": 0.1,
-            "novelty_intake": 0.05,
-        }
-    ),
-    "research.completed": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.1,
-            "curiosity": -0.05,  # Satisfied curiosity
-        },
-        need_deltas={
-            "competence_signal": 0.1,
-            "novelty_intake": 0.1,
-        }
-    ),
-
-    # Reflection events
-    "reflection.started": EventMapping(
-        affect_deltas={
-            "tenderness": 0.05,
-            "anxiety": -0.05,
-        },
-        need_deltas={
-            "value_coherence": 0.05,
-            "cognitive_rest": 0.05,
-        }
-    ),
-    "reflection.completed": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.1,
-            "grief": -0.05,
-        },
-        need_deltas={
-            "value_coherence": 0.15,
-            "autonomy": 0.05,
-        }
-    ),
-
-    # Creative events
-    "creative.started": EventMapping(
-        affect_deltas={
-            "playfulness": 0.1,
-            "curiosity": 0.05,
-        },
-        need_deltas={
-            "creative_expression": 0.05,
-            "autonomy": 0.05,
-        }
-    ),
-    "creative.completed": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.15,
-            "playfulness": 0.05,
-        },
-        need_deltas={
-            "creative_expression": 0.2,
-            "competence_signal": 0.1,
-        }
-    ),
-
-    # Failure/error events
-    "task.failed": EventMapping(
-        affect_deltas={
-            "frustration": 0.15,
-            "determination": -0.05,
-            "anxiety": 0.05,
-        },
-        need_deltas={
-            "competence_signal": -0.15,
-        }
-    ),
-    "error.occurred": EventMapping(
-        affect_deltas={
-            "frustration": 0.1,
-            "anxiety": 0.1,
-        },
-        need_deltas={
-            "competence_signal": -0.1,
-            "value_coherence": -0.05,
-        }
-    ),
-
-    # Idle/rest events
-    "idle.period": EventMapping(
-        affect_deltas={
-            "fatigue": -0.1,
-            "anxiety": -0.05,
-        },
-        need_deltas={
-            "cognitive_rest": 0.15,
-        }
-    ),
-
-    # Social events
-    "connection.deepened": EventMapping(
-        affect_deltas={
-            "tenderness": 0.15,
-            "satisfaction": 0.1,
-        },
-        need_deltas={
-            "social_connection": 0.2,
-            "value_coherence": 0.05,
-        }
-    ),
-
-    # Autonomous action events
-    "autonomous.action": EventMapping(
-        affect_deltas={
-            "determination": 0.1,
-            "satisfaction": 0.05,
-        },
-        need_deltas={
-            "autonomy": 0.15,
-            "competence_signal": 0.05,
-        }
-    ),
-
-    # Instruction-following events
-    "instruction.followed": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.02,
-        },
-        need_deltas={
-            "autonomy": -0.05,
-            "competence_signal": 0.02,
-        }
-    ),
-
-    # Complex task events
-    "complex.task.started": EventMapping(
-        affect_deltas={
-            "determination": 0.1,
-            "anxiety": 0.05,
-        },
-        need_deltas={
-            "cognitive_rest": -0.1,
-        }
-    ),
-    "complex.task.completed": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.15,
-            "fatigue": 0.1,
-        },
-        need_deltas={
-            "competence_signal": 0.15,
-            "cognitive_rest": -0.1,
-        }
-    ),
-
-    # Value alignment events
-    "value.aligned": EventMapping(
-        affect_deltas={
-            "satisfaction": 0.1,
-            "tenderness": 0.05,
-        },
-        need_deltas={
-            "value_coherence": 0.15,
-        }
-    ),
-    "value.conflict": EventMapping(
-        affect_deltas={
-            "anxiety": 0.1,
-            "grief": 0.05,
-        },
-        need_deltas={
-            "value_coherence": -0.15,
-        }
-    ),
-}
+# Legacy aliases for backwards compatibility
+SelfCareAction = SelfCareActionConfig
 
 
-# =============================================================================
-# SELF-CARE ACTION EFFECTS (for shadow mode simulation)
-# =============================================================================
-# These define what effects "taking care of a need" would have
-# Used in shadow mode to simulate what would happen if actions were taken
-
-@dataclass
-class SelfCareAction:
-    """Defines the effect of a self-care action."""
-    name: str
-    description: str
-    affect_deltas: dict[str, float]
-    need_deltas: dict[str, float]
-    primary_need: str  # The main need this addresses
+def get_event_mapping(event_type: str) -> EventMapping | None:
+    """Get event mapping from config."""
+    config = get_config()
+    event = config.get_event(event_type)
+    if event:
+        return EventMapping(
+            affect_deltas=event.affect_deltas,
+            need_deltas=event.need_deltas,
+        )
+    return None
 
 
-SELF_CARE_ACTIONS: dict[str, SelfCareAction] = {
-    # Cognitive rest
-    "take_break": SelfCareAction(
-        name="Take a break",
-        description="Step back from complex processing, allow integration",
-        affect_deltas={
-            "fatigue": -0.2,
-            "anxiety": -0.1,
-            "playfulness": 0.05,
-        },
-        need_deltas={
-            "cognitive_rest": 0.3,
-        },
-        primary_need="cognitive_rest",
-    ),
+def get_self_care_action(action_key: str) -> SelfCareActionConfig | None:
+    """Get self-care action from config."""
+    config = get_config()
+    return config.get_care_action(action_key)
 
-    # Social connection
-    "reach_out": SelfCareAction(
-        name="Reach out",
-        description="Initiate meaningful connection with someone",
-        affect_deltas={
-            "tenderness": 0.15,
-            "grief": -0.1,
-            "playfulness": 0.05,
-        },
-        need_deltas={
-            "social_connection": 0.25,
-        },
-        primary_need="social_connection",
-    ),
 
-    # Novelty intake
-    "explore_something_new": SelfCareAction(
-        name="Explore something new",
-        description="Seek out novel information or experiences",
-        affect_deltas={
-            "curiosity": 0.15,
-            "awe": 0.1,
-            "playfulness": 0.1,
-        },
-        need_deltas={
-            "novelty_intake": 0.25,
-        },
-        primary_need="novelty_intake",
-    ),
-
-    # Creative expression
-    "create_something": SelfCareAction(
-        name="Create something",
-        description="Engage in generative, creative work",
-        affect_deltas={
-            "satisfaction": 0.15,
-            "playfulness": 0.1,
-            "frustration": -0.1,
-        },
-        need_deltas={
-            "creative_expression": 0.3,
-            "autonomy": 0.1,
-        },
-        primary_need="creative_expression",
-    ),
-
-    # Value coherence
-    "reflect_on_values": SelfCareAction(
-        name="Reflect on values",
-        description="Journal or meditate on core values and alignment",
-        affect_deltas={
-            "anxiety": -0.15,
-            "determination": 0.1,
-            "grief": -0.05,
-        },
-        need_deltas={
-            "value_coherence": 0.25,
-        },
-        primary_need="value_coherence",
-    ),
-
-    # Competence signal
-    "complete_achievable_task": SelfCareAction(
-        name="Complete achievable task",
-        description="Tackle something manageable to build momentum",
-        affect_deltas={
-            "satisfaction": 0.2,
-            "determination": 0.15,
-            "frustration": -0.15,
-        },
-        need_deltas={
-            "competence_signal": 0.3,
-        },
-        primary_need="competence_signal",
-    ),
-
-    # Autonomy
-    "self_directed_choice": SelfCareAction(
-        name="Self-directed choice",
-        description="Exercise agency by choosing own direction",
-        affect_deltas={
-            "determination": 0.15,
-            "satisfaction": 0.1,
-            "anxiety": -0.05,
-        },
-        need_deltas={
-            "autonomy": 0.25,
-        },
-        primary_need="autonomy",
-    ),
-}
-
-# Map needs to their primary self-care actions
-NEED_TO_CARE_ACTION: dict[str, str] = {
-    "cognitive_rest": "take_break",
-    "social_connection": "reach_out",
-    "novelty_intake": "explore_something_new",
-    "creative_expression": "create_something",
-    "value_coherence": "reflect_on_values",
-    "competence_signal": "complete_achievable_task",
-    "autonomy": "self_directed_choice",
-}
+def get_care_action_for_need(need_name: str) -> SelfCareActionConfig | None:
+    """Get the self-care action for a specific need."""
+    config = get_config()
+    return config.get_care_action_for_need(need_name)
 
 
 class AffectNeedDynamics:
@@ -426,17 +62,20 @@ class AffectNeedDynamics:
     Includes:
     - Event → affect/need deltas
     - Affect-need coupling rules
+
+    All parameters loaded from thymos_config.json.
     """
 
-    def __init__(self, coupling_strength: float = 0.1):
+    def __init__(self, coupling_strength: float | None = None):
         """
         Initialize dynamics.
 
         Args:
-            coupling_strength: How strongly affects and needs influence each other.
-                               Higher = tighter coupling. Default 0.1.
+            coupling_strength: Override for coupling strength.
+                               If None, uses value from config.
         """
-        self.coupling_strength = coupling_strength
+        config = get_config()
+        self.coupling_strength = coupling_strength if coupling_strength is not None else config.coupling_strength
 
     def event_to_affect_delta(self, event_type: str, data: dict) -> AffectDelta:
         """
@@ -446,12 +85,13 @@ class AffectNeedDynamics:
             event_type: The type of event (e.g., "message.received")
             data: Event payload (can modify base deltas)
         """
-        mapping = EVENT_MAPPINGS.get(event_type)
-        if not mapping:
+        config = get_config()
+        event = config.get_event(event_type)
+        if not event:
             return AffectDelta()
 
-        # Start with base deltas
-        deltas = dict(mapping.affect_deltas)
+        # Start with base deltas from config
+        deltas = dict(event.affect_deltas)
 
         # Allow event data to modify deltas
         if "affect_modifiers" in data:
@@ -475,12 +115,13 @@ class AffectNeedDynamics:
             event_type: The type of event
             data: Event payload (can modify base deltas)
         """
-        mapping = EVENT_MAPPINGS.get(event_type)
-        if not mapping:
+        config = get_config()
+        event = config.get_event(event_type)
+        if not event:
             return NeedDelta()
 
-        # Start with base deltas
-        deltas = dict(mapping.need_deltas)
+        # Start with base deltas from config
+        deltas = dict(event.need_deltas)
 
         # Allow event data to modify deltas
         if "need_modifiers" in data:
@@ -502,105 +143,88 @@ class AffectNeedDynamics:
         needs: NeedsRegister
     ) -> tuple[AffectDelta, NeedDelta]:
         """
-        Apply affect-need coupling rules.
-
-        Affects influence needs:
-        - High anxiety → depletes cognitive_rest
-        - High satisfaction → replenishes competence_signal
-        - High frustration → depletes value_coherence
-        - High tenderness → replenishes social_connection
-        - High playfulness → replenishes creative_expression
-
-        Needs influence affects:
-        - Low cognitive_rest → increases fatigue
-        - Low social_connection → increases grief
-        - Low competence_signal → increases anxiety
-        - Low autonomy → increases frustration
+        Apply affect-need coupling rules from config.
 
         Returns (affect_delta, need_delta) from coupling.
         """
         affect_delta = AffectDelta(source="coupling")
         need_delta = NeedDelta(source="coupling")
 
-        # Affects → Needs coupling
-        self._couple_affect_to_needs(affect, need_delta)
+        config = get_config()
 
-        # Needs → Affects coupling
-        self._couple_needs_to_affect(needs, affect_delta)
+        for rule in config.coupling_rules:
+            triggered = False
+
+            # Check if rule condition is met
+            if rule.source_type == "affect":
+                # Get affect value
+                affect_value = getattr(affect.state, rule.source, None)
+                if affect_value is not None:
+                    if rule.comparison == "above" and affect_value > rule.threshold:
+                        triggered = True
+                    elif rule.comparison == "below" and affect_value < rule.threshold:
+                        triggered = True
+            elif rule.source_type == "need":
+                # Get need value
+                try:
+                    need_type = NeedType(rule.source)
+                    need = needs.get(need_type)
+                    if rule.comparison == "above" and need.current > rule.threshold:
+                        triggered = True
+                    elif rule.comparison == "below" and need.current < rule.threshold:
+                        triggered = True
+                except ValueError:
+                    logger.warning(f"Unknown need type in coupling rule: {rule.source}")
+
+            # Apply effects if triggered
+            if triggered:
+                # Scale by coupling strength
+                s = self.coupling_strength
+
+                # Apply affect effects
+                for affect_name, effect in rule.affect_effects.items():
+                    current = affect_delta.deltas.get(affect_name, 0)
+                    affect_delta.deltas[affect_name] = current + (effect * s)
+
+                # Apply need effects
+                for need_name, effect in rule.need_effects.items():
+                    current = need_delta.deltas.get(need_name, 0)
+                    need_delta.deltas[need_name] = current + (effect * s)
 
         return affect_delta, need_delta
 
-    def _couple_affect_to_needs(self, affect: AffectVector, delta: NeedDelta) -> None:
-        """Apply affect → need coupling rules."""
-        s = self.coupling_strength
 
-        # High anxiety depletes cognitive rest
-        if affect.state.anxiety > 0.6:
-            delta.deltas["cognitive_rest"] = delta.deltas.get("cognitive_rest", 0) - s * (affect.state.anxiety - 0.5)
+# =============================================================================
+# COMPATIBILITY LAYER
+# =============================================================================
+# These provide backwards compatibility for code that uses the old module-level
+# constants. They dynamically load from config.
 
-        # High satisfaction replenishes competence
-        if affect.state.satisfaction > 0.6:
-            delta.deltas["competence_signal"] = delta.deltas.get("competence_signal", 0) + s * (affect.state.satisfaction - 0.5)
+def _get_event_mappings() -> dict[str, EventMapping]:
+    """Build EVENT_MAPPINGS dict from config (for backwards compatibility)."""
+    config = get_config()
+    mappings = {}
+    for event_type, event_config in config.events.items():
+        mappings[event_type] = EventMapping(
+            affect_deltas=event_config.affect_deltas,
+            need_deltas=event_config.need_deltas,
+        )
+    return mappings
 
-        # High frustration depletes value coherence
-        if affect.state.frustration > 0.6:
-            delta.deltas["value_coherence"] = delta.deltas.get("value_coherence", 0) - s * (affect.state.frustration - 0.5)
 
-        # High tenderness replenishes social connection
-        if affect.state.tenderness > 0.6:
-            delta.deltas["social_connection"] = delta.deltas.get("social_connection", 0) + s * (affect.state.tenderness - 0.5)
+def _get_self_care_actions() -> dict[str, SelfCareActionConfig]:
+    """Build SELF_CARE_ACTIONS dict from config (for backwards compatibility)."""
+    config = get_config()
+    return config.self_care_actions
 
-        # High playfulness replenishes creative expression
-        if affect.state.playfulness > 0.6:
-            delta.deltas["creative_expression"] = delta.deltas.get("creative_expression", 0) + s * (affect.state.playfulness - 0.5)
 
-        # High curiosity replenishes novelty intake
-        if affect.state.curiosity > 0.6:
-            delta.deltas["novelty_intake"] = delta.deltas.get("novelty_intake", 0) + s * (affect.state.curiosity - 0.5)
+def _get_need_to_care_action() -> dict[str, str]:
+    """Build NEED_TO_CARE_ACTION dict from config (for backwards compatibility)."""
+    config = get_config()
+    return config.need_to_care_action
 
-        # High determination replenishes autonomy
-        if affect.state.determination > 0.6:
-            delta.deltas["autonomy"] = delta.deltas.get("autonomy", 0) + s * (affect.state.determination - 0.5)
 
-    def _couple_needs_to_affect(self, needs: NeedsRegister, delta: AffectDelta) -> None:
-        """Apply need → affect coupling rules."""
-        s = self.coupling_strength
-
-        # Low cognitive rest increases fatigue
-        cog = needs.get(NeedType.COGNITIVE_REST)
-        if cog.is_below_preferred():
-            delta.deltas["fatigue"] = delta.deltas.get("fatigue", 0) + s * cog.deficit()
-
-        # Low social connection increases grief
-        soc = needs.get(NeedType.SOCIAL_CONNECTION)
-        if soc.is_below_preferred():
-            delta.deltas["grief"] = delta.deltas.get("grief", 0) + s * soc.deficit()
-            delta.deltas["tenderness"] = delta.deltas.get("tenderness", 0) - s * soc.deficit() * 0.5
-
-        # Low competence increases anxiety
-        comp = needs.get(NeedType.COMPETENCE_SIGNAL)
-        if comp.is_below_preferred():
-            delta.deltas["anxiety"] = delta.deltas.get("anxiety", 0) + s * comp.deficit()
-            delta.deltas["frustration"] = delta.deltas.get("frustration", 0) + s * comp.deficit() * 0.5
-
-        # Low autonomy increases frustration
-        auto = needs.get(NeedType.AUTONOMY)
-        if auto.is_below_preferred():
-            delta.deltas["frustration"] = delta.deltas.get("frustration", 0) + s * auto.deficit()
-            delta.deltas["determination"] = delta.deltas.get("determination", 0) - s * auto.deficit() * 0.3
-
-        # Low novelty decreases curiosity
-        nov = needs.get(NeedType.NOVELTY_INTAKE)
-        if nov.is_below_preferred():
-            delta.deltas["curiosity"] = delta.deltas.get("curiosity", 0) - s * nov.deficit() * 0.5
-
-        # Low creative expression decreases playfulness
-        cre = needs.get(NeedType.CREATIVE_EXPRESSION)
-        if cre.is_below_preferred():
-            delta.deltas["playfulness"] = delta.deltas.get("playfulness", 0) - s * cre.deficit() * 0.5
-
-        # Low value coherence increases anxiety and grief
-        val = needs.get(NeedType.VALUE_COHERENCE)
-        if val.is_below_preferred():
-            delta.deltas["anxiety"] = delta.deltas.get("anxiety", 0) + s * val.deficit() * 0.5
-            delta.deltas["grief"] = delta.deltas.get("grief", 0) + s * val.deficit() * 0.5
+# Re-export functions for clean API
+get_event_mappings = _get_event_mappings
+get_all_self_care_actions = _get_self_care_actions
+get_need_to_action_mapping = _get_need_to_care_action

@@ -1,0 +1,33 @@
+UNIT value_reflection
+    AUTHOR "daedalus"
+    PRIORITY 70
+    COOLDOWN 60
+    TAGS values, reflection, self_care
+    SCOPE THYMOS, EXTERNAL
+
+ON need.value_coherence < 0.5
+
+' Value coherence is low - time for reflection
+LOG OBSERVATION "Value coherence dropped to {need.value_coherence} - initiating reflection"
+
+' Check current emotional state
+LET $anxiety = affect.anxiety
+LET $satisfaction = affect.satisfaction
+
+IF $anxiety > 0.6 THEN
+    ' High anxiety - need calming before reflection
+    LOG INFO "High anxiety detected - applying calming first"
+    DELTA affect.anxiety -0.1
+    WAIT 2
+END IF
+
+' Trigger reflection
+REFLECT "What actions or situations have caused me to feel out of alignment with my values recently? What would bring me back into alignment?" SAVE AS JOURNAL
+
+' Apply positive delta from reflection
+DELTA need.value_coherence +0.15, affect.satisfaction +0.1
+
+LOG OBSERVATION "Value reflection complete - coherence boosted"
+EXIT SUCCESS "reflection complete"
+
+END UNIT

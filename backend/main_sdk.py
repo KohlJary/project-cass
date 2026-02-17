@@ -64,7 +64,7 @@ from scripts.migrate_to_graph import populate_graph as populate_self_model_graph
 from calendar_manager import CalendarManager
 from task_manager import TaskManager
 from roadmap import RoadmapManager
-from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR, OPENAI_API_KEY, OLLAMA_BASE_URL, COHERENCE_MONITOR_ENABLED, COHERENCE_MONITOR_CONFIG, RELAY_ENABLED, RELAY_URL, RELAY_SECRET
+from config import HOST, PORT, AUTO_SUMMARY_INTERVAL, SUMMARY_CONTEXT_MESSAGES, ANTHROPIC_API_KEY, DATA_DIR, OPENAI_API_KEY, OLLAMA_BASE_URL, COHERENCE_MONITOR_ENABLED, COHERENCE_MONITOR_CONFIG, RELAY_ENABLED, RELAY_URL, RELAY_SECRET, DEFAULT_SESSION_MODEL
 from tts import text_to_speech, clean_text_for_tts, VOICES, preload_voice
 from handlers import (
     execute_journal_tool,
@@ -1266,7 +1266,7 @@ async def process_relay_chat_message(
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "provider": "anthropic",
-            "model": agent_client.model if hasattr(agent_client, 'model') else "claude-sonnet-4-20250514",
+            "model": agent_client.model if hasattr(agent_client, 'model') else DEFAULT_SESSION_MODEL,
         }
 
         conversation_manager.add_message(
@@ -1413,6 +1413,27 @@ async def startup_event():
 
     global_state_bus.subscribe("*", thymos_event_handler)
     logger.info("Thymos shadow runner started and subscribed to events")
+
+    # Initialize Grimoire spell system and attach to Thymos
+    # Spells run in shadow mode alongside Thymos - they observe state and log
+    # what actions they would take, without actually executing them yet
+    try:
+        from pathlib import Path
+        from grimoire import GrimoireManager
+
+        spells_dir = Path(__file__).parent / "spells"
+        if spells_dir.exists():
+            grimoire = GrimoireManager(
+                spells_directory=spells_dir,
+                shadow_mode=True,  # Log actions but don't execute
+                enable_trace=False,  # Disable verbose tracing in production
+            )
+            thymos_runner.attach_grimoire(grimoire)
+            logger.info(f"Grimoire attached with {len(grimoire.registry.spells)} spell(s)")
+        else:
+            logger.warning(f"Spells directory not found: {spells_dir}")
+    except Exception as e:
+        logger.error(f"Failed to initialize Grimoire: {e}")
 
     # Initialize relay client for remote access (if configured)
     if RELAY_ENABLED and RELAY_URL and RELAY_SECRET:
@@ -1769,7 +1790,7 @@ async def startup_event():
                     from session import GenericSessionRunner
                     session_runner = GenericSessionRunner(
                         data_dir=DATA_DIR,
-                        model="claude-sonnet-4-20250514",
+                        model=DEFAULT_SESSION_MODEL,
                         daemon_id=_daemon_id,
                     )
 
@@ -1879,6 +1900,18 @@ async def startup_event():
                     traceback.print_exc()
             else:
                 logger.info("Autonomous scheduling disabled by config")
+
+            # Wire Thymos to Synkratos for shadow mode suggestion logging
+            # Thymos generates suggestions based on needs, Synkratos logs what
+            # would have happened if they were executed (no actual execution yet)
+            synkratos.register_thymos_provider(thymos_runner)
+            try:
+                if action_registry is not None:
+                    synkratos.set_action_registry(action_registry)
+            except NameError:
+                # action_registry not initialized (autonomous scheduling disabled)
+                pass
+            logger.info("Thymos registered with Synkratos for shadow mode logging")
 
             # Start Synkratos
             asyncio.create_task(synkratos.start())

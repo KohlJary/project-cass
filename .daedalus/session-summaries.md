@@ -2,6 +2,53 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-17 - Grimoire Spell System
+
+**Branch**: feat/thymos-scheduler-integration
+**Summary**: Built ThymosBASIC DSL interpreter for daemon behavioral spells
+
+**Core Implementation** (`backend/grimoire/`):
+- `lexer.py`: Tokenizer for ThymosBASIC syntax
+- `ast.py`: AST node definitions (statements, triggers, expressions)
+- `parser.py`: Recursive descent parser building AST from source
+- `context.py`: RuntimeServices with ThymosInterface, SchedulerInterface, AgentInterface
+- `runtime.py`: Spellcaster async interpreter (715 lines)
+- `registry.py`: SpellRegistry for loading/indexing spells, trigger matching
+- `manager.py`: GrimoireManager integration layer with cooldowns, execution logs
+- `test_runtime.py`: Comprehensive tests (all 9 passing)
+
+**Language Features**:
+- Triggers: `ON need.X < Y`, `ON affect.X > Y`, `ON EVENT "name"`, `ON TIMER`, `ON MANUAL`
+- Control flow: `IF/ELSE/END IF`, `FOR $i = X TO Y`, `FOR EACH`, `WHILE`
+- Actions: `DELTA`, `CARE`, `TASK`, `EMIT`, `LOG`, `WAIT`, `RESET`, `CAST` (nested spells)
+- Agentic: `ASK`, `CHOOSE`, `RATE`, `GENERATE`, `REFLECT`
+- Variables: `LET $x = expr`, property access `affect.curiosity`, `need.novelty_intake`
+- Shadow mode: Agentic actions log but don't execute
+
+**Sample Spells** (`backend/spells/`):
+- `novelty_care.spell`: Triggers on low novelty, checks curiosity, suggests wonderland
+- `value_reflection.spell`: Triggers on low value_coherence, runs reflection, journals
+
+**Integration** (`backend/thymos/shadow_runner.py`):
+- `attach_grimoire()` method added
+- Hooks call Grimoire on each tick (need/affect triggers) and event
+
+**Remaining Work**:
+1. Wire up at startup (main_sdk.py) - attach GrimoireManager to ThymosShadowRunner
+2. Admin routes - view spells, execution logs, manual triggers
+3. Admin frontend - Grimoire visibility tab
+4. More spells - only 2 samples exist
+5. Timer trigger scheduler integration
+6. SAVE action (persistence) implementation
+
+**Bug Fix** (same session):
+- Fixed artist gallery including house style works - added `gi.style != 'house_style'` filter
+
+**Files**: 10+ created/modified
+**Key commits**: 4e1f081, 5a9ac4c, d5cbf91, 32ae1e2
+
+---
+
 ## 2026-02-16 - House Style System
 
 **Branch**: feat/house-style → main

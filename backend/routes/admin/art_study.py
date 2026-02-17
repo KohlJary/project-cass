@@ -663,6 +663,8 @@ async def list_artist_creations(artist_id: str) -> list[CreatedPieceResponse]:
     results = []
     with get_db() as conn:
         # Join creative_processes with generated_images to get all creations for this artist
+        # Exclude house_style works - those have multiple artists in studied_artists
+        # and should only appear in the house style gallery, not individual artist galleries
         rows = conn.execute("""
             SELECT
                 cp.id as process_id,
@@ -677,6 +679,7 @@ async def list_artist_creations(artist_id: str) -> list[CreatedPieceResponse]:
             JOIN generated_images gi ON cp.image_id = gi.id
             WHERE cp.daemon_id = ?
             AND cp.studied_artists LIKE ?
+            AND gi.style != 'house_style'
             ORDER BY cp.created_at DESC
         """, (_daemon_id, f'%{artist_id}%')).fetchall()
 

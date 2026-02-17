@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from .core import MemoryCore
-from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL
+from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_INTERNAL_MODEL
 
 
 class JournalManager:
@@ -215,7 +215,7 @@ Keep it to 2-4 paragraphs - meaningful but not exhaustive."""
             # Use Claude API (fallback or primary)
             client = anthropic.Anthropic(api_key=anthropic_api_key)
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -227,7 +227,7 @@ Keep it to 2-4 paragraphs - meaningful but not exhaustive."""
                     category="internal",
                     operation="journal_generation",
                     provider="anthropic",
-                    model="claude-sonnet-4-20250514",
+                    model=CLAUDE_INTERNAL_MODEL,
                     input_tokens=response.usage.input_tokens + cache_read,
                     output_tokens=response.usage.output_tokens,
                     cache_read_tokens=cache_read,
@@ -341,7 +341,7 @@ Be authentic and specific. Skip sections if genuinely nothing to note."""
             if result is None:
                 client = anthropic.Anthropic(api_key=anthropic_api_key)
                 response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model=CLAUDE_INTERNAL_MODEL,
                     max_tokens=800,
                     messages=[{"role": "user", "content": prompt}]
                 )
@@ -353,7 +353,7 @@ Be authentic and specific. Skip sections if genuinely nothing to note."""
                         category="internal",
                         operation="conversation_digest",
                         provider="anthropic",
-                        model="claude-sonnet-4-20250514",
+                        model=CLAUDE_INTERNAL_MODEL,
                         input_tokens=response.usage.input_tokens + cache_read,
                         output_tokens=response.usage.output_tokens,
                         cache_read_tokens=cache_read,
@@ -549,7 +549,7 @@ Write naturally and personally. Let your genuine voice come through."""
 
             client = anthropic.Anthropic(api_key=anthropic_api_key)
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -561,7 +561,7 @@ Write naturally and personally. Let your genuine voice come through."""
                     category="internal",
                     operation="journal_from_digests",
                     provider="anthropic",
-                    model="claude-sonnet-4-20250514",
+                    model=CLAUDE_INTERNAL_MODEL,
                     input_tokens=response.usage.input_tokens + cache_read,
                     output_tokens=response.usage.output_tokens,
                     cache_read_tokens=cache_read,
@@ -669,7 +669,7 @@ Observations (one per line, starting with "{display_name}"):"""
                 else:
                     client = anthropic.Anthropic(api_key=anthropic_api_key)
                     response = client.messages.create(
-                        model="claude-sonnet-4-20250514",
+                        model=CLAUDE_INTERNAL_MODEL,
                         max_tokens=500,
                         messages=[{"role": "user", "content": prompt}]
                     )
@@ -681,7 +681,7 @@ Observations (one per line, starting with "{display_name}"):"""
                             category="internal",
                             operation="observation_extraction",
                             provider="anthropic",
-                            model="claude-sonnet-4-20250514",
+                            model=CLAUDE_INTERNAL_MODEL,
                             input_tokens=response.usage.input_tokens + cache_read,
                             output_tokens=response.usage.output_tokens,
                             cache_read_tokens=cache_read,
