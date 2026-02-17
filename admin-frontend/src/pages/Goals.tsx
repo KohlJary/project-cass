@@ -100,7 +100,7 @@ interface GoalReview {
   recent_progress?: ProgressEntry[];
 }
 
-export default function Goals() {
+export function Goals() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [selectedAgendaItem, setSelectedAgendaItem] = useState<string | null>(null);

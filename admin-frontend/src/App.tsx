@@ -12,12 +12,15 @@ import { MemorySystem } from './pages/MemorySystem';
 import { SelfDevelopment } from './pages/SelfDevelopment';
 import { Settings } from './pages/Settings';
 import { Activity } from './pages/Activity';
-// Consolidated: Knowledge (Wiki + Research + Goals)
+// Knowledge hub + promoted standalone pages
 import { Knowledge } from './pages/Knowledge';
+import { Research } from './pages/Research';
+import { Wiki } from './pages/Wiki';
+import { Goals } from './pages/Goals';
 // Remaining standalone views
 import { Users } from './pages/Users';
 import { UserProfile } from './pages/UserProfile';
-import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
+// ConsciousnessHealth now embedded in Mind page
 import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
 import { Dreams } from './pages/Dreams';
@@ -28,7 +31,9 @@ import { Architecture } from './pages/Architecture';
 import { Wonderland } from './pages/Wonderland';
 import { PeopleDex } from './pages/PeopleDex';
 import { News } from './pages/News';
-import { Thymos } from './pages/Thymos';
+// Thymos now embedded in Mind page
+import { Mind } from './pages/Mind';
+import { Agency } from './pages/Agency';
 import { Gallery } from './pages/Gallery';
 import { ArtStudy } from './pages/ArtStudy';
 import { Grimoire } from './pages/Grimoire';
@@ -125,13 +130,13 @@ function AppRoutes() {
         <Route path="reflection" element={<AdminRoute><Navigate to="/activity?tab=reflection" replace /></AdminRoute>} />
         <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
         <Route path="knowledge" element={<AdminRoute><Knowledge /></AdminRoute>} />
-        <Route path="wiki" element={<AdminRoute><Navigate to="/knowledge?tab=wiki" replace /></AdminRoute>} />
-        <Route path="research" element={<AdminRoute><Navigate to="/knowledge?tab=research" replace /></AdminRoute>} />
-        <Route path="goals" element={<AdminRoute><Navigate to="/knowledge?tab=goals" replace /></AdminRoute>} />
+        <Route path="wiki" element={<AdminRoute><Wiki /></AdminRoute>} />
+        <Route path="research" element={<AdminRoute><Research /></AdminRoute>} />
+        <Route path="goals" element={<AdminRoute><Goals /></AdminRoute>} />
         <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
         <Route path="system" element={<AdminRoute><Navigate to="/settings?tab=health" replace /></AdminRoute>} />
         <Route path="data" element={<AdminRoute><Navigate to="/settings?tab=export" replace /></AdminRoute>} />
-        <Route path="consciousness" element={<AdminRoute><ConsciousnessHealth /></AdminRoute>} />
+        <Route path="consciousness" element={<AdminRoute><Navigate to="/mind?tab=consciousness" replace /></AdminRoute>} />
         <Route path="dreams" element={<AdminRoute><Dreams /></AdminRoute>} />
         <Route path="metrics" element={<AdminRoute><Metrics /></AdminRoute>} />
         <Route path="projects" element={<AdminRoute><Projects /></AdminRoute>} />
@@ -140,7 +145,12 @@ function AppRoutes() {
         <Route path="wonderland" element={<AdminRoute><Wonderland /></AdminRoute>} />
         <Route path="peopledex" element={<AdminRoute><PeopleDex /></AdminRoute>} />
         <Route path="news" element={<AdminRoute><News /></AdminRoute>} />
-        <Route path="thymos" element={<AdminRoute><Thymos /></AdminRoute>} />
+        {/* Mind hub - unified emotional/cognitive state */}
+        <Route path="mind" element={<AdminRoute><Mind /></AdminRoute>} />
+        {/* Legacy routes redirect to Mind tabs */}
+        <Route path="thymos" element={<AdminRoute><Navigate to="/mind?tab=thymos" replace /></AdminRoute>} />
+        {/* Agency - autonomous goal formation and outreach */}
+        <Route path="agency" element={<AdminRoute><Agency /></AdminRoute>} />
         <Route path="gallery" element={<AdminRoute><Gallery /></AdminRoute>} />
         <Route path="art-study" element={<AdminRoute><ArtStudy /></AdminRoute>} />
         <Route path="grimoire" element={<AdminRoute><Grimoire /></AdminRoute>} />

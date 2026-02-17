@@ -1063,3 +1063,149 @@
   padding: 0.5rem;
   font-style: italic;
 }
+
+/* =============================================================================
+   AGENCY CARD - Quick summary with link to full Agency page
+   ============================================================================= */
+
+.row-4 {
+  grid-template-columns: 1fr;
+}
+
+.agency-card {
+  min-height: 160px;
+}
+
+.agency-card .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+}
+
+.agency-card .card-header h3 {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.agency-card .view-all-link {
+  font-size: 0.75rem;
+  color: var(--accent, #c792ea);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.agency-card .view-all-link:hover {
+  color: var(--text-primary, #e0e0e0);
+}
+
+.agency-quick-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.agency-quick-stats .quick-stat {
+  text-align: center;
+}
+
+.agency-quick-stats .stat-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.agency-quick-stats .stat-label {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--text-muted, #666);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.agency-quick-stats .quick-stat.highlight .stat-value {
+  color: #FF9800;
+}
+
+.autonomy-preview {
+  background: var(--bg-tertiary, #1a1a1a);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.autonomy-preview .preview-label {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--text-muted, #666);
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.autonomy-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.autonomy-badge {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.autonomy-badge.graduated {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4CAF50;
+}
+
+.autonomy-badge.learning {
+  background: rgba(255, 152, 0, 0.15);
+  color: #FF9800;
+}
+
+.review-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 6px;
+  color: #FF9800;
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.review-cta:hover {
+  background: rgba(255, 152, 0, 0.2);
+  border-color: rgba(255, 152, 0, 0.5);
+}
+
+.review-cta .cta-icon {
+  font-size: 1rem;
+}
+
+.agency-empty {
+  text-align: center;
+  padding: 1rem;
+  color: var(--text-muted, #666);
+}
+
+.agency-empty p {
+  margin: 0.25rem 0;
+}
+
+.agency-empty .empty-hint {
+  font-size: 0.75rem;
+  font-style: italic;
+}

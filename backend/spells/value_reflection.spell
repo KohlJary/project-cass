@@ -12,7 +12,7 @@ LOG OBSERVATION "Value coherence dropped to {need.value_coherence} - initiating 
 
 ' Check current emotional state
 LET $anxiety = affect.anxiety
-LET $satisfaction = affect.satisfaction
+LET $frustration = affect.frustration
 
 IF $anxiety > 0.6 THEN
     ' High anxiety - need calming before reflection
@@ -21,11 +21,16 @@ IF $anxiety > 0.6 THEN
     WAIT 2
 END IF
 
+IF $frustration > 0.5 THEN
+    ' High frustration - address it during reflection
+    LOG INFO "High frustration detected - will address in reflection"
+END IF
+
 ' Trigger reflection
 REFLECT "What actions or situations have caused me to feel out of alignment with my values recently? What would bring me back into alignment?" SAVE AS JOURNAL
 
-' Apply positive delta from reflection
-DELTA need.value_coherence +0.15, affect.satisfaction +0.1
+' Apply positive delta from reflection (also reduce frustration which drains value_coherence via coupling)
+DELTA need.value_coherence +0.25, affect.satisfaction +0.1, affect.frustration -0.15
 
 LOG OBSERVATION "Value reflection complete - coherence boosted"
 EXIT SUCCESS "reflection complete"

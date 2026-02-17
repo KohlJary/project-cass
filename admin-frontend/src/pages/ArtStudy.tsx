@@ -1,26 +1,9 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { artStudyApi } from '../api/client';
-import type { ArtworkResponse, AdoptedElementResponse, PersonalStyleResponse, HouseStyleCreatedPiece } from '../api/client';
+import type { ArtworkResponse, HouseStyleCreatedPiece } from '../api/client';
+import type { ModalType, TabType, MainViewType, GalleryItem } from './artstudy/types';
 import './ArtStudy.css';
-
-type ModalType = 'create-artist' | 'create-artwork' | 'view-study' | 'view-created' | 'view-house-style-created' | null;
-type TabType = 'overview' | 'artworks' | 'observations' | 'synthesis';
-type MainViewType = 'artists' | 'house-style' | 'gallery';
-
-// Unified gallery item type
-interface GalleryItem {
-  id: string;
-  filename: string;
-  title: string;
-  artist_statement: string;
-  prompt_used: string;
-  source: 'artist' | 'house-style';
-  source_name?: string;  // Artist name if source is 'artist'
-  elements: string[];    // borrowed_elements or elements_used
-  style_aspects?: string[];
-  style_version?: number;
-}
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'Never';

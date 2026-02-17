@@ -1,0 +1,362 @@
+/**
+ * Mind.css - Styles for the Mind hub page
+ */
+
+.mind-page {
+  padding: 1.5rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.mind-page .page-header {
+  margin-bottom: 1.5rem;
+}
+
+.mind-page .page-header h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  margin: 0 0 0.25rem 0;
+}
+
+.mind-page .subtitle {
+  color: var(--text-secondary, #888);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* Navigation Tabs */
+.mind-tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-secondary, #1a1a1a);
+  padding: 0.25rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.mind-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.mind-tabs button:hover {
+  background: var(--bg-tertiary, #252525);
+  color: var(--text-primary, #e0e0e0);
+}
+
+.mind-tabs button.active {
+  background: var(--accent-primary, #6a5acd);
+  color: #fff;
+}
+
+.mind-tabs .tab-icon {
+  font-size: 1rem;
+}
+
+/* Tab Content */
+.mind-tab-content {
+  min-height: 60vh;
+}
+
+/* Overview Grid */
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+/* Mind Cards */
+.mind-card {
+  background: var(--bg-secondary, #1a1a1a);
+  border-radius: 12px;
+  padding: 1.25rem;
+  border: 1px solid var(--border-color, #333);
+}
+
+.mind-card h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.mind-card .card-loading {
+  color: var(--text-secondary, #888);
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+/* Quick Stats */
+.thymos-quick-stats,
+.consciousness-quick-stats,
+.self-model-quick-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.quick-stat {
+  text-align: center;
+}
+
+.quick-stat .stat-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.quick-stat .stat-value {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.quick-stat .stat-value.positive { color: #4CAF50; }
+.quick-stat .stat-value.negative { color: #f44336; }
+.quick-stat .stat-value.neutral { color: #888; }
+.quick-stat .stat-value.excellent { color: #4CAF50; }
+.quick-stat .stat-value.good { color: #8BC34A; }
+.quick-stat .stat-value.warning { color: #FF9800; }
+.quick-stat .stat-value.critical { color: #f44336; }
+.quick-stat .stat-value.healthy { color: #4CAF50; }
+.quick-stat .stat-value.unhealthy { color: #f44336; }
+
+/* Thymos Card */
+.felt-state-mini {
+  background: var(--bg-tertiary, #252525);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-left: 3px solid var(--accent-primary, #6a5acd);
+}
+
+.felt-state-mini.positive { border-left-color: #4CAF50; }
+.felt-state-mini.negative { border-left-color: #f44336; }
+.felt-state-mini.neutral { border-left-color: #888; }
+.felt-state-mini.curious { border-left-color: #4ecdc4; }
+.felt-state-mini.calm { border-left-color: #27ae60; }
+.felt-state-mini.engaged { border-left-color: #45b7d1; }
+
+.felt-state-mini p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary, #e0e0e0);
+  line-height: 1.4;
+}
+
+.dominant-affect {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #888);
+  margin-bottom: 0.5rem;
+}
+
+.dominant-affect .affect-name {
+  color: var(--accent-primary, #6a5acd);
+  text-transform: capitalize;
+}
+
+.urgent-needs {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.urgent-needs .urgent-label {
+  font-size: 0.75rem;
+  color: #f44336;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.urgent-needs .urgent-need {
+  display: inline-block;
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  margin-right: 0.25rem;
+  text-transform: capitalize;
+}
+
+/* Consciousness Card */
+.consciousness-summary {
+  background: var(--bg-tertiary, #252525);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.consciousness-summary p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary, #e0e0e0);
+  line-height: 1.4;
+}
+
+.consciousness-indicators {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.consciousness-indicators .indicator {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+}
+
+.consciousness-indicators .indicator.active {
+  color: #4CAF50;
+}
+
+.consciousness-indicators .indicator.inactive {
+  color: #666;
+}
+
+.consciousness-indicators .indicator.experiment {
+  color: #FF9800;
+}
+
+/* Self-Model Card */
+.capabilities-preview {
+  background: var(--bg-tertiary, #252525);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.capabilities-preview .preview-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.capabilities-preview .preview-list {
+  font-size: 0.85rem;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.pending-edges {
+  margin-top: 0.5rem;
+}
+
+.pending-edges .pending-badge {
+  display: inline-block;
+  background: rgba(255, 152, 0, 0.2);
+  color: #FF9800;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+/* Overview Navigation */
+.overview-navigation {
+  text-align: center;
+  padding: 1rem;
+  background: var(--bg-secondary, #1a1a1a);
+  border-radius: 8px;
+}
+
+.overview-navigation .nav-hint {
+  margin: 0;
+  color: var(--text-secondary, #888);
+  font-size: 0.9rem;
+}
+
+/* Embedded Tabs */
+.thymos-tab.embedded,
+.consciousness-tab.embedded {
+  /* Remove padding from embedded pages to avoid double padding */
+  margin: -1rem;
+}
+
+.thymos-tab.embedded .thymos-page,
+.consciousness-tab.embedded .consciousness-health {
+  /* Reset the embedded page's own padding */
+  padding: 0;
+}
+
+.thymos-tab.embedded .page-header,
+.consciousness-tab.embedded .page-header {
+  /* Hide the embedded page's header since Mind has its own */
+  display: none;
+}
+
+/* Self-Model Tab */
+.self-model-tab .redirect-notice {
+  background: var(--bg-secondary, #1a1a1a);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.self-model-tab .redirect-notice p {
+  margin: 0 0 1rem 0;
+  color: var(--text-secondary, #888);
+}
+
+.self-model-tab .self-model-link {
+  display: inline-block;
+  background: var(--accent-primary, #6a5acd);
+  color: #fff;
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
+}
+
+.self-model-tab .self-model-link:hover {
+  background: var(--accent-hover, #7b6bd4);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .mind-page {
+    padding: 1rem;
+  }
+
+  .mind-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mind-tabs button {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .thymos-quick-stats,
+  .consciousness-quick-stats,
+  .self-model-quick-stats {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+}

@@ -1,0 +1,124 @@
+/**
+ * ThymosPill.css - Styles for the compact emotional state indicator
+ */
+
+.thymos-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--bg-secondary, #1a1a1a);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 16px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.thymos-pill:hover {
+  background: var(--bg-tertiary, #252525);
+  border-color: var(--accent-primary, #6a5acd);
+}
+
+/* Loading State */
+.thymos-pill.loading {
+  opacity: 0.6;
+}
+
+.thymos-pill.loading .pill-icon {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Offline State */
+.thymos-pill.offline {
+  opacity: 0.5;
+  border-color: #444;
+}
+
+.thymos-pill.offline:hover {
+  opacity: 0.7;
+}
+
+/* Icon */
+.pill-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.pill-icon.positive { color: #4CAF50; }
+.pill-icon.negative { color: #f44336; }
+.pill-icon.neutral { color: #888; }
+
+/* Health */
+.pill-health {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.25px;
+}
+
+.pill-health.excellent { color: #4CAF50; }
+.pill-health.good { color: #8BC34A; }
+.pill-health.warning { color: #FF9800; }
+.pill-health.critical { color: #f44336; }
+
+/* Text (for loading) */
+.pill-text {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #888);
+}
+
+/* Urgent Indicator */
+.urgent-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  background: #f44336;
+  border-radius: 50%;
+  border: 2px solid var(--bg-primary, #0a0a0a);
+  animation: urgent-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes urgent-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.8; }
+}
+
+/* Urgent State Border */
+.thymos-pill.urgent {
+  border-color: rgba(244, 67, 54, 0.5);
+}
+
+.thymos-pill.urgent:hover {
+  border-color: #f44336;
+}
+
+/* Valence-based border glow */
+.thymos-pill.positive {
+  box-shadow: 0 0 0 1px rgba(76, 175, 80, 0.1);
+}
+
+.thymos-pill.negative {
+  box-shadow: 0 0 0 1px rgba(244, 67, 54, 0.1);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .thymos-pill {
+    padding: 0.25rem 0.5rem;
+  }
+
+  .pill-icon {
+    font-size: 0.8rem;
+  }
+
+  .pill-health {
+    font-size: 0.7rem;
+  }
+}
