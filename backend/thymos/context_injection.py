@@ -161,3 +161,74 @@ def _describe_arousal(arousal: float) -> str:
         return "moderate"
     else:
         return "low"
+
+
+def apply_feel_deltas(feels: list) -> bool:
+    """
+    Apply affect modulation from parsed feel tags.
+
+    Takes a list of ParsedFeel objects (from gestures.py) and applies
+    the deltas to Thymos affect state. This allows Cass to modulate
+    her emotional state through inline tags in responses.
+
+    Args:
+        feels: List of ParsedFeel objects with dimension and delta fields
+
+    Returns:
+        True if any deltas were applied, False otherwise
+
+    Example:
+        from gestures import ResponseProcessor
+        processor = ResponseProcessor()
+        result = processor.process(response_text)
+        apply_feel_deltas(result["feels"])
+    """
+    if _thymos_runner is None or not feels:
+        return False
+
+    try:
+        from .models import AffectDelta, AffectDimension
+
+        # Collect all deltas first
+        delta_dict = {}
+        for feel in feels:
+            # Validate dimension
+            try:
+                AffectDimension(feel.dimension)  # Validates it's a valid dimension
+            except ValueError:
+                logger.warning(f"Invalid affect dimension: {feel.dimension}")
+                continue
+
+            # Accumulate deltas (multiple feels for same dimension add up)
+            delta_dict[feel.dimension] = delta_dict.get(feel.dimension, 0) + feel.delta
+            logger.debug(f"Feel delta: {feel.dimension} {feel.delta:+.2f}")
+
+        if not delta_dict:
+            return False
+
+        # Create and apply single delta with all dimensions
+        affect_delta = AffectDelta(deltas=delta_dict, source="feel_tag")
+        _thymos_runner.affect.apply_delta(affect_delta)
+        applied = True
+
+        logger.info(f"Applied feel deltas: {delta_dict}")
+
+        # Update felt state after applying deltas
+        if applied:
+            _thymos_runner._update_felt_state()
+            logger.info(f"Applied {len(feels)} feel modulation(s) to Thymos")
+
+        return applied
+
+    except Exception as e:
+        logger.warning(f"Failed to apply feel deltas: {e}")
+        return False
+
+
+async def apply_feel_deltas_async(feels: list) -> bool:
+    """
+    Async version of apply_feel_deltas for use in async contexts.
+
+    Wraps the synchronous apply_feel_deltas function.
+    """
+    return apply_feel_deltas(feels)

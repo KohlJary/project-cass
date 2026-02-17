@@ -76,6 +76,8 @@ from .context_injection import (
     get_thymos_context,
     get_thymos_context_compact,
     get_thymos_state_dict,
+    apply_feel_deltas,
+    apply_feel_deltas_async,
 )
 
 __all__ = [
@@ -119,4 +121,6 @@ __all__ = [
     "get_thymos_context",
     "get_thymos_context_compact",
     "get_thymos_state_dict",
+    "apply_feel_deltas",
+    "apply_feel_deltas_async",
 ]
