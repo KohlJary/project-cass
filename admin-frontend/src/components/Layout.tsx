@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDaemon } from '../context/DaemonContext';
 import { GenesisNotification } from './GenesisNotification';
+import { ThymosPill } from './ThymosPill';
 import './Layout.css';
 
 interface NavItem {
@@ -209,7 +210,10 @@ export function Layout() {
       {/* Sidebar - hidden on mobile when closed */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'collapsed'} ${isMobile ? 'mobile-sidebar' : ''}`}>
         <div className="sidebar-header">
-          <h1>Cass Admin</h1>
+          <div className="sidebar-title-row">
+            <h1>Cass Admin</h1>
+            <ThymosPill />
+          </div>
           <div className="daemon-selector">
             {daemonLoading ? (
               <span className="daemon-loading">Loading...</span>
