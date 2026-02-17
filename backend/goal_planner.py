@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 from unified_goals import (
     UnifiedGoalManager, Goal, GoalType, GoalStatus,
     LinkType, Priority, Urgency
@@ -92,7 +92,7 @@ class GoalPlanner:
         daemon_id: str,
         state_bus: Optional["GlobalStateBus"] = None,
         api_key: str = None,
-        model: str = "claude-3-5-haiku-20241022",
+        model: str = CLAUDE_INTERNAL_MODEL,
     ):
         self._daemon_id = daemon_id
         self._state_bus = state_bus

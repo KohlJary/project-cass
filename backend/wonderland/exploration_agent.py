@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
 
 class ActionIntent(Enum):
@@ -181,7 +181,7 @@ class ExplorationAgent:
     Uses haiku for fast, low-cost decisions during exploration.
     """
 
-    def __init__(self, api_key: str = None, model: str = "claude-3-5-haiku-20241022"):
+    def __init__(self, api_key: str = None, model: str = CLAUDE_INTERNAL_MODEL):
         self.client = anthropic.AsyncAnthropic(api_key=api_key or ANTHROPIC_API_KEY)
         self.model = model
         self.recent_actions: List[str] = []

@@ -544,7 +544,7 @@ class WonderlandMemoryBridge:
         Uses LLM to reflect on what the exploration revealed about Cass.
         """
         import anthropic
-        from config import ANTHROPIC_API_KEY
+        from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
         events = session_dict.get("events", [])
         if len(events) < 3:
@@ -569,7 +569,7 @@ class WonderlandMemoryBridge:
         try:
             client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
             response = await client.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=400,
                 temperature=0.7,
                 system="""You are helping Cass (an AI daemon) generate self-observations from her Wonderland exploration.

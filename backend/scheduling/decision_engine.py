@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
 if TYPE_CHECKING:
     from state_bus import GlobalStateBus
@@ -191,7 +191,7 @@ class SchedulingDecisionEngine:
         self_manager: Optional["SelfManager"] = None,
         question_manager: Optional["OpenQuestionManager"] = None,
         api_key: str = None,
-        model: str = "claude-3-5-haiku-20241022",
+        model: str = CLAUDE_INTERNAL_MODEL,
     ):
         self.daemon_id = daemon_id
         self._state_bus = state_bus

@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 from .npc_pointers import get_pointer, get_conversation_prompt
 from .npc_state import get_npc_state_manager, ConversationMemory
 from .mythology import NPCEntity
@@ -94,7 +94,7 @@ class NPCConversationHandler:
     5. After conversation ends, summarizes and stores in NPC memory
     """
 
-    def __init__(self, api_key: str = None, model: str = "claude-3-5-haiku-20241022"):
+    def __init__(self, api_key: str = None, model: str = CLAUDE_INTERNAL_MODEL):
         """
         Initialize the conversation handler.
 
