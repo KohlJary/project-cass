@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { artStudyApi } from '../api/client';
-import type { ArtworkResponse, AdoptedElementResponse, PersonalStyleResponse, HouseStyleCreatedPiece } from '../api/client';
+import type { ArtworkResponse, HouseStyleCreatedPiece } from '../api/client';
 import './ArtStudy.css';
 
 type ModalType = 'create-artist' | 'create-artwork' | 'view-study' | 'view-created' | 'view-house-style-created' | null;
