@@ -297,6 +297,7 @@
 .recognition-badge.user { color: #89ddff; }
 .recognition-badge.hold { color: #c3e88d; }
 .recognition-badge.intention { color: #82aaff; }
+.recognition-badge.feel { color: #c792ea; }
 
 /* Input Form */
 .chat-input-form {
