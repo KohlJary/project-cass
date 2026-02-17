@@ -7,7 +7,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchDashboardData } from '../api/graphql';
 import type { DashboardData } from '../api/graphql';
-import type { SchedulerStatus } from '../api/client';
+import type { SchedulerStatus, ExecutionLogEntry } from '../api/client';
+import { grimoireApi } from '../api/client';
 import { SchedulePanel } from '../components/SchedulePanel';
 import { ChatWidget } from '../components/ChatWidget';
 import { Goals } from './Goals';
@@ -23,6 +24,69 @@ import {
   AgencyCard,
 } from './dashboard';
 import './Dashboard.css';
+
+// =============================================================================
+// ACTIVITY TAB CONTENT
+// =============================================================================
+
+function ActivityTabContent() {
+  const { data: executionLog, isLoading: logLoading } = useQuery({
+    queryKey: ['grimoireExecutionLog'],
+    queryFn: () => grimoireApi.getExecutionLog(30),
+    refetchInterval: 15000, // Refresh every 15 seconds
+  });
+
+  return (
+    <div className="activity-tab-content">
+      {/* Autonomous Schedule */}
+      <div className="activity-section">
+        <SchedulePanel className="embedded-schedule" />
+      </div>
+
+      {/* Grimoire Executions */}
+      <div className="activity-section grimoire-section">
+        <div className="section-header">
+          <h3>🔮 Spell Executions</h3>
+        </div>
+        {logLoading ? (
+          <div className="loading-message">Loading spell log...</div>
+        ) : !executionLog?.data || executionLog.data.length === 0 ? (
+          <div className="empty-message">No spell executions yet</div>
+        ) : (
+          <div className="execution-log">
+            {executionLog.data.map((entry: ExecutionLogEntry, i: number) => (
+              <div
+                key={`${entry.spell_name}-${entry.timestamp || i}`}
+                className={`execution-entry ${entry.status}`}
+              >
+                <div className="entry-header">
+                  <span className="spell-name">{entry.spell_name}</span>
+                  <span className={`status-badge ${entry.status}`}>
+                    {entry.status}
+                  </span>
+                </div>
+                <div className="entry-details">
+                  <span className="trigger-type">{entry.trigger_type}</span>
+                  {entry.reason && (
+                    <span className="reason">{entry.reason}</span>
+                  )}
+                  <span className="duration">
+                    {entry.execution_time_ms.toFixed(0)}ms
+                  </span>
+                </div>
+                {entry.timestamp && (
+                  <div className="entry-time">
+                    {new Date(entry.timestamp).toLocaleTimeString()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // =============================================================================
 // OVERVIEW TAB CONTENT
@@ -78,7 +142,7 @@ function OverviewTabContent({
 // MAIN DASHBOARD
 // =============================================================================
 
-type DashboardTab = 'overview' | 'goals';
+type DashboardTab = 'overview' | 'activity' | 'goals';
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
@@ -121,13 +185,8 @@ export function Dashboard() {
   }
 
   return (
-    <div className="dashboard-layout">
-      {/* Left Panel: Autonomous Schedule */}
-      <aside className="dashboard-left-panel">
-        <SchedulePanel />
-      </aside>
-
-      {/* Center: Main Dashboard with Tabs */}
+    <div className="dashboard-layout two-column">
+      {/* Main Dashboard with Tabs */}
       <main className="dashboard-center">
         <header className="dashboard-header">
           <div className="header-content">
@@ -139,6 +198,13 @@ export function Dashboard() {
               >
                 <span className="tab-icon">◎</span>
                 Overview
+              </button>
+              <button
+                className={`dashboard-tab ${activeTab === 'activity' ? 'active' : ''}`}
+                onClick={() => setActiveTab('activity')}
+              >
+                <span className="tab-icon">◐</span>
+                Activity
               </button>
               <button
                 className={`dashboard-tab ${activeTab === 'goals' ? 'active' : ''}`}
@@ -162,6 +228,7 @@ export function Dashboard() {
               onReject={reject}
             />
           )}
+          {activeTab === 'activity' && <ActivityTabContent />}
           {activeTab === 'goals' && (
             <div className="goals-tab-wrapper">
               <Goals />
