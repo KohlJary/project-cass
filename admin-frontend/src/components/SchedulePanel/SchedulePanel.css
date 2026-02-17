@@ -241,6 +241,28 @@
   gap: 8px;
 }
 
+.work-detail-body.two-column {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(200px, 2fr);
+  gap: 16px;
+}
+
+.detail-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-info {
+  /* Task metadata column */
+}
+
+.detail-narrative {
+  /* Summary/Focus/Motivation column */
+  border-left: 1px solid var(--border-color, #2a2a4a);
+  padding-left: 16px;
+}
+
 .detail-row {
   display: flex;
   justify-content: space-between;
