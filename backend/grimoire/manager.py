@@ -93,6 +93,9 @@ class GrimoireManager:
         self._execution_log: list[SpellExecutionResult] = []
         self._max_log_entries = 100
 
+        # Phase queue manager reference (for QUEUE statements)
+        self._phase_queue_manager: Optional[Any] = None
+
         # Load spells if directory provided
         if spells_directory:
             self.load_spells(spells_directory)
@@ -106,6 +109,11 @@ class GrimoireManager:
         count = self.registry.load_directory(directory)
         logger.info(f"Grimoire loaded {count} spells from {directory}")
         return count
+
+    def set_phase_queue_manager(self, manager: Any) -> None:
+        """Set the phase queue manager for QUEUE statements."""
+        self._phase_queue_manager = manager
+        logger.info("Phase queue manager configured for Grimoire")
 
     def _load_persisted_state(self) -> None:
         """Load spell state from database."""
@@ -209,6 +217,7 @@ class GrimoireManager:
             log_observation=lambda msg: logger.info(f"[Spell/Observation] {msg}"),
             current_time=time.time,
             load_spell=self._load_spell_by_name,
+            queue_for_phase=self._queue_for_phase_bridge,
         )
 
         # Create Spellcaster
@@ -433,6 +442,86 @@ class GrimoireManager:
     async def _load_spell_by_name(self, name: str) -> Optional[Spell]:
         """Load a spell by name (for CAST action)."""
         return self.registry.get_spell(name)
+
+    async def _queue_for_phase_bridge(
+        self,
+        action: str,
+        phase: str,
+        priority: int,
+        parameters: dict[str, Any],
+        source_spell: str,
+    ) -> bool:
+        """
+        Bridge function for QUEUE statements to PhaseQueueManager.
+
+        Converts Grimoire-style parameters to PhaseQueueManager's WorkUnit format.
+        """
+        if not self._phase_queue_manager:
+            logger.warning("No phase queue manager configured - cannot queue work")
+            return False
+
+        try:
+            # Import scheduling modules
+            from scheduling.day_phase import DayPhase
+            from scheduling.templates import WORK_TEMPLATES
+            from scheduling.work_unit import WorkUnit, WorkPriority
+
+            # Map phase string to DayPhase enum
+            phase_map = {
+                "morning": DayPhase.MORNING,
+                "afternoon": DayPhase.AFTERNOON,
+                "evening": DayPhase.EVENING,
+                "night": DayPhase.NIGHT,
+            }
+            target_phase = phase_map.get(phase.lower())
+            if not target_phase:
+                logger.error(f"Unknown phase: {phase}")
+                return False
+
+            # Check if action is a template ID
+            template = WORK_TEMPLATES.get(action)
+            if template:
+                # Instantiate work unit from template
+                work_unit = template.instantiate(
+                    focus=parameters.get("focus"),
+                    motivation=parameters.get("motivation", f"Queued by spell: {source_spell}"),
+                    duration_override=parameters.get("duration"),
+                    priority_override=WorkPriority(priority) if priority in range(5) else None,
+                )
+            else:
+                # Create a simple work unit for direct action reference
+                import uuid
+                work_unit = WorkUnit(
+                    id=str(uuid.uuid4()),
+                    name=f"Spell-queued: {action}",
+                    description=f"Queued by {source_spell}",
+                    action_sequence=[action],  # Single action
+                    template_id=None,
+                    estimated_duration_minutes=parameters.get("duration", 15),
+                    estimated_cost_usd=parameters.get("cost", 0.01),
+                    priority=WorkPriority(priority) if priority in range(5) else WorkPriority.NORMAL,
+                    focus=parameters.get("focus"),
+                    motivation=parameters.get("motivation", f"Queued by spell: {source_spell}"),
+                    category=parameters.get("category", "reflection"),
+                )
+
+            # Queue the work unit
+            success = self._phase_queue_manager.queue_for_phase(
+                work_unit=work_unit,
+                target_phase=target_phase,
+                priority=priority,
+            )
+
+            if success:
+                logger.info(
+                    f"Spell {source_spell} queued {action} for {phase} phase "
+                    f"(priority {priority})"
+                )
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to queue work from spell: {e}", exc_info=True)
+            return False
 
     # =========================================================================
     # TRIGGER EVALUATION AND EXECUTION
