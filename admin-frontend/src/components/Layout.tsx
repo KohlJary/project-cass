@@ -1,11 +1,74 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDaemon } from '../context/DaemonContext';
 import { GenesisNotification } from './GenesisNotification';
 import './Layout.css';
 
-// Nav items available to all authenticated users
-const userNavItems = [
+interface NavItem {
+  path: string;
+  label: string;
+  icon: string;
+}
+
+interface NavGroup {
+  label: string;
+  icon: string;
+  items: NavItem[];
+}
+
+// Primary nav items - always visible (7 items max)
+const primaryNavItems: NavItem[] = [
+  { path: '/', label: 'Dashboard', icon: '~' },
+  { path: '/chat', label: 'Chat', icon: 'C' },
+  { path: '/mind', label: 'Mind', icon: 'θ' },
+  { path: '/memory', label: 'Memory', icon: 'M' },
+  { path: '/grimoire', label: 'Grimoire', icon: '✦' },
+  { path: '/agency', label: 'Agency', icon: '◈' },
+  { path: '/knowledge', label: 'Knowledge', icon: 'K' },
+];
+
+// Grouped nav items - collapsible sections
+const navGroups: NavGroup[] = [
+  {
+    label: 'Tools',
+    icon: '⚙',
+    items: [
+      { path: '/projects', label: 'Projects', icon: 'P' },
+      { path: '/dreams', label: 'Dreams', icon: 'D' },
+      { path: '/gallery', label: 'Gallery', icon: '▣' },
+      { path: '/art-study', label: 'Art Study', icon: '♠' },
+      { path: '/wonderland', label: 'Wonderland', icon: 'W' },
+    ],
+  },
+  {
+    label: 'People',
+    icon: '♺',
+    items: [
+      { path: '/peopledex', label: 'PeopleDex', icon: '♺' },
+      { path: '/news', label: 'News', icon: 'N' },
+      { path: '/homepage', label: 'GeoCass', icon: '~' },
+      { path: '/genesis', label: 'Genesis', icon: '*' },
+    ],
+  },
+  {
+    label: 'System',
+    icon: '!',
+    items: [
+      { path: '/activity', label: 'Activity', icon: '>' },
+      { path: '/consciousness', label: 'Consciousness', icon: '♡' },
+      { path: '/self-development', label: 'Self-Dev', icon: '%' },
+      { path: '/users', label: 'Users', icon: '@' },
+      { path: '/settings', label: 'Settings', icon: '!' },
+      { path: '/metrics', label: 'Metrics', icon: '$' },
+      { path: '/architecture', label: 'Architecture', icon: 'A' },
+      { path: '/feedback', label: 'Feedback', icon: '?' },
+    ],
+  },
+];
+
+// Nav items available to non-admin users
+const userNavItems: NavItem[] = [
   { path: '/chat', label: 'Chat', icon: 'C' },
   { path: '/genesis', label: 'Genesis', icon: '*' },
   { path: '/self-development', label: 'Self-Dev', icon: '%' },
@@ -13,43 +76,138 @@ const userNavItems = [
   { path: '/feedback', label: 'Feedback', icon: '?' },
 ];
 
-// Nav items only available to admins
-const adminNavItems = [
-  { path: '/', label: 'Dashboard', icon: '~' },
+// Mobile bottom nav - most important 4 items
+const mobileNavItems: NavItem[] = [
+  { path: '/', label: 'Home', icon: '~' },
   { path: '/chat', label: 'Chat', icon: 'C' },
-  { path: '/genesis', label: 'Genesis', icon: '*' },
-  { path: '/memory', label: 'Memory', icon: 'M' },
-  { path: '/self-development', label: 'Self-Dev', icon: '%' },
-  { path: '/activity', label: 'Activity', icon: '>' },
-  { path: '/knowledge', label: 'Knowledge', icon: 'K' },
-  { path: '/news', label: 'News', icon: 'N' },
-  { path: '/projects', label: 'Projects', icon: 'P' },
-  { path: '/consciousness', label: 'Consciousness', icon: '♡' },
-  { path: '/thymos', label: 'Thymos', icon: 'θ' },
+  { path: '/mind', label: 'Mind', icon: 'θ' },
   { path: '/grimoire', label: 'Grimoire', icon: '✦' },
-  { path: '/dreams', label: 'Dreams', icon: 'D' },
-  { path: '/gallery', label: 'Gallery', icon: '▣' },
-  { path: '/art-study', label: 'Art Study', icon: '🎨' },
-  { path: '/wonderland', label: 'Wonderland', icon: 'W' },
-  { path: '/peopledex', label: 'PeopleDex', icon: '♺' },
-  { path: '/homepage', label: 'GeoCass', icon: '~' },
-  { path: '/architecture', label: 'Architecture', icon: 'A' },
-  { path: '/users', label: 'Users', icon: '@' },
-  { path: '/metrics', label: 'Metrics', icon: 'M' },
-  { path: '/settings', label: 'Settings', icon: '!' },
-  { path: '/feedback', label: 'Feedback', icon: '?' },
 ];
+
+function NavItemLink({ item, end = false }: { item: NavItem; end?: boolean }) {
+  return (
+    <NavLink
+      to={item.path}
+      className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+      end={end}
+    >
+      <span className="nav-icon">{item.icon}</span>
+      <span className="nav-label">{item.label}</span>
+    </NavLink>
+  );
+}
+
+function CollapsibleNavGroup({ group, defaultOpen = false }: { group: NavGroup; defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const location = useLocation();
+
+  // Auto-expand if current path is in this group
+  useEffect(() => {
+    const isInGroup = group.items.some(item => location.pathname === item.path);
+    if (isInGroup && !isOpen) {
+      setIsOpen(true);
+    }
+  }, [location.pathname, group.items]);
+
+  return (
+    <div className={`nav-group ${isOpen ? 'open' : ''}`}>
+      <button
+        className="nav-group-header"
+        onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+      >
+        <span className="nav-group-icon">{group.icon}</span>
+        <span className="nav-group-label">{group.label}</span>
+        <span className="nav-group-chevron">{isOpen ? '▾' : '▸'}</span>
+      </button>
+      {isOpen && (
+        <div className="nav-group-items">
+          {group.items.map((item) => (
+            <NavItemLink key={item.path} item={item} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Layout() {
   const { user, logout, isAdmin } = useAuth();
   const { currentDaemon, availableDaemons, isLoading: daemonLoading, setDaemon } = useDaemon();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
 
-  // Use appropriate nav items based on role
-  const navItems = isAdmin ? adminNavItems : userNavItems;
+  // Handle responsive behavior
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      const tablet = window.innerWidth < 1024;
+      setIsMobile(mobile);
+      // Auto-collapse sidebar on tablet
+      if (tablet && !mobile) {
+        setSidebarOpen(false);
+      } else if (!tablet) {
+        setSidebarOpen(true);
+      }
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // For non-admin users, show simplified nav
+  if (!isAdmin) {
+    return (
+      <div className="layout">
+        <aside className={`sidebar ${sidebarOpen ? 'open' : 'collapsed'}`}>
+          <div className="sidebar-header">
+            <h1>Cass</h1>
+            <button
+              className="sidebar-toggle mobile-only"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            >
+              {sidebarOpen ? '✕' : '☰'}
+            </button>
+          </div>
+          <nav className="nav">
+            {userNavItems.map((item) => (
+              <NavItemLink key={item.path} item={item} />
+            ))}
+          </nav>
+          <div className="sidebar-footer">
+            <div className="user-info">
+              <span className="user-name">{user?.display_name}</span>
+              <button className="logout-btn" onClick={logout}>
+                Logout
+              </button>
+            </div>
+          </div>
+        </aside>
+        <main className="main-content">
+          <GenesisNotification />
+          <Outlet />
+        </main>
+      </div>
+    );
+  }
 
   return (
-    <div className="layout">
-      <aside className="sidebar">
+    <div className={`layout ${isMobile ? 'mobile' : ''}`}>
+      {/* Mobile hamburger */}
+      {isMobile && (
+        <button
+          className="mobile-menu-toggle"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+        >
+          {sidebarOpen ? '✕' : '☰'}
+        </button>
+      )}
+
+      {/* Sidebar - hidden on mobile when closed */}
+      <aside className={`sidebar ${sidebarOpen ? 'open' : 'collapsed'} ${isMobile ? 'mobile-sidebar' : ''}`}>
         <div className="sidebar-header">
           <h1>Cass Admin</h1>
           <div className="daemon-selector">
@@ -72,21 +230,26 @@ export function Layout() {
             )}
           </div>
         </div>
+
         <nav className="nav">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `nav-item ${isActive ? 'active' : ''}`
-              }
-              end={item.path === '/'}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
-            </NavLink>
-          ))}
+          {/* Primary navigation */}
+          <div className="nav-section primary">
+            {primaryNavItems.map((item) => (
+              <NavItemLink key={item.path} item={item} end={item.path === '/'} />
+            ))}
+          </div>
+
+          {/* Divider */}
+          <div className="nav-divider" />
+
+          {/* Grouped navigation */}
+          <div className="nav-section groups">
+            {navGroups.map((group) => (
+              <CollapsibleNavGroup key={group.label} group={group} />
+            ))}
+          </div>
         </nav>
+
         <div className="sidebar-footer">
           <div className="social-links">
             <a href="https://github.com/KohlJary/project-cass" target="_blank" rel="noopener noreferrer" title="GitHub">
@@ -108,10 +271,40 @@ export function Layout() {
           </div>
         </div>
       </aside>
+
+      {/* Mobile overlay */}
+      {isMobile && sidebarOpen && (
+        <div className="mobile-overlay" onClick={() => setSidebarOpen(false)} />
+      )}
+
       <main className="main-content">
         <GenesisNotification />
         <Outlet />
       </main>
+
+      {/* Mobile bottom nav */}
+      {isMobile && (
+        <nav className="mobile-bottom-nav">
+          {mobileNavItems.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={({ isActive }) => `mobile-nav-item ${isActive ? 'active' : ''}`}
+              end={item.path === '/'}
+            >
+              <span className="mobile-nav-icon">{item.icon}</span>
+              <span className="mobile-nav-label">{item.label}</span>
+            </NavLink>
+          ))}
+          <button
+            className="mobile-nav-item"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <span className="mobile-nav-icon">☰</span>
+            <span className="mobile-nav-label">More</span>
+          </button>
+        </nav>
+      )}
     </div>
   );
 }

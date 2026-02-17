@@ -12,6 +12,26 @@
   display: flex;
   flex-direction: column;
   padding: 1rem 0;
+  transition: transform 0.2s ease, width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 60px;
+}
+
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .nav-group-label,
+.sidebar.collapsed .nav-group-chevron,
+.sidebar.collapsed .daemon-selector,
+.sidebar.collapsed .social-links,
+.sidebar.collapsed .user-name,
+.sidebar.collapsed .admin-badge {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-header h1 {
+  font-size: 1rem;
+  text-align: center;
 }
 
 .sidebar-header {
@@ -85,8 +105,28 @@
   flex-direction: column;
   gap: 0.25rem;
   padding: 0 0.5rem;
+  overflow-y: auto;
 }
 
+/* Nav sections */
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.nav-section.primary .nav-item {
+  font-weight: 500;
+}
+
+/* Nav divider */
+.nav-divider {
+  height: 1px;
+  background: #2a2a2a;
+  margin: 0.75rem 0.5rem;
+}
+
+/* Nav items */
 .nav-item {
   display: flex;
   align-items: center;
@@ -115,6 +155,7 @@
   width: 1.25rem;
   text-align: center;
   color: #666;
+  flex-shrink: 0;
 }
 
 .nav-item.active .nav-icon {
@@ -123,12 +164,85 @@
 
 .nav-label {
   font-family: system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsible nav groups */
+.nav-group {
+  margin-top: 0.25rem;
+}
+
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  color: #666;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: none;
+  border: none;
+  width: 100%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.nav-group-header:hover {
+  background-color: #1a1a1a;
+  color: #888;
+}
+
+.nav-group.open .nav-group-header {
+  color: #888;
+}
+
+.nav-group-icon {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.875rem;
+  width: 1.25rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nav-group-label {
+  flex: 1;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.nav-group-chevron {
+  font-size: 0.75rem;
+  color: #555;
+}
+
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-left: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.nav-group-items .nav-item {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.nav-group-items .nav-icon {
+  font-size: 0.875rem;
+  width: 1rem;
 }
 
 /* Sidebar footer */
 .sidebar-footer {
   padding: 1rem;
   border-top: 1px solid #2a2a2a;
+  margin-top: auto;
 }
 
 .social-links {
@@ -155,6 +269,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .user-name {
@@ -219,4 +334,182 @@
 .main-content:has(.chat-page) {
   padding: 0;
   overflow: hidden;
+}
+
+/* Mobile menu toggle */
+.mobile-menu-toggle {
+  display: none;
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 1001;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  color: #ccc;
+  font-size: 1.25rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mobile-menu-toggle:hover {
+  background: #252525;
+  border-color: #3a3a3a;
+}
+
+.sidebar-toggle {
+  display: none;
+}
+
+/* Mobile overlay */
+.mobile-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+/* Mobile bottom nav */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #141414;
+  border-top: 1px solid #2a2a2a;
+  padding: 0.5rem;
+  z-index: 100;
+}
+
+.mobile-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  color: #666;
+  text-decoration: none;
+  font-size: 0.625rem;
+  border-radius: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mobile-nav-item:hover,
+.mobile-nav-item.active {
+  color: #c792ea;
+  background: #1f1f2e;
+}
+
+.mobile-nav-icon {
+  font-size: 1.25rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.mobile-nav-label {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-weight: 500;
+}
+
+/* Responsive: Tablet (768px - 1024px) */
+@media (max-width: 1024px) and (min-width: 768px) {
+  .sidebar {
+    width: 60px;
+  }
+
+  .sidebar .nav-label,
+  .sidebar .nav-group-label,
+  .sidebar .nav-group-chevron,
+  .sidebar .daemon-selector,
+  .sidebar .social-links,
+  .sidebar .user-name,
+  .sidebar .admin-badge {
+    display: none;
+  }
+
+  .sidebar .sidebar-header h1 {
+    font-size: 0.875rem;
+    text-align: center;
+  }
+
+  .sidebar .nav-group-items {
+    padding-left: 0;
+  }
+
+  .sidebar .nav-item,
+  .sidebar .nav-group-header {
+    justify-content: center;
+    padding: 0.75rem;
+  }
+
+  .sidebar .nav-icon,
+  .sidebar .nav-group-icon {
+    margin: 0;
+  }
+
+  .main-content {
+    padding: 1.5rem;
+  }
+}
+
+/* Responsive: Mobile (< 768px) */
+@media (max-width: 767px) {
+  .layout.mobile {
+    flex-direction: column;
+  }
+
+  .layout.mobile .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 1000;
+    transform: translateX(-100%);
+    width: 280px;
+  }
+
+  .layout.mobile .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .layout.mobile .mobile-overlay {
+    display: block;
+  }
+
+  .layout.mobile .mobile-menu-toggle {
+    display: block;
+  }
+
+  .layout.mobile .mobile-bottom-nav {
+    display: flex;
+    justify-content: space-around;
+  }
+
+  .layout.mobile .main-content {
+    padding: 4rem 1rem 5rem;
+  }
+
+  .layout.mobile .main-content:has(.chat-page) {
+    padding: 3.5rem 0 4rem;
+  }
+}
+
+/* Hide mobile-only elements on desktop */
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .mobile-only {
+    display: block;
+  }
 }

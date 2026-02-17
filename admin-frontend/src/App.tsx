@@ -141,6 +141,10 @@ function AppRoutes() {
         <Route path="peopledex" element={<AdminRoute><PeopleDex /></AdminRoute>} />
         <Route path="news" element={<AdminRoute><News /></AdminRoute>} />
         <Route path="thymos" element={<AdminRoute><Thymos /></AdminRoute>} />
+        {/* Mind hub - redirects to thymos until Phase 4 builds actual Mind page */}
+        <Route path="mind" element={<AdminRoute><Navigate to="/thymos" replace /></AdminRoute>} />
+        {/* Agency - redirects to dashboard agency tab until Phase 5 builds dedicated page */}
+        <Route path="agency" element={<AdminRoute><Navigate to="/?tab=agency" replace /></AdminRoute>} />
         <Route path="gallery" element={<AdminRoute><Gallery /></AdminRoute>} />
         <Route path="art-study" element={<AdminRoute><ArtStudy /></AdminRoute>} />
         <Route path="grimoire" element={<AdminRoute><Grimoire /></AdminRoute>} />
