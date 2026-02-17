@@ -2,6 +2,35 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-17 - Admin Frontend Refactor & Thymos Fix
+
+**Branch**: refactor/api-domains → main (squashed and merged)
+**Summary**: Major admin-frontend restructuring across 9 phases, slaying complexity monsters. Also diagnosed and fixed a Thymos value_coherence bug.
+
+**Admin Frontend Refactor (Phases 1-9)**:
+- Phase 1: Split api/client.ts into 17 domain modules (2429 → 19 lines)
+- Phase 2: Consolidated navigation from 24 items to 7 primary + 3 collapsible groups
+- Phase 3: Extracted dashboard cards to modular components (754 → 187 lines)
+- Phase 4: Created Mind hub unifying Thymos + Consciousness + Self-Model, added ThymosPill to sidebar
+- Phase 5: Promoted Agency to top-level page
+- Phase 6: Promoted Wiki/Research to standalone routes, deleted duplicate tabs (-3151 lines)
+- Phase 7: Promoted Goals to standalone route (-891 lines)
+- Phase 8: Extracted Projects types and modals into submodules (-454 lines)
+- Phase 9: Extracted ArtStudy types into submodule
+
+**Thymos Bug Fix**:
+- Issue: value_coherence showed "urgent" despite value_reflection spell firing
+- Root cause: frustration > 0.5 triggers coupling rule draining value_coherence at -0.02/tick
+- Over an hour: coupling (-0.12) + decay (-0.01) = -0.13, overwhelming the +0.15 spell delta
+- Fix: Increased spell delta to +0.25, added frustration reduction (-0.15) to break feedback loop
+
+**Monsters Slain**: 9 total (api-client-hydra, nav-cerberus, thymos-chimera, agency-tab-minotaur, wiki-tab-minotaur, research-tab-minotaur, goals-tab-minotaur, projects-minotaur, artstudy-minotaur)
+
+**Stats**: 55 files changed, +5,802 / -7,615 lines (net -1,813 lines removed)
+**Key commit**: 3c46b82
+
+---
+
 ## 2026-02-17 - Grimoire Admin & Spell Library
 
 **Branch**: feat/grimoire-admin → main
