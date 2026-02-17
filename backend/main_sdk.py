@@ -1430,7 +1430,7 @@ async def startup_event():
         if spells_dir.exists():
             _grimoire = GrimoireManager(
                 spells_directory=spells_dir,
-                shadow_mode=True,  # Log actions but don't execute
+                shadow_mode=False,  # Execute spell actions (QUEUE, TASK, etc.)
                 enable_trace=False,  # Disable verbose tracing in production
                 daemon_id=_daemon_id,  # Enable persistence
             )

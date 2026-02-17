@@ -54,6 +54,10 @@ class AutonomousScheduler:
     # Whether to plan remaining phases on startup (if not morning)
     PLAN_ON_STARTUP = True
 
+    # When True, skip LLM-based planning - Grimoire spells handle work queuing
+    # via QUEUE statements in phase routine spells (morning_routine, phase_*, etc.)
+    USE_SPELL_PLANNING = True
+
     def __init__(
         self,
         synkratos: "Synkratos",
@@ -171,13 +175,20 @@ class AutonomousScheduler:
             return
 
         self._running = True
-        logger.info("Autonomous scheduler started (plan-based mode)")
 
-        # Plan the day if enabled and not already planned today
-        # Brief delay to allow DayPhaseTracker to emit initial state to state bus
-        if self.PLAN_ON_STARTUP:
-            await asyncio.sleep(0.5)  # Allow phase tracker to initialize state
-            await self._maybe_plan_day()
+        if self.USE_SPELL_PLANNING:
+            logger.info(
+                "Autonomous scheduler started (spell-based mode) - "
+                "Grimoire phase spells will queue work via QUEUE statements"
+            )
+        else:
+            logger.info("Autonomous scheduler started (LLM plan-based mode)")
+
+            # Plan the day if enabled and not already planned today
+            # Brief delay to allow DayPhaseTracker to emit initial state to state bus
+            if self.PLAN_ON_STARTUP:
+                await asyncio.sleep(0.5)  # Allow phase tracker to initialize state
+                await self._maybe_plan_day()
 
     async def stop(self) -> None:
         """Stop the autonomous scheduler."""
@@ -215,6 +226,12 @@ class AutonomousScheduler:
 
     async def _maybe_plan_day(self) -> None:
         """Plan the day if we haven't already planned today."""
+        # When spell-based planning is enabled, Grimoire handles work queuing
+        # via phase routine spells (morning_routine.spell, etc.)
+        if self.USE_SPELL_PLANNING:
+            logger.debug("Spell-based planning enabled - skipping LLM plan_day()")
+            return
+
         today = datetime.now().date()
 
         # Check in-memory flag first (fast path for same-process restarts)
@@ -348,9 +365,16 @@ class AutonomousScheduler:
         Called by DayPhaseTracker when the phase changes.
         """
         if transition.to_phase == DayPhase.MORNING:
-            # New day, plan the full day
-            logger.info("Morning phase started - planning the day")
-            await self.plan_day()
+            if self.USE_SPELL_PLANNING:
+                # Grimoire spells handle work queuing via phase events
+                logger.info(
+                    "Morning phase started - spell-based planning enabled, "
+                    "Grimoire will queue work via morning_routine.spell"
+                )
+            else:
+                # Legacy LLM-based planning
+                logger.info("Morning phase started - planning the day")
+                await self.plan_day()
 
     def get_todays_plan(self) -> Dict[str, List[Dict]]:
         """Get today's planned work by phase."""
