@@ -273,7 +273,23 @@ class AutonomousScheduler:
 
         if not plan:
             logger.warning("Decision engine returned no plan")
-            return {}
+            plan = {}
+
+        # Ensure morning always includes news check (world awareness)
+        if DayPhase.MORNING in remaining_phases:
+            from .templates import WORK_TEMPLATES
+            morning_work = plan.get(DayPhase.MORNING, [])
+            has_news = any(w.template_id == "world_check" for w in morning_work)
+            if not has_news:
+                news_template = WORK_TEMPLATES.get("world_check")
+                if news_template:
+                    news_work = news_template.instantiate(
+                        motivation="Morning world awareness - staying connected to events"
+                    )
+                    # Insert at beginning of morning work
+                    morning_work.insert(0, news_work)
+                    plan[DayPhase.MORNING] = morning_work
+                    logger.info("Added morning news check to plan")
 
         # Queue work to phase queue
         self._todays_plan = {}
