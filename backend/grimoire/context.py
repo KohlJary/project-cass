@@ -264,6 +264,14 @@ class RuntimeServices:
     # Returns None if spell not found
     load_spell: Optional[Callable[[str], Awaitable[Optional["Spell"]]]] = None
 
+    # Phase queue (for QUEUE statements)
+    # Args: action, phase, priority, parameters, source_spell
+    # Returns: True if queued successfully
+    queue_for_phase: Optional[Callable[
+        [str, str, int, dict[str, Any], str],
+        Awaitable[bool]
+    ]] = None
+
     # Storage (for REFLECT...SAVE AS and SAVE actions)
     storage: StorageInterface = field(default_factory=StorageInterface)
 

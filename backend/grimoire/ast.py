@@ -402,6 +402,19 @@ class CastStatement(Statement):
 
 
 # =============================================================================
+# PHASE QUEUE
+# =============================================================================
+
+@dataclass
+class QueueStatement(Statement):
+    """QUEUE <action_or_template> FOR PHASE <phase> [PRIORITY <n>]"""
+    action: str  # Action ID or template name
+    phase: str  # "morning", "afternoon", "evening", "night"
+    priority: int = 1
+    parameters: dict[str, Expression] = field(default_factory=dict)
+
+
+# =============================================================================
 # PARALLEL EXECUTION
 # =============================================================================
 

@@ -79,6 +79,8 @@ class TokenType(Enum):
     CAST = auto()
     WITH = auto()
     INTO = auto()
+    QUEUE = auto()
+    PHASE = auto()
 
     # Keywords - Agentic
     ASK = auto()
@@ -202,6 +204,8 @@ KEYWORDS: dict[str, TokenType] = {
     "CAST": TokenType.CAST,
     "WITH": TokenType.WITH,
     "INTO": TokenType.INTO,
+    "QUEUE": TokenType.QUEUE,
+    "PHASE": TokenType.PHASE,
     "ASK": TokenType.ASK,
     "CHOOSE": TokenType.CHOOSE,
     "FROM": TokenType.FROM,

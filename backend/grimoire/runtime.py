@@ -36,6 +36,7 @@ from .ast import (
     DeltaAction,
     ResetAction,
     CastStatement,
+    QueueStatement,
     # Agentic
     AskStatement,
     ChooseStatement,
@@ -208,6 +209,8 @@ class Spellcaster:
             await self._exec_reset(ctx, stmt)
         elif isinstance(stmt, CastStatement):
             await self._exec_cast(ctx, stmt)
+        elif isinstance(stmt, QueueStatement):
+            await self._exec_queue(ctx, stmt)
 
         # Agentic
         elif isinstance(stmt, AskStatement):
@@ -521,6 +524,33 @@ class Spellcaster:
         # Store result in CAST_RESULT variable
         ctx.set_variable("CAST_RESULT", result)
         ctx.add_trace(f"Cast result: {result['status']}")
+
+    async def _exec_queue(self, ctx: SpellContext, stmt: QueueStatement) -> None:
+        """Execute QUEUE action (queue work for a specific phase)."""
+        # Evaluate any parameters
+        params = {}
+        for key, expr in stmt.parameters.items():
+            params[key] = await self._eval_expr(ctx, expr)
+
+        ctx.add_trace(f"Queue: {stmt.action} for phase {stmt.phase} (priority {stmt.priority})")
+
+        if not ctx.shadow_mode:
+            if self.services.queue_for_phase is not None:
+                success = await self.services.queue_for_phase(
+                    action=stmt.action,
+                    phase=stmt.phase,
+                    priority=stmt.priority,
+                    parameters=params,
+                    source_spell=ctx.spell.metadata.name if ctx.spell else "unknown",
+                )
+                if success:
+                    logger.info(f"Queued {stmt.action} for {stmt.phase} phase")
+                else:
+                    logger.warning(f"Failed to queue {stmt.action} for {stmt.phase}")
+            else:
+                logger.warning(f"No queue_for_phase service configured - cannot queue {stmt.action}")
+        else:
+            logger.debug(f"Shadow mode: would queue {stmt.action} for {stmt.phase}")
 
     # =========================================================================
     # AGENTIC ACTIONS
