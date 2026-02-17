@@ -1915,6 +1915,11 @@ async def startup_event():
                     set_autonomous_scheduler(autonomous_scheduler)
                     set_phase_queue_manager(phase_queue_manager)
 
+                    # Wire Grimoire to phase queue for QUEUE statements
+                    if _grimoire is not None:
+                        _grimoire.set_phase_queue_manager(phase_queue_manager)
+                        logger.info("Grimoire connected to phase queue manager")
+
                     # Start day phase tracking and autonomous scheduling
                     asyncio.create_task(day_phase_tracker.start())
                     asyncio.create_task(autonomous_scheduler.start())
