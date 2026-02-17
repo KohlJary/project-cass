@@ -192,6 +192,7 @@ export function Chat() {
         tests: [],
         narrations: [],
         milestones: [],
+        feels: [],
       });
     }
   }, [observationsData, setRecognition]);

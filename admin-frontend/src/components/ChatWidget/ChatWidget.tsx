@@ -169,7 +169,8 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ className }) => {
     recognition.selfObservations.length +
     recognition.userObservations.length +
     recognition.holds.length +
-    recognition.intentions.length;
+    recognition.intentions.length +
+    recognition.feels.length;
 
   return (
     <div className={`chat-widget ${className || ''}`}>
@@ -227,6 +228,11 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({ className }) => {
           )}
           {recognition.intentions.length > 0 && (
             <span className="recognition-badge intention" title="Intentions">🎯{recognition.intentions.length}</span>
+          )}
+          {recognition.feels.length > 0 && (
+            <span className="recognition-badge feel" title={`Feel tags: ${recognition.feels.map(f => `${f.dimension}:${f.delta > 0 ? '+' : ''}${f.delta}`).join(', ')}`}>
+              💜{recognition.feels.length}
+            </span>
           )}
         </div>
       )}

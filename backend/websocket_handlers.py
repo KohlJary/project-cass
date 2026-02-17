@@ -1031,6 +1031,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 extracted_tests = processed_tags["tests"]
                 extracted_narrations = processed_tags["narrations"]
                 extracted_milestones = processed_tags["milestones"]
+                extracted_feels = processed_tags.get("feels", [])
 
                 # Store in memory (with conversation_id and user_id if provided)
                 if memory:
@@ -1225,6 +1226,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "tests": extracted_tests if extracted_tests else None,
                     "narrations": extracted_narrations if extracted_narrations else None,
                     "milestones": extracted_milestones if extracted_milestones else None,
+                    "feels": extracted_feels if extracted_feels else None,
                     "generated_images": generated_images if generated_images else None,
                 })
 

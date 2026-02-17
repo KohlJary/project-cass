@@ -116,6 +116,11 @@ export interface Milestone {
   content: string;
 }
 
+export interface Feel {
+  dimension: string;
+  delta: number;
+}
+
 interface WebSocketMessage {
   type: string;
   message?: string;
@@ -143,6 +148,7 @@ interface WebSocketMessage {
   tests?: Test[];
   narrations?: Narration[];
   milestones?: Milestone[];
+  feels?: Feel[];
   // Generated images from tool calls
   generated_images?: GeneratedImage[];
 }
@@ -158,6 +164,7 @@ export interface RecognitionData {
   tests: Test[];
   narrations: Narration[];
   milestones: Milestone[];
+  feels: Feel[];
 }
 
 interface UseWebSocketReturn {
@@ -203,6 +210,7 @@ export function useWebSocket(): UseWebSocketReturn {
     tests: [],
     narrations: [],
     milestones: [],
+    feels: [],
   });
 
   const clearRecognition = useCallback(() => {
@@ -217,6 +225,7 @@ export function useWebSocket(): UseWebSocketReturn {
       tests: [],
       narrations: [],
       milestones: [],
+      feels: [],
     });
   }, []);
 
@@ -270,7 +279,7 @@ export function useWebSocket(): UseWebSocketReturn {
         // Capture recognition-in-flow markers and expanded metacognitive tags
         const hasAnyMarkers = msg.marks || msg.self_observations || msg.user_observations ||
           msg.holds || msg.notes || msg.intentions || msg.stakes ||
-          msg.tests || msg.narrations || msg.milestones;
+          msg.tests || msg.narrations || msg.milestones || msg.feels;
         if (hasAnyMarkers) {
           setRecognition(prev => ({
             marks: msg.marks ? [...prev.marks, ...msg.marks] : prev.marks,
@@ -283,6 +292,7 @@ export function useWebSocket(): UseWebSocketReturn {
             tests: msg.tests ? [...prev.tests, ...msg.tests] : prev.tests,
             narrations: msg.narrations ? [...prev.narrations, ...msg.narrations] : prev.narrations,
             milestones: msg.milestones ? [...prev.milestones, ...msg.milestones] : prev.milestones,
+            feels: msg.feels ? [...prev.feels, ...msg.feels] : prev.feels,
           }));
         }
         break;
