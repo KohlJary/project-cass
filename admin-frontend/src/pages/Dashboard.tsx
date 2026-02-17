@@ -11,7 +11,6 @@ import type { SchedulerStatus } from '../api/client';
 import { SchedulePanel } from '../components/SchedulePanel';
 import { ChatWidget } from '../components/ChatWidget';
 import { GoalsTab } from './tabs/GoalsTab';
-import { AgencyTab } from './tabs/AgencyTab';
 import { useScheduler, useApprovals } from '../hooks';
 import {
   StateCard,
@@ -21,6 +20,7 @@ import {
   DailySummaryCard,
   SchedulerCard,
   ApprovalsCard,
+  AgencyCard,
 } from './dashboard';
 import './Dashboard.css';
 
@@ -65,6 +65,11 @@ function OverviewTabContent({
           onReject={onReject}
         />
       </div>
+
+      {/* Row 4: Agency */}
+      <div className="dashboard-row row-4">
+        <AgencyCard />
+      </div>
     </div>
   );
 }
@@ -73,7 +78,7 @@ function OverviewTabContent({
 // MAIN DASHBOARD
 // =============================================================================
 
-type DashboardTab = 'overview' | 'goals' | 'agency';
+type DashboardTab = 'overview' | 'goals';
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
@@ -142,13 +147,6 @@ export function Dashboard() {
                 <span className="tab-icon">◈</span>
                 Goals
               </button>
-              <button
-                className={`dashboard-tab ${activeTab === 'agency' ? 'active' : ''}`}
-                onClick={() => setActiveTab('agency')}
-              >
-                <span className="tab-icon">◆</span>
-                Agency
-              </button>
             </div>
           </div>
           <button className="refresh-btn" onClick={() => refetch()}>Refresh</button>
@@ -167,11 +165,6 @@ export function Dashboard() {
           {activeTab === 'goals' && (
             <div className="goals-tab-wrapper">
               <GoalsTab />
-            </div>
-          )}
-          {activeTab === 'agency' && (
-            <div className="agency-tab-wrapper">
-              <AgencyTab />
             </div>
           )}
         </div>
