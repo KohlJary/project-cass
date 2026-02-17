@@ -26,6 +26,7 @@ const adminNavItems = [
   { path: '/projects', label: 'Projects', icon: 'P' },
   { path: '/consciousness', label: 'Consciousness', icon: '♡' },
   { path: '/thymos', label: 'Thymos', icon: 'θ' },
+  { path: '/grimoire', label: 'Grimoire', icon: '✦' },
   { path: '/dreams', label: 'Dreams', icon: 'D' },
   { path: '/gallery', label: 'Gallery', icon: '▣' },
   { path: '/art-study', label: 'Art Study', icon: '🎨' },

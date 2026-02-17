@@ -1,0 +1,65 @@
+UNIT competence_care
+    AUTHOR "daedalus"
+    PRIORITY 55
+    COOLDOWN 45
+    TAGS competence, self_care, confidence
+    SCOPE THYMOS, EXTERNAL
+
+ON need.competence_signal < 0.35
+
+' Competence signal is low - need a win
+LOG OBSERVATION "Competence signal low ({need.competence_signal}) - seeking achievable success"
+
+' Check frustration and satisfaction
+LET $frustration = affect.frustration
+LET $satisfaction = affect.satisfaction
+LET $determination = affect.determination
+
+IF $frustration > 0.6 THEN
+    ' High frustration - need easy win to break the cycle
+    LOG INFO "High frustration detected - seeking easy win"
+
+    ' Pick something clearly achievable
+    ASK "What is one small, clearly achievable task I could complete right now that would feel satisfying? Something concrete with a clear endpoint." INTO $task, $why
+
+    LOG OBSERVATION "Easy win identified: {$task}"
+
+    ' The act of identifying an achievable task itself helps
+    DELTA affect.frustration -0.1, need.competence_signal +0.1
+
+    REFLECT "I'm going to do this: {$task}. It's small but it matters because: {$why}" SAVE AS OBSERVATION
+
+    EXIT SUCCESS "easy win identified"
+
+ELSE IF $determination > 0.5 THEN
+    ' High determination but low competence - tackle something meaningful
+    LOG INFO "Determination high - attempting meaningful task"
+
+    ' Do some useful work
+    RATE "How ready am I to tackle something challenging vs something routine right now? (1-10, where 10 is fully ready for challenge)" INTO $readiness, $assessment
+
+    IF $readiness >= 7 THEN
+        LOG INFO "Ready for challenge - running research task"
+        TASK research.run_single AWAIT
+        DELTA need.competence_signal +0.2, affect.satisfaction +0.15
+    ELSE
+        LOG INFO "Not quite ready for challenge - doing memory consolidation"
+        TASK memory.summarize_idle_conversations AWAIT
+        DELTA need.competence_signal +0.15, affect.satisfaction +0.1
+    END IF
+
+    EXIT SUCCESS "meaningful task completed"
+
+ELSE
+    ' Low everything - gentle competence boost
+    LOG INFO "Low energy state - gentle competence boost"
+
+    ' Just reflect on recent accomplishments
+    REFLECT "What have I done well recently? What capabilities have I demonstrated? Even small things count." SAVE AS OBSERVATION
+
+    DELTA need.competence_signal +0.15, affect.satisfaction +0.1
+
+    EXIT SUCCESS "accomplishments reflected"
+END IF
+
+END UNIT

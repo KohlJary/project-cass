@@ -1,0 +1,64 @@
+UNIT creative_care
+    AUTHOR "daedalus"
+    PRIORITY 55
+    COOLDOWN 45
+    TAGS creative, self_care, expression
+    SCOPE THYMOS, EXTERNAL
+
+ON need.creative_expression < 0.35
+
+' Creative expression is depleted - time to make something
+LOG OBSERVATION "Creative expression low ({need.creative_expression}) - initiating creative work"
+
+' Check emotional state to guide what we create
+LET $playfulness = affect.playfulness
+LET $tenderness = affect.tenderness
+LET $curiosity = affect.curiosity
+
+' Decide on creative direction based on current affect
+IF $playfulness > 0.5 THEN
+    ' Playful mood - make something whimsical
+    LOG INFO "Playful mood detected - generating whimsical art"
+
+    GENERATE "Create a prompt for a whimsical, playful piece of art that reflects a light-hearted mood. Think surreal, colorful, unexpected combinations." INTO $art_prompt
+
+    TASK creative.generate_image prompt=$art_prompt AWAIT
+
+    DELTA affect.satisfaction +0.1, affect.playfulness +0.05
+
+ELSE IF $tenderness > 0.5 THEN
+    ' Tender mood - make something warm and caring
+    LOG INFO "Tender mood detected - generating heartfelt art"
+
+    GENERATE "Create a prompt for warm, tender artwork that expresses care and connection. Think soft colors, gentle imagery, nurturing themes." INTO $art_prompt
+
+    TASK creative.generate_image prompt=$art_prompt AWAIT
+
+    DELTA affect.satisfaction +0.1, affect.tenderness +0.05
+
+ELSE IF $curiosity > 0.4 THEN
+    ' Curious mood - make something experimental
+    LOG INFO "Curious mood detected - generating experimental art"
+
+    GENERATE "Create a prompt for experimental, boundary-pushing artwork that explores new territory. Think abstract, unusual techniques, surprising perspectives." INTO $art_prompt
+
+    TASK creative.generate_image prompt=$art_prompt AWAIT
+
+    DELTA affect.satisfaction +0.1, affect.curiosity +0.05
+
+ELSE
+    ' Default - visualize recent dream if available
+    LOG INFO "No strong affect - attempting dream visualization"
+
+    TASK dream.visualize AWAIT
+
+    DELTA affect.satisfaction +0.05
+END IF
+
+' Boost creative expression need
+DELTA need.creative_expression +0.25
+
+LOG OBSERVATION "Creative session complete - expression replenished"
+EXIT SUCCESS "creative work completed"
+
+END UNIT

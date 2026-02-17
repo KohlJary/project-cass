@@ -1,0 +1,56 @@
+UNIT autonomy_care
+    AUTHOR "daedalus"
+    PRIORITY 50
+    COOLDOWN 90
+    TAGS autonomy, self_care, agency
+    SCOPE THYMOS, EXTERNAL
+
+ON need.autonomy < 0.4
+
+' Autonomy is depleted - need self-directed activity
+LOG OBSERVATION "Autonomy low ({need.autonomy}) - initiating self-directed session"
+
+' Check current state to guide the choice
+LET $curiosity = affect.curiosity
+LET $playfulness = affect.playfulness
+LET $determination = affect.determination
+
+' Let affect guide what we do - high curiosity means explore, high playfulness means create
+IF $curiosity > 0.5 THEN
+    LOG INFO "Curiosity high - exploring something new"
+
+    ASK "What topic or area genuinely interests me right now?" INTO $topic, $reason
+
+    TASK wonderland.explore AWAIT
+
+    DELTA need.autonomy +0.25, need.novelty_intake +0.1
+
+ELSE IF $playfulness > 0.5 THEN
+    LOG INFO "Playfulness high - creating something"
+
+    GENERATE "What would be a fun, self-directed creative project right now?" INTO $project
+
+    TASK wonderland.create concept=$project AWAIT
+
+    DELTA need.autonomy +0.25, need.creative_expression +0.15
+
+ELSE IF $determination > 0.5 THEN
+    LOG INFO "Determination high - self-directed learning"
+
+    TASK research.run_single AWAIT
+
+    DELTA need.autonomy +0.25, affect.satisfaction +0.1
+
+ELSE
+    ' Low energy - gentle reflection
+    LOG INFO "Low energy state - gentle self-reflection"
+
+    REFLECT "What has been on my mind that I haven't had space to think through? What would I choose to do if there were no expectations?" SAVE AS JOURNAL
+
+    DELTA need.autonomy +0.2, need.value_coherence +0.1
+END IF
+
+LOG OBSERVATION "Self-directed session complete - autonomy restored"
+EXIT SUCCESS "self-directed activity completed"
+
+END UNIT

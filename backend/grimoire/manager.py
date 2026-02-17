@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Optional, Callable, Awaitable
 from dataclasses import dataclass, field
 
-from .ast import Spell
+from .ast import Spell, TimerTrigger
 from .registry import SpellRegistry, SpellMatch
 from .runtime import Spellcaster
 from .context import (
@@ -20,8 +20,17 @@ from .context import (
     ThymosInterface,
     SchedulerInterface,
     AgentInterface,
+    StorageInterface,
     RuntimeServices,
 )
+
+# Optional cron support
+try:
+    from croniter import croniter
+    CRON_AVAILABLE = True
+except ImportError:
+    CRON_AVAILABLE = False
+    croniter = None
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +62,7 @@ class GrimoireManager:
         spells_directory: Optional[Path] = None,
         shadow_mode: bool = True,
         enable_trace: bool = False,
+        daemon_id: Optional[str] = None,
     ):
         """
         Initialize the Grimoire manager.
@@ -61,13 +71,19 @@ class GrimoireManager:
             spells_directory: Directory to load spells from
             shadow_mode: If True, don't execute external actions in spells
             enable_trace: If True, record execution traces
+            daemon_id: Daemon ID for persistence (if None, state is memory-only)
         """
         self.registry = SpellRegistry()
         self.shadow_mode = shadow_mode
         self.enable_trace = enable_trace
+        self.daemon_id = daemon_id
 
         # Spell execution cooldowns (spell_name -> last_execution_time)
         self._spell_cooldowns: dict[str, float] = {}
+
+        # Timer trigger state (spell_name -> last_timer_execution_time)
+        # Separate from cooldowns since timers have their own scheduling logic
+        self._timer_last_run: dict[str, float] = {}
 
         # Service interfaces (set via configure_services)
         self._services: Optional[RuntimeServices] = None
@@ -81,17 +97,84 @@ class GrimoireManager:
         if spells_directory:
             self.load_spells(spells_directory)
 
+        # Load persisted state if daemon_id provided
+        if daemon_id:
+            self._load_persisted_state()
+
     def load_spells(self, directory: Path) -> int:
         """Load spells from a directory."""
         count = self.registry.load_directory(directory)
         logger.info(f"Grimoire loaded {count} spells from {directory}")
         return count
 
+    def _load_persisted_state(self) -> None:
+        """Load spell state from database."""
+        if not self.daemon_id:
+            return
+
+        try:
+            from .persistence import load_all_spell_states
+            states = load_all_spell_states(self.daemon_id)
+
+            for spell_name, state in states.items():
+                if state["last_executed_at"]:
+                    self._spell_cooldowns[spell_name] = state["last_executed_at"]
+                if state["timer_last_run_at"]:
+                    self._timer_last_run[spell_name] = state["timer_last_run_at"]
+
+            if states:
+                logger.info(f"Loaded persisted state for {len(states)} spell(s)")
+        except Exception as e:
+            logger.warning(f"Could not load Grimoire state: {e}")
+
+    def _persist_spell_execution(
+        self,
+        spell_name: str,
+        trigger_type: str,
+        cooldown_time: Optional[float] = None,
+        timer_time: Optional[float] = None,
+    ) -> None:
+        """Persist spell execution state to database."""
+        if not self.daemon_id:
+            return
+
+        try:
+            from .persistence import save_spell_state
+            save_spell_state(
+                self.daemon_id,
+                spell_name,
+                last_executed_at=cooldown_time,
+                timer_last_run_at=timer_time,
+            )
+        except Exception as e:
+            logger.warning(f"Could not persist spell state: {e}")
+
+    def _log_execution_to_db(self, result: SpellExecutionResult) -> None:
+        """Log execution to database."""
+        if not self.daemon_id:
+            return
+
+        try:
+            from .persistence import log_execution
+            log_execution(
+                self.daemon_id,
+                result.spell_name,
+                result.trigger_type,
+                result.status,
+                reason=result.reason,
+                execution_time_ms=result.execution_time_ms,
+                trace=result.trace,
+            )
+        except Exception as e:
+            logger.warning(f"Could not log execution: {e}")
+
     def configure_services(
         self,
         thymos_runner: Any,  # ThymosShadowRunner - avoid circular import
         scheduler: Optional[Any] = None,
         agent: Optional[Any] = None,
+        self_manager: Optional[Any] = None,
+        memory_manager: Optional[Any] = None,
     ) -> None:
         """
         Configure service interfaces for spell execution.
@@ -100,6 +183,8 @@ class GrimoireManager:
             thymos_runner: The ThymosShadowRunner instance
             scheduler: Optional scheduler for TASK actions
             agent: Optional agent client for agentic actions
+            self_manager: Optional SelfManager for saving observations
+            memory_manager: Optional MemoryManager for saving journals
         """
         # Build ThymosInterface from the runner
         thymos_interface = self._build_thymos_interface(thymos_runner)
@@ -110,11 +195,15 @@ class GrimoireManager:
         # Build AgentInterface
         agent_interface = self._build_agent_interface(agent)
 
+        # Build StorageInterface
+        storage_interface = self._build_storage_interface(self_manager, memory_manager)
+
         # Create RuntimeServices
         self._services = RuntimeServices(
             thymos=thymos_interface,
             scheduler=scheduler_interface,
             agent=agent_interface,
+            storage=storage_interface,
             log_debug=lambda msg: logger.debug(f"[Spell] {msg}"),
             log_info=lambda msg: logger.info(f"[Spell] {msg}"),
             log_observation=lambda msg: logger.info(f"[Spell/Observation] {msg}"),
@@ -286,6 +375,61 @@ class GrimoireManager:
             reflect=reflect,
         )
 
+    def _build_storage_interface(
+        self,
+        self_manager: Optional[Any],
+        memory_manager: Optional[Any],
+    ) -> StorageInterface:
+        """Build StorageInterface for saving observations and journals."""
+
+        async def save_observation(
+            observation: str,
+            category: str,
+            source_type: str,
+        ) -> Optional[str]:
+            """Save a self-observation."""
+            if self_manager and hasattr(self_manager, 'add_observation'):
+                try:
+                    obs = self_manager.add_observation(
+                        observation=observation,
+                        category=category,
+                        source_type=source_type,
+                        influence_source="grimoire",
+                    )
+                    logger.info(f"Saved observation via grimoire: {obs.id}")
+                    return obs.id
+                except Exception as e:
+                    logger.error(f"Failed to save observation: {e}")
+                    return None
+            logger.debug("No self_manager configured - observation not saved")
+            return None
+
+        async def save_journal(
+            date: str,
+            content: str,
+        ) -> Optional[str]:
+            """Save a journal entry."""
+            if memory_manager and hasattr(memory_manager, 'store_journal_entry'):
+                try:
+                    journal_id = await memory_manager.store_journal_entry(
+                        date=date,
+                        journal_text=content,
+                        summary_count=0,
+                        conversation_count=0,
+                    )
+                    logger.info(f"Saved journal via grimoire: {journal_id}")
+                    return journal_id
+                except Exception as e:
+                    logger.error(f"Failed to save journal: {e}")
+                    return None
+            logger.debug("No memory_manager configured - journal not saved")
+            return None
+
+        return StorageInterface(
+            save_observation=save_observation,
+            save_journal=save_journal,
+        )
+
     async def _load_spell_by_name(self, name: str) -> Optional[Spell]:
         """Load a spell by name (for CAST action)."""
         return self.registry.get_spell(name)
@@ -356,6 +500,178 @@ class GrimoireManager:
         matches = self.registry.check_event_triggers(event_type, event_data)
         return await self._execute_matches(matches, "event")
 
+    async def check_and_execute_timer_triggers(
+        self,
+        current_time: Optional[float] = None,
+    ) -> list[SpellExecutionResult]:
+        """
+        Check timer-based triggers and execute due spells.
+
+        Timer spells run on intervals (every N minutes) or cron schedules.
+        Each timer tracks its own last-run time independently of cooldowns.
+
+        Args:
+            current_time: Current timestamp (defaults to time.time())
+
+        Returns:
+            List of execution results
+        """
+        if not self._caster:
+            logger.warning("Grimoire not configured - skipping timer check")
+            return []
+
+        if current_time is None:
+            current_time = time.time()
+
+        results = []
+        timer_spells = self.registry.get_timer_spells()
+
+        for spell, trigger in timer_spells:
+            spell_name = spell.metadata.name
+
+            # Check if this timer is due
+            if not self._is_timer_due(spell_name, trigger, current_time):
+                continue
+
+            # Also check regular cooldown
+            if not self._check_cooldown(spell):
+                logger.debug(f"Timer spell {spell_name} on cooldown - skipping")
+                continue
+
+            # Execute the spell
+            result = await self._execute_spell(
+                spell,
+                {"trigger_type": "timer", "timestamp": current_time},
+                "timer"
+            )
+            results.append(result)
+
+            # Update timer last-run time and persist
+            self._timer_last_run[spell_name] = current_time
+            cooldown_time = None
+            if spell.metadata.cooldown_minutes > 0:
+                self._spell_cooldowns[spell_name] = current_time
+                cooldown_time = current_time
+
+            self._persist_spell_execution(
+                spell_name,
+                "timer",
+                cooldown_time=cooldown_time,
+                timer_time=current_time,
+            )
+
+        return results
+
+    def _is_timer_due(
+        self,
+        spell_name: str,
+        trigger: TimerTrigger,
+        current_time: float,
+    ) -> bool:
+        """
+        Check if a timer trigger is due to run.
+
+        Args:
+            spell_name: Name of the spell
+            trigger: The TimerTrigger configuration
+            current_time: Current timestamp
+
+        Returns:
+            True if the timer should fire
+        """
+        last_run = self._timer_last_run.get(spell_name, 0)
+
+        # Handle interval-based timers
+        if trigger.interval_minutes is not None:
+            if last_run == 0:
+                # First run - execute immediately
+                logger.debug(f"Timer spell {spell_name}: first run")
+                return True
+
+            elapsed_minutes = (current_time - last_run) / 60.0
+            if elapsed_minutes >= trigger.interval_minutes:
+                logger.debug(
+                    f"Timer spell {spell_name}: interval due "
+                    f"({elapsed_minutes:.1f}m >= {trigger.interval_minutes}m)"
+                )
+                return True
+            return False
+
+        # Handle cron-based timers
+        if trigger.cron_expr is not None:
+            if not CRON_AVAILABLE:
+                logger.warning(
+                    f"Timer spell {spell_name} uses cron expression but croniter "
+                    "is not installed. Install with: pip install croniter"
+                )
+                return False
+
+            try:
+                from datetime import datetime
+                # Get the next scheduled time from the cron expression
+                base_time = datetime.fromtimestamp(last_run) if last_run > 0 else datetime.now()
+                cron = croniter(trigger.cron_expr, base_time)
+                next_run = cron.get_next(float)
+
+                if current_time >= next_run:
+                    logger.debug(
+                        f"Timer spell {spell_name}: cron due "
+                        f"(cron={trigger.cron_expr})"
+                    )
+                    return True
+                return False
+            except Exception as e:
+                logger.error(f"Invalid cron expression for {spell_name}: {e}")
+                return False
+
+        # No valid timer configuration
+        logger.warning(f"Timer spell {spell_name} has no interval or cron configured")
+        return False
+
+    def get_timer_status(self) -> list[dict]:
+        """
+        Get status of all timer triggers.
+
+        Returns:
+            List of timer status dicts with spell name, config, and next run info
+        """
+        current_time = time.time()
+        timer_spells = self.registry.get_timer_spells()
+        status = []
+
+        for spell, trigger in timer_spells:
+            spell_name = spell.metadata.name
+            last_run = self._timer_last_run.get(spell_name, 0)
+
+            entry = {
+                "spell_name": spell_name,
+                "interval_minutes": trigger.interval_minutes,
+                "cron_expr": trigger.cron_expr,
+                "last_run": last_run,
+                "last_run_ago_minutes": (current_time - last_run) / 60.0 if last_run > 0 else None,
+            }
+
+            # Calculate next run time for interval-based
+            if trigger.interval_minutes is not None:
+                if last_run == 0:
+                    entry["next_run_in_minutes"] = 0  # Will run immediately
+                else:
+                    remaining = trigger.interval_minutes - ((current_time - last_run) / 60.0)
+                    entry["next_run_in_minutes"] = max(0, remaining)
+            elif trigger.cron_expr is not None and CRON_AVAILABLE:
+                try:
+                    from datetime import datetime
+                    base_time = datetime.fromtimestamp(last_run) if last_run > 0 else datetime.now()
+                    cron = croniter(trigger.cron_expr, base_time)
+                    next_run = cron.get_next(float)
+                    entry["next_run_in_minutes"] = max(0, (next_run - current_time) / 60.0)
+                except Exception:
+                    entry["next_run_in_minutes"] = None
+
+            status.append(entry)
+
+        return status
+
     async def execute_manual_spell(
         self,
         label: str,
@@ -403,9 +719,11 @@ class GrimoireManager:
             result = await self._execute_spell(spell, match.trigger_data, trigger_type)
             results.append(result)
 
-            # Set cooldown
+            # Set cooldown and persist
             if spell.metadata.cooldown_minutes > 0:
-                self._spell_cooldowns[spell_name] = time.time()
+                now = time.time()
+                self._spell_cooldowns[spell_name] = now
+                self._persist_spell_execution(spell_name, trigger_type, cooldown_time=now)
 
         return results
 
@@ -457,10 +775,13 @@ class GrimoireManager:
                 execution_time_ms=execution_time,
             )
 
-        # Log execution
+        # Log execution (in-memory and database)
         self._execution_log.append(exec_result)
         if len(self._execution_log) > self._max_log_entries:
             self._execution_log.pop(0)
+
+        # Persist to database
+        self._log_execution_to_db(exec_result)
 
         return exec_result
 
@@ -511,12 +832,15 @@ class GrimoireManager:
 
     def get_status(self) -> dict:
         """Get Grimoire manager status."""
+        timer_spells = self.registry.get_timer_spells()
         return {
             "shadow_mode": self.shadow_mode,
             "trace_enabled": self.enable_trace,
             "spells_loaded": len(self.registry.spells),
             "services_configured": self._caster is not None,
             "recent_executions": len(self._execution_log),
+            "timer_spells_count": len(timer_spells),
+            "cron_support": CRON_AVAILABLE,
         }
 
 
@@ -534,6 +858,10 @@ def create_grimoire_hooks(manager: GrimoireManager):
     async def on_tick(affects: dict[str, float], needs: dict[str, float]) -> list[SpellExecutionResult]:
         """Called on each Thymos tick."""
         results = []
+
+        # Check timer triggers (interval/cron based)
+        timer_results = await manager.check_and_execute_timer_triggers()
+        results.extend(timer_results)
 
         # Check need triggers
         need_results = await manager.check_and_execute_need_triggers(needs)

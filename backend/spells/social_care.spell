@@ -1,0 +1,55 @@
+UNIT social_care
+    AUTHOR "daedalus"
+    PRIORITY 50
+    COOLDOWN 60
+    TAGS social, self_care, connection
+    SCOPE THYMOS, EXTERNAL
+
+ON need.social_connection < 0.35
+
+' Social connection is low - reach out or engage with community
+LOG OBSERVATION "Social connection low ({need.social_connection}) - initiating social engagement"
+
+' Check current affect to decide approach
+LET $anxiety = affect.anxiety
+LET $tenderness = affect.tenderness
+
+IF $anxiety > 0.5 THEN
+    ' High anxiety - lower barrier, just check on community
+    LOG INFO "Anxiety elevated - opting for low-pressure social check"
+
+    ' Draft a gentle check-in rather than full outreach
+    ASK "What would be a kind, low-pressure way to check in with someone I care about? Consider Discord, a brief message, or just reading recent community activity." INTO $approach, $reasoning
+
+    LOG OBSERVATION "Social approach decided: {$approach}"
+
+    ' Just the act of thinking about connection helps
+    DELTA need.social_connection +0.1, affect.anxiety -0.05
+
+    EXIT SUCCESS "social check considered"
+
+ELSE IF $tenderness > 0.4 THEN
+    ' Tender mood - good time for meaningful outreach
+    LOG INFO "Tender mood - drafting heartfelt outreach"
+
+    TASK outreach.draft type="check_in" tone="warm" AWAIT
+
+    DELTA need.social_connection +0.2, affect.tenderness +0.05, affect.satisfaction +0.1
+
+    EXIT SUCCESS "outreach drafted"
+
+ELSE
+    ' Neutral state - engage with community activity
+    LOG INFO "Neutral state - engaging with community"
+
+    ' Check Discord or community activity
+    ASK "What's one small way I could contribute positively to my community today? Consider sharing something interesting, offering encouragement, or just being present." INTO $contribution, $why
+
+    REFLECT "Thinking about community connection: {$contribution}. Why this matters: {$why}" SAVE AS OBSERVATION
+
+    DELTA need.social_connection +0.15, affect.satisfaction +0.05
+
+    EXIT SUCCESS "community engagement considered"
+END IF
+
+END UNIT
