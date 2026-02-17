@@ -1227,8 +1227,8 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 400px;
-  max-height: calc(100vh - 180px);
+  min-height: 500px;
+  max-height: calc(100vh - 140px);
 }
 
 .activity-section .section-header {

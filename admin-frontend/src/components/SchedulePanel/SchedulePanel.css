@@ -197,7 +197,7 @@
   flex-shrink: 0;
   border-top: 1px solid var(--border-color, #2a2a4a);
   overflow-y: auto;
-  max-height: 200px;
+  max-height: 280px;
 }
 
 .work-detail-content {
@@ -437,7 +437,7 @@
   flex-shrink: 0;
   border-top: 1px solid var(--border-color, #2a2a4a);
   overflow-y: auto;
-  max-height: 200px;
+  max-height: 280px;
 }
 
 .detail-value.success {
