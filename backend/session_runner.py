@@ -649,8 +649,18 @@ class BaseSessionRunner(ABC):
             self_context = self._build_self_context()
             activity_prompt = self.get_system_prompt(state.focus)
 
-            # Compose full system prompt: kernel + activity-specific + self-context
+            # Get Thymos felt state for emotional/motivational context
+            thymos_context = None
+            try:
+                from thymos import get_thymos_context
+                thymos_context = get_thymos_context()
+            except ImportError:
+                pass  # Thymos not available
+
+            # Compose full system prompt: kernel + activity-specific + thymos + self-context
             system_prompt = f"{TEMPLE_CODEX_KERNEL}\n\n---\n\n## Activity: {state.activity_type.value.replace('_', ' ').title()}\n\n{activity_prompt}"
+            if thymos_context:
+                system_prompt = f"{system_prompt}\n\n{thymos_context}"
             if self_context:
                 system_prompt = f"{system_prompt}\n\n## Self-Context\n{self_context}"
 

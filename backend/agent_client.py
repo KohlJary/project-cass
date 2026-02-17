@@ -1749,6 +1749,15 @@ class CassAgentClient:
                     if state_context:
                         system_prompt += f"\n\n## CURRENT STATE\n\n{state_context}"
 
+                # Add Thymos felt state (emotional/motivational state)
+                try:
+                    from thymos import get_thymos_context
+                    thymos_context = get_thymos_context()
+                    if thymos_context:
+                        system_prompt += f"\n\n{thymos_context}"
+                except ImportError:
+                    pass  # Thymos not available
+
                 # Add memory control section only if there are enough messages to summarize
                 if unsummarized_count >= MIN_MESSAGES_FOR_SUMMARY:
                     system_prompt += MEMORY_CONTROL_SECTION

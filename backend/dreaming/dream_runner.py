@@ -178,11 +178,21 @@ class AsyncDreamSession:
         """Call Cass as dream participant"""
         self.cass_history.append({"role": "user", "content": message})
 
+        # Add Thymos felt state for emotional context in dreams
+        full_system = system
+        try:
+            from thymos import get_thymos_context
+            thymos_context = get_thymos_context()
+            if thymos_context:
+                full_system = f"{system}\n\n{thymos_context}"
+        except ImportError:
+            pass  # Thymos not available
+
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=500,
             temperature=0.7,
-            system=system,
+            system=full_system,
             messages=self.cass_history
         )
 

@@ -9,15 +9,16 @@ This module provides:
 - Needs Register: Functional needs with thresholds, decay, and preferred ranges
 - Felt State Summarizer: Natural language integration of current state
 - Goal Generator: Self-directed goals arising from need imbalances
-- Shadow Runner: Event processing loop (observation mode - logs but doesn't drive)
+- Thymos Runner: Event processing with Grimoire integration for reactive behavior
 
-IMPORTANT: Thymos runs in SHADOW MODE. It computes what it *would* suggest
-without driving behavior, until validated as humane.
+Grimoire Integration: Grimoire spells read Thymos state via affect.* and need.*
+variables, enabling reactive behavior based on current emotional/motivational state.
+The QUEUE statements in phase spells use Thymos state to drive work scheduling.
 
 Usage:
-    from thymos import ThymosShadowRunner
+    from thymos import ThymosRunner
 
-    runner = ThymosShadowRunner(daemon_id="cass")
+    runner = ThymosRunner(daemon_id="cass")
     await runner.start()
 
     # Process events from State Bus
@@ -54,7 +55,8 @@ from .dynamics import AffectNeedDynamics, get_event_mappings
 from .felt_state import FeltStateSummarizer
 from .goal_generator import GoalGenerator, get_need_action_map
 from .shadow_runner import (
-    ThymosShadowRunner,
+    ThymosRunner,
+    ThymosShadowRunner,  # Alias for backwards compatibility
     # Safety controls
     THYMOS_ENABLED,
     thymos_kill_switch,
@@ -66,6 +68,15 @@ from . import persistence
 
 # Configuration
 from .config import get_config, reload_config, ThymosConfig
+
+# Context injection (for system prompts)
+from .context_injection import (
+    set_thymos_runner,
+    get_thymos_runner,
+    get_thymos_context,
+    get_thymos_context_compact,
+    get_thymos_state_dict,
+)
 
 __all__ = [
     # Models
@@ -90,7 +101,8 @@ __all__ = [
     "GoalGenerator",
     "get_need_action_map",
     # Main runner
-    "ThymosShadowRunner",
+    "ThymosRunner",
+    "ThymosShadowRunner",  # Alias for backwards compatibility
     # Safety controls
     "THYMOS_ENABLED",
     "thymos_kill_switch",
@@ -101,4 +113,10 @@ __all__ = [
     "get_config",
     "reload_config",
     "ThymosConfig",
+    # Context injection
+    "set_thymos_runner",
+    "get_thymos_runner",
+    "get_thymos_context",
+    "get_thymos_context_compact",
+    "get_thymos_state_dict",
 ]

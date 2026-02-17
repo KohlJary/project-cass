@@ -1,14 +1,18 @@
 """
-Thymos Shadow Runner
+Thymos Runner
 
-Runs Thymos in observation/shadow mode:
-- Processes events
-- Updates state
-- Generates suggestions (logged, not executed)
-- Persists state
+The homeostatic emotional/motivational system for Cass.
 
-This runs parallel to the main system, observing the same events
-but not driving behavior until validated as humane.
+Thymos:
+- Tracks affect vector (emotional dimensions)
+- Manages needs register (functional needs with thresholds/decay)
+- Processes events and updates state
+- Integrates with Grimoire for spell-based reactive behavior
+- Auto-care system addresses urgent needs
+
+Grimoire integration: Grimoire spells read Thymos state via affect.* and need.*
+variables, enabling reactive behavior based on current emotional/motivational state.
+The QUEUE statements in phase spells use Thymos state to drive work scheduling.
 
 SAFETY CONTROLS:
 - Global kill switch: THYMOS_ENABLED flag
@@ -73,12 +77,13 @@ def is_thymos_enabled() -> bool:
     return THYMOS_ENABLED
 
 
-class ThymosShadowRunner:
+class ThymosRunner:
     """
-    Runs Thymos in shadow/observation mode.
+    The active Thymos emotional/motivational system.
 
-    Consumes events, updates state, logs suggestions.
-    Does NOT drive behavior - purely observational.
+    Consumes events, updates state, integrates with Grimoire for reactive behavior.
+    Auto-care addresses urgent needs. Grimoire spells read Thymos state to drive
+    work scheduling via QUEUE statements.
     """
 
     def __init__(
@@ -848,3 +853,7 @@ class ThymosShadowRunner:
                 ),
             }
         }
+
+
+# Alias for backwards compatibility
+ThymosShadowRunner = ThymosRunner

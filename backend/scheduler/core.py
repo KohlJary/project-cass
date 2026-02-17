@@ -22,7 +22,7 @@ import re
 from .budget import BudgetManager, TaskCategory
 
 if TYPE_CHECKING:
-    from thymos import ThymosShadowRunner
+    from thymos import ThymosRunner
 
 logger = logging.getLogger(__name__)
 
@@ -267,7 +267,7 @@ class Synkratos:
         self._approval_handlers: Dict[ApprovalType, Dict[str, Callable]] = {}
 
         # Thymos integration (homeostatic need → autonomous action)
-        self._thymos: Optional["ThymosShadowRunner"] = None
+        self._thymos: Optional["ThymosRunner"] = None
         # Action registry for looking up action definitions
         self._action_registry = None
 
@@ -607,7 +607,7 @@ class Synkratos:
 
     # ============== Thymos Integration (Shadow Mode) ==============
 
-    def register_thymos_provider(self, thymos: "ThymosShadowRunner") -> None:
+    def register_thymos_provider(self, thymos: "ThymosRunner") -> None:
         """
         Register Thymos as a suggestion provider.
 
@@ -616,7 +616,7 @@ class Synkratos:
         the results without actually executing.
 
         Args:
-            thymos: ThymosShadowRunner instance to poll for suggestions
+            thymos: ThymosRunner instance to poll for suggestions
         """
         self._thymos = thymos
         logger.info("Registered Thymos shadow runner with scheduler")

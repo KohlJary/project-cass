@@ -195,6 +195,15 @@ class GenericSessionRunner:
         kernel = get_temple_codex_kernel()
         full_system = f"{kernel}\n\n{system_prompt}"
 
+        # Add Thymos felt state for emotional/motivational context
+        try:
+            from thymos import get_thymos_context
+            thymos_context = get_thymos_context()
+            if thymos_context:
+                full_system += f"\n\n{thymos_context}"
+        except ImportError:
+            pass  # Thymos not available
+
         if focus:
             full_system += f"\n\nSession Focus: {focus}"
 
