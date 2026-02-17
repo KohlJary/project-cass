@@ -2,10 +2,10 @@
 
 *Committed history of significant sessions*
 
-## 2026-02-17 - Admin Frontend Refactor & Thymos Fix
+## 2026-02-17 - Admin Frontend Refactor, Thymos Fix & Activity Tab
 
 **Branch**: refactor/api-domains → main (squashed and merged)
-**Summary**: Major admin-frontend restructuring across 9 phases, slaying complexity monsters. Also diagnosed and fixed a Thymos value_coherence bug.
+**Summary**: Major admin-frontend restructuring across 9 phases, slaying complexity monsters. Diagnosed and fixed a Thymos value_coherence bug. Added Activity tab to Dashboard with autonomous schedule and grimoire execution log.
 
 **Admin Frontend Refactor (Phases 1-9)**:
 - Phase 1: Split api/client.ts into 17 domain modules (2429 → 19 lines)
@@ -24,10 +24,18 @@
 - Over an hour: coupling (-0.12) + decay (-0.01) = -0.13, overwhelming the +0.15 spell delta
 - Fix: Increased spell delta to +0.25, added frustration reduction (-0.15) to break feedback loop
 
+**Activity Tab** (Dashboard.tsx):
+- Moved SchedulePanel from left sidebar to new "Activity" tab
+- Added grimoire execution log showing spell casts with status/timing
+- Two-column layout: autonomous schedule (left), spell executions (right)
+- Converted Dashboard from 3-column to 2-column layout (main + chat widget)
+- Work detail panels: two-column layout with task info left, narrative (Summary/Focus/Motivation) right
+- Iterative layout refinements: vertical detail stacking, increased heights
+
 **Monsters Slain**: 9 total (api-client-hydra, nav-cerberus, thymos-chimera, agency-tab-minotaur, wiki-tab-minotaur, research-tab-minotaur, goals-tab-minotaur, projects-minotaur, artstudy-minotaur)
 
 **Stats**: 55 files changed, +5,802 / -7,615 lines (net -1,813 lines removed)
-**Key commit**: 3c46b82
+**Key commits**: 3c46b82, 39e6b14, bb499c3, e9a8c37, 6eb8125
 
 ---
 
