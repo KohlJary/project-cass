@@ -533,6 +533,28 @@
       "default_duration_minutes": 2,
       "priority": "normal",
       "requires_idle": false
+    },
+    "planning.generate_day_plan": {
+      "id": "planning.generate_day_plan",
+      "name": "Generate Day Plan",
+      "description": "Use LLM decision engine to create emergent daily work plan based on current state, needs, and growth edges",
+      "category": "planning",
+      "handler": "planning_handlers.generate_day_plan_action",
+      "estimated_cost_usd": 0.10,
+      "default_duration_minutes": 5,
+      "priority": "high",
+      "requires_idle": false
+    },
+    "planning.replan_phase": {
+      "id": "planning.replan_phase",
+      "name": "Replan Current Phase",
+      "description": "Replan a specific phase based on changed circumstances",
+      "category": "planning",
+      "handler": "planning_handlers.replan_phase_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 2,
+      "priority": "normal",
+      "requires_idle": false
     }
   }
 }

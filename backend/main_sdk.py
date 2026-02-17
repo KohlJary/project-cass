@@ -251,9 +251,12 @@ question_manager = OpenQuestionManager(_daemon_id)
 from state_bus import get_state_bus
 global_state_bus = get_state_bus(_daemon_id)
 
-# Initialize Thymos (homeostatic emotional/motivational system) in shadow mode
-from thymos import ThymosShadowRunner
-thymos_runner = ThymosShadowRunner(daemon_id=_daemon_id)
+# Initialize Thymos (homeostatic emotional/motivational system)
+# Thymos integrates with Grimoire for reactive behavior based on emotional/need state
+from thymos import ThymosRunner, set_thymos_runner
+thymos_runner = ThymosRunner(daemon_id=_daemon_id)
+# Make Thymos available for context injection in Cass's prompts
+set_thymos_runner(thymos_runner)
 
 # Grimoire (spell system) - initialized at startup, attached to Thymos after heavy components load
 _grimoire = None  # Set during startup, attached with storage managers later
@@ -1407,8 +1410,8 @@ async def startup_event():
     activity_dashboard = init_activity_dashboard(global_state_bus)
     logger.info("Activity dashboard initialized and subscribed to events")
 
-    # Start Thymos shadow runner and subscribe to state bus events
-    # Thymos runs in shadow mode - observing and logging suggestions without driving behavior
+    # Start Thymos runner and subscribe to state bus events
+    # Thymos processes events, integrates with Grimoire for reactive behavior
     await thymos_runner.start()
 
     def thymos_event_handler(event_type: str, data: dict):
@@ -1419,8 +1422,8 @@ async def startup_event():
     logger.info("Thymos shadow runner started and subscribed to events")
 
     # Initialize Grimoire spell system (attached after heavy components load)
-    # Spells run in shadow mode alongside Thymos - they observe state and log
-    # what actions they would take, without actually executing them yet
+    # Spells integrate with Thymos for reactive behavior based on emotional/need state
+    # QUEUE statements in spells drive work scheduling via phase queue manager
     global _grimoire
     try:
         from pathlib import Path
@@ -1905,6 +1908,11 @@ async def startup_event():
                     # Give autonomous scheduler access to phase queuing
                     autonomous_scheduler.set_phase_queue(phase_queue_manager)
 
+                    # Add autonomous_scheduler to action registry managers
+                    # This enables the planning.generate_day_plan action to access it
+                    action_registry._managers["autonomous_scheduler"] = autonomous_scheduler
+                    logger.debug("Added autonomous_scheduler to action registry managers")
+
                     # Register global accessors for GraphQL/API access
                     from routes.admin.scheduler import (
                         set_scheduler,
@@ -1933,9 +1941,8 @@ async def startup_event():
             else:
                 logger.info("Autonomous scheduling disabled by config")
 
-            # Wire Thymos to Synkratos for shadow mode suggestion logging
-            # Thymos generates suggestions based on needs, Synkratos logs what
-            # would have happened if they were executed (no actual execution yet)
+            # Wire Thymos to Synkratos for suggestion integration
+            # Thymos generates suggestions based on needs which can inform scheduling
             synkratos.register_thymos_provider(thymos_runner)
             try:
                 if action_registry is not None:
@@ -1943,7 +1950,7 @@ async def startup_event():
             except NameError:
                 # action_registry not initialized (autonomous scheduling disabled)
                 pass
-            logger.info("Thymos registered with Synkratos for shadow mode logging")
+            logger.info("Thymos registered with Synkratos for suggestion integration")
 
             # Start Synkratos
             asyncio.create_task(synkratos.start())

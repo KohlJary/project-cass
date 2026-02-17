@@ -20,20 +20,20 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from thymos import persistence
-from thymos.shadow_runner import ThymosShadowRunner, thymos_kill_switch, is_thymos_enabled
+from thymos.shadow_runner import ThymosRunner, thymos_kill_switch, is_thymos_enabled
 from thymos.goal_generator import get_need_action_map
 from database import get_db
 
 router = APIRouter(prefix="/thymos", tags=["thymos"])
 
-# Module-level reference to the shadow runner
-_shadow_runner: Optional[ThymosShadowRunner] = None
+# Module-level reference to the Thymos runner
+_thymos_runner: Optional[ThymosRunner] = None
 
 
-def init_thymos_runner(runner: ThymosShadowRunner) -> None:
-    """Initialize the Thymos shadow runner reference."""
-    global _shadow_runner
-    _shadow_runner = runner
+def init_thymos_runner(runner: ThymosRunner) -> None:
+    """Initialize the Thymos runner reference."""
+    global _thymos_runner
+    _thymos_runner = runner
 
 
 # =============================================================================
@@ -139,50 +139,50 @@ class ProjectForwardRequest(BaseModel):
 @router.get("/state")
 async def get_current_state() -> ThymosStateResponse:
     """Get the current Thymos state."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    state = _shadow_runner.get_current_state()
+    state = _thymos_runner.get_current_state()
     return ThymosStateResponse(**state)
 
 
 @router.get("/state/affect")
 async def get_affect_state() -> dict:
     """Get just the affect vector."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.affect.to_dict()
+    return _thymos_runner.affect.to_dict()
 
 
 @router.get("/state/needs")
 async def get_needs_state() -> dict:
     """Get just the needs register."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    state = _shadow_runner.get_current_state()
+    state = _thymos_runner.get_current_state()
     return state["needs"]
 
 
 @router.get("/state/felt")
 async def get_felt_state() -> dict:
     """Get the current felt state summary."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    if _shadow_runner.current_felt_state:
-        return _shadow_runner.current_felt_state.to_dict()
+    if _thymos_runner.current_felt_state:
+        return _thymos_runner.current_felt_state.to_dict()
     return {"summary": "No felt state generated yet"}
 
 
 @router.get("/suggestions")
 async def get_suggestions(limit: int = 20) -> list[SuggestionResponse]:
     """Get recent goal suggestions from shadow mode."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    suggestions = _shadow_runner.get_suggestions_log(limit=limit)
+    suggestions = _thymos_runner.get_suggestions_log(limit=limit)
     return [SuggestionResponse(**s) for s in suggestions]
 
 
@@ -197,7 +197,7 @@ async def submit_feedback(suggestion_id: str, request: FeedbackRequest) -> dict:
     - "neutral": Suggestion was okay but not compelling
     - Or freeform text for detailed feedback
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
     success = persistence.add_suggestion_feedback(suggestion_id, request.feedback)
@@ -210,30 +210,30 @@ async def submit_feedback(suggestion_id: str, request: FeedbackRequest) -> dict:
 @router.get("/events")
 async def get_recent_events(limit: int = 20) -> list[dict]:
     """Get recent events processed by Thymos."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.get_recent_events(limit=limit)
+    return _thymos_runner.get_recent_events(limit=limit)
 
 
 @router.get("/snapshots")
 async def get_snapshots(limit: int = 20) -> list[SnapshotResponse]:
     """Get recent state snapshots."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    snapshots = _shadow_runner.get_snapshots(limit=limit)
+    snapshots = _thymos_runner.get_snapshots(limit=limit)
     return [SnapshotResponse(**s) for s in snapshots]
 
 
 @router.get("/trends/need/{need_name}")
 async def get_need_trend(need_name: str, hours: int = 24) -> list[dict]:
     """Get historical trend for a specific need."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
     trends = persistence.get_need_trends(
-        _shadow_runner.daemon_id,
+        _thymos_runner.daemon_id,
         need_name,
         hours=hours
     )
@@ -243,11 +243,11 @@ async def get_need_trend(need_name: str, hours: int = 24) -> list[dict]:
 @router.get("/trends/affect/{dimension}")
 async def get_affect_trend(dimension: str, hours: int = 24) -> list[dict]:
     """Get historical trend for a specific affect dimension."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
     trends = persistence.get_affect_trends(
-        _shadow_runner.daemon_id,
+        _thymos_runner.daemon_id,
         dimension,
         hours=hours
     )
@@ -262,16 +262,16 @@ async def simulate_event(request: SimulateEventRequest) -> dict:
     This processes an event through Thymos without it coming from
     the actual State Bus. Useful for calibration.
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
     event_data = request.data if request.data is not None else {}
-    await _shadow_runner.process_event(request.event_type, event_data)
+    await _thymos_runner.process_event(request.event_type, event_data)
 
     return {
         "status": "event processed",
         "event_type": request.event_type,
-        "new_state": _shadow_runner.get_current_state()
+        "new_state": _thymos_runner.get_current_state()
     }
 
 
@@ -283,14 +283,14 @@ async def project_forward(request: ProjectForwardRequest) -> dict:
     Shows what the state would look like after X hours of decay
     and coupling, assuming no events occur. Does NOT modify actual state.
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
     from thymos import AffectVector, NeedsRegister, AffectNeedDynamics, FeltStateSummarizer
 
     # Create copies of current state
-    projected_affect = AffectVector(state=copy.deepcopy(_shadow_runner.affect.state))
-    projected_needs = NeedsRegister(state=copy.deepcopy(_shadow_runner.needs.state))
+    projected_affect = AffectVector(state=copy.deepcopy(_thymos_runner.affect.state))
+    projected_needs = NeedsRegister(state=copy.deepcopy(_thymos_runner.needs.state))
     dynamics = AffectNeedDynamics(coupling_strength=0.1)
     felt_gen = FeltStateSummarizer()
 
@@ -313,7 +313,7 @@ async def project_forward(request: ProjectForwardRequest) -> dict:
     # Build response similar to get_current_state
     return {
         "hours_projected": request.hours,
-        "current_state": _shadow_runner.get_current_state(),
+        "current_state": _thymos_runner.get_current_state(),
         "projected_state": {
             "affect": projected_affect.to_dict(),
             "needs": {
@@ -348,46 +348,46 @@ async def reset_state() -> dict:
 
     Use sparingly - mainly for testing/development.
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    _shadow_runner.affect.reset_to_baseline()
-    _shadow_runner.needs.reset_to_baseline()
-    _shadow_runner.current_felt_state = None
-    _shadow_runner.event_count = 0
+    _thymos_runner.affect.reset_to_baseline()
+    _thymos_runner.needs.reset_to_baseline()
+    _thymos_runner.current_felt_state = None
+    _thymos_runner.event_count = 0
 
     return {
         "status": "reset to baseline",
-        "new_state": _shadow_runner.get_current_state()
+        "new_state": _thymos_runner.get_current_state()
     }
 
 
 @router.get("/health")
 async def thymos_health() -> dict:
     """Health check for Thymos subsystem."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         return {
             "status": "not_initialized",
             "running": False,
         }
 
     return {
-        "status": "ok" if _shadow_runner.running else "stopped",
-        "running": _shadow_runner.running,
-        "daemon_id": _shadow_runner.daemon_id,
-        "event_count": _shadow_runner.event_count,
-        "overall_health": _shadow_runner.needs.overall_health(),
-        "auto_care": _shadow_runner.get_auto_care_settings(),
+        "status": "ok" if _thymos_runner.running else "stopped",
+        "running": _thymos_runner.running,
+        "daemon_id": _thymos_runner.daemon_id,
+        "event_count": _thymos_runner.event_count,
+        "overall_health": _thymos_runner.needs.overall_health(),
+        "auto_care": _thymos_runner.get_auto_care_settings(),
     }
 
 
 @router.get("/care-log")
 async def get_care_log(limit: int = 20) -> list[dict]:
     """Get recent simulated self-care actions."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.get_care_log(limit=limit)
+    return _thymos_runner.get_care_log(limit=limit)
 
 
 # =============================================================================
@@ -608,10 +608,10 @@ class AutoCareSettingsRequest(BaseModel):
 @router.get("/auto-care")
 async def get_auto_care_settings() -> dict:
     """Get current auto-care configuration."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.get_auto_care_settings()
+    return _thymos_runner.get_auto_care_settings()
 
 
 @router.post("/auto-care")
@@ -623,10 +623,10 @@ async def update_auto_care_settings(request: AutoCareSettingsRequest) -> dict:
     This helps calibrate the system by showing what would happen if
     Thymos were actually driving behavior.
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.set_auto_care_settings(
+    return _thymos_runner.set_auto_care_settings(
         enabled=request.enabled,
         threshold=request.threshold,
         cooldown_seconds=request.cooldown_seconds,
@@ -652,10 +652,10 @@ async def get_timing_config() -> dict:
 
     Returns tick interval (decay rate), suggestion cooldown, and snapshot interval.
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.get_timing_config()
+    return _thymos_runner.get_timing_config()
 
 
 @router.post("/timing")
@@ -667,10 +667,10 @@ async def update_timing_config(request: TimingConfigRequest) -> dict:
     - suggestion_cooldown_minutes: Min time between suggestions for same need (1-120min)
     - snapshot_interval_events: Save snapshot every N events (1-100)
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.set_timing_config(
+    return _thymos_runner.set_timing_config(
         tick_interval_seconds=request.tick_interval_seconds,
         suggestion_cooldown_minutes=request.suggestion_cooldown_minutes,
         snapshot_interval_events=request.snapshot_interval_events,
@@ -691,11 +691,11 @@ async def get_safety_status() -> dict:
     """
     status = {
         "global_enabled": is_thymos_enabled(),
-        "runner_initialized": _shadow_runner is not None,
+        "runner_initialized": _thymos_runner is not None,
     }
 
-    if _shadow_runner:
-        status.update(_shadow_runner.get_safety_status())
+    if _thymos_runner:
+        status.update(_thymos_runner.get_safety_status())
 
     return status
 
@@ -733,19 +733,19 @@ async def pause_thymos() -> dict:
     Use this for temporary debugging. State is preserved.
     Call /safety/resume to continue.
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.pause()
+    return _thymos_runner.pause()
 
 
 @router.post("/safety/resume")
 async def resume_thymos() -> dict:
     """Resume Thymos processing after pause."""
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.resume()
+    return _thymos_runner.resume()
 
 
 class ResetBaselineRequest(BaseModel):
@@ -768,10 +768,10 @@ async def reset_to_baseline(request: ResetBaselineRequest) -> dict:
     Args:
         preserve_history: If True, saves current state as snapshot before reset
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return _shadow_runner.reset_to_baseline(preserve_history=request.preserve_history)
+    return _thymos_runner.reset_to_baseline(preserve_history=request.preserve_history)
 
 
 @router.post("/safety/emergency-stop")
@@ -792,7 +792,7 @@ async def emergency_stop() -> dict:
     2. Use /safety/reset-baseline if needed
     3. Use /start to restart (not implemented yet - requires backend restart)
     """
-    if not _shadow_runner:
+    if not _thymos_runner:
         raise HTTPException(status_code=503, detail="Thymos not initialized")
 
-    return await _shadow_runner.emergency_stop()
+    return await _thymos_runner.emergency_stop()

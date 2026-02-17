@@ -178,7 +178,7 @@ class GrimoireManager:
 
     def configure_services(
         self,
-        thymos_runner: Any,  # ThymosShadowRunner - avoid circular import
+        thymos_runner: Any,  # ThymosRunner - avoid circular import
         scheduler: Optional[Any] = None,
         agent: Optional[Any] = None,
         self_manager: Optional[Any] = None,
@@ -188,7 +188,7 @@ class GrimoireManager:
         Configure service interfaces for spell execution.
 
         Args:
-            thymos_runner: The ThymosShadowRunner instance
+            thymos_runner: The ThymosRunner instance
             scheduler: Optional scheduler for TASK actions
             agent: Optional agent client for agentic actions
             self_manager: Optional SelfManager for saving observations
@@ -225,7 +225,7 @@ class GrimoireManager:
         logger.info("Grimoire services configured")
 
     def _build_thymos_interface(self, runner: Any) -> ThymosInterface:
-        """Build ThymosInterface from a ThymosShadowRunner."""
+        """Build ThymosInterface from a ThymosRunner."""
         # Import thymos modules (handle both relative and absolute)
         try:
             from ..thymos.dynamics import get_care_action_for_need
@@ -939,7 +939,7 @@ class GrimoireManager:
 
 def create_grimoire_hooks(manager: GrimoireManager):
     """
-    Create hooks for integrating Grimoire into ThymosShadowRunner.
+    Create hooks for integrating Grimoire into ThymosRunner.
 
     Returns functions that can be called from the shadow runner's
     tick() and process_event() methods.

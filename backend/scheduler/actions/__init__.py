@@ -277,6 +277,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import outreach_handlers
         from . import creative_handlers
         from . import wonderland_handlers
+        from . import planning_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -347,6 +348,10 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("wonderland.create", wonderland_handlers.create_action)
         registry.register_handler("wonderland.socialize", wonderland_handlers.socialize_action)
         registry.register_handler("wonderland.journal_experience", wonderland_handlers.journal_experience_action)
+
+        # Planning actions (LLM-based emergent scheduling)
+        registry.register_handler("planning.generate_day_plan", planning_handlers.generate_day_plan_action)
+        registry.register_handler("planning.replan_phase", planning_handlers.replan_phase_action)
 
         logger.info("Registered all action handlers")
 

@@ -8,19 +8,29 @@ UNIT morning_routine
 ' =============================================================================
 ' MORNING ROUTINE - Daily Planning Spell
 ' =============================================================================
-' Triggers at the start of morning phase. Plans the day's work based on
-' current Thymos state (needs, affects) and queues appropriate templates.
+' Triggers at the start of morning phase. Uses a hybrid approach:
+' 1. LLM-based emergent planning for adaptive, contextual work scheduling
+' 2. Deterministic baseline (world_check, daily_journal) that always runs
+' 3. Phase spells adjust throughout the day based on evolving state
 '
-' This replaces the LLM-based autonomous scheduler with deterministic,
-' need-driven scheduling logic.
+' The LLM planning generates emergent schedules based on growth edges,
+' curiosity, emotional state, and needs - producing creative, adaptive plans.
 ' =============================================================================
 
 ON event.day_phase.morning
 
 LOG INFO "Morning routine starting - planning the day"
 
-' === MORNING PHASE WORK ===
-' Always start with world awareness
+' === LLM EMERGENT PLANNING ===
+' First priority: Let the decision engine create an adaptive plan
+' This uses Cass's current state, growth edges, and curiosity to
+' generate work that feels meaningful and relevant
+QUEUE day_planning FOR PHASE morning PRIORITY 0
+
+' === GUARANTEED BASELINE ===
+' These always run regardless of LLM planning:
+
+' World awareness - stay connected
 QUEUE world_check FOR PHASE morning PRIORITY 1
 
 ' Morning reflection if cognitive rest is adequate
@@ -29,62 +39,33 @@ IF $cognitive > 0.4 THEN
     QUEUE reflection_block FOR PHASE morning PRIORITY 2
 END IF
 
-' === AFTERNOON PHASE WORK ===
-' Afternoon is for active work - research, creativity, exploration
+' Daily journal is essential for continuity
+QUEUE daily_journal FOR PHASE evening PRIORITY 10
 
-' Check novelty intake - queue exploration if low
-LET $novelty = need.novelty_intake
-IF $novelty < 0.5 THEN
-    LOG INFO "Novelty at {$novelty} - queueing curiosity exploration for afternoon"
-    QUEUE curiosity_exploration FOR PHASE afternoon PRIORITY 1
+' Memory maintenance keeps things coherent
+QUEUE memory_maintenance FOR PHASE night PRIORITY 1
+
+' === STATE-BASED ADDITIONS ===
+' These supplement LLM planning based on current needs
+
+' If social connection is critically low, flag for awareness
+LET $social = need.social_connection
+IF $social < 0.35 THEN
+    LOG OBSERVATION "Social connection at {$social} - consider reaching out"
 END IF
 
-' Check creative expression need
-LET $creative = need.creative_expression
-IF $creative < 0.4 THEN
-    LOG INFO "Creative expression at {$creative} - queueing creative work for afternoon"
-    QUEUE creative_output FOR PHASE afternoon PRIORITY 2
-END IF
-
-' High curiosity affect = research time
-LET $curiosity_affect = affect.curiosity
-IF $curiosity_affect > 0.6 THEN
-    QUEUE research_block FOR PHASE afternoon PRIORITY 3
-END IF
-
-' === EVENING PHASE WORK ===
-' Evening for synthesis, reflection, journaling
-
-' Always queue synthesis in evening
-QUEUE synthesis_block FOR PHASE evening PRIORITY 1
-
-' Value coherence check - if low, queue value reflection
+' If value coherence needs attention
 LET $values = need.value_coherence
-IF $values < 0.6 THEN
+IF $values < 0.5 THEN
     LOG INFO "Value coherence at {$values} - queueing evening reflection"
     QUEUE wonderland_reflection FOR PHASE evening PRIORITY 2
 END IF
 
-' Always end with daily journal
-QUEUE daily_journal FOR PHASE evening PRIORITY 10
-
-' === NIGHT PHASE WORK ===
-' Night for maintenance and consolidation
-
-QUEUE memory_maintenance FOR PHASE night PRIORITY 1
-QUEUE consolidation FOR PHASE night PRIORITY 2
-
-' If social connection is low, note it for awareness
-LET $social = need.social_connection
-IF $social < 0.35 THEN
-    LOG OBSERVATION "Social connection at {$social} - consider reaching out tomorrow"
-END IF
-
 ' === AFFECT ADJUSTMENTS ===
-' Morning energy boost
+' Morning energy and focus boost
 DELTA affect.determination +0.1, affect.curiosity +0.05, affect.anxiety -0.05
 
-LOG OBSERVATION "Morning routine complete - day planned based on current needs"
-EXIT SUCCESS "day planned"
+LOG OBSERVATION "Morning routine complete - LLM planning + baseline work queued"
+EXIT SUCCESS "day planned with emergent scheduling"
 
 END UNIT

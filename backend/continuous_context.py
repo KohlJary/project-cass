@@ -100,6 +100,18 @@ def build_continuous_context(
             context_sections["global_state"] = state_context
 
     # ==========================================================================
+    # 2.55. THYMOS FELT STATE (Emotional/motivational state)
+    # ==========================================================================
+    # Current felt state from Thymos homeostatic system
+    try:
+        from thymos import get_thymos_context
+        thymos_context = get_thymos_context()
+        if thymos_context:
+            context_sections["thymos"] = thymos_context
+    except ImportError:
+        pass  # Thymos not available
+
+    # ==========================================================================
     # 2.6. DISCORD PERCEPTION (Social environment awareness)
     # ==========================================================================
     # Spatial snapshots and triggered events from Discord

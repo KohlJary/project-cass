@@ -295,6 +295,34 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         ],
         category="system",
     ),
+
+    # === Planning ===
+    "day_planning": WorkUnitTemplate(
+        id="day_planning",
+        name="Day Planning",
+        description="LLM-based emergent day planning. Uses decision engine to plan work for remaining phases based on current state, needs, and growth edges.",
+        runner_key=None,
+        action_sequence=["planning.generate_day_plan"],
+        default_duration_minutes=5,
+        estimated_cost_usd=0.10,
+        preferred_time_windows=[
+            TimeWindow(start_hour=6, end_hour=10, preference_weight=1.5),  # Morning planning
+        ],
+        priority=WorkPriority.HIGH,
+        category="planning",
+    ),
+
+    "phase_replan": WorkUnitTemplate(
+        id="phase_replan",
+        name="Phase Replanning",
+        description="Replan current phase when circumstances change.",
+        runner_key=None,
+        action_sequence=["planning.replan_phase"],
+        default_duration_minutes=2,
+        estimated_cost_usd=0.05,
+        preferred_time_windows=[],  # Any time
+        category="planning",
+    ),
 }
 
 
