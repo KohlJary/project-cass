@@ -1018,6 +1018,28 @@ async def process_inline_tags(
     except Exception as e:
         logger.error(f"Failed to process PeopleDex tags: {e}")
 
+    # Process Thymos feel tags (affect modulation)
+    extracted_feels = []
+    try:
+        from gestures import GestureParser
+        parser = GestureParser()
+        cleaned_text, parsed_feels = parser.parse_feels(cleaned_text)
+
+        if parsed_feels:
+            from thymos import apply_feel_deltas
+            success = apply_feel_deltas(parsed_feels)
+            if success:
+                for feel in parsed_feels:
+                    extracted_feels.append({
+                        "dimension": feel.dimension,
+                        "delta": feel.delta
+                    })
+                logger.info(f"Applied {len(parsed_feels)} feel tag(s) to Thymos")
+    except ImportError:
+        pass  # Thymos not available
+    except Exception as e:
+        logger.error(f"Failed to process feel tags: {e}")
+
     # Clean up extra whitespace
     cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()
 
@@ -1035,5 +1057,6 @@ async def process_inline_tags(
         "milestones": extracted_milestones,
         "threads": extracted_threads,
         "questions": extracted_questions,
-        "peopledex": extracted_peopledex
+        "peopledex": extracted_peopledex,
+        "feels": extracted_feels
     }

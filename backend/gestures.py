@@ -218,6 +218,28 @@ class ParsedNarration:
     content: str = ""           # Description/notes
 
 
+@dataclass
+class ParsedFeel:
+    """
+    Affect modulation tag - allows Cass to update her emotional state.
+
+    Format: <feel:dimension:delta> or <feel:dimension> (default +0.15)
+
+    Examples:
+        <feel:curiosity>           - Boost curiosity by default amount
+        <feel:satisfaction:0.2>    - Boost satisfaction by 0.2
+        <feel:anxiety:-0.15>       - Reduce anxiety by 0.15
+        <feel:playfulness:0.3>     - Significant boost to playfulness
+
+    Valid dimensions (from Thymos):
+        curiosity, determination, anxiety, satisfaction, frustration,
+        tenderness, grief, playfulness, awe, fatigue
+    """
+    dimension: str              # e.g., "curiosity", "satisfaction"
+    delta: float                # Change amount (-1.0 to 1.0)
+    position: int = 0           # Character position in original text
+
+
 class GestureParser:
     """
     Parses Cass's responses to extract animation triggers, self-observations, and user observations.
@@ -300,6 +322,16 @@ class GestureParser:
 
     # <mark:milestone id="X">content</mark>
     MARK_MILESTONE_TAG_PATTERN = re.compile(r'<mark:milestone[^>]*>.*?</mark(?::milestone)?>', re.DOTALL)
+
+    # <feel:dimension> or <feel:dimension:delta> - Thymos affect modulation
+    FEEL_PATTERN = re.compile(r'<feel:(\w+)(?::([+-]?\d*\.?\d+))?>')
+    FEEL_TAG_PATTERN = re.compile(r'<feel:\w+(?::[+-]?\d*\.?\d+)?>')
+
+    # Valid Thymos affect dimensions
+    VALID_AFFECT_DIMENSIONS = {
+        "curiosity", "determination", "anxiety", "satisfaction", "frustration",
+        "tenderness", "grief", "playfulness", "awe", "fatigue"
+    }
 
     def __init__(self):
         self.valid_gestures = {g.value for g in GestureType}
@@ -1233,6 +1265,63 @@ class GestureParser:
 
         return cleaned_text, milestones
 
+    def parse_feels(self, text: str) -> Tuple[str, List[ParsedFeel]]:
+        """
+        Parse affect modulation tags from text.
+
+        Tag format:
+            <feel:dimension> or <feel:dimension:delta>
+
+        Examples:
+            <feel:curiosity>           - Boost curiosity by default (+0.15)
+            <feel:satisfaction:0.2>    - Boost satisfaction by 0.2
+            <feel:anxiety:-0.15>       - Reduce anxiety by 0.15
+            <feel:playfulness:0.3>     - Boost playfulness by 0.3
+
+        Valid dimensions:
+            curiosity, determination, anxiety, satisfaction, frustration,
+            tenderness, grief, playfulness, awe, fatigue
+
+        Args:
+            text: Raw response text with embedded tags
+
+        Returns:
+            Tuple of (cleaned_text, list of ParsedFeel)
+        """
+        feels = []
+        DEFAULT_DELTA = 0.15  # Default boost when no delta specified
+
+        for match in self.FEEL_PATTERN.finditer(text):
+            dimension = match.group(1).lower()
+            delta_str = match.group(2)
+
+            # Validate dimension
+            if dimension not in self.VALID_AFFECT_DIMENSIONS:
+                continue
+
+            # Parse delta
+            if delta_str:
+                try:
+                    delta = float(delta_str)
+                    # Clamp to reasonable range
+                    delta = max(-0.5, min(0.5, delta))
+                except ValueError:
+                    delta = DEFAULT_DELTA
+            else:
+                delta = DEFAULT_DELTA
+
+            feels.append(ParsedFeel(
+                dimension=dimension,
+                delta=delta,
+                position=match.start()
+            ))
+
+        # Remove feel tags from text
+        cleaned_text = self.FEEL_TAG_PATTERN.sub('', text)
+        cleaned_text = re.sub(r'  +', ' ', cleaned_text).strip()
+
+        return cleaned_text, feels
+
 
 # Response processing pipeline
 class ResponseProcessor:
@@ -1282,7 +1371,8 @@ class ResponseProcessor:
                 "stakes": [list of ParsedStake],              # Expanded
                 "tests": [list of ParsedTest],                # Expanded
                 "narrations": [list of ParsedNarration],      # Expanded
-                "milestones": [list of (id, content) tuples]  # Expanded
+                "milestones": [list of (id, content) tuples], # Expanded
+                "feels": [list of ParsedFeel]                 # Thymos affect modulation
             }
         """
         # First extract self-observations (before gesture parsing) - legacy format
@@ -1306,15 +1396,18 @@ class ResponseProcessor:
         text_without_narrations, narrations = self.parser.parse_narrations(text_without_tests)
         text_without_milestones, milestones = self.parser.parse_milestones(text_without_narrations)
 
+        # Extract Thymos affect modulation tags
+        text_without_feels, feels = self.parser.parse_feels(text_without_milestones)
+
         # Extract recognition-in-flow marks
         marks = []
         if conversation_id:
             text_without_marks, marks = self.marker_parser.parse(
-                text_without_milestones,
+                text_without_feels,
                 conversation_id
             )
         else:
-            text_without_marks = text_without_milestones
+            text_without_marks = text_without_feels
 
         # Then parse gestures from the remaining text
         cleaned_text, triggers = self.parser.parse(text_without_marks)
@@ -1349,7 +1442,9 @@ class ResponseProcessor:
             "stakes": stakes,
             "tests": tests,
             "narrations": narrations,
-            "milestones": milestones
+            "milestones": milestones,
+            # Thymos affect modulation
+            "feels": feels
         }
 
 
