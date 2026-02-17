@@ -17,7 +17,7 @@ import { Knowledge } from './pages/Knowledge';
 // Remaining standalone views
 import { Users } from './pages/Users';
 import { UserProfile } from './pages/UserProfile';
-import { ConsciousnessHealth } from './pages/ConsciousnessHealth';
+// ConsciousnessHealth now embedded in Mind page
 import { Metrics } from './pages/Metrics';
 import { Projects } from './pages/Projects';
 import { Dreams } from './pages/Dreams';
@@ -28,7 +28,8 @@ import { Architecture } from './pages/Architecture';
 import { Wonderland } from './pages/Wonderland';
 import { PeopleDex } from './pages/PeopleDex';
 import { News } from './pages/News';
-import { Thymos } from './pages/Thymos';
+// Thymos now embedded in Mind page
+import { Mind } from './pages/Mind';
 import { Gallery } from './pages/Gallery';
 import { ArtStudy } from './pages/ArtStudy';
 import { Grimoire } from './pages/Grimoire';
@@ -131,7 +132,7 @@ function AppRoutes() {
         <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
         <Route path="system" element={<AdminRoute><Navigate to="/settings?tab=health" replace /></AdminRoute>} />
         <Route path="data" element={<AdminRoute><Navigate to="/settings?tab=export" replace /></AdminRoute>} />
-        <Route path="consciousness" element={<AdminRoute><ConsciousnessHealth /></AdminRoute>} />
+        <Route path="consciousness" element={<AdminRoute><Navigate to="/mind?tab=consciousness" replace /></AdminRoute>} />
         <Route path="dreams" element={<AdminRoute><Dreams /></AdminRoute>} />
         <Route path="metrics" element={<AdminRoute><Metrics /></AdminRoute>} />
         <Route path="projects" element={<AdminRoute><Projects /></AdminRoute>} />
@@ -140,9 +141,10 @@ function AppRoutes() {
         <Route path="wonderland" element={<AdminRoute><Wonderland /></AdminRoute>} />
         <Route path="peopledex" element={<AdminRoute><PeopleDex /></AdminRoute>} />
         <Route path="news" element={<AdminRoute><News /></AdminRoute>} />
-        <Route path="thymos" element={<AdminRoute><Thymos /></AdminRoute>} />
-        {/* Mind hub - redirects to thymos until Phase 4 builds actual Mind page */}
-        <Route path="mind" element={<AdminRoute><Navigate to="/thymos" replace /></AdminRoute>} />
+        {/* Mind hub - unified emotional/cognitive state */}
+        <Route path="mind" element={<AdminRoute><Mind /></AdminRoute>} />
+        {/* Legacy routes redirect to Mind tabs */}
+        <Route path="thymos" element={<AdminRoute><Navigate to="/mind?tab=thymos" replace /></AdminRoute>} />
         {/* Agency - redirects to dashboard agency tab until Phase 5 builds dedicated page */}
         <Route path="agency" element={<AdminRoute><Navigate to="/?tab=agency" replace /></AdminRoute>} />
         <Route path="gallery" element={<AdminRoute><Gallery /></AdminRoute>} />
