@@ -24,6 +24,7 @@ from .persistence import (
     save_personal_style,
     get_house_style_stats,
 )
+from config import CLAUDE_INTERNAL_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +96,9 @@ If nothing from this artist particularly speaks to you, return an empty list - t
 """
 
     try:
+        # Use Haiku for straightforward element extraction from synthesis
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_INTERNAL_MODEL,
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )

@@ -1,0 +1,31 @@
+UNIT novelty_care
+    AUTHOR "daedalus"
+    PRIORITY 60
+    COOLDOWN 30
+    TAGS novelty, self_care
+    SCOPE THYMOS
+
+ON need.novelty_intake < 0.3
+
+' Check if we should suggest exploration
+LET $curiosity = affect.curiosity
+
+IF $curiosity > 0.4 THEN
+    ' High curiosity + low novelty = good time to explore
+    LOG OBSERVATION "Novelty intake low ({need.novelty_intake}) with high curiosity ({$curiosity}) - suggesting exploration"
+
+    ' Apply positive affect boost for anticipation
+    DELTA affect.playfulness +0.1, affect.curiosity +0.05
+
+    ' The actual exploration would be triggered by the scheduler
+    ' For now, just log the suggestion
+    TASK wonderland.explore AWAIT
+
+    EXIT SUCCESS "exploration triggered"
+ELSE
+    ' Low curiosity - maybe rest is more appropriate
+    LOG DEBUG "Novelty low but curiosity also low - skipping exploration"
+    EXIT SKIPPED "curiosity too low"
+END IF
+
+END UNIT

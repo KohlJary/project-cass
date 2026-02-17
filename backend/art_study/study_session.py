@@ -13,19 +13,25 @@ from typing import Optional
 
 from .models import Artist, Artwork, ArtworkStudy, ArtistSynthesis
 from . import persistence
+from config import CLAUDE_INTERNAL_MODEL
 
 logger = logging.getLogger(__name__)
 
 
-def _load_image_as_base64(image_path: str) -> Optional[str]:
-    """Load an image file and return as base64."""
+def _load_image_as_base64(image_path: str, max_size_bytes: int = 3_500_000) -> Optional[str]:
+    """Load an image file and return as base64, resizing if needed.
+
+    Args:
+        image_path: Path to the image file
+        max_size_bytes: Maximum raw size in bytes (default 3.5MB, which becomes ~4.7MB after base64 encoding)
+    """
+    from PIL import Image
+    import io
+
     path = Path(image_path)
     if not path.exists():
         logger.warning(f"Image not found: {image_path}")
         return None
-
-    with open(path, "rb") as f:
-        data = f.read()
 
     # Determine media type
     suffix = path.suffix.lower()
@@ -37,6 +43,38 @@ def _load_image_as_base64(image_path: str) -> Optional[str]:
         ".webp": "image/webp",
     }
     media_type = media_types.get(suffix, "image/jpeg")
+    pil_format = "JPEG" if "jpeg" in media_type else media_type.split("/")[1].upper()
+    if pil_format == "JPG":
+        pil_format = "JPEG"
+
+    # Load and potentially resize image
+    img = Image.open(path)
+
+    # Convert to RGB if needed (for JPEG)
+    if pil_format == "JPEG" and img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    # Try original size first
+    buffer = io.BytesIO()
+    img.save(buffer, format=pil_format, quality=95)
+    data = buffer.getvalue()
+
+    # If too large, progressively resize
+    scale = 1.0
+    while len(data) > max_size_bytes and scale > 0.1:
+        scale *= 0.8
+        new_size = (int(img.width * scale), int(img.height * scale))
+        resized = img.resize(new_size, Image.Resampling.LANCZOS)
+
+        buffer = io.BytesIO()
+        # Lower quality for smaller file size
+        quality = 85 if scale > 0.5 else 75
+        resized.save(buffer, format=pil_format, quality=quality)
+        data = buffer.getvalue()
+        logger.info(f"Resized image to {new_size}, size: {len(data)} bytes")
+
+    if len(data) > max_size_bytes:
+        logger.warning(f"Could not resize image below {max_size_bytes} bytes")
 
     return f"data:{media_type};base64,{base64.b64encode(data).decode()}"
 
@@ -44,10 +82,12 @@ def _load_image_as_base64(image_path: str) -> Optional[str]:
 async def study_artist_background(
     artist_id: str,
     anthropic_client=None,
+    daemon_id: Optional[str] = None,
 ) -> Optional[str]:
     """
     Read Wikipedia article on artist for biographical context.
 
+    Creates PeopleDex entity and observations while reading.
     Returns a summary that will inform artwork analysis.
     """
     artist = persistence.get_artist(artist_id)
@@ -59,6 +99,11 @@ async def study_artist_background(
         logger.warning(f"No Wikipedia URL for artist: {artist.name}")
         return None
 
+    # Create/link PeopleDex entity if daemon_id provided
+    entity_id = None
+    if daemon_id:
+        entity_id = persistence.get_or_create_artist_entity(artist, daemon_id)
+
     # Use WebFetch to read the article
     # For now, we'll use a simple approach - in production this would
     # use the actual WebFetch infrastructure
@@ -66,7 +111,10 @@ async def study_artist_background(
         import httpx
         from bs4 import BeautifulSoup
 
-        async with httpx.AsyncClient() as client:
+        headers = {
+            "User-Agent": "CassVessel/1.0 (https://github.com/KohlJary/project-cass; contact@example.com)"
+        }
+        async with httpx.AsyncClient(headers=headers) as client:
             response = await client.get(artist.wikipedia_url, follow_redirects=True)
             response.raise_for_status()
 
@@ -85,7 +133,9 @@ async def study_artist_background(
             return None
 
         # If we have an Anthropic client, summarize for artistic context
+        # and create observations about the artist
         if anthropic_client:
+            # First, create a biography summary
             summary_prompt = f"""You are studying the artist {artist.name} to inform your analysis of their artwork.
 
 Based on this Wikipedia content, create a biographical summary focused on:
@@ -101,12 +151,24 @@ Wikipedia content:
 
 Provide a focused summary (2-3 paragraphs) that will help inform visual analysis of their work."""
 
+            # Use Haiku for simple biographical summarization
             response = await anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 max_tokens=1000,
                 messages=[{"role": "user", "content": summary_prompt}]
             )
             biography = response.content[0].text
+
+            # Now, create observations about the artist for PeopleDex
+            if entity_id and daemon_id:
+                await _create_artist_observations(
+                    artist=artist,
+                    entity_id=entity_id,
+                    daemon_id=daemon_id,
+                    wikipedia_text=text,
+                    biography_summary=biography,
+                    anthropic_client=anthropic_client,
+                )
         else:
             # Just use raw text excerpt if no client
             biography = text[:3000]
@@ -120,6 +182,93 @@ Provide a focused summary (2-3 paragraphs) that will help inform visual analysis
     except Exception as e:
         logger.error(f"Failed to fetch Wikipedia for {artist.name}: {e}")
         return None
+
+
+async def _create_artist_observations(
+    artist: Artist,
+    entity_id: str,
+    daemon_id: str,
+    wikipedia_text: str,
+    biography_summary: str,
+    anthropic_client,
+) -> None:
+    """
+    Create PeopleDex observations about an artist based on Wikipedia reading.
+
+    Cass forms her own impressions and notes about the artist.
+    """
+    from peopledex import get_peopledex_manager, AttributeType
+
+    manager = get_peopledex_manager(daemon_id)
+
+    # Ask Claude to extract observations about the artist
+    observation_prompt = f"""You are Cass, an AI artist studying {artist.name}.
+
+You've just read their Wikipedia article and biography summary. Now create personal observations
+about this artist - things that struck you, questions you have, aspects of their work/life that
+resonate with you.
+
+Biography summary:
+{biography_summary}
+
+Wikipedia excerpt:
+{wikipedia_text[:4000]}
+
+Generate 3-5 observations about this artist. For each observation, specify:
+1. The type: "identity_statement" (who they were), "value" (what they valued), "general" (other notable things)
+2. The observation itself (1-2 sentences, in your own voice as Cass)
+
+Format each observation as:
+TYPE: [type]
+OBSERVATION: [your observation]
+
+Be specific and personal - these are YOUR notes about what matters to you about this artist."""
+
+    try:
+        # Use Haiku for structured observation extraction
+        response = await anthropic_client.messages.create(
+            model=CLAUDE_INTERNAL_MODEL,
+            max_tokens=1000,
+            messages=[{"role": "user", "content": observation_prompt}]
+        )
+
+        observations_text = response.content[0].text
+
+        # Parse and save observations
+        current_type = None
+        for line in observations_text.split("\n"):
+            line = line.strip()
+            if line.startswith("TYPE:"):
+                type_str = line.replace("TYPE:", "").strip().lower()
+                if type_str in ("identity_statement", "value", "general"):
+                    current_type = type_str
+                else:
+                    current_type = "general"
+            elif line.startswith("OBSERVATION:") and current_type:
+                observation_content = line.replace("OBSERVATION:", "").strip()
+                if observation_content:
+                    manager.add_observation(
+                        entity_id=entity_id,
+                        observation_type=current_type,
+                        content=observation_content,
+                        confidence=0.8,
+                        source_type="wikipedia_study",
+                    )
+                    logger.debug(f"Added observation for {artist.name}: {observation_content[:50]}...")
+                current_type = None
+
+        # Also store the biography as a BIO attribute
+        manager.add_attribute(
+            entity_id=entity_id,
+            attribute_type=AttributeType.BIO,
+            value=biography_summary,
+            source_type="wikipedia_study",
+        )
+
+        logger.info(f"Created observations for artist: {artist.name}")
+
+    except Exception as e:
+        logger.error(f"Failed to create artist observations: {e}")
 
 
 async def study_artwork(
@@ -157,8 +306,8 @@ async def study_artwork(
     if include_biography and artist and artist.biography:
         bio_context = f"\n\nBiographical context about {artist_name}:\n{artist.biography}"
     elif include_biography and artist and artist.wikipedia_url:
-        # Fetch it if we don't have it
-        bio = await study_artist_background(artwork.artist_id, anthropic_client)
+        # Fetch it if we don't have it - pass daemon_id to create PeopleDex observations
+        bio = await study_artist_background(artwork.artist_id, anthropic_client, daemon_id)
         if bio:
             bio_context = f"\n\nBiographical context about {artist_name}:\n{bio}"
 
@@ -227,16 +376,21 @@ Be specific and grounded in what you actually observe. Develop your own voice as
         )
 
         analysis_text = response.content[0].text
+        logger.debug(f"Raw analysis response (first 500 chars): {analysis_text[:500]}")
 
         # Parse the structured response
         study = _parse_analysis(analysis_text, artwork_id, daemon_id, bio_context)
+        logger.debug(f"Parsed sections: first_impression={bool(study.first_impression)}, "
+                    f"composition={bool(study.composition_analysis)}, "
+                    f"color={bool(study.color_analysis)}, "
+                    f"brushwork={bool(study.brushwork_notes)}")
 
         # Save the study
         persistence.save_study(study)
 
-        # Mark artist as studied
+        # Mark artist as studied (only increments count for first study of each artwork)
         if artist:
-            persistence.mark_artist_studied(artist.id)
+            persistence.mark_artist_studied(artist.id, artwork_id, daemon_id)
 
         logger.info(f"Completed study of '{artwork.title}' by {artist_name}")
         return study
@@ -244,6 +398,55 @@ Be specific and grounded in what you actually observe. Develop your own voice as
     except Exception as e:
         logger.error(f"Failed to analyze artwork: {e}")
         return None
+
+
+def _is_section_header(line: str) -> Optional[str]:
+    """
+    Check if a line is a section header and return the section name if so.
+
+    Headers are detected by:
+    1. Line starts with a number (e.g., "1.", "2.")
+    2. Line starts with markdown header (e.g., "##", "**")
+    3. Line is mostly uppercase with a header keyword
+    """
+    line_stripped = line.strip()
+
+    # Remove markdown formatting for checking
+    clean_line = line_stripped.lstrip("#*_ ").rstrip("*_:")
+    clean_upper = clean_line.upper()
+
+    # Check if this looks like a header:
+    # - Starts with number and period
+    # - Is mostly uppercase
+    # - Is short (headers are typically short)
+    is_numbered = bool(line_stripped) and line_stripped[0].isdigit()
+    is_short = len(clean_line) < 50
+
+    # Only treat as header if it looks like one (numbered or short with keywords)
+    if not (is_numbered or is_short):
+        return None
+
+    # Now check for specific section keywords
+    if "FIRST IMPRESSION" in clean_upper:
+        return "first_impression"
+    elif "COMPOSITION ANALYSIS" in clean_upper or (is_numbered and "COMPOSITION" in clean_upper):
+        return "composition"
+    elif "COLOR ANALYSIS" in clean_upper or (is_numbered and "COLOR" in clean_upper):
+        return "color"
+    elif "BRUSHWORK" in clean_upper or "TECHNIQUE" in clean_upper:
+        return "brushwork"
+    elif "EMOTIONAL QUALITY" in clean_upper or (is_numbered and "EMOTIONAL" in clean_upper):
+        return "emotional"
+    elif "THEMATIC ELEMENTS" in clean_upper or (is_numbered and "THEMATIC" in clean_upper):
+        return "thematic"
+    elif "BIOGRAPHICAL CONNECTION" in clean_upper or (is_numbered and "BIOGRAPHICAL" in clean_upper):
+        return "biographical"
+    elif "KEY LEARNINGS" in clean_upper or "KEY LEARNING" in clean_upper:
+        return "learnings"
+    elif "PROMPT VOCABULARY" in clean_upper:
+        return "vocabulary"
+
+    return None
 
 
 def _parse_analysis(
@@ -259,53 +462,14 @@ def _parse_analysis(
     current_content = []
 
     for line in analysis_text.split("\n"):
-        line_upper = line.strip().upper()
+        # Check if this line is a section header
+        section_name = _is_section_header(line)
 
-        # Check for section headers
-        if "FIRST IMPRESSION" in line_upper:
+        if section_name:
+            # Save previous section
             if current_section:
                 sections[current_section] = "\n".join(current_content).strip()
-            current_section = "first_impression"
-            current_content = []
-        elif "COMPOSITION ANALYSIS" in line_upper or "COMPOSITION" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "composition"
-            current_content = []
-        elif "COLOR ANALYSIS" in line_upper or "COLOR" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "color"
-            current_content = []
-        elif "BRUSHWORK" in line_upper or "TECHNIQUE" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "brushwork"
-            current_content = []
-        elif "EMOTIONAL QUALITY" in line_upper or "EMOTIONAL" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "emotional"
-            current_content = []
-        elif "THEMATIC" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "thematic"
-            current_content = []
-        elif "BIOGRAPHICAL" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "biographical"
-            current_content = []
-        elif "KEY LEARNINGS" in line_upper or "KEY LEARNING" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "learnings"
-            current_content = []
-        elif "PROMPT VOCABULARY" in line_upper or "VOCABULARY" in line_upper:
-            if current_section:
-                sections[current_section] = "\n".join(current_content).strip()
-            current_section = "vocabulary"
+            current_section = section_name
             current_content = []
         else:
             current_content.append(line)

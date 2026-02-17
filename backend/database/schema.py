@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 39  # Art study house style system
+SCHEMA_VERSION = 40  # Thymos scheduler shadow logging
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1757,6 +1757,47 @@ CREATE TABLE IF NOT EXISTS thymos_suggestions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_thymos_suggestions_daemon ON thymos_suggestions(daemon_id, suggested_at);
+
+-- Thymos shadow log (scheduler integration - what would have been executed)
+-- Tracks each suggestion as it flows through the scheduler, logging
+-- whether it would have executed and what blocked it
+CREATE TABLE IF NOT EXISTS thymos_shadow_log (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    suggested_at TEXT NOT NULL,
+    suggestion_id TEXT NOT NULL,          -- Link to thymos_suggestions.id
+
+    -- Need state at suggestion time
+    need_name TEXT NOT NULL,
+    need_current REAL NOT NULL,
+    need_threshold REAL NOT NULL,
+    need_deficit REAL NOT NULL,           -- How far below threshold
+    urgency REAL NOT NULL,
+
+    -- Action mapping
+    suggested_action TEXT NOT NULL,       -- e.g., "wonderland.explore"
+    action_category TEXT,                 -- e.g., "curiosity"
+    action_cost_usd REAL,                 -- Estimated cost
+
+    -- Scheduler decision
+    would_execute INTEGER DEFAULT 0,      -- Would this have executed?
+    blocked_reason TEXT,                  -- Why it wouldn't execute
+
+    -- Budget context at decision time
+    budget_available REAL,
+    budget_spent_today REAL,
+
+    -- Feedback for calibration
+    feedback TEXT,
+    feedback_at TEXT,
+    feedback_helpful INTEGER,             -- Boolean: was suggestion helpful?
+
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_thymos_shadow_daemon ON thymos_shadow_log(daemon_id, suggested_at);
+CREATE INDEX IF NOT EXISTS idx_thymos_shadow_need ON thymos_shadow_log(need_name, suggested_at);
+CREATE INDEX IF NOT EXISTS idx_thymos_shadow_action ON thymos_shadow_log(suggested_action);
 
 -- =============================================================================
 -- ART STUDY SYSTEM (v37)

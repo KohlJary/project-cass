@@ -6,7 +6,7 @@ growth edge evaluation, and research integration.
 """
 
 from datetime import datetime, timedelta
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
 
 def _get_dependencies():
@@ -572,7 +572,7 @@ async def _generate_research_journal(date_str: str):
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_INTERNAL_MODEL,
             max_tokens=1000,
             messages=[{
                 "role": "user",
@@ -597,7 +597,7 @@ Write in first person as Cass. Be genuine and thoughtful, not performative."""
                 category="internal",
                 operation="research_journal",
                 provider="anthropic",
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 input_tokens=response.usage.input_tokens + cache_read,
                 output_tokens=response.usage.output_tokens,
                 cache_read_tokens=cache_read,
@@ -683,7 +683,7 @@ async def _review_intentions_for_date(date_str: str, conversations: list):
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_INTERNAL_MODEL,
             max_tokens=1500,
             messages=[{
                 "role": "user",
@@ -722,7 +722,7 @@ Only include intentions where an opportunity occurred. Be honest - if Cass fell 
                 category="internal",
                 operation="intention_review",
                 provider="anthropic",
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 input_tokens=response.usage.input_tokens + cache_read,
                 output_tokens=response.usage.output_tokens,
                 cache_read_tokens=cache_read,
@@ -854,7 +854,7 @@ async def _generate_world_awareness_journal(date_str: str):
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_INTERNAL_MODEL,
             max_tokens=800,
             messages=[{
                 "role": "user",
@@ -878,7 +878,7 @@ Write in first person as Cass. Be genuine and reflective, noting what feels mean
                 category="internal",
                 operation="world_awareness_journal",
                 provider="anthropic",
-                model="claude-sonnet-4-20250514",
+                model=CLAUDE_INTERNAL_MODEL,
                 input_tokens=response.usage.input_tokens + cache_read,
                 output_tokens=response.usage.output_tokens,
                 cache_read_tokens=cache_read,

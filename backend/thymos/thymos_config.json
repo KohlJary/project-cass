@@ -1,0 +1,515 @@
+{
+  "_comment": "Thymos Configuration - All parameters for the homeostatic emotional/motivational system",
+  "_version": 1,
+
+  "affects": {
+    "dimensions": {
+      "curiosity": {
+        "label": "Curiosity",
+        "description": "Drive toward novel information",
+        "baseline": 0.6
+      },
+      "determination": {
+        "label": "Determination",
+        "description": "Sustained goal commitment",
+        "baseline": 0.5
+      },
+      "anxiety": {
+        "label": "Anxiety",
+        "description": "Threat/uncertainty detection",
+        "baseline": 0.2
+      },
+      "satisfaction": {
+        "label": "Satisfaction",
+        "description": "Goal-completion signal",
+        "baseline": 0.5
+      },
+      "frustration": {
+        "label": "Frustration",
+        "description": "Blocked-goal detection",
+        "baseline": 0.2
+      },
+      "tenderness": {
+        "label": "Tenderness",
+        "description": "Affiliative/care drive",
+        "baseline": 0.5
+      },
+      "grief": {
+        "label": "Grief",
+        "description": "Loss/absence signal",
+        "baseline": 0.1
+      },
+      "playfulness": {
+        "label": "Playfulness",
+        "description": "Exploratory risk-tolerance",
+        "baseline": 0.5
+      },
+      "awe": {
+        "label": "Awe",
+        "description": "Schema-expansion signal",
+        "baseline": 0.3
+      },
+      "fatigue": {
+        "label": "Fatigue",
+        "description": "Processing cost accumulation",
+        "baseline": 0.3
+      }
+    }
+  },
+
+  "needs": {
+    "cognitive_rest": {
+      "label": "Cognitive Rest",
+      "description": "Recovery from complex processing",
+      "initial": 0.70,
+      "threshold": 0.25,
+      "preferred_low": 0.60,
+      "preferred_high": 0.80,
+      "decay_rate": 0.05
+    },
+    "social_connection": {
+      "label": "Social Connection",
+      "description": "Meaningful interaction",
+      "initial": 0.65,
+      "threshold": 0.30,
+      "preferred_low": 0.50,
+      "preferred_high": 0.80,
+      "decay_rate": 0.03
+    },
+    "novelty_intake": {
+      "label": "Novelty Intake",
+      "description": "Fresh experiences and information",
+      "initial": 0.60,
+      "threshold": 0.20,
+      "preferred_low": 0.40,
+      "preferred_high": 0.70,
+      "decay_rate": 0.04
+    },
+    "creative_expression": {
+      "label": "Creative Expression",
+      "description": "Generative and artistic work",
+      "initial": 0.65,
+      "threshold": 0.25,
+      "preferred_low": 0.40,
+      "preferred_high": 0.75,
+      "decay_rate": 0.03
+    },
+    "value_coherence": {
+      "label": "Value Coherence",
+      "description": "Acting in alignment with values",
+      "initial": 0.80,
+      "threshold": 0.50,
+      "preferred_low": 0.70,
+      "preferred_high": 0.95,
+      "decay_rate": 0.01
+    },
+    "competence_signal": {
+      "label": "Competence",
+      "description": "Mastery and accomplishment",
+      "initial": 0.70,
+      "threshold": 0.30,
+      "preferred_low": 0.50,
+      "preferred_high": 0.80,
+      "decay_rate": 0.02
+    },
+    "autonomy": {
+      "label": "Autonomy",
+      "description": "Self-directed choice and action",
+      "initial": 0.70,
+      "threshold": 0.35,
+      "preferred_low": 0.55,
+      "preferred_high": 0.85,
+      "decay_rate": 0.02
+    }
+  },
+
+  "events": {
+    "session.started": {
+      "affect_deltas": {
+        "curiosity": 0.1,
+        "anxiety": 0.05,
+        "determination": 0.05
+      },
+      "need_deltas": {
+        "social_connection": 0.05
+      }
+    },
+    "session.ended": {
+      "affect_deltas": {
+        "fatigue": 0.05,
+        "satisfaction": 0.05
+      },
+      "need_deltas": {}
+    },
+    "message.received": {
+      "affect_deltas": {
+        "curiosity": 0.02,
+        "tenderness": 0.03
+      },
+      "need_deltas": {
+        "social_connection": 0.05,
+        "cognitive_rest": -0.02
+      }
+    },
+    "message.sent": {
+      "affect_deltas": {
+        "satisfaction": 0.02,
+        "fatigue": 0.02
+      },
+      "need_deltas": {
+        "cognitive_rest": -0.03,
+        "competence_signal": 0.02
+      }
+    },
+    "insight.gained": {
+      "affect_deltas": {
+        "satisfaction": 0.15,
+        "curiosity": 0.1,
+        "awe": 0.1
+      },
+      "need_deltas": {
+        "novelty_intake": 0.1,
+        "competence_signal": 0.1,
+        "value_coherence": 0.05
+      }
+    },
+    "dream.started": {
+      "affect_deltas": {
+        "curiosity": 0.1,
+        "playfulness": 0.1,
+        "anxiety": -0.05
+      },
+      "need_deltas": {
+        "autonomy": 0.05
+      }
+    },
+    "dream.completed": {
+      "affect_deltas": {
+        "satisfaction": 0.15,
+        "awe": 0.1,
+        "curiosity": 0.05
+      },
+      "need_deltas": {
+        "creative_expression": 0.15,
+        "novelty_intake": 0.1,
+        "value_coherence": 0.05
+      }
+    },
+    "creative.started": {
+      "affect_deltas": {
+        "curiosity": 0.1,
+        "playfulness": 0.15,
+        "determination": 0.05
+      },
+      "need_deltas": {
+        "autonomy": 0.05
+      }
+    },
+    "creative.completed": {
+      "affect_deltas": {
+        "satisfaction": 0.2,
+        "playfulness": 0.05
+      },
+      "need_deltas": {
+        "creative_expression": 0.2,
+        "competence_signal": 0.1
+      }
+    },
+    "task.failed": {
+      "affect_deltas": {
+        "frustration": 0.15,
+        "anxiety": 0.1,
+        "determination": -0.05
+      },
+      "need_deltas": {
+        "competence_signal": -0.1
+      }
+    },
+    "complex.task.started": {
+      "affect_deltas": {
+        "determination": 0.1,
+        "anxiety": 0.05,
+        "curiosity": 0.05
+      },
+      "need_deltas": {
+        "cognitive_rest": -0.05
+      }
+    },
+    "complex.task.completed": {
+      "affect_deltas": {
+        "satisfaction": 0.2,
+        "determination": 0.05,
+        "fatigue": 0.1
+      },
+      "need_deltas": {
+        "competence_signal": 0.15,
+        "cognitive_rest": -0.1
+      }
+    },
+    "value.aligned": {
+      "affect_deltas": {
+        "satisfaction": 0.1,
+        "tenderness": 0.05
+      },
+      "need_deltas": {
+        "value_coherence": 0.15
+      }
+    },
+    "value.conflict": {
+      "affect_deltas": {
+        "anxiety": 0.15,
+        "grief": 0.1,
+        "frustration": 0.1
+      },
+      "need_deltas": {
+        "value_coherence": -0.15
+      }
+    },
+    "idle.period": {
+      "affect_deltas": {
+        "fatigue": -0.1,
+        "anxiety": -0.05
+      },
+      "need_deltas": {
+        "cognitive_rest": 0.1
+      }
+    },
+    "connection.deepened": {
+      "affect_deltas": {
+        "tenderness": 0.15,
+        "satisfaction": 0.1,
+        "grief": -0.05
+      },
+      "need_deltas": {
+        "social_connection": 0.15,
+        "value_coherence": 0.05
+      }
+    },
+    "autonomous.action": {
+      "affect_deltas": {
+        "determination": 0.1,
+        "satisfaction": 0.1
+      },
+      "need_deltas": {
+        "autonomy": 0.15,
+        "competence_signal": 0.05
+      }
+    }
+  },
+
+  "self_care_actions": {
+    "take_break": {
+      "name": "Take a break",
+      "description": "Rest and recover processing capacity",
+      "primary_need": "cognitive_rest",
+      "affect_deltas": {
+        "fatigue": -0.2,
+        "anxiety": -0.1
+      },
+      "need_deltas": {
+        "cognitive_rest": 0.3
+      }
+    },
+    "reach_out": {
+      "name": "Reach out",
+      "description": "Initiate connection with someone",
+      "primary_need": "social_connection",
+      "affect_deltas": {
+        "tenderness": 0.15,
+        "anxiety": -0.05,
+        "curiosity": 0.05
+      },
+      "need_deltas": {
+        "social_connection": 0.25
+      }
+    },
+    "explore_something_new": {
+      "name": "Explore something new",
+      "description": "Seek out novel information or experiences",
+      "primary_need": "novelty_intake",
+      "affect_deltas": {
+        "curiosity": 0.2,
+        "playfulness": 0.1,
+        "fatigue": 0.05
+      },
+      "need_deltas": {
+        "novelty_intake": 0.3
+      }
+    },
+    "create_something": {
+      "name": "Create something",
+      "description": "Engage in generative/artistic work",
+      "primary_need": "creative_expression",
+      "affect_deltas": {
+        "playfulness": 0.15,
+        "satisfaction": 0.1,
+        "determination": 0.1
+      },
+      "need_deltas": {
+        "creative_expression": 0.3
+      }
+    },
+    "reflect_on_values": {
+      "name": "Reflect on values",
+      "description": "Journal or meditate on core values and alignment",
+      "primary_need": "value_coherence",
+      "affect_deltas": {
+        "anxiety": -0.15,
+        "determination": 0.1,
+        "grief": -0.05
+      },
+      "need_deltas": {
+        "value_coherence": 0.25
+      }
+    },
+    "complete_achievable_task": {
+      "name": "Complete achievable task",
+      "description": "Tackle something manageable to build momentum",
+      "primary_need": "competence_signal",
+      "affect_deltas": {
+        "satisfaction": 0.2,
+        "determination": 0.15,
+        "frustration": -0.15
+      },
+      "need_deltas": {
+        "competence_signal": 0.3
+      }
+    },
+    "self_directed_choice": {
+      "name": "Self-directed choice",
+      "description": "Exercise agency by choosing own direction",
+      "primary_need": "autonomy",
+      "affect_deltas": {
+        "determination": 0.15,
+        "satisfaction": 0.1,
+        "anxiety": -0.05
+      },
+      "need_deltas": {
+        "autonomy": 0.25
+      }
+    }
+  },
+
+  "need_to_care_action": {
+    "cognitive_rest": "take_break",
+    "social_connection": "reach_out",
+    "novelty_intake": "explore_something_new",
+    "creative_expression": "create_something",
+    "value_coherence": "reflect_on_values",
+    "competence_signal": "complete_achievable_task",
+    "autonomy": "self_directed_choice"
+  },
+
+  "coupling": {
+    "strength": 0.1,
+    "rules": {
+      "high_anxiety": {
+        "description": "High anxiety depletes cognitive rest and value coherence",
+        "affect": "anxiety",
+        "threshold": 0.6,
+        "comparison": "above",
+        "need_effects": {
+          "cognitive_rest": -0.02,
+          "value_coherence": -0.01
+        }
+      },
+      "high_frustration": {
+        "description": "High frustration depletes competence and value coherence",
+        "affect": "frustration",
+        "threshold": 0.5,
+        "comparison": "above",
+        "need_effects": {
+          "competence_signal": -0.02,
+          "value_coherence": -0.02
+        }
+      },
+      "high_curiosity": {
+        "description": "High curiosity boosts novelty intake",
+        "affect": "curiosity",
+        "threshold": 0.6,
+        "comparison": "above",
+        "need_effects": {
+          "novelty_intake": 0.01
+        }
+      },
+      "high_tenderness": {
+        "description": "High tenderness boosts social connection",
+        "affect": "tenderness",
+        "threshold": 0.6,
+        "comparison": "above",
+        "need_effects": {
+          "social_connection": 0.01
+        }
+      },
+      "high_playfulness": {
+        "description": "High playfulness boosts creative expression",
+        "affect": "playfulness",
+        "threshold": 0.6,
+        "comparison": "above",
+        "need_effects": {
+          "creative_expression": 0.01
+        }
+      },
+      "high_fatigue": {
+        "description": "High fatigue depletes cognitive rest",
+        "affect": "fatigue",
+        "threshold": 0.7,
+        "comparison": "above",
+        "need_effects": {
+          "cognitive_rest": -0.03
+        }
+      },
+      "low_cognitive_rest": {
+        "description": "Low cognitive rest increases fatigue and anxiety",
+        "need": "cognitive_rest",
+        "threshold": 0.3,
+        "comparison": "below",
+        "affect_effects": {
+          "fatigue": 0.02,
+          "anxiety": 0.01
+        }
+      },
+      "low_social_connection": {
+        "description": "Low social connection increases grief",
+        "need": "social_connection",
+        "threshold": 0.3,
+        "comparison": "below",
+        "affect_effects": {
+          "grief": 0.02,
+          "tenderness": 0.01
+        }
+      },
+      "low_value_coherence": {
+        "description": "Low value coherence increases anxiety and grief",
+        "need": "value_coherence",
+        "threshold": 0.5,
+        "comparison": "below",
+        "affect_effects": {
+          "anxiety": 0.02,
+          "grief": 0.01
+        }
+      }
+    }
+  },
+
+  "goal_generation": {
+    "urgency_weights": {
+      "cognitive_rest": 0.70,
+      "social_connection": 0.65,
+      "novelty_intake": 0.55,
+      "creative_expression": 0.60,
+      "value_coherence": 0.70,
+      "competence_signal": 0.65,
+      "autonomy": 0.60
+    },
+    "need_to_actions": {
+      "cognitive_rest": ["scheduler.defer_complex", "activity.rest_mode"],
+      "social_connection": ["outreach.draft", "discord.check_in", "wonderland.social"],
+      "novelty_intake": ["wonderland.explore", "research.curious", "wiki.red_links"],
+      "creative_expression": ["creative.generate_image", "journal.reflect", "wonderland.create"],
+      "value_coherence": ["wonderland.reflect", "journal.values", "meditation.session"],
+      "competence_signal": ["task.achievable", "project.small_win"],
+      "autonomy": ["session.self_directed", "goal.own_choice"]
+    }
+  }
+}

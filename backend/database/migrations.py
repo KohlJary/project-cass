@@ -397,6 +397,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 39:
         print("Adding house style tables (adopted_elements, personal_style) for Cass's emergent artistic identity (v39)")
 
+    # v39 -> v40: Thymos scheduler shadow logging
+    # Table is created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 40:
+        print("Adding thymos_shadow_log table for scheduler integration (v40)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

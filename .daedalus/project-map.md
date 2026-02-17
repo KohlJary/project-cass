@@ -99,6 +99,24 @@ The Cass Vessel is an embodiment system for Cass (Cassandra), an AI Daemon opera
 | `files.py` | `/files` | File operations |
 | `export.py` | `/export` | Data export |
 
+### Grimoire - Spell System (`backend/grimoire/`)
+
+**Purpose**: ThymosBASIC DSL for daemon behavioral spells. Visual node-based editor planned, text DSL implemented.
+
+| Module | Purpose | Key Classes |
+|--------|---------|-------------|
+| `lexer.py` | Tokenizer | `Lexer`, `Token`, `TokenType` |
+| `ast.py` | AST nodes | `Spell`, `Statement`, `Trigger`, `Expression` |
+| `parser.py` | Recursive descent parser | `Parser`, `ParseError` |
+| `context.py` | Execution context | `SpellContext`, `RuntimeServices`, interfaces |
+| `runtime.py` | Async interpreter | `Spellcaster`, `SpellError` |
+| `registry.py` | Spell loading/indexing | `SpellRegistry`, `SpellMatch` |
+| `manager.py` | Integration layer | `GrimoireManager`, `SpellExecutionResult` |
+
+**Spells** (`backend/spells/*.spell`): Behavioral patterns that trigger on Thymos state.
+
+**Integration Status**: Hooks exist in ThymosShadowRunner but not wired at startup yet.
+
 ### Session Runners (`backend/*_runner.py`)
 
 Autonomous research/reflection sessions:

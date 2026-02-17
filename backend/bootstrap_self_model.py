@@ -19,7 +19,7 @@ import asyncio
 import httpx
 from memory import CassMemory
 from self_model import SelfManager, CassSelfObservation
-from config import ANTHROPIC_API_KEY, OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL
+from config import ANTHROPIC_API_KEY, OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_INTERNAL_MODEL
 
 
 async def analyze_journals_for_self_model(journals: list, api_key: str) -> dict:
@@ -79,7 +79,7 @@ Aim for 3-5 items per category where the journals support it."""
                 "content-type": "application/json"
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": CLAUDE_INTERNAL_MODEL,  # Use Haiku for one-time bootstrap
                 "max_tokens": 2000,
                 "messages": [
                     {"role": "user", "content": prompt}

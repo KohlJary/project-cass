@@ -5,7 +5,7 @@ Background tasks and utilities for journal generation, development logging,
 and nightly dream generation.
 """
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 from journal_generation import generate_missing_journals
 import asyncio
 import re
@@ -69,7 +69,7 @@ async def _create_development_log_entry(journal_text: str, date_str: str, conver
 
         # Use LLM to extract developmental insights from journal
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=CLAUDE_INTERNAL_MODEL,
             max_tokens=2000,
             messages=[{
                 "role": "user",

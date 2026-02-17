@@ -50,9 +50,9 @@ from .models import (
 
 from .affect_vector import AffectVector
 from .needs_register import NeedsRegister
-from .dynamics import AffectNeedDynamics, EVENT_MAPPINGS
+from .dynamics import AffectNeedDynamics, get_event_mappings
 from .felt_state import FeltStateSummarizer
-from .goal_generator import GoalGenerator, NEED_ACTION_MAP
+from .goal_generator import GoalGenerator, get_need_action_map
 from .shadow_runner import (
     ThymosShadowRunner,
     # Safety controls
@@ -63,6 +63,9 @@ from .shadow_runner import (
 
 # Persistence functions
 from . import persistence
+
+# Configuration
+from .config import get_config, reload_config, ThymosConfig
 
 __all__ = [
     # Models
@@ -82,10 +85,10 @@ __all__ = [
     "AffectVector",
     "NeedsRegister",
     "AffectNeedDynamics",
-    "EVENT_MAPPINGS",
+    "get_event_mappings",
     "FeltStateSummarizer",
     "GoalGenerator",
-    "NEED_ACTION_MAP",
+    "get_need_action_map",
     # Main runner
     "ThymosShadowRunner",
     # Safety controls
@@ -94,4 +97,8 @@ __all__ = [
     "is_thymos_enabled",
     # Persistence
     "persistence",
+    # Configuration
+    "get_config",
+    "reload_config",
+    "ThymosConfig",
 ]

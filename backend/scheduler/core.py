@@ -13,13 +13,16 @@ that coordinates everything Cass does autonomously.
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from enum import Enum
-from typing import Callable, Optional, Any, Dict, List, Awaitable
+from typing import Callable, Optional, Any, Dict, List, Awaitable, TYPE_CHECKING
 import asyncio
 import logging
 import uuid
 import re
 
 from .budget import BudgetManager, TaskCategory
+
+if TYPE_CHECKING:
+    from thymos import ThymosShadowRunner
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +266,11 @@ class Synkratos:
         self._approval_providers: Dict[ApprovalType, Callable[[], List[ApprovalItem]]] = {}
         self._approval_handlers: Dict[ApprovalType, Dict[str, Callable]] = {}
 
+        # Thymos integration (homeostatic need → autonomous action)
+        self._thymos: Optional["ThymosShadowRunner"] = None
+        # Action registry for looking up action definitions
+        self._action_registry = None
+
     def _emit_scheduler_event(self, event_type: str, data: dict) -> None:
         """Emit a scheduler event to the state bus."""
         try:
@@ -411,6 +419,9 @@ class Synkratos:
 
                 # Check queue tasks
                 await self._check_queue_tasks(now)
+
+                # Check Thymos suggestions (shadow mode - log only)
+                await self._check_thymos_suggestions(now)
 
                 await asyncio.sleep(self.TICK_INTERVAL)
 
@@ -593,6 +604,202 @@ class Synkratos:
         # Trim history
         if len(self._history) > self._max_history:
             self._history = self._history[-self._max_history:]
+
+    # ============== Thymos Integration (Shadow Mode) ==============
+
+    def register_thymos_provider(self, thymos: "ThymosShadowRunner") -> None:
+        """
+        Register Thymos as a suggestion provider.
+
+        In shadow mode, the scheduler polls Thymos for suggestions,
+        evaluates what would happen if they were executed, and logs
+        the results without actually executing.
+
+        Args:
+            thymos: ThymosShadowRunner instance to poll for suggestions
+        """
+        self._thymos = thymos
+        logger.info("Registered Thymos shadow runner with scheduler")
+
+    def set_action_registry(self, registry) -> None:
+        """
+        Set the action registry for looking up action definitions.
+
+        Args:
+            registry: ActionRegistry instance with action definitions
+        """
+        self._action_registry = registry
+
+    async def _check_thymos_suggestions(self, now: datetime) -> None:
+        """
+        Check Thymos for pending suggestions (shadow mode).
+
+        Polls Thymos, evaluates each suggestion against current
+        scheduler state, and logs what would have happened.
+        """
+        if not self._thymos:
+            return
+
+        # Get pending suggestions
+        suggestions = self._thymos.get_pending_suggestions(clear=True)
+        if not suggestions:
+            return
+
+        logger.debug(f"Processing {len(suggestions)} Thymos suggestions")
+
+        for suggestion in suggestions:
+            await self._process_thymos_suggestion(suggestion, now)
+
+    async def _process_thymos_suggestion(self, suggestion, timestamp: datetime) -> None:
+        """
+        Process a single Thymos suggestion (shadow mode - log only).
+
+        Evaluates whether this suggestion would have been executed,
+        what blocked it if not, and logs the result for calibration.
+
+        Args:
+            suggestion: SuggestedGoal from Thymos
+            timestamp: When this processing occurred
+        """
+        would_execute = False
+        blocked_reason = None
+        action_def = None
+        action_category = None
+        action_cost = 0.0
+
+        # Try to look up the action definition
+        if self._action_registry:
+            try:
+                action_def = self._action_registry.get_definition(suggestion.suggested_action)
+            except Exception:
+                action_def = None
+
+        if not action_def:
+            blocked_reason = "action_not_found"
+        else:
+            action_category = action_def.category if hasattr(action_def, 'category') else None
+            action_cost = getattr(action_def, 'estimated_cost_usd', 0.0)
+
+            # Check budget
+            if action_category:
+                try:
+                    category = TaskCategory(action_category)
+                    if not self.budget.can_spend(category, action_cost):
+                        blocked_reason = "budget_exceeded"
+                except (ValueError, KeyError):
+                    # Unknown category
+                    blocked_reason = "unknown_category"
+
+            # Check queue availability
+            if not blocked_reason and action_category:
+                try:
+                    category = TaskCategory(action_category)
+                    queue = self.queues.get(category)
+                    if queue and len(queue.running) >= queue.max_concurrent:
+                        blocked_reason = "queue_full"
+                except (ValueError, KeyError):
+                    pass
+
+            # Check idle requirement
+            if not blocked_reason:
+                requires_idle = getattr(action_def, 'requires_idle', False)
+                if requires_idle and not self.is_idle():
+                    blocked_reason = "not_idle"
+
+            # If no blockers, would execute
+            if not blocked_reason:
+                would_execute = True
+
+        # Log shadow suggestion to database
+        await self._log_shadow_suggestion(
+            suggestion=suggestion,
+            timestamp=timestamp,
+            would_execute=would_execute,
+            blocked_reason=blocked_reason,
+            action_category=action_category,
+            action_cost=action_cost,
+        )
+
+    async def _log_shadow_suggestion(
+        self,
+        suggestion,
+        timestamp: datetime,
+        would_execute: bool,
+        blocked_reason: Optional[str],
+        action_category: Optional[str],
+        action_cost: float,
+    ) -> None:
+        """
+        Log a shadow suggestion to the database.
+
+        Records what Thymos suggested and what the scheduler would
+        have done with it, for calibration and analysis.
+
+        Args:
+            suggestion: SuggestedGoal from Thymos
+            timestamp: When this was processed
+            would_execute: Whether this would have executed
+            blocked_reason: Why it wouldn't execute (if applicable)
+            action_category: Action category (if found)
+            action_cost: Estimated action cost (if found)
+        """
+        try:
+            from database import get_db
+
+            budget_status = self.budget.get_budget_status()
+
+            with get_db() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO thymos_shadow_log (
+                        id, daemon_id, suggested_at,
+                        suggestion_id, need_name, need_current, need_threshold,
+                        need_deficit, urgency,
+                        suggested_action, action_category, action_cost_usd,
+                        would_execute, blocked_reason,
+                        budget_available, budget_spent_today,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        getattr(suggestion, 'daemon_id', 'cass'),
+                        timestamp.isoformat(),
+                        suggestion.id,
+                        suggestion.need_name,
+                        suggestion.need_current,
+                        suggestion.need_threshold,
+                        suggestion.need_threshold - suggestion.need_current,
+                        suggestion.urgency,
+                        suggestion.suggested_action or "",
+                        action_category or "unknown",
+                        action_cost,
+                        would_execute,
+                        blocked_reason,
+                        budget_status.get("remaining_usd", 0.0),
+                        budget_status.get("spent_usd", 0.0),
+                        timestamp.isoformat(),
+                    )
+                )
+
+            logger.info(
+                f"Shadow log: {suggestion.suggested_action} for {suggestion.need_name} "
+                f"(would_execute={would_execute}, reason={blocked_reason})"
+            )
+
+            # Emit event for monitoring
+            self._emit_scheduler_event("scheduler.thymos_suggestion", {
+                "suggestion_id": suggestion.id,
+                "need_name": suggestion.need_name,
+                "urgency": suggestion.urgency,
+                "suggested_action": suggestion.suggested_action,
+                "would_execute": would_execute,
+                "blocked_reason": blocked_reason,
+                "shadow_mode": True,
+            })
+
+        except Exception as e:
+            logger.error(f"Failed to log shadow suggestion: {e}", exc_info=True)
 
     def get_status(self) -> Dict[str, Any]:
         """Get scheduler status for monitoring."""

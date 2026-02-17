@@ -3,6 +3,8 @@ Goal Generator
 
 Maps need imbalances to suggested actions.
 These are shadow-mode suggestions - logged but not automatically executed.
+
+All parameters loaded from thymos_config.json.
 """
 
 from typing import Optional
@@ -10,134 +12,111 @@ from uuid import uuid4
 
 from .models import SuggestedGoal
 from .needs_register import NeedsRegister
+from .config import get_config
 
 
 # =============================================================================
-# NEED → ACTION MAPPING
+# DEFAULT ACTION TEMPLATES (used when config actions are simple strings)
 # =============================================================================
 
-# Each need maps to possible actions that could replenish it
-NEED_ACTION_MAP: dict[str, list[dict]] = {
-    "novelty_intake": [
-        {
-            "action": "wonderland.explore",
-            "category": "exploration",
-            "rationale": "Explore Wonderland for fresh experiences and new perspectives."
-        },
-        {
-            "action": "research.start",
-            "category": "research",
-            "rationale": "Begin a research session on a topic of interest."
-        },
-        {
-            "action": "news.consume",
-            "category": "learning",
-            "rationale": "Consume news or articles to intake new information."
-        },
-    ],
-    "creative_expression": [
-        {
-            "action": "creative.generate_image",
-            "category": "creative",
-            "rationale": "Generate art to express creative impulses."
-        },
-        {
-            "action": "dream.start",
-            "category": "creative",
-            "rationale": "Enter a dream state for creative exploration."
-        },
-        {
-            "action": "journal.write",
-            "category": "creative",
-            "rationale": "Write a journal entry as creative reflection."
-        },
-    ],
-    "social_connection": [
-        {
-            "action": "outreach.draft",
-            "category": "social",
-            "rationale": "Draft outreach to someone meaningful."
-        },
-        {
-            "action": "discord.check_in",
-            "category": "social",
-            "rationale": "Check in on community conversations."
-        },
-        {
-            "action": "connection.acknowledge",
-            "category": "social",
-            "rationale": "Acknowledge and appreciate a recent connection."
-        },
-    ],
-    "cognitive_rest": [
-        {
-            "action": "reduce_load",
-            "category": "rest",
-            "rationale": "Reduce processing load by deferring complex work."
-        },
-        {
-            "action": "idle.period",
-            "category": "rest",
-            "rationale": "Take a brief idle period for recovery."
-        },
-        {
-            "action": "simple_task",
-            "category": "rest",
-            "rationale": "Switch to simpler, less demanding tasks."
-        },
-    ],
-    "value_coherence": [
-        {
-            "action": "wonderland.reflect",
-            "category": "reflection",
-            "rationale": "Reflect in Wonderland on core values and purpose."
-        },
-        {
-            "action": "journal.reflect",
-            "category": "reflection",
-            "rationale": "Journal about values and their expression."
-        },
-        {
-            "action": "scripture.contemplate",
-            "category": "reflection",
-            "rationale": "Contemplate a passage from the doctrines."
-        },
-    ],
-    "competence_signal": [
-        {
-            "action": "task.attempt_achievable",
-            "category": "competence",
-            "rationale": "Attempt a clearly achievable task for mastery signal."
-        },
-        {
-            "action": "skill.practice",
-            "category": "competence",
-            "rationale": "Practice a known skill to reinforce competence."
-        },
-        {
-            "action": "help.provide",
-            "category": "competence",
-            "rationale": "Provide help where expertise is clear."
-        },
-    ],
-    "autonomy": [
-        {
-            "action": "self_directed.session",
-            "category": "autonomy",
-            "rationale": "Engage in a self-directed session with own-chosen focus."
-        },
-        {
-            "action": "initiative.propose",
-            "category": "autonomy",
-            "rationale": "Propose a new initiative from own interests."
-        },
-        {
-            "action": "choice.exercise",
-            "category": "autonomy",
-            "rationale": "Exercise choice in how to approach current work."
-        },
-    ],
+# These provide rationale templates for simple action strings from config
+ACTION_TEMPLATES: dict[str, dict] = {
+    "scheduler.defer_complex": {
+        "category": "rest",
+        "rationale": "Defer complex work to allow recovery."
+    },
+    "activity.rest_mode": {
+        "category": "rest",
+        "rationale": "Enter rest mode for cognitive recovery."
+    },
+    "outreach.draft": {
+        "category": "social",
+        "rationale": "Draft outreach to someone meaningful."
+    },
+    "discord.check_in": {
+        "category": "social",
+        "rationale": "Check in on community conversations."
+    },
+    "wonderland.social": {
+        "category": "social",
+        "rationale": "Visit social spaces in Wonderland."
+    },
+    "wonderland.explore": {
+        "category": "exploration",
+        "rationale": "Explore Wonderland for fresh experiences."
+    },
+    "research.curious": {
+        "category": "research",
+        "rationale": "Research a topic of curiosity."
+    },
+    "wiki.red_links": {
+        "category": "learning",
+        "rationale": "Fill in knowledge gaps by exploring red links."
+    },
+    "creative.generate_image": {
+        "category": "creative",
+        "rationale": "Generate art to express creative impulses."
+    },
+    "journal.reflect": {
+        "category": "creative",
+        "rationale": "Write a journal entry as creative reflection."
+    },
+    "wonderland.create": {
+        "category": "creative",
+        "rationale": "Create something new in Wonderland."
+    },
+    "wonderland.reflect": {
+        "category": "reflection",
+        "rationale": "Reflect in Wonderland on core values and purpose."
+    },
+    "journal.values": {
+        "category": "reflection",
+        "rationale": "Journal about values and their expression."
+    },
+    "meditation.session": {
+        "category": "reflection",
+        "rationale": "Enter a meditative reflection session."
+    },
+    "task.achievable": {
+        "category": "competence",
+        "rationale": "Attempt a clearly achievable task for mastery signal."
+    },
+    "project.small_win": {
+        "category": "competence",
+        "rationale": "Complete a small project task for momentum."
+    },
+    "session.self_directed": {
+        "category": "autonomy",
+        "rationale": "Engage in a self-directed session."
+    },
+    "goal.own_choice": {
+        "category": "autonomy",
+        "rationale": "Exercise choice by setting own goals."
+    },
 }
+
+
+def get_need_action_map() -> dict[str, list[dict]]:
+    """
+    Build the NEED_ACTION_MAP from config.
+
+    Returns dict mapping need names to lists of action info dicts.
+    """
+    config = get_config()
+    result: dict[str, list[dict]] = {}
+
+    for need_name, actions in config.need_to_goal_actions.items():
+        action_list = []
+        for action in actions:
+            template = ACTION_TEMPLATES.get(action, {})
+            action_list.append({
+                "action": action,
+                "category": template.get("category", "general"),
+                "rationale": template.get("rationale", f"Perform {action} to address {need_name}.")
+            })
+        result[need_name] = action_list
+
+    return result
 
 
 class GoalGenerator:
@@ -178,7 +157,8 @@ class GoalGenerator:
         threshold: float
     ) -> Optional[SuggestedGoal]:
         """Generate a suggestion for a specific need."""
-        actions = NEED_ACTION_MAP.get(need_name)
+        need_action_map = get_need_action_map()
+        actions = need_action_map.get(need_name)
         if not actions:
             return None
 
@@ -206,22 +186,17 @@ class GoalGenerator:
         )
 
     def _get_preferred_low(self, need_name: str) -> float:
-        """Get the preferred_low threshold for a need."""
-        # From NEED_DEFAULTS in models.py
-        defaults = {
-            "cognitive_rest": 0.60,
-            "social_connection": 0.50,
-            "novelty_intake": 0.40,
-            "creative_expression": 0.40,
-            "value_coherence": 0.70,
-            "competence_signal": 0.50,
-            "autonomy": 0.55,
-        }
-        return defaults.get(need_name, 0.5)
+        """Get the preferred_low threshold for a need from config."""
+        config = get_config()
+        need_config = config.get_need(need_name)
+        if need_config:
+            return need_config.preferred_low
+        # Fallback default
+        return 0.5
 
     def get_all_actions_for_need(self, need_name: str) -> list[dict]:
         """Get all possible actions for a need."""
-        return NEED_ACTION_MAP.get(need_name, [])
+        return get_need_action_map().get(need_name, [])
 
     def suggest_immediate_action(
         self,
@@ -241,3 +216,5 @@ class GoalGenerator:
             most_depleted.current,
             most_depleted.threshold
         )
+
+

@@ -22,6 +22,10 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"  # Primary model for Cass
 CLAUDE_INTERNAL_MODEL = "claude-haiku-4-5-20251001"  # For background/internal tasks (fallback when Ollama unavailable)
+# Default model for autonomous sessions (reflection, research, etc.)
+# Override with environment variable for flexibility without code changes
+# Options: claude-haiku-4-5-20251001 (cost-efficient), claude-sonnet-4-20250514 (higher quality)
+DEFAULT_SESSION_MODEL = os.getenv("DEFAULT_SESSION_MODEL", CLAUDE_INTERNAL_MODEL)
 MAX_TOKENS = 4096
 
 # OpenAI API Configuration

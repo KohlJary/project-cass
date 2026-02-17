@@ -1782,6 +1782,49 @@ export interface AutoCareSettings {
   cooldown_seconds: number;
 }
 
+// Shadow Log types - what scheduler would have done with Thymos suggestions
+export interface ThymosShadowLogEntry {
+  id: string;
+  suggested_at: string;
+  suggestion_id: string;
+  need_name: string;
+  need_current: number;
+  need_threshold: number;
+  need_deficit: number;
+  urgency: number;
+  suggested_action: string;
+  action_category: string | null;
+  action_cost_usd: number | null;
+  would_execute: boolean;
+  blocked_reason: string | null;
+  budget_available: number | null;
+  budget_spent_today: number | null;
+  feedback: string | null;
+  feedback_at: string | null;
+  feedback_helpful: boolean | null;
+}
+
+export interface ThymosShadowLogStats {
+  total: number;
+  by_need: Array<{ need_name: string; count: number }>;
+  by_action: Array<{ action: string; count: number }>;
+  by_blocked_reason: Array<{ reason: string; count: number }>;
+  would_execute_count: number;
+  would_execute_pct: number;
+  period_days: number;
+}
+
+export interface ThymosNeedActionMap {
+  need_to_actions: Record<string, string[]>;
+  action_categories: Record<string, string>;
+}
+
+export interface ThymosTimingConfig {
+  tick_interval_seconds: number;
+  suggestion_cooldown_minutes: number;
+  snapshot_interval_events: number;
+}
+
 export const thymosApi = {
   // Get current state
   getState: () =>
@@ -1850,6 +1893,30 @@ export const thymosApi = {
   // Update auto-care settings
   updateAutoCareSettings: (settings: Partial<AutoCareSettings>) =>
     api.post<AutoCareSettings>('/admin/thymos/auto-care', settings),
+
+  // Shadow Log - what scheduler would have done with suggestions
+  getShadowLog: (params?: {
+    need_name?: string;
+    action?: string;
+    would_execute?: boolean;
+    limit?: number;
+  }) => api.get<ThymosShadowLogEntry[]>('/admin/thymos/shadow-log', { params }),
+
+  getShadowLogStats: (days: number = 7) =>
+    api.get<ThymosShadowLogStats>('/admin/thymos/shadow-log/stats', { params: { days } }),
+
+  addShadowLogFeedback: (entryId: string, helpful: boolean, notes?: string) =>
+    api.post(`/admin/thymos/shadow-log/${entryId}/feedback`, { helpful, notes }),
+
+  getNeedActionMap: () =>
+    api.get<ThymosNeedActionMap>('/admin/thymos/need-action-map'),
+
+  // Timing configuration
+  getTimingConfig: () =>
+    api.get<ThymosTimingConfig>('/admin/thymos/timing'),
+
+  updateTimingConfig: (config: Partial<ThymosTimingConfig>) =>
+    api.post<ThymosTimingConfig>('/admin/thymos/timing', config),
 };
 
 // =============================================================================
