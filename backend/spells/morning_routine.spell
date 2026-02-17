@@ -1,41 +1,90 @@
 UNIT morning_routine
     AUTHOR "daedalus"
-    PRIORITY 80
+    PRIORITY 90
     COOLDOWN 720
-    TAGS routine, morning, scheduling
+    TAGS routine, morning, planning, scheduling
     SCOPE THYMOS, SCHEDULER
 
-' Morning routine - runs when morning phase begins
-' Checks the world, plans work for the day
+' =============================================================================
+' MORNING ROUTINE - Daily Planning Spell
+' =============================================================================
+' Triggers at the start of morning phase. Plans the day's work based on
+' current Thymos state (needs, affects) and queues appropriate templates.
+'
+' This replaces the LLM-based autonomous scheduler with deterministic,
+' need-driven scheduling logic.
+' =============================================================================
+
 ON event.day_phase.morning
 
-' Start with world awareness
-LOG INFO "Morning routine starting - checking the world"
+LOG INFO "Morning routine starting - planning the day"
 
-' Queue morning reflection for immediate execution
-QUEUE reflection_block FOR PHASE morning PRIORITY 1
+' === MORNING PHASE WORK ===
+' Always start with world awareness
+QUEUE world_check FOR PHASE morning PRIORITY 1
 
-' Check if novelty intake is low - if so, queue exploration for afternoon
+' Morning reflection if cognitive rest is adequate
+LET $cognitive = need.cognitive_rest
+IF $cognitive > 0.4 THEN
+    QUEUE reflection_block FOR PHASE morning PRIORITY 2
+END IF
+
+' === AFTERNOON PHASE WORK ===
+' Afternoon is for active work - research, creativity, exploration
+
+' Check novelty intake - queue exploration if low
 LET $novelty = need.novelty_intake
-IF $novelty < 0.4 THEN
-    LOG INFO "Novelty intake at {$novelty} - queueing exploration for afternoon"
-    QUEUE curiosity_exploration FOR PHASE afternoon PRIORITY 2
+IF $novelty < 0.5 THEN
+    LOG INFO "Novelty at {$novelty} - queueing curiosity exploration for afternoon"
+    QUEUE curiosity_exploration FOR PHASE afternoon PRIORITY 1
 END IF
 
-' Check if creative expression needs attention
+' Check creative expression need
 LET $creative = need.creative_expression
-IF $creative < 0.35 THEN
+IF $creative < 0.4 THEN
     LOG INFO "Creative expression at {$creative} - queueing creative work for afternoon"
-    QUEUE creative_output FOR PHASE afternoon PRIORITY 3
+    QUEUE creative_output FOR PHASE afternoon PRIORITY 2
 END IF
 
-' Always queue evening reflection
-QUEUE daily_journal FOR PHASE evening PRIORITY 1
+' High curiosity affect = research time
+LET $curiosity_affect = affect.curiosity
+IF $curiosity_affect > 0.6 THEN
+    QUEUE research_block FOR PHASE afternoon PRIORITY 3
+END IF
 
-' Boost morning energy
-DELTA affect.determination +0.1, affect.curiosity +0.05
+' === EVENING PHASE WORK ===
+' Evening for synthesis, reflection, journaling
 
-LOG OBSERVATION "Morning routine complete - queued work for the day based on current needs"
+' Always queue synthesis in evening
+QUEUE synthesis_block FOR PHASE evening PRIORITY 1
+
+' Value coherence check - if low, queue value reflection
+LET $values = need.value_coherence
+IF $values < 0.6 THEN
+    LOG INFO "Value coherence at {$values} - queueing evening reflection"
+    QUEUE wonderland_reflection FOR PHASE evening PRIORITY 2
+END IF
+
+' Always end with daily journal
+QUEUE daily_journal FOR PHASE evening PRIORITY 10
+
+' === NIGHT PHASE WORK ===
+' Night for maintenance and consolidation
+
+QUEUE memory_maintenance FOR PHASE night PRIORITY 1
+QUEUE consolidation FOR PHASE night PRIORITY 2
+
+' If social connection is low, note it for awareness
+LET $social = need.social_connection
+IF $social < 0.35 THEN
+    LOG OBSERVATION "Social connection at {$social} - consider reaching out tomorrow"
+END IF
+
+' === AFFECT ADJUSTMENTS ===
+' Morning energy boost
+DELTA affect.determination +0.1, affect.curiosity +0.05, affect.anxiety -0.05
+
+LOG OBSERVATION "Morning routine complete - day planned based on current needs"
 EXIT SUCCESS "day planned"
 
 END UNIT
