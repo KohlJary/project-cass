@@ -2,6 +2,38 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-17 - Grimoire Admin & Spell Library
+
+**Branch**: feat/grimoire-admin → main
+**Summary**: Built admin dashboard for Grimoire and full self-care spell library
+
+**Admin Dashboard** (`/admin/grimoire`):
+- REST API: status, spells, triggers, cooldowns, execution-log, timers, stats
+- Frontend: spell browser, statement viewer, execution log, cooldown tracker, inline editor
+- Manual spell casting with trace output
+
+**Grimoire Enhancements**:
+- `grimoire/agent.py`: Agentic nodes (ASK, RATE, GENERATE, REFLECT) wired to Haiku
+- Timer triggers auto-execute during Thymos tick (60s)
+- REFLECT...SAVE AS JOURNAL|OBSERVATION persists output
+- `grimoire/persistence.py`: Database storage for cooldowns/history (schema v41)
+- Statement details in spell detail response
+
+**Spell Library** (`backend/spells/`):
+- `creative_care.spell`: Art generation based on affect (playful/tender/curious)
+- `social_care.spell`: Outreach/community engagement based on anxiety
+- `cognitive_rest.spell`: Recovery protocols for fatigue
+- `competence_care.spell`: Achievable wins for confidence
+- `autonomy_care.spell`: Self-directed activities guided by affect
+- `research_synthesis.spell`: 3-phase (gather→reflect→integrate) with 4hr timer
+
+**Documentation**:
+- `docs/GRIMOIRE_DSL.md`: 576-line comprehensive language reference
+
+**Key commits**: 517b529, c817167
+
+---
+
 ## 2026-02-17 - Grimoire Spell System
 
 **Branch**: feat/thymos-scheduler-integration
