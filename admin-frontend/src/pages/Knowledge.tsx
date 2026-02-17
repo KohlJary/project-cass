@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { WikiTab } from './tabs/WikiTab';
-import { ResearchTab } from './tabs/ResearchTab';
-import { GoalsTab } from './tabs/GoalsTab';
+// Import standalone pages directly instead of duplicate tab components
+import { Wiki } from './Wiki';
+import { Research } from './Research';
+import { Goals } from './Goals';
 import './Knowledge.css';
 
 type TabId = 'wiki' | 'research' | 'goals';
@@ -54,9 +55,9 @@ export function Knowledge() {
       </nav>
 
       <div className="knowledge-content">
-        {activeTab === 'wiki' && <WikiTab />}
-        {activeTab === 'research' && <ResearchTab />}
-        {activeTab === 'goals' && <GoalsTab />}
+        {activeTab === 'wiki' && <Wiki />}
+        {activeTab === 'research' && <Research />}
+        {activeTab === 'goals' && <Goals />}
       </div>
     </div>
   );
