@@ -217,8 +217,19 @@ class AutonomousScheduler:
         """Plan the day if we haven't already planned today."""
         today = datetime.now().date()
 
+        # Check in-memory flag first (fast path for same-process restarts)
         if self._last_plan_date and self._last_plan_date.date() == today:
-            logger.info("Day already planned, skipping")
+            logger.info("Day already planned (in-memory), skipping")
+            return
+
+        # Check persistent store for existing work summaries today
+        # This handles restarts - if we've already planned, don't re-plan
+        existing_work = self._summary_store.get_by_date(today)
+        if existing_work:
+            logger.info(
+                f"Day already planned ({len(existing_work)} work items in DB) - skipping replan"
+            )
+            self._last_plan_date = datetime.now()  # Set in-memory flag
             return
 
         # Check budget before planning
