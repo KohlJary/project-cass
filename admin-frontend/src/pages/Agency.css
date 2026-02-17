@@ -1,0 +1,42 @@
+/**
+ * Agency.css - Styles for the Agency page wrapper
+ */
+
+.agency-page {
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.agency-page .page-header {
+  margin-bottom: 1.5rem;
+}
+
+.agency-page .page-header h1 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  margin: 0 0 0.25rem 0;
+}
+
+.agency-page .subtitle {
+  color: var(--text-secondary, #888);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.agency-content {
+  /* AgencyTab styles apply here */
+}
+
+/* Override AgencyTab's own header since we have one */
+.agency-page .agency-tab .agency-header {
+  display: none;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .agency-page {
+    padding: 1rem;
+  }
+}

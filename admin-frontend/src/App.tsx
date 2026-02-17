@@ -30,6 +30,7 @@ import { PeopleDex } from './pages/PeopleDex';
 import { News } from './pages/News';
 // Thymos now embedded in Mind page
 import { Mind } from './pages/Mind';
+import { Agency } from './pages/Agency';
 import { Gallery } from './pages/Gallery';
 import { ArtStudy } from './pages/ArtStudy';
 import { Grimoire } from './pages/Grimoire';
@@ -145,8 +146,8 @@ function AppRoutes() {
         <Route path="mind" element={<AdminRoute><Mind /></AdminRoute>} />
         {/* Legacy routes redirect to Mind tabs */}
         <Route path="thymos" element={<AdminRoute><Navigate to="/mind?tab=thymos" replace /></AdminRoute>} />
-        {/* Agency - redirects to dashboard agency tab until Phase 5 builds dedicated page */}
-        <Route path="agency" element={<AdminRoute><Navigate to="/?tab=agency" replace /></AdminRoute>} />
+        {/* Agency - autonomous goal formation and outreach */}
+        <Route path="agency" element={<AdminRoute><Agency /></AdminRoute>} />
         <Route path="gallery" element={<AdminRoute><Gallery /></AdminRoute>} />
         <Route path="art-study" element={<AdminRoute><ArtStudy /></AdminRoute>} />
         <Route path="grimoire" element={<AdminRoute><Grimoire /></AdminRoute>} />

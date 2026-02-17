@@ -9,3 +9,4 @@ export { MetricsCard } from './MetricsCard';
 export { DailySummaryCard } from './DailySummaryCard';
 export { SchedulerCard } from './SchedulerCard';
 export { ApprovalsCard } from './ApprovalsCard';
+export { AgencyCard } from './AgencyCard';
