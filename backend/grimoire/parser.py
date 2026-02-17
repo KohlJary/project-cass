@@ -36,6 +36,7 @@ from .ast import (
     DeltaAction,
     ResetAction,
     CastStatement,
+    QueueStatement,
     # Agentic
     AskStatement,
     ChooseStatement,
@@ -429,6 +430,8 @@ class Parser:
             return self._parse_reset()
         if self._check(TokenType.CAST):
             return self._parse_cast()
+        if self._check(TokenType.QUEUE):
+            return self._parse_queue()
 
         # Agentic
         if self._check(TokenType.ASK):
@@ -823,6 +826,45 @@ class Parser:
             context = self._parse_expression()
 
         stmt = CastStatement(spell_ref=spell_ref.value, context=context)
+        return self._set_location(stmt, start)
+
+    def _parse_queue(self) -> QueueStatement:
+        """Parse QUEUE <action> FOR PHASE <phase> [PRIORITY <n>]"""
+        start = self._advance()  # QUEUE
+
+        # Parse action name (may be dotted like session.research)
+        action_token = self._advance()
+        action = action_token.value
+        while self._check(TokenType.DOT):
+            self._advance()  # consume DOT
+            next_part = self._advance()
+            action += "." + next_part.value
+
+        # Parse optional parameters before FOR
+        params = {}
+        while self._check(TokenType.IDENTIFIER) and self._peek().type == TokenType.EQ:
+            param_name = self._advance().value
+            self._advance()  # =
+            param_value = self._parse_expression()
+            params[param_name] = param_value
+            self._match(TokenType.COMMA)
+
+        # Expect FOR PHASE
+        self._expect(TokenType.FOR, "Expected FOR after action in QUEUE statement")
+        self._expect(TokenType.PHASE, "Expected PHASE after FOR in QUEUE statement")
+
+        # Parse phase name (morning, afternoon, evening, night)
+        phase_token = self._expect(TokenType.IDENTIFIER, "Expected phase name (morning, afternoon, evening, night)")
+        phase = phase_token.value.lower()
+
+        # Optional PRIORITY
+        priority = 1
+        if self._check(TokenType.PRIORITY):
+            self._advance()  # PRIORITY
+            priority_token = self._expect(TokenType.NUMBER, "Expected priority number")
+            priority = int(float(priority_token.value))
+
+        stmt = QueueStatement(action=action, phase=phase, priority=priority, parameters=params)
         return self._set_location(stmt, start)
 
     # -------------------------------------------------------------------------

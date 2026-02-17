@@ -27,6 +27,7 @@ from .ast import (
     TaskAction,
     LogAction,
     DeltaAction,
+    QueueStatement,
     # Triggers
     Trigger,
     NeedTrigger,
@@ -71,6 +72,7 @@ __all__ = [
     "TaskAction",
     "LogAction",
     "DeltaAction",
+    "QueueStatement",
     "Trigger",
     "NeedTrigger",
     "AffectTrigger",
