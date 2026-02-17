@@ -275,6 +275,7 @@ class DayPhaseTracker:
         if self.state_bus:
             from state_models import StateDelta
 
+            # Emit general phase changed event
             delta = StateDelta(
                 source="day_phase_tracker",
                 day_phase_delta={
@@ -290,6 +291,18 @@ class DayPhaseTracker:
                 reason=f"Day phase transition: {old_phase.value} → {new_phase.value}",
             )
             self.state_bus.write_delta(delta)
+
+            # Emit phase-specific event for spell triggers (e.g., day_phase.morning)
+            phase_specific_delta = StateDelta(
+                source="day_phase_tracker",
+                event=f"day_phase.{new_phase.value}",
+                event_data={
+                    "from_phase": old_phase.value,
+                    "transitioned_at": now.isoformat(),
+                },
+                reason=f"Entered {new_phase.value} phase",
+            )
+            self.state_bus.write_delta(phase_specific_delta)
 
         # Call registered callbacks
         for callback in self._on_phase_change_callbacks:
