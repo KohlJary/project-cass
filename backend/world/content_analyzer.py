@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Any, Literal
 
 import anthropic
 
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 from .models import (
     Article,
     ArticleInsights,
@@ -562,7 +562,7 @@ def analyze_article(
     article: Article,
     self_manager=None,
     reading_mode: str = "progressive",
-    model: str = "claude-haiku-3-5-20241022",
+    model: str = CLAUDE_INTERNAL_MODEL,
 ) -> ArticleInsights:
     """
     Convenience function to analyze an article.

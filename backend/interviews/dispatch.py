@@ -17,7 +17,7 @@ class ModelConfig:
     """Configuration for a target model."""
     name: str
     provider: str  # anthropic, openai, ollama
-    model_id: str  # claude-3-haiku-20240307, gpt-4o, llama3.1:8b, etc.
+    model_id: str  # claude-haiku-4-5-20251001, gpt-4o, llama3.1:8b, etc.
     api_key: Optional[str] = None  # None for ollama
     base_url: Optional[str] = None  # For ollama
 
@@ -27,7 +27,7 @@ DEFAULT_MODELS = [
     ModelConfig(
         name="claude-haiku",
         provider="anthropic",
-        model_id="claude-3-haiku-20240307"
+        model_id="claude-haiku-4-5-20251001"
     ),
     ModelConfig(
         name="claude-sonnet",
