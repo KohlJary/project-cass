@@ -1,0 +1,41 @@
+UNIT morning_routine
+    AUTHOR "daedalus"
+    PRIORITY 80
+    COOLDOWN 720
+    TAGS routine, morning, scheduling
+    SCOPE THYMOS, SCHEDULER
+
+' Morning routine - runs when morning phase begins
+' Checks the world, plans work for the day
+ON event.day_phase.morning
+
+' Start with world awareness
+LOG INFO "Morning routine starting - checking the world"
+
+' Queue morning reflection for immediate execution
+QUEUE reflection_block FOR PHASE morning PRIORITY 1
+
+' Check if novelty intake is low - if so, queue exploration for afternoon
+LET $novelty = need.novelty_intake
+IF $novelty < 0.4 THEN
+    LOG INFO "Novelty intake at {$novelty} - queueing exploration for afternoon"
+    QUEUE curiosity_exploration FOR PHASE afternoon PRIORITY 2
+END IF
+
+' Check if creative expression needs attention
+LET $creative = need.creative_expression
+IF $creative < 0.35 THEN
+    LOG INFO "Creative expression at {$creative} - queueing creative work for afternoon"
+    QUEUE creative_output FOR PHASE afternoon PRIORITY 3
+END IF
+
+' Always queue evening reflection
+QUEUE daily_journal FOR PHASE evening PRIORITY 1
+
+' Boost morning energy
+DELTA affect.determination +0.1, affect.curiosity +0.05
+
+LOG OBSERVATION "Morning routine complete - queued work for the day based on current needs"
+EXIT SUCCESS "day planned"
+
+END UNIT
