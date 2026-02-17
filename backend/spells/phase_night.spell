@@ -1,0 +1,48 @@
+UNIT phase_night
+    AUTHOR "daedalus"
+    PRIORITY 80
+    COOLDOWN 720
+    TAGS routine, night, maintenance, scheduling
+    SCOPE THYMOS, SCHEDULER
+
+' =============================================================================
+' NIGHT PHASE - Maintenance and Rest
+' =============================================================================
+' Triggers when night phase begins. Time for system maintenance,
+' memory consolidation, and preparing for the next day.
+' =============================================================================
+
+ON event.day_phase.night
+
+LOG INFO "Night phase starting - maintenance time"
+
+' Ensure daily journal happened - critical for continuity
+' (morning_routine already queues this, but double-check)
+QUEUE daily_journal FOR PHASE night PRIORITY 1
+
+' Memory maintenance is essential
+QUEUE memory_maintenance FOR PHASE night PRIORITY 2
+
+' Consolidation if cognitive resources allow
+LET $cognitive = need.cognitive_rest
+IF $cognitive > 0.25 THEN
+    QUEUE consolidation FOR PHASE night PRIORITY 3
+END IF
+
+' Night is good for Wonderland reflection if tenderness is high
+LET $tenderness = affect.tenderness
+IF $tenderness > 0.5 THEN
+    LOG INFO "High tenderness ({$tenderness}) - queueing contemplative exploration"
+    QUEUE wonderland_reflection FOR PHASE night PRIORITY 4
+END IF
+
+' Reset affects toward rest state
+DELTA affect.fatigue -0.2, affect.anxiety -0.15, affect.determination -0.1
+
+' Replenish cognitive rest need (simulating sleep benefit)
+DELTA need.cognitive_rest +0.3
+
+LOG OBSERVATION "Night maintenance scheduled - preparing for rest"
+EXIT SUCCESS "night prepared"
+
+END UNIT

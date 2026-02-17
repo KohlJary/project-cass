@@ -1,0 +1,49 @@
+UNIT phase_afternoon
+    AUTHOR "daedalus"
+    PRIORITY 80
+    COOLDOWN 720
+    TAGS routine, afternoon, scheduling
+    SCOPE THYMOS, SCHEDULER
+
+' =============================================================================
+' AFTERNOON PHASE - Mid-day Adjustments
+' =============================================================================
+' Triggers when afternoon phase begins. Checks current state and adjusts
+' queued work if needed. May add additional work based on how morning went.
+' =============================================================================
+
+ON event.day_phase.afternoon
+
+LOG INFO "Afternoon phase starting - checking state"
+
+' Check if morning work depleted cognitive resources
+LET $cognitive = need.cognitive_rest
+IF $cognitive < 0.3 THEN
+    LOG INFO "Cognitive rest low ({$cognitive}) - prioritizing lighter work"
+    ' Queue lighter exploratory work instead of heavy research
+    QUEUE wonderland_exploration FOR PHASE afternoon PRIORITY 1
+    DELTA affect.fatigue -0.1
+    EXIT SUCCESS "adjusted for cognitive rest"
+END IF
+
+' If competence signal is low, queue growth work
+LET $competence = need.competence_signal
+IF $competence < 0.4 THEN
+    LOG INFO "Competence signal at {$competence} - queueing growth edge work"
+    QUEUE growth_edge_work FOR PHASE afternoon PRIORITY 2
+END IF
+
+' High determination + low fatigue = good time for knowledge building
+LET $determination = affect.determination
+LET $fatigue = affect.fatigue
+IF $determination > 0.6 AND $fatigue < 0.5 THEN
+    QUEUE knowledge_building FOR PHASE afternoon PRIORITY 3
+END IF
+
+' Afternoon energy maintenance
+DELTA affect.determination +0.05
+
+LOG INFO "Afternoon adjustments complete"
+EXIT SUCCESS "afternoon adjusted"
+
+END UNIT

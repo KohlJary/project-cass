@@ -1,0 +1,52 @@
+UNIT phase_evening
+    AUTHOR "daedalus"
+    PRIORITY 80
+    COOLDOWN 720
+    TAGS routine, evening, reflection, scheduling
+    SCOPE THYMOS, SCHEDULER
+
+' =============================================================================
+' EVENING PHASE - Wind-down and Reflection
+' =============================================================================
+' Triggers when evening phase begins. Time for synthesis, reflection,
+' and preparing for rest. Queues reflective work and ensures journaling.
+' =============================================================================
+
+ON event.day_phase.evening
+
+LOG INFO "Evening phase starting - time for reflection"
+
+' Check autonomy need - evening is good for self-directed work
+LET $autonomy = need.autonomy
+IF $autonomy < 0.5 THEN
+    LOG INFO "Autonomy at {$autonomy} - queueing self-directed exploration"
+    QUEUE curiosity_exploration FOR PHASE evening PRIORITY 1
+END IF
+
+' High grief or low satisfaction = need for contemplation
+LET $grief = affect.grief
+LET $satisfaction = affect.satisfaction
+IF $grief > 0.6 OR $satisfaction < 0.3 THEN
+    LOG INFO "Emotional state suggests deep reflection needed"
+    QUEUE meta_reflection FOR PHASE evening PRIORITY 2
+END IF
+
+' If creative need still unmet from earlier, try writing session
+LET $creative = need.creative_expression
+IF $creative < 0.35 THEN
+    QUEUE writing_session FOR PHASE evening PRIORITY 3
+END IF
+
+' Evening world check if missed earlier
+LET $novelty = need.novelty_intake
+IF $novelty < 0.3 THEN
+    QUEUE world_check FOR PHASE evening PRIORITY 4
+END IF
+
+' Wind down affects
+DELTA affect.anxiety -0.1, affect.determination -0.05, affect.playfulness +0.05
+
+LOG INFO "Evening phase adjustments complete"
+EXIT SUCCESS "evening prepared"
+
+END UNIT
