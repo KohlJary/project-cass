@@ -3672,6 +3672,91 @@ async def list_images(
         }
 
 
+# === LLM Configuration Endpoints ===
+
+@app.get("/admin/llm-config")
+async def get_llm_config():
+    """Get all LLM model assignments."""
+    from llm_config import LLMConfigManager, CALL_SITE_METADATA, AVAILABLE_MODELS
+
+    manager = LLMConfigManager()
+    assignments = manager.get_all()
+
+    return {
+        "assignments": {
+            call_site: {
+                **assignment.to_dict(),
+                "metadata": CALL_SITE_METADATA.get(call_site, {}),
+            }
+            for call_site, assignment in assignments.items()
+        },
+        "available_models": AVAILABLE_MODELS,
+        "call_site_metadata": CALL_SITE_METADATA,
+    }
+
+
+@app.put("/admin/llm-config/{call_site}")
+async def set_llm_config(call_site: str, body: dict):
+    """Set the model assignment for a call site."""
+    from llm_config import LLMConfigManager, ModelAssignment
+
+    manager = LLMConfigManager()
+
+    assignment = ModelAssignment(
+        provider=body.get("provider", "anthropic"),
+        model_id=body.get("model_id", "claude-haiku-4-5-20251001"),
+        fallback_provider=body.get("fallback_provider"),
+        fallback_model_id=body.get("fallback_model_id"),
+    )
+
+    manager.set(call_site, assignment)
+
+    return {"status": "ok", "call_site": call_site, "assignment": assignment.to_dict()}
+
+
+@app.post("/admin/llm-config/reset")
+async def reset_llm_config():
+    """Reset all LLM assignments to defaults."""
+    from llm_config import LLMConfigManager
+
+    manager = LLMConfigManager()
+    manager.reset_to_defaults()
+
+    return {"status": "ok", "message": "Reset to defaults"}
+
+
+@app.get("/admin/llm-config/models")
+async def get_available_models():
+    """Get list of available models, checking which Ollama models are installed."""
+    from llm_config import AVAILABLE_MODELS
+
+    # Check Ollama models
+    installed_ollama = set()
+    try:
+        import httpx
+        response = httpx.get(f"{os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')}/api/tags", timeout=5)
+        if response.status_code == 200:
+            for model in response.json().get("models", []):
+                installed_ollama.add(model.get("name", ""))
+    except Exception:
+        pass
+
+    models = []
+    for model in AVAILABLE_MODELS:
+        model_info = dict(model)
+        if model["provider"] == "ollama":
+            # Check if installed
+            model_info["installed"] = any(
+                model["model_id"] in name or model["model_id"].split(":")[0] in name
+                for name in installed_ollama
+            )
+        else:
+            model_info["installed"] = True  # API models always "installed"
+        models.append(model_info)
+
+    return {"models": models}
+
+
 # === Static Frontend Serving ===
 # Serve admin-frontend for Railway/production deployment
 
