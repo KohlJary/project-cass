@@ -222,13 +222,12 @@ async def consume_articles_action(context: Dict[str, Any]) -> ActionResult:
     - memory_core: MemoryCore (optional) - For ChromaDB storage
     - self_manager: SelfManager (optional) - For growth edge integration
     """
-    daemon_id = context.get("daemon_id", "cass")
+    # Get managers dict for daemon_id and other dependencies
+    managers = context.get("managers", {})
+    daemon_id = context.get("daemon_id") or managers.get("daemon_id", "cass")
     max_articles = context.get("max_articles")
     memory_core = context.get("memory_core")
     self_manager = context.get("self_manager")
-
-    # Also check managers dict for self_manager if not directly passed
-    managers = context.get("managers", {})
     if not self_manager:
         self_manager = managers.get("self_manager")
     if not memory_core:
@@ -319,7 +318,8 @@ async def refresh_and_consume_action(context: Dict[str, Any]) -> ActionResult:
     - memory_core: MemoryCore (optional) - For ChromaDB storage
     - self_manager: SelfManager (optional) - For growth edge integration
     """
-    daemon_id = context.get("daemon_id", "cass")
+    managers = context.get("managers", {})
+    daemon_id = context.get("daemon_id") or managers.get("daemon_id", "cass")
 
     # Step 1: Refresh world state (which fetches headlines via NewsAPI)
     logger.info("Refreshing world state including headlines...")
