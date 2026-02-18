@@ -7,9 +7,10 @@ import { DataBackupsTab } from './tabs/DataBackupsTab';
 import { DaemonTab } from './tabs/DaemonTab';
 import { GeoCassTab } from './tabs/GeoCassTab';
 import { ArchitecturalRequestsTab } from './tabs/ArchitecturalRequestsTab';
+import { LLMConfigTab } from './tabs/LLMConfigTab';
 import './Settings.css';
 
-type TabId = 'health' | 'export' | 'import' | 'backups' | 'daemon' | 'geocass' | 'requests';
+type TabId = 'health' | 'export' | 'import' | 'backups' | 'daemon' | 'geocass' | 'requests' | 'llm';
 
 interface TabConfig {
   id: TabId;
@@ -20,6 +21,7 @@ interface TabConfig {
 const tabs: TabConfig[] = [
   { id: 'health', label: 'System Health', icon: '!' },
   { id: 'daemon', label: 'Daemon', icon: '*' },
+  { id: 'llm', label: 'LLM Config', icon: 'L' },
   { id: 'geocass', label: 'GeoCass', icon: 'G' },
   { id: 'export', label: 'Export', icon: '^' },
   { id: 'import', label: 'Import', icon: 'v' },
@@ -64,6 +66,7 @@ export function Settings() {
       <div className="settings-content">
         {activeTab === 'health' && <SystemHealthTab />}
         {activeTab === 'daemon' && <DaemonTab />}
+        {activeTab === 'llm' && <LLMConfigTab />}
         {activeTab === 'geocass' && <GeoCassTab />}
         {activeTab === 'export' && <DataExportTab />}
         {activeTab === 'import' && <DataImportTab />}
