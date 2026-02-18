@@ -106,15 +106,16 @@ Respond with ONLY a JSON object (no other text):
 
         try:
             import httpx
-            response = httpx.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False
-                },
-                timeout=30.0
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": prompt,
+                        "stream": False
+                    },
+                    timeout=30.0
+                )
 
             if response.status_code == 200:
                 result_text = response.json().get("response", "").strip()
@@ -207,8 +208,8 @@ Respond with ONLY a JSON object (no other text):
 {{"should_summarize": true/false, "reason": "brief 1-sentence explanation", "confidence": 0.0-1.0}}"""
 
         try:
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            response = await client.messages.create(
                 model=SUMMARIZER_MODEL_HAIKU,
                 max_tokens=200,
                 messages=[{"role": "user", "content": prompt}]
@@ -305,15 +306,16 @@ Keep it concise but complete - around 150-300 words."""
             # Ollama (local) - only if explicitly configured
             if provider == "ollama" and OLLAMA_ENABLED:
                 import httpx
-                response = httpx.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    },
-                    timeout=120.0
-                )
+                async with httpx.AsyncClient() as http_client:
+                    response = await http_client.post(
+                        f"{OLLAMA_BASE_URL}/api/generate",
+                        json={
+                            "model": OLLAMA_MODEL,
+                            "prompt": prompt,
+                            "stream": False
+                        },
+                        timeout=120.0
+                    )
                 if response.status_code == 200:
                     result = response.json()
                     summary = result.get("response", "")
@@ -335,8 +337,8 @@ Keep it concise but complete - around 150-300 words."""
 
             # Claude Haiku or Sonnet
             model = SUMMARIZER_MODEL_HAIKU if provider == "haiku" else SUMMARIZER_MODEL_SONNET
-            client = anthropic.Anthropic(api_key=anthropic_api_key)
-            response = client.messages.create(
+            client = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
+            response = await client.messages.create(
                 model=model,
                 max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}]
@@ -490,8 +492,8 @@ Write in first person as yourself. This is your memory - make it feel like one, 
             # Claude Haiku or Sonnet
             if anthropic_api_key:
                 model = SUMMARIZER_MODEL_HAIKU if provider == "haiku" else SUMMARIZER_MODEL_SONNET
-                client = anthropic.Anthropic(api_key=anthropic_api_key)
-                response = client.messages.create(
+                client = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
+                response = await client.messages.create(
                     model=model,
                     max_tokens=1024,
                     messages=[{"role": "user", "content": prompt}]

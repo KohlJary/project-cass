@@ -21,15 +21,16 @@
       "id": "websocket-hydra",
       "type": "HYDRA",
       "file": "backend/websocket_handlers.py:websocket_endpoint()",
-      "severity": "CRITICAL",
+      "severity": "HIGH",
       "metrics": {
-        "function_lines": 1288,
-        "file_lines": 1474,
+        "function_lines": 1100,
+        "file_lines": 1283,
         "state_references": 40,
         "max_nesting": 10
       },
-      "description": "1,288-line function duplicates the context assembly and LLM dispatch logic from chat() in main_sdk.py. 40 state references extracted at function entry is a dependency injection smell.",
-      "recommendation": "Unify chat() and websocket_endpoint() around a shared MessageProcessor"
+      "description": "~1,100-line function still has complex LLM dispatch logic. Context duplication eliminated - now uses continuous_context exclusively.",
+      "recommendation": "Extract LLM dispatch to shared ChatOrchestrator; reduce state_references via dependency injection",
+      "partial_slain": "2026-02-18: Removed 191 lines of legacy context building; unified on continuous_context system"
     },
     {
       "id": "agent-client-hydra",
@@ -137,6 +138,13 @@
       "slain_date": "2026-02-17",
       "slain_by": "Phase 9 refactor",
       "result": "Extracted types to artstudy/types.ts; light touch per theseus guidance (assess usage first) - specialized feature"
+    },
+    {
+      "id": "context-assembly-hydra",
+      "type": "HYDRA",
+      "slain_date": "2026-02-18",
+      "slain_by": "Continuous context unification",
+      "result": "Removed 191 lines of legacy context building from websocket_handlers.py; all chat now uses continuous_context.build_continuous_context() exclusively; ChatContext dataclass + ContextAssembler foundation in chat_context.py"
     }
   ]
 }
