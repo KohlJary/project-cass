@@ -2,6 +2,27 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-18 - Phase Queue Timing Fix & daemon_id Bug
+
+**Branch**: refactor/api-domains
+**Summary**: Fixed two critical bugs preventing autonomous morning work from executing: phase queue timing race and daemon_id mismatch in world handlers.
+
+**Phase Queue Timing Race**:
+- Issue: Work queued by morning_routine.spell for morning phase sat in queue forever
+- Cause: `on_phase_changed()` fires before spell runs, queue empty when dispatch happens
+- Fix: Added immediate dispatch check in `queue_for_phase()` - if `target_phase == current_phase`, dispatch via `loop.create_task()` instead of waiting for next phase change
+- Location: `backend/scheduling/phase_queue.py`
+
+**daemon_id Mismatch**:
+- Issue: News Consumption reported "Refreshed 13 headlines, No headlines available" - contradictory
+- Cause: `WorldStateSource` stores data keyed by daemon_id (UUID), but `consume_articles_action` was defaulting to string `"cass"` instead of using the actual UUID
+- Fix: Pass `daemon_id` to action registry managers, update world_handlers to retrieve via `managers.get("daemon_id")`
+- Locations: `backend/main_sdk.py`, `backend/scheduler/actions/world_handlers.py`
+
+**Commits**: 942f950 (phase queue), a65bc9a (daemon_id)
+
+---
+
 ## 2026-02-17 - Admin Frontend Refactor, Thymos Fix & Activity Tab
 
 **Branch**: refactor/api-domains → main (squashed and merged)
