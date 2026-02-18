@@ -662,6 +662,99 @@ def cmd_batch(args):
     print(f"\nResults saved to: {output_dir}")
 
 
+def cmd_chat_reasoning(args):
+    """Run chat reasoning benchmark with full production context."""
+    print("=" * 60)
+    print("Chat Reasoning Benchmark")
+    print("=" * 60)
+    print("\nComparing models with full Cass production context.")
+    print("Testing: response quality + inline tag usage\n")
+
+    def progress(msg):
+        print(f"  {msg}")
+
+    async def _run():
+        from .chat_reasoning import ChatReasoningBenchmark, CHAT_REASONING_PROMPTS
+
+        async with ChatReasoningBenchmark() as bench:
+            # Filter models if specified
+            if args.models:
+                model_names = args.models.split(",")
+                models = [m for m in bench.MODELS if any(
+                    n.lower() in m["name"].lower() or n.lower() in m["model_id"].lower()
+                    for n in model_names
+                )]
+                if not models:
+                    print(f"No matching models found for: {args.models}")
+                    return
+            else:
+                models = bench.MODELS
+
+            # Check which models are available
+            print("Checking available models...")
+            available_models = []
+
+            for model in models:
+                if model["provider"] == "anthropic":
+                    available_models.append(model)
+                    print(f"  + {model['name']} (API)")
+                elif model["provider"] == "ollama":
+                    try:
+                        if not bench._http_client:
+                            continue
+                        resp = await bench._http_client.get(
+                            f"{bench.ollama_base_url}/api/tags"
+                        )
+                        if resp.status_code == 200:
+                            tags = resp.json().get("models", [])
+                            model_names = [t.get("name", "") for t in tags]
+                            if any(model["model_id"] in n or model["model_id"].split(":")[0] in n for n in model_names):
+                                available_models.append(model)
+                                print(f"  + {model['name']} (local)")
+                            else:
+                                print(f"  - {model['name']} (not installed)")
+                    except Exception as e:
+                        print(f"  - {model['name']} (error: {e})")
+
+            if len(available_models) < 1:
+                print("\nNo models available. Exiting.")
+                return
+
+            # Select prompts
+            prompts = CHAT_REASONING_PROMPTS
+            if args.category:
+                prompts = [p for p in prompts if p.category == args.category]
+                if not prompts:
+                    print(f"No prompts found for category: {args.category}")
+                    return
+
+            if args.limit:
+                prompts = prompts[:args.limit]
+
+            print(f"\nRunning {len(prompts)} prompts across {len(available_models)} models...\n")
+
+            results = await bench.run_all(
+                prompts=prompts,
+                models=available_models,
+                progress_callback=progress,
+            )
+
+            # Save results
+            filepath = bench.save_results(results)
+
+            # Generate and print report
+            report = bench.generate_report(results)
+            print("\n" + report)
+
+            # Save report
+            report_path = filepath.with_suffix(".md")
+            with open(report_path, "w") as f:
+                f.write(report)
+            print(f"\nReport saved to {report_path}")
+
+    asyncio.run(_run())
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="LLM Benchmarking Harness",
@@ -674,6 +767,7 @@ Examples:
     python -m llm_bench synthetic title_generation --count 20
     python -m llm_bench run title_generation --models haiku,llama3.1:8b,qwen2.5:14b
     python -m llm_bench report --results-dir data/llm_bench/results
+    python -m llm_bench chat-reasoning --models haiku,sonnet
         """,
     )
 
@@ -721,6 +815,12 @@ Examples:
     batch_parser.add_argument("--skip-generate", action="store_true", help="Skip synthetic data generation")
     batch_parser.add_argument("--output", default="data/llm_bench/results", help="Output directory")
 
+    # chat-reasoning
+    chat_parser = subparsers.add_parser("chat-reasoning", help="Chat reasoning benchmark with full context")
+    chat_parser.add_argument("--models", help="Comma-separated list of models (default: haiku,sonnet,opus,llama70b,qwen72b)")
+    chat_parser.add_argument("--category", help="Filter by category (emotional, technical, relational, metacognitive, differentiation, creative, complex)")
+    chat_parser.add_argument("--limit", type=int, help="Limit number of prompts")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -737,6 +837,8 @@ Examples:
         cmd_synthetic(args)
     elif args.command == "batch":
         cmd_batch(args)
+    elif args.command == "chat-reasoning":
+        cmd_chat_reasoning(args)
     else:
         parser.print_help()
 

@@ -1,7 +1,79 @@
 {
-  "generated": "2026-02-17",
-  "target": "admin-frontend",
-  "monsters": [],
+  "generated": "2026-02-18",
+  "target": "backend/",
+  "monsters": [
+    {
+      "id": "main-sdk-minotaur",
+      "type": "MINOTAUR",
+      "file": "backend/main_sdk.py",
+      "severity": "CRITICAL",
+      "metrics": {
+        "lines": 3789,
+        "longest_function_lines": 800,
+        "longest_function": "startup_event",
+        "import_count": 210,
+        "max_nesting": 13
+      },
+      "description": "God module: route registration, context assembly, LLM dispatch, startup orchestration, WebSocket delegation, inline tag processing all in one file",
+      "recommendation": "Extract ContextAssembler, ChatOrchestrator, StartupOrchestrator classes"
+    },
+    {
+      "id": "websocket-hydra",
+      "type": "HYDRA",
+      "file": "backend/websocket_handlers.py:websocket_endpoint()",
+      "severity": "CRITICAL",
+      "metrics": {
+        "function_lines": 1288,
+        "file_lines": 1474,
+        "state_references": 40,
+        "max_nesting": 10
+      },
+      "description": "1,288-line function duplicates the context assembly and LLM dispatch logic from chat() in main_sdk.py. 40 state references extracted at function entry is a dependency injection smell.",
+      "recommendation": "Unify chat() and websocket_endpoint() around a shared MessageProcessor"
+    },
+    {
+      "id": "agent-client-hydra",
+      "type": "HYDRA",
+      "file": "backend/agent_client.py:CassAgentClient.send_message()",
+      "severity": "HIGH",
+      "metrics": {
+        "function_lines": 254,
+        "file_lines": 2782,
+        "parameters": 15,
+        "import_count": 55
+      },
+      "description": "15-parameter send_message signature; three parallel LLM clients (Anthropic/OpenAI/Ollama) each with overlapping send_message implementations totaling ~600 lines",
+      "recommendation": "Replace 15-param signature with MessageRequest dataclass; unify clients around BaseLLMClient with provider adapter"
+    },
+    {
+      "id": "self-model-chimera",
+      "type": "CHIMERA",
+      "file": "backend/self_model domain",
+      "severity": "HIGH",
+      "metrics": {
+        "total_lines": 11813,
+        "files": 7,
+        "largest_file_lines": 3451,
+        "largest_file": "handlers/self_model.py"
+      },
+      "description": "11,813 lines across 7 files with mixed abstraction levels. handlers/self_model.py is itself a MINOTAUR at 3,451 lines with 38 handler functions mixing routing and business logic",
+      "recommendation": "Split handlers/self_model.py into subdomain handlers; enforce handler = translate + delegate pattern"
+    },
+    {
+      "id": "scheduler-cerberus",
+      "type": "CERBERUS",
+      "file": "backend/scheduler/ + backend/scheduling/ + *_runner.py",
+      "severity": "MEDIUM",
+      "metrics": {
+        "scheduler_lines": 1994,
+        "scheduling_lines": 3783,
+        "runner_files": 12,
+        "runner_total_lines": 12239
+      },
+      "description": "Three parallel execution models with no documented hierarchy: Synkratos (scheduler/), AutonomousScheduler (scheduling/), and 12 standalone runner files",
+      "recommendation": "Document intended hierarchy; consolidate runners into session/ package; define one entry point for new scheduled work"
+    }
+  ],
   "victories": [
     {
       "id": "api-client-hydra",
