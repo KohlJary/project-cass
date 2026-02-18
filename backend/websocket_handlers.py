@@ -421,11 +421,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     except Exception as e:
                         print(f"[Session] Init context failed: {e}")
 
-                # === Continuous Chat Mode ===
-                # If this is a continuous conversation, use simplified context with semantic retrieval
+                # === Unified Context Building ===
+                # Always use continuous context system - cleaner, unified, with semantic retrieval
+                # Legacy hierarchical context building is now deprecated
                 continuous_system_prompt = None
                 continuous_messages = None
-                if is_continuous_chat:
+                if True:  # Always use continuous context (was: if is_continuous_chat)
                     from continuous_context import build_continuous_context, get_recent_messages_for_continuous
                     print(f"[Continuous] Building context with semantic memory retrieval")
 
@@ -452,15 +453,41 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     )
                     print(f"[Continuous] Built system prompt: {continuous_ctx.token_estimate} tokens (estimated), semantic={has_semantic}, messages={len(continuous_messages)}")
 
-                # Get memories (hierarchical: summaries first, then details)
-                hierarchical = memory.retrieve_hierarchical(
-                    query=user_message,
-                    conversation_id=conversation_id
-                )
-                # Track context source sizes for diagnostics
+                # Initialize legacy context variables with safe defaults
+                # These are still passed to send_message but ignored when continuous_system_prompt is set
+                hierarchical = {}
                 context_sizes = {}
+                memory_context = ""
+                user_context = ""
+                user_context_count = 0
+                intro_guidance = None
+                user_model_context = None
+                relationship_context = None
+                project_docs_count = 0
+                wiki_pages_count = 0
+                cross_session_insights_count = 0
+                pattern_count = 0
+                threads_context = ""
+                questions_context = ""
+                thread_count = 0
+                question_count = 0
+                unsummarized_count = 0
 
-                # Use working summary if available (token-optimized)
+                # === DEPRECATED: Legacy Context Building ===
+                # All context is now handled by continuous_context.build_continuous_context()
+                # Skip to "thinking" status - legacy code below is dead code
+                _skip_legacy_context = True  # Set to False to re-enable legacy context building
+
+                if not _skip_legacy_context:
+                    # Get memories (hierarchical: summaries first, then details)
+                    hierarchical = memory.retrieve_hierarchical(
+                        query=user_message,
+                        conversation_id=conversation_id
+                    )
+                    # Track context source sizes for diagnostics
+                    context_sizes = {}
+
+                    # Use working summary if available (token-optimized)
                 working_summary = conversation_manager.get_working_summary(conversation_id) if conversation_id else None
                 # Get actual recent messages for chronological context (not semantic search)
                 recent_messages = conversation_manager.get_recent_messages(conversation_id, count=6) if conversation_id else None
@@ -666,6 +693,21 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 if conversation_id:
                     unsummarized_messages = conversation_manager.get_unsummarized_messages(conversation_id)
                     unsummarized_count = len(unsummarized_messages)
+
+                # === Override with defaults when using continuous context ===
+                # The legacy code above still runs but we override here to use safe defaults
+                # when continuous_system_prompt is set (which is always now)
+                if _skip_legacy_context:
+                    hierarchical = {}
+                    context_sizes = {"continuous": len(continuous_system_prompt) if continuous_system_prompt else 0}
+                    memory_context = ""
+                    user_context_count = 0
+                    project_docs_count = 0
+                    wiki_pages_count = 0
+                    cross_session_insights_count = 0
+                    pattern_count = 0
+                    thread_count = 0
+                    question_count = 0
 
                 # Send "thinking" status with memory info
                 memory_summary = {
