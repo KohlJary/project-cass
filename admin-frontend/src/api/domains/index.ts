@@ -158,5 +158,8 @@ export {
   attachmentsApi,
   galleryApi,
   promptConfigApi,
+  llmConfigApi,
   type GeneratedImage,
+  type ModelAssignment,
+  type AvailableModel,
 } from './misc';

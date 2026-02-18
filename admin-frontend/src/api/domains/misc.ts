@@ -233,6 +233,46 @@ export const settingsApi = {
 };
 
 // =============================================================================
+// LLM CONFIGURATION
+// =============================================================================
+
+export interface ModelAssignment {
+  provider: string;
+  model_id: string;
+  fallback_provider: string | null;
+  fallback_model_id: string | null;
+  metadata?: {
+    name: string;
+    description: string;
+    priority: 'high' | 'medium' | 'low';
+    frequency: string;
+  };
+}
+
+export interface AvailableModel {
+  provider: string;
+  model_id: string;
+  name: string;
+  local: boolean;
+  installed: boolean;
+}
+
+export const llmConfigApi = {
+  getConfig: () => api.get<{
+    assignments: Record<string, ModelAssignment>;
+    available_models: AvailableModel[];
+    call_site_metadata: Record<string, ModelAssignment['metadata']>;
+  }>('/admin/llm-config'),
+
+  setAssignment: (callSite: string, assignment: Omit<ModelAssignment, 'metadata'>) =>
+    api.put(`/admin/llm-config/${callSite}`, assignment),
+
+  resetToDefaults: () => api.post('/admin/llm-config/reset'),
+
+  getAvailableModels: () => api.get<{ models: AvailableModel[] }>('/admin/llm-config/models'),
+};
+
+// =============================================================================
 // DREAMS
 // =============================================================================
 
