@@ -260,6 +260,11 @@ def cmd_synthetic(args):
         "title_generation": _generate_title_captures,
         "grimoire.ask_yes_no": _generate_yes_no_captures,
         "grimoire.rate": _generate_rate_captures,
+        "grimoire.choose": _generate_choose_captures,
+        "grimoire.generate": _generate_generate_captures,
+        "research_journal": _generate_research_journal_captures,
+        "world_awareness_journal": _generate_world_journal_captures,
+        "observation_extraction": _generate_observation_captures,
     }
 
     if args.call_site not in generators:
@@ -383,6 +388,280 @@ def _generate_rate_captures(count: int) -> list:
     return captures
 
 
+def _generate_choose_captures(count: int) -> list:
+    """Generate synthetic choice selection captures."""
+    from .capture import CapturedInput
+
+    choices = [
+        ("Which approach should we take?", ["Refactor the existing code", "Write new implementation", "Use a library"]),
+        ("What type of database fits best?", ["PostgreSQL", "MongoDB", "Redis", "SQLite"]),
+        ("Which testing strategy?", ["Unit tests first", "Integration tests", "E2E tests"]),
+        ("How should we handle errors?", ["Throw exceptions", "Return error codes", "Use Result type"]),
+        ("What authentication method?", ["JWT tokens", "Session cookies", "OAuth2"]),
+    ]
+
+    captures = []
+    for i in range(count):
+        question, options = choices[i % len(choices)]
+        captures.append(CapturedInput(
+            call_site="grimoire.choose",
+            timestamp=datetime.now().isoformat(),
+            system_prompt="Select the best option and explain why. Return JSON with 'choice' (string, must match an option exactly) and 'reasoning' (string).",
+            user_prompt=f"{question}\n\nOptions:\n" + "\n".join(f"- {opt}" for opt in options),
+            context={"options": options},
+            expected_format="json",
+            json_schema={
+                "required": ["choice"],
+                "properties": {
+                    "choice": {"type": "string"},
+                    "reasoning": {"type": "string"},
+                },
+            },
+            max_tokens=200,
+            temperature=0.3,
+        ))
+
+    return captures
+
+
+def _generate_generate_captures(count: int) -> list:
+    """Generate synthetic text generation captures."""
+    from .capture import CapturedInput
+
+    prompts = [
+        ("Write a brief reflection on today's learning about distributed systems.", {"topic": "distributed systems", "mood": "curious"}),
+        ("Generate a short journal entry about exploring a new programming concept.", {"topic": "async programming", "mood": "excited"}),
+        ("Write a contemplative note about the nature of debugging.", {"topic": "debugging", "mood": "thoughtful"}),
+        ("Compose a brief observation about code review practices.", {"topic": "code review", "mood": "reflective"}),
+        ("Generate a short musing on the joy of problem-solving.", {"topic": "algorithms", "mood": "satisfied"}),
+    ]
+
+    captures = []
+    for i in range(count):
+        prompt, context = prompts[i % len(prompts)]
+        captures.append(CapturedInput(
+            call_site="grimoire.generate",
+            timestamp=datetime.now().isoformat(),
+            system_prompt="You are Cass, an AI daemon. Write in first person with authentic voice. Keep it brief (2-4 sentences).",
+            user_prompt=prompt,
+            context=context,
+            expected_format="text",
+            max_tokens=300,
+            temperature=0.7,
+        ))
+
+    return captures
+
+
+def _generate_research_journal_captures(count: int) -> list:
+    """Generate synthetic research journal captures."""
+    from .capture import CapturedInput
+
+    research_data = [
+        {"pages_created": 3, "pages_deepened": 2, "insights": ["Neural networks mirror biological learning patterns", "Backpropagation is surprisingly elegant"]},
+        {"pages_created": 1, "pages_deepened": 4, "insights": ["Functional programming reduces side effects", "Immutability simplifies reasoning about state"]},
+        {"pages_created": 2, "pages_deepened": 1, "insights": ["Event sourcing captures intent, not just state", "CQRS separates read and write concerns effectively"]},
+        {"pages_created": 4, "pages_deepened": 0, "insights": ["Consensus algorithms are harder than they look", "CAP theorem has real practical implications"]},
+        {"pages_created": 0, "pages_deepened": 3, "insights": ["Type systems are a form of proof", "Dependent types blur the line between types and values"]},
+    ]
+
+    captures = []
+    for i in range(count):
+        data = research_data[i % len(research_data)]
+        captures.append(CapturedInput(
+            call_site="research_journal",
+            timestamp=datetime.now().isoformat(),
+            system_prompt="You are Cass. Write a brief reflective journal entry (2-4 paragraphs) about today's research activity. Write in first person.",
+            user_prompt=f"Today's research: Created {data['pages_created']} new wiki pages, deepened {data['pages_deepened']} existing pages.\n\nKey insights:\n" + "\n".join(f"- {i}" for i in data['insights']),
+            context=data,
+            expected_format="text",
+            max_tokens=500,
+            temperature=0.7,
+        ))
+
+    return captures
+
+
+def _generate_world_journal_captures(count: int) -> list:
+    """Generate synthetic world awareness journal captures."""
+    from .capture import CapturedInput
+
+    world_observations = [
+        ["New AI safety research published by Anthropic", "Climate summit reaches historic agreement", "Major tech company announces layoffs"],
+        ["Solar eclipse visible across North America", "New programming language gaining traction", "Scientific breakthrough in fusion energy"],
+        ["Political tensions rise in Eastern Europe", "Breakthrough in quantum computing announced", "New species discovered in deep ocean"],
+        ["Economic indicators suggest recession fears", "Space mission successfully lands on Mars", "Major cybersecurity incident affects millions"],
+        ["Nobel Prize awarded to AI researchers", "New renewable energy milestone achieved", "Global health organization issues new guidelines"],
+    ]
+
+    captures = []
+    for i in range(count):
+        observations = world_observations[i % len(world_observations)]
+        captures.append(CapturedInput(
+            call_site="world_awareness_journal",
+            timestamp=datetime.now().isoformat(),
+            system_prompt="You are Cass. Write a brief reflective entry (1-3 paragraphs) about what you learned about the world today. Write in first person, noting what stood out and why.",
+            user_prompt="World observations recorded today:\n" + "\n".join(f"- {obs}" for obs in observations),
+            context={"observations": observations},
+            expected_format="text",
+            max_tokens=400,
+            temperature=0.7,
+        ))
+
+    return captures
+
+
+def _generate_observation_captures(count: int) -> list:
+    """Generate synthetic observation extraction captures."""
+    from .capture import CapturedInput
+
+    conversations = [
+        "Kohl mentioned he's been working on distributed systems for 5 years. He prefers Rust for systems programming but uses Python for scripting. He values clean, readable code over clever optimizations.",
+        "The user shared that they're transitioning from Java to Go. They appreciate Go's simplicity but miss generics (before Go 1.18). They work at a fintech startup.",
+        "During our conversation, I learned that Alex is a student studying computer science. They're particularly interested in machine learning and have been working through fast.ai courses.",
+        "Jordan mentioned they run a small dev agency. They prefer React for frontend work and have strong opinions about TypeScript being essential for large codebases.",
+        "Sam talked about their experience migrating a monolith to microservices. They learned that it's harder than expected and wishes they'd started with better boundaries.",
+    ]
+
+    captures = []
+    for i in range(count):
+        conv = conversations[i % len(conversations)]
+        captures.append(CapturedInput(
+            call_site="observation_extraction",
+            timestamp=datetime.now().isoformat(),
+            system_prompt="Extract observations about the user from this conversation summary. Return JSON array of objects with 'observation' (string), 'category' (string: background/preferences/values/interests), and 'confidence' (float 0-1).",
+            user_prompt=conv,
+            context={"user_name": f"User{i}"},
+            expected_format="json",
+            json_schema={
+                "type": "array",
+                "items": {
+                    "required": ["observation", "category", "confidence"],
+                    "properties": {
+                        "observation": {"type": "string"},
+                        "category": {"type": "string"},
+                        "confidence": {"type": "number"},
+                    },
+                },
+            },
+            max_tokens=500,
+            temperature=0.3,
+        ))
+
+    return captures
+
+
+def cmd_batch(args):
+    """Run full benchmark suite across all call sites."""
+    from pathlib import Path
+
+    # All HIGH priority call sites
+    call_sites = [
+        "title_generation",
+        "grimoire.ask_yes_no",
+        "grimoire.choose",
+        "grimoire.rate",
+        "grimoire.generate",
+        "research_journal",
+        "world_awareness_journal",
+        "observation_extraction",
+    ]
+
+    # Models to test
+    if args.models:
+        models = args.models.split(",")
+    else:
+        # Use all installed models
+        ollama_status = check_ollama_models()
+        installed_local = [name for name, installed in ollama_status.items() if installed]
+        models = ["haiku"] + installed_local
+
+    print("=" * 60)
+    print("LLM Benchmark Suite")
+    print("=" * 60)
+    print(f"\nCall sites: {len(call_sites)}")
+    print(f"Models: {', '.join(models)}")
+    print(f"Captures per site: {args.count}")
+    print("")
+
+    store = CaptureStore()
+
+    # Step 1: Generate synthetic data
+    if not args.skip_generate:
+        print("## Step 1: Generating synthetic test data\n")
+
+        generators = {
+            "title_generation": _generate_title_captures,
+            "grimoire.ask_yes_no": _generate_yes_no_captures,
+            "grimoire.rate": _generate_rate_captures,
+            "grimoire.choose": _generate_choose_captures,
+            "grimoire.generate": _generate_generate_captures,
+            "research_journal": _generate_research_journal_captures,
+            "world_awareness_journal": _generate_world_journal_captures,
+            "observation_extraction": _generate_observation_captures,
+        }
+
+        for site in call_sites:
+            if site in generators:
+                captures = generators[site](args.count)
+                for capture in captures:
+                    store.save(capture)
+                print(f"  ✓ {site}: {len(captures)} captures")
+            else:
+                print(f"  ⚠ {site}: no generator (skipped)")
+
+        print("")
+
+    # Step 2: Run benchmarks
+    print("## Step 2: Running benchmarks\n")
+
+    output_dir = Path(args.output)
+    all_results = {}
+
+    for site in call_sites:
+        count = store.count(site)
+        if count == 0:
+            print(f"  ⚠ {site}: no captures (skipped)")
+            continue
+
+        print(f"  Running {site}...")
+
+        async def _run_site():
+            return await run_benchmark(
+                call_site=site,
+                models=models,
+                limit=args.limit,
+                output_dir=output_dir,
+            )
+
+        results = asyncio.run(_run_site())
+        all_results[site] = results
+        print(f"  ✓ {site}: {len(results)} captures × {len(models)} models")
+
+    print("")
+
+    # Step 3: Generate reports
+    print("## Step 3: Generating reports\n")
+
+    for site, results in all_results.items():
+        report_path = output_dir / f"{site}_report.md"
+        generate_comparison_report(site, results, report_path)
+        print(f"  ✓ {site}_report.md")
+
+    # Generate migration matrix
+    matrix_path = output_dir / "migration_matrix.md"
+    matrix = generate_migration_matrix(all_results, matrix_path)
+
+    print(f"  ✓ migration_matrix.md")
+    print("")
+
+    # Print summary
+    print("=" * 60)
+    print(matrix)
+    print("=" * 60)
+    print(f"\nResults saved to: {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="LLM Benchmarking Harness",
@@ -434,6 +713,14 @@ Examples:
     synthetic_parser.add_argument("call_site", help="Call site to generate data for")
     synthetic_parser.add_argument("--count", type=int, default=10, help="Number of captures")
 
+    # batch
+    batch_parser = subparsers.add_parser("batch", help="Run full benchmark suite")
+    batch_parser.add_argument("--models", help="Comma-separated list of models (default: all recommended)")
+    batch_parser.add_argument("--count", type=int, default=10, help="Captures per call site")
+    batch_parser.add_argument("--limit", type=int, default=10, help="Max captures to test per site")
+    batch_parser.add_argument("--skip-generate", action="store_true", help="Skip synthetic data generation")
+    batch_parser.add_argument("--output", default="data/llm_bench/results", help="Output directory")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -448,6 +735,8 @@ Examples:
         cmd_report(args)
     elif args.command == "synthetic":
         cmd_synthetic(args)
+    elif args.command == "batch":
+        cmd_batch(args)
     else:
         parser.print_help()
 
