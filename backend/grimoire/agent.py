@@ -2,16 +2,14 @@
 Grimoire Agent Client
 
 LLM interface for agentic spell nodes (ASK, CHOOSE, RATE, GENERATE, REFLECT).
-Uses Haiku for cost efficiency since these are background/automated calls.
+Uses the unified LLM caller with configurable model assignments per call site.
 """
 
 import json
 import logging
 from typing import Any, Optional
 
-import anthropic
-
-from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
+from llm_caller import call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +24,18 @@ class GrimoireAgentClient:
     - rate(prompt, context) -> (float, str)
     - generate(prompt, context) -> str
     - reflect(prompt, context, save_as) -> str
+
+    Uses unified LLM caller with configurable model assignments.
     """
 
     def __init__(
         self,
-        api_key: str = None,
-        model: str = None,
+        api_key: str = None,  # Deprecated, ignored
+        model: str = None,    # Deprecated, ignored
         daemon_id: str = None,
     ):
-        self.client = anthropic.AsyncAnthropic(api_key=api_key or ANTHROPIC_API_KEY)
-        self.model = model or CLAUDE_INTERNAL_MODEL
         self.daemon_id = daemon_id
+        # Model selection now handled by llm_config per call site
 
     async def ask_yes_no(
         self,
@@ -63,14 +62,19 @@ Context:
 Respond with JSON only."""
 
         try:
-            response = await self.client.messages.create(
-                model=self.model,
+            response = await call_llm(
+                call_site="grimoire.ask_yes_no",
+                system_prompt=system_prompt,
+                user_prompt=user_message,
                 max_tokens=200,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}]
+                temperature=0.3,
             )
 
-            text = response.content[0].text.strip()
+            if not response.success:
+                logger.error(f"Grimoire ask_yes_no failed: {response.error}")
+                return False, f"Error: {response.error}"
+
+            text = response.content.strip()
 
             # Parse JSON
             try:
@@ -129,14 +133,19 @@ Context:
 Respond with JSON only."""
 
         try:
-            response = await self.client.messages.create(
-                model=self.model,
+            response = await call_llm(
+                call_site="grimoire.choose",
+                system_prompt=system_prompt,
+                user_prompt=user_message,
                 max_tokens=200,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}]
+                temperature=0.3,
             )
 
-            text = response.content[0].text.strip()
+            if not response.success:
+                logger.error(f"Grimoire choose failed: {response.error}")
+                return options[0][0] if options else "", f"Error: {response.error}"
+
+            text = response.content.strip()
 
             try:
                 if text.startswith("```"):
@@ -192,14 +201,19 @@ Context:
 Respond with JSON only."""
 
         try:
-            response = await self.client.messages.create(
-                model=self.model,
+            response = await call_llm(
+                call_site="grimoire.rate",
+                system_prompt=system_prompt,
+                user_prompt=user_message,
                 max_tokens=200,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}]
+                temperature=0.3,
             )
 
-            text = response.content[0].text.strip()
+            if not response.success:
+                logger.error(f"Grimoire rate failed: {response.error}")
+                return 0.5, f"Error: {response.error}"
+
+            text = response.content.strip()
 
             try:
                 if text.startswith("```"):
@@ -247,14 +261,19 @@ Context:
 {json.dumps(context, indent=2, default=str)}"""
 
         try:
-            response = await self.client.messages.create(
-                model=self.model,
+            response = await call_llm(
+                call_site="grimoire.generate",
+                system_prompt=system_prompt,
+                user_prompt=user_message,
                 max_tokens=500,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}]
+                temperature=0.7,
             )
 
-            return response.content[0].text.strip()
+            if not response.success:
+                logger.error(f"Grimoire generate failed: {response.error}")
+                return f"[Error generating: {response.error}]"
+
+            return response.content.strip()
 
         except Exception as e:
             logger.error(f"Grimoire generate failed: {e}")
@@ -281,14 +300,19 @@ Context:
 {json.dumps(context, indent=2, default=str)}"""
 
         try:
-            response = await self.client.messages.create(
-                model=self.model,
+            response = await call_llm(
+                call_site="grimoire.reflect",
+                system_prompt=system_prompt,
+                user_prompt=user_message,
                 max_tokens=300,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}]
+                temperature=0.7,
             )
 
-            reflection = response.content[0].text.strip()
+            if not response.success:
+                logger.error(f"Grimoire reflect failed: {response.error}")
+                return f"[Error reflecting: {response.error}]"
+
+            reflection = response.content.strip()
 
             # TODO: If save_as is provided, save as an observation
             # This would integrate with the self-model system

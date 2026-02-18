@@ -1,9 +1,8 @@
 """
 Auto-title generation for conversations.
-Uses a fast, cheap API call to create concise titles.
+Uses the unified LLM caller with configurable model assignment.
 """
-import anthropic
-from config import ANTHROPIC_API_KEY
+from llm_caller import call_llm
 
 
 async def generate_conversation_title(
@@ -15,40 +14,40 @@ async def generate_conversation_title(
 ) -> str:
     """
     Generate a title for a conversation based on the first exchange.
-    Uses Claude haiku for fast, cheap title generation.
+    Uses configured model for title_generation call site.
 
     This runs in the background after the first assistant response.
     Returns the generated title.
     """
     try:
-        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
         # Truncate for prompt
         user_preview = user_message[:500]
         assistant_preview = assistant_response[:500]
 
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = await call_llm(
+            call_site="title_generation",
+            user_prompt=f"Generate a short, descriptive title (3-6 words) for a conversation that started with:\n\nUser: {user_preview}\n\nAssistant: {assistant_preview}\n\nRespond with ONLY the title, no quotes or punctuation.",
             max_tokens=50,
-            messages=[{
-                "role": "user",
-                "content": f"Generate a short, descriptive title (3-6 words) for a conversation that started with:\n\nUser: {user_preview}\n\nAssistant: {assistant_preview}\n\nRespond with ONLY the title, no quotes or punctuation."
-            }]
+            temperature=0.7,
         )
 
+        if not response.success:
+            print(f"Failed to generate title: {response.error}")
+            return None
+
         # Track token usage for title generation
-        if token_tracker and response.usage:
+        if token_tracker:
             token_tracker.record(
                 category="internal",
                 operation="title_generation",
-                provider="anthropic",
-                model="claude-haiku-4-5-20251001",
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
+                provider=response.provider,
+                model=response.model_id,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
                 conversation_id=conversation_id
             )
 
-        title = response.content[0].text.strip().strip('"').strip("'")
+        title = response.content.strip().strip('"').strip("'")
 
         # Ensure reasonable length
         if len(title) > 60:
