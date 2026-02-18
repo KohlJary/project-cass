@@ -1828,6 +1828,8 @@ async def startup_event():
                     # This enables atomic action execution for autonomous work
                     action_registry = init_action_registry(
                         managers={
+                            # Core identity
+                            "daemon_id": _daemon_id,
                             # Core managers
                             "self_manager": self_manager,
                             "budget_manager": budget_manager,
