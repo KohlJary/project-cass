@@ -154,6 +154,32 @@ class PhaseQueueManager:
             )
             self.state_bus.write_delta(delta)
 
+        # Check if work was queued for the CURRENT phase - if so, dispatch immediately
+        # This handles the case where spells queue work during a phase event
+        # (e.g., morning_routine.spell queuing morning work during the morning event)
+        if self.state_bus:
+            state = self.state_bus.read_state()
+            if state.day_phase and state.day_phase.current_phase:
+                try:
+                    current_phase = DayPhase(state.day_phase.current_phase)
+                    if target_phase == current_phase:
+                        logger.info(
+                            f"Work queued for current phase ({target_phase.value}) - "
+                            "scheduling immediate dispatch"
+                        )
+                        # Schedule async dispatch via event loop
+                        import asyncio
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(self._dispatch_work(queued))
+                            # Remove from queue since we're dispatching directly
+                            queue.remove(queued)
+                        except RuntimeError:
+                            # No running event loop - leave in queue for later dispatch
+                            logger.debug("No event loop - work stays in queue")
+                except (ValueError, AttributeError):
+                    pass  # Invalid phase value or structure
+
         return True
 
     def get_queue(self, phase: DayPhase) -> List[Dict[str, Any]]:
