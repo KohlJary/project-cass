@@ -490,6 +490,9 @@ class ResearchManager:
 
         self._save_note(note)
 
+        # Embed in ChromaDB for semantic retrieval
+        self._embed_note_to_memory(note)
+
         # Emit research note created event
         self._emit_research_event("research.note_added", {
             "note_id": note_id,
@@ -526,8 +529,12 @@ class ResearchManager:
         if not note:
             return None
 
+        # Track if content changed (triggers re-embedding)
+        content_changed = False
+
         if append_content:
             note.content += f"\n\n{append_content}"
+            content_changed = True
 
         if add_source:
             note.sources.append(add_source)
@@ -541,13 +548,19 @@ class ResearchManager:
 
         if add_tag and add_tag not in note.tags:
             note.tags.append(add_tag)
+            content_changed = True  # Tags affect embedding metadata
 
         if new_title:
             note.title = new_title
+            content_changed = True
 
         note.updated_at = datetime.now().isoformat()
 
         self._save_note(note)
+
+        # Re-embed if content/title/tags changed
+        if content_changed:
+            self._embed_note_to_memory(note)
 
         return asdict(note)
 
@@ -719,3 +732,32 @@ class ResearchManager:
                 session_id=row[8],
                 tags=json_deserialize(row[9]) or []
             )
+
+    def _embed_note_to_memory(self, note: ResearchNote) -> int:
+        """
+        Embed a research note into ChromaDB for semantic retrieval.
+
+        This enables Cass to recall research findings during conversations
+        without explicit tool calls.
+
+        Args:
+            note: The research note to embed
+
+        Returns:
+            Number of chunks embedded
+        """
+        try:
+            from memory import CassMemory
+            memory = CassMemory()
+            return memory.embed_research_note(
+                note_id=note.note_id,
+                title=note.title,
+                content=note.content,
+                tags=note.tags,
+                sources=note.sources,
+                session_id=note.session_id,
+                daemon_id=self._daemon_id
+            )
+        except Exception as e:
+            print(f"Warning: Failed to embed research note to memory: {e}")
+            return 0
