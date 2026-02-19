@@ -1,0 +1,12 @@
+# Virtual environment
+venv/
+
+# Model outputs (large files)
+output/
+
+# Unsloth cache
+unsloth_compiled_cache/
+
+# Python cache
+__pycache__/
+*.pyc
