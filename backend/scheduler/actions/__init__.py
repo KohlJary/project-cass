@@ -336,8 +336,9 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("outreach.check_track_record", outreach_handlers.check_track_record_action)
         registry.register_handler("outreach.get_stats", outreach_handlers.get_outreach_stats_action)
 
-        # Creative actions (image generation)
+        # Creative actions (image and music generation)
         registry.register_handler("creative.generate_image", creative_handlers.generate_image_action)
+        registry.register_handler("creative.compose_music", creative_handlers.compose_music_action)
         registry.register_handler("creative.dream_visualization", creative_handlers.dream_visualization_action)
         registry.register_handler("dream.visualize", creative_handlers.visualize_recent_dream_action)
 
