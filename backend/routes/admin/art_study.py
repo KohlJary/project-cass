@@ -991,6 +991,20 @@ class HouseStyleStatsResponse(BaseModel):
 class CreateFromHouseStyleRequest(BaseModel):
     num_pieces: int = 5
     aspect_ratio: str = "square"
+    iterative: bool = True  # Use iterative refinement with self-evaluation
+    max_iterations: int = 3  # Max refinement iterations per piece
+
+
+class IterationHistoryItem(BaseModel):
+    """Record of one iteration in the creative refinement process."""
+    iteration: int
+    image_id: str
+    image_path: str
+    generation_type: str  # txt2img or img2img
+    prompt: str
+    seed: int
+    generation_time_ms: int
+    evaluation: Optional[dict] = None  # Assessment if evaluated
 
 
 class HouseStyleCreatedPieceResponse(BaseModel):
@@ -1004,6 +1018,10 @@ class HouseStyleCreatedPieceResponse(BaseModel):
     prompt_used: str
     process_id: str
     style_version: int
+    # Iteration fields (present when iterative=True)
+    total_iterations: Optional[int] = None
+    satisfied: Optional[bool] = None
+    iteration_history: Optional[list[IterationHistoryItem]] = None
 
 
 @router.get("/house-style/stats")
@@ -1217,6 +1235,8 @@ async def create_from_house_style_endpoint(
         anthropic_client=_anthropic_client,
         num_pieces=request.num_pieces,
         aspect_ratio=request.aspect_ratio,
+        iterative=request.iterative,
+        max_iterations=request.max_iterations,
     )
 
     if not results:
@@ -1234,6 +1254,12 @@ async def create_from_house_style_endpoint(
             prompt_used=r["prompt_used"],
             process_id=r["process_id"],
             style_version=r.get("style_version", 1),
+            # Iteration fields (present when iterative=True)
+            total_iterations=r.get("total_iterations"),
+            satisfied=r.get("satisfied"),
+            iteration_history=[
+                IterationHistoryItem(**it) for it in r["iteration_history"]
+            ] if r.get("iteration_history") else None,
         )
         for r in results
     ]

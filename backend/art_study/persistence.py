@@ -17,6 +17,7 @@ from .models import (
     CreativeProcess,
     AdoptedElement,
     PersonalStyle,
+    GenerationPreferences,
 )
 
 logger = logging.getLogger(__name__)
@@ -696,6 +697,11 @@ def update_element_strength(element_id: str, strength: float) -> None:
 
 def save_personal_style(style: PersonalStyle) -> None:
     """Save or update a personal style."""
+    # Serialize generation prefs if present
+    gen_prefs_json = None
+    if style.generation_prefs:
+        gen_prefs_json = json.dumps(style.generation_prefs.to_dict())
+
     with _get_db() as conn:
         conn.execute("""
             INSERT OR REPLACE INTO personal_style (
@@ -705,8 +711,9 @@ def save_personal_style(style: PersonalStyle) -> None:
                 texture_sensibility, emotional_register,
                 recurring_themes, philosophical_concerns, subjects_drawn_to,
                 signature_techniques, prompt_vocabulary,
-                style_manifesto, what_makes_it_mine, style_descriptors
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                style_manifesto, what_makes_it_mine, style_descriptors,
+                generation_prefs_json, house_lora_name, house_lora_strength
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             style.id,
             style.daemon_id,
@@ -728,6 +735,9 @@ def save_personal_style(style: PersonalStyle) -> None:
             style.style_manifesto,
             style.what_makes_it_mine,
             json.dumps(style.style_descriptors),
+            gen_prefs_json,
+            style.house_lora_name,
+            style.house_lora_strength,
         ))
 
 
@@ -735,12 +745,25 @@ def get_personal_style(daemon_id: str) -> Optional[PersonalStyle]:
     """Get the current personal style for a daemon."""
     with _get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM personal_style WHERE daemon_id = ? ORDER BY version DESC LIMIT 1",
+            """SELECT id, daemon_id, version, created_at, last_updated,
+               artists_studied, elements_adopted,
+               color_philosophy, light_approach, compositional_voice,
+               texture_sensibility, emotional_register,
+               recurring_themes, philosophical_concerns, subjects_drawn_to,
+               signature_techniques, prompt_vocabulary,
+               style_manifesto, what_makes_it_mine, style_descriptors,
+               generation_prefs_json, house_lora_name, house_lora_strength
+               FROM personal_style WHERE daemon_id = ? ORDER BY version DESC LIMIT 1""",
             (daemon_id,)
         ).fetchone()
 
         if not row:
             return None
+
+        # Deserialize generation prefs
+        gen_prefs = None
+        if row[20]:
+            gen_prefs = GenerationPreferences.from_dict(json.loads(row[20]))
 
         return PersonalStyle(
             id=row[0],
@@ -763,6 +786,9 @@ def get_personal_style(daemon_id: str) -> Optional[PersonalStyle]:
             style_manifesto=row[17],
             what_makes_it_mine=row[18],
             style_descriptors=json.loads(row[19]) if row[19] else [],
+            generation_prefs=gen_prefs,
+            house_lora_name=row[21],
+            house_lora_strength=row[22] if row[22] is not None else 0.7,
         )
 
 
@@ -770,12 +796,25 @@ def list_personal_style_versions(daemon_id: str) -> list[PersonalStyle]:
     """List all versions of personal style for a daemon."""
     with _get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM personal_style WHERE daemon_id = ? ORDER BY version DESC",
+            """SELECT id, daemon_id, version, created_at, last_updated,
+               artists_studied, elements_adopted,
+               color_philosophy, light_approach, compositional_voice,
+               texture_sensibility, emotional_register,
+               recurring_themes, philosophical_concerns, subjects_drawn_to,
+               signature_techniques, prompt_vocabulary,
+               style_manifesto, what_makes_it_mine, style_descriptors,
+               generation_prefs_json, house_lora_name, house_lora_strength
+               FROM personal_style WHERE daemon_id = ? ORDER BY version DESC""",
             (daemon_id,)
         ).fetchall()
 
-        return [
-            PersonalStyle(
+        styles = []
+        for row in rows:
+            gen_prefs = None
+            if row[20]:
+                gen_prefs = GenerationPreferences.from_dict(json.loads(row[20]))
+
+            styles.append(PersonalStyle(
                 id=row[0],
                 daemon_id=row[1],
                 version=row[2],
@@ -796,9 +835,12 @@ def list_personal_style_versions(daemon_id: str) -> list[PersonalStyle]:
                 style_manifesto=row[17],
                 what_makes_it_mine=row[18],
                 style_descriptors=json.loads(row[19]) if row[19] else [],
-            )
-            for row in rows
-        ]
+                generation_prefs=gen_prefs,
+                house_lora_name=row[21],
+                house_lora_strength=row[22] if row[22] is not None else 0.7,
+            ))
+
+        return styles
 
 
 def get_house_style_stats(daemon_id: str) -> dict:
