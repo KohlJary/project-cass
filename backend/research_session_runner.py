@@ -814,6 +814,20 @@ class ResearchSessionRunner(BaseSessionRunner):
             except Exception as e:
                 print(f"Research self-model integration error: {e}")
 
+            # Week 4: Create research journal entry
+            try:
+                from research_journals import create_research_journal
+                from database import get_daemon_id
+                daemon_id = get_daemon_id()
+                journal_id = await create_research_journal(
+                    session_data=final_session,
+                    daemon_id=daemon_id,
+                )
+                if journal_id:
+                    print(f"Research journal created: {journal_id}")
+            except Exception as e:
+                print(f"Research journal creation error: {e}")
+
         return final_session
 
     async def handle_tool_call(

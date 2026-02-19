@@ -325,6 +325,19 @@ class ContextAssembler:
                 memory_parts.insert(0, insights_context)
             context_sizes["insights"] = len(insights_context) if insights_context else 0
 
+        # 7.5. Research notes (from autonomous research sessions)
+        research_context_entries = self.memory.retrieve_research_context(
+            query=message,
+            n_results=3,
+            max_distance=1.3,
+            daemon_id=self.daemon_id
+        )
+        if research_context_entries:
+            research_context = self.memory.format_research_context(research_context_entries)
+            if research_context:
+                memory_parts.insert(0, research_context)
+            context_sizes["research"] = len(research_context) if research_context else 0
+
         # 8. Active goals
         if self.goal_manager:
             goals_context = self.goal_manager.get_active_summary()

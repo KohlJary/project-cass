@@ -1,11 +1,15 @@
 """
 Cass Vessel - Research Tools
 Web search, URL fetch, and research note management for autonomous research.
+
+Week 3 Integration: Research notes create wiki pages as canonical storage.
+The research_notes table becomes an index/cache pointing to wiki pages.
 """
 import os
 import json
 import uuid
 import asyncio
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -13,6 +17,8 @@ from dataclasses import dataclass, asdict
 import httpx
 from bs4 import BeautifulSoup
 import re
+
+logger = logging.getLogger(__name__)
 
 # Rate limiting
 from collections import defaultdict
@@ -53,6 +59,7 @@ class ResearchNote:
     related_questions: List[str]
     session_id: Optional[str] = None
     tags: List[str] = None
+    wiki_page_name: Optional[str] = None  # Week 3: canonical wiki page
 
     def __post_init__(self):
         if self.tags is None:
@@ -488,7 +495,14 @@ class ResearchManager:
             tags=tags or []
         )
 
+        # Week 3: Create wiki page as canonical storage
+        wiki_page_name = self._create_wiki_page(note)
+        note.wiki_page_name = wiki_page_name
+
         self._save_note(note)
+
+        # Embed in ChromaDB for semantic retrieval
+        self._embed_note_to_memory(note)
 
         # Emit research note created event
         self._emit_research_event("research.note_added", {
@@ -526,8 +540,12 @@ class ResearchManager:
         if not note:
             return None
 
+        # Track if content changed (triggers re-embedding)
+        content_changed = False
+
         if append_content:
             note.content += f"\n\n{append_content}"
+            content_changed = True
 
         if add_source:
             note.sources.append(add_source)
@@ -541,13 +559,19 @@ class ResearchManager:
 
         if add_tag and add_tag not in note.tags:
             note.tags.append(add_tag)
+            content_changed = True  # Tags affect embedding metadata
 
         if new_title:
             note.title = new_title
+            content_changed = True
 
         note.updated_at = datetime.now().isoformat()
 
         self._save_note(note)
+
+        # Re-embed if content/title/tags changed
+        if content_changed:
+            self._embed_note_to_memory(note)
 
         return asdict(note)
 
@@ -582,7 +606,8 @@ class ResearchManager:
         with get_db() as conn:
             cursor = conn.execute("""
                 SELECT id, title, content, created_at, updated_at, sources_json,
-                       related_agenda_items_json, related_questions_json, session_id, tags_json
+                       related_agenda_items_json, related_questions_json, session_id,
+                       tags_json, wiki_page_name
                 FROM research_notes
                 WHERE daemon_id = ?
                 ORDER BY updated_at DESC
@@ -616,7 +641,8 @@ class ResearchManager:
                     "related_agenda_items": related_agenda_items,
                     "related_questions": related_questions,
                     "session_id": row[8],
-                    "tags": tags
+                    "tags": tags,
+                    "wiki_page_name": row[10],  # Week 3: canonical wiki page
                 })
 
                 if len(notes) >= limit:
@@ -637,7 +663,8 @@ class ResearchManager:
         with get_db() as conn:
             cursor = conn.execute("""
                 SELECT id, title, content, created_at, updated_at, sources_json,
-                       related_agenda_items_json, related_questions_json, session_id, tags_json
+                       related_agenda_items_json, related_questions_json, session_id,
+                       tags_json, wiki_page_name
                 FROM research_notes
                 WHERE daemon_id = ?
                 ORDER BY updated_at DESC
@@ -668,7 +695,8 @@ class ResearchManager:
                         "related_agenda_items": json_deserialize(row[6]) or [],
                         "related_questions": json_deserialize(row[7]) or [],
                         "session_id": row[8],
-                        "tags": tags
+                        "tags": tags,
+                        "wiki_page_name": row[10],  # Week 3: canonical wiki page
                     })
 
                     if len(matches) >= limit:
@@ -684,13 +712,13 @@ class ResearchManager:
                 INSERT OR REPLACE INTO research_notes (
                     id, daemon_id, session_id, title, content,
                     sources_json, related_agenda_items_json, related_questions_json,
-                    tags_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tags_json, wiki_page_name, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 note.note_id, self._daemon_id, note.session_id, note.title, note.content,
                 json_serialize(note.sources), json_serialize(note.related_agenda_items),
                 json_serialize(note.related_questions), json_serialize(note.tags),
-                note.created_at, note.updated_at
+                note.wiki_page_name, note.created_at, note.updated_at
             ))
             conn.commit()
 
@@ -700,7 +728,8 @@ class ResearchManager:
         with get_db() as conn:
             cursor = conn.execute("""
                 SELECT id, title, content, created_at, updated_at, sources_json,
-                       related_agenda_items_json, related_questions_json, session_id, tags_json
+                       related_agenda_items_json, related_questions_json, session_id,
+                       tags_json, wiki_page_name
                 FROM research_notes
                 WHERE daemon_id = ? AND id = ?
             """, (self._daemon_id, note_id))
@@ -717,5 +746,115 @@ class ResearchManager:
                 related_agenda_items=json_deserialize(row[6]) or [],
                 related_questions=json_deserialize(row[7]) or [],
                 session_id=row[8],
-                tags=json_deserialize(row[9]) or []
+                tags=json_deserialize(row[9]) or [],
+                wiki_page_name=row[10]
             )
+
+    def _embed_note_to_memory(self, note: ResearchNote) -> int:
+        """
+        Embed a research note into ChromaDB for semantic retrieval.
+
+        This enables Cass to recall research findings during conversations
+        without explicit tool calls.
+
+        Args:
+            note: The research note to embed
+
+        Returns:
+            Number of chunks embedded
+        """
+        try:
+            from memory import CassMemory
+            memory = CassMemory()
+            return memory.embed_research_note(
+                note_id=note.note_id,
+                title=note.title,
+                content=note.content,
+                tags=note.tags,
+                sources=note.sources,
+                session_id=note.session_id,
+                daemon_id=self._daemon_id
+            )
+        except Exception as e:
+            print(f"Warning: Failed to embed research note to memory: {e}")
+            return 0
+
+    def _create_wiki_page(self, note: ResearchNote) -> Optional[str]:
+        """
+        Create a wiki page as canonical storage for a research note.
+
+        Week 3 Integration: Wiki pages become the source of truth for research
+        findings. The research_notes table becomes an index/cache.
+
+        Args:
+            note: The research note to create a wiki page for
+
+        Returns:
+            Wiki page name if created, None if failed
+        """
+        try:
+            from wiki.storage import WikiStorage, PageType
+            from wiki.maturity import SynthesisTrigger
+            from config import DATA_DIR
+
+            storage = WikiStorage(wiki_root=str(DATA_DIR / "wiki"))
+
+            # Generate wiki page name from title
+            # Prefix with "Research:" namespace for clear categorization
+            page_name = f"Research:{note.title}"
+
+            # Build wiki content with research-specific frontmatter
+            source_links = ""
+            if note.sources:
+                source_links = "\n## Sources\n"
+                for src in note.sources:
+                    url = src.get("url", "")
+                    title = src.get("title", url)
+                    accessed = src.get("accessed_at", "")
+                    source_links += f"- [{title}]({url})"
+                    if accessed:
+                        source_links += f" (accessed {accessed})"
+                    source_links += "\n"
+
+            tags_line = ""
+            if note.tags:
+                tags_line = f"tags: [{', '.join(note.tags)}]\n"
+
+            # Build frontmatter
+            frontmatter = f"""---
+title: "{note.title}"
+source: research_session
+session_id: {note.session_id or 'standalone'}
+note_id: {note.note_id}
+{tags_line}---
+
+"""
+            # Combine content
+            wiki_content = frontmatter + note.content + source_links
+
+            # Check if page already exists
+            existing = storage.read(page_name)
+            if existing:
+                # Update existing page
+                storage.update(
+                    name=page_name,
+                    content=wiki_content,
+                    commit=True,
+                )
+                logger.info(f"Updated wiki page for research note: {page_name}")
+            else:
+                # Create new page
+                storage.create(
+                    name=page_name,
+                    content=wiki_content,
+                    page_type=PageType.CONCEPT,
+                    commit=True,
+                    synthesis_trigger=SynthesisTrigger.INITIAL_CREATION,
+                )
+                logger.info(f"Created wiki page for research note: {page_name}")
+
+            return page_name
+
+        except Exception as e:
+            logger.warning(f"Failed to create wiki page for research note: {e}")
+            return None

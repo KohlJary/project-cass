@@ -693,3 +693,217 @@ class ContextSourceManager:
                 parts.append(f"- {entry['content']}")
 
         return "\n".join(parts)
+
+    # === Research Note Methods ===
+
+    def embed_research_note(
+        self,
+        note_id: str,
+        title: str,
+        content: str,
+        tags: List[str] = None,
+        sources: List[Dict] = None,
+        session_id: str = None,
+        daemon_id: str = None
+    ) -> int:
+        """
+        Embed a research note into ChromaDB for semantic retrieval.
+
+        Research notes are findings from Cass's autonomous research sessions.
+        Embedding them makes them retrievable during conversations, allowing
+        Cass to naturally reference her research findings.
+
+        Args:
+            note_id: Unique identifier for the note
+            title: Note title
+            content: Note content (markdown)
+            tags: Optional list of tags
+            sources: Optional list of source dicts with url, title
+            session_id: Optional research session ID
+            daemon_id: Optional daemon ID
+
+        Returns:
+            Number of chunks embedded
+        """
+        if not content.strip():
+            return 0
+
+        # Remove any existing embeddings for this note
+        self.remove_research_note_embeddings(note_id)
+
+        # Format sources for context
+        sources_text = ""
+        if sources:
+            source_titles = [s.get("title", s.get("url", "Unknown")) for s in sources[:5]]
+            sources_text = f"[Sources: {', '.join(source_titles)}]\n"
+
+        # Chunk the content
+        chunks = self._core.chunk_text(content)
+
+        # Embed each chunk
+        timestamp = datetime.now().isoformat()
+
+        for i, chunk in enumerate(chunks):
+            # Build document with context
+            doc_content = f"[Research Note: {title}]\n"
+            if tags:
+                doc_content += f"[Tags: {', '.join(tags[:5])}]\n"
+            doc_content += sources_text
+            doc_content += f"[Chunk {i+1}/{len(chunks)}]\n\n{chunk}"
+
+            # Metadata for retrieval filtering
+            metadata = {
+                "timestamp": timestamp,
+                "type": "research_note",
+                "research_note_id": note_id,
+                "research_note_title": title,
+                "chunk_index": i,
+                "total_chunks": len(chunks)
+            }
+            if tags:
+                metadata["tags"] = ",".join(tags[:10])
+            if session_id:
+                metadata["session_id"] = session_id
+            if daemon_id:
+                metadata["daemon_id"] = daemon_id
+
+            # Generate stable ID based on note ID and chunk
+            entry_id = f"research_note:{note_id}:{i}"
+
+            # Add to collection
+            self.collection.add(
+                documents=[doc_content],
+                metadatas=[metadata],
+                ids=[entry_id]
+            )
+
+        return len(chunks)
+
+    def remove_research_note_embeddings(self, note_id: str) -> int:
+        """
+        Remove all embeddings for a specific research note.
+
+        Called before re-embedding to ensure clean updates.
+
+        Args:
+            note_id: ID of the research note
+
+        Returns:
+            Number of chunks removed
+        """
+        results = self.collection.get(
+            where={"research_note_id": note_id}
+        )
+
+        if not results["ids"]:
+            return 0
+
+        self.collection.delete(ids=results["ids"])
+
+        return len(results["ids"])
+
+    def retrieve_research_context(
+        self,
+        query: str,
+        n_results: int = 5,
+        tag: str = None,
+        max_distance: float = 1.5,
+        daemon_id: str = None
+    ) -> List[Dict]:
+        """
+        Retrieve relevant research notes for a query.
+
+        Used during conversations to find relevant research findings
+        that Cass has accumulated through her research sessions.
+
+        Args:
+            query: Search query
+            n_results: Maximum number of results
+            tag: Optional filter by tag
+            max_distance: Maximum distance threshold for relevance
+            daemon_id: Optional filter by daemon
+
+        Returns:
+            List of relevant research note chunks
+        """
+        # Build where clause
+        where_conditions = [{"type": "research_note"}]
+
+        if daemon_id:
+            where_conditions.append({"daemon_id": daemon_id})
+
+        if len(where_conditions) == 1:
+            where = where_conditions[0]
+        else:
+            where = {"$and": where_conditions}
+
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=n_results * 2,  # Get extra to filter
+            where=where,
+            include=["documents", "metadatas", "distances"]
+        )
+
+        if not results["documents"] or not results["documents"][0]:
+            return []
+
+        # Filter by distance and optional tag, deduplicate by note
+        seen_notes = set()
+        context = []
+
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0]
+        ):
+            # Skip if too distant
+            if dist > max_distance:
+                continue
+
+            # Filter by tag if specified
+            if tag:
+                note_tags = meta.get("tags", "").split(",")
+                if tag not in note_tags:
+                    continue
+
+            # Deduplicate - only include first (best) chunk per note
+            note_id = meta.get("research_note_id")
+            if note_id in seen_notes:
+                continue
+            seen_notes.add(note_id)
+
+            context.append({
+                "content": doc,
+                "note_id": note_id,
+                "title": meta.get("research_note_title"),
+                "tags": meta.get("tags", "").split(",") if meta.get("tags") else [],
+                "distance": dist
+            })
+
+            if len(context) >= n_results:
+                break
+
+        return context
+
+    def format_research_context(self, context_entries: List[Dict]) -> str:
+        """
+        Format research note entries for injection into prompts.
+
+        Args:
+            context_entries: Results from retrieve_research_context
+
+        Returns:
+            Formatted context string
+        """
+        if not context_entries:
+            return ""
+
+        parts = ["## Relevant Research Findings\n"]
+
+        for entry in context_entries:
+            title = entry.get("title", "Untitled Research")
+            parts.append(f"### {title}")
+            parts.append(entry['content'])
+            parts.append("")
+
+        return "\n".join(parts)

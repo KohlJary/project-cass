@@ -448,6 +448,14 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 43:
         print("Adding generation_recipes table for saved parameter presets (v43)")
 
+    # v43 -> v44: Research notes → wiki canonical storage (Week 3)
+    if from_version < 44:
+        cursor = conn.execute("PRAGMA table_info(research_notes)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'wiki_page_name' not in columns:
+            conn.execute("ALTER TABLE research_notes ADD COLUMN wiki_page_name TEXT")
+            print("Added wiki_page_name column to research_notes (v44)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """
