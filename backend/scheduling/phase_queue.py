@@ -154,31 +154,13 @@ class PhaseQueueManager:
             )
             self.state_bus.write_delta(delta)
 
-        # Check if work was queued for the CURRENT phase - if so, dispatch immediately
-        # This handles the case where spells queue work during a phase event
-        # (e.g., morning_routine.spell queuing morning work during the morning event)
-        if self.state_bus:
-            state = self.state_bus.read_state()
-            if state.day_phase and state.day_phase.current_phase:
-                try:
-                    current_phase = DayPhase(state.day_phase.current_phase)
-                    if target_phase == current_phase:
-                        logger.info(
-                            f"Work queued for current phase ({target_phase.value}) - "
-                            "scheduling immediate dispatch"
-                        )
-                        # Schedule async dispatch via event loop
-                        import asyncio
-                        try:
-                            loop = asyncio.get_running_loop()
-                            loop.create_task(self._dispatch_work(queued))
-                            # Remove from queue since we're dispatching directly
-                            queue.remove(queued)
-                        except RuntimeError:
-                            # No running event loop - leave in queue for later dispatch
-                            logger.debug("No event loop - work stays in queue")
-                except (ValueError, AttributeError):
-                    pass  # Invalid phase value or structure
+        # Note: Work is NOT dispatched immediately, even for the current phase.
+        # Dispatch happens via:
+        # 1. on_phase_changed() when a new phase begins
+        # 2. dispatch_current_phase() called explicitly (e.g., at startup)
+        # 3. process_current_phase_queue() for staggered execution during a phase
+        #
+        # This prevents all work from firing simultaneously when queued.
 
         return True
 
@@ -258,22 +240,104 @@ class PhaseQueueManager:
 
         return len(dispatched)
 
+    async def dispatch_next_from_current_phase(self) -> Optional[str]:
+        """
+        Dispatch the next (highest priority) work unit from the current phase queue.
+
+        This enables staggered execution during a phase - call this periodically
+        (e.g., every 5-10 minutes) to process work one at a time instead of
+        dispatching everything at once.
+
+        Returns: The work unit ID that was dispatched, or None if queue empty
+        """
+        if not self.state_bus:
+            logger.warning("Cannot dispatch - no state bus to determine current phase")
+            return None
+
+        state = self.state_bus.read_state()
+        if not state.day_phase or not state.day_phase.current_phase:
+            logger.warning("Cannot dispatch - no current phase in state")
+            return None
+
+        try:
+            current_phase = DayPhase(state.day_phase.current_phase)
+        except ValueError:
+            logger.warning(f"Invalid phase value: {state.day_phase.current_phase}")
+            return None
+
+        queue = self._phase_queues[current_phase]
+        if not queue:
+            logger.debug(f"No work queued for current phase ({current_phase.value})")
+            return None
+
+        # Get highest priority item (queue is sorted by priority)
+        queued = queue[0]
+
+        logger.info(
+            f"Dispatching next work from {current_phase.value} queue: {queued.work_unit.name}"
+        )
+
+        success = await self._dispatch_work(queued)
+        if success:
+            queue.remove(queued)
+            return queued.work_unit.id
+
+        return None
+
+    def get_current_phase_queue_depth(self) -> int:
+        """Get the number of items in the current phase's queue."""
+        if not self.state_bus:
+            return 0
+
+        state = self.state_bus.read_state()
+        if not state.day_phase or not state.day_phase.current_phase:
+            return 0
+
+        try:
+            current_phase = DayPhase(state.day_phase.current_phase)
+            return len(self._phase_queues[current_phase])
+        except ValueError:
+            return 0
+
     async def on_phase_changed(self, transition: PhaseTransition) -> None:
         """
-        Handle phase transition - dispatch queued work.
+        Handle phase transition - schedule delayed dispatch of queued work.
 
         This is called by DayPhaseTracker when the phase changes.
+        We delay dispatch to allow spells triggered by the phase event
+        to queue their work first.
         """
         new_phase = transition.to_phase
-        queue = self._phase_queues[new_phase]
 
-        if not queue:
-            logger.debug(f"No work queued for {new_phase.value} phase")
-            return
+        # Schedule delayed dispatch to allow spells to queue work first
+        # Spells are triggered by state bus events which fire before this callback
+        # but may take time to complete their queueing
+        delay_seconds = 30  # Give spells 30 seconds to queue work
 
         logger.info(
             f"Phase changed to {new_phase.value}, "
-            f"dispatching {len(queue)} queued work units"
+            f"scheduling dispatch in {delay_seconds}s to allow spell queueing"
+        )
+
+        asyncio.create_task(self._delayed_phase_dispatch(new_phase, delay_seconds, transition))
+
+    async def _delayed_phase_dispatch(
+        self,
+        phase: DayPhase,
+        delay_seconds: float,
+        transition: PhaseTransition
+    ) -> None:
+        """Dispatch phase queue after a delay."""
+        await asyncio.sleep(delay_seconds)
+
+        queue = self._phase_queues[phase]
+
+        if not queue:
+            logger.debug(f"No work queued for {phase.value} phase after delay")
+            return
+
+        logger.info(
+            f"Delayed dispatch: {len(queue)} work units for {phase.value} phase"
         )
 
         # Emit phase dispatch event
@@ -284,28 +348,35 @@ class PhaseQueueManager:
                 source="phase_queue",
                 event="phase_queue.dispatching",
                 event_data={
-                    "phase": new_phase.value,
+                    "phase": phase.value,
                     "work_count": len(queue),
                     "work_units": [q.work_unit.name for q in queue],
                 },
-                reason=f"Dispatching {len(queue)} work units for {new_phase.value}",
+                reason=f"Dispatching {len(queue)} work units for {phase.value}",
             )
             self.state_bus.write_delta(delta)
 
-        # Dispatch each work unit to Synkratos
+        # Dispatch each work unit to Synkratos with staggered timing
+        # This prevents all work from hitting Synkratos simultaneously
         dispatched = []
-        for queued in queue:
+        stagger_delay_seconds = 60  # 1 minute between dispatches
+
+        for i, queued in enumerate(queue):
+            if i > 0:
+                logger.info(f"Staggered dispatch: waiting {stagger_delay_seconds}s before next work unit")
+                await asyncio.sleep(stagger_delay_seconds)
+
             success = await self._dispatch_work(queued)
             if success:
                 dispatched.append(queued)
 
         # Clear dispatched items from queue
         for item in dispatched:
-            self._phase_queues[new_phase].remove(item)
+            self._phase_queues[phase].remove(item)
 
         # Record in history
         self._dispatch_history.append({
-            "phase": new_phase.value,
+            "phase": phase.value,
             "transitioned_at": transition.transitioned_at.isoformat(),
             "work_count": len(dispatched),
             "work_units": [
