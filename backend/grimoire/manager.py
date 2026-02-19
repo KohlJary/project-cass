@@ -233,21 +233,35 @@ class GrimoireManager:
             from thymos.dynamics import get_care_action_for_need
 
         def get_affect(name: str) -> float:
+            if runner is None or runner.affect is None:
+                return 0.5
             state = runner.affect.state
+            if state is None:
+                return 0.5
             return getattr(state, name, 0.5)
 
         def get_need(name: str) -> float:
+            if runner is None or runner.needs is None:
+                return 0.5
             state = runner.needs.state
+            if state is None:
+                return 0.5
             need = getattr(state, name, None)
             if need:
                 return need.current
             return 0.5
 
         def get_all_affects() -> dict[str, float]:
+            if runner is None or runner.affect is None:
+                return {}
             return runner.affect.to_dict()
 
         def get_all_needs() -> dict[str, Any]:
+            if runner is None or runner.needs is None:
+                return {}
             state = runner.needs.state
+            if state is None:
+                return {}
             return {
                 "cognitive_rest": state.cognitive_rest,
                 "social_connection": state.social_connection,
