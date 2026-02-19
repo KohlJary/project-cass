@@ -2,6 +2,7 @@
 ComfyUI API Client
 
 Provides a simple interface for generating images via ComfyUI's API.
+Supports txt2img, img2img, variations, inpainting, and upscaling.
 """
 
 import asyncio
@@ -11,10 +12,15 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 import aiohttp
 
-from .prompt_builder import get_generation_params
+from .prompt_builder import get_generation_params as get_style_params
+from .generation_params import GenerationParams, GenerationType, LoRAConfig
+from .workflows import WorkflowBuilder
+
+# GPU coordinator for memory management
+from gpu_coordinator import get_gpu_coordinator, GPUService
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,276 @@ class ComfyUIClient:
         # Ensure output directory exists
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
+        # Workflow builder for dynamic workflow generation
+        self.workflow_builder = WorkflowBuilder(model=self.model)
+
+        # GPU coordinator for memory management
+        self._gpu_coordinator = get_gpu_coordinator()
+
+    async def _execute_with_gpu(self, workflow: dict, timeout: float = 120.0) -> bytes:
+        """
+        Execute workflow with GPU coordination.
+
+        Requests GPU access before running, which will automatically
+        unload Ollama models or free ACE-Step memory if needed.
+
+        Args:
+            workflow: ComfyUI workflow dict
+            timeout: Max time to wait for GPU access
+
+        Returns:
+            PNG image bytes
+        """
+        logger.info("Requesting GPU access for image generation...")
+
+        try:
+            async with self._gpu_coordinator.request_gpu(
+                GPUService.COMFYUI,
+                max_wait=timeout
+            ):
+                logger.info("GPU access acquired, starting image generation")
+                return await self._execute_workflow(workflow)
+        except TimeoutError:
+            raise TimeoutError(
+                "Timed out waiting for GPU access - other services may be using GPU memory"
+            )
+        except MemoryError as e:
+            raise MemoryError(f"Could not allocate GPU memory: {e}")
+
+    async def generate_from_params(
+        self,
+        params: GenerationParams,
+        category: str = None,
+        subcategory: str = None,
+    ) -> dict:
+        """
+        Generate an image using GenerationParams.
+
+        This is the primary generation method that supports all generation
+        types (txt2img, img2img, variations, upscale, inpaint).
+
+        Args:
+            params: Complete generation parameters
+            category: Output directory category
+            subcategory: Output directory subcategory
+
+        Returns:
+            Dict with path, filename, seed, generation_time_ms, etc.
+        """
+        start_time = time.time()
+
+        # Build workflow from params
+        try:
+            workflow = self.workflow_builder.build(params)
+        except Exception as e:
+            logger.error(f"Failed to build workflow: {e}")
+            raise
+
+        # Execute workflow with GPU coordination
+        try:
+            image_data = await self._execute_with_gpu(workflow)
+        except Exception as e:
+            logger.error(f"ComfyUI generation failed: {e}")
+            raise
+
+        # Determine output path
+        output_path = self._get_organized_path(category, subcategory)
+
+        # Save image
+        filename = f"{uuid.uuid4()}.png"
+        filepath = output_path / filename
+        filepath.write_bytes(image_data)
+
+        # Calculate relative path for URL construction
+        relative_path = str(filepath.relative_to(Path(self.output_dir)))
+        generation_time_ms = int((time.time() - start_time) * 1000)
+
+        logger.info(f"Generated image: {relative_path} ({generation_time_ms}ms)")
+
+        return {
+            "path": str(filepath),
+            "filename": filename,
+            "relative_path": relative_path,
+            "seed": params.seed,
+            "generation_time_ms": generation_time_ms,
+            "width": params.width,
+            "height": params.height,
+            "generation_type": params.generation_type.value,
+            "iteration_number": params.iteration_number,
+            "parent_id": params.parent_id,
+            "params": params.to_dict(),  # Full params for DB storage
+        }
+
+    async def refine_image(
+        self,
+        source_image_path: str,
+        prompt: str,
+        negative_prompt: str = "",
+        denoise: float = 0.5,
+        params: Optional[GenerationParams] = None,
+        category: str = None,
+        subcategory: str = None,
+        parent_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Refine an existing image with img2img.
+
+        Args:
+            source_image_path: Path to the source image
+            prompt: New/modified prompt
+            negative_prompt: What to avoid
+            denoise: How much to change (0.1=subtle, 0.8=major)
+            params: Optional base params (will be modified for img2img)
+            category: Output directory category
+            subcategory: Output directory subcategory
+            parent_id: ID of the source image (for lineage tracking)
+
+        Returns:
+            Dict with generated image info
+        """
+        if params:
+            refinement_params = params.with_refinement(
+                denoise=denoise,
+                prompt=prompt,
+                parent_id=parent_id,
+            )
+        else:
+            refinement_params = GenerationParams(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                denoise=denoise,
+                generation_type=GenerationType.IMG2IMG,
+                parent_id=parent_id,
+            )
+
+        refinement_params.source_image_path = source_image_path
+
+        return await self.generate_from_params(
+            params=refinement_params,
+            category=category,
+            subcategory=subcategory,
+        )
+
+    async def create_variations(
+        self,
+        source_image_path: str,
+        prompt: str,
+        negative_prompt: str = "",
+        variation_strength: float = 0.3,
+        count: int = 1,
+        params: Optional[GenerationParams] = None,
+        category: str = None,
+        subcategory: str = None,
+        parent_id: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        Create variations of an existing image.
+
+        Args:
+            source_image_path: Path to the source image
+            prompt: Prompt (usually same as original)
+            negative_prompt: What to avoid
+            variation_strength: How different (0.2=similar, 0.5=moderate)
+            count: Number of variations to generate
+            params: Optional base params
+            category: Output directory category
+            subcategory: Output directory subcategory
+            parent_id: ID of the source image
+
+        Returns:
+            List of dicts with generated image info
+        """
+        results = []
+
+        for i in range(count):
+            if params:
+                var_params = params.with_variation(
+                    variation_strength=variation_strength,
+                    parent_id=parent_id,
+                )
+            else:
+                var_params = GenerationParams(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    denoise=variation_strength,
+                    generation_type=GenerationType.VARIATION,
+                    parent_id=parent_id,
+                )
+
+            var_params.source_image_path = source_image_path
+
+            result = await self.generate_from_params(
+                params=var_params,
+                category=category,
+                subcategory=subcategory,
+            )
+            results.append(result)
+
+        return results
+
+    async def upscale_image(
+        self,
+        source_image_path: str,
+        scale: float = 2.0,
+        category: str = None,
+        subcategory: str = None,
+        parent_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Upscale an image using Real-ESRGAN.
+
+        Args:
+            source_image_path: Path to the source image
+            scale: Upscale factor (2.0 or 4.0)
+            category: Output directory category
+            subcategory: Output directory subcategory
+            parent_id: ID of the source image
+
+        Returns:
+            Dict with upscaled image info
+        """
+        start_time = time.time()
+
+        # Build upscale workflow
+        params = GenerationParams(
+            prompt="",  # Not used for upscale
+            source_image_path=source_image_path,
+            generation_type=GenerationType.UPSCALE,
+            parent_id=parent_id,
+        )
+
+        workflow = self.workflow_builder.upscale(params, scale=scale)
+
+        # Execute workflow with GPU coordination
+        try:
+            image_data = await self._execute_with_gpu(workflow)
+        except Exception as e:
+            logger.error(f"ComfyUI upscale failed: {e}")
+            raise
+
+        # Determine output path
+        output_path = self._get_organized_path(category, subcategory)
+
+        # Save image
+        filename = f"{uuid.uuid4()}.png"
+        filepath = output_path / filename
+        filepath.write_bytes(image_data)
+
+        relative_path = str(filepath.relative_to(Path(self.output_dir)))
+        generation_time_ms = int((time.time() - start_time) * 1000)
+
+        logger.info(f"Upscaled image: {relative_path} ({generation_time_ms}ms)")
+
+        return {
+            "path": str(filepath),
+            "filename": filename,
+            "relative_path": relative_path,
+            "generation_time_ms": generation_time_ms,
+            "scale": scale,
+            "generation_type": "upscale",
+            "parent_id": parent_id,
+        }
+
     async def generate(
         self,
         prompt: str,
@@ -102,7 +378,7 @@ class ComfyUIClient:
         width, height = ASPECT_RATIOS.get(aspect_ratio, ASPECT_RATIOS["square"])
 
         # Get generation params from style if not specified
-        style_params = get_generation_params(style)
+        style_params = get_style_params(style)
         steps = steps or style_params["steps"]
         cfg = cfg or style_params["cfg"]
 
@@ -121,9 +397,9 @@ class ComfyUIClient:
             cfg=cfg,
         )
 
-        # Submit and wait for result
+        # Submit and wait for result with GPU coordination
         try:
-            image_data = await self._execute_workflow(workflow)
+            image_data = await self._execute_with_gpu(workflow)
         except Exception as e:
             logger.error(f"ComfyUI generation failed: {e}")
             raise

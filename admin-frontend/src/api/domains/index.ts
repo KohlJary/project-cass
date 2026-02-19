@@ -138,6 +138,15 @@ export {
   type PreviewResponse,
 } from './chain';
 
+// Music (Cass's compositions)
+export {
+  musicApi,
+  type MusicMetadata,
+  type MusicComposition,
+  type MusicListResponse,
+  type MusicServiceStatus,
+} from './music';
+
 // Miscellaneous APIs
 export {
   exportApi,
@@ -160,6 +169,7 @@ export {
   promptConfigApi,
   llmConfigApi,
   type GeneratedImage,
+  type ImageRevisionsResponse,
   type ModelAssignment,
   type AvailableModel,
 } from './misc';

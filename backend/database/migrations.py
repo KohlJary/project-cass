@@ -407,6 +407,47 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 41:
         print("Adding grimoire_spell_state and grimoire_executions tables (v41)")
 
+    # v41 -> v42: Expanded creative capabilities
+    if from_version < 42:
+        # Add iteration tracking columns to generated_images
+        cursor = conn.execute("PRAGMA table_info(generated_images)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        new_cols = [
+            ("parent_id", "TEXT"),
+            ("iteration_number", "INTEGER DEFAULT 1"),
+            ("generation_type", "TEXT DEFAULT 'txt2img'"),
+            ("params_json", "TEXT"),
+            ("loras_json", "TEXT"),
+        ]
+
+        for col_name, col_type in new_cols:
+            if col_name not in columns:
+                conn.execute(f"ALTER TABLE generated_images ADD COLUMN {col_name} {col_type}")
+                print(f"Added {col_name} column to generated_images (v42)")
+
+        # Add generation preferences to personal_style
+        cursor = conn.execute("PRAGMA table_info(personal_style)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        style_cols = [
+            ("generation_prefs_json", "TEXT"),
+            ("house_lora_name", "TEXT"),
+            ("house_lora_strength", "REAL DEFAULT 0.7"),
+        ]
+
+        for col_name, col_type in style_cols:
+            if col_name not in columns:
+                conn.execute(f"ALTER TABLE personal_style ADD COLUMN {col_name} {col_type}")
+                print(f"Added {col_name} column to personal_style (v42)")
+
+        print("Expanded creative capabilities migration complete (v42)")
+
+    # v42 -> v43: Generation recipes table
+    # Table is created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 43:
+        print("Adding generation_recipes table for saved parameter presets (v43)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

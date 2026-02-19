@@ -171,6 +171,32 @@ IMAGE_KEYWORDS = frozenset({
     "illustration", "illustrate", "illustrating",
     "portrait", "landscape", "abstract",
     "my art", "my images", "what i've drawn", "what i've created",
+    # Iterative refinement keywords
+    "refine", "refine image", "refining", "refinement",
+    "improve", "improve image", "tweak", "adjust",
+    "variation", "variations", "iterate", "iteration",
+    "upscale", "upscaling", "higher resolution", "enhance",
+    "img2img", "image to image",
+    "denoise", "denoising", "strength",
+    "sampler", "scheduler", "cfg", "steps",
+    "lora", "style transfer",
+    # Recipe keywords
+    "recipe", "recipes", "preset", "presets",
+    "save settings", "saved settings", "my recipes",
+    "save these settings", "remember settings",
+})
+
+MUSIC_KEYWORDS = frozenset({
+    "music", "song", "songs", "melody", "melodies",
+    "compose", "composing", "composition", "compositions",
+    "sing", "singing", "whistle", "whistling", "hum", "humming",
+    "tune", "tunes", "instrumental", "instrumentals",
+    "ambient", "soundtrack",
+    "lyrics", "vocal", "vocals",
+    "bpm", "tempo", "key", "rhythm",
+    "make music", "create music", "generate music",
+    "my music", "my songs", "what i've composed",
+    "play me", "sing me", "compose me",
 })
 
 
@@ -230,6 +256,7 @@ class ToolSelector:
             ToolGroup("development_request", DEVELOPMENT_REQUEST_KEYWORDS, "Development request tools"),
             ToolGroup("discord", DISCORD_KEYWORDS, "Discord perception and action tools"),
             ToolGroup("image", IMAGE_KEYWORDS, "Image generation tools"),
+            ToolGroup("music", MUSIC_KEYWORDS, "Music composition tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -560,6 +587,11 @@ def should_include_discord_tools(message: str) -> bool:
 def should_include_image_tools(message: str) -> bool:
     """Check if message warrants image generation tools."""
     return _default_selector.should_include(message, "image")
+
+
+def should_include_music_tools(message: str) -> bool:
+    """Check if message warrants music composition tools."""
+    return _default_selector.should_include(message, "music")
 
 
 # =============================================================================

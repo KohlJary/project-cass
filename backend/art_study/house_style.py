@@ -15,6 +15,7 @@ from .models import (
     AdoptedElement,
     PersonalStyle,
     ArtistSynthesis,
+    GenerationPreferences,
 )
 from .persistence import (
     get_synthesis,
@@ -346,3 +347,91 @@ Key Adopted Elements ({len(strong_elements)} core influences):
         context += f"\nYour Artistic Manifesto:\n{style.style_manifesto}\n"
 
     return context
+
+
+def get_house_style_generation_params(daemon_id: str) -> Optional[dict]:
+    """
+    Get generation parameters that reflect the house style.
+
+    Returns a dict with:
+    - generation_prefs: Dict of preferred generation params (steps, cfg, sampler, etc.)
+    - house_lora: Dict with name and strength if a house LoRA is configured
+    - style_descriptors: List of style terms to inject into prompts
+
+    Can be used by the param resolver to apply house style to generation.
+    """
+    style = get_personal_style(daemon_id)
+    if not style:
+        return None
+
+    result = {
+        "style_descriptors": style.style_descriptors,
+        "prompt_vocabulary": style.prompt_vocabulary,
+    }
+
+    # Add generation preferences if set
+    if style.generation_prefs:
+        result["generation_prefs"] = style.generation_prefs.to_dict()
+
+    # Add LoRA config if set
+    if style.house_lora_name:
+        result["house_lora"] = {
+            "name": style.house_lora_name,
+            "strength": style.house_lora_strength,
+        }
+
+    return result
+
+
+def set_house_style_generation_prefs(
+    daemon_id: str,
+    steps: Optional[int] = None,
+    cfg_scale: Optional[float] = None,
+    sampler: Optional[str] = None,
+    scheduler: Optional[str] = None,
+    house_lora_name: Optional[str] = None,
+    house_lora_strength: Optional[float] = None,
+) -> bool:
+    """
+    Update the generation preferences for a daemon's house style.
+
+    Only updates fields that are provided (non-None).
+    Returns True if successful, False if no style exists.
+    """
+    style = get_personal_style(daemon_id)
+    if not style:
+        logger.warning(f"No personal style found for daemon {daemon_id}")
+        return False
+
+    # Get or create generation prefs
+    if style.generation_prefs:
+        prefs = style.generation_prefs
+    else:
+        prefs = GenerationPreferences()
+
+    # Update provided fields
+    if steps is not None:
+        prefs.steps = steps
+    if cfg_scale is not None:
+        prefs.cfg_scale = cfg_scale
+    if sampler is not None:
+        prefs.sampler = sampler
+    if scheduler is not None:
+        prefs.scheduler = scheduler
+
+    style.generation_prefs = prefs
+
+    # Update LoRA settings
+    if house_lora_name is not None:
+        style.house_lora_name = house_lora_name
+    if house_lora_strength is not None:
+        style.house_lora_strength = house_lora_strength
+
+    # Update timestamp
+    style.last_updated = datetime.utcnow().isoformat()
+
+    # Save updated style
+    save_personal_style(style)
+    logger.info(f"Updated generation prefs for {daemon_id}: {prefs.to_dict()}")
+
+    return True

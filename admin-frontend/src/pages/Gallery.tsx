@@ -1,11 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { galleryApi } from '../api/client';
-import type { GeneratedImage } from '../api/client';
+import type { GeneratedImage, ImageRevisionsResponse } from '../api/client';
 import './Gallery.css';
 
-const PURPOSES = ['all', 'autonomous', 'article', 'relational', 'dream'] as const;
-const STYLES = ['all', 'painterly', 'sketch', 'photorealistic', 'abstract', 'watercolor', 'digital_art', 'dreamlike'] as const;
+const PURPOSES = ['all', 'autonomous', 'article', 'relational', 'dream', 'art_study'] as const;
+const STYLES = ['all', 'painterly', 'sketch', 'photorealistic', 'abstract', 'watercolor', 'digital_art', 'dreamlike', 'fine_art'] as const;
+
+const GENERATION_TYPES: Record<string, string> = {
+  txt2img: 'Text to Image',
+  img2img: 'Refinement',
+  variation: 'Variation',
+  upscale: 'Upscale',
+  inpaint: 'Inpaint',
+};
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, {
@@ -18,7 +26,7 @@ function formatDate(dateStr: string): string {
 }
 
 function formatPurpose(purpose: string): string {
-  return purpose.charAt(0).toUpperCase() + purpose.slice(1);
+  return purpose.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 function formatStyle(style: string | null): string {
@@ -26,11 +34,19 @@ function formatStyle(style: string | null): string {
   return style.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
+function formatGenerationType(type: string | undefined): string {
+  if (!type) return 'Text to Image';
+  return GENERATION_TYPES[type] || type;
+}
+
 export function Gallery() {
   const [selectedPurpose, setSelectedPurpose] = useState<string>('all');
   const [selectedStyle, setSelectedStyle] = useState<string>('all');
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
   const [page, setPage] = useState(0);
+  const [revisions, setRevisions] = useState<ImageRevisionsResponse | null>(null);
+  const [currentRevisionIndex, setCurrentRevisionIndex] = useState(0);
+  const [loadingRevisions, setLoadingRevisions] = useState(false);
   const pageSize = 24;
 
   const { data, isLoading, error } = useQuery({
@@ -47,6 +63,67 @@ export function Gallery() {
 
   const getImageUrl = (image: GeneratedImage) => {
     return galleryApi.getUrl(image);
+  };
+
+  // Load revisions when an image is selected
+  useEffect(() => {
+    if (selectedImage) {
+      setLoadingRevisions(true);
+      galleryApi.getRevisions(selectedImage.id)
+        .then(r => {
+          setRevisions(r.data);
+          setCurrentRevisionIndex(r.data.current_index);
+        })
+        .catch(() => {
+          // If revisions fail, just show the single image
+          setRevisions(null);
+        })
+        .finally(() => setLoadingRevisions(false));
+    } else {
+      setRevisions(null);
+      setCurrentRevisionIndex(0);
+    }
+  }, [selectedImage?.id]);
+
+  // Get the currently displayed image (from revisions if available)
+  const displayedImage = revisions && revisions.revisions.length > 0
+    ? revisions.revisions[currentRevisionIndex]
+    : selectedImage;
+
+  // Navigation functions
+  const goToPreviousRevision = useCallback(() => {
+    if (revisions && currentRevisionIndex > 0) {
+      setCurrentRevisionIndex(i => i - 1);
+    }
+  }, [revisions, currentRevisionIndex]);
+
+  const goToNextRevision = useCallback(() => {
+    if (revisions && currentRevisionIndex < revisions.revisions.length - 1) {
+      setCurrentRevisionIndex(i => i + 1);
+    }
+  }, [revisions, currentRevisionIndex]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    if (!selectedImage) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedImage(null);
+      } else if (e.key === 'ArrowLeft') {
+        goToPreviousRevision();
+      } else if (e.key === 'ArrowRight') {
+        goToNextRevision();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedImage, goToPreviousRevision, goToNextRevision]);
+
+  // Check if an image has revisions (is part of a chain)
+  const hasRevisions = (image: GeneratedImage) => {
+    return image.parent_id || (image.iteration_number && image.iteration_number > 1);
   };
 
   return (
@@ -131,6 +208,11 @@ export function Gallery() {
                         {formatStyle(image.style)}
                       </span>
                     )}
+                    {hasRevisions(image) && (
+                      <span className="revision-badge" title="Has revision history">
+                        ⟳
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -173,59 +255,160 @@ export function Gallery() {
       )}
 
       {/* Lightbox Modal */}
-      {selectedImage && (
+      {selectedImage && displayedImage && (
         <div className="lightbox" onClick={() => setSelectedImage(null)}>
           <div className="lightbox-content" onClick={e => e.stopPropagation()}>
             <button className="lightbox-close" onClick={() => setSelectedImage(null)}>
               ×
             </button>
 
-            <div className="lightbox-image">
-              {getImageUrl(selectedImage) ? (
-                <img src={getImageUrl(selectedImage)!} alt={selectedImage.prompt} />
-              ) : (
-                <div className="no-image large">No preview available</div>
-              )}
-            </div>
+            {/* Revision Navigator */}
+            {revisions && revisions.total_revisions > 1 && (
+              <div className="revision-navigator">
+                <button
+                  className="revision-nav-btn"
+                  disabled={currentRevisionIndex === 0}
+                  onClick={goToPreviousRevision}
+                  title="Previous revision (←)"
+                >
+                  ‹
+                </button>
+                <div className="revision-info">
+                  <span className="revision-label">
+                    {formatGenerationType(displayedImage.generation_type)}
+                  </span>
+                  <span className="revision-count">
+                    {currentRevisionIndex + 1} / {revisions.total_revisions}
+                  </span>
+                </div>
+                <button
+                  className="revision-nav-btn"
+                  disabled={currentRevisionIndex === revisions.total_revisions - 1}
+                  onClick={goToNextRevision}
+                  title="Next revision (→)"
+                >
+                  ›
+                </button>
+              </div>
+            )}
 
-            <div className="lightbox-info">
+            {/* Main body: image + info side by side */}
+            <div className="lightbox-body">
+              <div className="lightbox-image">
+                {loadingRevisions ? (
+                  <div className="loading-revisions">Loading...</div>
+                ) : getImageUrl(displayedImage) ? (
+                  <img src={getImageUrl(displayedImage)!} alt={displayedImage.prompt} />
+                ) : (
+                  <div className="no-image large">No preview available</div>
+                )}
+              </div>
+
+              <div className="lightbox-info">
               <div className="lightbox-meta">
-                <span className={`purpose-badge ${selectedImage.purpose}`}>
-                  {formatPurpose(selectedImage.purpose)}
+                <span className={`purpose-badge ${displayedImage.purpose}`}>
+                  {formatPurpose(displayedImage.purpose)}
                 </span>
-                {selectedImage.style && (
+                {displayedImage.style && (
                   <span className="style-badge">
-                    {formatStyle(selectedImage.style)}
+                    {formatStyle(displayedImage.style)}
+                  </span>
+                )}
+                {displayedImage.generation_type && displayedImage.generation_type !== 'txt2img' && (
+                  <span className="generation-type-badge">
+                    {formatGenerationType(displayedImage.generation_type)}
                   </span>
                 )}
                 <span className="date">
-                  {formatDate(selectedImage.created_at)}
+                  {formatDate(displayedImage.created_at)}
                 </span>
               </div>
 
               <div className="lightbox-prompt">
                 <label>Prompt</label>
-                <p>{selectedImage.prompt}</p>
+                <p>{displayedImage.prompt}</p>
               </div>
 
-              {selectedImage.width && selectedImage.height && (
-                <div className="lightbox-dimensions">
-                  {selectedImage.width} × {selectedImage.height}
-                  {selectedImage.generation_time_ms && (
-                    <span className="gen-time">
-                      • Generated in {(selectedImage.generation_time_ms / 1000).toFixed(1)}s
-                    </span>
-                  )}
+              {displayedImage.negative_prompt && (
+                <div className="lightbox-negative-prompt">
+                  <label>Negative Prompt</label>
+                  <p>{displayedImage.negative_prompt}</p>
                 </div>
               )}
 
-              {selectedImage.context_id && (
+              <div className="lightbox-details">
+                {displayedImage.width && displayedImage.height && (
+                  <span className="detail">
+                    {displayedImage.width} × {displayedImage.height}
+                  </span>
+                )}
+                {displayedImage.generation_time_ms && (
+                  <span className="detail">
+                    {(displayedImage.generation_time_ms / 1000).toFixed(1)}s
+                  </span>
+                )}
+                {displayedImage.seed && (
+                  <span className="detail" title="Seed">
+                    🎲 {displayedImage.seed}
+                  </span>
+                )}
+                {displayedImage.iteration_number && displayedImage.iteration_number > 1 && (
+                  <span className="detail" title="Iteration">
+                    Iteration #{displayedImage.iteration_number}
+                  </span>
+                )}
+              </div>
+
+              {displayedImage.loras && displayedImage.loras.length > 0 && (
+                <div className="lightbox-loras">
+                  <label>LoRAs</label>
+                  <div className="lora-list">
+                    {displayedImage.loras.map((lora: { name: string; strength: number; clip_strength: number }, i: number) => (
+                      <span key={i} className="lora-tag">
+                        {lora.name} ({(lora.strength * 100).toFixed(0)}%)
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {displayedImage.context_id && (
                 <div className="lightbox-context">
                   <label>Context</label>
-                  <p className="context-id">{selectedImage.context_id}</p>
+                  <p className="context-id">{displayedImage.context_id}</p>
                 </div>
               )}
             </div>
+            </div>
+
+            {/* Revision Timeline (thumbnails) */}
+            {revisions && revisions.total_revisions > 1 && (
+              <div className="revision-timeline">
+                {revisions.revisions.map((rev: GeneratedImage, idx: number) => {
+                  const thumbUrl = getImageUrl(rev);
+                  return (
+                    <button
+                      key={rev.id}
+                      className={`revision-thumb ${idx === currentRevisionIndex ? 'active' : ''}`}
+                      onClick={() => setCurrentRevisionIndex(idx)}
+                      title={`${formatGenerationType(rev.generation_type)} - ${formatDate(rev.created_at)}`}
+                    >
+                      {thumbUrl ? (
+                        <img src={thumbUrl} alt={`Revision ${idx + 1}`} />
+                      ) : (
+                        <span className="thumb-placeholder">?</span>
+                      )}
+                      <span className="revision-type-badge">
+                        {rev.generation_type === 'txt2img' ? '1' :
+                         rev.generation_type === 'img2img' ? 'R' :
+                         rev.generation_type === 'variation' ? 'V' :
+                         rev.generation_type === 'upscale' ? 'U' : idx + 1}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

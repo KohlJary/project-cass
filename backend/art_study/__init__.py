@@ -14,6 +14,7 @@ from .models import (
     CreativeProcess,
     AdoptedElement,
     PersonalStyle,
+    GenerationPreferences,
 )
 from .persistence import (
     save_artist,
@@ -50,6 +51,8 @@ from .house_style import (
     extract_adopted_elements,
     synthesize_house_style,
     get_style_prompt_context,
+    get_house_style_generation_params,
+    set_house_style_generation_prefs,
 )
 
 __all__ = [
@@ -62,6 +65,7 @@ __all__ = [
     "CreativeProcess",
     "AdoptedElement",
     "PersonalStyle",
+    "GenerationPreferences",
     # Persistence
     "save_artist",
     "get_artist",
@@ -97,4 +101,6 @@ __all__ = [
     "extract_adopted_elements",
     "synthesize_house_style",
     "get_style_prompt_context",
+    "get_house_style_generation_params",
+    "set_house_style_generation_prefs",
 ]

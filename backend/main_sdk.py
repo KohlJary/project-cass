@@ -100,6 +100,7 @@ from handlers.outreach import execute_outreach_tool, execute_direct_message_tool
 from handlers.lineage import execute_lineage_tool
 from handlers.development_requests import execute_development_request_tool
 from handlers.image_generation import execute_image_generation_tool
+from handlers.music import execute_music_tool
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
@@ -486,6 +487,7 @@ TOOL_EXECUTORS = {
     "direct_message": execute_direct_message_tool,
     "world_consumption": execute_world_consumption_tool,
     "image_generation": execute_image_generation_tool,
+    "music": execute_music_tool,
 }
 
 
@@ -3552,7 +3554,9 @@ async def get_image_metadata(image_id: str):
         cursor = conn.execute(
             """
             SELECT id, daemon_id, prompt, style, purpose, context_id,
-                   image_path, width, height, generation_time_ms, created_at
+                   image_path, width, height, generation_time_ms, created_at,
+                   parent_id, iteration_number, generation_type, params_json, loras_json,
+                   negative_prompt, seed
             FROM generated_images
             WHERE id = ?
             """,
@@ -3574,6 +3578,20 @@ async def get_image_metadata(image_id: str):
         else:
             url = None
 
+        # Parse JSON fields
+        params = None
+        if row[14]:
+            try:
+                params = json.loads(row[14])
+            except:
+                pass
+        loras = None
+        if row[15]:
+            try:
+                loras = json.loads(row[15])
+            except:
+                pass
+
         return {
             "id": row[0],
             "daemon_id": row[1],
@@ -3587,6 +3605,139 @@ async def get_image_metadata(image_id: str):
             "height": row[8],
             "generation_time_ms": row[9],
             "created_at": row[10],
+            # Iteration tracking fields
+            "parent_id": row[11],
+            "iteration_number": row[12] or 1,
+            "generation_type": row[13] or "txt2img",
+            "params": params,
+            "loras": loras,
+            "negative_prompt": row[16],
+            "seed": row[17],
+        }
+
+
+@app.get("/api/images/{image_id}/revisions")
+async def get_image_revisions(image_id: str):
+    """
+    Get the full revision chain for an image.
+
+    Returns all images in the chain from the original (root) to the final version,
+    ordered by iteration_number.
+    """
+    from database import get_db
+
+    with get_db() as conn:
+        # First, find the root of the chain by following parent_id up
+        current_id = image_id
+        visited = set()
+
+        while current_id:
+            if current_id in visited:
+                break  # Prevent infinite loops
+            visited.add(current_id)
+
+            cursor = conn.execute(
+                "SELECT parent_id FROM generated_images WHERE id = ?",
+                (current_id,)
+            )
+            row = cursor.fetchone()
+            if not row or not row[0]:
+                break  # This is the root
+            current_id = row[0]
+
+        root_id = current_id
+
+        # Now get all images in the chain (root and all descendants)
+        # Use recursive CTE to get the full tree
+        cursor = conn.execute(
+            """
+            WITH RECURSIVE chain AS (
+                -- Start with the root
+                SELECT id, daemon_id, prompt, style, purpose, context_id,
+                       image_path, width, height, generation_time_ms, created_at,
+                       parent_id, iteration_number, generation_type, params_json, loras_json,
+                       negative_prompt, seed, 0 as depth
+                FROM generated_images
+                WHERE id = ?
+
+                UNION ALL
+
+                -- Recursively get children
+                SELECT g.id, g.daemon_id, g.prompt, g.style, g.purpose, g.context_id,
+                       g.image_path, g.width, g.height, g.generation_time_ms, g.created_at,
+                       g.parent_id, g.iteration_number, g.generation_type, g.params_json, g.loras_json,
+                       g.negative_prompt, g.seed, c.depth + 1
+                FROM generated_images g
+                INNER JOIN chain c ON g.parent_id = c.id
+            )
+            SELECT * FROM chain
+            ORDER BY iteration_number ASC, created_at ASC
+            """,
+            (root_id,)
+        )
+
+        rows = cursor.fetchall()
+
+        revisions = []
+        for row in rows:
+            image_path = row[6]
+            if image_path and '/data/images/' in image_path:
+                relative_path = image_path.split('/data/images/')[1]
+                url = f"/generated-images/{relative_path}"
+            elif image_path:
+                filename = os.path.basename(image_path)
+                url = f"/generated-images/{filename}"
+            else:
+                url = None
+
+            # Parse JSON fields
+            params = None
+            if row[14]:
+                try:
+                    params = json.loads(row[14])
+                except:
+                    pass
+            loras = None
+            if row[15]:
+                try:
+                    loras = json.loads(row[15])
+                except:
+                    pass
+
+            revisions.append({
+                "id": row[0],
+                "daemon_id": row[1],
+                "prompt": row[2],
+                "style": row[3],
+                "purpose": row[4],
+                "context_id": row[5],
+                "path": row[6],
+                "url": url,
+                "width": row[7],
+                "height": row[8],
+                "generation_time_ms": row[9],
+                "created_at": row[10],
+                "parent_id": row[11],
+                "iteration_number": row[12] or 1,
+                "generation_type": row[13] or "txt2img",
+                "params": params,
+                "loras": loras,
+                "negative_prompt": row[16],
+                "seed": row[17],
+            })
+
+        # Find which revision is the requested one
+        current_index = next(
+            (i for i, r in enumerate(revisions) if r["id"] == image_id),
+            0
+        )
+
+        return {
+            "current_id": image_id,
+            "current_index": current_index,
+            "root_id": root_id,
+            "total_revisions": len(revisions),
+            "revisions": revisions,
         }
 
 
@@ -3596,37 +3747,64 @@ async def list_images(
     style: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    include_intermediate: bool = False,
 ):
-    """List generated images with optional filtering."""
+    """List generated images with optional filtering.
+
+    By default, only shows "final" images (those that aren't parents of other images).
+    Set include_intermediate=True to see all images including revision intermediates.
+    """
     from database import get_db
 
-    query = """
-        SELECT id, daemon_id, prompt, style, purpose, context_id,
-               image_path, width, height, generation_time_ms, created_at
-        FROM generated_images
-        WHERE 1=1
-    """
+    # Base query - only show images that don't have children (i.e., are finals or standalone)
+    # An image is "final" if no other image references it as parent_id
+    if include_intermediate:
+        query = """
+            SELECT id, daemon_id, prompt, style, purpose, context_id,
+                   image_path, width, height, generation_time_ms, created_at,
+                   parent_id, iteration_number, generation_type
+            FROM generated_images
+            WHERE 1=1
+        """
+    else:
+        query = """
+            SELECT gi.id, gi.daemon_id, gi.prompt, gi.style, gi.purpose, gi.context_id,
+                   gi.image_path, gi.width, gi.height, gi.generation_time_ms, gi.created_at,
+                   gi.parent_id, gi.iteration_number, gi.generation_type
+            FROM generated_images gi
+            WHERE NOT EXISTS (
+                SELECT 1 FROM generated_images child WHERE child.parent_id = gi.id
+            )
+        """
     params = []
 
     if purpose:
-        query += " AND purpose = ?"
+        query += " AND purpose = ?" if include_intermediate else " AND gi.purpose = ?"
         params.append(purpose)
     if style:
-        query += " AND style = ?"
+        query += " AND style = ?" if include_intermediate else " AND gi.style = ?"
         params.append(style)
 
-    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?" if include_intermediate else " ORDER BY gi.created_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
     with get_db() as conn:
-        # Get total count
-        count_query = "SELECT COUNT(*) FROM generated_images WHERE 1=1"
+        # Get total count (also excluding intermediates unless requested)
+        if include_intermediate:
+            count_query = "SELECT COUNT(*) FROM generated_images WHERE 1=1"
+        else:
+            count_query = """
+                SELECT COUNT(*) FROM generated_images gi
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM generated_images child WHERE child.parent_id = gi.id
+                )
+            """
         count_params = []
         if purpose:
-            count_query += " AND purpose = ?"
+            count_query += " AND purpose = ?" if include_intermediate else " AND gi.purpose = ?"
             count_params.append(purpose)
         if style:
-            count_query += " AND style = ?"
+            count_query += " AND style = ?" if include_intermediate else " AND gi.style = ?"
             count_params.append(style)
 
         total = conn.execute(count_query, count_params).fetchone()[0]
@@ -3662,6 +3840,10 @@ async def list_images(
                 "height": row[8],
                 "generation_time_ms": row[9],
                 "created_at": row[10],
+                # Iteration tracking fields
+                "parent_id": row[11],
+                "iteration_number": row[12] or 1,
+                "generation_type": row[13] or "txt2img",
             })
 
         return {
@@ -3670,6 +3852,69 @@ async def list_images(
             "limit": limit,
             "offset": offset,
         }
+
+
+# === Music Composition Endpoints ===
+
+@app.get("/music/compositions")
+async def list_music_compositions(
+    purpose: Optional[str] = None,
+    genre: Optional[str] = None,
+    limit: int = 50,
+):
+    """List music compositions with optional filtering."""
+    from handlers.music import api_list_compositions
+    return await api_list_compositions(purpose=purpose, genre=genre, limit=limit)
+
+
+@app.get("/music/compositions/{composition_id}")
+async def get_music_composition(composition_id: str):
+    """Get a single music composition by ID."""
+    from handlers.music import api_get_composition
+    result = await api_get_composition(composition_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Composition not found")
+    return result
+
+
+@app.get("/music/genres")
+async def list_music_genres():
+    """Get list of available music genres."""
+    from handlers.music import api_get_genres
+    return await api_get_genres()
+
+
+@app.get("/music/status")
+async def check_music_service():
+    """Check if ACE-Step music service is available."""
+    from handlers.music import api_check_service
+    return await api_check_service()
+
+
+@app.get("/music/audio/{filename}")
+async def get_music_audio(filename: str):
+    """Serve audio file for a composition."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+
+    # Music files are stored in backend/data/music/
+    music_dir = Path(__file__).parent / "data" / "music"
+    audio_path = music_dir / filename
+
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    # Determine content type based on extension
+    ext = audio_path.suffix.lower()
+    content_types = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+    }
+    content_type = content_types.get(ext, "audio/mpeg")
+
+    return FileResponse(audio_path, media_type=content_type)
 
 
 # === LLM Configuration Endpoints ===

@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 41  # Grimoire spell persistence
+SCHEMA_VERSION = 43  # Add generation recipes table
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1691,7 +1691,7 @@ CREATE TABLE IF NOT EXISTS generated_images (
     style TEXT,                         -- painterly, sketch, photorealistic, etc.
 
     -- Purpose and context
-    purpose TEXT NOT NULL,              -- autonomous, article, relational, dream
+    purpose TEXT NOT NULL,              -- autonomous, article, relational, dream, art_study
     context_id TEXT,                    -- article_id, entity_id, or dream_id
 
     -- Output
@@ -1706,6 +1706,13 @@ CREATE TABLE IF NOT EXISTS generated_images (
 
     -- Emotional context at generation time
     emotional_state_json TEXT,          -- State bus snapshot
+
+    -- Iterative refinement (v42)
+    parent_id TEXT,                     -- For iteration chains (img2img, variations)
+    iteration_number INTEGER DEFAULT 1,
+    generation_type TEXT DEFAULT 'txt2img',  -- txt2img, img2img, variation, upscale, inpaint
+    params_json TEXT,                   -- Full GenerationParams snapshot
+    loras_json TEXT,                    -- LoRAs used [{name, strength, clip_strength}]
 
     created_at TEXT NOT NULL
 );
@@ -1968,11 +1975,34 @@ CREATE TABLE IF NOT EXISTS personal_style (
     what_makes_it_mine TEXT,            -- How she distinguishes her work
 
     -- For generation (JSON array)
-    style_descriptors TEXT              -- Condensed style terms
+    style_descriptors TEXT,             -- Condensed style terms
+
+    -- Generation preferences (v42)
+    generation_prefs_json TEXT,         -- Preferred generation params {steps, cfg, sampler, scheduler}
+    house_lora_name TEXT,               -- LoRA trained for house style (if available)
+    house_lora_strength REAL DEFAULT 0.7
 );
 
 CREATE INDEX IF NOT EXISTS idx_personal_style_daemon ON personal_style(daemon_id);
 CREATE INDEX IF NOT EXISTS idx_personal_style_version ON personal_style(daemon_id, version);
+
+-- Generation recipes - saved parameter presets (v43)
+CREATE TABLE IF NOT EXISTS generation_recipes (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    name TEXT NOT NULL,
+    description TEXT,
+    params_json TEXT NOT NULL,              -- Serialized GenerationParams
+    source_image_id TEXT,                   -- Image that inspired this recipe
+    tags_json TEXT,                         -- JSON array of search tags
+    use_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(daemon_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_generation_recipes_daemon ON generation_recipes(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_generation_recipes_name ON generation_recipes(daemon_id, name);
 
 -- =============================================================================
 -- GRIMOIRE - Spell System Persistence (v41)

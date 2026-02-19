@@ -426,6 +426,7 @@ export interface GeneratedImage {
   id: string;
   daemon_id: string;
   prompt: string;
+  negative_prompt?: string | null;
   style: string | null;
   purpose: string;
   context_id: string | null;
@@ -434,13 +435,30 @@ export interface GeneratedImage {
   width: number | null;
   height: number | null;
   generation_time_ms: number | null;
+  seed?: number | null;
   created_at: string;
+  // Iteration tracking fields
+  parent_id?: string | null;
+  iteration_number?: number;
+  generation_type?: string;  // txt2img, img2img, variation, upscale, inpaint
+  // Full params (only in detail view)
+  params?: Record<string, unknown> | null;
+  loras?: Array<{ name: string; strength: number; clip_strength: number }> | null;
+}
+
+export interface ImageRevisionsResponse {
+  current_id: string;
+  current_index: number;
+  root_id: string;
+  total_revisions: number;
+  revisions: GeneratedImage[];
 }
 
 export const galleryApi = {
   list: (params?: { purpose?: string; style?: string; limit?: number; offset?: number }) =>
     api.get<{ images: GeneratedImage[]; total: number; limit: number; offset: number }>('/api/images', { params }),
   get: (id: string) => api.get<GeneratedImage>(`/api/images/${id}`),
+  getRevisions: (id: string) => api.get<ImageRevisionsResponse>(`/api/images/${id}/revisions`),
   getUrl: (image: GeneratedImage) => image.url ? `${API_BASE}${image.url}` : null,
 };
 

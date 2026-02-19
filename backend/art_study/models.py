@@ -167,6 +167,32 @@ class AdoptedElement:
 
 
 @dataclass
+class GenerationPreferences:
+    """Preferred generation parameters for house style."""
+    steps: int = 35
+    cfg_scale: float = 7.5
+    sampler: str = "dpmpp_2m"
+    scheduler: str = "karras"
+
+    def to_dict(self) -> dict:
+        return {
+            "steps": self.steps,
+            "cfg_scale": self.cfg_scale,
+            "sampler": self.sampler,
+            "scheduler": self.scheduler,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GenerationPreferences":
+        return cls(
+            steps=data.get("steps", 35),
+            cfg_scale=data.get("cfg_scale", 7.5),
+            sampler=data.get("sampler", "dpmpp_2m"),
+            scheduler=data.get("scheduler", "karras"),
+        )
+
+
+@dataclass
 class PersonalStyle:
     """Cass's emergent house style, synthesized from all her influences."""
     id: str
@@ -201,3 +227,8 @@ class PersonalStyle:
 
     # For generation
     style_descriptors: list[str] = field(default_factory=list)     # Condensed style terms
+
+    # Generation preferences (v42)
+    generation_prefs: Optional[GenerationPreferences] = None  # Preferred params
+    house_lora_name: Optional[str] = None                     # LoRA trained for house style
+    house_lora_strength: float = 0.7                          # LoRA influence strength

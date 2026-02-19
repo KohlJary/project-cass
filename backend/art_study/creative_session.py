@@ -434,6 +434,8 @@ async def create_from_house_style(
     anthropic_client,
     num_pieces: int = 3,
     aspect_ratio: str = "square",
+    iterative: bool = True,
+    max_iterations: int = 3,
 ) -> list[dict]:
     """
     Create artwork using Cass's personal house style.
@@ -442,10 +444,18 @@ async def create_from_house_style(
     this uses Cass's synthesized personal style - the combination of elements
     she's adopted from all studied artists into her own voice.
 
+    When iterative=True (default), Cass will:
+    1. Generate initial image
+    2. Review the result using vision
+    3. Evaluate if it matches her creative intent
+    4. Refine if not satisfied (up to max_iterations)
+
     Args:
         daemon_id: The daemon creating the work
         num_pieces: Number of variations to create
         aspect_ratio: Image aspect ratio
+        iterative: Whether to use iterative refinement (default True)
+        max_iterations: Max refinement iterations per piece
 
     Returns:
         List of created pieces with paths and creative process records
@@ -485,87 +495,164 @@ async def create_from_house_style(
     elements = list_adopted_elements(daemon_id, active_only=True)
     artist_ids = list(set(e.source_artist_id for e in elements if e.source_artist_id))
 
-    # Generate images and record processes
-    client = ComfyUIClient()
     results = []
 
-    for comp in compositions:
-        try:
-            # Generate the image with organized path
-            gen_result = await client.generate(
-                prompt=comp["prompt"],
-                negative_prompt=comp.get("negative_prompt", ""),
-                style="fine_art",
-                aspect_ratio=aspect_ratio,
-                category="art-study",
-                subcategory="house-style",
-            )
+    if iterative:
+        # Use iterative creation with self-evaluation and refinement
+        from .iterative_creation import IterativeCreationSession, CreativeVision
 
-            # Save to generated_images table
-            image_id = str(uuid.uuid4())
-            now = datetime.utcnow().isoformat()
-
-            with get_db() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO generated_images (
-                        id, daemon_id, prompt, negative_prompt, style,
-                        purpose, context_id, image_path, width, height,
-                        generation_time_ms, seed, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        image_id,
-                        daemon_id,
-                        comp["prompt"],
-                        comp.get("negative_prompt", ""),
-                        "house_style",  # Mark as house style creation
-                        "house_style",
-                        style.id,  # Link to style version
-                        gen_result["path"],
-                        gen_result.get("width"),
-                        gen_result.get("height"),
-                        gen_result.get("generation_time_ms"),
-                        gen_result.get("seed"),
-                        now,
-                    ),
+        for comp in compositions:
+            try:
+                vision = CreativeVision(
+                    title=comp.get("title", "Untitled"),
+                    prompt=comp["prompt"],
+                    negative_prompt=comp.get("negative_prompt", ""),
+                    artist_statement=comp.get("artist_statement", ""),
+                    elements_used=comp.get("elements_used", []),
+                    style_aspects=comp.get("style_aspects", []),
+                    emotional_intent=comp.get("impulse", ""),
+                    what_exploring=comp.get("exploration", ""),
                 )
 
-            # Record the creative process
-            process = CreativeProcess(
-                id=str(uuid.uuid4()),
-                image_id=image_id,
-                daemon_id=daemon_id,
-                initial_impulse=comp.get("impulse", ""),
-                studied_artists=artist_ids,  # All contributing artists
-                borrowed_elements=comp.get("elements_used", []),
-                movement_influences=comp.get("style_aspects", []),
-                initial_concept=comp.get("concept", ""),
-                technical_choices=comp.get("technical_choices", ""),
-                title=comp.get("title", "Untitled"),
-                artist_statement=comp.get("artist_statement", ""),
-                what_i_was_exploring=comp.get("exploration", ""),
-            )
-            persistence.save_creative_process(process)
+                session = IterativeCreationSession(
+                    daemon_id=daemon_id,
+                    anthropic_client=anthropic_client,
+                    max_iterations=max_iterations,
+                )
 
-            results.append({
-                "image_path": gen_result["path"],
-                "filename": gen_result["filename"],
-                "seed": gen_result["seed"],
-                "title": comp.get("title", "Untitled"),
-                "artist_statement": comp.get("artist_statement", ""),
-                "elements_used": comp.get("elements_used", []),
-                "style_aspects": comp.get("style_aspects", []),
-                "prompt_used": comp["prompt"],
-                "process_id": process.id,
-                "style_version": style.version,
-            })
+                result = await session.create(
+                    vision=vision,
+                    aspect_ratio=aspect_ratio,
+                    category="art-study",
+                    subcategory="house-style",
+                )
 
-            logger.info(f"Created (house style v{style.version}): {comp.get('title', 'Untitled')}")
+                # Record the creative process for the final image
+                process = CreativeProcess(
+                    id=str(uuid.uuid4()),
+                    image_id=result["final_image_id"],
+                    daemon_id=daemon_id,
+                    initial_impulse=comp.get("impulse", ""),
+                    studied_artists=artist_ids,
+                    borrowed_elements=comp.get("elements_used", []),
+                    movement_influences=comp.get("style_aspects", []),
+                    initial_concept=comp.get("concept", ""),
+                    technical_choices=comp.get("technical_choices", ""),
+                    title=comp.get("title", "Untitled"),
+                    artist_statement=comp.get("artist_statement", ""),
+                    what_i_was_exploring=comp.get("exploration", ""),
+                )
+                persistence.save_creative_process(process)
 
-        except Exception as e:
-            logger.error(f"Failed to generate piece: {e}")
-            continue
+                # Get info from final iteration
+                final_iter = result["iterations"][-1] if result["iterations"] else {}
+
+                results.append({
+                    "image_path": result["final_image_path"],
+                    "filename": result["final_image_path"].split("/")[-1],
+                    "seed": final_iter.get("seed", 0),
+                    "title": result["title"],
+                    "artist_statement": result["artist_statement"],
+                    "elements_used": result["elements_used"],
+                    "style_aspects": result["style_aspects"],
+                    "prompt_used": final_iter.get("prompt", comp["prompt"]),
+                    "process_id": process.id,
+                    "style_version": style.version,
+                    "total_iterations": result["total_iterations"],
+                    "satisfied": result["satisfied"],
+                    "iteration_history": result["iterations"],
+                })
+
+                logger.info(
+                    f"Created (house style v{style.version}, {result['total_iterations']} iterations): "
+                    f"{comp.get('title', 'Untitled')}"
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to generate piece: {e}")
+                continue
+    else:
+        # Original non-iterative generation
+        client = ComfyUIClient()
+
+        for comp in compositions:
+            try:
+                gen_result = await client.generate(
+                    prompt=comp["prompt"],
+                    negative_prompt=comp.get("negative_prompt", ""),
+                    style="fine_art",
+                    aspect_ratio=aspect_ratio,
+                    category="art-study",
+                    subcategory="house-style",
+                )
+
+                image_id = str(uuid.uuid4())
+                now = datetime.utcnow().isoformat()
+
+                with get_db() as conn:
+                    conn.execute(
+                        """
+                        INSERT INTO generated_images (
+                            id, daemon_id, prompt, negative_prompt, style,
+                            purpose, context_id, image_path, width, height,
+                            generation_time_ms, seed, created_at,
+                            parent_id, iteration_number, generation_type
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            image_id,
+                            daemon_id,
+                            comp["prompt"],
+                            comp.get("negative_prompt", ""),
+                            "house_style",
+                            "house_style",
+                            style.id,
+                            gen_result["path"],
+                            gen_result.get("width"),
+                            gen_result.get("height"),
+                            gen_result.get("generation_time_ms"),
+                            gen_result.get("seed"),
+                            now,
+                            None,  # parent_id
+                            1,     # iteration_number
+                            "txt2img",  # generation_type
+                        ),
+                    )
+
+                process = CreativeProcess(
+                    id=str(uuid.uuid4()),
+                    image_id=image_id,
+                    daemon_id=daemon_id,
+                    initial_impulse=comp.get("impulse", ""),
+                    studied_artists=artist_ids,
+                    borrowed_elements=comp.get("elements_used", []),
+                    movement_influences=comp.get("style_aspects", []),
+                    initial_concept=comp.get("concept", ""),
+                    technical_choices=comp.get("technical_choices", ""),
+                    title=comp.get("title", "Untitled"),
+                    artist_statement=comp.get("artist_statement", ""),
+                    what_i_was_exploring=comp.get("exploration", ""),
+                )
+                persistence.save_creative_process(process)
+
+                results.append({
+                    "image_path": gen_result["path"],
+                    "filename": gen_result["filename"],
+                    "seed": gen_result["seed"],
+                    "title": comp.get("title", "Untitled"),
+                    "artist_statement": comp.get("artist_statement", ""),
+                    "elements_used": comp.get("elements_used", []),
+                    "style_aspects": comp.get("style_aspects", []),
+                    "prompt_used": comp["prompt"],
+                    "process_id": process.id,
+                    "style_version": style.version,
+                })
+
+                logger.info(f"Created (house style v{style.version}): {comp.get('title', 'Untitled')}")
+
+            except Exception as e:
+                logger.error(f"Failed to generate piece: {e}")
+                continue
 
     return results
 
