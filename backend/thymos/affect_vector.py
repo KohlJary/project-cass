@@ -47,6 +47,46 @@ class AffectVector:
         """Apply a delta to all affected dimensions."""
         delta.apply_to(self.state)
 
+    def apply_decay(self, hours: float) -> None:
+        """
+        Apply time-based decay toward baseline for all dimensions.
+
+        Affects drift back toward their baseline over time, making
+        the system naturally return to homeostasis when not stimulated.
+
+        Args:
+            hours: Time elapsed since last decay
+        """
+        from .config import get_config
+
+        config = get_config()
+
+        for dim in AffectDimension:
+            dim_config = config.get_affect(dim.value)
+            if not dim_config:
+                continue
+
+            current = self.get(dim)
+            baseline = dim_config.baseline
+            decay_rate = dim_config.decay_toward_baseline
+
+            # Calculate how much to move toward baseline
+            distance = current - baseline
+            decay_amount = decay_rate * hours
+
+            # Move toward baseline (but don't overshoot)
+            if abs(distance) <= decay_amount:
+                # Close enough - snap to baseline
+                new_value = baseline
+            elif distance > 0:
+                # Above baseline - decrease
+                new_value = current - decay_amount
+            else:
+                # Below baseline - increase
+                new_value = current + decay_amount
+
+            self.set(dim, new_value)
+
     def dominant_dimension(self) -> tuple[AffectDimension, float]:
         """
         Find the most salient affect dimension.
