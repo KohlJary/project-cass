@@ -1,0 +1,5 @@
+# ACE-Step is cloned here but not tracked in our repo
+ace-step/
+
+# Generated music files are kept locally
+# (could be large, and are user-specific)
