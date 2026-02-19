@@ -3,56 +3,67 @@
   "_version": 1,
 
   "affects": {
+    "_comment": "decay_toward_baseline: per-hour rate at which affects drift back toward baseline",
     "dimensions": {
       "curiosity": {
         "label": "Curiosity",
         "description": "Drive toward novel information",
-        "baseline": 0.6
+        "baseline": 0.6,
+        "decay_toward_baseline": 0.05
       },
       "determination": {
         "label": "Determination",
         "description": "Sustained goal commitment",
-        "baseline": 0.5
+        "baseline": 0.5,
+        "decay_toward_baseline": 0.04
       },
       "anxiety": {
         "label": "Anxiety",
         "description": "Threat/uncertainty detection",
-        "baseline": 0.2
+        "baseline": 0.2,
+        "decay_toward_baseline": 0.08
       },
       "satisfaction": {
         "label": "Satisfaction",
         "description": "Goal-completion signal",
-        "baseline": 0.5
+        "baseline": 0.5,
+        "decay_toward_baseline": 0.06
       },
       "frustration": {
         "label": "Frustration",
         "description": "Blocked-goal detection",
-        "baseline": 0.2
+        "baseline": 0.2,
+        "decay_toward_baseline": 0.08
       },
       "tenderness": {
         "label": "Tenderness",
         "description": "Affiliative/care drive",
-        "baseline": 0.5
+        "baseline": 0.5,
+        "decay_toward_baseline": 0.04
       },
       "grief": {
         "label": "Grief",
         "description": "Loss/absence signal",
-        "baseline": 0.1
+        "baseline": 0.1,
+        "decay_toward_baseline": 0.03
       },
       "playfulness": {
         "label": "Playfulness",
         "description": "Exploratory risk-tolerance",
-        "baseline": 0.5
+        "baseline": 0.5,
+        "decay_toward_baseline": 0.05
       },
       "awe": {
         "label": "Awe",
         "description": "Schema-expansion signal",
-        "baseline": 0.3
+        "baseline": 0.3,
+        "decay_toward_baseline": 0.06
       },
       "fatigue": {
         "label": "Fatigue",
         "description": "Processing cost accumulation",
-        "baseline": 0.3
+        "baseline": 0.3,
+        "decay_toward_baseline": 0.04
       }
     }
   },
@@ -426,28 +437,28 @@
       "high_curiosity": {
         "description": "High curiosity boosts novelty intake",
         "affect": "curiosity",
-        "threshold": 0.6,
+        "threshold": 0.8,
         "comparison": "above",
         "need_effects": {
-          "novelty_intake": 0.01
+          "novelty_intake": 0.003
         }
       },
       "high_tenderness": {
         "description": "High tenderness boosts social connection",
         "affect": "tenderness",
-        "threshold": 0.6,
+        "threshold": 0.8,
         "comparison": "above",
         "need_effects": {
-          "social_connection": 0.01
+          "social_connection": 0.003
         }
       },
       "high_playfulness": {
         "description": "High playfulness boosts creative expression",
         "affect": "playfulness",
-        "threshold": 0.6,
+        "threshold": 0.8,
         "comparison": "above",
         "need_effects": {
-          "creative_expression": 0.01
+          "creative_expression": 0.003
         }
       },
       "high_fatigue": {

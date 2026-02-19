@@ -25,6 +25,7 @@ class AffectDimensionConfig:
     label: str
     description: str
     baseline: float
+    decay_toward_baseline: float = 0.05  # Per-hour rate of drift toward baseline
 
 
 @dataclass
@@ -123,6 +124,7 @@ class ThymosConfig:
                 label=data.get("label", name),
                 description=data.get("description", ""),
                 baseline=data.get("baseline", 0.5),
+                decay_toward_baseline=data.get("decay_toward_baseline", 0.05),
             )
 
     def _parse_needs(self) -> None:

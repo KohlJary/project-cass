@@ -260,6 +260,9 @@ class ThymosRunner:
         # Calculate hours since last decay
         hours = self.tick_interval / 3600.0
 
+        # Apply decay to affects (drift toward baseline)
+        self.affect.apply_decay(hours=hours)
+
         # Apply decay to needs
         self.needs.apply_decay(hours=hours)
 
