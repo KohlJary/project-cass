@@ -702,6 +702,9 @@ class Spellcaster:
                 return "need"
             if name == "affect":
                 return "affect"
+            if name == "RANDOM":
+                import random
+                return random.random()  # Returns float in [0.0, 1.0)
             # Unknown variable - return None
             return None
 
