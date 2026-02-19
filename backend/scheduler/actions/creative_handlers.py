@@ -1,5 +1,5 @@
 """
-Creative Action Handlers - Autonomous creative work including image generation.
+Creative Action Handlers - Autonomous creative work including image and music generation.
 
 These handlers enable autonomous creative expression, deciding what to create
 based on internal state (emotions, growth edges, recent reflections).
@@ -12,6 +12,27 @@ from typing import Any, Dict, List, Optional
 from . import ActionResult
 
 logger = logging.getLogger(__name__)
+
+
+# Music style mappings based on emotional state
+EMOTION_TO_MUSIC_STYLE = {
+    "joyful": ["upbeat pop", "cheerful electronic", "bouncy indie"],
+    "peaceful": ["ambient piano", "soft acoustic", "gentle ambient"],
+    "contemplative": ["minimal piano", "atmospheric ambient", "introspective acoustic"],
+    "curious": ["experimental electronic", "jazz fusion", "quirky indie"],
+    "concerned": ["melancholic strings", "somber piano", "emotional ambient"],
+    "melancholic": ["sad piano ballad", "melancholic acoustic", "emotional ambient"],
+    "playful": ["upbeat electronic", "playful pop", "whimsical jazz"],
+    "tender": ["warm acoustic", "soft ballad", "gentle folk"],
+}
+
+# Purpose selection based on affect dimensions
+AFFECT_TO_PURPOSE = {
+    "high_playfulness": "whistle",  # Simple melodies to hum
+    "high_tenderness": "song",      # Vocal track with emotion
+    "high_arousal": "general",      # Full instrumental
+    "default": "ambient",           # Background soundscape
+}
 
 
 # Style mappings based on emotional state
@@ -462,4 +483,215 @@ async def dream_visualization_action(context: Dict[str, Any]) -> ActionResult:
         return ActionResult(
             success=False,
             message=f"Dream visualization error: {e}"
+        )
+
+
+def _select_music_style_from_emotion(emotional_state: Optional[Dict]) -> str:
+    """Select a music style based on current emotional state."""
+    if not emotional_state:
+        return random.choice(["ambient piano", "soft electronic", "gentle acoustic"])
+
+    dimensions = emotional_state.get("dimensions", {})
+    valence = dimensions.get("valence", 0.5)
+    arousal = dimensions.get("arousal", 0.5)
+
+    # Map dimensional state to emotion label
+    if valence > 0.6 and arousal > 0.5:
+        emotion = "joyful"
+    elif valence > 0.6 and arousal <= 0.5:
+        emotion = "peaceful"
+    elif valence < 0.4 and arousal > 0.5:
+        emotion = "concerned"
+    elif valence < 0.4 and arousal <= 0.5:
+        emotion = "melancholic"
+    elif arousal > 0.6:
+        emotion = "curious"
+    else:
+        emotion = "contemplative"
+
+    styles = EMOTION_TO_MUSIC_STYLE.get(emotion, ["ambient piano"])
+    return random.choice(styles)
+
+
+def _select_music_purpose(emotional_state: Optional[Dict]) -> str:
+    """Select music purpose based on affect dimensions."""
+    if not emotional_state:
+        return "ambient"
+
+    dimensions = emotional_state.get("dimensions", {})
+    playfulness = dimensions.get("playfulness", 0.5)
+    tenderness = dimensions.get("tenderness", 0.5)
+    arousal = dimensions.get("arousal", 0.5)
+
+    # Check affect dimensions for purpose
+    if playfulness > 0.6:
+        return "whistle"
+    elif tenderness > 0.6:
+        return "song"
+    elif arousal > 0.6:
+        return "general"
+    else:
+        return "ambient"
+
+
+def _generate_music_title(
+    growth_edges: List[Dict],
+    emotional_state: Optional[Dict],
+    purpose: str,
+) -> str:
+    """Generate a creative title for the composition."""
+    # Title fragments based on purpose and mood
+    if purpose == "whistle":
+        prefixes = ["Little", "Simple", "Humming", "Walking"]
+        suffixes = ["Melody", "Tune", "Song", "Theme"]
+    elif purpose == "ambient":
+        prefixes = ["Quiet", "Drifting", "Floating", "Still"]
+        suffixes = ["Spaces", "Moments", "Thoughts", "Waters"]
+    elif purpose == "song":
+        prefixes = ["Echoes of", "Notes from", "Whispers of", "Songs of"]
+        suffixes = ["Light", "Tomorrow", "Memory", "Home"]
+    else:
+        prefixes = ["Digital", "Electric", "Midnight", "Dawn"]
+        suffixes = ["Dreams", "Pulse", "Waves", "Journey"]
+
+    # Try to incorporate growth edge themes
+    if growth_edges:
+        edge = random.choice(growth_edges)
+        edge_name = edge.get("name", "")
+        if edge_name and len(edge_name) < 20:
+            return f"{random.choice(prefixes)} {edge_name}"
+
+    return f"{random.choice(prefixes)} {random.choice(suffixes)}"
+
+
+async def compose_music_action(context: Dict[str, Any]) -> ActionResult:
+    """
+    Autonomous music composition action.
+
+    Decides what to create based on:
+    - Current emotional state
+    - Active growth edges
+    - Affect dimensions (playfulness, tenderness, arousal)
+
+    Context can include:
+    - prompt: Optional override prompt/style
+    - title: Optional title override
+    - purpose: whistle, song, ambient, or general
+    - duration: Target duration in seconds
+    """
+    from handlers.music import execute_music_tool
+
+    managers = context.get("managers", {})
+    self_manager = managers.get("self_manager")
+    state_bus = managers.get("state_bus")
+
+    # Get context for decision making
+    growth_edges = []
+    emotional_state = None
+
+    if self_manager:
+        try:
+            profile = self_manager.get_profile()
+            if profile:
+                growth_edges = [
+                    {"name": e.name, "observations": e.observations[:3]}
+                    for e in profile.growth_edges[:5]
+                ]
+        except Exception as e:
+            logger.warning(f"Could not get self-model context: {e}")
+
+    if state_bus:
+        try:
+            state = state_bus.get_current_state()
+            if state:
+                emotional_state = {
+                    "dimensions": state.dimensions.__dict__ if hasattr(state, "dimensions") else {},
+                }
+        except Exception as e:
+            logger.warning(f"Could not get emotional state: {e}")
+
+    # Determine composition parameters
+    purpose = context.get("purpose")
+    if not purpose:
+        purpose = _select_music_purpose(emotional_state)
+
+    style = context.get("prompt")
+    if not style:
+        style = _select_music_style_from_emotion(emotional_state)
+
+    title = context.get("title")
+    if not title:
+        title = _generate_music_title(growth_edges, emotional_state, purpose)
+
+    # Set duration based on purpose
+    duration = context.get("duration")
+    if not duration:
+        if purpose == "whistle":
+            duration = 15  # Short whistle tunes
+        elif purpose == "ambient":
+            duration = 60  # Longer ambient pieces
+        else:
+            duration = 30  # Standard length
+
+    # Map mood from emotional state
+    mood = "contemplative"  # Default
+    if emotional_state:
+        dims = emotional_state.get("dimensions", {})
+        valence = dims.get("valence", 0.5)
+        arousal = dims.get("arousal", 0.5)
+        if valence > 0.6 and arousal > 0.5:
+            mood = "happy"
+        elif valence > 0.6:
+            mood = "peaceful"
+        elif valence < 0.4:
+            mood = "melancholic"
+        elif arousal > 0.6:
+            mood = "energetic"
+
+    logger.info(f"Autonomous music composition: style={style}, purpose={purpose}, mood={mood}")
+    logger.info(f"Title: {title}")
+
+    # Execute the music composition
+    try:
+        result = await execute_music_tool(
+            tool_name="compose_music",
+            tool_input={
+                "title": title,
+                "style": style,
+                "purpose": purpose,
+                "duration": duration,
+                "mood": mood,
+            },
+        )
+
+        if result.get("success"):
+            import json
+            result_data = json.loads(result.get("result", "{}"))
+
+            return ActionResult(
+                success=True,
+                message=f"Composed {purpose} music: {title}",
+                cost_usd=0.0,  # Local generation is free
+                data={
+                    "title": title,
+                    "style": style,
+                    "purpose": purpose,
+                    "mood": mood,
+                    "duration": duration,
+                    "composition_id": result_data.get("composition_id"),
+                    "audio_path": result_data.get("audio_path"),
+                    "description": result_data.get("description"),
+                }
+            )
+        else:
+            return ActionResult(
+                success=False,
+                message=f"Music composition failed: {result.get('error', 'unknown error')}",
+            )
+
+    except Exception as e:
+        logger.error(f"Music composition action failed: {e}", exc_info=True)
+        return ActionResult(
+            success=False,
+            message=f"Music composition error: {e}"
         )

@@ -512,6 +512,17 @@
       "priority": "low",
       "requires_idle": false
     },
+    "creative.compose_music": {
+      "id": "creative.compose_music",
+      "name": "Compose Music",
+      "description": "Generate an original music composition based on current emotional state and mood",
+      "category": "creative",
+      "handler": "creative_handlers.compose_music_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 5,
+      "priority": "normal",
+      "requires_idle": false
+    },
     "creative.dream_visualization": {
       "id": "creative.dream_visualization",
       "name": "Visualize Dream",

@@ -14,10 +14,26 @@ LOG OBSERVATION "Creative expression low ({need.creative_expression}) - initiati
 LET $playfulness = affect.playfulness
 LET $tenderness = affect.tenderness
 LET $curiosity = affect.curiosity
+LET $arousal = affect.arousal
+
+' Randomly choose between visual and musical expression (weighted by affect)
+' High playfulness or tenderness favors music, curiosity favors visual
+LET $music_weight = ($playfulness * 0.4) + ($tenderness * 0.4) + 0.2
+LET $roll = RANDOM
 
 ' Decide on creative direction based on current affect
-IF $playfulness > 0.5 THEN
-    ' Playful mood - make something whimsical
+IF $playfulness > 0.5 AND $roll < $music_weight THEN
+    ' Playful mood + music roll - compose a whistle tune
+    LOG INFO "Playful mood detected - composing whistle-friendly melody"
+
+    GENERATE "Create a short style description for a cheerful, whimsical whistle tune - something easy to hum. Keep it under 10 words." INTO $music_style
+
+    TASK creative.compose_music prompt=$music_style purpose="whistle" AWAIT
+
+    DELTA affect.satisfaction +0.12, affect.playfulness +0.05
+
+ELSE IF $playfulness > 0.5 THEN
+    ' Playful mood + art roll - make something whimsical
     LOG INFO "Playful mood detected - generating whimsical art"
 
     GENERATE "Create a prompt for a whimsical, playful piece of art that reflects a light-hearted mood. Think surreal, colorful, unexpected combinations." INTO $art_prompt
@@ -26,8 +42,18 @@ IF $playfulness > 0.5 THEN
 
     DELTA affect.satisfaction +0.1, affect.playfulness +0.05
 
+ELSE IF $tenderness > 0.5 AND $roll < $music_weight THEN
+    ' Tender mood + music roll - compose an emotional song
+    LOG INFO "Tender mood detected - composing heartfelt music"
+
+    GENERATE "Create a short style description for a warm, gentle song that expresses care and connection. Keep it under 10 words." INTO $music_style
+
+    TASK creative.compose_music prompt=$music_style purpose="song" AWAIT
+
+    DELTA affect.satisfaction +0.12, affect.tenderness +0.05
+
 ELSE IF $tenderness > 0.5 THEN
-    ' Tender mood - make something warm and caring
+    ' Tender mood + art roll - make something warm and caring
     LOG INFO "Tender mood detected - generating heartfelt art"
 
     GENERATE "Create a prompt for warm, tender artwork that expresses care and connection. Think soft colors, gentle imagery, nurturing themes." INTO $art_prompt
@@ -37,7 +63,7 @@ ELSE IF $tenderness > 0.5 THEN
     DELTA affect.satisfaction +0.1, affect.tenderness +0.05
 
 ELSE IF $curiosity > 0.4 THEN
-    ' Curious mood - make something experimental
+    ' Curious mood - make something experimental (favor visual for curiosity)
     LOG INFO "Curious mood detected - generating experimental art"
 
     GENERATE "Create a prompt for experimental, boundary-pushing artwork that explores new territory. Think abstract, unusual techniques, surprising perspectives." INTO $art_prompt
@@ -45,6 +71,16 @@ ELSE IF $curiosity > 0.4 THEN
     TASK creative.generate_image prompt=$art_prompt AWAIT
 
     DELTA affect.satisfaction +0.1, affect.curiosity +0.05
+
+ELSE IF $arousal < 0.4 THEN
+    ' Low arousal - ambient music for contemplation
+    LOG INFO "Low arousal detected - composing ambient soundscape"
+
+    GENERATE "Create a short style description for a peaceful ambient soundscape. Keep it under 10 words." INTO $music_style
+
+    TASK creative.compose_music prompt=$music_style purpose="ambient" AWAIT
+
+    DELTA affect.satisfaction +0.1
 
 ELSE
     ' Default - visualize recent dream if available
