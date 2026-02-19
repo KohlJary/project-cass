@@ -6,8 +6,11 @@ Enables Cass to develop a genuine, differentiated identity.
 Storage: SQLite database (data/cass.db)
 """
 import json
+import logging
 import os
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -1309,9 +1312,22 @@ class SelfManager:
         current_state: str,
         desired_state: str = "",
         strategies: List[str] = None,
-        importance: float = 0.5
+        importance: float = 0.5,
+        auto_research: bool = True
     ) -> GrowthEdge:
-        """Add a new growth edge"""
+        """Add a new growth edge.
+
+        Args:
+            area: The area of growth (e.g., "epistemic humility")
+            current_state: Description of current state
+            desired_state: Description of desired state
+            strategies: Initial strategies for growth
+            importance: Importance level (0-1)
+            auto_research: If True, trigger research task for this edge
+
+        Returns:
+            The created GrowthEdge
+        """
         profile = self.load_profile()
         now = datetime.now().isoformat()
 
@@ -1330,7 +1346,25 @@ class SelfManager:
 
         profile.growth_edges.append(edge)
         self.update_profile(profile)
+
+        # Trigger research task for this growth edge
+        if auto_research and self._daemon_id:
+            self._trigger_research_for_growth_edge(edge)
+
         return edge
+
+    def _trigger_research_for_growth_edge(self, edge: GrowthEdge) -> None:
+        """Trigger a research task for a growth edge."""
+        try:
+            from research_triggers import trigger_research_for_growth_edge_added
+            task_id = trigger_research_for_growth_edge_added(
+                edge=edge,
+                daemon_id=self._daemon_id
+            )
+            if task_id:
+                logger.info(f"Triggered research task {task_id} for growth edge: {edge.area}")
+        except Exception as e:
+            logger.warning(f"Failed to trigger research for growth edge: {e}")
 
     def add_observation_to_growth_edge(self, area: str, observation: str):
         """Add an observation to an existing growth edge"""
@@ -1464,9 +1498,22 @@ class SelfManager:
         journal_date: str,
         evaluation: str,
         progress_indicator: str,
-        evidence: str = ""
+        evidence: str = "",
+        auto_research: bool = True
     ) -> GrowthEdgeEvaluation:
-        """Add an evaluation of a growth edge"""
+        """Add an evaluation of a growth edge.
+
+        Args:
+            growth_edge_area: The area being evaluated
+            journal_date: Date of the journal entry
+            evaluation: The evaluation text
+            progress_indicator: "progress", "regression", "stable", or "unclear"
+            evidence: Supporting evidence
+            auto_research: If True and progress is regression/unclear, trigger research
+
+        Returns:
+            The created GrowthEdgeEvaluation
+        """
         now = datetime.now().isoformat()
         eval_obj = GrowthEdgeEvaluation(
             id=str(uuid.uuid4()),
@@ -1482,7 +1529,37 @@ class SelfManager:
         evaluations.append(eval_obj)
         self._save_growth_evaluations(evaluations)
 
+        # Trigger research if evaluation shows regression or unclear progress
+        if auto_research and progress_indicator in ("regression", "unclear") and self._daemon_id:
+            self._trigger_research_for_evaluation(growth_edge_area, progress_indicator)
+
         return eval_obj
+
+    def _trigger_research_for_evaluation(self, area: str, progress_indicator: str) -> None:
+        """Trigger research when growth edge evaluation shows regression/unclear."""
+        try:
+            # Find the growth edge
+            profile = self.load_profile()
+            edge = None
+            for e in profile.growth_edges:
+                if e.area.lower() == area.lower():
+                    edge = e
+                    break
+
+            if not edge:
+                logger.debug(f"No growth edge found for area: {area}")
+                return
+
+            from research_triggers import trigger_research_for_growth_edge_evaluated
+            task_id = trigger_research_for_growth_edge_evaluated(
+                edge=edge,
+                daemon_id=self._daemon_id,
+                progress_indicator=progress_indicator
+            )
+            if task_id:
+                logger.info(f"Triggered research task {task_id} for evaluation: {area} ({progress_indicator})")
+        except Exception as e:
+            logger.warning(f"Failed to trigger research for evaluation: {e}")
 
     def get_evaluations_for_edge(self, area: str, limit: int = 10) -> List[GrowthEdgeEvaluation]:
         """Get all evaluations for a specific growth edge"""

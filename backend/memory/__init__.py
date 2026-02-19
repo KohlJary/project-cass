@@ -334,6 +334,20 @@ class CassMemory:
     def delete_cross_session_insight(self, insight_id: str):
         return self._insights.delete_cross_session_insight(insight_id)
 
+    # === Research Note Methods ===
+
+    def embed_research_note(self, *args, **kwargs):
+        return self._context.embed_research_note(*args, **kwargs)
+
+    def remove_research_note_embeddings(self, note_id: str):
+        return self._context.remove_research_note_embeddings(note_id)
+
+    def retrieve_research_context(self, *args, **kwargs):
+        return self._context.retrieve_research_context(*args, **kwargs)
+
+    def format_research_context(self, context_entries):
+        return self._context.format_research_context(context_entries)
+
 
 # Re-export for backwards compatibility
 __all__ = [

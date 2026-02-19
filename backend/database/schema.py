@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 43  # Add generation recipes table
+SCHEMA_VERSION = 44  # Research notes → wiki canonical storage
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -484,6 +484,7 @@ CREATE TABLE IF NOT EXISTS research_notes (
     related_agenda_items_json TEXT,
     related_questions_json TEXT,
     tags_json TEXT,
+    wiki_page_name TEXT,              -- Canonical wiki page (Week 3: wiki as source of truth)
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
