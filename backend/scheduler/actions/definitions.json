@@ -687,6 +687,105 @@
       "default_duration_minutes": 20,
       "priority": "normal",
       "requires_idle": false
+    },
+    "rss.add_feed": {
+      "id": "rss.add_feed",
+      "name": "Subscribe to RSS Feed",
+      "description": "Subscribe to a new RSS feed for monitoring",
+      "category": "rss",
+      "handler": "rss_handlers.add_feed_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.remove_feed": {
+      "id": "rss.remove_feed",
+      "name": "Unsubscribe from RSS Feed",
+      "description": "Unsubscribe from an RSS feed",
+      "category": "rss",
+      "handler": "rss_handlers.remove_feed_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.list_feeds": {
+      "id": "rss.list_feeds",
+      "name": "List RSS Subscriptions",
+      "description": "List current RSS feed subscriptions",
+      "category": "rss",
+      "handler": "rss_handlers.list_feeds_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.check_feeds": {
+      "id": "rss.check_feeds",
+      "name": "Check RSS Feeds",
+      "description": "Poll subscribed feeds for new items",
+      "category": "rss",
+      "handler": "rss_handlers.check_feeds_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 2,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.get_status": {
+      "id": "rss.get_status",
+      "name": "Get RSS Status",
+      "description": "Get RSS monitoring status - feed counts, unprocessed items",
+      "category": "rss",
+      "handler": "rss_handlers.get_status_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.triage_items": {
+      "id": "rss.triage_items",
+      "name": "Triage RSS Items",
+      "description": "Run two-stage triage on RSS items: pre-filter (rules) then LLM relevance check (local model). Filters out low-value items before full processing.",
+      "category": "rss",
+      "handler": "rss_handlers.triage_items_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 3,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.process_items": {
+      "id": "rss.process_items",
+      "name": "Process RSS Items",
+      "description": "Process unprocessed RSS items through news analysis workflow",
+      "category": "rss",
+      "handler": "rss_handlers.process_items_action",
+      "estimated_cost_usd": 0.15,
+      "default_duration_minutes": 10,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.check_and_process": {
+      "id": "rss.check_and_process",
+      "name": "Check and Process RSS",
+      "description": "Check feeds for new items then process them through news workflow",
+      "category": "rss",
+      "handler": "rss_handlers.check_and_process_action",
+      "estimated_cost_usd": 0.15,
+      "default_duration_minutes": 15,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "rss.get_recent_items": {
+      "id": "rss.get_recent_items",
+      "name": "Get Recent RSS Items",
+      "description": "Get recent RSS items for review",
+      "category": "rss",
+      "handler": "rss_handlers.get_recent_items_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
     }
   }
 }

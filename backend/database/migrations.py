@@ -456,6 +456,11 @@ def _apply_schema_updates(conn, from_version: int):
             conn.execute("ALTER TABLE research_notes ADD COLUMN wiki_page_name TEXT")
             print("Added wiki_page_name column to research_notes (v44)")
 
+    # v44 -> v45: RSS feed monitoring
+    # Tables (rss_feeds, rss_items) are created by SCHEMA_SQL (CREATE TABLE IF NOT EXISTS is idempotent)
+    if from_version < 45:
+        print("Adding RSS feed monitoring tables (rss_feeds, rss_items) for curated news intake (v45)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

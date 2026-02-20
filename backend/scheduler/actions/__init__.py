@@ -279,6 +279,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import wonderland_handlers
         from . import planning_handlers
         from . import artstudy_handlers
+        from . import rss_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -367,6 +368,17 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("artstudy.full_session", artstudy_handlers.full_study_session_action)
         registry.register_handler("artstudy.get_status", artstudy_handlers.get_study_status_action)
         registry.register_handler("artstudy.batch_study", artstudy_handlers.batch_study_artworks_action)
+
+        # RSS Feed actions (autonomous news monitoring)
+        registry.register_handler("rss.add_feed", rss_handlers.add_feed_action)
+        registry.register_handler("rss.remove_feed", rss_handlers.remove_feed_action)
+        registry.register_handler("rss.list_feeds", rss_handlers.list_feeds_action)
+        registry.register_handler("rss.check_feeds", rss_handlers.check_feeds_action)
+        registry.register_handler("rss.get_status", rss_handlers.get_status_action)
+        registry.register_handler("rss.triage_items", rss_handlers.triage_items_action)
+        registry.register_handler("rss.process_items", rss_handlers.process_items_action)
+        registry.register_handler("rss.check_and_process", rss_handlers.check_and_process_action)
+        registry.register_handler("rss.get_recent_items", rss_handlers.get_recent_items_action)
 
         logger.info("Registered all action handlers")
 

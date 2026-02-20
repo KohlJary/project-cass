@@ -1800,6 +1800,11 @@ async def startup_event():
                 init_grimoire_manager(thymos_runner._grimoire, spells_dir)
                 logger.info("Grimoire admin routes initialized")
 
+            # Initialize RSS admin routes
+            from routes.admin import init_rss_routes
+            init_rss_routes(_daemon_id)
+            logger.info("RSS admin routes initialized")
+
             # Initialize autonomous scheduling (Cass decides her own work)
             from config import AUTONOMOUS_SCHEDULING_ENABLED
             if AUTONOMOUS_SCHEDULING_ENABLED:

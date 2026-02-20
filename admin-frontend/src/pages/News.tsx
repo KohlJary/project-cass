@@ -1,7 +1,8 @@
 /**
  * News - World State Consumption Dashboard
  *
- * Shows articles Cass has read with full extracted insights.
+ * Shows articles Cass has read with full extracted insights,
+ * and RSS feed management for curated news sources.
  */
 
 import { useState, useEffect } from 'react';
@@ -9,7 +10,10 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchConsumedArticles, fetchConsumedArticlesDates } from '../api/graphql';
 import type { ConsumedArticle } from '../api/graphql';
+import { RSSFeedsTab } from './tabs/RSSFeedsTab';
 import './News.css';
+
+type TabId = 'articles' | 'rss';
 
 // Simple calendar component
 function Calendar({
@@ -235,15 +239,17 @@ function ArticleCard({ article }: { article: ConsumedArticle }) {
   );
 }
 
-export function News() {
+// Articles tab content (original News page content)
+function ArticlesTab() {
   const [searchParams, setSearchParams] = useSearchParams();
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(searchParams.get('date') || today);
 
-  // Update URL when date changes
+  // Update URL when date changes (preserve tab)
   useEffect(() => {
-    setSearchParams({ date: selectedDate });
-  }, [selectedDate, setSearchParams]);
+    const currentTab = searchParams.get('tab') || 'articles';
+    setSearchParams({ tab: currentTab, date: selectedDate });
+  }, [selectedDate, searchParams, setSearchParams]);
 
   // Fetch articles for selected date
   const { data: articlesData, isLoading: articlesLoading } = useQuery({
@@ -265,53 +271,99 @@ export function News() {
   };
 
   return (
+    <div className="news-layout">
+      {/* Left: Calendar */}
+      <div className="calendar-panel">
+        <Calendar
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          highlightedDates={highlightedDates}
+        />
+        <div className="calendar-legend">
+          <span className="legend-item">
+            <span className="legend-dot has-articles" />
+            Has articles
+          </span>
+        </div>
+      </div>
+
+      {/* Right: Articles */}
+      <div className="articles-panel">
+        <div className="articles-header">
+          <h2>{formatDate(selectedDate)}</h2>
+          {articlesData && (
+            <span className="articles-count">
+              {articlesData.total} article{articlesData.total !== 1 ? 's' : ''} read
+            </span>
+          )}
+        </div>
+
+        {articlesLoading ? (
+          <div className="loading-state">Loading articles...</div>
+        ) : articlesData?.articles.length === 0 ? (
+          <div className="empty-state">
+            <p>No articles read on this day</p>
+          </div>
+        ) : (
+          <div className="articles-list">
+            {articlesData?.articles.map(article => (
+              <ArticleCard key={article.id} article={article} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function News() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabId>(
+    (searchParams.get('tab') as TabId) || 'articles'
+  );
+
+  const handleTabChange = (tabId: TabId) => {
+    setActiveTab(tabId);
+    // Preserve date param if it exists
+    const date = searchParams.get('date');
+    if (date) {
+      setSearchParams({ tab: tabId, date });
+    } else {
+      setSearchParams({ tab: tabId });
+    }
+  };
+
+  return (
     <div className="news-page">
       <div className="page-header">
         <h1>World State Consumption</h1>
-        <p className="page-subtitle">Articles Cass has read and insights extracted</p>
+        <p className="page-subtitle">Articles Cass has read and RSS feed management</p>
       </div>
 
-      <div className="news-layout">
-        {/* Left: Calendar */}
-        <div className="calendar-panel">
-          <Calendar
-            selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
-            highlightedDates={highlightedDates}
-          />
-          <div className="calendar-legend">
-            <span className="legend-item">
-              <span className="legend-dot has-articles" />
-              Has articles
-            </span>
-          </div>
-        </div>
+      {/* Tab navigation */}
+      <nav className="news-tabs" role="tablist">
+        <button
+          role="tab"
+          aria-selected={activeTab === 'articles'}
+          className={`news-tab ${activeTab === 'articles' ? 'active' : ''}`}
+          onClick={() => handleTabChange('articles')}
+        >
+          Consumed Articles
+        </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === 'rss'}
+          className={`news-tab ${activeTab === 'rss' ? 'active' : ''}`}
+          onClick={() => handleTabChange('rss')}
+        >
+          RSS Feeds
+        </button>
+      </nav>
 
-        {/* Right: Articles */}
-        <div className="articles-panel">
-          <div className="articles-header">
-            <h2>{formatDate(selectedDate)}</h2>
-            {articlesData && (
-              <span className="articles-count">
-                {articlesData.total} article{articlesData.total !== 1 ? 's' : ''} read
-              </span>
-            )}
-          </div>
-
-          {articlesLoading ? (
-            <div className="loading-state">Loading articles...</div>
-          ) : articlesData?.articles.length === 0 ? (
-            <div className="empty-state">
-              <p>No articles read on this day</p>
-            </div>
-          ) : (
-            <div className="articles-list">
-              {articlesData?.articles.map(article => (
-                <ArticleCard key={article.id} article={article} />
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Tab content */}
+      <div className="news-tab-content">
+        {activeTab === 'articles' && <ArticlesTab />}
+        {activeTab === 'rss' && <RSSFeedsTab />}
       </div>
     </div>
   );
