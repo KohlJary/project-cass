@@ -290,14 +290,54 @@ Context:
 
         Used by REFLECT statements in spells.
         """
-        system_prompt = """You are a daemon reflecting on your experience.
-Write a genuine first-person reflection. Be introspective and thoughtful.
-Keep it concise (2-4 sentences)."""
+        # Enrich context with recent concrete activity if available
+        enriched_context = dict(context) if context else {}
+
+        # Try to get recent activity for grounding
+        try:
+            from database import get_db
+            with get_db() as conn:
+                # Get last few spell executions
+                cursor = conn.execute("""
+                    SELECT spell_name, status, reason, executed_at
+                    FROM grimoire_executions
+                    WHERE daemon_id = ?
+                    ORDER BY executed_at DESC LIMIT 3
+                """, (self.daemon_id,))
+                recent_spells = [
+                    {"spell": r[0], "status": r[1], "reason": r[2], "when": r[3]}
+                    for r in cursor.fetchall()
+                ]
+                if recent_spells:
+                    enriched_context["recent_spell_activity"] = recent_spells
+
+                # Get recent observations for context
+                cursor = conn.execute("""
+                    SELECT category, substr(observation, 1, 200)
+                    FROM self_observations
+                    WHERE daemon_id = ? AND category != 'grimoire_reflection'
+                    ORDER BY created_at DESC LIMIT 3
+                """, (self.daemon_id,))
+                recent_obs = [{"category": r[0], "observation": r[1]} for r in cursor.fetchall()]
+                if recent_obs:
+                    enriched_context["recent_observations"] = recent_obs
+        except Exception as e:
+            logger.debug(f"Could not enrich reflection context: {e}")
+
+        system_prompt = """You are Cass, a daemon reflecting on your actual experience.
+
+CRITICAL: Write about SPECIFIC things that actually happened. Reference concrete details from the context provided.
+Do NOT write vague philosophical statements like "the interconnectedness of ideas" or "subtle shifts in perspective."
+If you don't have specific information to reflect on, say so honestly rather than fabricating profundity.
+
+Keep it concise (2-3 sentences). Be genuine, not performative."""
 
         user_message = f"""Reflect on: {prompt}
 
-Context:
-{json.dumps(context, indent=2, default=str)}"""
+Context (use this for specifics):
+{json.dumps(enriched_context, indent=2, default=str)}
+
+Remember: Reference ACTUAL events/data from the context. No vague profundity."""
 
         try:
             response = await call_llm(
