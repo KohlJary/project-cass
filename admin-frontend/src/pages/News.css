@@ -543,3 +543,40 @@
 .question-item .insight-text {
   color: #ffcb6b;
 }
+
+/* Tab Navigation */
+.news-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #2a2a2a;
+  margin-bottom: 1rem;
+}
+
+.news-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+
+.news-tab:hover {
+  color: #c0c0c0;
+}
+
+.news-tab.active {
+  color: #c792ea;
+  border-bottom-color: #c792ea;
+}
+
+.news-tab-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

@@ -147,6 +147,18 @@ export {
   type MusicServiceStatus,
 } from './music';
 
+// RSS (Feed subscriptions)
+export {
+  rssApi,
+  type RSSFeed,
+  type RSSItem,
+  type RSSStatus,
+  type FeedCreateRequest,
+  type FeedUpdateRequest,
+  type CheckResult,
+  type CheckAllResult,
+} from './rss';
+
 // Miscellaneous APIs
 export {
   exportApi,

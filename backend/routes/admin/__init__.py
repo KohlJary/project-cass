@@ -83,6 +83,10 @@ from .grimoire import (
     router as grimoire_router,
     init_grimoire_manager as _init_grimoire_manager,
 )
+from .rss import (
+    router as rss_router,
+    init_rss_routes as _init_rss_routes,
+)
 
 # Create combined router
 router = APIRouter()
@@ -106,6 +110,7 @@ router.include_router(dev_requests_router)
 router.include_router(thymos_router)
 router.include_router(art_study_router)
 router.include_router(grimoire_router)
+router.include_router(rss_router)
 
 
 # Module-level references for backward compatibility
@@ -185,6 +190,11 @@ def init_grimoire_manager(manager, spells_dir=None):
     _init_grimoire_manager(manager, spells_dir)
 
 
+def init_rss_routes(daemon_id: str):
+    """Initialize RSS routes with daemon ID."""
+    _init_rss_routes(daemon_id)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -238,4 +248,5 @@ __all__ = [
     "init_thymos_runner",
     "init_art_study_routes",
     "init_grimoire_manager",
+    "init_rss_routes",
 ]
