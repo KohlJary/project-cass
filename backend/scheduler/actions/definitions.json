@@ -566,6 +566,127 @@
       "default_duration_minutes": 2,
       "priority": "normal",
       "requires_idle": false
+    },
+    "artstudy.discover_artist": {
+      "id": "artstudy.discover_artist",
+      "name": "Discover Artist to Study",
+      "description": "Select a new artist from the curated list to study, based on learning goals or curiosity",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.discover_artist_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 2,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.study_background": {
+      "id": "artstudy.study_background",
+      "name": "Study Artist Background",
+      "description": "Read and analyze an artist's Wikipedia biography to understand their life and context",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.study_artist_background_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 10,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.study_artwork": {
+      "id": "artstudy.study_artwork",
+      "name": "Study Artwork",
+      "description": "Deeply analyze artworks using vision, developing artistic vocabulary and understanding",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.study_artwork_action",
+      "estimated_cost_usd": 0.10,
+      "default_duration_minutes": 15,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.synthesize_artist": {
+      "id": "artstudy.synthesize_artist",
+      "name": "Synthesize Artist Understanding",
+      "description": "After studying multiple works, synthesize overall understanding of an artist's style and approach",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.synthesize_artist_action",
+      "estimated_cost_usd": 0.10,
+      "default_duration_minutes": 10,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.extract_elements": {
+      "id": "artstudy.extract_elements",
+      "name": "Extract Adopted Elements",
+      "description": "Identify specific artistic elements to adopt from a studied artist into personal style",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.extract_elements_action",
+      "estimated_cost_usd": 0.05,
+      "default_duration_minutes": 5,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.synthesize_house_style": {
+      "id": "artstudy.synthesize_house_style",
+      "name": "Synthesize House Style",
+      "description": "Synthesize personal artistic style from all adopted elements across studied artists",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.synthesize_house_style_action",
+      "estimated_cost_usd": 0.15,
+      "default_duration_minutes": 15,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.create_from_artist": {
+      "id": "artstudy.create_from_artist",
+      "name": "Create Artwork from Artist Study",
+      "description": "Generate artwork inspired by a specific studied artist, combining their influence with inner context",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.create_from_artist_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 5,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.create_from_house_style": {
+      "id": "artstudy.create_from_house_style",
+      "name": "Create Artwork in House Style",
+      "description": "Generate artwork in personal house style, expressing current inner state through developed aesthetic",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.create_from_house_style_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 5,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.full_session": {
+      "id": "artstudy.full_session",
+      "name": "Full Art Study Session",
+      "description": "Complete art study session: discover artist, study background and works, synthesize understanding, extract elements",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.full_study_session_action",
+      "estimated_cost_usd": 0.35,
+      "default_duration_minutes": 45,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.get_status": {
+      "id": "artstudy.get_status",
+      "name": "Get Art Study Status",
+      "description": "Query current art study progress - counts of unstudied artists, pending syntheses, adopted elements",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.get_study_status_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "artstudy.batch_study": {
+      "id": "artstudy.batch_study",
+      "name": "Batch Study Artworks",
+      "description": "Study multiple artworks for an artist in one batch (up to 5)",
+      "category": "artstudy",
+      "handler": "artstudy_handlers.batch_study_artworks_action",
+      "estimated_cost_usd": 0.30,
+      "default_duration_minutes": 20,
+      "priority": "normal",
+      "requires_idle": false
     }
   }
 }

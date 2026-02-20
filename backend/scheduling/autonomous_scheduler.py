@@ -451,6 +451,7 @@ class AutonomousScheduler:
             "growth": TaskCategory.GROWTH,
             "curiosity": TaskCategory.CURIOSITY,
             "creative": TaskCategory.CURIOSITY,  # Map to curiosity for budget
+            "artstudy": TaskCategory.CURIOSITY,  # Art study uses curiosity budget
             "system": TaskCategory.SYSTEM,
         }
         task_category = category_map.get(work_unit.category, TaskCategory.REFLECTION)
