@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 44  # Research notes → wiki canonical storage
+SCHEMA_VERSION = 45  # RSS feed monitoring
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -2039,4 +2039,52 @@ CREATE INDEX IF NOT EXISTS idx_grimoire_executions_daemon ON grimoire_executions
 CREATE INDEX IF NOT EXISTS idx_grimoire_executions_spell ON grimoire_executions(daemon_id, spell_name);
 CREATE INDEX IF NOT EXISTS idx_grimoire_executions_time ON grimoire_executions(executed_at);
 CREATE INDEX IF NOT EXISTS idx_grimoire_executions_status ON grimoire_executions(status);
+
+-- =============================================================================
+-- RSS FEEDS
+-- =============================================================================
+
+-- RSS feed subscriptions
+CREATE TABLE IF NOT EXISTS rss_feeds (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT,
+    description TEXT,
+    category TEXT,                          -- "tech", "ai", "art", "news", etc.
+    check_interval_minutes INTEGER DEFAULT 60,
+    last_checked_at TEXT,
+    last_item_at TEXT,                      -- Most recent item timestamp seen
+    error_count INTEGER DEFAULT 0,          -- Consecutive fetch errors
+    last_error TEXT,                        -- Last error message
+    active INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL,
+    UNIQUE(daemon_id, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rss_feeds_daemon ON rss_feeds(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_rss_feeds_active ON rss_feeds(daemon_id, active);
+CREATE INDEX IF NOT EXISTS idx_rss_feeds_check ON rss_feeds(active, last_checked_at);
+
+-- RSS feed items (articles)
+CREATE TABLE IF NOT EXISTS rss_items (
+    id TEXT PRIMARY KEY,
+    feed_id TEXT NOT NULL,
+    guid TEXT NOT NULL,                     -- RSS guid/id for deduplication
+    title TEXT,
+    link TEXT,
+    summary TEXT,                           -- Description/summary from feed
+    author TEXT,
+    published_at TEXT,                      -- When article was published
+    seen_at TEXT NOT NULL,                  -- When we first saw it
+    processed INTEGER DEFAULT 0,            -- Whether we've analyzed it
+    processed_at TEXT,
+    skip_reason TEXT,                       -- Why we skipped processing (if any)
+    FOREIGN KEY (feed_id) REFERENCES rss_feeds(id) ON DELETE CASCADE,
+    UNIQUE(feed_id, guid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rss_items_feed ON rss_items(feed_id);
+CREATE INDEX IF NOT EXISTS idx_rss_items_processed ON rss_items(processed, seen_at);
+CREATE INDEX IF NOT EXISTS idx_rss_items_published ON rss_items(published_at);
 """
