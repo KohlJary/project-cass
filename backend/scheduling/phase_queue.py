@@ -411,6 +411,7 @@ class PhaseQueueManager:
                 "curiosity": TaskCategory.CURIOSITY,
                 "creative": TaskCategory.CURIOSITY,
                 "artstudy": TaskCategory.CURIOSITY,  # Art study uses curiosity budget
+                "rss": TaskCategory.RESEARCH,  # RSS monitoring uses research budget
                 "system": TaskCategory.GROWTH,  # System work uses growth queue
             }
             task_category = category_map.get(

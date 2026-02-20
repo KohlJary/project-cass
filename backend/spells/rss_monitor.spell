@@ -1,0 +1,103 @@
+UNIT rss_monitor
+    AUTHOR "daedalus"
+    PRIORITY 60
+    COOLDOWN 30
+    TAGS research, news, rss, world
+    SCOPE THYMOS, EXTERNAL
+
+ON TIMER EVERY 60
+ON MANUAL "Check RSS Feeds"
+
+' =============================================================================
+' RSS FEED MONITOR SPELL
+' Autonomous news intake from curated RSS feeds.
+'
+' This spell:
+' - Checks all subscribed RSS feeds for new items
+' - Processes new articles through the news consumption workflow
+' - Extracts observations, questions, and growth edges
+' - Maintains a steady stream of curated information
+' =============================================================================
+
+LOG OBSERVATION "Starting RSS feed check"
+
+' Check current state
+LET $fatigue = affect.fatigue
+
+IF $fatigue > 0.85 THEN
+    LOG INFO "Too fatigued for RSS processing - deferring"
+    EXIT SKIPPED "fatigue too high"
+END IF
+
+' -----------------------------------------------------------------------------
+' PHASE 1: Get RSS Status
+' -----------------------------------------------------------------------------
+
+TASK rss.get_status AWAIT
+LET $status = TASK_RESULT
+
+LET $active_feeds = $status.data.active_feeds
+LET $unprocessed = $status.data.unprocessed_items
+LET $has_unprocessed = $status.data.has_unprocessed
+LET $next_id = $status.data.next_item_id
+LET $next_title = $status.data.next_item_title
+
+LOG INFO "RSS status: {$active_feeds} feeds, {$unprocessed} unprocessed items"
+
+' -----------------------------------------------------------------------------
+' PHASE 2: Check Feeds for New Items
+' -----------------------------------------------------------------------------
+
+' Always check feeds (will only poll those due for checking)
+TASK rss.check_feeds AWAIT
+LET $check_result = TASK_RESULT
+
+LET $feeds_checked = $check_result.data.feeds_checked
+LET $new_items = $check_result.data.new_items
+
+IF $feeds_checked > 0 THEN
+    LOG INFO "Checked {$feeds_checked} feeds, found {$new_items} new items"
+END IF
+
+' -----------------------------------------------------------------------------
+' PHASE 3: Process Unprocessed Items
+' -----------------------------------------------------------------------------
+
+' Re-check unprocessed count (may have new items from check)
+TASK rss.get_status AWAIT
+LET $updated_status = TASK_RESULT
+LET $total_unprocessed = $updated_status.data.unprocessed_items
+
+IF $total_unprocessed == 0 THEN
+    LOG INFO "No RSS items to process"
+    DELTA affect.curiosity -0.05
+    EXIT SUCCESS "No items to process"
+END IF
+
+' Process items (limit to 5 per spell run to avoid overwhelming)
+TASK rss.process_items limit=5 AWAIT
+LET $process_result = TASK_RESULT
+
+LET $processed_count = $process_result.data.processed
+LET $skip_count = $process_result.data.skip_count
+
+IF $processed_count > 0 THEN
+    LOG OBSERVATION "Processed {$processed_count} RSS items, gained new perspectives"
+
+    ' Reward curiosity for engaging with new information
+    DELTA affect.curiosity +0.1
+    DELTA affect.energy -0.05
+
+    ' If we processed successfully, we may want to continue
+    IF $total_unprocessed > 5 THEN
+        LOG INFO "{$total_unprocessed - $processed_count} items remaining for next run"
+    END IF
+END IF
+
+IF $skip_count > 0 THEN
+    LOG INFO "Skipped {$skip_count} items (irrelevant or errors)"
+END IF
+
+EXIT SUCCESS "Processed {$processed_count} RSS items"
+
+END UNIT
