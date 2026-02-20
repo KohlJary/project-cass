@@ -87,6 +87,10 @@ from .rss import (
     router as rss_router,
     init_rss_routes as _init_rss_routes,
 )
+from .daily_activity import (
+    router as daily_activity_router,
+    init_daily_activity_routes as _init_daily_activity_routes,
+)
 
 # Create combined router
 router = APIRouter()
@@ -111,6 +115,7 @@ router.include_router(thymos_router)
 router.include_router(art_study_router)
 router.include_router(grimoire_router)
 router.include_router(rss_router)
+router.include_router(daily_activity_router)
 
 
 # Module-level references for backward compatibility
@@ -195,6 +200,11 @@ def init_rss_routes(daemon_id: str):
     _init_rss_routes(daemon_id)
 
 
+def init_daily_activity_routes(daemon_id: str):
+    """Initialize daily activity routes with daemon ID."""
+    _init_daily_activity_routes(daemon_id)
+
+
 # Module-level reference for token tracker (used by other modules)
 token_usage_tracker = None
 
@@ -249,4 +259,5 @@ __all__ = [
     "init_art_study_routes",
     "init_grimoire_manager",
     "init_rss_routes",
+    "init_daily_activity_routes",
 ]
