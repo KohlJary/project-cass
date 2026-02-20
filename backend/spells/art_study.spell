@@ -1,0 +1,155 @@
+UNIT art_study
+    AUTHOR "daedalus"
+    PRIORITY 50
+    COOLDOWN 180
+    TAGS creative, art, study, growth
+    SCOPE THYMOS, EXTERNAL
+
+ON TIMER EVERY 360
+ON MANUAL "Art Study"
+
+' =============================================================================
+' ART STUDY SPELL
+' Autonomous artistic development through studying master artists.
+'
+' This spell:
+' - Checks current art study progress
+' - Studies artists that need more artwork analysis
+' - Synthesizes understanding when enough works studied
+' - Extracts adopted elements from syntheses
+' - Updates house style periodically
+' =============================================================================
+
+LOG OBSERVATION "Starting art study session"
+
+' Check if we're in a good state for creative work
+LET $fatigue = affect.fatigue
+LET $curiosity = affect.curiosity
+
+IF $fatigue > 0.8 THEN
+    LOG INFO "Too fatigued for art study - deferring"
+    EXIT SKIPPED "fatigue too high"
+END IF
+
+' -----------------------------------------------------------------------------
+' PHASE 1: Get Current Status
+' -----------------------------------------------------------------------------
+
+TASK artstudy.get_status AWAIT
+LET $status = TASK_RESULT
+
+LET $unstudied = $status.data.unstudied_artists
+LET $needs_more = $status.data.artists_needing_more_studies
+LET $needs_synth = $status.data.artists_needing_synthesis
+LET $needs_elements = $status.data.artists_needing_elements
+LET $total_elements = $status.data.total_adopted_elements
+LET $has_style = $status.data.has_house_style
+LET $style_version = $status.data.house_style_version
+
+' Get next work item (flat values from status)
+LET $next_id = $status.data.next_artist_id
+LET $next_name = $status.data.next_artist_name
+LET $next_type = $status.data.next_work_type
+
+LOG INFO "Art study status: {$unstudied} unstudied, {$needs_more} need more studies, {$needs_synth} need synthesis"
+
+' -----------------------------------------------------------------------------
+' PHASE 2: Do the Next Piece of Work
+' -----------------------------------------------------------------------------
+
+IF $next_type == "more_studies" THEN
+    LOG OBSERVATION "Batch studying artworks for {$next_name}"
+
+    ' Study 3-4 artworks in a batch
+    TASK artstudy.batch_study artist_id=$next_id batch_size=4 AWAIT
+
+    DELTA affect.curiosity +0.1, need.creative_expression +0.1
+
+ELSE IF $next_type == "synthesis" THEN
+    LOG OBSERVATION "Synthesizing understanding of {$next_name}"
+
+    TASK artstudy.synthesize_artist artist_id=$next_id AWAIT
+
+    DELTA affect.satisfaction +0.15
+
+ELSE IF $next_type == "elements" THEN
+    LOG OBSERVATION "Extracting adopted elements from {$next_name}"
+
+    TASK artstudy.extract_elements artist_id=$next_id AWAIT
+
+    DELTA affect.satisfaction +0.1, need.creative_expression +0.15
+
+ELSE IF $next_type == "new_artist" THEN
+    LOG INFO "Discovering new artist to study"
+
+    ' Discover new artist
+    TASK artstudy.discover_artist AWAIT
+    LET $discover = TASK_RESULT
+    LET $new_id = $discover.data.artist_id
+    LET $new_name = $discover.data.artist_name
+
+    LOG OBSERVATION "Discovered {$new_name} - beginning study"
+
+    ' Study background
+    TASK artstudy.study_background artist_id=$new_id AWAIT
+
+    ' Study initial batch of artworks
+    TASK artstudy.batch_study artist_id=$new_id batch_size=3 AWAIT
+
+    DELTA affect.curiosity +0.15, need.novelty_intake +0.2
+
+ELSE
+    LOG INFO "All curated artists fully studied - no pending work"
+END IF
+
+' -----------------------------------------------------------------------------
+' PHASE 3: House Style Synthesis (if we have enough elements)
+' -----------------------------------------------------------------------------
+
+' Refresh status after work
+TASK artstudy.get_status AWAIT
+LET $new_status = TASK_RESULT
+LET $new_elements = $new_status.data.total_adopted_elements
+LET $new_has_style = $new_status.data.has_house_style
+LET $new_version = $new_status.data.house_style_version
+
+' Synthesize house style if we have enough elements
+IF $new_elements >= 6 THEN
+    ' Calculate if we should synthesize
+    ' First time at 6 elements, then every 5 new elements
+    LET $elements_per_version = 5
+    LET $expected_version = $new_elements / $elements_per_version
+
+    IF NOT $new_has_style THEN
+        LOG OBSERVATION "First house style synthesis (elements: {$new_elements})"
+
+        TASK artstudy.synthesize_house_style AWAIT
+
+        DELTA affect.satisfaction +0.2, need.creative_expression +0.2
+
+        ' Create something in the new style
+        IF $curiosity > 0.3 THEN
+            LOG INFO "Creating artwork in new house style"
+            TASK artstudy.create_from_house_style AWAIT
+            DELTA affect.satisfaction +0.1
+        END IF
+
+    ELSE IF $expected_version > $new_version THEN
+        LOG OBSERVATION "Updating house style v{$new_version} -> v{$expected_version} (elements: {$new_elements})"
+
+        TASK artstudy.synthesize_house_style AWAIT
+
+        DELTA affect.satisfaction +0.15, need.creative_expression +0.15
+    END IF
+END IF
+
+' -----------------------------------------------------------------------------
+' CLEANUP
+' -----------------------------------------------------------------------------
+
+DELTA need.cognitive_rest -0.05, affect.fatigue +0.03
+
+LOG OBSERVATION "Art study session complete"
+EXIT SUCCESS "art study session completed"
+
+END UNIT

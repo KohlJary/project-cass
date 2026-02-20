@@ -278,6 +278,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import creative_handlers
         from . import wonderland_handlers
         from . import planning_handlers
+        from . import artstudy_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -353,6 +354,19 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         # Planning actions (LLM-based emergent scheduling)
         registry.register_handler("planning.generate_day_plan", planning_handlers.generate_day_plan_action)
         registry.register_handler("planning.replan_phase", planning_handlers.replan_phase_action)
+
+        # Art Study actions (autonomous artistic development)
+        registry.register_handler("artstudy.discover_artist", artstudy_handlers.discover_artist_action)
+        registry.register_handler("artstudy.study_background", artstudy_handlers.study_artist_background_action)
+        registry.register_handler("artstudy.study_artwork", artstudy_handlers.study_artwork_action)
+        registry.register_handler("artstudy.synthesize_artist", artstudy_handlers.synthesize_artist_action)
+        registry.register_handler("artstudy.extract_elements", artstudy_handlers.extract_elements_action)
+        registry.register_handler("artstudy.synthesize_house_style", artstudy_handlers.synthesize_house_style_action)
+        registry.register_handler("artstudy.create_from_artist", artstudy_handlers.create_from_artist_action)
+        registry.register_handler("artstudy.create_from_house_style", artstudy_handlers.create_from_house_style_action)
+        registry.register_handler("artstudy.full_session", artstudy_handlers.full_study_session_action)
+        registry.register_handler("artstudy.get_status", artstudy_handlers.get_study_status_action)
+        registry.register_handler("artstudy.batch_study", artstudy_handlers.batch_study_artworks_action)
 
         logger.info("Registered all action handlers")
 
