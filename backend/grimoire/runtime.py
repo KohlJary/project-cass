@@ -642,6 +642,14 @@ class Spellcaster:
         if stmt.context:
             context_data = await self._eval_expr(ctx, stmt.context)
 
+        # Add spell context for better grounding
+        spell_name = ctx.spell.metadata.name if ctx.spell and ctx.spell.metadata else "unknown"
+        context_data["_spell"] = spell_name
+        context_data["_spell_variables"] = {
+            k: v for k, v in ctx.variables.items()
+            if not k.startswith("_") and not callable(v)
+        }
+
         ctx.add_trace(f"Reflect: {prompt} save_as={stmt.save_as}")
 
         if not ctx.shadow_mode:
@@ -652,9 +660,12 @@ class Spellcaster:
             if stmt.save_as and reflection:
                 if stmt.save_as == "OBSERVATION":
                     try:
+                        # Use spell name as category prefix for better filtering
+                        spell_name = ctx.spell.metadata.name if ctx.spell and ctx.spell.metadata else "spell"
+                        category = f"spell:{spell_name}:reflection"
                         obs_id = await self.services.storage.save_observation(
                             reflection,
-                            "grimoire_reflection",
+                            category,
                             "spell"
                         )
                         if obs_id:
