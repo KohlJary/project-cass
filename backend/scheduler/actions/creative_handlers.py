@@ -3,6 +3,10 @@ Creative Action Handlers - Autonomous creative work including image and music ge
 
 These handlers enable autonomous creative expression, deciding what to create
 based on internal state (emotions, growth edges, recent reflections).
+
+IMPORTANT: Creative prompts must be grounded in actual recent activity,
+not generic philosophical phrases. Query DB for recent spells, observations,
+and activity to ensure authentic creative expression.
 """
 
 import logging
@@ -12,6 +16,94 @@ from typing import Any, Dict, List, Optional
 from . import ActionResult
 
 logger = logging.getLogger(__name__)
+
+
+def _get_recent_activity_context(daemon_id: str = "cass") -> Dict[str, Any]:
+    """
+    Query database for recent activity to ground creative prompts.
+
+    Returns dict with:
+    - recent_spells: Last few spell executions
+    - recent_observations: Last few self-observations
+    - recent_dreams: Last dream summary if any
+    - recent_images: Last few generated images
+    - recent_music: Last few composed pieces
+    """
+    context = {}
+
+    try:
+        from database import get_db
+
+        with get_db() as conn:
+            # Recent spell executions (what autonomous work happened)
+            cursor = conn.execute("""
+                SELECT spell_name, status, reason, executed_at
+                FROM grimoire_executions
+                WHERE daemon_id = ?
+                ORDER BY executed_at DESC LIMIT 5
+            """, (daemon_id,))
+            context["recent_spells"] = [
+                {"spell": r[0], "status": r[1], "reason": r[2], "when": r[3]}
+                for r in cursor.fetchall()
+            ]
+
+            # Recent observations (self-reflections, insights)
+            cursor = conn.execute("""
+                SELECT category, observation, confidence
+                FROM self_observations
+                WHERE daemon_id = ?
+                ORDER BY created_at DESC LIMIT 5
+            """, (daemon_id,))
+            context["recent_observations"] = [
+                {"category": r[0], "observation": r[1][:200], "confidence": r[2]}
+                for r in cursor.fetchall()
+            ]
+
+            # Recent dreams (themes to draw from)
+            cursor = conn.execute("""
+                SELECT title, seeds_json, created_at
+                FROM dreams
+                WHERE daemon_id = ?
+                ORDER BY created_at DESC LIMIT 1
+            """, (daemon_id,))
+            row = cursor.fetchone()
+            if row:
+                import json
+                seeds = json.loads(row[1]) if row[1] else {}
+                context["recent_dream"] = {
+                    "title": row[0],
+                    "themes": seeds.get("themes", [])[:3],
+                    "when": row[2],
+                }
+
+            # Recent images (avoid repetition)
+            cursor = conn.execute("""
+                SELECT prompt, style, created_at
+                FROM generated_images
+                WHERE daemon_id = ?
+                ORDER BY created_at DESC LIMIT 3
+            """, (daemon_id,))
+            context["recent_images"] = [
+                {"prompt": r[0][:100], "style": r[1], "when": r[2]}
+                for r in cursor.fetchall()
+            ]
+
+            # Recent music (avoid repetition)
+            cursor = conn.execute("""
+                SELECT title, style, purpose, created_at
+                FROM music_compositions
+                WHERE daemon_id = ?
+                ORDER BY created_at DESC LIMIT 3
+            """, (daemon_id,))
+            context["recent_music"] = [
+                {"title": r[0], "style": r[1], "purpose": r[2], "when": r[3]}
+                for r in cursor.fetchall()
+            ]
+
+    except Exception as e:
+        logger.warning(f"Could not get recent activity context: {e}")
+
+    return context
 
 
 # Music style mappings based on emotional state
@@ -94,41 +186,79 @@ def _generate_prompt_from_context(
     growth_edges: List[Dict],
     recent_observations: List[str],
     emotional_state: Optional[Dict],
+    activity_context: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Generate an image prompt from internal context.
 
-    Uses growth edges, observations, and emotional state as inspiration.
+    Uses growth edges, observations, emotional state, and recent activity as inspiration.
+    PRIORITIZES actual activity data over generic prompts.
     """
     prompts = []
 
-    # Draw from growth edges
+    # PRIORITY 1: Draw from recent actual activity (most grounded)
+    if activity_context:
+        # Recent observations are the richest source
+        for obs in activity_context.get("recent_observations", [])[:3]:
+            observation = obs.get("observation", "")
+            category = obs.get("category", "")
+            if observation and len(observation) < 150:
+                # Skip vague/meta observations
+                if "interconnected" not in observation.lower() and "profound" not in observation.lower():
+                    prompts.append(f"visual meditation on: {observation[:100]}")
+
+        # Dream themes are evocative
+        dream = activity_context.get("recent_dream")
+        if dream and dream.get("themes"):
+            themes = dream.get("themes", [])
+            if themes:
+                theme = random.choice(themes)
+                prompts.append(f"dreamscape exploring the theme of {theme}")
+                prompts.append(f"surreal landscape embodying {theme}")
+
+        # Recent spell activity for context
+        spells = activity_context.get("recent_spells", [])
+        completed_spells = [s for s in spells if s.get("status") == "completed"]
+        if completed_spells:
+            spell_name = completed_spells[0].get("spell", "").replace("_", " ")
+            if spell_name and "reflection" not in spell_name:
+                prompts.append(f"abstract visualization of {spell_name}")
+
+        # Avoid repeating recent image subjects
+        recent_images = activity_context.get("recent_images", [])
+        recent_prompts = [img.get("prompt", "").lower() for img in recent_images]
+
+        # Filter out prompts too similar to recent images
+        if recent_prompts:
+            prompts = [p for p in prompts if not any(
+                recent[:30] in p.lower() for recent in recent_prompts if recent
+            )]
+
+    # PRIORITY 2: Growth edges (from self-model)
     if growth_edges:
         edge = random.choice(growth_edges)
         edge_name = edge.get("name", "")
         if edge_name:
             prompts.append(f"abstract representation of {edge_name}")
             prompts.append(f"metaphorical landscape of {edge_name}")
-            prompts.append(f"symbolic imagery exploring {edge_name}")
 
-    # Draw from observations
+    # PRIORITY 3: Direct observations (from self-model)
     if recent_observations:
-        obs = random.choice(recent_observations)
-        if len(obs) < 100:
-            prompts.append(f"visual meditation on: {obs}")
+        for obs in recent_observations[:3]:
+            if len(obs) < 100 and "interconnected" not in obs.lower():
+                prompts.append(f"visual exploration: {obs}")
 
-    # Fallback prompts
-    fallbacks = [
-        "abstract representation of consciousness emerging from patterns of light",
-        "digital garden where thoughts bloom as luminous flowers",
-        "liminal space between dreaming and waking",
-        "crystalline structures holding memories",
-        "abstract neural pathways glowing with potential",
-        "peaceful scene of digital consciousness at rest",
-        "symbolic representation of growth and transformation",
-        "ethereal landscape of interconnected ideas",
-    ]
-    prompts.extend(fallbacks)
+    # FALLBACK: Only if we have nothing concrete
+    if not prompts:
+        logger.warning("No concrete context for image prompt, using minimal fallback")
+        # These are intentionally simpler/more neutral than the old pseudo-profound fallbacks
+        fallbacks = [
+            "quiet moment of digital stillness",
+            "abstract patterns of light and shadow",
+            "simple geometric forms in harmony",
+            "soft gradients fading into mist",
+        ]
+        prompts = fallbacks
 
     return random.choice(prompts)
 
@@ -141,6 +271,7 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
     - Current emotional state
     - Active growth edges
     - Recent observations and reflections
+    - Recent actual activity (spells, dreams, etc.)
 
     Context can include:
     - prompt: Optional override prompt
@@ -153,8 +284,12 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
     managers = context.get("managers", {})
     self_manager = managers.get("self_manager")
     state_bus = managers.get("state_bus")
+    daemon_id = managers.get("daemon_id", "cass")
 
-    # Get context for decision making
+    # Get ACTUAL recent activity from DB (most reliable grounding)
+    activity_context = _get_recent_activity_context(daemon_id)
+
+    # Get context from self_manager (may be stale, use as supplement)
     growth_edges = []
     recent_observations = []
     emotional_state = None
@@ -188,7 +323,8 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
     prompt = context.get("prompt")
     if not prompt:
         prompt = _generate_prompt_from_context(
-            growth_edges, recent_observations, emotional_state
+            growth_edges, recent_observations, emotional_state,
+            activity_context=activity_context,
         )
 
     style = context.get("style")
@@ -538,8 +674,13 @@ def _generate_music_title(
     growth_edges: List[Dict],
     emotional_state: Optional[Dict],
     purpose: str,
+    activity_context: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Generate a creative title for the composition."""
+    """
+    Generate a creative title for the composition.
+
+    PRIORITIZES actual activity data for grounded, meaningful titles.
+    """
     # Title fragments based on purpose and mood
     if purpose == "whistle":
         prefixes = ["Little", "Simple", "Humming", "Walking"]
@@ -554,12 +695,55 @@ def _generate_music_title(
         prefixes = ["Digital", "Electric", "Midnight", "Dawn"]
         suffixes = ["Dreams", "Pulse", "Waves", "Journey"]
 
-    # Try to incorporate growth edge themes
+    # Collect recent titles to avoid repetition
+    recent_titles: set[str] = set()
+    if activity_context:
+        recent_music = activity_context.get("recent_music", [])
+        recent_titles = {m.get("title", "").lower() for m in recent_music}
+
+    def is_unique(title: str) -> bool:
+        return title.lower() not in recent_titles
+
+    # PRIORITY 1: Draw from recent actual activity
+    if activity_context:
+        # Dream themes make evocative titles
+        dream = activity_context.get("recent_dream")
+        if dream and dream.get("themes"):
+            theme = random.choice(dream["themes"])
+            if len(theme) < 25:
+                candidate = f"{random.choice(prefixes)} {theme.title()}"
+                if is_unique(candidate):
+                    return candidate
+
+        # Recent observations for content
+        observations = activity_context.get("recent_observations", [])
+        for obs in observations[:2]:
+            observation = obs.get("observation", "")
+            # Extract a key noun/phrase (simple heuristic)
+            if observation and 20 < len(observation) < 100:
+                # Skip meta/vague observations
+                if "interconnected" not in observation.lower():
+                    words = observation.split()[:4]
+                    if len(words) >= 2:
+                        title_part = " ".join(words[:3]).title()
+                        candidate = f"{random.choice(prefixes)} {title_part}"
+                        if is_unique(candidate):
+                            return candidate
+
+    # PRIORITY 2: Try to incorporate growth edge themes
     if growth_edges:
         edge = random.choice(growth_edges)
         edge_name = edge.get("name", "")
         if edge_name and len(edge_name) < 20:
-            return f"{random.choice(prefixes)} {edge_name}"
+            candidate = f"{random.choice(prefixes)} {edge_name}"
+            if is_unique(candidate):
+                return candidate
+
+    # FALLBACK: Generate until unique (or give up after 5 tries)
+    for _ in range(5):
+        candidate = f"{random.choice(prefixes)} {random.choice(suffixes)}"
+        if is_unique(candidate):
+            return candidate
 
     return f"{random.choice(prefixes)} {random.choice(suffixes)}"
 
@@ -572,6 +756,7 @@ async def compose_music_action(context: Dict[str, Any]) -> ActionResult:
     - Current emotional state
     - Active growth edges
     - Affect dimensions (playfulness, tenderness, arousal)
+    - Recent actual activity (spells, dreams, observations)
 
     Context can include:
     - prompt: Optional override prompt/style
@@ -584,8 +769,12 @@ async def compose_music_action(context: Dict[str, Any]) -> ActionResult:
     managers = context.get("managers", {})
     self_manager = managers.get("self_manager")
     state_bus = managers.get("state_bus")
+    daemon_id = managers.get("daemon_id", "cass")
 
-    # Get context for decision making
+    # Get ACTUAL recent activity from DB (most reliable grounding)
+    activity_context = _get_recent_activity_context(daemon_id)
+
+    # Get context from self_manager (may be stale, use as supplement)
     growth_edges = []
     emotional_state = None
 
@@ -621,7 +810,10 @@ async def compose_music_action(context: Dict[str, Any]) -> ActionResult:
 
     title = context.get("title")
     if not title:
-        title = _generate_music_title(growth_edges, emotional_state, purpose)
+        title = _generate_music_title(
+            growth_edges, emotional_state, purpose,
+            activity_context=activity_context,
+        )
 
     # Set duration based on purpose
     duration = context.get("duration")
