@@ -37,6 +37,8 @@ import { Agency } from './pages/Agency';
 import { Gallery } from './pages/Gallery';
 import { ArtStudy } from './pages/ArtStudy';
 import { Grimoire } from './pages/Grimoire';
+import { Music } from './pages/Music';
+import { DailyActivity } from './pages/DailyActivity';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -152,8 +154,10 @@ function AppRoutes() {
         {/* Agency - autonomous goal formation and outreach */}
         <Route path="agency" element={<AdminRoute><Agency /></AdminRoute>} />
         <Route path="gallery" element={<AdminRoute><Gallery /></AdminRoute>} />
+        <Route path="music" element={<AdminRoute><Music /></AdminRoute>} />
         <Route path="art-study" element={<AdminRoute><ArtStudy /></AdminRoute>} />
         <Route path="grimoire" element={<AdminRoute><Grimoire /></AdminRoute>} />
+        <Route path="daily-activity" element={<AdminRoute><DailyActivity /></AdminRoute>} />
       </Route>
     </Routes>
   );

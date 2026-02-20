@@ -159,6 +159,21 @@ export {
   type CheckAllResult,
 } from './rss';
 
+// Daily Activity (Aggregated daily dashboard)
+// Note: EmotionalArcPoint not re-exported here to avoid conflict with state module
+// Import directly from './daily-activity' if needed
+export {
+  dailyActivityApi,
+  type ActivityItem,
+  type CategorySummary,
+  type TokenSummary,
+  type DailyActivityResponse,
+  type DailySummaryResponse,
+  type DateRangeSummaryResponse,
+  type ActivitySource,
+  type AvailableSourcesResponse,
+} from './daily-activity';
+
 // Miscellaneous APIs
 export {
   exportApi,

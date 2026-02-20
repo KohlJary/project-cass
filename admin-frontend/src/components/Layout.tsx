@@ -38,6 +38,7 @@ const navGroups: NavGroup[] = [
       { path: '/projects', label: 'Projects', icon: 'P' },
       { path: '/dreams', label: 'Dreams', icon: 'D' },
       { path: '/gallery', label: 'Gallery', icon: '▣' },
+      { path: '/music', label: 'Music', icon: '♪' },
       { path: '/art-study', label: 'Art Study', icon: '♠' },
       { path: '/wonderland', label: 'Wonderland', icon: 'W' },
     ],
@@ -56,6 +57,7 @@ const navGroups: NavGroup[] = [
     label: 'System',
     icon: '!',
     items: [
+      { path: '/daily-activity', label: 'Daily Activity', icon: '◉' },
       { path: '/activity', label: 'Activity', icon: '>' },
       { path: '/consciousness', label: 'Consciousness', icon: '♡' },
       { path: '/self-development', label: 'Self-Dev', icon: '%' },

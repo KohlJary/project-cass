@@ -1805,6 +1805,11 @@ async def startup_event():
             init_rss_routes(_daemon_id)
             logger.info("RSS admin routes initialized")
 
+            # Initialize daily activity admin routes
+            from routes.admin import init_daily_activity_routes
+            init_daily_activity_routes(_daemon_id)
+            logger.info("Daily activity admin routes initialized")
+
             # Initialize autonomous scheduling (Cass decides her own work)
             from config import AUTONOMOUS_SCHEDULING_ENABLED
             if AUTONOMOUS_SCHEDULING_ENABLED:
