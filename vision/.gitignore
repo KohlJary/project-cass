@@ -1,0 +1,15 @@
+# Virtual environment
+venv/
+
+# Downloaded models
+*.task
+
+# Face database (contains personal data)
+face_db/
+
+# Python
+__pycache__/
+*.pyc
+
+# Screenshots
+*.png

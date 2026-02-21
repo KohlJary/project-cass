@@ -1,0 +1,16 @@
+# Cass Vision System - Dependencies
+
+# Core
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Face mesh and gaze estimation
+mediapipe>=0.10.0
+
+# Face recognition (for user identification)
+# Note: Requires dlib, which needs cmake
+# sudo apt install cmake build-essential
+face-recognition>=1.3.0
+
+# Optional: Lightweight alternative for Pi
+# tflite-runtime  # For Pi deployment
