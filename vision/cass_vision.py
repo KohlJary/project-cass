@@ -312,6 +312,74 @@ def main():
             break
 
         elif key == ord('e'):
+            print("\n>>> Position your face in the GREEN box and press SPACE when box appears...")
+            print(">>> Press Q to cancel")
+
+            import face_recognition_models
+            import face_recognition
+
+            # Wait for space key while showing live preview with face detection
+            while True:
+                ret, enroll_frame = cap.read()
+                if not ret:
+                    break
+                enroll_frame = cv2.flip(enroll_frame, 1)
+                h, w = enroll_frame.shape[:2]
+
+                # Draw target zone (center of frame)
+                margin = 100
+                cv2.rectangle(
+                    enroll_frame,
+                    (margin, margin),
+                    (w - margin, h - margin),
+                    (128, 128, 128),
+                    2
+                )
+
+                # Detect faces in real-time
+                rgb = cv2.cvtColor(enroll_frame, cv2.COLOR_BGR2RGB)
+                # Use smaller frame for faster detection
+                small = cv2.resize(rgb, (0, 0), fx=0.5, fy=0.5)
+                face_locations = face_recognition.face_locations(small)
+
+                face_detected = len(face_locations) > 0
+
+                # Draw detected faces (scale back up)
+                for (top, right, bottom, left) in face_locations:
+                    top *= 2
+                    right *= 2
+                    bottom *= 2
+                    left *= 2
+                    cv2.rectangle(enroll_frame, (left, top), (right, bottom), (0, 255, 0), 3)
+
+                # Draw status
+                if face_detected:
+                    status = "FACE DETECTED - Press SPACE to capture"
+                    color = (0, 255, 0)
+                else:
+                    status = "No face - move closer, check lighting"
+                    color = (0, 0, 255)
+
+                cv2.putText(enroll_frame, status, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                cv2.putText(enroll_frame, "Press Q to cancel", (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+                cv2.imshow("Cass Vision", enroll_frame)
+
+                k = cv2.waitKey(1) & 0xFF
+                if k == ord(' ') and face_detected:
+                    break
+                elif k == ord(' ') and not face_detected:
+                    print("  No face detected yet - keep trying")
+                elif k == ord('q'):
+                    enroll_frame = None
+                    break
+
+            if enroll_frame is None:
+                print("Enrollment cancelled")
+                continue
+
             user_id = input("User ID (Enter for auto): ").strip()
             if not user_id:
                 import uuid
@@ -321,10 +389,10 @@ def main():
             if not user_name:
                 user_name = f"User {user_id}"
 
-            if vision.enroll_user(frame, user_id, user_name):
+            if vision.enroll_user(enroll_frame, user_id, user_name):
                 print(f"✓ Enrolled {user_name}")
             else:
-                print("✗ Failed - no face detected")
+                print("✗ Failed - no face detected (check lighting/position)")
 
         elif key == ord('l'):
             users = vision.list_users()

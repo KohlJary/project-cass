@@ -29,8 +29,8 @@ fi
 echo ">>> Activating virtual environment..."
 source venv/bin/activate
 
-# Upgrade pip
-pip install --upgrade pip wheel setuptools
+# Upgrade pip (pin setuptools<70 for pkg_resources compatibility)
+pip install --upgrade pip wheel 'setuptools<70'
 
 # Install core dependencies
 echo ">>> Installing core dependencies..."
@@ -38,6 +38,7 @@ pip install opencv-python numpy mediapipe
 
 # Install face recognition (optional but recommended)
 echo ">>> Installing face recognition (this may take a while - compiling dlib)..."
+pip install git+https://github.com/ageitgey/face_recognition_models
 pip install face-recognition || {
     echo ""
     echo "WARNING: face-recognition install failed."

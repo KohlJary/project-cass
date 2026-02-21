@@ -20,12 +20,15 @@ import cv2
 import numpy as np
 
 try:
+    import face_recognition_models  # Must be imported before face_recognition
     import face_recognition
     FACE_RECOGNITION_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     FACE_RECOGNITION_AVAILABLE = False
-    print("face_recognition not available. Install with: pip install face_recognition")
-    print("Note: Requires dlib, which may need cmake: sudo apt install cmake")
+    print(f"face_recognition not available: {e}")
+    print("Install with:")
+    print("  pip install git+https://github.com/ageitgey/face_recognition_models")
+    print("  pip install face-recognition")
 
 
 @dataclass
@@ -102,11 +105,19 @@ class FaceDatabase:
         # Convert BGR to RGB
         rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
 
+        # First detect face locations
+        face_locations = face_recognition.face_locations(rgb)
+        print(f"  Detected {len(face_locations)} face(s) in frame")
+
+        if not face_locations:
+            print(f"  No face found in image for {user_name}")
+            return False
+
         # Get face encodings
-        encodings = face_recognition.face_encodings(rgb)
+        encodings = face_recognition.face_encodings(rgb, face_locations)
 
         if not encodings:
-            print(f"No face found in image for {user_name}")
+            print(f"  Could not encode face for {user_name}")
             return False
 
         # Use first face found
