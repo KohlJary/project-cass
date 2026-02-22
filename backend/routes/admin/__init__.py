@@ -92,6 +92,8 @@ from .daily_activity import (
     init_daily_activity_routes as _init_daily_activity_routes,
 )
 from .stt import router as stt_router
+from .tts import router as tts_router
+from .voice import router as voice_router
 
 # Create combined router
 router = APIRouter()
@@ -118,6 +120,8 @@ router.include_router(grimoire_router)
 router.include_router(rss_router)
 router.include_router(daily_activity_router)
 router.include_router(stt_router)
+router.include_router(tts_router)
+router.include_router(voice_router)
 
 
 # Module-level references for backward compatibility

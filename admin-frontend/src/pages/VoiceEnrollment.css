@@ -1,0 +1,441 @@
+.voice-enrollment-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: #e0e0e0;
+  padding: 2rem;
+}
+
+.enrollment-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.enrollment-header h1 {
+  margin: 0 0 0.5rem 0;
+  font-size: 2rem;
+  font-weight: 500;
+}
+
+.enrollment-header .subtitle {
+  margin: 0;
+  color: #888;
+  font-size: 1rem;
+}
+
+.enrollment-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Loading state */
+.loading-state {
+  color: #888;
+  font-size: 1.25rem;
+}
+
+/* Not enrolled state */
+.not-enrolled-state {
+  text-align: center;
+}
+
+.mic-icon-large {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.not-enrolled-state h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+
+.not-enrolled-state p {
+  margin: 0 0 2rem 0;
+  color: #888;
+  line-height: 1.6;
+}
+
+/* Enrolled state */
+.enrolled-state {
+  text-align: center;
+}
+
+.success-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  font-size: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.5rem auto;
+}
+
+.enrolled-state h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+
+.enrolled-state p {
+  margin: 0 0 1.5rem 0;
+  color: #888;
+}
+
+.enrollment-info {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.5rem;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-item .label {
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.info-item .value {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.enrolled-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+/* Enrolling state */
+.enrolling-state {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+/* Progress bar */
+.progress-bar {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.progress-dot {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.progress-dot:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.progress-dot.current {
+  border-color: #8b5cf6;
+  color: #e0e0e0;
+}
+
+.progress-dot.recorded {
+  color: white;
+}
+
+/* Phrase card */
+.phrase-card {
+  width: 100%;
+  padding: 2rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+  text-align: center;
+}
+
+.phrase-number {
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+}
+
+.phrase-text {
+  font-size: 1.25rem;
+  line-height: 1.6;
+  color: #e0e0e0;
+  font-style: italic;
+}
+
+.sample-status {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+}
+
+/* Recording visualization */
+.recording-viz {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viz-circle {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(139, 92, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s ease-out;
+}
+
+.recording-viz.active .viz-circle {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.viz-inner {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+}
+
+.recording-viz.active .viz-inner {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+/* Recording controls */
+.recording-controls {
+  display: flex;
+  justify-content: center;
+}
+
+.record-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  border: none;
+  border-radius: 2rem;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.record-btn:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
+.record-btn.recording {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.record-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.record-icon {
+  font-size: 1.25rem;
+}
+
+.processing-indicator {
+  padding: 1rem 2rem;
+  color: #888;
+  font-size: 1rem;
+}
+
+/* Error message */
+.error-message {
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 0.5rem;
+  color: #fca5a5;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+/* Navigation */
+.phrase-navigation {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.nav-btn {
+  padding: 0.75rem 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #888;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-btn:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #e0e0e0;
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cancel-link {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0.5rem;
+}
+
+.cancel-link:hover {
+  color: #888;
+}
+
+/* Buttons */
+.btn-primary {
+  padding: 0.75rem 2rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  padding: 0.75rem 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-danger {
+  padding: 0.75rem 1.5rem;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #f87171;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Footer */
+.enrollment-footer {
+  text-align: center;
+  padding-top: 2rem;
+}
+
+.back-link {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0.5rem;
+}
+
+.back-link:hover {
+  color: #888;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .voice-enrollment-page {
+    padding: 1rem;
+  }
+
+  .enrollment-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .progress-dot {
+    width: 32px;
+    height: 32px;
+    font-size: 0.75rem;
+  }
+
+  .phrase-card {
+    padding: 1.5rem;
+  }
+
+  .phrase-text {
+    font-size: 1rem;
+  }
+
+  .enrollment-info {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .enrolled-actions {
+    flex-direction: column;
+  }
+}

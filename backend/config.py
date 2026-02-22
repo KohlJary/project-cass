@@ -222,3 +222,10 @@ COHERENCE_MONITOR_CONFIG = {
 RELAY_ENABLED = os.getenv("RELAY_ENABLED", "false").lower() == "true"
 RELAY_URL = os.getenv("RELAY_URL", "")  # e.g., "wss://your-relay.up.railway.app/home"
 RELAY_SECRET = os.getenv("RELAY_SECRET", "")  # Shared secret with relay server
+
+# TTS Configuration
+# Provider: "piper" (fast, CPU) or "xtts" (quality, GPU required)
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "piper")
+# Default voice for each provider
+TTS_PIPER_VOICE = os.getenv("TTS_PIPER_VOICE", "amy")
+TTS_XTTS_VOICE = os.getenv("TTS_XTTS_VOICE", "female_1")  # See tts_xtts.py for options

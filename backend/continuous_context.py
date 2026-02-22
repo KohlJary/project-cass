@@ -36,6 +36,15 @@ class ContinuousContext:
     token_estimate: int
 
 
+@dataclass
+class SpeakerRecognition:
+    """Voice identification result passed to context."""
+    user_id: Optional[str]
+    display_name: Optional[str]
+    confidence: float
+    confidence_level: str  # "high", "medium", "low", "none"
+
+
 def build_continuous_context(
     user_id: str,
     conversation_id: str,
@@ -48,6 +57,7 @@ def build_continuous_context(
     recent_message_limit: int = 12,
     memory: Optional["MemoryCore"] = None,
     query: Optional[str] = None,
+    speaker_recognition: Optional[SpeakerRecognition] = None,
 ) -> ContinuousContext:
     """
     Build simplified context for continuous chat mode.
@@ -64,6 +74,7 @@ def build_continuous_context(
         recent_message_limit: How many recent messages to include
         memory: Optional MemoryCore for semantic memory retrieval
         query: Optional query string (e.g., user message) for semantic search
+        speaker_recognition: Optional voice identification result from STT
 
     Returns:
         ContinuousContext with assembled system prompt and sections
@@ -129,6 +140,15 @@ def build_continuous_context(
                     context_sections["discord_perception"] = perception_str
         except ImportError:
             pass  # Discord module not available
+
+    # ==========================================================================
+    # 2.7. VOICE RECOGNITION (Speaker identification from STT)
+    # ==========================================================================
+    # When voice input is used, include speaker identification context
+    if speaker_recognition and speaker_recognition.confidence_level != "none":
+        voice_context = _format_voice_recognition(speaker_recognition)
+        if voice_context:
+            context_sections["voice_recognition"] = voice_context
 
     # ==========================================================================
     # 3. RELATIONAL CONTEXT (PeopleDex)
@@ -297,6 +317,30 @@ def _format_temporal_summary(temporal_context: str) -> str:
     return f"It's {day_name}, {date_str}, {time_str} ({phase})."
 
 
+def _format_voice_recognition(recognition: SpeakerRecognition) -> str:
+    """Format voice recognition result for context."""
+    if recognition.confidence_level == "none":
+        return ""
+
+    confidence_desc = {
+        "high": "clearly recognized",
+        "medium": "likely",
+        "low": "possibly",
+    }.get(recognition.confidence_level, "possibly")
+
+    if recognition.display_name:
+        return (
+            f"Voice recognition: This message was spoken aloud. "
+            f"The voice is {confidence_desc} {recognition.display_name}'s "
+            f"(confidence: {recognition.confidence:.0%})."
+        )
+    else:
+        return (
+            f"Voice recognition: This message was spoken aloud. "
+            f"The speaker's voice was not recognized from enrolled voiceprints."
+        )
+
+
 def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     """Assemble the final system prompt from context sections."""
     parts = []
@@ -316,6 +360,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.6. Discord perception (social environment awareness)
     if "discord_perception" in sections:
         parts.append(sections["discord_perception"])
+
+    # 2.7. Voice recognition (speaker identification from STT)
+    if "voice_recognition" in sections:
+        parts.append(f"## VOICE RECOGNITION\n\n{sections['voice_recognition']}")
 
     # 3. Relational context (combined user understanding + relationship)
     if "relational_context" in sections:

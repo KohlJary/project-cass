@@ -461,6 +461,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 45:
         print("Adding RSS feed monitoring tables (rss_feeds, rss_items) for curated news intake (v45)")
 
+    # v45 -> v46: Voice identification / speaker recognition
+    # Tables (voice_enrollments, voice_enrollment_sessions) created by SCHEMA_SQL
+    if from_version < 46:
+        print("Adding voice identification tables for speaker recognition (v46)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

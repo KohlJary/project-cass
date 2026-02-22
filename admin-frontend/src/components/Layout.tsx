@@ -35,6 +35,7 @@ const navGroups: NavGroup[] = [
     label: 'Tools',
     icon: '⚙',
     items: [
+      { path: '/voice', label: 'Voice Call', icon: '☎' },
       { path: '/projects', label: 'Projects', icon: 'P' },
       { path: '/dreams', label: 'Dreams', icon: 'D' },
       { path: '/gallery', label: 'Gallery', icon: '▣' },

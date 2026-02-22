@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 45  # RSS feed monitoring
+SCHEMA_VERSION = 46  # Voice identification / speaker recognition
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -2087,4 +2087,39 @@ CREATE TABLE IF NOT EXISTS rss_items (
 CREATE INDEX IF NOT EXISTS idx_rss_items_feed ON rss_items(feed_id);
 CREATE INDEX IF NOT EXISTS idx_rss_items_processed ON rss_items(processed, seen_at);
 CREATE INDEX IF NOT EXISTS idx_rss_items_published ON rss_items(published_at);
+
+-- =============================================================================
+-- VOICE IDENTIFICATION (v46)
+-- =============================================================================
+
+-- Voice enrollments for speaker identification
+CREATE TABLE IF NOT EXISTS voice_enrollments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    embedding BLOB NOT NULL,                -- Numpy array as bytes (256 floats for Resemblyzer)
+    embedding_model TEXT DEFAULT 'resemblyzer',  -- Model used to generate embedding
+    sample_count INTEGER DEFAULT 1,         -- Number of samples used to create centroid
+    quality_score REAL,                     -- Optional quality metric (SNR, confidence)
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(user_id)                         -- One voiceprint per user (centroid approach)
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_enrollments_user ON voice_enrollments(user_id);
+
+-- Voice enrollment sessions (for multi-sample collection)
+CREATE TABLE IF NOT EXISTS voice_enrollment_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    status TEXT DEFAULT 'in_progress',      -- in_progress, completed, cancelled
+    samples_json TEXT,                      -- JSON array of {phrase_index, embedding_bytes_b64, quality}
+    required_samples INTEGER DEFAULT 5,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,               -- Sessions expire after 30 mins
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_enrollment_sessions_user ON voice_enrollment_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_voice_enrollment_sessions_status ON voice_enrollment_sessions(status);
 """

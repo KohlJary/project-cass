@@ -174,7 +174,7 @@ interface UseWebSocketReturn {
   memoryContext: MemoryContext | null;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  sendMessage: (message: string, conversationId?: string, image?: { data: string; mediaType: string }, attachmentIds?: string[]) => void;
+  sendMessage: (message: string, conversationId?: string, image?: { data: string; mediaType: string }, attachmentIds?: string[], speakerRecognition?: { user_id: string | null; display_name: string | null; confidence: number; confidence_level: string } | null) => void;
   error: string | null;
   currentConversationId: string | null;
   conversationTitle: string | null;
@@ -417,7 +417,8 @@ export function useWebSocket(): UseWebSocketReturn {
     message: string,
     conversationId?: string,
     image?: { data: string; mediaType: string },
-    attachmentIds?: string[]
+    attachmentIds?: string[],
+    speakerRecognition?: { user_id: string | null; display_name: string | null; confidence: number; confidence_level: string } | null
   ) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       setError('Not connected');
@@ -457,6 +458,10 @@ export function useWebSocket(): UseWebSocketReturn {
 
     if (attachmentIds && attachmentIds.length > 0) {
       payload.attachment_ids = attachmentIds;
+    }
+
+    if (speakerRecognition) {
+      payload.speaker_recognition = speakerRecognition;
     }
 
     wsRef.current.send(JSON.stringify(payload));
