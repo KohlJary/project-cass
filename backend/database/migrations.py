@@ -466,6 +466,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 46:
         print("Adding voice identification tables for speaker recognition (v46)")
 
+    # v46 -> v47: Face identification / visual recognition
+    # Tables (face_enrollments) created by SCHEMA_SQL
+    if from_version < 47:
+        print("Adding face identification table for visual recognition (v47)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 46  # Voice identification / speaker recognition
+SCHEMA_VERSION = 47  # Face identification / visual recognition
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -2122,4 +2122,24 @@ CREATE TABLE IF NOT EXISTS voice_enrollment_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_voice_enrollment_sessions_user ON voice_enrollment_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_voice_enrollment_sessions_status ON voice_enrollment_sessions(status);
+
+-- =============================================================================
+-- FACE IDENTIFICATION (v47)
+-- =============================================================================
+
+-- Face enrollments for visual identification
+CREATE TABLE IF NOT EXISTS face_enrollments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    embedding BLOB NOT NULL,                -- Numpy array as bytes (128 floats for face_recognition)
+    embedding_model TEXT DEFAULT 'face_recognition',  -- Model used (dlib-based)
+    sample_count INTEGER DEFAULT 1,         -- Number of images used to create centroid
+    quality_score REAL,                     -- Average quality of enrollment images
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(user_id)                         -- One faceprint per user (centroid approach)
+);
+
+CREATE INDEX IF NOT EXISTS idx_face_enrollments_user ON face_enrollments(user_id);
 """
