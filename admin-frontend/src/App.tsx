@@ -41,6 +41,7 @@ import { Music } from './pages/Music';
 import { DailyActivity } from './pages/DailyActivity';
 import { VoiceCall } from './pages/VoiceCall';
 import { VoiceEnrollment } from './pages/VoiceEnrollment';
+import { FaceEnrollment } from './pages/FaceEnrollment';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -162,6 +163,7 @@ function AppRoutes() {
         <Route path="daily-activity" element={<AdminRoute><DailyActivity /></AdminRoute>} />
         <Route path="voice" element={<AdminRoute><VoiceCall /></AdminRoute>} />
         <Route path="voice-enrollment" element={<AdminRoute><VoiceEnrollment /></AdminRoute>} />
+        <Route path="face-enrollment" element={<AdminRoute><FaceEnrollment /></AdminRoute>} />
       </Route>
     </Routes>
   );
