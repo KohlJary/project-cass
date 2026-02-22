@@ -174,6 +174,15 @@ export {
   type AvailableSourcesResponse,
 } from './daily-activity';
 
+// Voice (STT/TTS)
+export {
+  voiceApi,
+  type TranscribeRequest,
+  type TranscribeResponse,
+  type TTSRequest,
+  type STTStatus,
+} from './voice';
+
 // Miscellaneous APIs
 export {
   exportApi,

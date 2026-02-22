@@ -39,6 +39,8 @@ import { ArtStudy } from './pages/ArtStudy';
 import { Grimoire } from './pages/Grimoire';
 import { Music } from './pages/Music';
 import { DailyActivity } from './pages/DailyActivity';
+import { VoiceCall } from './pages/VoiceCall';
+import { VoiceEnrollment } from './pages/VoiceEnrollment';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -158,6 +160,8 @@ function AppRoutes() {
         <Route path="art-study" element={<AdminRoute><ArtStudy /></AdminRoute>} />
         <Route path="grimoire" element={<AdminRoute><Grimoire /></AdminRoute>} />
         <Route path="daily-activity" element={<AdminRoute><DailyActivity /></AdminRoute>} />
+        <Route path="voice" element={<AdminRoute><VoiceCall /></AdminRoute>} />
+        <Route path="voice-enrollment" element={<AdminRoute><VoiceEnrollment /></AdminRoute>} />
       </Route>
     </Routes>
   );

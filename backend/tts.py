@@ -1,8 +1,14 @@
 """
 Text-to-Speech module for Cass Vessel
-Uses Piper for high-quality, local neural TTS
+
+Supports multiple TTS providers:
+- Piper: Fast, CPU-friendly, good for real-time (default)
+- XTTS: Higher quality prosody, requires GPU, ~1-2s latency
+
+Provider can be switched via TTS_PROVIDER env var or per-request.
 """
 import io
+import logging
 import wave
 import re
 from pathlib import Path
@@ -11,6 +17,8 @@ from typing import Optional
 # Piper TTS
 from piper import PiperVoice
 from piper.config import SynthesisConfig
+
+logger = logging.getLogger(__name__)
 
 # Audio conversion
 from pydub import AudioSegment
@@ -290,31 +298,158 @@ def preload_voice(voice: str = "amy"):
     _load_voice(model_name)
 
 
+# =============================================================================
+# Unified TTS Interface with Provider Selection
+# =============================================================================
+
+import os
+
+# Get default provider from environment
+DEFAULT_TTS_PROVIDER = os.getenv("TTS_PROVIDER", "piper").lower()
+
+# Try to import XTTS
+try:
+    from backend import tts_xtts
+    XTTS_AVAILABLE = tts_xtts.is_available()
+except ImportError:
+    try:
+        # Fallback for direct script execution
+        import tts_xtts  # type: ignore
+        XTTS_AVAILABLE = tts_xtts.is_available()
+    except ImportError:
+        XTTS_AVAILABLE = False
+        logger.info("XTTS module not available")
+
+
+def get_available_providers() -> list[str]:
+    """Get list of available TTS providers."""
+    providers = ["piper"]  # Always available
+    if XTTS_AVAILABLE:
+        providers.append("xtts")
+    return providers
+
+
+def synthesize(
+    text: str,
+    provider: Optional[str] = None,
+    voice: str = "amy",
+    output_format: str = "mp3",
+    emote: Optional[str] = None,
+) -> bytes:
+    """
+    Unified TTS synthesis with provider selection.
+
+    Args:
+        text: Text to convert to speech
+        provider: TTS provider ("piper" or "xtts"). Defaults to TTS_PROVIDER env var.
+        voice: Voice name (provider-specific)
+        output_format: Output format - "mp3" or "wav"
+        emote: Emote for tone adjustment (Piper only)
+
+    Returns:
+        Audio bytes in the specified format
+    """
+    provider = provider or DEFAULT_TTS_PROVIDER
+
+    if provider == "xtts":
+        if not XTTS_AVAILABLE:
+            logger.warning("XTTS requested but not available, falling back to Piper")
+            provider = "piper"
+        else:
+            # Clean text before sending to XTTS
+            clean_text = clean_text_for_tts(text)
+            if not clean_text:
+                return b''
+            return tts_xtts.text_to_speech_xtts(
+                text=clean_text,
+                voice=voice,
+                output_format=output_format,
+            )
+
+    # Default: Piper
+    return text_to_speech(
+        text=text,
+        voice=voice,
+        output_format=output_format,
+        emote=emote,
+    )
+
+
+def list_all_voices() -> dict[str, dict]:
+    """
+    List all available voices across all providers.
+
+    Returns:
+        Dict of provider -> {voice_name: description}
+    """
+    voices = {
+        "piper": list_voices(),
+    }
+    if XTTS_AVAILABLE:
+        voices["xtts"] = tts_xtts.list_voices()
+    return voices
+
+
+def preload_all():
+    """Preload all available TTS providers."""
+    preload_voice()  # Piper
+    if XTTS_AVAILABLE:
+        tts_xtts.preload()
+
+
 # Quick test
 if __name__ == "__main__":
-    print("Testing Piper TTS with emote-based tone...")
+    import time
 
+    print("Testing TTS System")
+    print("=" * 40)
+
+    print(f"\nAvailable providers: {get_available_providers()}")
+    print(f"Default provider: {DEFAULT_TTS_PROVIDER}")
+
+    print("\nAvailable voices:")
+    for provider, voices in list_all_voices().items():
+        print(f"\n  {provider}:")
+        for name, desc in voices.items():
+            print(f"    {name}: {desc}")
+
+    # Test Piper with emotes
+    print("\n\nTesting Piper with emotes...")
     test_texts = [
         ("<emote:happy> Hello! I'm so glad to see you!", "happy"),
         ("<emote:excited> Oh wow, that's amazing news!", "excited"),
         ("<emote:thinking> Hmm... let me consider that carefully...", "thinking"),
-        ("<emote:concern> I'm a bit worried about that approach.", "concern"),
-        ("<emote:love> I really appreciate you sharing that with me.", "love"),
-        ("<emote:surprised> Wait, really? I didn't expect that!", "surprised"),
     ]
 
     for text, expected_emote in test_texts:
         detected = extract_dominant_emote(text)
         print(f"\nText: {text}")
         print(f"Detected emote: {detected} (expected: {expected_emote})")
-        print(f"Cleaned: {clean_text_for_tts(text)}")
 
-    # Generate audio with emote
+    # Generate with Piper
     test_text = "<emote:excited> <gesture:wave> Hello! I'm Cass! This is really exciting!"
-    print(f"\n\nGenerating audio for: {test_text}")
-    audio = text_to_speech(test_text)
-    print(f"Generated {len(audio)} bytes of audio")
+    print(f"\n\nGenerating with Piper: {test_text}")
+    start = time.time()
+    audio = synthesize(test_text, provider="piper")
+    elapsed = time.time() - start
+    print(f"Generated {len(audio)} bytes in {elapsed:.2f}s")
 
-    # Save to file
-    save_to_file(test_text, "/tmp/test_piper_emote.mp3")
-    print("Saved to /tmp/test_piper_emote.mp3")
+    with open("/tmp/test_piper.mp3", "wb") as f:
+        f.write(audio)
+    print("Saved to /tmp/test_piper.mp3")
+
+    # Test XTTS if available
+    if XTTS_AVAILABLE:
+        print("\n\nTesting XTTS...")
+        test_text = "Hello! I'm Cass. This is the XTTS voice with better prosody."
+        print(f"Generating with XTTS: {test_text}")
+        start = time.time()
+        audio = synthesize(test_text, provider="xtts", voice="female_1")
+        elapsed = time.time() - start
+        print(f"Generated {len(audio)} bytes in {elapsed:.2f}s")
+
+        with open("/tmp/test_xtts.mp3", "wb") as f:
+            f.write(audio)
+        print("Saved to /tmp/test_xtts.mp3")
+    else:
+        print("\n\nXTTS not available - skipping test")

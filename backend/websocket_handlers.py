@@ -62,6 +62,7 @@ _state = {
     # TTS state
     "tts_enabled": False,
     "tts_voice": "kirsty",
+    "tts_provider": "piper",  # "piper" (fast) or "xtts" (quality)
 
     # Tool execution
     "tool_executors": None,
@@ -167,10 +168,11 @@ def set_use_agent_sdk(use_sdk: bool):
     _state["use_agent_sdk"] = use_sdk
 
 
-def set_tts_state(enabled: bool, voice: str = "kirsty"):
+def set_tts_state(enabled: bool, voice: str = "kirsty", provider: str = "piper"):
     """Set TTS configuration."""
     _state["tts_enabled"] = enabled
     _state["tts_voice"] = voice
+    _state["tts_provider"] = provider
 
 
 def update_llm_clients(agent_client=None, openai_client=None, ollama_client=None):
@@ -195,7 +197,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     import os
     from auth import decode_token, is_localhost_request
     from admin_api import verify_token as verify_admin_token
-    from tts import text_to_speech
+    from tts import synthesize
     from markers import parse_marks
     from pattern_aggregation import get_pattern_summary_for_surfacing
     from config import ONBOARDING_INTRO_PROMPT, ONBOARDING_DEMO_PROMPT
@@ -230,6 +232,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     USE_AGENT_SDK = _state["use_agent_sdk"]
     tts_enabled = _state["tts_enabled"]
     tts_voice = _state["tts_voice"]
+    tts_provider = _state["tts_provider"]
     TOOL_EXECUTORS = _state["tool_executors"]
     create_tool_context = _state["create_tool_context"]
     execute_tool_batch = _state["execute_tool_batch"]
@@ -339,6 +342,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 image_data = data.get("image")  # Base64 encoded image
                 image_media_type = data.get("image_media_type")  # e.g., "image/png"
                 attachment_ids = data.get("attachment_ids", [])  # Uploaded attachment IDs
+                speaker_recognition_data = data.get("speaker_recognition")  # Voice identification
 
                 if image_data:
                     print(f"[WebSocket] Received image: {image_media_type}, {len(image_data)} chars base64")
@@ -427,8 +431,19 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 continuous_system_prompt = None
                 continuous_messages = None
                 if True:  # Always use continuous context (was: if is_continuous_chat)
-                    from continuous_context import build_continuous_context, get_recent_messages_for_continuous
+                    from continuous_context import build_continuous_context, get_recent_messages_for_continuous, SpeakerRecognition
                     print(f"[Continuous] Building context with semantic memory retrieval")
+
+                    # Convert speaker recognition data to SpeakerRecognition object
+                    speaker_recognition = None
+                    if speaker_recognition_data:
+                        speaker_recognition = SpeakerRecognition(
+                            user_id=speaker_recognition_data.get("user_id"),
+                            display_name=speaker_recognition_data.get("display_name"),
+                            confidence=speaker_recognition_data.get("confidence", 0.0),
+                            confidence_level=speaker_recognition_data.get("confidence_level", "none"),
+                        )
+                        print(f"[Voice] Speaker recognition: {speaker_recognition.display_name} ({speaker_recognition.confidence_level})")
 
                     continuous_ctx = build_continuous_context(
                         user_id=ws_user_id,
@@ -441,6 +456,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         daemon_id=daemon_id,
                         memory=memory,
                         query=user_message,
+                        speaker_recognition=speaker_recognition,
                     )
                     continuous_system_prompt = continuous_ctx.system_prompt
                     has_semantic = "semantic_memories" in continuous_ctx.context_sections
@@ -987,7 +1003,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         with concurrent.futures.ThreadPoolExecutor() as pool:
                             audio_bytes = await loop.run_in_executor(
                                 pool,
-                                lambda: text_to_speech(raw_response, voice=tts_voice)
+                                lambda: synthesize(raw_response, provider=tts_provider, voice=tts_voice)
                             )
                         if audio_bytes:
                             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
