@@ -398,12 +398,20 @@ export function VoiceCall() {
           <p>Press and hold the microphone button to speak. Release to send.</p>
           <p>Cass will respond with voice when TTS is enabled.</p>
         </div>
-        <button
-          className="enroll-voice-btn"
-          onClick={() => navigate('/voice-enrollment')}
-        >
-          Enroll Voice
-        </button>
+        <div className="enroll-buttons">
+          <button
+            className="enroll-voice-btn"
+            onClick={() => navigate('/voice-enrollment')}
+          >
+            Enroll Voice
+          </button>
+          <button
+            className="enroll-face-btn"
+            onClick={() => navigate('/face-enrollment')}
+          >
+            Enroll Face
+          </button>
+        </div>
       </footer>
     </div>
   );
