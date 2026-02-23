@@ -201,6 +201,9 @@ class PhaseQueueManager:
 
         Returns: Number of work units dispatched
         """
+        # Check email inbox on startup too
+        asyncio.create_task(self._check_email_on_phase_change(current_phase))
+
         queue = self._phase_queues[current_phase]
 
         if not queue:
