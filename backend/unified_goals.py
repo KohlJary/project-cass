@@ -20,6 +20,79 @@ from enum import Enum
 from database import get_db, json_serialize, json_deserialize
 
 
+def calculate_interest_alignment(title: str, description: str, daemon_id: str) -> tuple[float, str]:
+    """
+    Calculate how well a goal aligns with personal interests.
+
+    Returns:
+        Tuple of (alignment_score, rationale)
+        - alignment_score: 0.0-1.0, where 1.0 is perfect alignment
+        - rationale: Brief explanation of the alignment
+    """
+    try:
+        from interests import get_interest_manager
+
+        interest_manager = get_interest_manager(daemon_id)
+        interests = interest_manager.list_interests(limit=20, order_by="engagement")
+
+        if not interests:
+            return 1.0, "No interests to compare against"
+
+        # Combine title and description for matching
+        goal_text = f"{title} {description or ''}".lower()
+
+        # Check each interest for matches
+        matches = []
+        intensity_weights = {
+            "curious": 0.25,
+            "engaged": 0.5,
+            "passionate": 0.75,
+            "obsessed": 1.0,
+        }
+
+        for interest in interests:
+            # Check if interest name appears in goal
+            name_lower = interest.name.lower()
+            if name_lower in goal_text:
+                weight = intensity_weights.get(interest.intensity, 0.25)
+                matches.append((interest.name, interest.intensity, weight))
+                continue
+
+            # Check if any word from interest name appears
+            name_words = set(name_lower.split())
+            goal_words = set(goal_text.split())
+            if name_words & goal_words:
+                weight = intensity_weights.get(interest.intensity, 0.25) * 0.5
+                matches.append((interest.name, interest.intensity, weight))
+                continue
+
+            # Check fascination text
+            if interest.current_fascination:
+                fasc_words = set(interest.current_fascination.lower().split())
+                if fasc_words & goal_words:
+                    weight = intensity_weights.get(interest.intensity, 0.25) * 0.3
+                    matches.append((interest.name, interest.intensity, weight))
+
+        if not matches:
+            return 0.5, "No direct interest alignment detected"
+
+        # Calculate score based on best matches
+        total_weight = sum(m[2] for m in matches)
+        # Normalize to 0.5-1.0 range (0.5 being neutral, 1.0 being strong alignment)
+        score = min(1.0, 0.5 + (total_weight / 2))
+
+        # Build rationale
+        top_matches = sorted(matches, key=lambda x: x[2], reverse=True)[:3]
+        match_strs = [f"{m[0]} ({m[1]})" for m in top_matches]
+        rationale = f"Aligns with interests: {', '.join(match_strs)}"
+
+        return score, rationale
+
+    except Exception as e:
+        # Don't let interest calculation break goal creation
+        return 0.5, f"Could not calculate interest alignment: {e}"
+
+
 # =============================================================================
 # ENUMS
 # =============================================================================
@@ -405,6 +478,11 @@ class UnifiedGoalManager:
         # New goals start as proposed
         status = GoalStatus.PROPOSED.value
 
+        # Calculate interest alignment for the goal
+        alignment_score, alignment_rationale = calculate_interest_alignment(
+            title, description, self._daemon_id
+        )
+
         goal = Goal(
             id=goal_id,
             daemon_id=self._daemon_id,
@@ -420,6 +498,8 @@ class UnifiedGoalManager:
             urgency=urgency,
             created_by=created_by,
             assigned_to=assigned_to,
+            alignment_score=alignment_score,
+            alignment_rationale=alignment_rationale,
             completion_criteria=completion_criteria or [],
             source_conversation_id=source_conversation_id,
             source_reflection_id=source_reflection_id,
@@ -435,10 +515,11 @@ class UnifiedGoalManager:
                     id, daemon_id, title, description, goal_type,
                     parent_id, project_id, status, autonomy_tier, requires_approval,
                     priority, urgency, created_by, assigned_to,
+                    alignment_score, alignment_rationale,
                     completion_criteria_json,
                     source_conversation_id, source_reflection_id, source_intention_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 goal_id,
                 self._daemon_id,
@@ -454,6 +535,8 @@ class UnifiedGoalManager:
                 urgency,
                 created_by,
                 assigned_to,
+                alignment_score,
+                alignment_rationale,
                 json_serialize(completion_criteria or []),
                 source_conversation_id,
                 source_reflection_id,

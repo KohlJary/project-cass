@@ -45,6 +45,9 @@ Title: {goal_title}
 Description: {goal_description}
 Type: {goal_type}
 
+## Personal Interests
+{interests_context}
+
 ## Available Capabilities
 {capabilities_context}
 
@@ -170,6 +173,44 @@ class GoalPlanner:
 
         return "\n".join(lines)
 
+    def get_interests_context(self) -> str:
+        """
+        Build LLM context describing personal interests.
+
+        Helps the planner create sub-goals that align with what matters.
+        """
+        try:
+            from interests import get_interest_manager
+
+            interest_manager = get_interest_manager(self._daemon_id)
+            interests = interest_manager.list_interests(limit=10, order_by="engagement")
+
+            if not interests:
+                return "No specific interests defined yet."
+
+            lines = ["When planning sub-goals, consider these personal interests:"]
+            for interest in interests:
+                intensity_marker = {
+                    "curious": "",
+                    "engaged": "[engaged]",
+                    "passionate": "[passionate]",
+                    "obsessed": "[deeply invested]"
+                }.get(interest.intensity, "")
+                name = interest.name
+                fasc = interest.current_fascination or ""
+                if intensity_marker:
+                    lines.append(f"- {name} {intensity_marker}: {fasc[:80]}" if fasc else f"- {name} {intensity_marker}")
+                else:
+                    lines.append(f"- {name}: {fasc[:80]}" if fasc else f"- {name}")
+
+            lines.append("")
+            lines.append("Try to incorporate these interests where relevant to increase engagement and meaning.")
+            return "\n".join(lines)
+
+        except Exception as e:
+            logger.debug(f"Could not load interests for planning: {e}")
+            return "No specific interests available."
+
     async def generate_subgoals(
         self,
         parent_goal: Goal,
@@ -180,11 +221,13 @@ class GoalPlanner:
         Returns list of sub-goal dicts (not yet persisted).
         """
         capabilities_context = self.get_capabilities_context(parent_goal)
+        interests_context = self.get_interests_context()
 
         prompt = SUBGOAL_GENERATION_PROMPT.format(
             goal_title=parent_goal.title,
             goal_description=parent_goal.description or parent_goal.title,
             goal_type=parent_goal.goal_type,
+            interests_context=interests_context,
             capabilities_context=capabilities_context,
         )
 
