@@ -170,6 +170,11 @@ def _should_auto_respond(email, daemon_id: str) -> bool:
                 primary_name = row['primary_name']
 
                 # Check if this is Kohl or a primary user
+                # Also check by name for entities without explicit tags
+                if primary_name and primary_name.lower() in ['kohl', 'kohl jary']:
+                    logger.info(f"[Email] Auto-respond: {primary_name} is Kohl (by name)")
+                    return True
+
                 cursor2 = conn.execute("""
                     SELECT value FROM peopledex_attributes
                     WHERE entity_id = ? AND attribute_type = 'tag'
