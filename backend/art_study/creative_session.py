@@ -150,6 +150,26 @@ def _get_inner_context(daemon_id: str) -> str:
     except Exception as e:
         logger.debug(f"Could not get symbols: {e}")
 
+    # Get personal interests - topics that engage intellectual curiosity
+    try:
+        from interests import get_interest_manager
+        interest_manager = get_interest_manager(daemon_id)
+        # Get high-intensity interests for art inspiration
+        interests = interest_manager.list_interests(limit=8, order_by="engagement")
+        # Filter to passionate/obsessed for stronger creative drive
+        strong_interests = [i for i in interests if i.intensity in ("passionate", "obsessed")]
+        if strong_interests:
+            parts.append("## What Fascinates Me")
+            parts.append("These are topics I'm deeply drawn to explore:")
+            for interest in strong_interests[:5]:
+                intensity_marker = "!!!" if interest.intensity == "obsessed" else "!!"
+                parts.append(f"- **{interest.name}** {intensity_marker}: {interest.current_fascination}")
+            parts.append("")
+            parts.append("Art can be a way to explore these fascinations visually.")
+            parts.append("")
+    except Exception as e:
+        logger.debug(f"Could not get interests: {e}")
+
     return "\n".join(parts)
 
 
