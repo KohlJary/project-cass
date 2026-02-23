@@ -50,6 +50,7 @@ class TaskRationale:
     growth_relevance: float = 0.0         # Relevance to active growth edges
     opinion_strengthening: float = 0.0    # Value for strengthening uncertain opinions
     observation_validation: float = 0.0   # Value for validating uncertain observations
+    interest_relevance: float = 0.0       # Relevance to personal interests
 
     def to_dict(self) -> Dict[str, float]:
         return {
@@ -63,6 +64,7 @@ class TaskRationale:
             "growth_relevance": round(self.growth_relevance, 3),
             "opinion_strengthening": round(self.opinion_strengthening, 3),
             "observation_validation": round(self.observation_validation, 3),
+            "interest_relevance": round(self.interest_relevance, 3),
         }
 
     @classmethod
@@ -78,6 +80,7 @@ class TaskRationale:
             growth_relevance=data.get("growth_relevance", 0.0),
             opinion_strengthening=data.get("opinion_strengthening", 0.0),
             observation_validation=data.get("observation_validation", 0.0),
+            interest_relevance=data.get("interest_relevance", 0.0),
         )
 
 
@@ -424,6 +427,13 @@ class ResearchQueue:
     def add(self, task: ResearchTask) -> None:
         """Add a task to the queue."""
         from database import get_db, json_serialize
+
+        # Auto-calculate interest relevance if not set
+        if task.rationale.interest_relevance == 0.0 and task.target:
+            task.rationale.interest_relevance = calculate_interest_relevance(
+                task.target, self._daemon_id
+            )
+
         row = self._task_to_row(task)
         with get_db() as conn:
             conn.execute("""
@@ -764,6 +774,76 @@ class ResearchQueue:
             return cursor.fetchone() is not None
 
 
+def calculate_interest_relevance(topic: str, daemon_id: str) -> float:
+    """
+    Calculate how relevant a research topic is to the daemon's personal interests.
+
+    Returns a score from 0.0 to 1.0 based on:
+    - Direct match with interest name
+    - Fuzzy match with interest names or fascinations
+    - Interest intensity (obsessed > passionate > engaged > curious)
+
+    Args:
+        topic: The research topic to evaluate
+        daemon_id: The daemon's ID
+
+    Returns:
+        Interest relevance score 0.0-1.0
+    """
+    try:
+        from interests import get_interest_manager
+
+        manager = get_interest_manager(daemon_id)
+        interests = manager.list_interests(limit=50)
+
+        if not interests:
+            return 0.0
+
+        topic_lower = topic.lower()
+        max_score = 0.0
+
+        intensity_multiplier = {
+            "obsessed": 1.0,
+            "passionate": 0.8,
+            "engaged": 0.6,
+            "curious": 0.4
+        }
+
+        for interest in interests:
+            score = 0.0
+            interest_name = interest.name.lower()
+            fascination = (interest.current_fascination or "").lower()
+
+            # Direct name match
+            if topic_lower == interest_name:
+                score = 1.0
+            # Topic contains interest name or vice versa
+            elif topic_lower in interest_name or interest_name in topic_lower:
+                score = 0.7
+            # Topic appears in fascination
+            elif topic_lower in fascination:
+                score = 0.5
+            # Word overlap
+            else:
+                topic_words = set(topic_lower.split())
+                interest_words = set(interest_name.split())
+                fascination_words = set(fascination.split())
+                overlap = topic_words & (interest_words | fascination_words)
+                if overlap:
+                    score = 0.3 * len(overlap) / max(len(topic_words), 1)
+
+            # Apply intensity multiplier
+            multiplier = intensity_multiplier.get(interest.intensity, 0.4)
+            score *= multiplier
+
+            max_score = max(max_score, score)
+
+        return min(max_score, 1.0)
+
+    except Exception:
+        return 0.0
+
+
 def calculate_task_priority(
     rationale: TaskRationale,
     task_type: TaskType,
@@ -800,6 +880,7 @@ def calculate_task_priority(
         'growth_relevance': 0.08,          # Bonus for growth edge alignment
         'opinion_strengthening': 0.04,     # Bonus for opinion investigation
         'observation_validation': 0.03,    # Bonus for observation validation
+        'interest_relevance': 0.10,        # Bonus for personal interest alignment
     }
 
     score = (
@@ -812,7 +893,8 @@ def calculate_task_priority(
         rationale.self_directed_curiosity * self_directed_weights['self_directed_curiosity'] +
         rationale.growth_relevance * self_directed_weights['growth_relevance'] +
         rationale.opinion_strengthening * self_directed_weights['opinion_strengthening'] +
-        rationale.observation_validation * self_directed_weights['observation_validation']
+        rationale.observation_validation * self_directed_weights['observation_validation'] +
+        rationale.interest_relevance * self_directed_weights['interest_relevance']
     )
 
     # Type-based adjustments
