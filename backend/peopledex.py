@@ -53,6 +53,7 @@ class AttributeType(Enum):
     ROLE = "role"           # What they do
     BIO = "bio"             # Biographical notes
     NOTE = "note"           # Miscellaneous notes
+    TAG = "tag"             # Classification tags (primary_user, creator, etc)
     LOCATION = "location"   # Where they're based
     LINK = "link"           # URLs (key: wikipedia/website/portfolio)
     IMAGE_URL = "image_url" # Image URLs (key: portrait/artwork/etc)
