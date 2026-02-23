@@ -168,6 +168,16 @@ class Priority(str, Enum):
     P3 = "P3"  # Low - nice to have
 
 
+class StakeholderRole(str, Enum):
+    """Roles a stakeholder can have relative to a goal"""
+    DECISION_MAKER = "decision_maker"  # Has authority to approve/reject
+    SUBJECT_EXPERT = "subject_expert"  # Domain expertise
+    GATEKEEPER = "gatekeeper"          # Controls access to resources
+    CONTACT = "contact"                # General point of contact
+    INFLUENCER = "influencer"          # Can influence outcomes
+    UNKNOWN = "unknown"                # Role not yet determined
+
+
 # =============================================================================
 # DATACLASSES
 # =============================================================================
@@ -1430,5 +1440,211 @@ class UnifiedGoalManager:
             if len(goals) > 3:
                 lines.append(f"  _...and {len(goals) - 3} more_")
             lines.append("")
+
+        return "\n".join(lines)
+
+    # =========================================================================
+    # STAKEHOLDER MANAGEMENT
+    # =========================================================================
+
+    def link_stakeholder(
+        self,
+        goal_id: str,
+        entity_id: str,
+        role: str,
+        notes: Optional[str] = None,
+        added_by: str = "cass",
+        confidence: float = 0.8,
+    ) -> bool:
+        """
+        Link a PeopleDex entity to a goal as a stakeholder.
+
+        Args:
+            goal_id: ID of the goal
+            entity_id: ID of the PeopleDex entity
+            role: Stakeholder role (decision_maker, subject_expert, etc.)
+            notes: Why this person is relevant to the goal
+            added_by: Who added this link (cass, user, research)
+            confidence: Confidence in the stakeholder relevance (0.0-1.0)
+
+        Returns:
+            True if linked successfully, False otherwise
+        """
+        # Validate role
+        valid_roles = [r.value for r in StakeholderRole]
+        if role not in valid_roles:
+            role = StakeholderRole.UNKNOWN.value
+
+        link_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+
+        try:
+            with get_db() as conn:
+                conn.execute("""
+                    INSERT INTO goal_stakeholders (
+                        id, goal_id, entity_id, role, notes, added_by, confidence, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(goal_id, entity_id) DO UPDATE SET
+                        role = excluded.role,
+                        notes = COALESCE(excluded.notes, goal_stakeholders.notes),
+                        confidence = excluded.confidence
+                """, (
+                    link_id, goal_id, entity_id, role, notes, added_by, confidence, now
+                ))
+            return True
+        except Exception as e:
+            print(f"Error linking stakeholder: {e}")
+            return False
+
+    def unlink_stakeholder(self, goal_id: str, entity_id: str) -> bool:
+        """
+        Remove a stakeholder link from a goal.
+
+        Args:
+            goal_id: ID of the goal
+            entity_id: ID of the PeopleDex entity
+
+        Returns:
+            True if unlinked, False if link didn't exist
+        """
+        with get_db() as conn:
+            cursor = conn.execute("""
+                DELETE FROM goal_stakeholders
+                WHERE goal_id = ? AND entity_id = ?
+            """, (goal_id, entity_id))
+            return cursor.rowcount > 0
+
+    def get_stakeholders(self, goal_id: str) -> List[Dict]:
+        """
+        Get all stakeholders linked to a goal with their entity details.
+
+        Args:
+            goal_id: ID of the goal
+
+        Returns:
+            List of stakeholder dicts with entity info and role
+        """
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT
+                    gs.id,
+                    gs.entity_id,
+                    gs.role,
+                    gs.notes,
+                    gs.added_by,
+                    gs.confidence,
+                    gs.created_at,
+                    pe.primary_name,
+                    pe.entity_type
+                FROM goal_stakeholders gs
+                JOIN peopledex_entities pe ON pe.id = gs.entity_id
+                WHERE gs.goal_id = ?
+                ORDER BY gs.confidence DESC, gs.created_at ASC
+            """, (goal_id,))
+
+            stakeholders = []
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                # Fetch attributes for contact info
+                attr_cursor = conn.execute("""
+                    SELECT attribute_type, value
+                    FROM peopledex_attributes
+                    WHERE entity_id = ? AND attribute_type IN ('email', 'phone', 'role', 'title')
+                """, (row_dict["entity_id"],))
+
+                attributes = {}
+                for attr_row in attr_cursor.fetchall():
+                    attr_dict = dict(attr_row)
+                    attributes[attr_dict["attribute_type"]] = attr_dict["value"]
+
+                stakeholders.append({
+                    "link_id": row_dict["id"],
+                    "entity_id": row_dict["entity_id"],
+                    "name": row_dict["primary_name"],
+                    "entity_type": row_dict["entity_type"],
+                    "role": row_dict["role"],
+                    "notes": row_dict["notes"],
+                    "added_by": row_dict["added_by"],
+                    "confidence": row_dict["confidence"],
+                    "created_at": row_dict["created_at"],
+                    "email": attributes.get("email"),
+                    "phone": attributes.get("phone"),
+                    "title": attributes.get("title") or attributes.get("role"),
+                })
+
+            return stakeholders
+
+    def get_goals_for_stakeholder(self, entity_id: str) -> List[Goal]:
+        """
+        Get all goals that involve a given stakeholder.
+
+        Args:
+            entity_id: ID of the PeopleDex entity
+
+        Returns:
+            List of Goals the entity is linked to
+        """
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT g.*
+                FROM unified_goals g
+                JOIN goal_stakeholders gs ON gs.goal_id = g.id
+                WHERE gs.entity_id = ?
+                ORDER BY g.created_at DESC
+            """, (entity_id,))
+
+            goals = []
+            for row in cursor.fetchall():
+                links = self._load_goal_links(row["id"])
+                goals.append(Goal.from_row(dict(row), links))
+            return goals
+
+    def get_stakeholder_context(self, goal_id: str) -> str:
+        """
+        Get formatted stakeholder context for prompt injection.
+
+        Args:
+            goal_id: ID of the goal (checks parent goal if this is a sub-goal)
+
+        Returns:
+            Markdown-formatted string with stakeholder info, or empty string
+        """
+        # Get the goal to check for parent
+        goal = self.get_goal(goal_id)
+        if not goal:
+            return ""
+
+        # Check both current goal and parent for stakeholders
+        target_ids = [goal_id]
+        if goal.parent_id:
+            target_ids.append(goal.parent_id)
+
+        all_stakeholders = []
+        seen_entities = set()
+
+        for target_id in target_ids:
+            stakeholders = self.get_stakeholders(target_id)
+            for sh in stakeholders:
+                if sh["entity_id"] not in seen_entities:
+                    all_stakeholders.append(sh)
+                    seen_entities.add(sh["entity_id"])
+
+        if not all_stakeholders:
+            return ""
+
+        lines = ["## Relevant Stakeholders\n"]
+
+        for sh in all_stakeholders:
+            role_label = sh["role"].replace("_", " ").title()
+            lines.append(f"- **{sh['name']}** ({role_label})")
+
+            if sh.get("title"):
+                lines.append(f"  - Title: {sh['title']}")
+            if sh.get("email"):
+                lines.append(f"  - Email: {sh['email']}")
+            if sh.get("phone"):
+                lines.append(f"  - Phone: {sh['phone']}")
+            if sh.get("notes"):
+                lines.append(f"  - Notes: {sh['notes']}")
 
         return "\n".join(lines)

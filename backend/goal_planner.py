@@ -64,6 +64,7 @@ Sub-goal types (pick the most appropriate):
 - explore: Discover and observe in an area
 - accomplish: Complete a specific objective
 - reflect: Pause for contemplation or processing
+- identify_stakeholders: Research and identify key people relevant to the goal
 
 Output JSON:
 {{

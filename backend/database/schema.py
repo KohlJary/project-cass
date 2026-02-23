@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 49  # Personal interests (intellectual engagement tracking)
+SCHEMA_VERSION = 50  # Goal-stakeholder integration (PeopleDex + Goals linking)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -886,6 +886,23 @@ CREATE TABLE IF NOT EXISTS goal_links (
 
 CREATE INDEX IF NOT EXISTS idx_goal_links_source ON goal_links(source_id);
 CREATE INDEX IF NOT EXISTS idx_goal_links_target ON goal_links(target_id);
+
+-- Goal stakeholders - links PeopleDex entities to goals for complex real-world tasks
+-- Enables Cass to identify, track, and reference key people relevant to goals
+CREATE TABLE IF NOT EXISTS goal_stakeholders (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL REFERENCES unified_goals(id) ON DELETE CASCADE,
+    entity_id TEXT NOT NULL REFERENCES peopledex_entities(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,           -- decision_maker, subject_expert, gatekeeper, contact, influencer, unknown
+    notes TEXT,                   -- Why this person is relevant to the goal
+    added_by TEXT,                -- 'cass', 'user', 'research'
+    confidence REAL DEFAULT 0.8,
+    created_at TEXT NOT NULL,
+    UNIQUE(goal_id, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_goal_stakeholders_goal ON goal_stakeholders(goal_id);
+CREATE INDEX IF NOT EXISTS idx_goal_stakeholders_entity ON goal_stakeholders(entity_id);
 
 -- Calendar events
 CREATE TABLE IF NOT EXISTS calendar_events (

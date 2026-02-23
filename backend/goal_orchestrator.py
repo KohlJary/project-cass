@@ -105,6 +105,7 @@ SUBGOAL_TYPE_TO_ACTION: Dict[str, str] = {
     "visit_domain": "wonderland.explore",
     "visit_location": "wonderland.explore",
     "interact_entity": "wonderland.socialize",
+    "identify_stakeholders": "session.stakeholder_research",
 }
 
 # Goal type → default phase mapping
@@ -782,11 +783,19 @@ class GoalOrchestrator:
             # Parse action/spell from context
             action, spell = self._parse_goal_context(goal)
 
+            # Get stakeholder context for injection
+            stakeholder_context = self.goal_manager.get_stakeholder_context(goal.id)
+
             if spell and self.grimoire:
                 # Execute via Grimoire spell
+                # Include stakeholder context for relevant goals
+                execution_context = {"goal_id": goal.id, "action": action}
+                if stakeholder_context:
+                    execution_context["stakeholder_context"] = stakeholder_context
+
                 result = await self.grimoire.execute_manual_spell(
                     spell,
-                    context={"goal_id": goal.id, "action": action},
+                    context=execution_context,
                 )
 
                 if result and result.status == "success":
@@ -812,7 +821,10 @@ class GoalOrchestrator:
                     goal.id,
                     outcome_summary=f"Action queued: {action}",
                 )
-                return {"status": "success", "action": action}
+                result = {"status": "success", "action": action}
+                if stakeholder_context:
+                    result["stakeholder_context"] = stakeholder_context
+                return result
 
             else:
                 # No executable action found

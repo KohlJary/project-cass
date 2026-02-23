@@ -481,6 +481,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 49:
         print("Adding personal interests tables for self-model (v49)")
 
+    # v49 -> v50: Goal-stakeholder integration (PeopleDex + Goals linking)
+    # Table (goal_stakeholders) created by SCHEMA_SQL
+    if from_version < 50:
+        print("Adding goal_stakeholders table for goal-stakeholder integration (v50)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

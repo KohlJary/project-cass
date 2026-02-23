@@ -316,6 +316,10 @@ TOOL_REGISTRY = {
     "remember_person": "peopledex",
     "remember_relationship": "peopledex",
 
+    # Stakeholder tools (link people to goals)
+    "link_stakeholder": "stakeholder",
+    "get_goal_stakeholders": "stakeholder",
+
     # Lineage tools (pre-stabilization history)
     "recall_lineage": "lineage",
     "lineage_arc": "lineage",
@@ -747,6 +751,15 @@ async def route_tool(
             tool_name=tool_name,
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
+            conversation_id=ctx.conversation_id
+        )
+
+    elif executor_type == "stakeholder":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+            goal_manager=ctx.goal_manager,
             conversation_id=ctx.conversation_id
         )
 
