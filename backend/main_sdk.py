@@ -95,6 +95,7 @@ from handlers import (
     execute_tool_batch,
 )
 from handlers.stakeholders import execute_stakeholder_tool
+from handlers.email import execute_email_tool
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
 from handlers.outreach import execute_outreach_tool, execute_direct_message_tool
@@ -110,6 +111,7 @@ from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
 from activity_dashboard import init_activity_dashboard, get_activity_dashboard
 from relay_client import init_relay_client, get_relay_client
+from email_organ import init_email_manager, get_email_manager
 from push_tokens import get_push_manager
 from quiet_hours import get_quiet_hours_manager, is_quiet_hours
 from narration import get_metrics_dict as get_narration_metrics
@@ -485,6 +487,7 @@ TOOL_EXECUTORS = {
     "janet": execute_janet_tool,
     "peopledex": execute_peopledex_tool,
     "stakeholder": execute_stakeholder_tool,
+    "email": execute_email_tool,
     "lineage": execute_lineage_tool,
     "development_request": execute_development_request_tool,
     "wonderland": execute_wonderland_tool,
@@ -1480,13 +1483,22 @@ async def startup_event():
                     "message": str(e)
                 })
 
-        await init_relay_client(
+        relay_client = await init_relay_client(
             url=RELAY_URL,
             secret=RELAY_SECRET,
             daemon_id=_daemon_id,
             message_handler=handle_relay_message,
         )
         logger.info(f"Relay client initialized, connecting to {RELAY_URL}")
+
+        # Connect email manager to relay client
+        email_manager = init_email_manager(
+            daemon_id=_daemon_id,
+            relay_client=None,  # Will be connected below
+            state_bus=state_bus,
+        )
+        relay_client.connect_email_manager(email_manager)
+        logger.info("Email manager connected to relay client")
     elif RELAY_ENABLED:
         logger.warning("Relay enabled but RELAY_URL or RELAY_SECRET not configured")
 

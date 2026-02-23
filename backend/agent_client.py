@@ -1503,6 +1503,7 @@ from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
 from handlers.peopledex import PEOPLEDEX_TOOLS
 from handlers.stakeholders import STAKEHOLDER_TOOLS
+from handlers.email import EMAIL_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 from handlers.janet import JANET_TOOLS
 from handlers.lineage import LINEAGE_TOOLS, should_include_lineage_tools
@@ -1647,6 +1648,7 @@ class CassAgentClient:
             if should_include_outreach_tools(message):
                 tools.extend(OUTREACH_TOOLS)
                 tools.extend(DIRECT_MESSAGE_TOOLS)  # Direct push notification to mobile
+                tools.extend(EMAIL_TOOLS)  # Email communication with stakeholders
 
             # Research tools - all research-related (proposals, web, sessions, scheduler)
             if should_include_research_tools(message):

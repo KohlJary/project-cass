@@ -8,10 +8,13 @@ with mobile clients without port forwarding.
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Coroutine, Optional
+from typing import Any, Callable, Coroutine, Optional, TYPE_CHECKING
 import aiohttp
 import websockets
 from websockets.client import WebSocketClientProtocol
+
+if TYPE_CHECKING:
+    from email_organ import EmailManager
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,12 @@ class RelayClient:
         self._running = False
         self._reconnect_delays = [1, 2, 5, 10, 30, 60]
         self._reconnect_attempt = 0
+        self._email_manager: Optional["EmailManager"] = None
+
+    def connect_email_manager(self, email_manager: "EmailManager") -> None:
+        """Connect email manager for bidirectional communication."""
+        self._email_manager = email_manager
+        email_manager.connect_relay(self)
 
     async def connect(self) -> bool:
         """Establish connection to the relay server."""
@@ -108,6 +117,12 @@ class RelayClient:
                     elif msg_type == "status_request":
                         # Respond with status
                         await self.send({"type": "status", "status": "online"})
+                    elif msg_type == "email_inbound":
+                        # Inbound email from relay webhook
+                        asyncio.create_task(self._handle_email_inbound(data))
+                    elif msg_type == "email_outbound_response":
+                        # Response to our outbound email request
+                        self._handle_email_outbound_response(data)
                     else:
                         logger.debug(f"Unhandled relay message type: {msg_type}")
                 except json.JSONDecodeError:
@@ -202,6 +217,66 @@ class RelayClient:
                 "headers": {"content-type": "application/json"},
                 "body": json.dumps({"error": str(e)}),
             })
+
+    async def _handle_email_inbound(self, data: dict) -> None:
+        """Handle an inbound email from the relay."""
+        email_data = data.get("data", {})
+        logger.info(f"[Email] Inbound from {email_data.get('from', 'unknown')}: {email_data.get('subject', '(no subject)')}")
+
+        if not self._email_manager:
+            logger.warning("[Email] No email manager connected - cannot process inbound email")
+            return
+
+        try:
+            email = await self._email_manager.handle_inbound(email_data)
+            logger.info(f"[Email] Stored inbound email {email.id}")
+        except Exception as e:
+            logger.error(f"[Email] Failed to process inbound: {e}")
+
+    def _handle_email_outbound_response(self, data: dict) -> None:
+        """Handle response to an outbound email request."""
+        request_id = data.get("request_id", "")
+        success = data.get("success", False)
+        message_id = data.get("message_id")
+        error = data.get("error")
+
+        if success:
+            logger.info(f"[Email] Sent successfully: {message_id}")
+        else:
+            logger.error(f"[Email] Send failed: {error}")
+
+        if self._email_manager:
+            self._email_manager.handle_send_response(data)
+
+    async def send_message(self, message: dict) -> bool:
+        """Alias for send() - used by EmailManager."""
+        return await self.send(message)
+
+    async def send_email(
+        self,
+        to: str,
+        subject: str,
+        body_plain: str,
+        body_html: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        in_reply_to: Optional[str] = None,
+    ) -> bool:
+        """Send an email via the relay server."""
+        import uuid
+        request_id = str(uuid.uuid4())
+
+        return await self.send({
+            "type": "email_outbound",
+            "request_id": request_id,
+            "data": {
+                "to": to,
+                "subject": subject,
+                "body_plain": body_plain,
+                "body_html": body_html,
+                "reply_to": reply_to,
+                "in_reply_to": in_reply_to,
+            },
+        })
 
     @property
     def is_connected(self) -> bool:
