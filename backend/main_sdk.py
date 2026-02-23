@@ -94,6 +94,7 @@ from handlers import (
     ToolContext,
     execute_tool_batch,
 )
+from handlers.stakeholders import execute_stakeholder_tool
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
 from handlers.outreach import execute_outreach_tool, execute_direct_message_tool
@@ -483,6 +484,7 @@ TOOL_EXECUTORS = {
     "state_query": execute_state_query_tool,
     "janet": execute_janet_tool,
     "peopledex": execute_peopledex_tool,
+    "stakeholder": execute_stakeholder_tool,
     "lineage": execute_lineage_tool,
     "development_request": execute_development_request_tool,
     "wonderland": execute_wonderland_tool,

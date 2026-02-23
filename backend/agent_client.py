@@ -1502,6 +1502,7 @@ from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
 from handlers.peopledex import PEOPLEDEX_TOOLS
+from handlers.stakeholders import STAKEHOLDER_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
 from handlers.janet import JANET_TOOLS
 from handlers.lineage import LINEAGE_TOOLS, should_include_lineage_tools
@@ -1640,6 +1641,7 @@ class CassAgentClient:
             # Goal tools - objectives and progress tracking
             if should_include_goal_tools(message):
                 tools.extend(GOAL_TOOLS)
+                tools.extend(STAKEHOLDER_TOOLS)  # Link people to goals
 
             # Outreach tools - external communication with graduated autonomy
             if should_include_outreach_tools(message):
