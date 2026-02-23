@@ -102,6 +102,8 @@ from handlers.development_requests import execute_development_request_tool
 from handlers.image_generation import execute_image_generation_tool
 from handlers.music import execute_music_tool
 from handlers.activity import execute_activity_tool
+from handlers.symbols import execute_symbol_tool
+from handlers.interests import execute_interest_tool
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
@@ -490,6 +492,8 @@ TOOL_EXECUTORS = {
     "image_generation": execute_image_generation_tool,
     "music": execute_music_tool,
     "activity": execute_activity_tool,
+    "symbol": execute_symbol_tool,
+    "interest": execute_interest_tool,
 }
 
 

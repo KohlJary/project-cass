@@ -200,6 +200,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     from tts import synthesize
     from markers import parse_marks
     from symbols import parse_symbols, store_extracted_symbols
+    from interests import parse_interests, store_extracted_interests
     from pattern_aggregation import get_pattern_summary_for_surfacing
     from config import ONBOARDING_INTRO_PROMPT, ONBOARDING_DEMO_PROMPT
 
@@ -851,6 +852,18 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     )
                     if stored_symbols > 0:
                         print(f"  Stored {stored_symbols} personal symbol(s)")
+
+                # Extract and store personal interests
+                clean_text, extracted_interests = parse_interests(clean_text)
+                if extracted_interests and daemon_id:
+                    stored_interests = store_extracted_interests(
+                        extracted_interests,
+                        daemon_id=daemon_id,
+                        source_type="conversation",
+                        source_id=conversation_id
+                    )
+                    if stored_interests > 0:
+                        print(f"  Stored {stored_interests} personal interest(s)")
 
                 # Process inline XML tags (observations, roadmap items) and strip them
                 # Returns dict with cleaned text and all extracted metacognitive tags

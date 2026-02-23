@@ -476,6 +476,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 48:
         print("Adding personal symbols tables for self-model (v48)")
 
+    # v48 -> v49: Personal interests (intellectual engagement tracking)
+    # Tables (interests, interest_engagements) created by SCHEMA_SQL
+    if from_version < 49:
+        print("Adding personal interests tables for self-model (v49)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """
