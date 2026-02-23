@@ -186,6 +186,16 @@ IMAGE_KEYWORDS = frozenset({
     "save these settings", "remember settings",
 })
 
+ACTIVITY_KEYWORDS = frozenset({
+    "what have you been doing", "what did you do", "your day",
+    "been up to", "been doing", "your activities", "your work",
+    "autonomous work", "autonomous sessions", "work sessions",
+    "today's work", "yesterday's work", "morning work", "afternoon work",
+    "what have you worked on", "tell me about your day",
+    "how was your day", "daily summary", "activity summary",
+    "recent work", "what you've been up to", "your recent activity",
+})
+
 MUSIC_KEYWORDS = frozenset({
     "music", "song", "songs", "melody", "melodies",
     "compose", "composing", "composition", "compositions",
@@ -257,6 +267,7 @@ class ToolSelector:
             ToolGroup("discord", DISCORD_KEYWORDS, "Discord perception and action tools"),
             ToolGroup("image", IMAGE_KEYWORDS, "Image generation tools"),
             ToolGroup("music", MUSIC_KEYWORDS, "Music composition tools"),
+            ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -592,6 +603,11 @@ def should_include_image_tools(message: str) -> bool:
 def should_include_music_tools(message: str) -> bool:
     """Check if message warrants music composition tools."""
     return _default_selector.should_include(message, "music")
+
+
+def should_include_activity_tools(message: str) -> bool:
+    """Check if message warrants activity introspection tools."""
+    return _default_selector.should_include(message, "activity")
 
 
 # =============================================================================

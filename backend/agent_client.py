@@ -42,6 +42,8 @@ from tool_selector import (
     should_include_development_request_tools,
     should_include_discord_tools,
     should_include_image_tools,
+    should_include_music_tools,
+    should_include_activity_tools,
 )
 
 
@@ -1481,6 +1483,8 @@ from handlers.janet import JANET_TOOLS
 from handlers.lineage import LINEAGE_TOOLS, should_include_lineage_tools
 from handlers.development_requests import DEVELOPMENT_REQUEST_TOOLS
 from handlers.image_generation import IMAGE_GENERATION_TOOLS
+from handlers.music import MUSIC_TOOLS
+from handlers.activity import ACTIVITY_TOOLS
 
 
 # ============================================================================
@@ -1659,6 +1663,14 @@ class CassAgentClient:
             # Image generation tools - create visual art via local Stable Diffusion
             if should_include_image_tools(message):
                 tools.extend(IMAGE_GENERATION_TOOLS)
+
+            # Music composition tools - compose original music via ACE-Step
+            if should_include_music_tools(message):
+                tools.extend(MUSIC_TOOLS)
+
+            # Activity introspection tools - recall autonomous work sessions
+            if should_include_activity_tools(message):
+                tools.extend(ACTIVITY_TOOLS)
 
             # State query tools - always available for self-introspection
             # Cass should always be able to query her own state (tokens, github, memory, etc)
