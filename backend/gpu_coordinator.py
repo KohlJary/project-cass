@@ -30,6 +30,7 @@ class GPUService(Enum):
     OLLAMA = "ollama"
     ACESTEP = "acestep"
     COMFYUI = "comfyui"
+    WHISPER = "whisper"  # STT
 
 
 @dataclass
@@ -47,6 +48,7 @@ SERVICE_MEMORY_REQUIREMENTS = {
     GPUService.OLLAMA: 8500,    # ~8.5GB for llama3.1:8b (full load)
     GPUService.ACESTEP: 6000,   # ~6GB for music generation
     GPUService.COMFYUI: 2500,   # ~2.5GB additional headroom (base model often pre-loaded)
+    GPUService.WHISPER: 1000,   # ~1GB for whisper base/small (tiny=500MB, medium=2GB, large=5GB)
 }
 
 # Lock file for coordination
