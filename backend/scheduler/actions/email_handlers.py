@@ -15,17 +15,22 @@ logger = logging.getLogger(__name__)
 
 async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
     """
-    Check inbox for unprocessed emails and auto-respond to priority senders.
+    Check inbox for unprocessed emails and auto-respond.
 
-    Priority senders (auto-respond):
+    Args (via context):
+        respond_to_all: If True, auto-respond to all emails (phase transitions).
+                       If False (default), only respond to priority senders.
+
+    Priority senders (always auto-respond):
     - Emails linked to goal stakeholders
     - Emails from Kohl (primary user)
 
-    Other emails are just surfaced for Cass's attention.
+    On phase transitions, respond_to_all=True processes everyone.
     """
     managers = context.get("managers", {})
     runners = context.get("runners", {})
     daemon_id = managers.get("daemon_id", "cass")
+    respond_to_all = context.get("respond_to_all", False)
 
     try:
         from email_organ import get_email_manager
@@ -42,12 +47,12 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
             )
 
         # Categorize emails
-        auto_respond = []  # Stakeholders or Kohl
-        notify_only = []   # Others
+        auto_respond = []  # Will be responded to
+        notify_only = []   # Won't be responded to (only if respond_to_all=False)
 
         for email in unprocessed:
-            should_auto = _should_auto_respond(email, daemon_id)
-            if should_auto:
+            is_priority = _should_auto_respond(email, daemon_id)
+            if is_priority or respond_to_all:
                 auto_respond.append(email)
             else:
                 notify_only.append(email)

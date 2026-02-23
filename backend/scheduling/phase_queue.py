@@ -201,8 +201,8 @@ class PhaseQueueManager:
 
         Returns: Number of work units dispatched
         """
-        # Check email inbox on startup too
-        asyncio.create_task(self._check_email_on_phase_change(current_phase))
+        # Check email inbox on startup (priority senders only, not everyone)
+        asyncio.create_task(self._check_email_on_phase_change(current_phase, respond_to_all=False))
 
         queue = self._phase_queues[current_phase]
 
@@ -327,20 +327,30 @@ class PhaseQueueManager:
 
         asyncio.create_task(self._delayed_phase_dispatch(new_phase, delay_seconds, transition))
 
-    async def _check_email_on_phase_change(self, phase: DayPhase) -> None:
-        """Check email inbox when phase changes."""
+    async def _check_email_on_phase_change(self, phase: DayPhase, respond_to_all: bool = True) -> None:
+        """Check email inbox when phase changes.
+
+        Args:
+            phase: The current/new phase
+            respond_to_all: If True, auto-respond to all emails, not just priority senders.
+                           Default True for phase transitions (everyone gets a response).
+        """
         try:
             if not self._action_registry:
                 logger.debug("Action registry not set - skipping email check")
                 return
 
-            logger.info(f"[Email] Checking inbox on phase change to {phase.value}")
-            result = await self._action_registry.execute("email.check_inbox")
+            logger.info(f"[Email] Checking inbox on phase change to {phase.value} (respond_to_all={respond_to_all})")
+            result = await self._action_registry.execute(
+                "email.check_inbox",
+                respond_to_all=respond_to_all,
+            )
 
             if result.success:
                 email_count = result.data.get("email_count", 0)
+                auto_responded = result.data.get("auto_responded", 0)
                 if email_count > 0:
-                    logger.info(f"[Email] Found {email_count} unprocessed emails")
+                    logger.info(f"[Email] Found {email_count} emails, auto-responded to {auto_responded}")
                 else:
                     logger.debug("[Email] Inbox is empty")
             else:
