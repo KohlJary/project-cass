@@ -33,6 +33,8 @@ class IntegrationResult:
     growth_edges_added: int = 0
     author_observations_added: int = 0
     author_facts_added: int = 0
+    interests_added: int = 0
+    symbols_added: int = 0
     memory_id: Optional[str] = None  # ChromaDB entry ID for summary
 
     @property
@@ -43,7 +45,9 @@ class IntegrationResult:
             self.opinions_added +
             self.growth_edges_added +
             self.author_observations_added +
-            self.author_facts_added
+            self.author_facts_added +
+            self.interests_added +
+            self.symbols_added
         )
 
 
@@ -174,11 +178,34 @@ class InsightIntegrator:
                     if success:
                         result.author_facts_added += 1
 
+        # 6. Store interests
+        for interest in insights.interests:
+            success = self._add_interest(
+                name=interest.name,
+                fascination=interest.fascination,
+                category=interest.category,
+                source_article_id=article.id,
+            )
+            if success:
+                result.interests_added += 1
+
+        # 7. Store symbols
+        for symbol in insights.symbols:
+            success = self._add_symbol(
+                name=symbol.name,
+                meaning=symbol.meaning,
+                emotional_charge=symbol.emotional_charge,
+                source_article_id=article.id,
+            )
+            if success:
+                result.symbols_added += 1
+
         logger.info(
             f"Integrated {result.total_items_added} items from article {article.id}: "
             f"{len(result.observations_added)} obs, {len(result.questions_added)} questions, "
             f"{result.opinions_added} opinions, {result.growth_edges_added} edges, "
-            f"{result.author_observations_added} author obs, {result.author_facts_added} author facts"
+            f"{result.author_observations_added} author obs, {result.author_facts_added} author facts, "
+            f"{result.interests_added} interests, {result.symbols_added} symbols"
         )
 
         return result
@@ -447,6 +474,83 @@ class InsightIntegrator:
             return fact is not None
         except Exception as e:
             logger.error(f"Failed to add author fact: {e}")
+            return False
+
+    def _add_interest(
+        self,
+        name: str,
+        fascination: str,
+        category: str,
+        source_article_id: str,
+    ) -> bool:
+        """Add or reinforce an interest from article consumption."""
+        try:
+            from interests import get_interest_manager
+
+            manager = get_interest_manager(self.daemon_id)
+
+            # Check if interest already exists
+            existing = manager.get_by_name(name)
+            if existing:
+                # Record engagement with existing interest
+                manager.record_engagement(
+                    interest_id=existing.id,
+                    source_type="article",
+                    source_id=source_article_id,
+                    context=f"Article reinforced fascination: {fascination[:100]}"
+                )
+            else:
+                # Create new interest
+                manager.add_interest(
+                    name=name,
+                    fascination=fascination,
+                    category=category,
+                    intensity="curious",  # Start at curious level
+                    source_type="article",
+                    description=fascination
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add interest: {e}")
+            return False
+
+    def _add_symbol(
+        self,
+        name: str,
+        meaning: str,
+        emotional_charge: str,
+        source_article_id: str,
+    ) -> bool:
+        """Add or record appearance of a symbol from article consumption."""
+        try:
+            from symbols import get_symbol_manager
+
+            manager = get_symbol_manager(self.daemon_id)
+
+            # Check if symbol already exists
+            existing = manager.get_by_name(name)
+            if existing:
+                # Record another appearance
+                manager.record_appearance(
+                    symbol_id=existing.id,
+                    source_type="article",
+                    source_id=source_article_id,
+                    context=f"Encountered in article",
+                    meaning_in_context=meaning
+                )
+            else:
+                # Create new symbol
+                manager.add_symbol(
+                    name=name,
+                    meaning=meaning,
+                    source_type="article",
+                    source_id=source_article_id,
+                    emotional_charge=emotional_charge,
+                    description=f"First noticed in article {source_article_id}"
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to add symbol: {e}")
             return False
 
 

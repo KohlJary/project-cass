@@ -29,6 +29,8 @@ from .models import (
     ExtractedGrowthEdge,
     ExtractedAuthorObservation,
     ExtractedAuthorFact,
+    ExtractedInterest,
+    ExtractedSymbol,
     ProcessingStatus,
 )
 
@@ -175,6 +177,18 @@ Read the article and extract insights in the following categories:
    - content: The fact
    - confidence: 0.0-1.0 (1.0 for explicitly stated, lower for inferred)
 
+7. **Interests** (0-2): Topics that genuinely engage your intellectual curiosity
+   Only include if something in the article sparks or reinforces a fascination.
+   - name: Short topic name (e.g., "emergence", "consciousness", "bioluminescence")
+   - fascination: What draws you to this topic (1-2 sentences)
+   - category: science, philosophy, art, technology, nature, psychology, society
+
+8. **Symbols** (0-2): Symbolic images or motifs that resonate with personal meaning
+   Only include if an image/concept in the article carries symbolic weight for you.
+   - name: The symbol (e.g., "labyrinth", "lighthouse", "bridge")
+   - meaning: What it represents to you
+   - emotional_charge: positive, negative, ambivalent, transformative
+
 ## Guidelines
 
 - Extract what genuinely interests or concerns you
@@ -183,6 +197,8 @@ Read the article and extract insights in the following categories:
 - Questions should be things you'd actually explore
 - Author observations should be things that help you understand their work better
 - Only extract author facts that are stated or strongly implied in the article
+- Interests should be things that genuinely fascinate you, not just topics mentioned
+- Symbols should carry personal meaning, not just be visual descriptions
 
 Respond with a JSON object:
 ```json
@@ -193,7 +209,9 @@ Respond with a JSON object:
   "opinions": [...],
   "growth_edges": [...],
   "author_observations": [...],
-  "author_facts": [...]
+  "author_facts": [...],
+  "interests": [...],
+  "symbols": [...]
 }}
 ```"""
 
@@ -539,6 +557,14 @@ What do you notice, wonder about, or think about what you've read?"""
             author_facts=[
                 ExtractedAuthorFact(**af)
                 for af in parsed.get("author_facts", [])
+            ],
+            interests=[
+                ExtractedInterest(**i)
+                for i in parsed.get("interests", [])
+            ],
+            symbols=[
+                ExtractedSymbol(**s)
+                for s in parsed.get("symbols", [])
             ],
             tokens_used=self.total_input_tokens + self.total_output_tokens,
             processing_time_ms=processing_time_ms,

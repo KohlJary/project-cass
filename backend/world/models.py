@@ -71,6 +71,22 @@ class ExtractedAuthorFact:
 
 
 @dataclass
+class ExtractedInterest:
+    """An interest sparked or reinforced by article content."""
+    name: str  # Short topic name
+    fascination: str  # What draws interest about this topic
+    category: str = "general"  # science, philosophy, art, technology, nature, psychology, society
+
+
+@dataclass
+class ExtractedSymbol:
+    """A symbolic image or motif noticed in article content."""
+    name: str  # The symbol name
+    meaning: str  # What it represents
+    emotional_charge: str = "ambivalent"  # positive, negative, ambivalent, transformative
+
+
+@dataclass
 class ArticleInsights:
     """Insights extracted from an article by the content analyzer."""
     summary: str
@@ -82,6 +98,10 @@ class ArticleInsights:
     # Author-related extractions
     author_observations: List["ExtractedAuthorObservation"] = field(default_factory=list)
     author_facts: List["ExtractedAuthorFact"] = field(default_factory=list)
+
+    # Personal meaning extractions
+    interests: List["ExtractedInterest"] = field(default_factory=list)
+    symbols: List["ExtractedSymbol"] = field(default_factory=list)
 
     # Processing metadata
     tokens_used: int = 0
