@@ -101,6 +101,7 @@ from handlers.lineage import execute_lineage_tool
 from handlers.development_requests import execute_development_request_tool
 from handlers.image_generation import execute_image_generation_tool
 from handlers.music import execute_music_tool
+from handlers.activity import execute_activity_tool
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
@@ -488,6 +489,7 @@ TOOL_EXECUTORS = {
     "world_consumption": execute_world_consumption_tool,
     "image_generation": execute_image_generation_tool,
     "music": execute_music_tool,
+    "activity": execute_activity_tool,
 }
 
 

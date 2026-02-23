@@ -346,6 +346,17 @@ TOOL_REGISTRY = {
     "generate_image": "image_generation",
     "get_my_images": "image_generation",
 
+    # Activity introspection tools (self-awareness of autonomous work)
+    "get_daily_activity": "activity",
+    "get_work_details": "activity",
+    "search_activity": "activity",
+    "get_recent_activity": "activity",
+
+    # Music composition tools (ACE-Step)
+    "compose_music": "music",
+    "check_music_status": "music",
+    "list_compositions": "music",
+
     # =========================================================================
     # CONSOLIDATED TOOLS
     # These are action-based tools that get translated to the original tool names
@@ -764,6 +775,21 @@ async def route_tool(
 
     elif executor_type == "discord":
         # Discord perception tools
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+        )
+
+    elif executor_type == "music":
+        # Music composition tools (ACE-Step)
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+        )
+
+    elif executor_type == "activity":
+        # Activity introspection tools (self-awareness)
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,
