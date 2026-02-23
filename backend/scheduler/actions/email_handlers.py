@@ -227,18 +227,74 @@ async def _auto_respond_to_email(
     # Mark as processing
     email_manager.mark_processing(email.id)
 
+    daemon_id = managers.get("daemon_id", "cass")
+
+    # Ensure sender exists in PeopleDex (auto-create if new)
+    sender_entity_id = None
+    try:
+        from peopledex import get_peopledex_manager, EntityType, AttributeType
+        from database import get_db
+        import re
+
+        pdex = get_peopledex_manager(daemon_id)
+
+        # Extract name and email from "Name <email>" format
+        match = re.match(r'^(?:"?([^"<]+)"?\s*)?<?([^>]+@[^>]+)>?$', email.from_address.strip())
+        if match:
+            sender_name = (match.group(1) or "").strip() or match.group(2).split("@")[0]
+            sender_email = match.group(2).strip()
+        else:
+            sender_name = email.from_address.split("@")[0]
+            sender_email = email.from_address
+
+        # Check if this email is already in PeopleDex (direct query)
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT e.id, e.primary_name FROM peopledex_entities e
+                JOIN peopledex_attributes a ON e.id = a.entity_id
+                WHERE a.attribute_type = 'email' AND LOWER(a.value) = LOWER(?)
+                AND e.daemon_id = ?
+            """, (sender_email, daemon_id))
+            row = cursor.fetchone()
+
+        if row:
+            sender_entity_id = row['id']
+            logger.debug(f"[Email] Sender already in PeopleDex: {row['primary_name']}")
+        else:
+            # Create new entry for this sender
+            entity = pdex.find_or_create_by_name(
+                name=sender_name,
+                entity_type=EntityType.PERSON,
+                source_type="email_inbound",
+                source_id=email.id,
+            )
+            # Add their email address
+            pdex.add_attribute(
+                entity_id=entity.id,
+                attribute_type=AttributeType.EMAIL,
+                value=sender_email,
+                source_type="email_inbound",
+                source_id=email.id,
+            )
+            sender_entity_id = entity.id
+            logger.info(f"[Email] Created PeopleDex entry for new sender: {sender_name} <{sender_email}>")
+
+    except Exception as e:
+        logger.warning(f"[Email] Could not ensure sender in PeopleDex: {e}")
+
     # Get thread context if this is a reply
     thread_context = ""
     if email.thread_id:
         thread_context = email_manager.format_thread_context(email.thread_id)
 
-    # Get stakeholder context if linked
+    # Get stakeholder context if linked (or from sender we just looked up)
     stakeholder_context = ""
-    if email.stakeholder_id:
+    entity_to_lookup = email.stakeholder_id or sender_entity_id
+    if entity_to_lookup:
         try:
             from peopledex import get_peopledex_manager
-            pdex = get_peopledex_manager(managers.get("daemon_id", "cass"))
-            profile = pdex.get_full_profile(email.stakeholder_id)
+            pdex = get_peopledex_manager(daemon_id)
+            profile = pdex.get_full_profile(entity_to_lookup)
             if profile:
                 # Build summary from profile
                 entity = profile.entity
@@ -290,22 +346,29 @@ Message ID for reply: {email.message_id or email.id}
     try:
         # Import email tools for the session
         from handlers.email import EMAIL_TOOLS, execute_email_tool
+        from handlers.peopledex import PEOPLEDEX_TOOLS, execute_peopledex_tool
 
         # Filter to just the tools we need
         email_tools = [t for t in EMAIL_TOOLS if t["name"] in ["send_email", "mark_email_read", "get_email_thread"]]
+
+        # Add remember_person tool so Cass can add observations about the sender
+        remember_person_tool = next((t for t in PEOPLEDEX_TOOLS if t["name"] == "remember_person"), None)
+        if remember_person_tool:
+            email_tools.append(remember_person_tool)
 
         # Build system prompt for email response
         system_prompt = """You are responding to an email. You should:
 1. Read the email carefully and understand the context
 2. Draft a thoughtful, professional response
 3. Use the send_email tool to send your response
-4. Mark the email as read when done
+4. If you learn something notable about the sender (their role, interests, communication style),
+   use remember_person to store that information for future reference
+5. Mark the email as read when done
 
 Be helpful, clear, and maintain your authentic voice. If the sender is a known stakeholder or contact, personalize your response appropriately."""
 
         # Register email tool handlers with the session runner
         from email_organ import get_email_manager as get_em
-        daemon_id = managers.get("daemon_id", "cass")
         email_manager_for_tools = get_em(daemon_id)
 
         # Create tool handlers that match GenericSessionRunner signature
@@ -333,11 +396,21 @@ Be helpful, clear, and maintain your authentic voice. If the sender is a known s
                 email_manager=email_manager_for_tools,
             )
 
-        # Register handlers for email tools
+        async def handle_remember_person(tool_input: dict, **kwargs) -> str:
+            result = await execute_peopledex_tool(
+                tool_name="remember_person",
+                tool_input=tool_input,
+                daemon_id=daemon_id,
+                conversation_id=None,
+            )
+            return result.get("result", str(result))
+
+        # Register handlers for all tools
         session_runner.register_tool_handlers({
             "send_email": handle_send_email,
             "mark_email_read": handle_mark_email_read,
             "get_email_thread": handle_get_email_thread,
+            "remember_person": handle_remember_person,
         })
 
         # Run session to compose and send reply
