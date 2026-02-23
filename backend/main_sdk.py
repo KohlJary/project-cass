@@ -1893,6 +1893,7 @@ async def startup_event():
                             "daemon_id": _daemon_id,
                             # Core managers
                             "self_manager": self_manager,
+                            "self_model_graph": self_model_graph,
                             "budget_manager": budget_manager,
                             "memory": memory,
                             "conversation_manager": conversation_manager,

@@ -6,11 +6,91 @@ and process/respond to emails autonomously.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from . import ActionResult
 
 logger = logging.getLogger(__name__)
+
+
+def _build_cass_context(
+    managers: Dict[str, Any],
+    query: str,
+    include_memory: bool = True,
+    include_self_model: bool = True,
+) -> str:
+    """
+    Build the full Cass context for email sessions.
+
+    This mirrors the context that chat Cass receives, ensuring email Cass
+    has the same continuous identity and memory.
+
+    Args:
+        managers: Dict containing memory, self_manager, self_model_graph
+        query: The email content to use for semantic retrieval
+        include_memory: Whether to include memory context
+        include_self_model: Whether to include self-model context
+
+    Returns:
+        Formatted context string to prepend to the session
+    """
+    context_parts = []
+
+    memory = managers.get("memory")
+    self_manager = managers.get("self_manager")
+    self_model_graph = managers.get("self_model_graph")
+
+    # Self-model context (identity, values, growth edges)
+    if include_self_model and self_manager:
+        try:
+            self_context = self_manager.get_self_context(
+                include_observations=False,
+                message=query,
+                conversation_id=None,
+                directive_growth_edges=True
+            )
+            if self_context:
+                context_parts.append(self_context)
+        except Exception as e:
+            logger.warning(f"[Email] Could not get self context: {e}")
+
+    # Graph context (observations, recent changes, patterns)
+    if include_self_model and self_model_graph:
+        try:
+            graph_context = self_model_graph.get_graph_context(
+                message=query,
+                include_contradictions=True,
+                include_recent=True,
+                include_stats=False,  # Keep it lighter for email
+                max_related=3
+            )
+            if graph_context:
+                context_parts.append(graph_context)
+        except Exception as e:
+            logger.warning(f"[Email] Could not get graph context: {e}")
+
+    # Memory context (semantic retrieval based on email content)
+    if include_memory and memory:
+        try:
+            # Retrieve memories relevant to the email content
+            hierarchical = memory.retrieve_hierarchical(
+                query=query,
+                conversation_id=None  # Email sessions don't have conversation IDs
+            )
+            if hierarchical:
+                memory_context = memory.format_hierarchical_context(
+                    hierarchical,
+                    working_summary=None,
+                    recent_messages=None
+                )
+                if memory_context:
+                    context_parts.append(memory_context)
+        except Exception as e:
+            logger.warning(f"[Email] Could not get memory context: {e}")
+
+    if context_parts:
+        return "\n\n---\n\n".join(context_parts)
+    return ""
 
 
 async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
@@ -319,9 +399,22 @@ async def _auto_respond_to_email(
         except Exception as e:
             logger.warning(f"[Email] Could not get goal context: {e}")
 
-    # Build prompt for Cass
-    prompt = f"""You have received an email that needs a response.
+    # Build full Cass context (identity, memory, self-model)
+    # This ensures email Cass has the same continuous context as chat Cass
+    cass_context = _build_cass_context(
+        managers=managers,
+        query=f"{email.subject}\n{email.body_plain or ''}",
+        include_memory=True,
+        include_self_model=True,
+    )
 
+    # Build prompt for Cass
+    context_section = ""
+    if cass_context:
+        context_section = f"\n## Your Context\n{cass_context}\n"
+
+    prompt = f"""You have received an email that needs a response.
+{context_section}
 ## Incoming Email
 **From:** {email.from_address}
 **Subject:** {email.subject}
