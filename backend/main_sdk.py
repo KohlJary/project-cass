@@ -1884,9 +1884,10 @@ async def startup_event():
                         daemon_id=_daemon_id,
                     )
 
-                    # Initialize the action registry with managers
+                    # Initialize the action registry with managers and runners
                     # This enables atomic action execution for autonomous work
                     action_registry = init_action_registry(
+                        runners=runners_dict,
                         managers={
                             # Core identity
                             "daemon_id": _daemon_id,
@@ -1995,6 +1996,20 @@ async def startup_event():
                     asyncio.create_task(autonomous_scheduler.start())
                     logger.info("Autonomous scheduling enabled - Cass decides her own work")
                     logger.info(f"Day phase tracker started - current phase: {day_phase_tracker.current_phase}")
+
+                    # Check email inbox on startup (independent of autonomous schedule)
+                    async def check_email_on_startup():
+                        await asyncio.sleep(5)  # Let systems stabilize
+                        try:
+                            logger.info("[Email] Running startup inbox check via action registry...")
+                            result = await action_registry.execute(action_id="email.check_inbox")
+                            if result.success:
+                                logger.info(f"[Email] Startup inbox check: {result.message}")
+                            else:
+                                logger.warning(f"[Email] Startup inbox check failed: {result.message}")
+                        except Exception as e:
+                            logger.warning(f"[Email] Startup inbox check failed: {e}")
+                    asyncio.create_task(check_email_on_startup())
 
                 except Exception as e:
                     logger.error(f"Failed to initialize autonomous scheduling: {e}")

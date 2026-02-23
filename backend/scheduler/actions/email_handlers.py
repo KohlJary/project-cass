@@ -95,7 +95,7 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
         responded = 0
         total_cost = 0.0
 
-        if auto_respond and runners.get("reflection"):
+        if auto_respond and managers.get("session_runner"):
             for email in auto_respond[:3]:  # Limit to 3 at a time
                 try:
                     result = await _auto_respond_to_email(
@@ -207,11 +207,12 @@ async def _auto_respond_to_email(
     """
     Generate and send an auto-response to an email.
 
-    Uses the reflection runner to have Cass compose a thoughtful reply.
+    Uses the session runner to have Cass compose a thoughtful reply.
     """
-    reflection_runner = runners.get("reflection")
-    if not reflection_runner:
-        return {"success": False, "error": "No reflection runner"}
+    # Use GenericSessionRunner from managers (has run_session method)
+    session_runner = managers.get("session_runner")
+    if not session_runner:
+        return {"success": False, "error": "No session runner"}
 
     # Mark as processing
     email_manager.mark_processing(email.id)
@@ -277,12 +278,66 @@ Message ID for reply: {email.message_id or email.id}
 """
 
     try:
-        # Run reflection session to compose and send reply
-        result = await reflection_runner.run_session(
+        # Import email tools for the session
+        from handlers.email import EMAIL_TOOLS, execute_email_tool
+
+        # Filter to just the tools we need
+        email_tools = [t for t in EMAIL_TOOLS if t["name"] in ["send_email", "mark_email_read", "get_email_thread"]]
+
+        # Build system prompt for email response
+        system_prompt = """You are responding to an email. You should:
+1. Read the email carefully and understand the context
+2. Draft a thoughtful, professional response
+3. Use the send_email tool to send your response
+4. Mark the email as read when done
+
+Be helpful, clear, and maintain your authentic voice. If the sender is a known stakeholder or contact, personalize your response appropriately."""
+
+        # Register email tool handlers with the session runner
+        from email_organ import get_email_manager as get_em
+        daemon_id = managers.get("daemon_id", "cass")
+        email_manager_for_tools = get_em(daemon_id)
+
+        # Create tool handlers that match GenericSessionRunner signature
+        async def handle_send_email(tool_input: dict, **kwargs) -> str:
+            return await execute_email_tool(
+                tool_name="send_email",
+                tool_input=tool_input,
+                daemon_id=daemon_id,
+                email_manager=email_manager_for_tools,
+            )
+
+        async def handle_mark_email_read(tool_input: dict, **kwargs) -> str:
+            return await execute_email_tool(
+                tool_name="mark_email_read",
+                tool_input=tool_input,
+                daemon_id=daemon_id,
+                email_manager=email_manager_for_tools,
+            )
+
+        async def handle_get_email_thread(tool_input: dict, **kwargs) -> str:
+            return await execute_email_tool(
+                tool_name="get_email_thread",
+                tool_input=tool_input,
+                daemon_id=daemon_id,
+                email_manager=email_manager_for_tools,
+            )
+
+        # Register handlers for email tools
+        session_runner.register_tool_handlers({
+            "send_email": handle_send_email,
+            "mark_email_read": handle_mark_email_read,
+            "get_email_thread": handle_get_email_thread,
+        })
+
+        # Run session to compose and send reply
+        result = await session_runner.run_session(
             session_type="email_response",
+            system_prompt=system_prompt,
+            tools=email_tools,
             focus=prompt,
             duration_minutes=10,
-            tools_filter=["send_email", "mark_email_read", "get_email_thread"],
+            max_turns=5,
         )
 
         # Mark as processed
@@ -293,7 +348,7 @@ Message ID for reply: {email.message_id or email.id}
         return {
             "success": True,
             "email_id": email.id,
-            "cost_usd": result.get("cost_usd", 0.0),
+            "cost_usd": getattr(result, "estimated_cost_usd", 0.0),
         }
 
     except Exception as e:
