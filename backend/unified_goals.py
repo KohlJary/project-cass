@@ -748,7 +748,17 @@ class UnifiedGoalManager:
                 goal_id,
                 GoalStatus.PROPOSED.value
             ))
-        return self.get_goal(goal_id)
+
+        result = self.get_goal(goal_id)
+        if result and result.status == GoalStatus.APPROVED.value:
+            self._emit_goal_event("goal.approved", {
+                "goal_id": goal_id,
+                "title": result.title,
+                "goal_type": result.goal_type,
+                "parent_id": result.parent_id,
+                "approved_by": approved_by,
+            })
+        return result
 
     def reject_goal(self, goal_id: str, reason: str) -> Optional[Goal]:
         """Reject a proposed goal"""

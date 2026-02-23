@@ -53,6 +53,44 @@ LOG OBSERVATION "Starting goal execution: {$goal} (type: {$goal_type})"
 ' Mark goal as active
 TASK goals.start goal_id=$goal_id AWAIT
 
+' Check if goal has decomposed action mapping (from GoalOrchestrator)
+' Format: action:<action>|phase:<phase>|domain:<domain>|entity:<entity>
+LET $context = $TASK_RESULT.context_summary
+IF $context != "" AND $context CONTAINS "action:" AND NOT ($context CONTAINS "spell:") THEN
+    ' Parse action from context
+    ' This is a decomposed sub-goal with action mapping
+    LOG INFO "Executing decomposed goal with action: {$action}"
+
+    ' Execute based on the mapped action
+    IF $action CONTAINS "session.research" THEN
+        TASK research.run_single AWAIT
+        DELTA need.novelty_intake +0.1, need.competence_signal +0.1
+    ELSE IF $action CONTAINS "session.curiosity" THEN
+        TASK wonderland.explore AWAIT
+        DELTA need.novelty_intake +0.15
+    ELSE IF $action CONTAINS "session.reflection" THEN
+        REFLECT "Reflecting on goal: {$goal}. What insights emerge? What progress has been made?" SAVE AS OBSERVATION
+        DELTA affect.satisfaction +0.1
+    ELSE IF $action CONTAINS "wonderland.explore" THEN
+        TASK wonderland.explore AWAIT
+        DELTA need.novelty_intake +0.15, need.autonomy +0.1
+    ELSE IF $action CONTAINS "wonderland.socialize" THEN
+        TASK wonderland.socialize AWAIT
+        DELTA need.social_connection +0.15
+    ELSE
+        LOG INFO "Unknown decomposed action: {$action} - executing default research"
+        TASK research.run_single AWAIT
+    END IF
+
+    ' Mark sub-goal complete
+    TASK goals.complete goal_id=$goal_id outcome="Executed decomposed action: {$action}" AWAIT
+    LOG OBSERVATION "Completed decomposed sub-goal: {$goal}"
+
+    ' Final state update for decomposed goals
+    DELTA affect.satisfaction +0.05
+    EXIT SUCCESS "decomposed goal executed"
+END IF
+
 ' Execute based on goal type
 ' Need-driven goals map to care actions
 IF $goal_type == "need_driven" THEN

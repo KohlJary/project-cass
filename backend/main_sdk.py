@@ -1647,17 +1647,26 @@ async def startup_event():
             # Initialize GoalOrchestrator to bridge Thymos → Goals → Grimoire
             try:
                 from goal_orchestrator import init_goal_orchestrator
+                from goal_planner import GoalPlanner
                 from unified_goals import UnifiedGoalManager
 
                 orchestrator_goal_manager = UnifiedGoalManager(_daemon_id)
+
+                # Initialize GoalPlanner for decomposing Cass-created goals
+                goal_planner = GoalPlanner(
+                    daemon_id=_daemon_id,
+                    state_bus=global_state_bus,
+                )
+
                 goal_orchestrator = init_goal_orchestrator(
                     daemon_id=_daemon_id,
                     goal_manager=orchestrator_goal_manager,
                     state_bus=global_state_bus,
                     thymos=thymos_runner,
                     grimoire=_grimoire,
+                    goal_planner=goal_planner,
                 )
-                logger.info("Background: GoalOrchestrator initialized")
+                logger.info("Background: GoalOrchestrator initialized with GoalPlanner")
             except Exception as e:
                 logger.error(f"Background: Failed to initialize GoalOrchestrator: {e}")
 
