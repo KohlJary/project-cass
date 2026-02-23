@@ -1,0 +1,34 @@
+[Unit]
+Description=ACE-Step Music Generation API Server
+Documentation=https://github.com/ace-step/ACE-Step
+After=network.target
+
+[Service]
+Type=simple
+User=jaryk
+WorkingDirectory=/home/jaryk/cass/cass-vessel/backend/music/ace-step
+
+# ACE-Step uses uv for dependency management
+# ACESTEP_INIT_LLM: auto (default), true, or false based on GPU VRAM
+# Using false to avoid memory contention with Ollama
+Environment=ACESTEP_INIT_LLM=false
+Environment=PATH=/sbin:/usr/local/cuda/bin:/usr/bin
+
+# ACE-Step API server on port 8001
+ExecStart=/sbin/uv run acestep-api --host 127.0.0.1 --port 8001
+
+# Restart on failure with backoff
+Restart=on-failure
+RestartSec=10
+
+# GPU memory can take time to release, model loading can be slow
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=acestep
+
+[Install]
+WantedBy=multi-user.target
