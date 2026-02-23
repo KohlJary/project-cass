@@ -127,7 +127,11 @@ def clean_text_for_tts(text: str) -> str:
     Clean text for TTS by removing markup, gestures, and other non-spoken content.
     Also adds natural pauses for better cadence.
     """
-    # Remove gesture/emote/memory tags
+    # Remove thinking blocks (internal reasoning - not spoken)
+    # Matches: <thinking>...</thinking>, <gesture:think>...</gesture:think>, etc.
+    text = re.sub(r'<([\w:]*think[\w:]*)>[\s\S]*?</\1>', '', text, flags=re.IGNORECASE)
+
+    # Remove gesture/emote/memory tags (but extract emote first for tone - done in text_to_speech)
     text = re.sub(r'<(gesture|emote|memory):[^>]+>', '', text)
 
     # Remove markdown code blocks (don't read code aloud)
