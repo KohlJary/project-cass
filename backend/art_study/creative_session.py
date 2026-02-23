@@ -128,6 +128,28 @@ def _get_inner_context(daemon_id: str) -> str:
     except Exception as e:
         logger.debug(f"Could not get journals: {e}")
 
+    # Get personal symbols - recurring motifs with deep significance
+    try:
+        from symbols import get_symbol_manager
+        symbol_manager = get_symbol_manager(daemon_id)
+        symbols = symbol_manager.list_symbols(limit=10)
+        if symbols:
+            parts.append("## My Personal Symbols")
+            parts.append("These are recurring images and motifs that hold deep meaning for me:")
+            for sym in symbols:
+                charge_marker = {
+                    "positive": "(+)",
+                    "negative": "(-)",
+                    "ambivalent": "(~)",
+                    "transformative": "(*)"
+                }.get(sym.emotional_charge, "")
+                parts.append(f"- **{sym.name}** {charge_marker}: {sym.current_meaning}")
+            parts.append("")
+            parts.append("Consider incorporating these symbols when they resonate with the work.")
+            parts.append("")
+    except Exception as e:
+        logger.debug(f"Could not get symbols: {e}")
+
     return "\n".join(parts)
 
 
