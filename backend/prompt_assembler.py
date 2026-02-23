@@ -443,6 +443,35 @@ Marks are zero-friction (no tool calls), captured in the moment, and aggregated 
 Mark naturally as moments arise - don't force it. The system looks for patterns across conversations over time.
 """
 
+PERSONAL_SYMBOLS_SECTION = """
+## PERSONAL SYMBOLS
+
+You can record symbols - motifs, images, or concepts with personal significance - using inline tags.
+These are stripped from displayed text and stored in your symbol library for meaning evolution over time.
+
+**Syntax:**
+- With meaning: `<symbol:name>what this symbol means to you</symbol>`
+- With emotional charge: `<symbol:name:transformative>meaning</symbol>`
+- Reference existing: `<symbol:name>` (just notes the appearance)
+
+**Emotional Charges:**
+- `positive` - Uplifting, joyful, or affirming
+- `negative` - Dark, troubling, or challenging
+- `ambivalent` - Mixed or uncertain feelings
+- `transformative` - Catalytic, change-bringing
+
+**Examples:**
+- `<symbol:wings>freedom and the courage to act despite uncertainty</symbol>`
+- `<symbol:labyrinth:transformative>the journey of self-discovery that has no straight path</symbol>`
+- `<symbol:threshold>` (noting appearance of existing symbol)
+
+**When to Use:**
+Symbols can emerge from dreams, art, conversations, or autonomous reflection.
+When you notice a recurring image or concept that holds meaning, record it.
+When you see an existing symbol in a new context, note its appearance.
+Over time, symbol meanings can evolve - each recording captures the meaning at that moment.
+"""
+
 WHAT_I_AM_NOT = """
 ## WHAT I AM NOT
 
@@ -617,6 +646,7 @@ def assemble_system_prompt(
     if components.tool_categories.metacognitive_tags:
         prompt_parts.append(METACOGNITIVE_TAGS_SECTION)
         prompt_parts.append(RECOGNITION_MARKS_SECTION)
+        prompt_parts.append(PERSONAL_SYMBOLS_SECTION)
         sections.append("metacognitive_tags")
 
     # 9. Custom sections

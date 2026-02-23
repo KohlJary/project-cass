@@ -352,6 +352,13 @@ TOOL_REGISTRY = {
     "search_activity": "activity",
     "get_recent_activity": "activity",
 
+    # Symbol tools (personal motifs with significance)
+    "add_symbol": "symbol",
+    "list_symbols": "symbol",
+    "explore_symbol": "symbol",
+    "evolve_symbol_meaning": "symbol",
+    "search_symbols": "symbol",
+
     # Music composition tools (ACE-Step)
     "compose_music": "music",
     "check_music_status": "music",
@@ -790,6 +797,14 @@ async def route_tool(
 
     elif executor_type == "activity":
         # Activity introspection tools (self-awareness)
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+        )
+
+    elif executor_type == "symbol":
+        # Symbol tools (personal motifs)
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,

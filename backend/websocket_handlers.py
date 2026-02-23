@@ -199,6 +199,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     from admin_api import verify_token as verify_admin_token
     from tts import synthesize
     from markers import parse_marks
+    from symbols import parse_symbols, store_extracted_symbols
     from pattern_aggregation import get_pattern_summary_for_surfacing
     from config import ONBOARDING_INTRO_PROMPT, ONBOARDING_DEMO_PROMPT
 
@@ -838,6 +839,18 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     stored = marker_store.store_marks(marks)
                     if stored > 0:
                         print(f"  Stored {stored} recognition-in-flow mark(s)")
+
+                # Extract and store personal symbols
+                clean_text, extracted_symbols = parse_symbols(clean_text)
+                if extracted_symbols and daemon_id:
+                    stored_symbols = store_extracted_symbols(
+                        extracted_symbols,
+                        daemon_id=daemon_id,
+                        source_type="conversation",
+                        source_id=conversation_id
+                    )
+                    if stored_symbols > 0:
+                        print(f"  Stored {stored_symbols} personal symbol(s)")
 
                 # Process inline XML tags (observations, roadmap items) and strip them
                 # Returns dict with cleaned text and all extracted metacognitive tags

@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 47  # Face identification / visual recognition
+SCHEMA_VERSION = 48  # Personal symbols (motifs with significance)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -278,6 +278,44 @@ CREATE TABLE IF NOT EXISTS self_observations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_self_obs_category ON self_observations(daemon_id, category);
+
+-- Personal symbols (motifs/images with personal significance)
+CREATE TABLE IF NOT EXISTS symbols (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    name TEXT NOT NULL,                       -- The symbol name (e.g., "wings", "labyrinth", "mirror")
+    description TEXT,                         -- What the symbol represents
+    emotional_charge TEXT DEFAULT 'ambivalent',  -- positive, negative, ambivalent, transformative
+    confidence REAL DEFAULT 0.7,              -- How significant (0.0-1.0)
+    first_source_type TEXT,                   -- dream, article, art_study, conversation, autonomous
+    first_source_id TEXT,                     -- ID of original source
+    current_meaning TEXT,                     -- Most recent/integrated meaning
+    meaning_evolution_json TEXT,              -- [{"timestamp": ..., "meaning": ..., "source": ...}]
+    appearance_count INTEGER DEFAULT 1,       -- How often it appears
+    first_noticed_at TEXT NOT NULL,
+    last_appeared_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(daemon_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_symbols_daemon ON symbols(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_symbols_charge ON symbols(daemon_id, emotional_charge);
+
+-- Track where symbols appear across sources
+CREATE TABLE IF NOT EXISTS symbol_appearances (
+    id TEXT PRIMARY KEY,
+    symbol_id TEXT NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL,                -- dream, article, art_study, conversation
+    source_id TEXT NOT NULL,                  -- ID of the source
+    context TEXT,                             -- Brief context of appearance
+    meaning_in_context TEXT,                  -- What the symbol meant in this specific context
+    appeared_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_symbol_appearances_symbol ON symbol_appearances(symbol_id);
+CREATE INDEX IF NOT EXISTS idx_symbol_appearances_source ON symbol_appearances(source_type, source_id);
 
 -- =============================================================================
 -- USER OBSERVATIONS & JOURNALS
