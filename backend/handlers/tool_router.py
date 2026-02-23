@@ -320,6 +320,14 @@ TOOL_REGISTRY = {
     "link_stakeholder": "stakeholder",
     "get_goal_stakeholders": "stakeholder",
 
+    # Email tools (stakeholder communication)
+    "send_email": "email",
+    "check_inbox": "email",
+    "get_email_thread": "email",
+    "get_goal_emails": "email",
+    "mark_email_read": "email",
+    "get_email_stats": "email",
+
     # Lineage tools (pre-stabilization history)
     "recall_lineage": "lineage",
     "lineage_arc": "lineage",
@@ -760,6 +768,14 @@ async def route_tool(
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
             goal_manager=ctx.goal_manager,
+            conversation_id=ctx.conversation_id
+        )
+
+    elif executor_type == "email":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
             conversation_id=ctx.conversation_id
         )
 

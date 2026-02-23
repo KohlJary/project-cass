@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 50  # Goal-stakeholder integration (PeopleDex + Goals linking)
+SCHEMA_VERSION = 51  # Email organ for stakeholder outreach
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -903,6 +903,35 @@ CREATE TABLE IF NOT EXISTS goal_stakeholders (
 
 CREATE INDEX IF NOT EXISTS idx_goal_stakeholders_goal ON goal_stakeholders(goal_id);
 CREATE INDEX IF NOT EXISTS idx_goal_stakeholders_entity ON goal_stakeholders(entity_id);
+
+-- Emails - inbound/outbound email tracking for stakeholder communication
+CREATE TABLE IF NOT EXISTS emails (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    direction TEXT NOT NULL,          -- 'inbound' or 'outbound'
+    status TEXT NOT NULL,             -- received, processing, processed, queued, sent, failed
+    message_id TEXT,                  -- Mailgun/provider message ID
+    from_address TEXT NOT NULL,
+    to_address TEXT NOT NULL,
+    subject TEXT,
+    body_plain TEXT,
+    body_html TEXT,
+    in_reply_to TEXT,                 -- Message ID for threading
+    thread_id TEXT,                   -- Groups related emails
+    goal_id TEXT REFERENCES unified_goals(id),
+    stakeholder_id TEXT REFERENCES peopledex_entities(id),
+    conversation_id TEXT,
+    attachments_json TEXT,
+    created_at TEXT NOT NULL,
+    sent_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_emails_daemon ON emails(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(daemon_id, direction, status);
+CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id);
+CREATE INDEX IF NOT EXISTS idx_emails_goal ON emails(goal_id);
+CREATE INDEX IF NOT EXISTS idx_emails_stakeholder ON emails(stakeholder_id);
+CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id);
 
 -- Calendar events
 CREATE TABLE IF NOT EXISTS calendar_events (

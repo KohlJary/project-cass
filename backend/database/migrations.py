@@ -486,6 +486,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 50:
         print("Adding goal_stakeholders table for goal-stakeholder integration (v50)")
 
+    # v50 -> v51: Email organ for stakeholder outreach
+    # Table (emails) created by SCHEMA_SQL
+    if from_version < 51:
+        print("Adding emails table for stakeholder communication (v51)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """
