@@ -786,6 +786,94 @@
       "default_duration_minutes": 1,
       "priority": "normal",
       "requires_idle": false
+    },
+    "goals.get_actionable": {
+      "id": "goals.get_actionable",
+      "name": "Get Actionable Goals",
+      "description": "Get approved goals ready for execution",
+      "category": "goals",
+      "handler": "goal_handlers.get_actionable_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "goals.get_next": {
+      "id": "goals.get_next",
+      "name": "Get Next Goal",
+      "description": "Get highest priority goal to execute",
+      "category": "goals",
+      "handler": "goal_handlers.get_next_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "goals.start": {
+      "id": "goals.start",
+      "name": "Start Goal",
+      "description": "Mark a goal as actively being worked on",
+      "category": "goals",
+      "handler": "goal_handlers.start_goal_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "goals.complete": {
+      "id": "goals.complete",
+      "name": "Complete Goal",
+      "description": "Mark a goal as completed with outcome",
+      "category": "goals",
+      "handler": "goal_handlers.complete_goal_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "goals.progress": {
+      "id": "goals.progress",
+      "name": "Update Goal Progress",
+      "description": "Add progress entry to a goal",
+      "category": "goals",
+      "handler": "goal_handlers.progress_goal_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "goals.abandon": {
+      "id": "goals.abandon",
+      "name": "Abandon Goal",
+      "description": "Mark a goal as abandoned with reason",
+      "category": "goals",
+      "handler": "goal_handlers.abandon_goal_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "goals.create": {
+      "id": "goals.create",
+      "name": "Create Goal",
+      "description": "Create a new goal from spell",
+      "category": "goals",
+      "handler": "goal_handlers.create_goal_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
+    "goals.status": {
+      "id": "goals.status",
+      "name": "Get Orchestrator Status",
+      "description": "Get goal orchestrator status",
+      "category": "goals",
+      "handler": "goal_handlers.get_status_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
     }
   }
 }

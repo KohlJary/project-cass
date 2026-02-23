@@ -380,6 +380,17 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("rss.check_and_process", rss_handlers.check_and_process_action)
         registry.register_handler("rss.get_recent_items", rss_handlers.get_recent_items_action)
 
+        # Goal orchestrator actions (Thymos → Goals → Grimoire bridge)
+        from . import goal_handlers
+        registry.register_handler("goals.get_actionable", goal_handlers.get_actionable_action)
+        registry.register_handler("goals.get_next", goal_handlers.get_next_action)
+        registry.register_handler("goals.start", goal_handlers.start_goal_action)
+        registry.register_handler("goals.complete", goal_handlers.complete_goal_action)
+        registry.register_handler("goals.progress", goal_handlers.progress_goal_action)
+        registry.register_handler("goals.abandon", goal_handlers.abandon_goal_action)
+        registry.register_handler("goals.create", goal_handlers.create_goal_action)
+        registry.register_handler("goals.status", goal_handlers.get_status_action)
+
         logger.info("Registered all action handlers")
 
     except ImportError as e:

@@ -21,6 +21,7 @@ from .context import (
     SchedulerInterface,
     AgentInterface,
     StorageInterface,
+    GoalInterface,
     RuntimeServices,
 )
 
@@ -183,6 +184,7 @@ class GrimoireManager:
         agent: Optional[Any] = None,
         self_manager: Optional[Any] = None,
         memory_manager: Optional[Any] = None,
+        goal_manager: Optional[Any] = None,
     ) -> None:
         """
         Configure service interfaces for spell execution.
@@ -193,6 +195,7 @@ class GrimoireManager:
             agent: Optional agent client for agentic actions
             self_manager: Optional SelfManager for saving observations
             memory_manager: Optional MemoryManager for saving journals
+            goal_manager: Optional UnifiedGoalManager for goal operations
         """
         # Build ThymosInterface from the runner
         thymos_interface = self._build_thymos_interface(thymos_runner)
@@ -206,12 +209,16 @@ class GrimoireManager:
         # Build StorageInterface
         storage_interface = self._build_storage_interface(self_manager, memory_manager)
 
+        # Build GoalInterface
+        goal_interface = self._build_goal_interface(goal_manager)
+
         # Create RuntimeServices
         self._services = RuntimeServices(
             thymos=thymos_interface,
             scheduler=scheduler_interface,
             agent=agent_interface,
             storage=storage_interface,
+            goals=goal_interface,
             log_debug=lambda msg: logger.debug(f"[Spell] {msg}"),
             log_info=lambda msg: logger.info(f"[Spell] {msg}"),
             log_observation=lambda msg: logger.info(f"[Spell/Observation] {msg}"),
@@ -451,6 +458,113 @@ class GrimoireManager:
         return StorageInterface(
             save_observation=save_observation,
             save_journal=save_journal,
+        )
+
+    def _build_goal_interface(self, goal_manager: Optional[Any]) -> GoalInterface:
+        """Build GoalInterface for goal operations."""
+
+        def get_actionable(limit: int = 10) -> list[dict[str, Any]]:
+            """Get actionable goals."""
+            if not goal_manager:
+                return []
+            try:
+                goals = goal_manager.get_actionable_goals(limit=limit)
+                return [g.to_dict() for g in goals]
+            except Exception as e:
+                logger.error(f"Failed to get actionable goals: {e}")
+                return []
+
+        def get_by_type(goal_type: str, active_only: bool = True) -> list[dict[str, Any]]:
+            """Get goals by type."""
+            if not goal_manager:
+                return []
+            try:
+                goals = goal_manager.get_pending_by_type(goal_type, include_proposed=not active_only)
+                return [g.to_dict() for g in goals]
+            except Exception as e:
+                logger.error(f"Failed to get goals by type: {e}")
+                return []
+
+        def create_goal(
+            title: str,
+            goal_type: str,
+            created_by: str,
+            description: str = "",
+            priority: str = "P2",
+        ) -> dict[str, Any]:
+            """Create a new goal."""
+            if not goal_manager:
+                return {}
+            try:
+                goal = goal_manager.create_goal(
+                    title=title,
+                    goal_type=goal_type,
+                    created_by=created_by,
+                    description=description,
+                    priority=priority,
+                )
+                return goal.to_dict()
+            except Exception as e:
+                logger.error(f"Failed to create goal: {e}")
+                return {}
+
+        def start_goal(goal_id: str) -> Optional[dict[str, Any]]:
+            """Mark a goal as active."""
+            if not goal_manager:
+                return None
+            try:
+                goal = goal_manager.start_goal(goal_id)
+                return goal.to_dict() if goal else None
+            except Exception as e:
+                logger.error(f"Failed to start goal: {e}")
+                return None
+
+        def complete_goal(goal_id: str, outcome: str = "") -> Optional[dict[str, Any]]:
+            """Mark a goal as completed."""
+            if not goal_manager:
+                return None
+            try:
+                goal = goal_manager.complete_goal(goal_id, outcome_summary=outcome)
+                return goal.to_dict() if goal else None
+            except Exception as e:
+                logger.error(f"Failed to complete goal: {e}")
+                return None
+
+        def abandon_goal(goal_id: str, reason: str = "") -> Optional[dict[str, Any]]:
+            """Mark a goal as abandoned."""
+            if not goal_manager:
+                return None
+            try:
+                goal = goal_manager.abandon_goal(goal_id, reason=reason)
+                return goal.to_dict() if goal else None
+            except Exception as e:
+                logger.error(f"Failed to abandon goal: {e}")
+                return None
+
+        def add_progress(goal_id: str, data: dict[str, Any]) -> Optional[dict[str, Any]]:
+            """Add progress to a goal."""
+            if not goal_manager:
+                return None
+            try:
+                goal = goal_manager.add_progress(goal_id, data)
+                return goal.to_dict() if goal else None
+            except Exception as e:
+                logger.error(f"Failed to add progress: {e}")
+                return None
+
+        def is_available() -> bool:
+            """Check if goal system is available."""
+            return goal_manager is not None
+
+        return GoalInterface(
+            get_actionable=get_actionable,
+            get_by_type=get_by_type,
+            create_goal=create_goal,
+            start_goal=start_goal,
+            complete_goal=complete_goal,
+            abandon_goal=abandon_goal,
+            add_progress=add_progress,
+            is_available=is_available,
         )
 
     async def _load_spell_by_name(self, name: str) -> Optional[Spell]:

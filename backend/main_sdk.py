@@ -112,7 +112,8 @@ from relay_client import init_relay_client, get_relay_client
 from push_tokens import get_push_manager
 from quiet_hours import get_quiet_hours_manager, is_quiet_hours
 from narration import get_metrics_dict as get_narration_metrics
-from goals import GoalManager
+# Note: GoalManager from goals.py deprecated - using UnifiedGoalManager
+from unified_goals import UnifiedGoalManager
 from research import ResearchManager
 from research_session import ResearchSessionManager
 from research_scheduler import ResearchScheduler, SessionType
@@ -351,7 +352,7 @@ calendar_manager = CalendarManager()
 task_manager = TaskManager()
 roadmap_manager = RoadmapManager()
 marker_store = None  # Initialized in _init_heavy_components after memory is ready
-goal_manager = GoalManager(data_dir=DATA_DIR)
+goal_manager = UnifiedGoalManager(_daemon_id)  # Unified goal system
 research_manager = ResearchManager()
 research_session_manager = ResearchSessionManager()
 research_scheduler = ResearchScheduler(data_dir=DATA_DIR)
@@ -384,7 +385,7 @@ from sources import (
     WorkItemQueryableSource, ScheduleQueryableSource, WorldStateSource
 )
 from config import SERVER_LOCATION
-from unified_goals import UnifiedGoalManager
+# UnifiedGoalManager imported earlier (line ~115)
 from work_planning import WorkItemManager, ScheduleManager
 
 github_source = GitHubQueryableSource(_daemon_id, github_metrics_manager)
@@ -419,10 +420,8 @@ from routes.roadmap import router as roadmap_router, init_roadmap_routes
 init_roadmap_routes(roadmap_manager)
 app.include_router(roadmap_router)
 
-# Register goal routes
-from routes.goals import router as goals_router, init_goal_routes
-init_goal_routes(goal_manager)
-app.include_router(goals_router)
+# Legacy goal routes removed - use /admin/goals (UnifiedGoalManager) instead
+# See routes/admin/goals.py for the modern goal management API
 
 # Initialize wiki storage
 from wiki import WikiStorage, WikiRetrieval, ResearchQueue, ProposalQueue
@@ -1641,6 +1640,26 @@ async def startup_event():
                     logger.info(f"Background: Grimoire attached with storage ({len(_grimoire.registry.spells)} spell(s))")
                 except Exception as e:
                     logger.error(f"Background: Failed to attach Grimoire: {e}")
+
+            # Attach state bus to Thymos for event emission
+            thymos_runner.attach_state_bus(global_state_bus)
+
+            # Initialize GoalOrchestrator to bridge Thymos → Goals → Grimoire
+            try:
+                from goal_orchestrator import init_goal_orchestrator
+                from unified_goals import UnifiedGoalManager
+
+                orchestrator_goal_manager = UnifiedGoalManager(_daemon_id)
+                goal_orchestrator = init_goal_orchestrator(
+                    daemon_id=_daemon_id,
+                    goal_manager=orchestrator_goal_manager,
+                    state_bus=global_state_bus,
+                    thymos=thymos_runner,
+                    grimoire=_grimoire,
+                )
+                logger.info("Background: GoalOrchestrator initialized")
+            except Exception as e:
+                logger.error(f"Background: Failed to initialize GoalOrchestrator: {e}")
 
             # Index source capabilities now that registry is attached
             await global_state_bus.start_capability_indexing()

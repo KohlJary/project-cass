@@ -239,6 +239,48 @@ class StorageInterface:
 
 
 @dataclass
+class GoalInterface:
+    """
+    Interface to the Goal Orchestrator.
+
+    Allows spells to query and manage goals.
+    """
+    # Get actionable goals (approved, ready for execution)
+    get_actionable: Callable[[int], list[dict[str, Any]]]
+
+    # Get goals by type
+    get_by_type: Callable[[str, bool], list[dict[str, Any]]]
+
+    # Create a goal
+    create_goal: Callable[[str, str, str, str, str], dict[str, Any]]
+
+    # Update goal status
+    start_goal: Callable[[str], Optional[dict[str, Any]]]
+    complete_goal: Callable[[str, str], Optional[dict[str, Any]]]
+    abandon_goal: Callable[[str, str], Optional[dict[str, Any]]]
+
+    # Add progress to a goal
+    add_progress: Callable[[str, dict[str, Any]], Optional[dict[str, Any]]]
+
+    # Check if goal system is available
+    is_available: Callable[[], bool]
+
+
+def _noop_goal_interface() -> "GoalInterface":
+    """Create a no-op GoalInterface for when goals are not configured."""
+    return GoalInterface(
+        get_actionable=lambda limit: [],
+        get_by_type=lambda t, active: [],
+        create_goal=lambda title, gtype, created_by, desc, priority: {},
+        start_goal=lambda gid: None,
+        complete_goal=lambda gid, outcome: None,
+        abandon_goal=lambda gid, reason: None,
+        add_progress=lambda gid, data: None,
+        is_available=lambda: False,
+    )
+
+
+@dataclass
 class RuntimeServices:
     """
     All external services the runtime needs.
@@ -274,6 +316,9 @@ class RuntimeServices:
 
     # Storage (for REFLECT...SAVE AS and SAVE actions)
     storage: StorageInterface = field(default_factory=StorageInterface)
+
+    # Goals (for goal orchestration)
+    goals: GoalInterface = field(default_factory=_noop_goal_interface)
 
     def check_cooldown(self, key: str, minutes: float) -> bool:
         """Check if cooldown has elapsed."""

@@ -53,7 +53,7 @@ from .affect_vector import AffectVector
 from .needs_register import NeedsRegister
 from .dynamics import AffectNeedDynamics, get_event_mappings
 from .felt_state import FeltStateSummarizer
-from .goal_generator import GoalGenerator, get_need_action_map
+# goal_generator removed - use goal_orchestrator.get_need_action_map() instead
 from .shadow_runner import (
     ThymosRunner,
     ThymosShadowRunner,  # Alias for backwards compatibility
@@ -100,8 +100,7 @@ __all__ = [
     "AffectNeedDynamics",
     "get_event_mappings",
     "FeltStateSummarizer",
-    "GoalGenerator",
-    "get_need_action_map",
+    # GoalGenerator removed - use goal_orchestrator instead
     # Main runner
     "ThymosRunner",
     "ThymosShadowRunner",  # Alias for backwards compatibility
