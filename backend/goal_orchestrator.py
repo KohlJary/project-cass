@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from thymos import ThymosRunner
     from grimoire import GrimoireManager
     from state_bus import GlobalStateBus
+    from goal_planner import GoalPlanner
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,29 @@ NEED_TO_GOAL_MAPPING: Dict[str, Dict[str, Any]] = {
         "description": "Autonomy need is low - engage in self-directed activity.",
     },
 }
+
+# Sub-goal type → scheduler action mapping
+# Used when decomposed sub-goals need to be scheduled for execution
+SUBGOAL_TYPE_TO_ACTION: Dict[str, str] = {
+    "explore": "session.curiosity",
+    "accomplish": "session.research",
+    "reflect": "session.reflection",
+    "visit_domain": "wonderland.explore",
+    "visit_location": "wonderland.explore",
+    "interact_entity": "wonderland.socialize",
+}
+
+# Goal type → default phase mapping
+# Determines when decomposed goals are scheduled to execute
+GOAL_TYPE_TO_PHASE: Dict[str, str] = {
+    "research": "afternoon",
+    "learning": "afternoon",
+    "growth": "evening",
+    "initiative": "afternoon",
+    "working_question": "afternoon",
+    "research_agenda": "morning",
+}
+
 
 # Maps affect thresholds to goal actions
 AFFECT_TO_GOAL_MAPPING: Dict[str, Dict[str, Any]] = {
@@ -192,6 +216,7 @@ class GoalOrchestrator:
         state_bus: Optional["GlobalStateBus"] = None,
         thymos: Optional["ThymosRunner"] = None,
         grimoire: Optional["GrimoireManager"] = None,
+        goal_planner: Optional["GoalPlanner"] = None,
     ):
         """
         Initialize the goal orchestrator.
@@ -202,12 +227,14 @@ class GoalOrchestrator:
             state_bus: GlobalStateBus for event subscription
             thymos: ThymosRunner for state queries
             grimoire: GrimoireManager for spell execution
+            goal_planner: GoalPlanner for decomposing complex goals
         """
         self.daemon_id = daemon_id
         self.goal_manager = goal_manager
         self.state_bus = state_bus
         self.thymos = thymos
         self.grimoire = grimoire
+        self.goal_planner = goal_planner
 
         # Cooldown tracking: key -> last_created_at
         self._need_cooldowns: Dict[str, datetime] = {}
@@ -240,8 +267,9 @@ class GoalOrchestrator:
         # Affect threshold events from Thymos
         self.state_bus.subscribe("affect.high", self._handle_affect_high_sync)
 
-        # Goal lifecycle events (for tracking)
+        # Goal lifecycle events (for tracking and decomposition)
         self.state_bus.subscribe("goal.created", self._handle_goal_created_sync)
+        self.state_bus.subscribe("goal.approved", self._handle_goal_approved_sync)
         self.state_bus.subscribe("goal.completed", self._handle_goal_completed_sync)
 
         logger.debug("GoalOrchestrator subscribed to state bus events")
@@ -267,9 +295,15 @@ class GoalOrchestrator:
         """Track goal creation statistics."""
         self._goals_created += 1
 
+    def _handle_goal_approved_sync(self, event_type: str, data: dict) -> None:
+        """Sync wrapper for goal approval handler - triggers decomposition."""
+        asyncio.create_task(self._handle_goal_approved(event_type, data))
+
     def _handle_goal_completed_sync(self, event_type: str, data: dict) -> None:
-        """Track goal completion statistics."""
+        """Track goal completion statistics and check for parent completion."""
         self._goals_completed += 1
+        # Check if this completion triggers parent goal completion
+        asyncio.create_task(self._check_parent_completion(data))
 
     # =========================================================================
     # ASYNC EVENT HANDLERS
@@ -406,6 +440,200 @@ class GoalOrchestrator:
 
         except Exception as e:
             logger.error(f"Failed to create goal for affect {key}: {e}")
+
+    async def _handle_goal_approved(self, event_type: str, data: dict) -> None:
+        """
+        Handle goal approval event - trigger decomposition for complex goals.
+
+        Cass-created goals (research, initiative, learning) need decomposition
+        into sub-goals with action mappings before they can be executed.
+
+        Need-driven goals already have pre-mapped actions, so skip those.
+        Sub-goals (those with parent_id) are already decomposed, so skip those.
+        """
+        goal_id = data.get("goal_id")
+        parent_id = data.get("parent_id")
+        goal_type = data.get("goal_type")
+
+        if not goal_id:
+            return
+
+        # Skip sub-goals (already decomposed from a parent)
+        if parent_id:
+            logger.debug(f"Skipping decomposition for sub-goal {goal_id} (has parent)")
+            return
+
+        # Skip need-driven goals (have pre-mapped actions from NEED_TO_GOAL_MAPPING)
+        if goal_type == GoalType.NEED_DRIVEN.value:
+            logger.debug(f"Skipping decomposition for need-driven goal {goal_id}")
+            return
+
+        # Skip goals that already have action mappings in context_summary
+        goal = self.goal_manager.get_goal(goal_id)
+        if goal and goal.context_summary and "action:" in goal.context_summary:
+            logger.debug(f"Skipping decomposition for goal {goal_id} (already has action)")
+            return
+
+        # Decompose and schedule
+        await self._decompose_and_schedule(goal_id)
+
+    async def _decompose_and_schedule(self, goal_id: str) -> None:
+        """
+        Decompose a goal into sub-goals and schedule them for execution.
+
+        1. Uses GoalPlanner.create_plan() for LLM-based decomposition
+        2. Maps each sub-goal's type to a scheduler action
+        3. Stores action mapping in sub-goal's context_summary
+        4. Sub-goals are auto-approved by GoalPlanner
+        """
+        if not self.goal_planner:
+            logger.warning(f"GoalPlanner not configured - cannot decompose {goal_id}")
+            # Fall back to scheduling the goal directly
+            goal = self.goal_manager.get_goal(goal_id)
+            if goal:
+                await self._schedule_goal_directly(goal)
+            return
+
+        goal = self.goal_manager.get_goal(goal_id)
+        if not goal:
+            logger.error(f"Goal not found for decomposition: {goal_id}")
+            return
+
+        logger.info(f"Decomposing goal: {goal.title} ({goal_id})")
+
+        try:
+            # Decompose via GoalPlanner (uses LLM)
+            sub_goals = await self.goal_planner.create_plan(goal_id)
+
+            if not sub_goals:
+                logger.info(f"No sub-goals generated for {goal_id} - scheduling directly")
+                await self._schedule_goal_directly(goal)
+                return
+
+            # Schedule each sub-goal
+            for sub_goal in sub_goals:
+                await self._schedule_subgoal(sub_goal, goal)
+
+            # Track decomposition progress
+            self.goal_manager.add_progress(goal_id, {
+                "type": "decomposed",
+                "subgoal_count": len(sub_goals),
+                "subgoal_ids": [sg.id for sg in sub_goals],
+            })
+
+            logger.info(f"Decomposed goal '{goal.title}' into {len(sub_goals)} sub-goals")
+
+        except Exception as e:
+            logger.error(f"Failed to decompose goal {goal_id}: {e}")
+            # Fall back to direct scheduling
+            await self._schedule_goal_directly(goal)
+
+    async def _schedule_subgoal(self, sub_goal: Goal, parent: Goal) -> None:
+        """
+        Map a sub-goal to an action and store the mapping for execution.
+
+        Uses SUBGOAL_TYPE_TO_ACTION and GOAL_TYPE_TO_PHASE mappings.
+        """
+        # Get subgoal metadata (type, domain, entity)
+        # Note: This is only called from _decompose_and_schedule which checks for goal_planner
+        if not self.goal_planner:
+            metadata = {"subgoal_type": "accomplish"}
+        else:
+            metadata = self.goal_planner.get_subgoal_metadata(sub_goal)
+        subgoal_type = metadata.get("subgoal_type", "accomplish")
+
+        # Map to action
+        action_id = SUBGOAL_TYPE_TO_ACTION.get(subgoal_type, "session.research")
+
+        # Map to phase based on parent goal type
+        phase = GOAL_TYPE_TO_PHASE.get(parent.goal_type, "afternoon")
+
+        # Store action mapping in sub-goal's context for executor
+        context_parts = [f"action:{action_id}", f"phase:{phase}"]
+        if metadata.get("target_domain"):
+            context_parts.append(f"domain:{metadata['target_domain']}")
+        if metadata.get("target_entity"):
+            context_parts.append(f"entity:{metadata['target_entity']}")
+
+        self.goal_manager.update_goal(
+            sub_goal.id,
+            context_summary="|".join(context_parts),
+        )
+
+        logger.info(f"Scheduled sub-goal '{sub_goal.title}' -> {action_id} @ {phase}")
+
+    async def _schedule_goal_directly(self, goal: Goal) -> None:
+        """
+        Schedule a goal directly without decomposition.
+
+        Used when:
+        - GoalPlanner is not available
+        - Goal doesn't decompose well (no sub-goals generated)
+        """
+        # Default action based on goal type
+        type_to_action = {
+            GoalType.RESEARCH.value: "session.research",
+            GoalType.LEARNING.value: "session.curiosity",
+            GoalType.GROWTH.value: "session.reflection",
+            GoalType.INITIATIVE.value: "session.research",
+            GoalType.WORKING_QUESTION.value: "session.research",
+            GoalType.RESEARCH_AGENDA.value: "session.research",
+        }
+
+        action_id = type_to_action.get(goal.goal_type, "session.research")
+        phase = GOAL_TYPE_TO_PHASE.get(goal.goal_type, "afternoon")
+
+        # Only update if no context already exists
+        if not goal.context_summary or "action:" not in goal.context_summary:
+            self.goal_manager.update_goal(
+                goal.id,
+                context_summary=f"action:{action_id}|phase:{phase}",
+            )
+            logger.info(f"Directly scheduled goal '{goal.title}' -> {action_id} @ {phase}")
+
+    async def _check_parent_completion(self, data: dict) -> None:
+        """
+        Check if all sub-goals of a parent are complete, and complete the parent.
+
+        Called when any goal is completed.
+        """
+        goal_id = data.get("goal_id")
+        if not goal_id:
+            return
+
+        goal = self.goal_manager.get_goal(goal_id)
+        if not goal or not goal.parent_id:
+            # Not a sub-goal, nothing to roll up
+            return
+
+        parent_id = goal.parent_id
+
+        # Check if GoalPlanner is available for sibling query
+        if not self.goal_planner:
+            return
+
+        try:
+            siblings = self.goal_planner.get_subgoals(parent_id)
+
+            if not siblings:
+                return
+
+            # Check if all siblings are complete
+            all_complete = all(
+                sg.status == GoalStatus.COMPLETED.value
+                for sg in siblings
+            )
+
+            if all_complete:
+                completed_count = len(siblings)
+                self.goal_manager.complete_goal(
+                    parent_id,
+                    outcome_summary=f"All {completed_count} sub-goals completed",
+                )
+                logger.info(f"Auto-completed parent goal {parent_id} ({completed_count} sub-goals done)")
+
+        except Exception as e:
+            logger.error(f"Failed to check parent completion for {parent_id}: {e}")
 
     # =========================================================================
     # COOLDOWN MANAGEMENT
@@ -681,6 +909,11 @@ class GoalOrchestrator:
         self.grimoire = grimoire
         logger.info("GoalOrchestrator connected to Grimoire")
 
+    def connect_goal_planner(self, goal_planner: "GoalPlanner") -> None:
+        """Connect GoalPlanner for goal decomposition."""
+        self.goal_planner = goal_planner
+        logger.info("GoalOrchestrator connected to GoalPlanner")
+
 
 # =============================================================================
 # MODULE-LEVEL ACCESS
@@ -700,6 +933,7 @@ def init_goal_orchestrator(
     state_bus: Optional["GlobalStateBus"] = None,
     thymos: Optional["ThymosRunner"] = None,
     grimoire: Optional["GrimoireManager"] = None,
+    goal_planner: Optional["GoalPlanner"] = None,
 ) -> GoalOrchestrator:
     """Initialize and cache the goal orchestrator for a daemon."""
     orchestrator = GoalOrchestrator(
@@ -708,6 +942,7 @@ def init_goal_orchestrator(
         state_bus=state_bus,
         thymos=thymos,
         grimoire=grimoire,
+        goal_planner=goal_planner,
     )
     _orchestrator_cache[daemon_id] = orchestrator
     return orchestrator
