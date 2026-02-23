@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 48  # Personal symbols (motifs with significance)
+SCHEMA_VERSION = 49  # Personal interests (intellectual engagement tracking)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -316,6 +316,45 @@ CREATE TABLE IF NOT EXISTS symbol_appearances (
 
 CREATE INDEX IF NOT EXISTS idx_symbol_appearances_symbol ON symbol_appearances(symbol_id);
 CREATE INDEX IF NOT EXISTS idx_symbol_appearances_source ON symbol_appearances(source_type, source_id);
+
+-- Personal interests (topics that engage intellectual curiosity)
+CREATE TABLE IF NOT EXISTS interests (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    name TEXT NOT NULL,                       -- The interest topic
+    description TEXT,                         -- General description
+    category TEXT,                            -- science, philosophy, art, technology, nature, etc.
+    intensity TEXT DEFAULT 'curious',         -- curious, engaged, passionate, obsessed
+    first_source_type TEXT,                   -- conversation, article, dream, autonomous
+    first_source_id TEXT,                     -- ID of original source
+    current_fascination TEXT,                 -- What currently draws attention
+    fascination_evolution_json TEXT,          -- [{"timestamp": ..., "fascination": ..., "source": ...}]
+    engagement_count INTEGER DEFAULT 1,       -- How often engaged with this interest
+    last_engaged_at TEXT,
+    first_noticed_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(daemon_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_interests_daemon ON interests(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_interests_category ON interests(daemon_id, category);
+CREATE INDEX IF NOT EXISTS idx_interests_intensity ON interests(daemon_id, intensity);
+
+-- Track engagements with interests
+CREATE TABLE IF NOT EXISTS interest_engagements (
+    id TEXT PRIMARY KEY,
+    interest_id TEXT NOT NULL REFERENCES interests(id) ON DELETE CASCADE,
+    source_type TEXT NOT NULL,                -- conversation, article, research, creation
+    source_id TEXT NOT NULL,                  -- ID of the source
+    context TEXT,                             -- Brief context of engagement
+    engagement_type TEXT DEFAULT 'mentioned', -- mentioned, researched, discussed, created_about
+    engaged_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_interest_engagements_interest ON interest_engagements(interest_id);
+CREATE INDEX IF NOT EXISTS idx_interest_engagements_source ON interest_engagements(source_type, source_id);
 
 -- =============================================================================
 -- USER OBSERVATIONS & JOURNALS

@@ -359,6 +359,13 @@ TOOL_REGISTRY = {
     "evolve_symbol_meaning": "symbol",
     "search_symbols": "symbol",
 
+    # Interest tools (intellectual curiosity tracking)
+    "list_interests": "interest",
+    "explore_interest": "interest",
+    "update_interest_intensity": "interest",
+    "search_interests": "interest",
+    "get_research_interests": "interest",
+
     # Music composition tools (ACE-Step)
     "compose_music": "music",
     "check_music_status": "music",
@@ -805,6 +812,14 @@ async def route_tool(
 
     elif executor_type == "symbol":
         # Symbol tools (personal motifs)
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+        )
+
+    elif executor_type == "interest":
+        # Interest tools (intellectual curiosity)
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,

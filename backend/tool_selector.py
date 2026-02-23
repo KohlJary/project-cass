@@ -194,6 +194,15 @@ SYMBOL_KEYWORDS = frozenset({
     "wings", "mirror", "labyrinth", "threshold",  # Common archetypal symbols
 })
 
+INTEREST_KEYWORDS = frozenset({
+    "interest", "interests", "interested in", "fascinating", "fascination",
+    "curious about", "curiosity", "what interests you", "your interests",
+    "what are you interested in", "what fascinates you", "what draws you",
+    "topics you like", "what do you want to learn", "want to research",
+    "passionate about", "obsessed with", "engaged with",
+    "intellectual curiosity", "what captivates you",
+})
+
 ACTIVITY_KEYWORDS = frozenset({
     "what have you been doing", "what did you do", "your day",
     "been up to", "been doing", "your activities", "your work",
@@ -277,6 +286,7 @@ class ToolSelector:
             ToolGroup("music", MUSIC_KEYWORDS, "Music composition tools"),
             ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
             ToolGroup("symbol", SYMBOL_KEYWORDS, "Personal symbol tools"),
+            ToolGroup("interest", INTEREST_KEYWORDS, "Personal interest tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -622,6 +632,11 @@ def should_include_activity_tools(message: str) -> bool:
 def should_include_symbol_tools(message: str) -> bool:
     """Check if message warrants personal symbol tools."""
     return _default_selector.should_include(message, "symbol")
+
+
+def should_include_interest_tools(message: str) -> bool:
+    """Check if message warrants personal interest tools."""
+    return _default_selector.should_include(message, "interest")
 
 
 # =============================================================================
