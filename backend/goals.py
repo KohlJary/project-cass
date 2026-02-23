@@ -656,45 +656,89 @@ Initial draft.
     def get_next_actions(self) -> List[Dict]:
         """
         Get prioritized list of next actions across all active goals.
+        Boosts priority for actions related to personal interests.
         """
         actions = []
+
+        # Get interest data for prioritization
+        interest_keywords = set()
+        interest_intensities = {}
+        daemon_id = self._get_daemon_id()
+        if daemon_id:
+            try:
+                from interests import get_interest_manager
+                interest_manager = get_interest_manager(daemon_id)
+                interests = interest_manager.list_interests(limit=15, order_by="engagement")
+                for interest in interests:
+                    name_lower = interest.name.lower()
+                    interest_keywords.add(name_lower)
+                    for word in name_lower.split():
+                        interest_keywords.add(word)
+                        interest_intensities[word] = interest.intensity
+            except Exception:
+                pass
+
+        def get_interest_boost(text: str) -> float:
+            """Calculate interest-based priority boost (0.0 to 0.5)."""
+            if not interest_keywords:
+                return 0.0
+            text_lower = text.lower()
+            text_words = set(text_lower.split())
+            matches = text_words & interest_keywords
+            if not matches:
+                return 0.0
+            # Higher boost for stronger interests
+            intensity_values = {"curious": 0.1, "engaged": 0.2, "passionate": 0.3, "obsessed": 0.5}
+            max_boost = 0.0
+            for match in matches:
+                intensity = interest_intensities.get(match, "curious")
+                boost = intensity_values.get(intensity, 0.1)
+                max_boost = max(max_boost, boost)
+            return max_boost
 
         # Next steps from active questions
         for q in self.list_working_questions(status="active"):
             for step in q["next_steps"]:
+                interest_boost = get_interest_boost(f"{step} {q['question']}")
                 actions.append({
                     "type": "question_step",
                     "action": step,
                     "context": q["question"],
                     "question_id": q["id"],
-                    "priority": "medium"
+                    "priority": "medium",
+                    "interest_boost": interest_boost
                 })
 
         # High priority research not started
         for item in self.list_research_agenda(status="not_started", priority="high"):
+            interest_boost = get_interest_boost(f"{item['topic']} {item['why']}")
             actions.append({
                 "type": "research_start",
                 "action": f"Begin research: {item['topic']}",
                 "context": item["why"],
                 "item_id": item["id"],
-                "priority": "high"
+                "priority": "high",
+                "interest_boost": interest_boost
             })
 
         # Blocked research needing resolution
         for item in self.list_research_agenda(status="blocked"):
             unresolved = [b for b in item["blockers"] if not b.get("resolved")]
             if unresolved:
+                interest_boost = get_interest_boost(f"{item['topic']} {unresolved[0]['blocker']}")
                 actions.append({
                     "type": "blocker_resolution",
                     "action": f"Resolve blocker: {unresolved[0]['blocker']}",
                     "context": item["topic"],
                     "item_id": item["id"],
-                    "priority": "high"
+                    "priority": "high",
+                    "interest_boost": interest_boost
                 })
 
-        # Sort by priority
+        # Sort by priority (with interest boost applied)
+        # Lower score = higher priority
         priority_order = {"high": 0, "medium": 1, "low": 2}
-        actions.sort(key=lambda x: priority_order.get(x["priority"], 1))
+        actions.sort(key=lambda x: priority_order.get(x["priority"], 1) - x.get("interest_boost", 0))
 
         return actions
 
