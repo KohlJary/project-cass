@@ -34,7 +34,7 @@ try:
 except ImportError:
     FACE_RECOGNITION_AVAILABLE = False
 
-from database import get_db_connection
+from database import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -335,7 +335,7 @@ async def save_face_enrollment(
     quality_score: float,
 ) -> str:
     """Save face enrollment to database."""
-    conn = get_db_connection()
+    conn = get_connection()
     cursor = conn.cursor()
 
     enrollment_id = str(uuid.uuid4())
@@ -368,7 +368,7 @@ async def save_face_enrollment(
 
 async def get_enrollment_status(user_id: str) -> dict:
     """Check if a user has enrolled their face."""
-    conn = get_db_connection()
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute(
@@ -396,7 +396,7 @@ async def get_enrollment_status(user_id: str) -> dict:
 
 async def delete_enrollment(user_id: str) -> bool:
     """Delete face enrollment for a user."""
-    conn = get_db_connection()
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute(
@@ -415,7 +415,7 @@ async def delete_enrollment(user_id: str) -> bool:
 
 async def get_all_enrollments() -> List[tuple]:
     """Get all face enrollments for matching."""
-    conn = get_db_connection()
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute(
