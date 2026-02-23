@@ -15,12 +15,16 @@ logger = logging.getLogger(__name__)
 
 async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
     """
-    Check inbox for unprocessed emails and notify Cass.
+    Check inbox for unprocessed emails and auto-respond to priority senders.
 
-    This action is run on phase transitions to surface new emails.
-    It doesn't auto-respond - just queues notification for Cass's attention.
+    Priority senders (auto-respond):
+    - Emails linked to goal stakeholders
+    - Emails from Kohl (primary user)
+
+    Other emails are just surfaced for Cass's attention.
     """
     managers = context.get("managers", {})
+    runners = context.get("runners", {})
     daemon_id = managers.get("daemon_id", "cass")
 
     try:
@@ -37,9 +41,20 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
                 data={"email_count": 0}
             )
 
-        # Format summary for logging/notification
+        # Categorize emails
+        auto_respond = []  # Stakeholders or Kohl
+        notify_only = []   # Others
+
+        for email in unprocessed:
+            should_auto = _should_auto_respond(email, daemon_id)
+            if should_auto:
+                auto_respond.append(email)
+            else:
+                notify_only.append(email)
+
+        # Format summary for logging
         summaries = []
-        for email in unprocessed[:5]:  # Limit to 5 for summary
+        for email in unprocessed[:5]:
             summaries.append(f"- From: {email.from_address}, Subject: {email.subject}")
 
         summary_text = "\n".join(summaries)
@@ -47,8 +62,9 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
             summary_text += f"\n... and {len(unprocessed) - 5} more"
 
         logger.info(f"[Email] Found {len(unprocessed)} unprocessed emails:\n{summary_text}")
+        logger.info(f"[Email] Auto-respond: {len(auto_respond)}, Notify only: {len(notify_only)}")
 
-        # Emit state bus event so Cass can be notified
+        # Emit state bus event
         state_bus = managers.get("state_bus")
         if state_bus:
             from state_models import StateDelta
@@ -58,6 +74,7 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
                 event="email.inbox_checked",
                 event_data={
                     "unprocessed_count": len(unprocessed),
+                    "auto_respond_count": len(auto_respond),
                     "emails": [
                         {
                             "id": e.id,
@@ -65,19 +82,39 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
                             "subject": e.subject,
                             "goal_id": e.goal_id,
                             "stakeholder_id": e.stakeholder_id,
+                            "auto_respond": e in auto_respond,
                         }
                         for e in unprocessed[:10]
                     ],
                 },
-                reason=f"Found {len(unprocessed)} unprocessed emails",
+                reason=f"Found {len(unprocessed)} unprocessed emails ({len(auto_respond)} priority)",
             )
             state_bus.write_delta(delta)
 
+        # Auto-respond to priority emails
+        responded = 0
+        total_cost = 0.0
+
+        if auto_respond and runners.get("reflection"):
+            for email in auto_respond[:3]:  # Limit to 3 at a time
+                try:
+                    result = await _auto_respond_to_email(
+                        email, email_manager, runners, managers
+                    )
+                    if result.get("success"):
+                        responded += 1
+                        total_cost += result.get("cost_usd", 0.0)
+                except Exception as e:
+                    logger.error(f"[Email] Auto-respond failed for {email.id}: {e}")
+
         return ActionResult(
             success=True,
-            message=f"Found {len(unprocessed)} unprocessed emails",
+            message=f"Found {len(unprocessed)} emails, auto-responded to {responded}",
+            cost_usd=total_cost,
             data={
                 "email_count": len(unprocessed),
+                "auto_responded": responded,
+                "notify_only": len(notify_only),
                 "summaries": summaries,
             }
         )
@@ -88,6 +125,181 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
             success=False,
             message=f"Failed to check inbox: {e}",
         )
+
+
+def _should_auto_respond(email, daemon_id: str) -> bool:
+    """
+    Determine if an email should get an auto-response.
+
+    Auto-respond to:
+    1. Emails from stakeholders linked to active goals
+    2. Emails from Kohl (primary user) - matched by PeopleDex
+    """
+    # If email is already linked to a stakeholder, auto-respond
+    if email.stakeholder_id:
+        return True
+
+    # If email is linked to a goal, auto-respond
+    if email.goal_id:
+        return True
+
+    # Check if sender is in PeopleDex as a known contact
+    try:
+        from database import get_db
+        import re
+
+        # Extract email address from "Name <email>" format
+        match = re.search(r'<([^>]+)>', email.from_address)
+        sender_email = match.group(1) if match else email.from_address
+
+        with get_db() as conn:
+            # Check if sender is in PeopleDex with "primary_user" or "kohl" tag
+            # or has relationship type indicating they're important
+            cursor = conn.execute("""
+                SELECT e.id, e.primary_name
+                FROM peopledex_entities e
+                JOIN peopledex_attributes a ON e.id = a.entity_id
+                WHERE a.attribute_type = 'email'
+                AND LOWER(a.value) = LOWER(?)
+                AND e.daemon_id = ?
+            """, (sender_email, daemon_id))
+
+            row = cursor.fetchone()
+            if row:
+                entity_id = row['id']
+                primary_name = row['primary_name']
+
+                # Check if this is Kohl or a primary user
+                cursor2 = conn.execute("""
+                    SELECT value FROM peopledex_attributes
+                    WHERE entity_id = ? AND attribute_type = 'tag'
+                    AND LOWER(value) IN ('primary_user', 'kohl', 'creator', 'partner')
+                """, (entity_id,))
+
+                if cursor2.fetchone():
+                    logger.info(f"[Email] Auto-respond: {primary_name} is a primary contact")
+                    return True
+
+                # Also check if they're linked to any goal as stakeholder
+                cursor3 = conn.execute("""
+                    SELECT goal_id FROM goal_stakeholders
+                    WHERE entity_id = ?
+                    LIMIT 1
+                """, (entity_id,))
+
+                if cursor3.fetchone():
+                    logger.info(f"[Email] Auto-respond: {primary_name} is a goal stakeholder")
+                    return True
+
+        return False
+
+    except Exception as e:
+        logger.warning(f"[Email] Error checking auto-respond status: {e}")
+        return False
+
+
+async def _auto_respond_to_email(
+    email,
+    email_manager,
+    runners: Dict[str, Any],
+    managers: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Generate and send an auto-response to an email.
+
+    Uses the reflection runner to have Cass compose a thoughtful reply.
+    """
+    reflection_runner = runners.get("reflection")
+    if not reflection_runner:
+        return {"success": False, "error": "No reflection runner"}
+
+    # Mark as processing
+    email_manager.mark_processing(email.id)
+
+    # Get thread context if this is a reply
+    thread_context = ""
+    if email.thread_id:
+        thread_context = email_manager.format_thread_context(email.thread_id)
+
+    # Get stakeholder context if linked
+    stakeholder_context = ""
+    if email.stakeholder_id:
+        try:
+            from peopledex import get_peopledex_manager
+            pdex = get_peopledex_manager(managers.get("daemon_id", "cass"))
+            profile = pdex.get_full_profile(email.stakeholder_id)
+            if profile:
+                # Build summary from profile
+                entity = profile.entity
+                attrs = profile.attributes
+                summary_lines = [f"**{entity.primary_name}** ({entity.entity_type.value})"]
+                for attr in attrs[:5]:  # Limit attributes
+                    if attr.attribute_type.value in ['role', 'bio', 'organization', 'email']:
+                        summary_lines.append(f"- {attr.attribute_type.value}: {attr.value}")
+                stakeholder_context = f"\n## About the Sender\n" + "\n".join(summary_lines) + "\n"
+        except Exception as e:
+            logger.warning(f"[Email] Could not get stakeholder context: {e}")
+
+    # Get goal context if linked
+    goal_context = ""
+    if email.goal_id:
+        try:
+            from unified_goals import UnifiedGoalManager
+            gm = UnifiedGoalManager(daemon_id=managers.get("daemon_id", "cass"))
+            goal = gm.get_goal(email.goal_id)
+            if goal:
+                goal_context = f"\n## Related Goal\n**{goal.title}**\n{goal.description}\n"
+        except Exception as e:
+            logger.warning(f"[Email] Could not get goal context: {e}")
+
+    # Build prompt for Cass
+    prompt = f"""You have received an email that needs a response.
+
+## Incoming Email
+**From:** {email.from_address}
+**Subject:** {email.subject}
+**Date:** {email.created_at}
+
+{email.body_plain or "(no body)"}
+{stakeholder_context}{goal_context}{thread_context}
+
+Please compose a thoughtful, professional reply to this email. Consider:
+1. The relationship with the sender (if known)
+2. Any relevant goal context
+3. Previous conversation thread (if any)
+4. Maintaining your authentic voice while being helpful
+
+After composing your reply, use the `send_email` tool to send it.
+Use `in_reply_to` with the message ID for proper threading.
+
+Email ID: {email.id}
+Message ID for reply: {email.message_id or email.id}
+"""
+
+    try:
+        # Run reflection session to compose and send reply
+        result = await reflection_runner.run_session(
+            session_type="email_response",
+            focus=prompt,
+            duration_minutes=10,
+            tools_filter=["send_email", "mark_email_read", "get_email_thread"],
+        )
+
+        # Mark as processed
+        email_manager.mark_processed(email.id)
+
+        logger.info(f"[Email] Auto-responded to email from {email.from_address}")
+
+        return {
+            "success": True,
+            "email_id": email.id,
+            "cost_usd": result.get("cost_usd", 0.0),
+        }
+
+    except Exception as e:
+        logger.error(f"[Email] Auto-response failed: {e}")
+        # Don't mark as processed so it can be retried
+        return {"success": False, "error": str(e)}
 
 
 async def process_inbox_action(context: Dict[str, Any]) -> ActionResult:
