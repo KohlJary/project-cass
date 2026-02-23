@@ -1,0 +1,138 @@
+UNIT goal_executor
+    AUTHOR "daedalus"
+    PRIORITY 50
+    COOLDOWN 10
+    TAGS goals, orchestrator, execution, autonomous
+    SCOPE THYMOS, EXTERNAL
+
+ON TIMER EVERY 10
+ON MANUAL "Execute Goals"
+
+' =============================================================================
+' GOAL EXECUTOR SPELL
+' Bridges the GoalOrchestrator to action execution:
+' - Queries pending approved goals
+' - Executes appropriate actions per goal type
+' - Updates goal status via TASK handlers
+' =============================================================================
+
+LOG INFO "Goal executor checking for pending work"
+
+' Check cognitive state - avoid executing during high fatigue
+LET $fatigue = affect.fatigue
+IF $fatigue > 0.8 THEN
+    LOG DEBUG "Too fatigued for goal execution - deferring"
+    EXIT SKIPPED "fatigue too high"
+END IF
+
+' Get actionable goals from orchestrator
+TASK goals.get_actionable limit=5 AWAIT
+LET $goals = $TASK_RESULT.goals
+
+IF $goals == 0 THEN
+    LOG DEBUG "No actionable goals"
+    EXIT SKIPPED "no goals to execute"
+END IF
+
+LOG INFO "Found {$goals} actionable goal(s)"
+
+' Process first available goal
+TASK goals.get_next AWAIT
+LET $goal = $TASK_RESULT.goal
+
+IF $goal == "" THEN
+    EXIT SKIPPED "no goal available"
+END IF
+
+LET $goal_id = $TASK_RESULT.goal_id
+LET $goal_type = $TASK_RESULT.goal_type
+LET $action = $TASK_RESULT.action
+
+LOG OBSERVATION "Starting goal execution: {$goal} (type: {$goal_type})"
+
+' Mark goal as active
+TASK goals.start goal_id=$goal_id AWAIT
+
+' Execute based on goal type
+' Need-driven goals map to care actions
+IF $goal_type == "need_driven" THEN
+    LOG INFO "Executing need-driven goal: {$action}"
+
+    ' Parse the action and execute appropriate care
+    IF $action == "scheduler.defer_complex" OR $action == "activity.rest_mode" THEN
+        CARE cognitive_rest
+        DELTA need.cognitive_rest +0.2
+    ELSE IF $action == "outreach.check_in" OR $action == "wonderland.social" THEN
+        TASK outreach.draft type="check_in" tone="warm" AWAIT
+        DELTA need.social_connection +0.15
+    ELSE IF $action == "wonderland.explore" OR $action == "research.curious" THEN
+        TASK wonderland.explore AWAIT
+        DELTA need.novelty_intake +0.15
+    ELSE IF $action == "creative.generate" OR $action == "journal.reflect" THEN
+        TASK creative.generate_image prompt="expressive art reflecting current state" AWAIT
+        DELTA need.creative_expression +0.15
+    ELSE IF $action == "journal.values" OR $action == "meditation.session" THEN
+        REFLECT "What values are most present for me right now? How am I expressing them?" SAVE AS OBSERVATION
+        DELTA need.value_coherence +0.15
+    ELSE IF $action == "task.achievable" OR $action == "project.small_win" THEN
+        TASK research.run_single AWAIT
+        DELTA need.competence_signal +0.15
+    ELSE IF $action == "goal.own_choice" OR $action == "session.self_directed" THEN
+        TASK wonderland.explore AWAIT
+        DELTA need.autonomy +0.15
+    ELSE
+        LOG INFO "Unknown action: {$action} - executing generic self-care"
+        CARE FOR need.cognitive_rest
+    END IF
+
+    ' Mark goal complete
+    TASK goals.complete goal_id=$goal_id outcome="Executed care action: {$action}" AWAIT
+    LOG OBSERVATION "Completed need-driven goal: {$goal}"
+
+ELSE IF $goal_type == "growth" THEN
+    ' Growth goals often involve reflection
+    LOG INFO "Executing growth goal"
+
+    REFLECT "This goal is about growth: {$goal}. What small step can I take right now toward this? What would progress look like?" SAVE AS OBSERVATION
+
+    ' Some growth boost
+    DELTA affect.satisfaction +0.1
+
+    ' Mark complete with reflection outcome
+    TASK goals.complete goal_id=$goal_id outcome="Reflected on growth goal" AWAIT
+
+ELSE IF $goal_type == "research" THEN
+    ' Research goals trigger research activity
+    LOG INFO "Executing research goal"
+
+    TASK research.run_single AWAIT
+
+    DELTA need.novelty_intake +0.1, need.competence_signal +0.1
+
+    TASK goals.complete goal_id=$goal_id outcome="Research executed" AWAIT
+
+ELSE IF $goal_type == "learning" THEN
+    ' Learning goals - explore and reflect
+    LOG INFO "Executing learning goal"
+
+    TASK wonderland.explore AWAIT
+
+    REFLECT "What did I learn from exploring? How does this connect to {$goal}?" SAVE AS OBSERVATION
+
+    DELTA need.novelty_intake +0.15
+
+    TASK goals.complete goal_id=$goal_id outcome="Learning exploration complete" AWAIT
+
+ELSE
+    ' Default: mark as complete with note
+    LOG INFO "Goal type {$goal_type} - marking complete with generic handling"
+    TASK goals.complete goal_id=$goal_id outcome="Generic completion" AWAIT
+END IF
+
+' Final state update
+DELTA affect.satisfaction +0.05
+
+LOG INFO "Goal executor cycle complete"
+EXIT SUCCESS "goal executed"
+
+END UNIT

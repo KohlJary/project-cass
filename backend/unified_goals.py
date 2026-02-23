@@ -104,6 +104,10 @@ class GoalType(str, Enum):
     RESEARCH = "research"    # Research questions, investigations
     GROWTH = "growth"        # Personal growth, self-improvement
     INITIATIVE = "initiative"  # Self-directed initiatives
+    # Orchestrator-managed types
+    NEED_DRIVEN = "need_driven"        # Auto-created from Thymos need depletion
+    WORKING_QUESTION = "working_question"  # Research questions from interests
+    RESEARCH_AGENDA = "research_agenda"    # Migrated from legacy goals.py agenda items
 
 
 class GoalStatus(str, Enum):
@@ -1206,6 +1210,84 @@ class UnifiedGoalManager:
         """Get goals created by user"""
         return self.list_goals(created_by="user")
 
+    def get_actionable_goals(self, limit: int = 10) -> List[Goal]:
+        """
+        Get goals that can be worked on now (approved or active, not blocked).
+
+        Returns goals sorted by priority/urgency for orchestrator consumption.
+        """
+        # Get approved and active goals
+        approved = self.list_goals(status=GoalStatus.APPROVED.value, limit=limit)
+        active = self.list_goals(status=GoalStatus.ACTIVE.value, limit=limit)
+
+        # Filter to actionable only
+        actionable = [g for g in approved + active if g.is_actionable()]
+
+        # Sort by priority and urgency
+        priority_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+        urgency_order = {"blocking": 0, "soon": 1, "when_convenient": 2}
+
+        return sorted(
+            actionable,
+            key=lambda g: (
+                priority_order.get(g.priority, 2),
+                urgency_order.get(g.urgency, 2),
+                g.created_at,
+            )
+        )[:limit]
+
+    def get_pending_by_type(
+        self,
+        goal_type: str,
+        include_proposed: bool = False,
+        limit: int = 50,
+    ) -> List[Goal]:
+        """
+        Get pending goals of a specific type.
+
+        Args:
+            goal_type: GoalType value to filter by
+            include_proposed: Whether to include proposed (not yet approved) goals
+            limit: Maximum number to return
+        """
+        result = []
+
+        # Always include approved and active
+        approved = self.list_goals(
+            status=GoalStatus.APPROVED.value, goal_type=goal_type, limit=limit
+        )
+        active = self.list_goals(
+            status=GoalStatus.ACTIVE.value, goal_type=goal_type, limit=limit
+        )
+        result.extend(approved)
+        result.extend(active)
+
+        if include_proposed:
+            proposed = self.list_goals(
+                status=GoalStatus.PROPOSED.value, goal_type=goal_type, limit=limit
+            )
+            result.extend(proposed)
+
+        return result[:limit]
+
+    def get_need_driven_goals(self, active_only: bool = True) -> List[Goal]:
+        """Get goals created from Thymos need events."""
+        if active_only:
+            return self.get_pending_by_type(GoalType.NEED_DRIVEN.value)
+        return self.list_goals(goal_type=GoalType.NEED_DRIVEN.value)
+
+    def get_research_agenda_goals(self, active_only: bool = True) -> List[Goal]:
+        """Get research agenda goals (migrated from legacy goals.py)."""
+        if active_only:
+            return self.get_pending_by_type(GoalType.RESEARCH_AGENDA.value)
+        return self.list_goals(goal_type=GoalType.RESEARCH_AGENDA.value)
+
+    def get_working_question_goals(self, active_only: bool = True) -> List[Goal]:
+        """Get working question goals."""
+        if active_only:
+            return self.get_pending_by_type(GoalType.WORKING_QUESTION.value)
+        return self.list_goals(goal_type=GoalType.WORKING_QUESTION.value)
+
     def get_goal_hierarchy(self, root_id: str) -> Dict:
         """
         Get a goal and all its children in a tree structure.
@@ -1284,3 +1366,59 @@ class UnifiedGoalManager:
             "average_alignment": avg_alignment,
             "total": sum(by_status.values()),
         }
+
+    def get_active_summary(self) -> str:
+        """
+        Get a formatted summary of active goals for context injection.
+
+        Returns a markdown-formatted string suitable for LLM context,
+        or empty string if no active goals.
+        """
+        # Get active and approved goals
+        active = self.get_active_goals()
+        approved = self.list_goals(status=GoalStatus.APPROVED.value)
+
+        if not active and not approved:
+            return ""
+
+        lines = ["## Active Goals\n"]
+
+        # Group by type for readability
+        by_type: Dict[str, List[Goal]] = {}
+        for goal in active + approved:
+            goal_type = goal.goal_type or "other"
+            if goal_type not in by_type:
+                by_type[goal_type] = []
+            by_type[goal_type].append(goal)
+
+        # Format each type section
+        type_labels = {
+            "research": "Research",
+            "working_question": "Working Questions",
+            "research_agenda": "Research Agenda",
+            "need_driven": "Self-Care",
+            "learning": "Learning",
+            "work": "Work Items",
+            "initiative": "Initiatives",
+        }
+
+        for goal_type, goals in by_type.items():
+            label = type_labels.get(goal_type, goal_type.replace("_", " ").title())
+            lines.append(f"### {label}")
+
+            for goal in goals[:3]:  # Limit per type for context
+                status_marker = "🔄" if goal.status == "active" else "📋"
+                priority = goal.priority or "P2"
+                lines.append(f"- {status_marker} [{priority}] {goal.title}")
+                if goal.description:
+                    # Truncate long descriptions
+                    desc = goal.description[:100]
+                    if len(goal.description) > 100:
+                        desc += "..."
+                    lines.append(f"  {desc}")
+
+            if len(goals) > 3:
+                lines.append(f"  _...and {len(goals) - 3} more_")
+            lines.append("")
+
+        return "\n".join(lines)

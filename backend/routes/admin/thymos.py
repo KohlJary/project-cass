@@ -21,7 +21,7 @@ from typing import Optional, List
 
 from thymos import persistence
 from thymos.shadow_runner import ThymosRunner, thymos_kill_switch, is_thymos_enabled
-from thymos.goal_generator import get_need_action_map
+from goal_orchestrator import get_need_action_map
 from database import get_db
 
 router = APIRouter(prefix="/thymos", tags=["thymos"])

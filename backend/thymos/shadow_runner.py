@@ -33,7 +33,7 @@ from .needs_register import NeedsRegister
 from .dynamics import AffectNeedDynamics, get_care_action_for_need
 from .models import AffectDelta, NeedDelta
 from .felt_state import FeltStateSummarizer
-from .goal_generator import GoalGenerator
+# GoalGenerator removed - goal creation now handled by GoalOrchestrator via state bus events
 from . import persistence
 
 # Grimoire integration (optional)
@@ -121,7 +121,7 @@ class ThymosRunner:
         self.needs = NeedsRegister()
         self.dynamics = AffectNeedDynamics(coupling_strength=coupling_strength)
         self.felt_state_gen = FeltStateSummarizer()
-        self.goal_gen = GoalGenerator()
+        # Goal generation now handled by GoalOrchestrator via state bus events
 
         # State tracking
         self.event_count = 0
@@ -151,6 +151,17 @@ class ThymosRunner:
         self._grimoire: Optional["GrimoireManager"] = None
         self._grimoire_on_tick = None
         self._grimoire_on_event = None
+
+        # State bus integration for event emission (set via attach_state_bus)
+        self._state_bus = None
+
+        # Track previously depleted needs to avoid duplicate events
+        self._depleted_needs: set[str] = set()
+        self._high_affects: set[str] = set()
+
+        # Affect thresholds for events
+        self._affect_high_threshold = 0.7
+        self._affect_low_threshold = 0.2
 
         # Try to load existing state
         self._load_state()
@@ -204,6 +215,113 @@ class ThymosRunner:
         self._grimoire_on_tick, self._grimoire_on_event = create_grimoire_hooks(grimoire)
 
         logger.info("Grimoire attached to Thymos shadow runner")
+
+    def attach_state_bus(self, state_bus) -> None:
+        """
+        Attach the global state bus for event emission.
+
+        When attached, Thymos will emit events when:
+        - A need drops below threshold (need.depleted)
+        - A need becomes urgent (need.urgent)
+        - An affect exceeds high threshold (affect.high)
+        """
+        self._state_bus = state_bus
+        logger.info("State bus attached to Thymos runner")
+
+    def _emit_need_event(
+        self,
+        event_type: str,
+        need_name: str,
+        current: float,
+        threshold: float,
+    ) -> None:
+        """Emit a need-related event to the state bus."""
+        if not self._state_bus:
+            return
+
+        self._state_bus.emit_event(event_type, {
+            "need_name": need_name,
+            "current": current,
+            "threshold": threshold,
+            "source": "thymos",
+            "daemon_id": self.daemon_id,
+        })
+        logger.debug(f"Emitted {event_type}: {need_name}={current:.2f}")
+
+    def _emit_affect_event(
+        self,
+        event_type: str,
+        affect_name: str,
+        current: float,
+        direction: str,
+    ) -> None:
+        """Emit an affect-related event to the state bus."""
+        if not self._state_bus:
+            return
+
+        self._state_bus.emit_event(event_type, {
+            "affect_name": affect_name,
+            "current": current,
+            "direction": direction,
+            "source": "thymos",
+            "daemon_id": self.daemon_id,
+        })
+        logger.debug(f"Emitted {event_type}: {affect_name}={current:.2f} ({direction})")
+
+    def _check_and_emit_need_events(self) -> None:
+        """Check need states and emit events for threshold crossings."""
+        needs_state = self.needs.state
+        needs_to_check = [
+            ("cognitive_rest", needs_state.cognitive_rest),
+            ("social_connection", needs_state.social_connection),
+            ("novelty_intake", needs_state.novelty_intake),
+            ("creative_expression", needs_state.creative_expression),
+            ("value_coherence", needs_state.value_coherence),
+            ("competence_signal", needs_state.competence_signal),
+            ("autonomy", needs_state.autonomy),
+        ]
+
+        for need_name, need in needs_to_check:
+            was_depleted = need_name in self._depleted_needs
+
+            # Check if need just became depleted
+            if need.is_below_preferred() and not was_depleted:
+                self._depleted_needs.add(need_name)
+                event_type = "need.urgent" if need.is_urgent() else "need.depleted"
+                self._emit_need_event(
+                    event_type,
+                    need_name,
+                    need.current,
+                    need.threshold,
+                )
+
+            # Check if need recovered
+            elif not need.is_below_preferred() and was_depleted:
+                self._depleted_needs.discard(need_name)
+                # Could emit a need.recovered event here if needed
+
+    def _check_and_emit_affect_events(self) -> None:
+        """Check affect states and emit events for threshold crossings."""
+        affects_to_check = [
+            ("anxiety", self.affect.state.anxiety),
+            ("frustration", self.affect.state.frustration),
+            ("grief", self.affect.state.grief),
+            ("fatigue", self.affect.state.fatigue),
+        ]
+
+        for affect_name, value in affects_to_check:
+            key = f"{affect_name}_high"
+            was_high = key in self._high_affects
+
+            # Check if affect just went high
+            if value > self._affect_high_threshold and not was_high:
+                self._high_affects.add(key)
+                self._emit_affect_event("affect.high", affect_name, value, "high")
+
+            # Check if affect recovered
+            elif value < self._affect_high_threshold - 0.1 and was_high:
+                self._high_affects.discard(key)
+                # Could emit affect.normalized event here if needed
 
     async def start(self) -> None:
         """Start the shadow runner (begins tick loop)."""
@@ -277,6 +395,10 @@ class ThymosRunner:
 
         # Update felt state
         self.current_felt_state = self.felt_state_gen.summarize(self.affect, self.needs)
+
+        # Emit state bus events for threshold crossings
+        self._check_and_emit_need_events()
+        self._check_and_emit_affect_events()
 
         # Grimoire: check spell triggers based on current state
         if self._grimoire_on_tick:
@@ -424,16 +546,8 @@ class ThymosRunner:
             except Exception as e:
                 logger.error(f"Grimoire event error: {e}")
 
-        # Check for goal suggestions (shadow mode - log only)
-        suggestions = self.goal_gen.generate_suggestions(self.needs, max_suggestions=3)
-        if suggestions:
-            # Filter by cooldown to prevent suggestion spam
-            filtered = self._filter_cooldowns(suggestions)
-            if filtered:
-                # Add to pending buffer for scheduler to poll
-                self._pending_suggestions.extend(filtered)
-                # Log all filtered suggestions
-                await self._log_suggestions(filtered)
+        # Note: Goal suggestions now handled by GoalOrchestrator via state bus events
+        # (need.depleted, need.urgent, affect.high events are emitted elsewhere)
 
         # Track event count and log event
         self.event_count += 1
