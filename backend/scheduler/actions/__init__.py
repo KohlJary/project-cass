@@ -280,6 +280,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import planning_handlers
         from . import artstudy_handlers
         from . import rss_handlers
+        from . import email_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -379,6 +380,10 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("rss.process_items", rss_handlers.process_items_action)
         registry.register_handler("rss.check_and_process", rss_handlers.check_and_process_action)
         registry.register_handler("rss.get_recent_items", rss_handlers.get_recent_items_action)
+
+        # Email actions (inbox checking on phase transitions)
+        registry.register_handler("email.check_inbox", email_handlers.check_inbox_action)
+        registry.register_handler("email.process_inbox", email_handlers.process_inbox_action)
 
         # Goal orchestrator actions (Thymos → Goals → Grimoire bridge)
         from . import goal_handlers

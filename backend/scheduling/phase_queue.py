@@ -319,7 +319,32 @@ class PhaseQueueManager:
             f"scheduling dispatch in {delay_seconds}s to allow spell queueing"
         )
 
+        # Check email inbox on phase transitions
+        asyncio.create_task(self._check_email_on_phase_change(new_phase))
+
         asyncio.create_task(self._delayed_phase_dispatch(new_phase, delay_seconds, transition))
+
+    async def _check_email_on_phase_change(self, phase: DayPhase) -> None:
+        """Check email inbox when phase changes."""
+        try:
+            if not self._action_registry:
+                logger.debug("Action registry not set - skipping email check")
+                return
+
+            logger.info(f"[Email] Checking inbox on phase change to {phase.value}")
+            result = await self._action_registry.execute("email.check_inbox")
+
+            if result.success:
+                email_count = result.data.get("email_count", 0)
+                if email_count > 0:
+                    logger.info(f"[Email] Found {email_count} unprocessed emails")
+                else:
+                    logger.debug("[Email] Inbox is empty")
+            else:
+                logger.warning(f"[Email] Inbox check failed: {result.message}")
+
+        except Exception as e:
+            logger.error(f"[Email] Failed to check inbox on phase change: {e}")
 
     async def _delayed_phase_dispatch(
         self,

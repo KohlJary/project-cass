@@ -1495,7 +1495,7 @@ async def startup_event():
         email_manager = init_email_manager(
             daemon_id=_daemon_id,
             relay_client=None,  # Will be connected below
-            state_bus=state_bus,
+            state_bus=global_state_bus,
         )
         relay_client.connect_email_manager(email_manager)
         logger.info("Email manager connected to relay client")
