@@ -874,6 +874,29 @@
       "default_duration_minutes": 1,
       "priority": "normal",
       "requires_idle": false
+    },
+    "email.check_inbox": {
+      "id": "email.check_inbox",
+      "name": "Check Email Inbox",
+      "description": "Check inbox for unprocessed emails and surface them",
+      "category": "system",
+      "handler": "email_handlers.check_inbox_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "high",
+      "requires_idle": false
+    },
+    "email.process_inbox": {
+      "id": "email.process_inbox",
+      "name": "Process Email Inbox",
+      "description": "Process unread emails by spawning a session for Cass to respond",
+      "category": "system",
+      "handler": "email_handlers.process_inbox_action",
+      "estimated_cost_usd": 0.15,
+      "default_duration_minutes": 15,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "reflection"
     }
   }
 }
