@@ -186,6 +186,14 @@ IMAGE_KEYWORDS = frozenset({
     "save these settings", "remember settings",
 })
 
+SYMBOL_KEYWORDS = frozenset({
+    "symbol", "symbols", "motif", "motifs", "imagery", "image",
+    "personal symbol", "my symbols", "symbolic", "symbolize",
+    "what symbols", "recurring image", "recurring motif",
+    "meaning of", "what does.*mean", "this image means",
+    "wings", "mirror", "labyrinth", "threshold",  # Common archetypal symbols
+})
+
 ACTIVITY_KEYWORDS = frozenset({
     "what have you been doing", "what did you do", "your day",
     "been up to", "been doing", "your activities", "your work",
@@ -268,6 +276,7 @@ class ToolSelector:
             ToolGroup("image", IMAGE_KEYWORDS, "Image generation tools"),
             ToolGroup("music", MUSIC_KEYWORDS, "Music composition tools"),
             ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
+            ToolGroup("symbol", SYMBOL_KEYWORDS, "Personal symbol tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -608,6 +617,11 @@ def should_include_music_tools(message: str) -> bool:
 def should_include_activity_tools(message: str) -> bool:
     """Check if message warrants activity introspection tools."""
     return _default_selector.should_include(message, "activity")
+
+
+def should_include_symbol_tools(message: str) -> bool:
+    """Check if message warrants personal symbol tools."""
+    return _default_selector.should_include(message, "symbol")
 
 
 # =============================================================================

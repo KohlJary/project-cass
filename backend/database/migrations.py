@@ -471,6 +471,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 47:
         print("Adding face identification table for visual recognition (v47)")
 
+    # v47 -> v48: Personal symbols (motifs with significance)
+    # Tables (symbols, symbol_appearances) created by SCHEMA_SQL
+    if from_version < 48:
+        print("Adding personal symbols tables for self-model (v48)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """
