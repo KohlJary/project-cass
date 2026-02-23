@@ -276,8 +276,49 @@ def integrate_dream_insights(
                 "is_breakthrough": is_breakthrough
             })
 
-    # Store symbols and questions for future reference
+    # Store symbols in the personal symbol library
+    symbols_added = []
+    if not dry_run and insights.recurring_symbols:
+        try:
+            from symbols import get_symbol_manager
+            # Get daemon_id from self_manager
+            daemon_id = getattr(self_manager, '_daemon_id', None)
+            if daemon_id:
+                symbol_manager = get_symbol_manager(daemon_id)
+                for sym_data in insights.recurring_symbols:
+                    symbol_name = sym_data.get("symbol", "").strip()
+                    meaning = sym_data.get("meaning", "").strip()
+                    charge = sym_data.get("emotional_charge", "ambivalent")
+
+                    if symbol_name and meaning:
+                        # Check if exists
+                        existing = symbol_manager.get_by_name(symbol_name)
+                        if existing:
+                            # Record another appearance
+                            symbol_manager.record_appearance(
+                                symbol_id=existing.id,
+                                source_type="dream",
+                                source_id=dream_id,
+                                context=f"Dream insight: {meaning}",
+                                meaning_in_context=meaning
+                            )
+                        else:
+                            # Create new symbol
+                            symbol_manager.add_symbol(
+                                name=symbol_name,
+                                meaning=meaning,
+                                source_type="dream",
+                                source_id=dream_id,
+                                emotional_charge=charge,
+                                description=f"First emerged in dream {dream_id}"
+                            )
+                        symbols_added.append(symbol_name)
+        except Exception as e:
+            print(f"[DreamIntegration] Could not store symbols: {e}")
+
+    # Store remaining data for reference
     updates["symbols"] = insights.recurring_symbols
+    updates["symbols_stored"] = symbols_added
     updates["emerging_questions"] = insights.emerging_questions
     updates["significance"] = insights.significance_summary
     updates["emotional_core"] = insights.emotional_core
