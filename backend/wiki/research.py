@@ -574,7 +574,37 @@ class ResearchQueue:
             task.result = result
             self.update(task)
             self._archive_completed(task)
+
+            # Record interest engagement for completed research
+            if result.success:
+                self._record_interest_engagement(task)
+
         return task
+
+    def _record_interest_engagement(self, task: ResearchTask) -> None:
+        """Record engagement with any interests related to this research topic."""
+        try:
+            from interests import get_interest_manager
+
+            interest_manager = get_interest_manager(self._daemon_id)
+            topic = task.target.lower()
+
+            # Check if we have an interest matching this topic
+            interests = interest_manager.list_interests(limit=20, order_by="engagement")
+            for interest in interests:
+                name_lower = interest.name.lower()
+                # Check for name match or word overlap
+                if name_lower == topic or name_lower in topic or topic in name_lower:
+                    # Record engagement
+                    interest_manager.record_engagement(
+                        interest_id=interest.id,
+                        source_type="research",
+                        source_id=task.task_id,
+                        context=f"Researched: {task.target}"
+                    )
+                    break
+        except Exception:
+            pass  # Don't let interest tracking break research completion
 
     def _archive_completed(self, task: ResearchTask) -> None:
         """Archive completed task to history table."""
