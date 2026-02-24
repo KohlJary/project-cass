@@ -245,3 +245,14 @@ user_observations (id, user_id, observation_text, category, confidence)
 - **Phase 3**: Extracted handler logic to reusable classes
 - **Phase 4.1**: Split admin_api.py → routes/admin/ (8 modules)
 - **Phase 4.2**: Split testing.py → routes/testing/ (13 modules)
+
+## Local Infrastructure
+
+### Home Assistant
+- **Container**: `homeassistant` (Docker, host networking)
+- **URL**: http://localhost:8123
+- **Config**: `/home/jaryk/homeassistant`
+- **Admin**: username `jaryk`, Kohl's usual password
+- **Cass Integration**: Long-lived access token stored in `backend/.env` as `HOME_ASSISTANT_TOKEN`
+
+Fresh install as of Feb 2026 (previous 3-year-old install had corrupted auth state).

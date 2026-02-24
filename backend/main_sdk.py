@@ -18,6 +18,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import os
+import uuid
 import logging
 from pydantic import BaseModel
 
@@ -838,6 +839,109 @@ async def health_check():
         "llm_provider": current_llm_provider,
         "memory_entries": memory.count() if memory else 0
     }
+
+
+# === Home Assistant Conversation Endpoint ===
+@app.post("/api/ha/conversation")
+async def ha_conversation(request: Request):
+    """
+    Handle conversation requests from Home Assistant.
+
+    This endpoint allows HA's voice pipeline to use Cass as a conversation agent.
+    """
+    from pydantic import BaseModel
+    from typing import Optional
+
+    data = await request.json()
+    text = data.get("text", "")
+    conversation_id = data.get("conversation_id")
+    language = data.get("language", "en")
+    device_id = data.get("device_id")
+
+    if not text:
+        return {"error": "No text provided", "response": "I didn't hear anything."}
+
+    # Use the default daemon for HA conversations
+    daemon_id = DEFAULT_DAEMON_ID if DEFAULT_DAEMON_ID else None
+
+    # Get or create a conversation for this HA session
+    if conversation_id:
+        conv = conversations_db.get(conversation_id) if conversations_db else None
+    else:
+        conv = None
+
+    if not conv:
+        # Create a new conversation for this HA session
+        conv_id = str(uuid.uuid4())
+        if conversations_db:
+            conversations_db.create(
+                id=conv_id,
+                daemon_id=daemon_id,
+                user_id="ha_user",  # Special HA user
+                title=f"Voice: {text[:30]}...",
+            )
+        conversation_id = conv_id
+    else:
+        conversation_id = conv["id"] if isinstance(conv, dict) else conv.id
+
+    # Build context for Cass (simplified for voice)
+    home_context = ""
+    try:
+        from home_assistant import get_ha_client
+        ha_client = get_ha_client()
+        if ha_client.is_configured:
+            home_context = await ha_client.get_home_summary()
+    except Exception as e:
+        logger.warning(f"Failed to get home context: {e}")
+
+    # Generate response using the agent
+    try:
+        # Add home context to the message
+        enhanced_message = text
+        if home_context:
+            enhanced_message = f"[Current home state for context:\n{home_context}]\n\nUser said: {text}"
+
+        # Use the appropriate client
+        if current_llm_provider == "claude":
+            response = await claude_client.generate_response(
+                message=enhanced_message,
+                conversation_id=conversation_id,
+                user_id="ha_user",
+            )
+        elif current_llm_provider == "openai" and openai_client:
+            response = await openai_client.generate_response(
+                message=enhanced_message,
+                conversation_id=conversation_id,
+                user_id="ha_user",
+            )
+        else:
+            return {"error": "No LLM provider available", "response": "I'm not available right now."}
+
+        # Extract the text response
+        response_text = response.content if hasattr(response, 'content') else str(response)
+
+        # Store the conversation
+        if memory:
+            await memory.store_conversation(
+                user_message=text,
+                assistant_message=response_text,
+                conversation_id=conversation_id,
+                user_id="ha_user",
+            )
+
+        return {
+            "response": response_text,
+            "conversation_id": conversation_id,
+            "language": language,
+        }
+
+    except Exception as e:
+        logger.error(f"HA conversation error: {e}")
+        return {
+            "error": str(e),
+            "response": "I encountered an error processing your request.",
+            "conversation_id": conversation_id,
+        }
 
 
 @app.get("/api/coherence/health")
