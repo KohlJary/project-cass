@@ -106,6 +106,7 @@ from handlers.music import execute_music_tool
 from handlers.activity import execute_activity_tool
 from handlers.symbols import execute_symbol_tool
 from handlers.interests import execute_interest_tool
+from handlers.home_assistant import execute_ha_tool, HOME_ASSISTANT_TOOLS
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
@@ -498,6 +499,7 @@ TOOL_EXECUTORS = {
     "activity": execute_activity_tool,
     "symbol": execute_symbol_tool,
     "interest": execute_interest_tool,
+    "home_assistant": execute_ha_tool,
 }
 
 

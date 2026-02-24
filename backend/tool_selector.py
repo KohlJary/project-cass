@@ -226,6 +226,22 @@ MUSIC_KEYWORDS = frozenset({
     "play me", "sing me", "compose me",
 })
 
+HOME_ASSISTANT_KEYWORDS = frozenset({
+    "home assistant", "smart home", "home automation",
+    "light", "lights", "turn on", "turn off", "toggle",
+    "thermostat", "temperature", "climate", "hvac", "heating", "cooling",
+    "lock", "locks", "door", "doors", "window", "windows",
+    "sensor", "sensors", "motion", "occupancy",
+    "switch", "switches", "outlet", "outlets", "plug", "plugs",
+    "fan", "fans", "cover", "covers", "blind", "blinds", "curtain", "curtains",
+    "media player", "tv", "speaker", "speakers",
+    "vacuum", "camera", "garage",
+    "device", "devices", "entity", "entities",
+    "area", "areas", "room", "rooms",
+    "home state", "house", "home status",
+    "dim", "dimmer", "brightness", "color", "rgb",
+})
+
 
 # =============================================================================
 # TOOL SELECTOR CLASS
@@ -287,6 +303,7 @@ class ToolSelector:
             ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
             ToolGroup("symbol", SYMBOL_KEYWORDS, "Personal symbol tools"),
             ToolGroup("interest", INTEREST_KEYWORDS, "Personal interest tools"),
+            ToolGroup("home_assistant", HOME_ASSISTANT_KEYWORDS, "Home Assistant smart home tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -637,6 +654,11 @@ def should_include_symbol_tools(message: str) -> bool:
 def should_include_interest_tools(message: str) -> bool:
     """Check if message warrants personal interest tools."""
     return _default_selector.should_include(message, "interest")
+
+
+def should_include_home_assistant_tools(message: str) -> bool:
+    """Check if message warrants Home Assistant smart home tools."""
+    return _default_selector.should_include(message, "home_assistant")
 
 
 # =============================================================================

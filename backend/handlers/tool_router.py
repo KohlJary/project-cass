@@ -383,6 +383,13 @@ TOOL_REGISTRY = {
     "check_music_status": "music",
     "list_compositions": "music",
 
+    # Home Assistant tools (smart home control)
+    "get_home_state": "home_assistant",
+    "get_device_state": "home_assistant",
+    "list_devices": "home_assistant",
+    "control_device": "home_assistant",
+    "list_areas": "home_assistant",
+
     # =========================================================================
     # CONSOLIDATED TOOLS
     # These are action-based tools that get translated to the original tool names
@@ -854,6 +861,11 @@ async def route_tool(
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
         )
+
+    elif executor_type == "home_assistant":
+        # Home Assistant smart home tools
+        result_str = await executor(tool_input)
+        return {"success": True, "result": result_str}
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}
 
