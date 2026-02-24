@@ -390,6 +390,12 @@ TOOL_REGISTRY = {
     "control_device": "home_assistant",
     "list_areas": "home_assistant",
 
+    # Home Automation tools (create/manage automations)
+    "draft_automation": "home_automation",
+    "create_automation": "home_automation",
+    "list_automations": "home_automation",
+    "toggle_automation": "home_automation",
+
     # =========================================================================
     # CONSOLIDATED TOOLS
     # These are action-based tools that get translated to the original tool names
