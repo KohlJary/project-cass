@@ -6,6 +6,7 @@ Uses long-lived access token authentication.
 """
 
 import os
+import asyncio
 import logging
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
@@ -415,3 +416,114 @@ def get_cached_home_summary_sync() -> Optional[str]:
 async def refresh_home_summary_cache() -> None:
     """Force refresh of home summary cache."""
     await get_cached_home_summary()
+
+
+# =============================================================================
+# WebSocket State Subscription
+# =============================================================================
+
+_ws_task: Optional[asyncio.Task] = None
+_ws_connected: bool = False
+
+
+async def subscribe_to_state_changes():
+    """
+    Subscribe to Home Assistant state changes via WebSocket.
+
+    Feeds state changes to HomeIntelligence for pattern learning and anomaly detection.
+    """
+    global _ws_connected
+    import websockets
+    import json
+
+    client = get_ha_client()
+    if not client.is_configured:
+        logger.info("HA not configured, skipping state subscription")
+        return
+
+    ws_url = client.url.replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"
+    msg_id = 1
+
+    while True:
+        try:
+            async with websockets.connect(ws_url) as ws:
+                # Wait for auth_required
+                auth_req = await ws.recv()
+                auth_data = json.loads(auth_req)
+
+                if auth_data.get("type") == "auth_required":
+                    # Send auth
+                    await ws.send(json.dumps({
+                        "type": "auth",
+                        "access_token": client.token
+                    }))
+
+                    auth_result = await ws.recv()
+                    result = json.loads(auth_result)
+
+                    if result.get("type") != "auth_ok":
+                        logger.error(f"HA WebSocket auth failed: {result}")
+                        await asyncio.sleep(30)
+                        continue
+
+                logger.info("HA WebSocket connected and authenticated")
+                _ws_connected = True
+
+                # Subscribe to state changes
+                await ws.send(json.dumps({
+                    "id": msg_id,
+                    "type": "subscribe_events",
+                    "event_type": "state_changed"
+                }))
+                msg_id += 1
+
+                # Process events
+                async for message in ws:
+                    try:
+                        data = json.loads(message)
+
+                        if data.get("type") == "event":
+                            event = data.get("event", {})
+                            event_data = event.get("data", {})
+
+                            entity_id = event_data.get("entity_id")
+                            old_state = event_data.get("old_state", {})
+                            new_state = event_data.get("new_state", {})
+
+                            if entity_id and new_state:
+                                # Feed to intelligence system
+                                try:
+                                    from home_intelligence import process_ha_state_change
+                                    await process_ha_state_change(
+                                        entity_id=entity_id,
+                                        old_state=old_state.get("state", "") if old_state else "",
+                                        new_state=new_state.get("state", ""),
+                                        attributes=new_state.get("attributes", {}),
+                                    )
+                                except ImportError:
+                                    pass  # Intelligence module not available
+                                except Exception as e:
+                                    logger.debug(f"Intelligence processing error: {e}")
+
+                    except json.JSONDecodeError:
+                        continue
+                    except Exception as e:
+                        logger.debug(f"Error processing HA event: {e}")
+
+        except Exception as e:
+            logger.warning(f"HA WebSocket error: {e}")
+            _ws_connected = False
+            await asyncio.sleep(10)  # Retry after 10 seconds
+
+
+async def start_state_subscription():
+    """Start the state change subscription in the background."""
+    global _ws_task
+    if _ws_task is None or _ws_task.done():
+        _ws_task = asyncio.create_task(subscribe_to_state_changes())
+        logger.info("Started HA state subscription task")
+
+
+def is_ws_connected() -> bool:
+    """Check if WebSocket is connected."""
+    return _ws_connected

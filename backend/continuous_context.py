@@ -120,8 +120,15 @@ def build_continuous_context(
         home_context = get_cached_home_summary_sync()
         if home_context:
             context_sections["home_state"] = home_context
+
+        # Add home intelligence insights (anomalies, suggestions)
+        from home_intelligence import get_home_intelligence
+        intelligence = get_home_intelligence()
+        insights = intelligence.get_insights_context()
+        if insights:
+            context_sections["home_insights"] = insights
     except ImportError:
-        pass  # Home Assistant module not available
+        pass  # Home Assistant/Intelligence module not available
     except Exception:
         pass  # HA not configured or unreachable
 
@@ -375,6 +382,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.52. Home state (smart home awareness)
     if "home_state" in sections:
         parts.append(f"## HOME STATE\n\n{sections['home_state']}")
+
+    # 2.53. Home insights (anomalies, suggestions)
+    if "home_insights" in sections:
+        parts.append(f"\n{sections['home_insights']}")
 
     # 2.6. Discord perception (social environment awareness)
     if "discord_perception" in sections:
