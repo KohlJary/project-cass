@@ -4076,6 +4076,181 @@ async def get_available_models():
     return {"models": models}
 
 
+# === Email Management API ===
+
+@app.get("/admin/email/stats")
+async def get_email_stats(daemon_id: str = Query(None)):
+    """Get email statistics."""
+    from email_organ import get_email_manager
+
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+    manager = get_email_manager(d_id)
+    stats = manager.get_email_stats()
+    return stats
+
+
+@app.get("/admin/email/inbox")
+async def get_email_inbox(
+    daemon_id: str = Query(None),
+    limit: int = Query(50),
+    include_processed: bool = Query(False),
+):
+    """Get inbox emails."""
+    from email_organ import get_email_manager
+
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+    manager = get_email_manager(d_id)
+
+    with get_db() as conn:
+        if include_processed:
+            cursor = conn.execute("""
+                SELECT * FROM emails
+                WHERE daemon_id = ? AND direction = 'inbound'
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (d_id, limit))
+        else:
+            cursor = conn.execute("""
+                SELECT * FROM emails
+                WHERE daemon_id = ? AND direction = 'inbound'
+                AND status IN ('received', 'processing')
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (d_id, limit))
+
+        emails = [dict(row) for row in cursor.fetchall()]
+
+    return {"emails": emails}
+
+
+@app.get("/admin/email/sent")
+async def get_sent_emails(
+    daemon_id: str = Query(None),
+    limit: int = Query(50),
+):
+    """Get sent emails."""
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT * FROM emails
+            WHERE daemon_id = ? AND direction = 'outbound'
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (d_id, limit))
+
+        emails = [dict(row) for row in cursor.fetchall()]
+
+    return {"emails": emails}
+
+
+@app.get("/admin/email/{email_id}")
+async def get_email_detail(email_id: str, daemon_id: str = Query(None)):
+    """Get email by ID."""
+    from email_organ import get_email_manager
+
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+    manager = get_email_manager(d_id)
+    email = manager.get_email(email_id)
+
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    return email.to_dict()
+
+
+@app.get("/admin/email/{email_id}/thread")
+async def get_email_thread(email_id: str, daemon_id: str = Query(None)):
+    """Get full email thread."""
+    from email_organ import get_email_manager
+
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+    manager = get_email_manager(d_id)
+    email = manager.get_email(email_id)
+
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    if email.thread_id:
+        thread = manager.get_thread(email.thread_id)
+        return {"emails": [e.to_dict() for e in thread]}
+
+    return {"emails": [email.to_dict()]}
+
+
+@app.post("/admin/email/check-inbox")
+async def trigger_inbox_check(daemon_id: str = Query(None)):
+    """Manually trigger inbox check."""
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+
+    try:
+        result = await action_registry.execute(
+            action_id="email.check_inbox",
+            respond_to_all=False,  # Only priority senders
+        )
+        return {
+            "success": result.success,
+            "message": result.message,
+        }
+    except Exception as e:
+        logger.error(f"Failed to check inbox: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/email/{email_id}/respond")
+async def trigger_email_response(email_id: str, daemon_id: str = Query(None)):
+    """Manually trigger response to a specific email."""
+    from email_organ import get_email_manager
+    from scheduler.actions.email_handlers import respond_to_email_action
+
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+    manager = get_email_manager(d_id)
+    email = manager.get_email(email_id)
+
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    if email.direction != "inbound":
+        raise HTTPException(status_code=400, detail="Can only respond to inbound emails")
+
+    if email.status == "processed":
+        raise HTTPException(status_code=400, detail="Email already processed")
+
+    # Build context for the action
+    from scheduler.action_registry import ActionContext
+
+    ctx = ActionContext(
+        daemon_id=d_id,
+        managers=action_registry._managers,
+        runners=action_registry._runners,
+    )
+
+    try:
+        result = await respond_to_email_action(ctx, email_id=email_id)
+        return {
+            "success": result.success,
+            "message": result.message,
+        }
+    except Exception as e:
+        logger.error(f"Failed to respond to email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/email/{email_id}/mark-processed")
+async def mark_email_processed(email_id: str, daemon_id: str = Query(None)):
+    """Manually mark an email as processed (skip response)."""
+    from email_organ import get_email_manager
+
+    d_id = daemon_id or DEFAULT_DAEMON_ID
+    manager = get_email_manager(d_id)
+
+    success = manager.mark_processed(email_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    return {"success": True, "message": "Email marked as processed"}
+
+
 # === Static Frontend Serving ===
 # Serve admin-frontend for Railway/production deployment
 

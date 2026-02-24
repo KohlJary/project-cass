@@ -183,6 +183,13 @@ export {
   type STTStatus,
 } from './voice';
 
+// Email (Inbox, Sent, Actions)
+export {
+  emailApi,
+  type Email,
+  type EmailStats,
+} from './email';
+
 // Miscellaneous APIs
 export {
   exportApi,

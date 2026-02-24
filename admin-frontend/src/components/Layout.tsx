@@ -60,6 +60,7 @@ const navGroups: NavGroup[] = [
     items: [
       { path: '/daily-activity', label: 'Daily Activity', icon: '◉' },
       { path: '/activity', label: 'Activity', icon: '>' },
+      { path: '/email', label: 'Email', icon: '✉' },
       { path: '/consciousness', label: 'Consciousness', icon: '♡' },
       { path: '/self-development', label: 'Self-Dev', icon: '%' },
       { path: '/users', label: 'Users', icon: '@' },

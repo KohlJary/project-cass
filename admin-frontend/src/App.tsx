@@ -42,6 +42,7 @@ import { DailyActivity } from './pages/DailyActivity';
 import { VoiceCall } from './pages/VoiceCall';
 import { VoiceEnrollment } from './pages/VoiceEnrollment';
 import { FaceEnrollment } from './pages/FaceEnrollment';
+import { Email } from './pages/Email';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -139,6 +140,7 @@ function AppRoutes() {
         <Route path="research" element={<AdminRoute><Research /></AdminRoute>} />
         <Route path="goals" element={<AdminRoute><Goals /></AdminRoute>} />
         <Route path="settings" element={<AdminRoute><Settings /></AdminRoute>} />
+        <Route path="email" element={<AdminRoute><Email /></AdminRoute>} />
         <Route path="system" element={<AdminRoute><Navigate to="/settings?tab=health" replace /></AdminRoute>} />
         <Route path="data" element={<AdminRoute><Navigate to="/settings?tab=export" replace /></AdminRoute>} />
         <Route path="consciousness" element={<AdminRoute><Navigate to="/mind?tab=consciousness" replace /></AdminRoute>} />
