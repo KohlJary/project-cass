@@ -106,8 +106,9 @@ class MicrophoneInput:
 
     def __init__(
         self,
-        sample_rate: int = 16000,
+        sample_rate: int = None,  # None = auto-detect from device
         channels: int = 1,
+        device: int = None,  # None = default device
         chunk_duration_ms: int = 30,
         silence_threshold_ms: int = 800,
         min_speech_ms: int = 250,
@@ -124,7 +125,7 @@ class MicrophoneInput:
             on_utterance: Callback when complete utterance detected
             on_vad_state: Callback when VAD state changes
         """
-        self.sample_rate = sample_rate
+        self.device = device
         self.channels = channels
         self.chunk_duration_ms = chunk_duration_ms
         self.silence_threshold_ms = silence_threshold_ms
@@ -133,14 +134,31 @@ class MicrophoneInput:
         self.on_utterance = on_utterance
         self.on_vad_state = on_vad_state
 
-        # Calculate chunk size in samples
-        self.chunk_samples = int(sample_rate * chunk_duration_ms / 1000)
-
-        # VAD setup
-        if WEBRTCVAD_AVAILABLE:
-            self.vad = WebRTCVAD(aggressiveness=2, sample_rate=sample_rate)
+        # Auto-detect sample rate from device if not specified
+        if sample_rate is None and SOUNDDEVICE_AVAILABLE:
+            try:
+                if device is not None:
+                    dev_info = sd.query_devices(device)
+                else:
+                    dev_info = sd.query_devices(sd.default.device[0])
+                self.sample_rate = int(dev_info['default_samplerate'])
+                logger.info(f"Auto-detected sample rate: {self.sample_rate} Hz")
+            except Exception as e:
+                logger.warning(f"Could not auto-detect sample rate: {e}, using 44100")
+                self.sample_rate = 44100
         else:
-            self.vad = SimpleEnergyVAD(sample_rate=sample_rate)
+            self.sample_rate = sample_rate or 44100
+
+        # Calculate chunk size in samples
+        self.chunk_samples = int(self.sample_rate * chunk_duration_ms / 1000)
+
+        # VAD setup - webrtcvad only supports specific sample rates
+        if WEBRTCVAD_AVAILABLE and self.sample_rate in [8000, 16000, 32000, 48000]:
+            self.vad = WebRTCVAD(aggressiveness=2, sample_rate=self.sample_rate)
+        else:
+            if WEBRTCVAD_AVAILABLE:
+                logger.info(f"WebRTC VAD doesn't support {self.sample_rate} Hz, using energy VAD")
+            self.vad = SimpleEnergyVAD(sample_rate=self.sample_rate)
 
         # State
         self.state = VADState.SILENCE
@@ -232,6 +250,7 @@ class MicrophoneInput:
             channels=self.channels,
             dtype=np.int16,
             blocksize=self.chunk_samples,
+            device=self.device,
             callback=self._audio_callback,
         )
         self._stream.start()
