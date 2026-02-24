@@ -1513,6 +1513,7 @@ from handlers.image_generation import IMAGE_GENERATION_TOOLS
 from handlers.music import MUSIC_TOOLS
 from handlers.activity import ACTIVITY_TOOLS
 from handlers.home_assistant import HOME_ASSISTANT_TOOLS
+from handlers.home_automation import HOME_AUTOMATION_TOOLS
 
 
 # ============================================================================
@@ -1705,6 +1706,7 @@ class CassAgentClient:
             # Home Assistant tools - smart home control
             if should_include_home_assistant_tools(message):
                 tools.extend(HOME_ASSISTANT_TOOLS)
+                tools.extend(HOME_AUTOMATION_TOOLS)
 
             # State query tools - always available for self-introspection
             # Cass should always be able to query her own state (tokens, github, memory, etc)

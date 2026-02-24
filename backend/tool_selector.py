@@ -240,6 +240,14 @@ HOME_ASSISTANT_KEYWORDS = frozenset({
     "area", "areas", "room", "rooms",
     "home state", "house", "home status",
     "dim", "dimmer", "brightness", "color", "rgb",
+    # Automation authoring keywords
+    "automation", "automations", "automate",
+    "when i arrive", "when i leave", "when i get home", "when i come home",
+    "at sunset", "at sunrise", "at midnight", "at noon",
+    "every day at", "every morning", "every night", "every evening",
+    "if motion", "when motion", "motion detected",
+    "create automation", "set up automation", "make an automation",
+    "trigger", "triggers", "schedule", "scheduled",
 })
 
 
