@@ -343,10 +343,13 @@ class HomeAssistantClient:
 
 
 # =============================================================================
-# Module-level singleton
+# Module-level singleton with cached state
 # =============================================================================
 
 _ha_client: Optional[HomeAssistantClient] = None
+_cached_home_summary: Optional[str] = None
+_cache_timestamp: Optional[float] = None
+_CACHE_TTL_SECONDS = 60  # Refresh home state every 60 seconds
 
 
 def get_ha_client() -> HomeAssistantClient:
@@ -361,3 +364,54 @@ async def check_ha_connection() -> Dict[str, Any]:
     """Check HA connection status."""
     client = get_ha_client()
     return await client.check_connection()
+
+
+async def get_cached_home_summary() -> Optional[str]:
+    """
+    Get cached home summary, refreshing if stale.
+
+    Returns cached summary if fresh, or fetches new one if expired.
+    Used for context injection without blocking.
+    """
+    global _cached_home_summary, _cache_timestamp
+    import time
+
+    now = time.time()
+
+    # Check if cache is fresh
+    if _cached_home_summary and _cache_timestamp:
+        if now - _cache_timestamp < _CACHE_TTL_SECONDS:
+            return _cached_home_summary
+
+    # Refresh cache
+    client = get_ha_client()
+    if not client.is_configured:
+        return None
+
+    try:
+        summary = await client.get_home_summary()
+        if summary and summary != "Home Assistant not configured.":
+            _cached_home_summary = summary
+            _cache_timestamp = now
+            return summary
+    except Exception as e:
+        logger.warning(f"Failed to refresh home summary cache: {e}")
+        # Return stale cache if available
+        return _cached_home_summary
+
+    return None
+
+
+def get_cached_home_summary_sync() -> Optional[str]:
+    """
+    Get cached home summary synchronously (no refresh).
+
+    Returns the last cached summary without attempting to refresh.
+    Use this in sync contexts where you can't await.
+    """
+    return _cached_home_summary
+
+
+async def refresh_home_summary_cache() -> None:
+    """Force refresh of home summary cache."""
+    await get_cached_home_summary()
