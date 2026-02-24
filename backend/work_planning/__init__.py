@@ -17,6 +17,7 @@ from .models import (
 )
 from .work_manager import WorkItemManager
 from .schedule_manager import ScheduleManager
+from .ha_sync import CassCalendarSync, get_cass_calendar_sync
 
 __all__ = [
     # Models
@@ -30,4 +31,7 @@ __all__ = [
     # Managers
     "WorkItemManager",
     "ScheduleManager",
+    # HA Sync
+    "CassCalendarSync",
+    "get_cass_calendar_sync",
 ]

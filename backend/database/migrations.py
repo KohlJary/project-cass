@@ -491,6 +491,16 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 51:
         print("Adding emails table for stakeholder communication (v51)")
 
+    # v51 -> v52: User calendar configuration for HA calendar integration
+    # Table (user_calendar_config) created by SCHEMA_SQL
+    if from_version < 52:
+        print("Adding user_calendar_config table for HA calendar integration (v52)")
+
+    # v52 -> v53: Timers for countdown timer support
+    # Table (timers) created by SCHEMA_SQL
+    if from_version < 53:
+        print("Adding timers table for countdown timer support (v53)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """
