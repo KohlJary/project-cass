@@ -111,6 +111,28 @@ def build_continuous_context(
             context_sections["global_state"] = state_context
 
     # ==========================================================================
+    # 2.52. HOME STATE (Smart home awareness via Home Assistant)
+    # ==========================================================================
+    # Current home state: lights, climate, locks, presence
+    # Uses cached summary to avoid async issues in sync context
+    try:
+        from home_assistant import get_cached_home_summary_sync
+        home_context = get_cached_home_summary_sync()
+        if home_context:
+            context_sections["home_state"] = home_context
+
+        # Add home intelligence insights (anomalies, suggestions)
+        from home_intelligence import get_home_intelligence
+        intelligence = get_home_intelligence()
+        insights = intelligence.get_insights_context()
+        if insights:
+            context_sections["home_insights"] = insights
+    except ImportError:
+        pass  # Home Assistant/Intelligence module not available
+    except Exception:
+        pass  # HA not configured or unreachable
+
+    # ==========================================================================
     # 2.55. THYMOS FELT STATE (Emotional/motivational state)
     # ==========================================================================
     # Current felt state from Thymos homeostatic system
@@ -356,6 +378,14 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.5. Global state (world awareness)
     if "global_state" in sections:
         parts.append(f"## CURRENT STATE\n\n{sections['global_state']}")
+
+    # 2.52. Home state (smart home awareness)
+    if "home_state" in sections:
+        parts.append(f"## HOME STATE\n\n{sections['home_state']}")
+
+    # 2.53. Home insights (anomalies, suggestions)
+    if "home_insights" in sections:
+        parts.append(f"\n{sections['home_insights']}")
 
     # 2.6. Discord perception (social environment awareness)
     if "discord_perception" in sections:

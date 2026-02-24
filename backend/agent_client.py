@@ -44,6 +44,7 @@ from tool_selector import (
     should_include_image_tools,
     should_include_music_tools,
     should_include_activity_tools,
+    should_include_home_assistant_tools,
 )
 
 
@@ -1511,6 +1512,8 @@ from handlers.development_requests import DEVELOPMENT_REQUEST_TOOLS
 from handlers.image_generation import IMAGE_GENERATION_TOOLS
 from handlers.music import MUSIC_TOOLS
 from handlers.activity import ACTIVITY_TOOLS
+from handlers.home_assistant import HOME_ASSISTANT_TOOLS
+from handlers.home_automation import HOME_AUTOMATION_TOOLS
 
 
 # ============================================================================
@@ -1699,6 +1702,11 @@ class CassAgentClient:
             # Activity introspection tools - recall autonomous work sessions
             if should_include_activity_tools(message):
                 tools.extend(ACTIVITY_TOOLS)
+
+            # Home Assistant tools - smart home control
+            if should_include_home_assistant_tools(message):
+                tools.extend(HOME_ASSISTANT_TOOLS)
+                tools.extend(HOME_AUTOMATION_TOOLS)
 
             # State query tools - always available for self-introspection
             # Cass should always be able to query her own state (tokens, github, memory, etc)

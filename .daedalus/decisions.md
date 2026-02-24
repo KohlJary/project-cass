@@ -182,3 +182,31 @@ self_observations (
 - Kohl maintains final control over main
 - Commits preserve context for review
 - Reduces risk of breaking production
+
+---
+
+## Home Assistant Integration (Feb 2026)
+
+**Decision**: Integrate Cass with Home Assistant as voice/home assistant
+
+**Context**: For Cass to be a practical voice assistant (important for potential financial backing), need smart home control and voice interaction capabilities.
+
+**Approach**:
+1. Phase 1: Add HA API client to backend with device control tools
+2. Phase 2: Create custom HA integration registering Cass as conversation agent
+3. Phase 3: Full voice pipeline via Wyoming protocol (Whisper STT, Piper TTS)
+4. Phases 4-6: Proactive intelligence, context awareness, automation authoring
+
+**Rationale**:
+- HA has 2000+ device integrations - don't reinvent the wheel
+- Established voice pipeline infrastructure (Assist)
+- Local/privacy-preserving operation
+- Custom conversation agent API lets us plug Cass directly in
+- Can reuse existing Piper TTS infrastructure
+
+**Trade-offs**:
+- Dependency on Home Assistant ecosystem
+- Need to maintain custom HA integration
+- Voice hardware needed for full experience
+
+**See**: `.daedalus/plans/home-assistant-integration.md` for detailed roadmap

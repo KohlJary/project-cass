@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # Wyoming Whisper - Speech-to-Text (CPU mode - GPU full with Ollama/ACE-Step)
+  whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: wyoming-whisper
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - whisper-data:/data
+    command: --model tiny.en --language en --device cpu
+
+  # Wyoming Piper - Text-to-Speech
+  piper:
+    image: rhasspy/wyoming-piper:latest
+    container_name: wyoming-piper
+    restart: unless-stopped
+    ports:
+      - "10200:10200"
+    volumes:
+      - piper-data:/data
+    command: --voice en_US-lessac-medium
+
+  # Wyoming openWakeWord - Wake word detection
+  openwakeword:
+    image: rhasspy/wyoming-openwakeword:latest
+    container_name: wyoming-openwakeword
+    restart: unless-stopped
+    ports:
+      - "10400:10400"
+    command: --preload-model ok_nabu
+
+volumes:
+  whisper-data:
+  piper-data:
