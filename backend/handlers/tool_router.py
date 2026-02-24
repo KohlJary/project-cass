@@ -389,6 +389,12 @@ TOOL_REGISTRY = {
     "list_devices": "home_assistant",
     "control_device": "home_assistant",
     "list_areas": "home_assistant",
+    # Home Assistant shopping list / to-do
+    "get_shopping_list": "home_assistant",
+    "add_shopping_item": "home_assistant",
+    "complete_shopping_item": "home_assistant",
+    "remove_shopping_item": "home_assistant",
+    "clear_completed_items": "home_assistant",
 
     # Home Automation tools (create/manage automations)
     "draft_automation": "home_automation",
