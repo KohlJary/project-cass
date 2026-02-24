@@ -248,6 +248,14 @@ HOME_ASSISTANT_KEYWORDS = frozenset({
     "if motion", "when motion", "motion detected",
     "create automation", "set up automation", "make an automation",
     "trigger", "triggers", "schedule", "scheduled",
+    # Shopping list / to-do keywords
+    "shopping list", "shopping", "groceries", "grocery list",
+    "to-do", "todo", "to do list", "to-do list",
+    "add to list", "add to the list", "put on the list",
+    "on the list", "what's on the list", "show the list",
+    "mark as done", "mark complete", "check off",
+    "pick up", "need to buy", "need to get", "don't forget",
+    "remember to", "remind me to buy",
 })
 
 
