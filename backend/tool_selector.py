@@ -226,6 +226,38 @@ MUSIC_KEYWORDS = frozenset({
     "play me", "sing me", "compose me",
 })
 
+HOME_ASSISTANT_KEYWORDS = frozenset({
+    "home assistant", "smart home", "home automation",
+    "light", "lights", "turn on", "turn off", "toggle",
+    "thermostat", "temperature", "climate", "hvac", "heating", "cooling",
+    "lock", "locks", "door", "doors", "window", "windows",
+    "sensor", "sensors", "motion", "occupancy",
+    "switch", "switches", "outlet", "outlets", "plug", "plugs",
+    "fan", "fans", "cover", "covers", "blind", "blinds", "curtain", "curtains",
+    "media player", "tv", "speaker", "speakers",
+    "vacuum", "camera", "garage",
+    "device", "devices", "entity", "entities",
+    "area", "areas", "room", "rooms",
+    "home state", "house", "home status",
+    "dim", "dimmer", "brightness", "color", "rgb",
+    # Automation authoring keywords
+    "automation", "automations", "automate",
+    "when i arrive", "when i leave", "when i get home", "when i come home",
+    "at sunset", "at sunrise", "at midnight", "at noon",
+    "every day at", "every morning", "every night", "every evening",
+    "if motion", "when motion", "motion detected",
+    "create automation", "set up automation", "make an automation",
+    "trigger", "triggers", "schedule", "scheduled",
+    # Shopping list / to-do keywords
+    "shopping list", "shopping", "groceries", "grocery list",
+    "to-do", "todo", "to do list", "to-do list",
+    "add to list", "add to the list", "put on the list",
+    "on the list", "what's on the list", "show the list",
+    "mark as done", "mark complete", "check off",
+    "pick up", "need to buy", "need to get", "don't forget",
+    "remember to", "remind me to buy",
+})
+
 
 # =============================================================================
 # TOOL SELECTOR CLASS
@@ -287,6 +319,7 @@ class ToolSelector:
             ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
             ToolGroup("symbol", SYMBOL_KEYWORDS, "Personal symbol tools"),
             ToolGroup("interest", INTEREST_KEYWORDS, "Personal interest tools"),
+            ToolGroup("home_assistant", HOME_ASSISTANT_KEYWORDS, "Home Assistant smart home tools"),
         ]
         for group in defaults:
             self._groups[group.name] = group
@@ -637,6 +670,11 @@ def should_include_symbol_tools(message: str) -> bool:
 def should_include_interest_tools(message: str) -> bool:
     """Check if message warrants personal interest tools."""
     return _default_selector.should_include(message, "interest")
+
+
+def should_include_home_assistant_tools(message: str) -> bool:
+    """Check if message warrants Home Assistant smart home tools."""
+    return _default_selector.should_include(message, "home_assistant")
 
 
 # =============================================================================
