@@ -1853,18 +1853,22 @@ async def startup_event():
             logger.error(f"Background identity snippet generation failed: {e}")
     asyncio.create_task(generate_identity_background())
 
-    # Start Home Assistant state cache refresh loop
+    # Start Home Assistant state cache refresh loop and intelligence subscription
     async def refresh_home_state_loop():
         """Periodically refresh cached home state for context injection."""
         await asyncio.sleep(5)  # Let server finish starting
         try:
-            from home_assistant import get_cached_home_summary, get_ha_client
+            from home_assistant import get_cached_home_summary, get_ha_client, start_state_subscription
             ha_client = get_ha_client()
             if not ha_client.is_configured:
                 logger.info("Home Assistant not configured, skipping state refresh loop")
                 return
 
             logger.info("Starting Home Assistant state refresh loop")
+
+            # Start WebSocket subscription for state changes (feeds HomeIntelligence)
+            await start_state_subscription()
+
             while True:
                 try:
                     await get_cached_home_summary()
