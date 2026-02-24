@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 51  # Email organ for stakeholder outreach
+SCHEMA_VERSION = 53  # Timers for countdown timer support
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -2265,4 +2265,50 @@ CREATE TABLE IF NOT EXISTS face_enrollments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_face_enrollments_user ON face_enrollments(user_id);
+
+-- =============================================================================
+-- USER CALENDAR CONFIGURATION (v48)
+-- =============================================================================
+
+-- Per-user calendar preferences for unified calendar system
+-- Allows users to configure which Home Assistant calendars to use
+CREATE TABLE IF NOT EXISTS user_calendar_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    primary_calendar TEXT DEFAULT 'sqlite',     -- Main calendar: 'sqlite' or 'calendar.<entity_id>'
+    write_calendar TEXT DEFAULT 'sqlite',       -- Where new events are created
+    read_calendars TEXT,                        -- JSON array of additional calendar entity IDs
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(daemon_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_calendar_config_daemon ON user_calendar_config(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_user_calendar_config_user ON user_calendar_config(user_id);
+
+-- =============================================================================
+-- TIMERS (v53)
+-- =============================================================================
+
+-- Countdown timers with HA integration and local fallback
+CREATE TABLE IF NOT EXISTS timers (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    label TEXT NOT NULL,
+    duration_seconds INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    status TEXT DEFAULT 'active',           -- active, paused, completed, cancelled
+    source TEXT DEFAULT 'local',            -- local, ha
+    ha_entity_id TEXT,                      -- HA timer entity if using HA
+    remaining_seconds INTEGER,              -- For paused timers
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_timers_daemon ON timers(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_timers_user ON timers(user_id);
+CREATE INDEX IF NOT EXISTS idx_timers_status ON timers(daemon_id, status);
+CREATE INDEX IF NOT EXISTS idx_timers_ends ON timers(ends_at);
 """

@@ -1,13 +1,15 @@
 """
 Home Assistant tool handlers for Cass.
 
-Provides tools for querying and controlling Home Assistant devices.
+Provides tools for querying and controlling Home Assistant devices,
+as well as calendar integration tools.
 """
 
 import logging
 from typing import Dict, Any, List
 
 from home_assistant import get_ha_client, HAEntity
+from ha_calendar import get_ha_calendar_client
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +153,25 @@ HOME_ASSISTANT_TOOLS = [
     {
         "name": "clear_completed_items",
         "description": "Remove all completed items from the shopping/to-do list.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    # Calendar integration tools
+    {
+        "name": "list_ha_calendars",
+        "description": "List all calendar entities available in Home Assistant, including Google Calendar, CalDAV, and Local Calendar integrations. Shows which calendars support creating events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "setup_cass_calendar",
+        "description": "Set up or verify the 'Cass Work' calendar in Home Assistant for Cass's autonomous work schedule. This creates a Local Calendar if it doesn't exist.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -559,6 +580,74 @@ async def handle_clear_completed_items(tool_input: Dict[str, Any], **kwargs) -> 
 
 
 # =============================================================================
+# Calendar Integration Handlers
+# =============================================================================
+
+async def handle_list_ha_calendars(tool_input: Dict[str, Any], **kwargs) -> str:
+    """List all Home Assistant calendar entities."""
+    calendar_client = get_ha_calendar_client()
+
+    if not calendar_client.is_configured:
+        return "Home Assistant is not configured. Cannot list calendars."
+
+    try:
+        calendars = await calendar_client.list_calendars()
+
+        if not calendars:
+            return "No calendar integrations found in Home Assistant."
+
+        lines = [f"**Home Assistant Calendars ({len(calendars)}):**\n"]
+
+        for cal in calendars:
+            write_status = "writable" if cal.supports_write else "read-only"
+            lines.append(f"- **{cal.friendly_name}**")
+            lines.append(f"  Entity: `{cal.entity_id}`")
+            lines.append(f"  Provider: {cal.provider}, {write_status}")
+
+        lines.append("\n**Tip:** Use `configure_calendar` tool to set which calendars to use.")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Failed to list HA calendars: {e}")
+        return f"Failed to list calendars: {e}"
+
+
+async def handle_setup_cass_calendar(tool_input: Dict[str, Any], **kwargs) -> str:
+    """Set up or verify the Cass work calendar in Home Assistant."""
+    from work_planning.ha_sync import get_cass_calendar_sync
+
+    sync = get_cass_calendar_sync()
+
+    if not sync.is_enabled:
+        return "Home Assistant is not configured. Cannot set up Cass calendar."
+
+    try:
+        exists = await sync.ensure_calendar_exists()
+
+        if exists:
+            return (
+                f"**Cass Work Calendar Ready**\n\n"
+                f"Calendar entity: `{sync.calendar_entity}`\n\n"
+                f"This calendar will show Cass's scheduled autonomous work. "
+                f"You can view it in your Home Assistant dashboard."
+            )
+        else:
+            return (
+                "**Could not set up Cass work calendar.**\n\n"
+                "Please manually create a Local Calendar in Home Assistant:\n"
+                "1. Go to Settings > Devices & Services\n"
+                "2. Add Integration > Local Calendar\n"
+                "3. Name it 'Cass Work'\n\n"
+                "Once created, Cass's schedule will sync to this calendar."
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to setup Cass calendar: {e}")
+        return f"Failed to set up Cass calendar: {e}"
+
+
+# =============================================================================
 # Tool Executor
 # =============================================================================
 
@@ -574,6 +663,9 @@ HA_TOOL_HANDLERS = {
     "complete_shopping_item": handle_complete_shopping_item,
     "remove_shopping_item": handle_remove_shopping_item,
     "clear_completed_items": handle_clear_completed_items,
+    # Calendar integration handlers
+    "list_ha_calendars": handle_list_ha_calendars,
+    "setup_cass_calendar": handle_setup_cass_calendar,
 }
 
 
