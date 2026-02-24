@@ -323,6 +323,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
                 user_message = data.get("message", "")
                 conversation_id = data.get("conversation_id")
+                source_device = data.get("source_device")  # e.g., "Embodiment (Emulated)"
+
+                # Prepend source device context if present
+                if source_device:
+                    user_message = f"[Via: {source_device}]\n{user_message}"
 
                 # Auto-create conversation if none provided
                 # Default to continuous chat mode for authenticated users
