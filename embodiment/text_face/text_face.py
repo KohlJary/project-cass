@@ -119,8 +119,8 @@ class FaceMask:
         import math
 
         # Eyebrow dimensions
-        brow_width = 35 * s
-        brow_height = 6 * s
+        brow_width = 38 * s
+        brow_height = 10 * s  # Thicker for more particles
         brow_y = -60 * s  # Above eyes
 
         # Left eyebrow (centered at -50, rotated around center)
@@ -142,7 +142,7 @@ class FaceMask:
 
         return left, right
 
-    def is_eyebrow_edge(self, x: float, y: float, left_angle: float = 0, right_angle: float = 0, thickness: float = 0.3) -> bool:
+    def is_eyebrow_edge(self, x: float, y: float, left_angle: float = 0, right_angle: float = 0, thickness: float = 0.5) -> bool:
         """Check if point is on eyebrow edge."""
         left, right = self.eyebrow_sdf(x, y, left_angle, right_angle)
         return (-thickness < left < thickness) or (-thickness < right < thickness)
