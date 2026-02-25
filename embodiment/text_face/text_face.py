@@ -121,7 +121,7 @@ class FaceMask:
         # Eyebrow dimensions
         brow_width = 38 * s
         brow_height = 10 * s  # Thicker for more particles
-        brow_y = -60 * s  # Above eyes
+        brow_y = -80 * s  # Above eyes (moved up from -60)
 
         # Left eyebrow (centered at -50, rotated around center)
         left_cx, left_cy = -50 * s, brow_y
@@ -529,21 +529,26 @@ class TextFaceRenderer:
 
             # Eyebrow animation based on expression
             if p.is_eyebrow:
-                # Determine which eyebrow and apply tilt
+                # Determine which eyebrow and apply tilt + vertical movement
                 if p.home_x < center_x:
-                    # Left eyebrow - tilt based on distance from brow center
+                    # Left eyebrow
                     brow_center_x = center_x - 50 * self.mask.scale
-                    dist_from_center = (p.home_x - brow_center_x) / (35 * self.mask.scale)
-                    # Positive angle = outer raised, so outer (negative dist) goes up
-                    y_offset = -dist_from_center * self.left_brow_angle * 20
+                    dist_from_center = (p.home_x - brow_center_x) / (38 * self.mask.scale)
+                    angle = self.left_brow_angle
                 else:
-                    # Right eyebrow - mirrored
+                    # Right eyebrow
                     brow_center_x = center_x + 50 * self.mask.scale
-                    dist_from_center = (p.home_x - brow_center_x) / (35 * self.mask.scale)
-                    # Positive angle = outer raised
-                    y_offset = dist_from_center * self.right_brow_angle * 20
+                    dist_from_center = (p.home_x - brow_center_x) / (38 * self.mask.scale)
+                    angle = self.right_brow_angle
+                    dist_from_center = -dist_from_center  # Mirror for right side
 
-                base_y += y_offset
+                # Tilt: outer edge moves opposite to inner edge
+                tilt_offset = -dist_from_center * angle * 25
+
+                # Vertical lift: whole eyebrow moves up when raised, down when furrowed
+                lift_offset = -angle * 15  # Negative because y increases downward
+
+                base_y += tilt_offset + lift_offset
 
             p.x = base_x
             p.y = base_y
