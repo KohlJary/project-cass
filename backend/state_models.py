@@ -315,6 +315,10 @@ class DayPhaseState:
     recent_work_slugs: List[str] = field(default_factory=list)  # Last N work unit slugs
     todays_work_slugs: List[str] = field(default_factory=list)  # All work today
 
+    # Richer work summaries for context injection
+    # Each entry: {"slug": str, "name": str, "description": str, "phase": str, "success": bool}
+    todays_work_summaries: List[Dict[str, Any]] = field(default_factory=list)
+
     # Phase-specific work counts
     work_by_phase: Dict[str, int] = field(default_factory=lambda: {
         "morning": 0, "afternoon": 0, "evening": 0, "night": 0
@@ -331,6 +335,7 @@ class DayPhaseState:
             "next_transition_at": self.next_transition_at.isoformat() if self.next_transition_at else None,
             "recent_work_slugs": self.recent_work_slugs,
             "todays_work_slugs": self.todays_work_slugs,
+            "todays_work_summaries": self.todays_work_summaries,
             "work_by_phase": self.work_by_phase,
             "last_updated": self.last_updated.isoformat() if self.last_updated else None,
         }
@@ -356,6 +361,7 @@ class DayPhaseState:
             next_transition_at=next_transition,
             recent_work_slugs=data.get("recent_work_slugs", []),
             todays_work_slugs=data.get("todays_work_slugs", []),
+            todays_work_summaries=data.get("todays_work_summaries", []),
             work_by_phase=data.get("work_by_phase", {
                 "morning": 0, "afternoon": 0, "evening": 0, "night": 0
             }),
@@ -707,18 +713,29 @@ class GlobalState:
             # Build day phase line
             phase_parts = [f"{phase_emoji} {dp.current_phase.capitalize()}"]
 
-            # Add today's work summary if any
+            # Add today's work count
             total_work_today = len(dp.todays_work_slugs)
             if total_work_today > 0:
-                # Summarize work by phase
-                work_summary_parts = []
-                for phase, count in dp.work_by_phase.items():
-                    if count > 0:
-                        work_summary_parts.append(f"{phase}: {count}")
-                if work_summary_parts:
-                    phase_parts.append(f"Today's work: {', '.join(work_summary_parts)}")
+                phase_parts.append(f"{total_work_today} autonomous work{'s' if total_work_today > 1 else ''} today")
 
             sections.append(" | ".join(phase_parts))
+
+            # Add rich work summaries if available
+            if dp.todays_work_summaries:
+                work_lines = ["**Today's autonomous work:**"]
+                for ws in dp.todays_work_summaries[-5:]:  # Last 5 items
+                    name = ws.get("name", "Unknown")
+                    desc = ws.get("description", "")
+                    phase = ws.get("phase", "")
+                    success = ws.get("success", True)
+                    status = "✓" if success else "✗"
+
+                    if desc:
+                        work_lines.append(f"- {status} {name}: {desc[:80]}")
+                    else:
+                        work_lines.append(f"- {status} {name}")
+
+                sections.append("\n".join(work_lines))
 
         # Current engagement context
         a = self.activity

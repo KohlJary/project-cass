@@ -643,6 +643,9 @@ class AutonomousScheduler:
                 },
                 day_phase_delta={
                     "work_slug": slug,
+                    "work_name": work_unit.name,
+                    "work_description": work_unit.focus or work_unit.description or "",
+                    "work_success": success,
                 },
                 event="work_unit.completed",
                 event_data={
