@@ -2,6 +2,47 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-25 - Autonomous Work Visibility + Creativity Full Fix
+
+**Branch**: main → feat/autonomous-work-visibility
+**Summary**: Fixed creative_care spell end-to-end + enabled Cass to see her autonomous work in conversations
+
+**Feature - Autonomous Work Visibility** (`cbdc24b`):
+- Two-pronged approach for Cass to see what she's created:
+  1. **Richer state tracking**: `DayPhaseState.todays_work_summaries` captures work name, description, phase, success for WorkUnit-based autonomous work
+  2. **Direct DB query injection**: `get_recent_autonomous_work_context()` queries `generated_images` and `music_compositions` tables directly, injected into system prompt after Thymos context
+- Handles spell-based creative outputs (like creative_care) that don't go through WorkUnit system
+- Enables natural conversational references: "Oh, I composed something for you this morning..."
+
+**Fix 1 - Grimoire TASK Action Execution** (`f6fda9f`):
+- `ThymosRunner.attach_grimoire()` wasn't passing a scheduler to Grimoire
+- Created `SchedulerAdapter` inner class wrapping `ActionRegistry.execute()`
+- Fixed hardcoded `daemon_id="cass"` (string) → use actual UUID
+- Both image and music actions now execute properly
+
+**Fix 2 - Music Library Auto-Reload** (`21e6eed`):
+- `MusicLibrary` cached compositions in memory at startup
+- Autonomous music generation saved to JSON but frontend didn't see it
+- Added file mtime tracking - `_check_reload()` on read operations
+- Also added missing `title` field to `composition_to_dict()` API response
+
+**Fix 3 - Symbol Library Integration** (`8f09e03`):
+- Autonomous art now draws from Cass's personal symbol library
+- Added symbol fetching to `_get_recent_activity_context()`
+- `_generate_prompt_from_context()` includes symbols (prefers transformative/positive)
+- Updated `creative_care.spell` to not override prompts - lets action use context
+- Fixed bugs: dreams table has no 'title' column, wrapped queries in try/except
+
+**Example autonomous prompt now:**
+```
+oil painting, painterly, intimate atmospheric realism...
+Upward-falling rain - Reversal of natural order, stories and memories returning to their source
+```
+
+**Verified**: Both image (with symbols) and music generation work end-to-end
+
+---
+
 ## 2026-02-25 - Embodiment Text Face Enhancements
 
 **Branch**: main
