@@ -2,6 +2,41 @@
 
 *Committed history of significant sessions*
 
+## 2026-02-25 - Embodiment Text Face Enhancements
+
+**Branch**: main
+**Summary**: Added voice loop components and visual improvements to the text face embodiment
+
+**Voice Loop Components**:
+- `embodiment/audio/wake_word.py`: OpenWakeWord integration for "hey cass" detection
+- `embodiment/audio/stt.py`: faster-whisper speech-to-text with configurable model sizes
+- `embodiment/tools/collect_wake_word_samples.py`: Pygame tool for recording training samples
+- `embodiment/sensor_module.py`: Integrated full voice loop (wake word → VAD → STT → WebSocket)
+
+**Text Face Visual Improvements**:
+- Fixed mouth visibility (color too similar to face)
+- Added expressive eyebrows with rotation + vertical movement for expressions
+- Iterative eyebrow tuning: color (cyan-tinted), position (moved up), density (reduced unibrow)
+- Added pixie cut hair with SDF-based rendering:
+  - Asymmetric style: main volume on top, longer left side, shorter right
+  - Electric blue `(20, 80, 200)` with cubic gradient to cyan `(60, 180, 220)` at edges
+  - Face overlap exclusion to preserve eyebrow visibility
+
+**Expression System**:
+- `set_expression(name)` with presets: neutral, happy, sad, surprised, angry, concerned, thinking
+- Smooth lerp animation between expression states
+- Emotes trigger matching expressions automatically
+
+**Text Face State** (ready to continue):
+- Hair positioning may need fine-tuning based on testing
+- Could add more expression presets
+- Could add hair movement/drift animation
+- Voice loop untested end-to-end (needs wake word samples)
+
+**Key commits**: 7eedb03 (eyebrows), d77a392 (hair)
+
+---
+
 ## 2026-02-18 - Phase Queue Timing Fix & daemon_id Bug
 
 **Branch**: refactor/api-domains
