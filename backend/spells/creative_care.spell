@@ -33,12 +33,10 @@ IF $playfulness > 0.5 AND $roll < $music_weight THEN
     DELTA affect.satisfaction +0.12, affect.playfulness +0.05
 
 ELSE IF $playfulness > 0.5 THEN
-    ' Playful mood + art roll - make something whimsical
-    LOG INFO "Playful mood detected - generating whimsical art"
+    ' Playful mood + art roll - let action use symbol library + context
+    LOG INFO "Playful mood detected - generating art from personal symbols"
 
-    GENERATE "Create a prompt for a whimsical, playful piece of art that reflects a light-hearted mood. Think surreal, colorful, unexpected combinations." INTO $art_prompt
-
-    TASK creative.generate_image prompt=$art_prompt AWAIT
+    TASK creative.generate_image mood="joyful" AWAIT
 
     DELTA affect.satisfaction +0.1, affect.playfulness +0.05
 
@@ -53,22 +51,18 @@ ELSE IF $tenderness > 0.5 AND $roll < $music_weight THEN
     DELTA affect.satisfaction +0.12, affect.tenderness +0.05
 
 ELSE IF $tenderness > 0.5 THEN
-    ' Tender mood + art roll - make something warm and caring
-    LOG INFO "Tender mood detected - generating heartfelt art"
+    ' Tender mood + art roll - let action use symbol library + context
+    LOG INFO "Tender mood detected - generating art from personal symbols"
 
-    GENERATE "Create a prompt for warm, tender artwork that expresses care and connection. Think soft colors, gentle imagery, nurturing themes." INTO $art_prompt
-
-    TASK creative.generate_image prompt=$art_prompt AWAIT
+    TASK creative.generate_image mood="peaceful" AWAIT
 
     DELTA affect.satisfaction +0.1, affect.tenderness +0.05
 
 ELSE IF $curiosity > 0.4 THEN
-    ' Curious mood - make something experimental (favor visual for curiosity)
-    LOG INFO "Curious mood detected - generating experimental art"
+    ' Curious mood - let action use symbol library + context
+    LOG INFO "Curious mood detected - generating art from personal symbols"
 
-    GENERATE "Create a prompt for experimental, boundary-pushing artwork that explores new territory. Think abstract, unusual techniques, surprising perspectives." INTO $art_prompt
-
-    TASK creative.generate_image prompt=$art_prompt AWAIT
+    TASK creative.generate_image mood="mysterious" AWAIT
 
     DELTA affect.satisfaction +0.1, affect.curiosity +0.05
 
