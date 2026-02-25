@@ -572,6 +572,7 @@ class GlobalStateBus:
         # Handle work slug updates
         recent_slugs = list(current.recent_work_slugs)
         todays_slugs = list(current.todays_work_slugs)
+        todays_summaries = list(current.todays_work_summaries)
         work_by_phase = dict(current.work_by_phase)
 
         if "work_slug" in delta:
@@ -585,6 +586,16 @@ class GlobalStateBus:
             if phase in work_by_phase:
                 work_by_phase[phase] = work_by_phase.get(phase, 0) + 1
 
+            # Add rich work summary if provided
+            work_summary = {
+                "slug": slug,
+                "name": delta.get("work_name", slug),
+                "description": delta.get("work_description", ""),
+                "phase": phase,
+                "success": delta.get("work_success", True),
+            }
+            todays_summaries.append(work_summary)
+
         # Handle phase change
         phase_started = current.phase_started_at
         if "current_phase" in delta and delta["current_phase"] != current.current_phase:
@@ -592,6 +603,7 @@ class GlobalStateBus:
             # Reset today's work on new day (if night->morning transition)
             if delta["current_phase"] == "morning" and current.current_phase == "night":
                 todays_slugs = []
+                todays_summaries = []
                 work_by_phase = {"morning": 0, "afternoon": 0, "evening": 0, "night": 0}
 
         return DayPhaseState(
@@ -600,6 +612,7 @@ class GlobalStateBus:
             next_transition_at=delta.get("next_transition_at") or current.next_transition_at,
             recent_work_slugs=recent_slugs,
             todays_work_slugs=todays_slugs,
+            todays_work_summaries=todays_summaries,
             work_by_phase=work_by_phase,
             last_updated=datetime.now(),
         )

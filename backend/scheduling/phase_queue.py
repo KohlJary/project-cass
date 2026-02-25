@@ -566,6 +566,9 @@ class PhaseQueueManager:
                                 source="phase_queue_manager",
                                 day_phase_delta={
                                     "work_slug": saved_slug,
+                                    "work_name": work_unit.name,
+                                    "work_description": work_unit.focus or work_unit.description or "",
+                                    "work_success": success,
                                     "current_phase": target_phase.value,
                                 },
                                 event="work_unit.completed",
