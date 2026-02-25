@@ -232,13 +232,14 @@ def get_article_details(daemon_id: str, article_id: str) -> Optional[Dict[str, A
 
     Args:
         daemon_id: Daemon ID
-        article_id: Article ID
+        article_id: Article ID (full or partial - will match suffix)
 
     Returns:
         Full article details including extractions, or None if not found
     """
     try:
         with get_db() as conn:
+            # Try exact match first
             cursor = conn.execute(
                 """
                 SELECT id, url, headline, source, category, summary, consumed_at,
@@ -251,6 +252,22 @@ def get_article_details(daemon_id: str, article_id: str) -> Optional[Dict[str, A
                 (daemon_id, article_id)
             )
             row = cursor.fetchone()
+
+            # If not found and looks like a partial ID, try suffix match
+            if not row and len(article_id) < 20:
+                cursor = conn.execute(
+                    """
+                    SELECT id, url, headline, source, category, summary, consumed_at,
+                           processing_time_ms, tokens_used, observations_json,
+                           growth_edges_json, opinions_json, questions_json,
+                           author_name, author_handle, author_handle_type, author_entity_id
+                    FROM consumed_articles
+                    WHERE daemon_id = ? AND id LIKE ?
+                    LIMIT 1
+                    """,
+                    (daemon_id, f"%{article_id}")
+                )
+                row = cursor.fetchone()
 
             if not row:
                 return None
