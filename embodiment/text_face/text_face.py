@@ -189,7 +189,7 @@ class TextFaceRenderer:
         self.base_color = (160, 100, 180)  # Soft purple
         self.highlight_color = (200, 160, 220)
         self.eye_color = (80, 180, 200)  # Cyan for eyes
-        self.feature_color = (140, 90, 160)  # Slightly darker for features
+        self.feature_color = (200, 120, 180)  # Lighter pink for mouth
         self.rain_color = (0, 180, 80)  # Matrix green
 
         # Rain effect
@@ -452,9 +452,9 @@ class TextFaceRenderer:
                 base = self.eye_color
                 brightness *= 1.4
             elif p.is_feature:
-                # Mouth is slightly different
+                # Mouth - lighter pink, visible
                 base = self.feature_color
-                brightness *= 0.9
+                brightness *= 1.1
             else:
                 base = self.base_color
 
