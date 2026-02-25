@@ -114,6 +114,7 @@ class MicrophoneInput:
         min_speech_ms: int = 250,
         on_utterance: Optional[Callable[[bytes], None]] = None,
         on_vad_state: Optional[Callable[[VADState], None]] = None,
+        on_audio_chunk: Optional[Callable[[bytes, int], None]] = None,
     ):
         """
         Args:
@@ -124,6 +125,7 @@ class MicrophoneInput:
             min_speech_ms: Minimum speech duration to emit
             on_utterance: Callback when complete utterance detected
             on_vad_state: Callback when VAD state changes
+            on_audio_chunk: Callback for every audio chunk (bytes, sample_rate)
         """
         self.device = device
         self.channels = channels
@@ -133,6 +135,7 @@ class MicrophoneInput:
 
         self.on_utterance = on_utterance
         self.on_vad_state = on_vad_state
+        self.on_audio_chunk = on_audio_chunk
 
         # Auto-detect sample rate from device if not specified
         if sample_rate is None and SOUNDDEVICE_AVAILABLE:
@@ -194,6 +197,10 @@ class MicrophoneInput:
                 audio_data = self._audio_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
+
+            # Emit raw audio chunk (for wake word detection, etc.)
+            if self.on_audio_chunk:
+                self.on_audio_chunk(audio_data, self.sample_rate)
 
             is_speech = self.vad.is_speech(audio_data)
 
