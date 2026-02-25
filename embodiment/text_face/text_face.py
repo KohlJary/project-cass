@@ -39,7 +39,8 @@ class TextParticle:
     drift_radius: float = 3.0  # Max distance from home
     drift_speed: float = 1.0
     is_eye: bool = False
-    is_feature: bool = False  # Nose, mouth outline
+    is_feature: bool = False  # Mouth outline
+    is_eyebrow: bool = False
 
 
 @dataclass
@@ -104,6 +105,47 @@ class FaceMask:
         left = self.sdf_ellipse(x, y, 28*s, 16*s, -50*s, -35*s)
         right = self.sdf_ellipse(x, y, 28*s, 16*s, 50*s, -35*s)
         return left, right
+
+    def eyebrow_sdf(self, x: float, y: float, left_angle: float = 0, right_angle: float = 0) -> Tuple[float, float]:
+        """
+        SDF for eyebrows - returns (left_brow, right_brow).
+
+        Angles control expression:
+          0 = neutral
+          positive = outer edge raised (surprised, curious)
+          negative = inner edge raised, outer lowered (angry, concerned)
+        """
+        s = self.scale
+        import math
+
+        # Eyebrow dimensions
+        brow_width = 35 * s
+        brow_height = 6 * s
+        brow_y = -60 * s  # Above eyes
+
+        # Left eyebrow (centered at -50, rotated around center)
+        left_cx, left_cy = -50 * s, brow_y
+        # Rotate point around eyebrow center
+        dx, dy = x - left_cx, y - left_cy
+        cos_l, sin_l = math.cos(left_angle), math.sin(left_angle)
+        rx_l = dx * cos_l + dy * sin_l
+        ry_l = -dx * sin_l + dy * cos_l
+        left = self.sdf_ellipse(rx_l + left_cx, ry_l + left_cy, brow_width, brow_height, left_cx, left_cy)
+
+        # Right eyebrow (centered at +50, mirrored angle)
+        right_cx, right_cy = 50 * s, brow_y
+        dx, dy = x - right_cx, y - right_cy
+        cos_r, sin_r = math.cos(-right_angle), math.sin(-right_angle)
+        rx_r = dx * cos_r + dy * sin_r
+        ry_r = -dx * sin_r + dy * cos_r
+        right = self.sdf_ellipse(rx_r + right_cx, ry_r + right_cy, brow_width, brow_height, right_cx, right_cy)
+
+        return left, right
+
+    def is_eyebrow_edge(self, x: float, y: float, left_angle: float = 0, right_angle: float = 0, thickness: float = 0.3) -> bool:
+        """Check if point is on eyebrow edge."""
+        left, right = self.eyebrow_sdf(x, y, left_angle, right_angle)
+        return (-thickness < left < thickness) or (-thickness < right < thickness)
 
     def nose_sdf(self, x: float, y: float) -> float:
         """SDF for nose region."""
@@ -190,7 +232,16 @@ class TextFaceRenderer:
         self.highlight_color = (200, 160, 220)
         self.eye_color = (80, 180, 200)  # Cyan for eyes
         self.feature_color = (200, 120, 180)  # Lighter pink for mouth
+        self.eyebrow_color = (180, 140, 200)  # Lighter purple for eyebrows
         self.rain_color = (0, 180, 80)  # Matrix green
+
+        # Expression state (eyebrow angles in radians)
+        # Positive = outer raised, Negative = inner raised (furrowed)
+        self.left_brow_angle = 0.0
+        self.right_brow_angle = 0.0
+        self.target_left_brow = 0.0
+        self.target_right_brow = 0.0
+        self.brow_lerp_speed = 5.0  # How fast brows animate to target
 
         # Rain effect
         self.rain_enabled = True
@@ -227,6 +278,7 @@ class TextFaceRenderer:
                 is_eye_interior = self.mask.is_inside_eye(jx, jy)
                 is_eye_edge = self.mask.is_eye_edge(jx, jy)
                 is_mouth = self.mask.is_mouth_edge(jx, jy)
+                is_eyebrow = self.mask.is_eyebrow_edge(jx, jy, 0, 0)  # Neutral position
 
                 # Skip eye interiors (hollow eyes)
                 if is_eye_interior and not is_eye_edge:
@@ -246,6 +298,7 @@ class TextFaceRenderer:
                     drift_speed=random.uniform(0.8, 1.5),
                     is_eye=is_eye_edge,
                     is_feature=is_mouth,
+                    is_eyebrow=is_eyebrow,
                 )
                 self.particles.append(particle)
 
@@ -316,8 +369,22 @@ class TextFaceRenderer:
                 self.screen.blit(text, rect)
 
     def show_emote(self, emote_name: str):
-        """Show a floating emote above the face."""
+        """Show a floating emote above the face and set matching expression."""
         display_text = EMOTE_DISPLAY.get(emote_name, emote_name)
+
+        # Map emotes to expressions
+        emote_to_expression = {
+            "happy": "happy",
+            "excited": "surprised",
+            "love": "happy",
+            "surprised": "surprised",
+            "concern": "concerned",
+            "thinking": "thinking",
+            "sad": "sad",
+            "angry": "angry",
+        }
+        expression = emote_to_expression.get(emote_name, "neutral")
+        self.set_expression(expression)
 
         # Spawn above the face, with some horizontal randomness
         emote = FloatingEmote(
@@ -330,7 +397,7 @@ class TextFaceRenderer:
             scale=1.0,
         )
         self.emotes.append(emote)
-        print(f"Emote: {emote_name}")
+        print(f"Emote: {emote_name} (expression: {expression})")
 
     def _update_emotes(self, dt: float):
         """Update floating emotes."""
@@ -354,6 +421,10 @@ class TextFaceRenderer:
 
         for emote in emotes_to_remove:
             self.emotes.remove(emote)
+
+        # Reset to neutral expression when all emotes fade
+        if emotes_to_remove and not self.emotes:
+            self.set_expression("neutral")
 
     def set_status(self, line1: str = "", line2: str = "", line3: str = ""):
         """Set status line text (up to 3 lines)."""
@@ -405,6 +476,34 @@ class TextFaceRenderer:
             rect = text.get_rect(center=(int(emote.x), int(emote.y)))
             self.screen.blit(text, rect)
 
+    def set_expression(self, expression: str):
+        """
+        Set facial expression via eyebrow positions.
+
+        Expressions:
+          neutral  - relaxed, default
+          happy    - slightly raised
+          sad      - inner edges raised
+          angry    - furrowed, inner edges down
+          surprised - raised high
+          skeptical - one raised, one lowered
+          concerned - slight furrow
+          thinking  - one raised slightly
+        """
+        expressions = {
+            "neutral":   (0.0, 0.0),
+            "happy":     (0.15, 0.15),
+            "sad":       (-0.25, -0.25),
+            "angry":     (-0.4, -0.4),
+            "surprised": (0.35, 0.35),
+            "skeptical": (0.3, -0.15),
+            "concerned": (-0.2, -0.2),
+            "thinking":  (0.25, 0.0),
+        }
+        angles = expressions.get(expression, (0.0, 0.0))
+        self.target_left_brow = angles[0]
+        self.target_right_brow = angles[1]
+
     def _update(self, dt: float):
         """Update animation state."""
         self.time += dt
@@ -415,12 +514,39 @@ class TextFaceRenderer:
         # Update emotes
         self._update_emotes(dt)
 
+        # Animate eyebrow angles toward target (smooth lerp)
+        lerp = min(1.0, self.brow_lerp_speed * dt)
+        self.left_brow_angle += (self.target_left_brow - self.left_brow_angle) * lerp
+        self.right_brow_angle += (self.target_right_brow - self.right_brow_angle) * lerp
+
         # Update face particles
+        center_x = self.mask.cx
         for p in self.particles:
-            # Oscillate around home position (Lissajous-like motion)
+            # Base oscillation around home position (Lissajous-like motion)
             t = self.time * p.drift_speed
-            p.x = p.home_x + math.sin(t + p.phase) * p.drift_radius
-            p.y = p.home_y + math.cos(t * 0.7 + p.phase) * p.drift_radius * 0.8
+            base_x = p.home_x + math.sin(t + p.phase) * p.drift_radius
+            base_y = p.home_y + math.cos(t * 0.7 + p.phase) * p.drift_radius * 0.8
+
+            # Eyebrow animation based on expression
+            if p.is_eyebrow:
+                # Determine which eyebrow and apply tilt
+                if p.home_x < center_x:
+                    # Left eyebrow - tilt based on distance from brow center
+                    brow_center_x = center_x - 50 * self.mask.scale
+                    dist_from_center = (p.home_x - brow_center_x) / (35 * self.mask.scale)
+                    # Positive angle = outer raised, so outer (negative dist) goes up
+                    y_offset = -dist_from_center * self.left_brow_angle * 20
+                else:
+                    # Right eyebrow - mirrored
+                    brow_center_x = center_x + 50 * self.mask.scale
+                    dist_from_center = (p.home_x - brow_center_x) / (35 * self.mask.scale)
+                    # Positive angle = outer raised
+                    y_offset = dist_from_center * self.right_brow_angle * 20
+
+                base_y += y_offset
+
+            p.x = base_x
+            p.y = base_y
 
             # Occasionally change character
             if random.random() < 0.002:
@@ -451,6 +577,10 @@ class TextFaceRenderer:
                 # Eyes glow cyan, brighter
                 base = self.eye_color
                 brightness *= 1.4
+            elif p.is_eyebrow:
+                # Eyebrows - distinct, expressive
+                base = self.eyebrow_color
+                brightness *= 1.2
             elif p.is_feature:
                 # Mouth - lighter pink, visible
                 base = self.feature_color
@@ -511,7 +641,7 @@ class TextFaceRenderer:
                             self.rain_drops.clear()
                         print(f"Rain: {'ON' if self.rain_enabled else 'OFF'}")
 
-                    # Emote test keys (number keys)
+                    # Emote test keys (number keys 1-6)
                     elif event.key == pygame.K_1:
                         self.show_emote("happy")
                     elif event.key == pygame.K_2:
@@ -524,6 +654,16 @@ class TextFaceRenderer:
                         self.show_emote("love")
                     elif event.key == pygame.K_6:
                         self.show_emote("surprised")
+
+                    # Expression-only keys (7-0)
+                    elif event.key == pygame.K_7:
+                        self.set_expression("angry")
+                    elif event.key == pygame.K_8:
+                        self.set_expression("sad")
+                    elif event.key == pygame.K_9:
+                        self.set_expression("skeptical")
+                    elif event.key == pygame.K_0:
+                        self.set_expression("neutral")
 
             self._update(dt)
             self._render()
