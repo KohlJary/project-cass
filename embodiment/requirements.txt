@@ -14,6 +14,5 @@ openwakeword>=0.4.0
 # WebSocket client
 websockets>=12.0
 
-# Speech-to-text (future)
-# openai-whisper>=20230918  # For local STT
-# faster-whisper>=0.10.0    # Faster alternative
+# Speech-to-text
+faster-whisper>=1.0.0
