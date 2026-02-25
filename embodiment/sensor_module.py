@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pygame
 
 from text_face.text_face import TextFaceRenderer, TEXT_POOL
-from audio import MicrophoneInput, AudioPlayer, WakeWordDetector
+from audio import MicrophoneInput, AudioPlayer, WakeWordDetector, SpeechToText
 from audio.microphone import VADState
 from audio.wake_word import WakeWordDetection
 from cass_client import CassClient, ConnectionState
@@ -66,6 +66,7 @@ class SensorModule:
         enable_tts: bool = True,
         enable_wake_word: bool = True,
         wake_word_model: Optional[str] = None,
+        stt_model: str = "base",
     ):
         self.width = width
         self.height = height
@@ -73,11 +74,13 @@ class SensorModule:
         self.enable_tts = enable_tts
         self.enable_wake_word = enable_wake_word
         self.wake_word_model = wake_word_model
+        self.stt_model = stt_model
 
         # State
         self.state = ModuleState.IDLE
         self._running = False
         self._pending_text: Optional[str] = None
+        self._pending_audio: Optional[tuple[bytes, int]] = None  # (audio_data, sample_rate)
         self._connection_state: str = "disconnected"
         self._last_message: str = ""
         self._wake_word_active = True  # Track if waiting for wake word
@@ -88,6 +91,7 @@ class SensorModule:
         self.player: Optional[AudioPlayer] = None
         self.client: Optional[CassClient] = None
         self.wake_word: Optional[WakeWordDetector] = None
+        self.stt: Optional[SpeechToText] = None
 
         # Backend config
         self.backend_url = backend_url
@@ -192,17 +196,16 @@ class SensorModule:
         logger.info(f"Utterance captured: {len(audio_data)} bytes")
         self._set_state(ModuleState.PROCESSING)
 
-        # TODO: Send to STT (local whisper or backend)
-        # For now, we'll use a placeholder or keyboard input
-        # Once we have STT, this would be:
-        # text = await self.stt.transcribe(audio_data)
-        # await self.client.send_message(text)
-
-        # Placeholder: just go back to idle
-        # In real implementation, this triggers STT -> send to Cass
-        logger.warning("STT not implemented - utterance discarded")
-        self._set_state(ModuleState.IDLE)
-        self._reset_wake_word()
+        if self.stt and self.mic:
+            # Queue audio for STT processing
+            self._pending_audio = (audio_data, self.mic.sample_rate)
+            self._last_message = "Transcribing..."
+            self._update_status()
+        else:
+            # No STT available
+            logger.warning("STT not available - utterance discarded")
+            self._set_state(ModuleState.IDLE)
+            self._reset_wake_word()
 
     def _on_playback_start(self):
         """Handle audio playback starting."""
@@ -285,13 +288,42 @@ class SensorModule:
 
         await self.client.connect()
 
-        # Process pending messages
+        # Process pending messages and audio
         while self._running:
+            # Handle pending text (from keyboard test)
             if self._pending_text:
                 text = self._pending_text
                 self._pending_text = None
                 self._set_state(ModuleState.PROCESSING)
                 await self.client.send_message(text, request_audio=self.enable_tts)
+
+            # Handle pending audio (from microphone)
+            if self._pending_audio and self.stt:
+                audio_data, sample_rate = self._pending_audio
+                self._pending_audio = None
+
+                # Run STT in thread pool to not block
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None,
+                    self.stt.transcribe,
+                    audio_data,
+                    sample_rate,
+                )
+
+                if result and result.text:
+                    logger.info(f"Transcribed: \"{result.text}\" ({result.confidence:.2f})")
+                    self._last_message = f"You: {result.text}"
+                    self._update_status()
+
+                    # Send to Cass
+                    await self.client.send_message(result.text, request_audio=self.enable_tts)
+                else:
+                    logger.warning("No speech detected in audio")
+                    self._last_message = "No speech detected"
+                    self._update_status()
+                    self._set_state(ModuleState.IDLE)
+                    self._reset_wake_word()
 
             await asyncio.sleep(0.05)
 
@@ -397,6 +429,26 @@ class SensorModule:
                 self.enable_wake_word = False
                 self._wake_word_active = False
 
+        # Initialize STT
+        if self.enable_mic:
+            self.stt = SpeechToText(
+                model_size=self.stt_model,
+                device="cpu",
+                compute_type="int8",
+                language="en",
+            )
+            if self.stt.available:
+                # Load model (this may take a moment on first run)
+                logger.info(f"Loading STT model ({self.stt_model})...")
+                if self.stt.start():
+                    logger.info("STT ready")
+                else:
+                    logger.warning("Failed to start STT")
+                    self.stt = None
+            else:
+                logger.warning("STT not available")
+                self.stt = None
+
         if self.enable_tts:
             self.player = AudioPlayer()
             self.player.on_playback_start = self._on_playback_start
@@ -446,6 +498,8 @@ class SensorModule:
 
         if self.wake_word:
             self.wake_word.stop()
+        if self.stt:
+            self.stt.stop()
         if self.mic:
             self.mic.stop()
         if self.player:
@@ -505,6 +559,12 @@ def main():
         default=None,
         help="Path to custom wake word model (.onnx)"
     )
+    parser.add_argument(
+        "--stt-model",
+        default="base",
+        choices=["tiny", "base", "small", "medium", "large-v2", "large-v3"],
+        help="Whisper model size (tiny=fastest, large-v3=best quality)"
+    )
 
     args = parser.parse_args()
 
@@ -518,6 +578,7 @@ def main():
         enable_tts=not args.no_tts,
         enable_wake_word=not args.no_wake_word,
         wake_word_model=args.wake_word_model,
+        stt_model=args.stt_model,
     )
     module.run()
 
