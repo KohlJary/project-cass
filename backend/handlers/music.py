@@ -359,6 +359,7 @@ def composition_to_dict(c: MusicComposition) -> dict:
     return {
         "id": c.id,
         "created_at": c.created_at,
+        "title": c.title,
         "prompt": c.prompt,
         "lyrics": c.lyrics,
         "purpose": c.purpose,

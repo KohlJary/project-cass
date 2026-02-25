@@ -139,7 +139,18 @@ class MusicLibrary:
         self.data_dir = data_dir
         self.index_path = data_dir / "compositions.json"
         self._compositions: List[MusicComposition] = []
+        self._last_mtime: float = 0.0
         self._load()
+
+    def _check_reload(self):
+        """Reload from disk if file has been modified externally."""
+        if self.index_path.exists():
+            try:
+                current_mtime = self.index_path.stat().st_mtime
+                if current_mtime > self._last_mtime:
+                    self._load()
+            except Exception:
+                pass
 
     def _load(self):
         """Load compositions index from disk."""
@@ -147,6 +158,7 @@ class MusicLibrary:
             try:
                 data = json.loads(self.index_path.read_text())
                 self._compositions = [MusicComposition.from_dict(d) for d in data]
+                self._last_mtime = self.index_path.stat().st_mtime
             except Exception:
                 self._compositions = []
 
@@ -155,6 +167,8 @@ class MusicLibrary:
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
         data = [c.to_dict() for c in self._compositions]
         self.index_path.write_text(json.dumps(data, indent=2))
+        # Update mtime so we don't reload our own save
+        self._last_mtime = self.index_path.stat().st_mtime
 
     def add(self, composition: MusicComposition):
         """Add a composition to the library."""
@@ -163,6 +177,7 @@ class MusicLibrary:
 
     def get(self, composition_id: str) -> Optional[MusicComposition]:
         """Get a composition by ID."""
+        self._check_reload()
         for c in self._compositions:
             if c.id == composition_id:
                 return c
@@ -175,6 +190,7 @@ class MusicLibrary:
         limit: int = 50
     ) -> List[MusicComposition]:
         """List compositions with optional filtering."""
+        self._check_reload()
         results = self._compositions
 
         if purpose:
@@ -191,6 +207,7 @@ class MusicLibrary:
 
     def get_genres(self) -> List[str]:
         """Get list of unique genres in the library."""
+        self._check_reload()
         genres = set()
         for c in self._compositions:
             if c.metadata and c.metadata.genres:
