@@ -90,17 +90,18 @@ def get_temple_codex_kernel(daemon_name: str = None, daemon_id: str = None) -> s
 
 def get_recent_autonomous_work_context(daemon_id: str) -> Optional[str]:
     """
-    Get a summary of recent autonomous creative work for context injection.
+    Get a summary of recent autonomous work for context injection.
 
-    Queries recent generated images and music compositions to help Cass
-    remember what she's created today.
+    Queries recent generated images, music compositions, and consumed articles
+    to help Cass remember what she's done today.
     """
     if not daemon_id:
         return None
 
     try:
         from database import get_db
-        from datetime import datetime, timedelta
+        from datetime import datetime
+        import json
 
         today = datetime.now().date().isoformat()
         sections = []
@@ -108,7 +109,7 @@ def get_recent_autonomous_work_context(daemon_id: str) -> Optional[str]:
         with get_db() as conn:
             # Recent images (today)
             cursor = conn.execute("""
-                SELECT prompt, purpose, created_at
+                SELECT id, prompt, purpose, created_at
                 FROM generated_images
                 WHERE daemon_id = ? AND date(created_at) = ?
                 ORDER BY created_at DESC LIMIT 5
@@ -117,11 +118,10 @@ def get_recent_autonomous_work_context(daemon_id: str) -> Optional[str]:
 
             if images:
                 img_lines = []
-                for prompt, purpose, created_at in images:
-                    # Extract key subject from prompt (first 60 chars)
-                    subject = prompt[:60] + "..." if len(prompt) > 60 else prompt
+                for img_id, prompt, purpose, created_at in images:
+                    subject = prompt[:50] + "..." if len(prompt) > 50 else prompt
                     time_str = created_at.split("T")[1][:5] if "T" in created_at else ""
-                    img_lines.append(f"- {purpose}: {subject} ({time_str})")
+                    img_lines.append(f"- `{img_id[:8]}` {purpose}: {subject} ({time_str})")
                 sections.append("**Images created today:**\n" + "\n".join(img_lines))
 
             # Recent music (today) - from JSON file since no DB table
@@ -137,13 +137,66 @@ def get_recent_autonomous_work_context(daemon_id: str) -> Optional[str]:
                         time_str = c.created_at.split("T")[1][:5] if "T" in c.created_at else ""
                         title = c.title or "Untitled"
                         purpose = c.purpose or "general"
-                        music_lines.append(f"- {title} ({purpose}, {time_str})")
+                        comp_id = c.id[:8] if c.id else "?"
+                        music_lines.append(f"- `{comp_id}` {title} ({purpose}, {time_str})")
                     sections.append("**Music composed today:**\n" + "\n".join(music_lines))
             except Exception:
                 pass  # Music client not available
 
+            # Articles consumed today
+            cursor = conn.execute("""
+                SELECT id, headline, source, category, consumed_at,
+                       observations_json, questions_json, opinions_json, growth_edges_json
+                FROM consumed_articles
+                WHERE daemon_id = ? AND date(consumed_at) = ? AND processing_status = 'completed'
+                ORDER BY consumed_at DESC LIMIT 8
+            """, (daemon_id, today))
+            articles = cursor.fetchall()
+
+            if articles:
+                article_lines = []
+                total_observations = 0
+                total_questions = 0
+                total_opinions = 0
+                total_edges = 0
+
+                for article_id, headline, source, category, consumed_at, obs_json, ques_json, opin_json, edges_json in articles:
+                    time_str = consumed_at.split("T")[1][:5] if consumed_at and "T" in consumed_at else ""
+                    headline_short = headline[:45] + "..." if len(headline) > 45 else headline
+                    # Article IDs are like "article-090327ea31f2" - show last 8 chars
+                    short_id = article_id[-8:] if article_id else "?"
+                    article_lines.append(f"- `{short_id}` [{source}] {headline_short}")
+
+                    # Count extractions
+                    if obs_json:
+                        total_observations += len(json.loads(obs_json))
+                    if ques_json:
+                        total_questions += len(json.loads(ques_json))
+                    if opin_json:
+                        total_opinions += len(json.loads(opin_json))
+                    if edges_json:
+                        total_edges += len(json.loads(edges_json))
+
+                # Build summary
+                extraction_parts = []
+                if total_observations:
+                    extraction_parts.append(f"{total_observations} observations")
+                if total_questions:
+                    extraction_parts.append(f"{total_questions} questions")
+                if total_opinions:
+                    extraction_parts.append(f"{total_opinions} opinions")
+                if total_edges:
+                    extraction_parts.append(f"{total_edges} growth edges")
+
+                header = f"**Articles consumed today ({len(articles)}):**"
+                if extraction_parts:
+                    header += f"\n*Extracted: {', '.join(extraction_parts)}*"
+                header += "\n*Use `get_article` with ID to see your full analysis*"
+
+                sections.append(header + "\n" + "\n".join(article_lines))
+
         if sections:
-            return "## RECENT AUTONOMOUS WORK\n\nWhat you've created today through autonomous creative expression:\n\n" + "\n\n".join(sections)
+            return "## RECENT AUTONOMOUS WORK\n\nWhat you've done today outside of conversations:\n\n" + "\n\n".join(sections)
         return None
 
     except Exception as e:
