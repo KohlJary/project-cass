@@ -232,7 +232,7 @@ class TextFaceRenderer:
         self.highlight_color = (200, 160, 220)
         self.eye_color = (80, 180, 200)  # Cyan for eyes
         self.feature_color = (200, 120, 180)  # Lighter pink for mouth
-        self.eyebrow_color = (180, 140, 200)  # Lighter purple for eyebrows
+        self.eyebrow_color = (140, 200, 220)  # Cyan-tinted, stands out from purple
         self.rain_color = (0, 180, 80)  # Matrix green
 
         # Expression state (eyebrow angles in radians)
