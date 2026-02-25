@@ -41,6 +41,7 @@ class TextParticle:
     is_eye: bool = False
     is_feature: bool = False  # Mouth outline
     is_eyebrow: bool = False
+    is_hair: bool = False
 
 
 @dataclass
@@ -147,6 +148,36 @@ class FaceMask:
         left, right = self.eyebrow_sdf(x, y, left_angle, right_angle)
         return (-thickness < left < thickness) or (-thickness < right < thickness)
 
+    def hair_sdf(self, x: float, y: float) -> float:
+        """
+        SDF for pixie cut hair.
+
+        Asymmetric style - more volume on left side with a swoop,
+        shorter and tapered on right. Side pieces frame the face.
+        """
+        s = self.scale
+
+        # Main hair volume - ellipse on top of head, shifted left
+        main_volume = self.sdf_ellipse(x, y, 100*s, 45*s, -10*s, -130*s)
+
+        # Left side - comes down past the temple
+        left_side = self.sdf_ellipse(x, y, 25*s, 80*s, -105*s, -60*s)
+
+        # Right side - shorter, frames the face
+        right_side = self.sdf_ellipse(x, y, 22*s, 55*s, 100*s, -80*s)
+
+        # Combine: union of all hair elements
+        hair = min(main_volume, left_side, right_side)
+
+        return hair
+
+    def is_inside_hair(self, x: float, y: float) -> bool:
+        """Check if point is inside hair region (but not inside face)."""
+        # Hair is above/around the face, not overlapping it
+        in_hair = self.hair_sdf(x, y) < 0
+        in_face = self.face_sdf(x, y) < -5  # Some margin to avoid overlap
+        return in_hair and not in_face
+
     def nose_sdf(self, x: float, y: float) -> float:
         """SDF for nose region."""
         s = self.scale
@@ -233,6 +264,8 @@ class TextFaceRenderer:
         self.eye_color = (80, 180, 200)  # Cyan for eyes
         self.feature_color = (200, 120, 180)  # Lighter pink for mouth
         self.eyebrow_color = (140, 200, 220)  # Cyan-tinted, stands out from purple
+        self.hair_color_top = (20, 80, 200)  # Electric blue at top/center
+        self.hair_color_side = (60, 180, 220)  # Bright cyan at edges
         self.rain_color = (0, 180, 80)  # Matrix green
 
         # Expression state (eyebrow angles in radians)
@@ -262,7 +295,7 @@ class TextFaceRenderer:
         self.status_highlight = (180, 160, 200)  # Purple highlight
 
     def _generate_particles(self, spacing: int = 8):
-        """Generate text particles within the face region."""
+        """Generate text particles within the face and hair regions."""
         self.particles.clear()
 
         for y in range(0, self.height, spacing):
@@ -271,9 +304,30 @@ class TextFaceRenderer:
                 jx = x + random.uniform(-2, 2)
                 jy = y + random.uniform(-2, 2)
 
-                if not self.mask.is_inside_face(jx, jy):
+                in_face = self.mask.is_inside_face(jx, jy)
+                in_hair = self.mask.is_inside_hair(jx, jy)
+
+                if not in_face and not in_hair:
                     continue
 
+                # Hair particles (is_inside_hair already excludes deep face overlap)
+                if in_hair:
+                    particle = TextParticle(
+                        x=jx,
+                        y=jy,
+                        char=random.choice(TEXT_POOL),
+                        depth=0.6,  # Medium depth for hair
+                        home_x=jx,
+                        home_y=jy,
+                        phase=random.uniform(0, math.pi * 2),
+                        drift_radius=random.uniform(3, 6),  # More drift for flowy hair
+                        drift_speed=random.uniform(0.6, 1.2),
+                        is_hair=True,
+                    )
+                    self.particles.append(particle)
+                    continue
+
+                # Face particles
                 # Check what region this is
                 is_eye_interior = self.mask.is_inside_eye(jx, jy)
                 is_eye_edge = self.mask.is_eye_edge(jx, jy)
@@ -302,7 +356,8 @@ class TextFaceRenderer:
                 )
                 self.particles.append(particle)
 
-        print(f"Generated {len(self.particles)} particles")
+        hair_count = sum(1 for p in self.particles if p.is_hair)
+        print(f"Generated {len(self.particles)} particles ({hair_count} hair)")
 
     def _spawn_rain_drop(self):
         """Spawn a new rain drop at top of screen."""
@@ -590,6 +645,19 @@ class TextFaceRenderer:
                 # Mouth - lighter pink, visible
                 base = self.feature_color
                 brightness *= 1.1
+            elif p.is_hair:
+                # Hair - gradient from dark blue (top/center) to cyan (only at edges)
+                # Calculate how far from center horizontally (0 = center, 1 = edge)
+                dist_from_center = abs(p.x - self.mask.cx) / (120 * self.mask.scale)
+                # Use power curve so only the very edges get cyan
+                t = min(1.0, dist_from_center) ** 3
+                # Lerp between top and side colors
+                base = (
+                    int(self.hair_color_top[0] + t * (self.hair_color_side[0] - self.hair_color_top[0])),
+                    int(self.hair_color_top[1] + t * (self.hair_color_side[1] - self.hair_color_top[1])),
+                    int(self.hair_color_top[2] + t * (self.hair_color_side[2] - self.hair_color_top[2])),
+                )
+                brightness *= 0.95
             else:
                 base = self.base_color
 
