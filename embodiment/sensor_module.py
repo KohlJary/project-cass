@@ -27,8 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pygame
 
 from text_face.text_face import TextFaceRenderer, TEXT_POOL
-from audio import MicrophoneInput, AudioPlayer
+from audio import MicrophoneInput, AudioPlayer, WakeWordDetector
 from audio.microphone import VADState
+from audio.wake_word import WakeWordDetection
 from cass_client import CassClient, ConnectionState
 
 # Configure logging
@@ -63,11 +64,15 @@ class SensorModule:
         device_name: str = "Embodiment (Emulated)",
         enable_mic: bool = True,
         enable_tts: bool = True,
+        enable_wake_word: bool = True,
+        wake_word_model: Optional[str] = None,
     ):
         self.width = width
         self.height = height
         self.enable_mic = enable_mic
         self.enable_tts = enable_tts
+        self.enable_wake_word = enable_wake_word
+        self.wake_word_model = wake_word_model
 
         # State
         self.state = ModuleState.IDLE
@@ -75,12 +80,14 @@ class SensorModule:
         self._pending_text: Optional[str] = None
         self._connection_state: str = "disconnected"
         self._last_message: str = ""
+        self._wake_word_active = True  # Track if waiting for wake word
 
         # Components
         self.display: Optional[TextFaceRenderer] = None
         self.mic: Optional[MicrophoneInput] = None
         self.player: Optional[AudioPlayer] = None
         self.client: Optional[CassClient] = None
+        self.wake_word: Optional[WakeWordDetector] = None
 
         # Backend config
         self.backend_url = backend_url
@@ -104,9 +111,12 @@ class SensorModule:
         if not self.display:
             return
 
-        # Line 1: Connection + State
+        # Line 1: Connection + State + Wake word
         conn_icon = "●" if self._connection_state == "connected" else "○"
-        line1 = f"{conn_icon} {self._connection_state} | {self.state.value}"
+        wake_status = ""
+        if self.enable_wake_word:
+            wake_status = " | 👂" if self._wake_word_active else " | 🎤"
+        line1 = f"{conn_icon} {self._connection_state} | {self.state.value}{wake_status}"
 
         # Line 2: Last message (truncated)
         line2 = self._last_message[:50] + "..." if len(self._last_message) > 50 else self._last_message
@@ -145,8 +155,32 @@ class SensorModule:
     # Audio Callbacks
     # -------------------------------------------------------------------------
 
+    def _on_wake_word(self, detection: WakeWordDetection):
+        """Handle wake word detection."""
+        if self.state == ModuleState.IDLE and self._wake_word_active:
+            logger.info(f"Wake word detected: {detection.model_name} ({detection.confidence:.2f})")
+            self._wake_word_active = False  # Disable until interaction complete
+            self._last_message = "Listening..."
+            self._update_status()
+
+            # Show excited emote
+            if self.display:
+                self.display.show_emote("excited")
+
+            # Transition to listening
+            self._set_state(ModuleState.LISTENING)
+
+    def _on_audio_chunk(self, audio_data: bytes, sample_rate: int):
+        """Handle raw audio chunks - route to wake word detector."""
+        if self.wake_word and self.state == ModuleState.IDLE and self._wake_word_active:
+            self.wake_word.process_audio(audio_data, sample_rate)
+
     def _on_vad_state(self, vad_state: VADState):
         """Handle VAD state changes."""
+        # Only respond to VAD when NOT waiting for wake word
+        if self.enable_wake_word and self._wake_word_active:
+            return  # Ignore VAD while waiting for wake word
+
         if vad_state == VADState.SPEECH and self.state == ModuleState.IDLE:
             self._set_state(ModuleState.LISTENING)
         elif vad_state == VADState.SILENCE and self.state == ModuleState.LISTENING:
@@ -168,6 +202,7 @@ class SensorModule:
         # In real implementation, this triggers STT -> send to Cass
         logger.warning("STT not implemented - utterance discarded")
         self._set_state(ModuleState.IDLE)
+        self._reset_wake_word()
 
     def _on_playback_start(self):
         """Handle audio playback starting."""
@@ -177,6 +212,11 @@ class SensorModule:
         """Handle audio playback ending."""
         if self.state == ModuleState.SPEAKING:
             self._set_state(ModuleState.IDLE)
+            # Re-enable wake word detection after interaction complete
+            if self.enable_wake_word:
+                self._wake_word_active = True
+                if self.wake_word:
+                    self.wake_word.reset()
 
     # -------------------------------------------------------------------------
     # Cass Client Callbacks
@@ -199,22 +239,31 @@ class SensorModule:
         """Received text response from Cass."""
         logger.info(f"Cass: {text[:100]}...")
         self._last_message = f"Cass: {text}"
-        # Go back to idle after response (TTS handling can come later)
-        self._set_state(ModuleState.IDLE)
+        self._update_status()
+        # Note: Don't go to IDLE here - wait for audio or explicit transition
 
     def _on_audio(self, audio_b64: str):
         """Received audio response from Cass."""
         if self.player and self.enable_tts:
             self.player.play_base64(audio_b64)
         else:
-            # No audio playback, go back to idle
+            # No audio playback, go back to idle and reset wake word
             self._set_state(ModuleState.IDLE)
+            self._reset_wake_word()
+
+    def _reset_wake_word(self):
+        """Reset wake word detection after interaction."""
+        if self.enable_wake_word:
+            self._wake_word_active = True
+            if self.wake_word:
+                self.wake_word.reset()
 
     def _on_error(self, error: str):
         """Handle error from backend."""
         logger.error(f"Backend error: {error}")
         self._last_message = f"Error: {error}"
         self._set_state(ModuleState.IDLE)
+        self._reset_wake_word()
 
     # -------------------------------------------------------------------------
     # Main Loop
@@ -326,11 +375,27 @@ class SensorModule:
             self.mic = MicrophoneInput(
                 on_utterance=self._on_utterance,
                 on_vad_state=self._on_vad_state,
+                on_audio_chunk=self._on_audio_chunk if self.enable_wake_word else None,
             )
             if self.mic.available:
                 self.mic.start()
             else:
                 logger.warning("Microphone not available")
+
+        # Initialize wake word detector
+        if self.enable_wake_word and self.enable_mic:
+            self.wake_word = WakeWordDetector(
+                model_path=self.wake_word_model,
+                on_wake_word=self._on_wake_word,
+                threshold=0.5,
+            )
+            if self.wake_word.available:
+                self.wake_word.start()
+                logger.info("Wake word detection enabled (say 'Hey Jarvis' to activate)")
+            else:
+                logger.warning("Wake word detection not available")
+                self.enable_wake_word = False
+                self._wake_word_active = False
 
         if self.enable_tts:
             self.player = AudioPlayer()
@@ -379,6 +444,8 @@ class SensorModule:
         # Cleanup
         logger.info("Shutting down...")
 
+        if self.wake_word:
+            self.wake_word.stop()
         if self.mic:
             self.mic.stop()
         if self.player:
@@ -428,6 +495,16 @@ def main():
         default="Embodiment (Emulated)",
         help="Device name shown to Cass (e.g., 'Sensor Module - Kitchen')"
     )
+    parser.add_argument(
+        "--no-wake-word",
+        action="store_true",
+        help="Disable wake word detection (always listening)"
+    )
+    parser.add_argument(
+        "--wake-word-model",
+        default=None,
+        help="Path to custom wake word model (.onnx)"
+    )
 
     args = parser.parse_args()
 
@@ -439,6 +516,8 @@ def main():
         device_name=args.device,
         enable_mic=not args.no_mic,
         enable_tts=not args.no_tts,
+        enable_wake_word=not args.no_wake_word,
+        wake_word_model=args.wake_word_model,
     )
     module.run()
 

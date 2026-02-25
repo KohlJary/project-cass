@@ -8,6 +8,9 @@ numpy>=1.24.0
 # Voice activity detection (optional, falls back to energy-based)
 webrtcvad>=2.0.10
 
+# Wake word detection
+openwakeword>=0.4.0
+
 # WebSocket client
 websockets>=12.0
 
