@@ -351,7 +351,7 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
                 "purpose": purpose,
                 "mood": mood,
             },
-            daemon_id="cass",
+            daemon_id=daemon_id,
             state_bus=state_bus,
         )
 
@@ -566,6 +566,7 @@ async def dream_visualization_action(context: Dict[str, Any]) -> ActionResult:
 
     managers = context.get("managers", {})
     state_bus = managers.get("state_bus")
+    daemon_id = managers.get("daemon_id", "cass")
 
     # Extract key imagery from dream text
     # For now, use first 200 chars as prompt basis
@@ -586,7 +587,7 @@ async def dream_visualization_action(context: Dict[str, Any]) -> ActionResult:
                 "mood": "mysterious",
                 "context_id": dream_id,
             },
-            daemon_id="cass",
+            daemon_id=daemon_id,
             state_bus=state_bus,
         )
 

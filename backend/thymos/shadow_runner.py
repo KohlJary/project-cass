@@ -203,9 +203,13 @@ class ThymosRunner:
 
         self._grimoire = grimoire
 
+        # Create scheduler adapter that wraps ActionRegistry for TASK execution
+        scheduler_adapter = self._create_scheduler_adapter()
+
         # Configure services (pass self for Thymos access, agent, and storage managers)
         grimoire.configure_services(
             thymos_runner=self,
+            scheduler=scheduler_adapter,
             agent=agent,
             self_manager=self_manager,
             memory_manager=memory_manager,
@@ -215,6 +219,64 @@ class ThymosRunner:
         self._grimoire_on_tick, self._grimoire_on_event = create_grimoire_hooks(grimoire)
 
         logger.info("Grimoire attached to Thymos shadow runner")
+
+    def _create_scheduler_adapter(self):
+        """
+        Create a scheduler adapter that wraps ActionRegistry for TASK execution.
+
+        The Grimoire's SchedulerInterface expects an object with:
+        - execute_action(action_id, params, await_completion) -> dict
+        - emit_event(event_type, data) -> None
+
+        This adapter wraps the ActionRegistry.execute() method.
+        """
+        class SchedulerAdapter:
+            def __init__(self, runner: "ThymosRunner"):
+                self._runner = runner
+                self._registry = None
+
+            def _get_registry(self):
+                """Lazy-load the action registry."""
+                if self._registry is None:
+                    try:
+                        from scheduler.actions import get_action_registry
+                        self._registry = get_action_registry()
+                    except ImportError:
+                        logger.warning("ActionRegistry not available")
+                return self._registry
+
+            async def execute_action(
+                self,
+                action_id: str,
+                params: dict,
+                await_completion: bool = True
+            ) -> dict:
+                """Execute an action via the ActionRegistry."""
+                registry = self._get_registry()
+                if not registry:
+                    return {"success": False, "error": "ActionRegistry not available"}
+
+                try:
+                    # ActionRegistry.execute takes kwargs, not a params dict
+                    result = await registry.execute(action_id, **params)
+                    return {
+                        "success": result.success,
+                        "message": result.message,
+                        "data": result.data,
+                        "cost_usd": result.cost_usd,
+                    }
+                except Exception as e:
+                    logger.error(f"Action execution failed: {action_id} - {e}")
+                    return {"success": False, "error": str(e)}
+
+            async def emit_event(self, event_type: str, data: dict) -> None:
+                """Emit an event (currently logged, could integrate with state bus)."""
+                logger.info(f"Grimoire event: {event_type} data={data}")
+                # Could forward to state bus if needed
+                if self._runner._state_bus:
+                    self._runner._state_bus.emit_event(event_type, data)
+
+        return SchedulerAdapter(self)
 
     def attach_state_bus(self, state_bus) -> None:
         """
