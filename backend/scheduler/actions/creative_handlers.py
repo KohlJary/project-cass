@@ -60,21 +60,24 @@ def _get_recent_activity_context(daemon_id: str = "cass") -> Dict[str, Any]:
             ]
 
             # Recent dreams (themes to draw from)
-            cursor = conn.execute("""
-                SELECT title, seeds_json, created_at
-                FROM dreams
-                WHERE daemon_id = ?
-                ORDER BY created_at DESC LIMIT 1
-            """, (daemon_id,))
-            row = cursor.fetchone()
-            if row:
-                import json
-                seeds = json.loads(row[1]) if row[1] else {}
-                context["recent_dream"] = {
-                    "title": row[0],
-                    "themes": seeds.get("themes", [])[:3],
-                    "when": row[2],
-                }
+            try:
+                cursor = conn.execute("""
+                    SELECT date, seeds_json, created_at
+                    FROM dreams
+                    WHERE daemon_id = ?
+                    ORDER BY created_at DESC LIMIT 1
+                """, (daemon_id,))
+                row = cursor.fetchone()
+                if row:
+                    import json
+                    seeds = json.loads(row[1]) if row[1] else {}
+                    context["recent_dream"] = {
+                        "date": row[0],
+                        "themes": seeds.get("themes", [])[:3],
+                        "when": row[2],
+                    }
+            except Exception:
+                context["recent_dream"] = None
 
             # Recent images (avoid repetition)
             cursor = conn.execute("""
@@ -88,17 +91,43 @@ def _get_recent_activity_context(daemon_id: str = "cass") -> Dict[str, Any]:
                 for r in cursor.fetchall()
             ]
 
-            # Recent music (avoid repetition)
-            cursor = conn.execute("""
-                SELECT title, style, purpose, created_at
-                FROM music_compositions
-                WHERE daemon_id = ?
-                ORDER BY created_at DESC LIMIT 3
-            """, (daemon_id,))
-            context["recent_music"] = [
-                {"title": r[0], "style": r[1], "purpose": r[2], "when": r[3]}
-                for r in cursor.fetchall()
-            ]
+            # Recent music (avoid repetition) - table may not exist
+            try:
+                cursor = conn.execute("""
+                    SELECT title, style, purpose, created_at
+                    FROM music_compositions
+                    WHERE daemon_id = ?
+                    ORDER BY created_at DESC LIMIT 3
+                """, (daemon_id,))
+                context["recent_music"] = [
+                    {"title": r[0], "style": r[1], "purpose": r[2], "when": r[3]}
+                    for r in cursor.fetchall()
+                ]
+            except Exception:
+                # Table doesn't exist - music stored in JSON, not DB
+                context["recent_music"] = []
+
+            # Personal symbols (motifs with meaning)
+            try:
+                cursor = conn.execute("""
+                    SELECT name, current_meaning, emotional_charge, appearance_count
+                    FROM symbols
+                    WHERE daemon_id = ?
+                    ORDER BY appearance_count DESC, last_appeared_at DESC
+                    LIMIT 10
+                """, (daemon_id,))
+                context["symbols"] = [
+                    {
+                        "name": r[0],
+                        "meaning": r[1][:150] if r[1] else None,
+                        "charge": r[2],
+                        "appearances": r[3]
+                    }
+                    for r in cursor.fetchall()
+                ]
+            except Exception as e:
+                logger.warning(f"Could not fetch symbols: {e}")
+                context["symbols"] = []
 
     except Exception as e:
         logger.warning(f"Could not get recent activity context: {e}")
@@ -233,6 +262,25 @@ def _generate_prompt_from_context(
             prompts = [p for p in prompts if not any(
                 recent[:30] in p.lower() for recent in recent_prompts if recent
             )]
+
+        # Personal symbols - draw from motifs with personal meaning
+        symbols = activity_context.get("symbols", [])
+        if symbols:
+            # Pick a symbol weighted by emotional charge (transformative symbols are rich)
+            transformative = [s for s in symbols if s.get("charge") == "transformative"]
+            positive = [s for s in symbols if s.get("charge") == "positive"]
+            pool = transformative or positive or symbols
+
+            if pool:
+                symbol = random.choice(pool[:5])  # Pick from top 5 by appearance
+                name = symbol.get("name", "")
+                meaning = symbol.get("meaning", "")
+
+                if name:
+                    prompts.append(f"visual symbol: {name}")
+                    if meaning:
+                        # Use the meaning for richer prompts
+                        prompts.append(f"{name} - {meaning[:80]}")
 
     # PRIORITY 2: Growth edges (from self-model)
     if growth_edges:
