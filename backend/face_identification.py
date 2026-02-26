@@ -22,21 +22,30 @@ import uuid
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 try:
     import cv2
     CV2_AVAILABLE = True
-except ImportError:
+    logger.info("cv2 (OpenCV) imported successfully")
+except ImportError as e:
     CV2_AVAILABLE = False
+    logger.warning(f"cv2 import failed: {e}")
 
 try:
     import face_recognition
     FACE_RECOGNITION_AVAILABLE = True
-except ImportError:
+    logger.info("face_recognition imported successfully")
+except ImportError as e:
+    logger.warning(f"face_recognition ImportError: {e}")
+    FACE_RECOGNITION_AVAILABLE = False
+except Exception as e:
+    logger.error(f"face_recognition Exception: {e}")
     FACE_RECOGNITION_AVAILABLE = False
 
-from database import get_connection
+logger.info(f"Face identification availability: CV2={CV2_AVAILABLE}, face_recognition={FACE_RECOGNITION_AVAILABLE}")
 
-logger = logging.getLogger(__name__)
+from database import get_connection
 
 
 class ConfidenceLevel(Enum):
