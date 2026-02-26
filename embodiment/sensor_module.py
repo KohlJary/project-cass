@@ -16,10 +16,16 @@ State machine:
 
 import asyncio
 import logging
-import sys
 import os
+import sys
+import threading
 from enum import Enum
+from pathlib import Path
 from typing import Optional
+
+# Load environment variables from .env
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +33,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pygame
 
 from text_face.text_face import TextFaceRenderer, TEXT_POOL
+from text_face.pages import create_test_page, create_menu_page, create_about_page, create_settings_page
+from config import SensorConfig, load_config, save_config
 from audio import MicrophoneInput, AudioPlayer, WakeWordDetector, SpeechToText
 from audio.microphone import VADState
 from audio.wake_word import WakeWordDetection
@@ -38,6 +46,23 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Optional face recognition (imported after logger configured)
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'vision'))
+    from face_recognition_module import FaceRecognizer, RecognizedFace, FACE_RECOGNITION_AVAILABLE
+except ImportError as e:
+    FACE_RECOGNITION_AVAILABLE = False
+    FaceRecognizer = None
+    logger.warning(f"Face recognition not available: {e}")
+
+# Optional gaze/attention detection
+try:
+    from attention_detector import AttentionDetector, AttentionState, MEDIAPIPE_AVAILABLE
+except ImportError as e:
+    MEDIAPIPE_AVAILABLE = False
+    AttentionDetector = None
+    logger.warning(f"Attention detection not available: {e}")
 
 
 class ModuleState(Enum):
@@ -67,6 +92,9 @@ class SensorModule:
         enable_wake_word: bool = True,
         wake_word_model: Optional[str] = None,
         stt_model: str = "base",
+        enable_face_recognition: bool = False,
+        face_recognition_backend: Optional[str] = None,
+        enable_gaze_detection: bool = False,
     ):
         self.width = width
         self.height = height
@@ -75,15 +103,28 @@ class SensorModule:
         self.enable_wake_word = enable_wake_word
         self.wake_word_model = wake_word_model
         self.stt_model = stt_model
+        self.enable_face_recognition = enable_face_recognition
+        self.face_recognition_backend = face_recognition_backend
+        self.enable_gaze_detection = enable_gaze_detection
 
         # State
         self.state = ModuleState.IDLE
         self._running = False
         self._pending_text: Optional[str] = None
         self._pending_audio: Optional[tuple[bytes, int]] = None  # (audio_data, sample_rate)
+        self._pending_tts_test: Optional[str] = None  # Direct TTS test (text with emote tags)
         self._connection_state: str = "disconnected"
         self._last_message: str = ""
         self._wake_word_active = True  # Track if waiting for wake word
+        self._current_face_user: Optional[str] = None  # Currently recognized user
+        self._gaze_looking = False  # Is user looking at camera?
+
+        # Vision thread state (updated by background thread)
+        self._vision_thread = None
+        self._vision_running = False
+        self._vision_lock = threading.Lock()
+        self._pending_status_update = False  # Flag to update status from main thread
+        self._pending_emote: Optional[str] = None  # Emote to show from main thread
 
         # Components
         self.display: Optional[TextFaceRenderer] = None
@@ -92,11 +133,17 @@ class SensorModule:
         self.client: Optional[CassClient] = None
         self.wake_word: Optional[WakeWordDetector] = None
         self.stt: Optional[SpeechToText] = None
+        self.face_recognizer: Optional["FaceRecognizer"] = None
+        self.attention_detector: Optional["AttentionDetector"] = None
+        self.camera = None  # cv2.VideoCapture
 
         # Backend config
         self.backend_url = backend_url
         self.user_id = user_id
         self.device_name = device_name
+
+        # Configuration (loaded from file, can be modified via settings)
+        self.config: Optional[SensorConfig] = None
 
         # Async event loop reference
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -126,7 +173,7 @@ class SensorModule:
         line2 = self._last_message[:50] + "..." if len(self._last_message) > 50 else self._last_message
 
         # Line 3: Controls hint
-        line3 = "T:test F1-F6:emote M:rain ESC:quit"
+        line3 = "T:test P:page M:menu N:rain ESC:quit"
 
         self.display.set_status(line1, line2, line3)
 
@@ -261,6 +308,75 @@ class SensorModule:
             if self.wake_word:
                 self.wake_word.reset()
 
+    def _check_gaze(self, frame):
+        """Check gaze direction and update gaze state (called from vision thread)."""
+        if not self.attention_detector:
+            return
+
+        result = self.attention_detector.process_frame(frame)
+
+        # Update shared gaze state
+        looking = result.state in [AttentionState.LOOKING_AT_CAMERA, AttentionState.ENGAGED]
+        with self._vision_lock:
+            self._gaze_looking = looking
+
+        # Log engagement events
+        if result.state == AttentionState.ENGAGED:
+            logger.debug(f"Engaged: {result.attention_duration:.1f}s")
+
+    def _vision_thread_func(self):
+        """Background thread for vision processing (face recognition + gaze)."""
+        import time
+        logger.info("Vision thread started")
+
+        while self._vision_running and self.camera:
+            try:
+                ret, frame = self.camera.read()
+                if not ret:
+                    time.sleep(0.1)
+                    continue
+
+                # Face recognition
+                if self.enable_face_recognition and self.face_recognizer:
+                    faces = self.face_recognizer.recognize(frame)
+
+                    # Update shared state
+                    with self._vision_lock:
+                        if faces:
+                            for f in faces:
+                                if f.is_known and f.user_id:
+                                    if f.user_id != self._current_face_user:
+                                        logger.info(f"Recognized: {f.user_name} ({f.confidence:.0%})")
+                                        self._current_face_user = f.user_id
+                                        self.user_id = f.user_id
+                                        if self.client:
+                                            self.client.user_id = f.user_id
+                                        self._last_message = f"👋 Hi, {f.user_name}!"
+                                        self._pending_status_update = True
+                                        self._pending_emote = "happy"
+                                    break
+                            else:
+                                # Only unknown faces
+                                if self._current_face_user:
+                                    logger.info("Face lost")
+                                    self._current_face_user = None
+                        else:
+                            if self._current_face_user:
+                                self._current_face_user = None
+
+                # Gaze detection
+                if self.enable_gaze_detection:
+                    self._check_gaze(frame)
+
+                # Throttle to ~1 FPS for vision processing (face recognition is CPU intensive)
+                time.sleep(1.0)
+
+            except Exception as e:
+                logger.error(f"Vision thread error: {e}")
+                time.sleep(1.0)
+
+        logger.info("Vision thread stopped")
+
     def _on_error(self, error: str):
         """Handle error from backend."""
         logger.error(f"Backend error: {error}")
@@ -297,6 +413,20 @@ class SensorModule:
                 self._set_state(ModuleState.PROCESSING)
                 await self.client.send_message(text, request_audio=self.enable_tts)
 
+            # Handle pending TTS test (direct synthesis, no Cass response)
+            if self._pending_tts_test:
+                test_text = self._pending_tts_test
+                self._pending_tts_test = None
+                logger.info(f"Generating TTS test: {test_text[:50]}...")
+                audio_b64 = await self.client.generate_tts(test_text)
+                if audio_b64 and self.player:
+                    logger.info(f"Got TTS audio: {len(audio_b64)} chars")
+                    self.player.play_base64(audio_b64)
+                else:
+                    logger.warning("TTS test failed - no audio returned")
+                    self._last_message = "TTS test failed"
+                    self._update_status()
+
             # Handle pending audio (from microphone)
             if self._pending_audio and self.stt:
                 audio_data, sample_rate = self._pending_audio
@@ -331,6 +461,10 @@ class SensorModule:
 
     def _handle_keyboard_input(self, event):
         """Handle keyboard events for testing."""
+        # Route to display first for page handling
+        if self.display and self.display.handle_event(event):
+            return
+
         if event.key == pygame.K_ESCAPE:
             self._running = False
 
@@ -380,15 +514,129 @@ class SensorModule:
             if self.display:
                 self.display.show_emote("surprised")
         elif event.key == pygame.K_m:
-            # Toggle rain
+            # Toggle menu page
+            if self.display:
+                if self.display.page_manager.has_page:
+                    self.display.page_manager.clear()
+                else:
+                    page = create_menu_page(
+                        on_close=lambda: self.display.page_manager.pop() if self.display else None,
+                        on_settings=self._show_settings_page,
+                        on_about=self._show_about_page,
+                    )
+                    self.display.page_manager.push(page)
+
+        elif event.key == pygame.K_p:
+            # Toggle test page
+            if self.display:
+                if self.display.page_manager.has_page:
+                    self.display.page_manager.clear()
+                else:
+                    page = create_test_page(
+                        on_close=lambda: self.display.page_manager.pop() if self.display else None
+                    )
+                    self.display.page_manager.push(page)
+
+        elif event.key == pygame.K_n:
+            # Toggle rain (moved from M)
             if self.display:
                 self.display.rain_enabled = not self.display.rain_enabled
                 if not self.display.rain_enabled:
                     self.display.rain_drops.clear()
 
+    def _on_settings_icon_click(self):
+        """Handle click on the settings gear icon."""
+        if self.display and not self.display.page_manager.has_page:
+            page = create_menu_page(
+                on_close=lambda: self.display.page_manager.pop() if self.display else None,
+                on_settings=self._show_settings_page,
+                on_about=self._show_about_page,
+            )
+            self.display.page_manager.push(page)
+
+    def _show_about_page(self):
+        """Show the about page."""
+        if self.display:
+            page = create_about_page(
+                on_close=lambda: self.display.page_manager.pop() if self.display else None
+            )
+            self.display.page_manager.push(page)
+
+    def _show_settings_page(self):
+        """Show the settings page."""
+        if not self.display or not self.config:
+            return
+
+        page = create_settings_page(
+            config=self.config,
+            on_close=lambda: self.display.page_manager.pop() if self.display else None,
+            on_save=self._on_settings_save,
+            on_show_emote=self._on_demo_emote,
+            on_test_voice=self._on_test_voice,
+        )
+        self.display.page_manager.push(page)
+
+    def _on_demo_emote(self, emote: str):
+        """Demo an emote on the face."""
+        if self.display:
+            self.display.show_emote(emote)
+            logger.debug(f"Demo emote: {emote}")
+
+    def _on_test_voice(self, emote: str):
+        """Test voice with an emote tone using direct TTS (no Cass response)."""
+        # Create a test phrase with the emote
+        test_phrases = {
+            "happy": "Hello! I'm so glad to see you!",
+            "excited": "Oh wow, that's amazing news!",
+            "thinking": "Hmm, let me consider that carefully...",
+            "concern": "I understand, that sounds difficult.",
+            "love": "You're wonderful, and I appreciate you.",
+            "surprised": "Oh! I didn't expect that at all!",
+        }
+        phrase = test_phrases.get(emote, "Hello, this is a voice test.")
+        test_text = f"<emote:{emote}> {phrase}"
+
+        # Show the emote on the face too
+        if self.display:
+            self.display.show_emote(emote)
+
+        # Queue direct TTS synthesis (doesn't go through Cass)
+        self._pending_tts_test = test_text
+        self._last_message = f"Testing voice: {emote}"
+        self._update_status()
+        logger.info(f"Testing voice with emote: {emote}")
+
+    def _on_settings_save(self, config: SensorConfig):
+        """Handle settings save - apply changes and persist to disk."""
+        self.config = config
+        self._apply_config()
+        save_config(config)
+        logger.info("Settings saved")
+
+    def _apply_config(self):
+        """Apply current config to running components."""
+        if not self.config or not self.display:
+            return
+
+        # Apply display settings
+        self.display.rain_enabled = self.config.display.rain_enabled
+        self.display.breathing_rate = self.config.display.breathing_rate
+
+        # Apply audio settings that can change at runtime
+        if self.player:
+            self.player.bitcrusher_amount = self.config.audio.bitcrusher_amount
+            logger.info(f"Set player bitcrusher_amount to {self.player.bitcrusher_amount}")
+
+        # Note: Other audio and vision settings require restart to take effect
+
     def run(self):
         """Main entry point."""
         logger.info("Starting Cass Sensor Module...")
+
+        # Load configuration
+        self.config = load_config()
+        logger.info(f"Loaded config: rain={self.config.display.rain_enabled}, "
+                    f"tts={self.config.audio.tts_enabled}")
 
         # Initialize pygame
         pygame.init()
@@ -398,6 +646,12 @@ class SensorModule:
             width=self.width,
             height=self.height,
         )
+
+        # Set up settings icon callback
+        self.display.on_settings_click = self._on_settings_icon_click
+
+        # Apply initial config to display
+        self._apply_config()
 
         # Show initial status
         self._update_status()
@@ -449,6 +703,87 @@ class SensorModule:
                 logger.warning("STT not available")
                 self.stt = None
 
+        # Initialize face recognition
+        if self.enable_face_recognition:
+            if not FACE_RECOGNITION_AVAILABLE:
+                logger.warning("Face recognition not available - dependencies not installed")
+                self.enable_face_recognition = False
+            else:
+                try:
+                    import cv2
+                    # Determine backend URL for remote database
+                    if self.face_recognition_backend:
+                        backend_http = self.face_recognition_backend
+                    else:
+                        # Derive HTTP URL from WebSocket URL
+                        backend_http = self.backend_url.replace("ws://", "http://").replace("wss://", "https://")
+                        backend_http = backend_http.replace("/ws", "")
+
+                    self.face_recognizer = FaceRecognizer(
+                        remote_backend=backend_http,
+                        tolerance=0.6,  # face_recognition default
+                        min_confidence=0.1,  # Low threshold - distance ~0.5 gives ~17% confidence
+                    )
+
+                    # Open camera
+                    self.camera = cv2.VideoCapture(0)
+                    if self.camera.isOpened():
+                        logger.info(f"Face recognition enabled with remote database: {backend_http}")
+                        # Initial sync and refresh cache
+                        if hasattr(self.face_recognizer.db, 'sync'):
+                            if self.face_recognizer.db.sync():
+                                # Refresh the recognizer's cache after sync
+                                self.face_recognizer._refresh_cache()
+                                users = self.face_recognizer.db.list_users()
+                                logger.info(f"Synced {len(users)} face(s) from backend")
+                                for u in users:
+                                    logger.info(f"  - {u.get('name', u.get('user_id'))}")
+                                logger.info(f"Recognizer cache: {len(self.face_recognizer._known_encodings)} encodings")
+                            else:
+                                logger.warning("Failed to sync face database from backend")
+                    else:
+                        logger.warning("Could not open camera for face recognition")
+                        self.camera = None
+                        self.face_recognizer = None
+                        self.enable_face_recognition = False
+                except Exception as e:
+                    logger.error(f"Failed to initialize face recognition: {e}")
+                    self.enable_face_recognition = False
+
+        # Initialize gaze/attention detection
+        if self.enable_gaze_detection:
+            if not MEDIAPIPE_AVAILABLE:
+                logger.warning("Gaze detection not available - mediapipe not installed")
+                self.enable_gaze_detection = False
+            elif not self.camera:
+                # Need camera for gaze detection - try to open if face recognition didn't
+                try:
+                    import cv2
+                    self.camera = cv2.VideoCapture(0)
+                    if not self.camera.isOpened():
+                        logger.warning("Could not open camera for gaze detection")
+                        self.enable_gaze_detection = False
+                except Exception as e:
+                    logger.error(f"Failed to open camera for gaze detection: {e}")
+                    self.enable_gaze_detection = False
+
+            if self.enable_gaze_detection:
+                self.attention_detector = AttentionDetector(
+                    engagement_threshold=1.5,
+                    gaze_threshold=0.15,
+                )
+                logger.info("Gaze detection enabled")
+
+        # Start vision thread if we have camera and vision features enabled
+        if self.camera and (self.enable_face_recognition or self.enable_gaze_detection):
+            if self._vision_thread is not None and self._vision_thread.is_alive():
+                logger.warning("Vision thread already running - skipping")
+            else:
+                self._vision_running = True
+                self._vision_thread = threading.Thread(target=self._vision_thread_func, daemon=True)
+                self._vision_thread.start()
+                logger.info("Vision processing thread started")
+
         if self.enable_tts:
             self.player = AudioPlayer()
             self.player.on_playback_start = self._on_playback_start
@@ -470,7 +805,6 @@ class SensorModule:
                 import traceback
                 traceback.print_exc()
 
-        import threading
         async_thread = threading.Thread(target=run_async, daemon=True)
 
         self._running = True
@@ -488,6 +822,22 @@ class SensorModule:
                     self._running = False
                 elif event.type == pygame.KEYDOWN:
                     self._handle_keyboard_input(event)
+                elif event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+                    # Route mouse events to display for page interaction
+                    if self.display:
+                        self.display.handle_event(event)
+
+            # Read shared vision state (updated by background thread)
+            with self._vision_lock:
+                if self.enable_gaze_detection and self.display:
+                    self.display.attention_rain_enabled = self._gaze_looking
+                # Handle pending UI updates from vision thread
+                if self._pending_status_update:
+                    self._pending_status_update = False
+                    self._update_status()
+                if self._pending_emote and self.display:
+                    self.display.show_emote(self._pending_emote)
+                    self._pending_emote = None
 
             # Update and render
             self.display._update(dt)
@@ -495,6 +845,12 @@ class SensorModule:
 
         # Cleanup
         logger.info("Shutting down...")
+
+        # Stop vision thread
+        if self._vision_thread:
+            self._vision_running = False
+            self._vision_thread.join(timeout=1.0)
+            logger.info("Vision thread stopped")
 
         if self.wake_word:
             self.wake_word.stop()
@@ -504,66 +860,113 @@ class SensorModule:
             self.mic.stop()
         if self.player:
             self.player.stop()
+        if self.camera:
+            self.camera.release()
 
         pygame.quit()
         logger.info("Goodbye!")
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    """Get boolean from environment variable."""
+    val = os.environ.get(key, "").lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    if val in ("false", "0", "no", "off"):
+        return False
+    return default
 
 
 def main():
     """Entry point."""
     import argparse
 
+    # Defaults from environment
+    env_backend = os.environ.get("CASS_BACKEND_URL", "ws://localhost:8000/ws")
+    env_width = int(os.environ.get("DISPLAY_WIDTH", "480"))
+    env_height = int(os.environ.get("DISPLAY_HEIGHT", "800"))
+    env_user = os.environ.get("USER_ID", "sensor-module")
+    env_device = os.environ.get("DEVICE_NAME", "Embodiment (Emulated)")
+    env_mic = _env_bool("ENABLE_MIC", True)
+    env_tts = _env_bool("ENABLE_TTS", True)
+    env_wake_word = _env_bool("ENABLE_WAKE_WORD", True)
+    env_wake_model = os.environ.get("WAKE_WORD_MODEL")
+    env_stt_model = os.environ.get("STT_MODEL", "base")
+    env_face_recognition = _env_bool("ENABLE_FACE_RECOGNITION", False)
+    env_gaze_detection = _env_bool("ENABLE_GAZE_DETECTION", False)
+    env_face_backend = os.environ.get("FACE_BACKEND_URL")
+
     parser = argparse.ArgumentParser(description="Cass Sensor Module")
     parser.add_argument(
         "--backend", "-b",
-        default="ws://localhost:8000/ws",
+        default=env_backend,
         help="Cass backend WebSocket URL"
     )
     parser.add_argument(
         "--width", "-W",
-        type=int, default=480,
+        type=int, default=env_width,
         help="Display width"
     )
     parser.add_argument(
         "--height", "-H",
-        type=int, default=800,
+        type=int, default=env_height,
         help="Display height"
     )
     parser.add_argument(
         "--no-mic",
         action="store_true",
+        default=not env_mic,
         help="Disable microphone input"
     )
     parser.add_argument(
         "--no-tts",
         action="store_true",
+        default=not env_tts,
         help="Disable TTS playback"
     )
     parser.add_argument(
         "--user", "-u",
-        default="sensor-module",
+        default=env_user,
         help="User ID for backend"
     )
     parser.add_argument(
         "--device", "-d",
-        default="Embodiment (Emulated)",
+        default=env_device,
         help="Device name shown to Cass (e.g., 'Sensor Module - Kitchen')"
     )
     parser.add_argument(
         "--no-wake-word",
         action="store_true",
+        default=not env_wake_word,
         help="Disable wake word detection (always listening)"
     )
     parser.add_argument(
         "--wake-word-model",
-        default=None,
+        default=env_wake_model,
         help="Path to custom wake word model (.onnx)"
     )
     parser.add_argument(
         "--stt-model",
-        default="base",
+        default=env_stt_model,
         choices=["tiny", "base", "small", "medium", "large-v2", "large-v3"],
         help="Whisper model size (tiny=fastest, large-v3=best quality)"
+    )
+    parser.add_argument(
+        "--face-recognition",
+        action="store_true",
+        default=env_face_recognition,
+        help="Enable face recognition for user identification"
+    )
+    parser.add_argument(
+        "--face-backend",
+        default=env_face_backend,
+        help="Backend URL for face database (defaults to HTTP version of WebSocket URL)"
+    )
+    parser.add_argument(
+        "--gaze-detection",
+        action="store_true",
+        default=env_gaze_detection,
+        help="Enable gaze/attention detection (shows blue rain when looking at camera)"
     )
 
     args = parser.parse_args()
@@ -579,6 +982,9 @@ def main():
         enable_wake_word=not args.no_wake_word,
         wake_word_model=args.wake_word_model,
         stt_model=args.stt_model,
+        enable_face_recognition=args.face_recognition,
+        face_recognition_backend=args.face_backend,
+        enable_gaze_detection=args.gaze_detection,
     )
     module.run()
 

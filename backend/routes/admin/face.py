@@ -18,6 +18,7 @@ from face_identification import (
     delete_enrollment,
     identify_face,
     is_available,
+    get_all_face_embeddings,
     ENROLLMENT_INSTRUCTIONS,
 )
 
@@ -186,6 +187,26 @@ async def remove_enrollment(user_id: str):
         return {"success": True, "message": "Face enrollment deleted"}
     else:
         return {"success": False, "message": "No enrollment found"}
+
+
+@router.get("/embeddings")
+async def get_embeddings():
+    """Get all face embeddings for remote face recognition.
+
+    Used by sensor modules running on separate hardware to sync
+    the face database locally for faster identification.
+    """
+    if not is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Face identification not available"
+        )
+
+    embeddings = await get_all_face_embeddings()
+    return {
+        "embeddings": embeddings,
+        "count": len(embeddings),
+    }
 
 
 @router.post("/identify", response_model=IdentifyResponse)

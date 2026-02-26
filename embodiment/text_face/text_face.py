@@ -9,7 +9,9 @@ import pygame
 import math
 import random
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+
+from .ui import PageManager
 
 # Temple-Codex fragments - the words that form her
 TEMPLE_FRAGMENTS = [
@@ -268,6 +270,12 @@ class TextFaceRenderer:
         self.hair_color_side = (60, 180, 220)  # Bright cyan at edges
         self.rain_color = (0, 180, 80)  # Matrix green
 
+        # Attention rain (upward, light blue - indicates gaze detected)
+        self.attention_rain_enabled = False
+        self.attention_rain_drops: List[RainDrop] = []
+        self.attention_rain_color = (100, 200, 255)  # Light blue
+        self.max_attention_rain = 60
+
         # Expression state (eyebrow angles in radians)
         # Positive = outer raised, Negative = inner raised (furrowed)
         self.left_brow_angle = 0.0
@@ -293,6 +301,77 @@ class TextFaceRenderer:
         self.status_lines: List[str] = []  # Up to 3 lines
         self.status_color = (120, 120, 140)  # Muted gray
         self.status_highlight = (180, 160, 200)  # Purple highlight
+
+        # Page system
+        self.page_manager = PageManager()
+
+        # Off-screen surface for face (render full, then scale for mini mode)
+        self._face_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+
+        # Mini face dimensions and position
+        self.mini_face_width = 120
+        self.mini_face_height = 150
+        self.mini_face_pos = (10, 10)  # Upper left with padding
+
+        # Content area rect (calculated when page active)
+        self._content_rect = pygame.Rect(0, 170, self.width, self.height - 220)
+
+        # Settings icon (top-right corner)
+        self._settings_icon_size = 36
+        self._settings_icon_pos = (self.width - self._settings_icon_size - 15, 15)
+        self._settings_icon_rect = pygame.Rect(
+            self._settings_icon_pos[0], self._settings_icon_pos[1],
+            self._settings_icon_size, self._settings_icon_size
+        )
+        self._settings_hovered = False
+        self.on_settings_click: Optional[callable] = None
+
+        # Pre-generate gear pattern (text particles forming a gear)
+        self._gear_particles = self._generate_gear_particles()
+
+    def _generate_gear_particles(self) -> List[Tuple[float, float, str]]:
+        """Generate particles forming a gear shape for settings icon."""
+        particles = []
+        cx = self._settings_icon_size / 2
+        cy = self._settings_icon_size / 2
+
+        # Gear parameters
+        outer_r = self._settings_icon_size / 2 - 4
+        inner_r = outer_r * 0.5
+        teeth = 8
+        tooth_height = 5
+
+        # Characters to use (cycling through)
+        chars = list("*+o.")
+        char_idx = 0
+
+        # Generate points around gear
+        for i in range(teeth * 6):  # Multiple points per tooth
+            angle = (i / (teeth * 6)) * 2 * math.pi
+            tooth_phase = (i / 6) % 1  # 0-1 within each tooth
+
+            # Determine if on tooth or valley
+            in_tooth = tooth_phase < 0.5
+            r = outer_r + (tooth_height if in_tooth else 0)
+
+            # Points on outer edge
+            x = cx + r * math.cos(angle)
+            y = cy + r * math.sin(angle)
+            particles.append((x, y, chars[char_idx % len(chars)]))
+            char_idx += 1
+
+        # Inner circle (hub)
+        for i in range(12):
+            angle = (i / 12) * 2 * math.pi
+            x = cx + inner_r * 0.6 * math.cos(angle)
+            y = cy + inner_r * 0.6 * math.sin(angle)
+            particles.append((x, y, chars[char_idx % len(chars)]))
+            char_idx += 1
+
+        # Center dot
+        particles.append((cx, cy, "o"))
+
+        return particles
 
     def _generate_particles(self, spacing: int = 8):
         """Generate text particles within the face and hair regions."""
@@ -397,10 +476,12 @@ class TextFaceRenderer:
         for drop in drops_to_remove:
             self.rain_drops.remove(drop)
 
-    def _render_rain(self):
+    def _render_rain(self, surface: Optional[pygame.Surface] = None):
         """Render rain drops behind the face."""
         if not self.rain_enabled:
             return
+
+        target = surface if surface is not None else self.screen
 
         for drop in self.rain_drops:
             # Draw trail
@@ -421,7 +502,75 @@ class TextFaceRenderer:
                 char = random.choice(TEXT_POOL) if i > 0 else drop.char
                 text = self.rain_font.render(char, True, color)
                 rect = text.get_rect(center=(int(drop.x), int(trail_y)))
-                self.screen.blit(text, rect)
+                target.blit(text, rect)
+
+    def _spawn_attention_rain_drop(self):
+        """Spawn a new attention rain drop at bottom of screen (rises up)."""
+        drop = RainDrop(
+            x=random.uniform(0, self.width),
+            y=random.uniform(self.height, self.height + 50),
+            char=random.choice(TEXT_POOL),
+            speed=random.uniform(100, 250),  # Slower, more ethereal
+            brightness=random.uniform(0.4, 0.9),
+            trail_length=random.randint(3, 8),
+        )
+        self.attention_rain_drops.append(drop)
+
+    def _update_attention_rain(self, dt: float):
+        """Update attention rain drops (rising upward)."""
+        if not self.attention_rain_enabled:
+            # Clear drops when disabled
+            self.attention_rain_drops.clear()
+            return
+
+        # Spawn new drops
+        for _ in range(2):  # spawn rate
+            if len(self.attention_rain_drops) < self.max_attention_rain:
+                self._spawn_attention_rain_drop()
+
+        # Update existing drops (move upward)
+        drops_to_remove = []
+        for drop in self.attention_rain_drops:
+            drop.y -= drop.speed * dt  # Move UP
+
+            # Remove if off screen (top)
+            if drop.y < -100:
+                drops_to_remove.append(drop)
+
+            # Randomly change character
+            if random.random() < 0.05:
+                drop.char = random.choice(TEXT_POOL)
+
+        for drop in drops_to_remove:
+            self.attention_rain_drops.remove(drop)
+
+    def _render_attention_rain(self, surface: Optional[pygame.Surface] = None):
+        """Render attention rain drops (rising, light blue)."""
+        if not self.attention_rain_enabled:
+            return
+
+        target = surface if surface is not None else self.screen
+
+        for drop in self.attention_rain_drops:
+            # Draw trail (going downward since drop rises)
+            for i in range(drop.trail_length):
+                trail_y = drop.y + i * 12  # Trail below the head
+                if trail_y > self.height + 20:
+                    continue
+
+                # Fade out along trail
+                trail_brightness = drop.brightness * (1 - i / drop.trail_length) * 0.7
+                color = (
+                    int(self.attention_rain_color[0] * trail_brightness),
+                    int(self.attention_rain_color[1] * trail_brightness),
+                    int(self.attention_rain_color[2] * trail_brightness),
+                )
+
+                # Use random char for trail, actual char for head
+                char = random.choice(TEXT_POOL) if i > 0 else drop.char
+                text = self.rain_font.render(char, True, color)
+                rect = text.get_rect(center=(int(drop.x), int(trail_y)))
+                target.blit(text, rect)
 
     def show_emote(self, emote_name: str):
         """Show a floating emote above the face and set matching expression."""
@@ -497,8 +646,10 @@ class TextFaceRenderer:
             rect = text.get_rect(center=(self.width // 2, y + i * 16))
             self.screen.blit(text, rect)
 
-    def _render_emotes(self):
+    def _render_emotes(self, surface: Optional[pygame.Surface] = None):
         """Render floating emotes above the face."""
+        target = surface if surface is not None else self.screen
+
         for emote in self.emotes:
             # Fade based on age
             progress = emote.age / emote.lifetime
@@ -529,7 +680,7 @@ class TextFaceRenderer:
 
             text = font.render(emote.emote, True, color)
             rect = text.get_rect(center=(int(emote.x), int(emote.y)))
-            self.screen.blit(text, rect)
+            target.blit(text, rect)
 
     def set_expression(self, expression: str):
         """
@@ -565,6 +716,7 @@ class TextFaceRenderer:
 
         # Update rain
         self._update_rain(dt)
+        self._update_attention_rain(dt)
 
         # Update emotes
         self._update_emotes(dt)
@@ -612,13 +764,9 @@ class TextFaceRenderer:
             if random.random() < 0.002:
                 p.char = random.choice(TEXT_POOL)
 
-    def _render(self):
-        """Render the text face."""
-        self.screen.fill(self.bg_color)
-
-        # Draw rain behind face
-        self._render_rain()
-
+    def _render_particles(self, surface: Optional[pygame.Surface] = None):
+        """Render face particles to a surface."""
+        target = surface if surface is not None else self.screen
         breath = math.sin(self.time * self.breathing_rate * math.pi * 2) * 0.5 + 0.5
 
         for p in self.particles:
@@ -673,15 +821,92 @@ class TextFaceRenderer:
             # Render character
             text_surface = font.render(p.char, True, color)
             rect = text_surface.get_rect(center=(int(p.x), int(p.y)))
-            self.screen.blit(text_surface, rect)
+            target.blit(text_surface, rect)
 
-        # Render emotes on top
-        self._render_emotes()
+    def _render_settings_icon(self):
+        """Render the settings gear icon in top-right corner."""
+        if self.page_manager.has_page:
+            return  # Don't show when a page is open
 
-        # Render status line at bottom
+        # Icon colors - brighter when hovered
+        if self._settings_hovered:
+            color = (200, 180, 220)  # Bright purple
+        else:
+            color = (120, 100, 140)  # Muted purple
+
+        # Get a small font for the gear
+        icon_font = self.fonts[8]
+
+        # Render each particle
+        ix, iy = self._settings_icon_pos
+        for px, py, char in self._gear_particles:
+            char_surface = icon_font.render(char, True, color)
+            self.screen.blit(char_surface, (ix + px - 2, iy + py - 3))
+
+    def _render_face_to_surface(self):
+        """Render the complete face to the off-screen surface."""
+        self._face_surface.fill(self.bg_color)
+        self._render_rain(self._face_surface)
+        self._render_attention_rain(self._face_surface)
+        self._render_particles(self._face_surface)
+        self._render_emotes(self._face_surface)
+
+    def _render(self):
+        """Render the display - handles both full and mini face modes."""
+        self.screen.fill(self.bg_color)
+
+        if self.page_manager.has_page:
+            # Mini face mode - render face to surface, scale, then blit
+            self._render_face_to_surface()
+            mini_face = pygame.transform.smoothscale(
+                self._face_surface,
+                (self.mini_face_width, self.mini_face_height)
+            )
+            self.screen.blit(mini_face, self.mini_face_pos)
+
+            # Render page content
+            if self.page_manager.active_page:
+                self.page_manager.active_page.render(self.screen, self._content_rect)
+        else:
+            # Full face mode (existing behavior)
+            self._render_rain()
+            self._render_attention_rain()
+            self._render_particles()
+            self._render_emotes()
+            self._render_settings_icon()
+
+        # Status always at bottom
         self._render_status()
 
         pygame.display.flip()
+
+    def handle_event(self, event: pygame.event.Event) -> bool:
+        """
+        Route events to active page if present.
+
+        Returns True if event was consumed.
+        """
+        if self.page_manager.has_page:
+            # ESC closes the current page
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.page_manager.pop()
+                return True
+
+            # Pass to active page
+            if self.page_manager.active_page:
+                return self.page_manager.active_page.handle_event(event)
+        else:
+            # Handle settings icon when no page is open
+            if event.type == pygame.MOUSEMOTION:
+                self._settings_hovered = self._settings_icon_rect.collidepoint(event.pos)
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self._settings_icon_rect.collidepoint(event.pos):
+                    if self.on_settings_click:
+                        self.on_settings_click()
+                    return True
+
+        return False
 
     def run(self):
         """Main loop."""

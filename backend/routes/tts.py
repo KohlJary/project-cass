@@ -23,6 +23,7 @@ class TTSConfigRequest(BaseModel):
 class TTSRequest(BaseModel):
     text: str
     voice: Optional[str] = None
+    output_format: Optional[str] = "mp3"  # "mp3" or "wav"
 
 
 # === Dependencies (injected at startup) ===
@@ -88,13 +89,14 @@ async def set_tts_config(request: TTSConfigRequest):
 async def generate_tts(request: TTSRequest):
     """
     Generate TTS audio for arbitrary text.
-    Returns base64-encoded MP3 audio.
+    Returns base64-encoded audio (MP3 or WAV).
     """
     _, current_voice = _get_tts_state()
     voice = _voices.get(request.voice, request.voice) if request.voice else current_voice
+    output_format = request.output_format or "mp3"
 
     try:
-        audio_bytes = _text_to_speech(request.text, voice=voice)
+        audio_bytes = _text_to_speech(request.text, voice=voice, output_format=output_format)
         if not audio_bytes:
             raise HTTPException(status_code=400, detail="No audio generated (text may be empty after cleaning)")
 
@@ -102,7 +104,7 @@ async def generate_tts(request: TTSRequest):
 
         return {
             "audio": audio_base64,
-            "format": "mp3",
+            "format": output_format,
             "voice": voice,
             "text_length": len(request.text),
             "cleaned_text": _clean_text_for_tts(request.text)[:100] + "..."

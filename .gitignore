@@ -46,6 +46,9 @@ data/chroma/
 # Memory exports (may contain personal data)
 memory_export_*.json
 
+# Sensor module config (user settings)
+embodiment/sensor_config.json
+
 # IDE
 .idea/
 .vscode/
@@ -188,3 +191,4 @@ CRITICAL_FINDING.md
 research/thoth/STATE.md
 mobile-frontend/@jarykohlbern__project-cass-keystore-backup.zip
 mobile-frontend/project-cass-dedb0-firebase-adminsdk-fbsvc-308c1a5d92.json
+embodiment/.env
