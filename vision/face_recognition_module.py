@@ -41,6 +41,148 @@ class RecognizedFace:
     is_known: bool
 
 
+class RemoteFaceDatabase:
+    """
+    Remote face database that syncs from the Cass Vessel backend.
+
+    Used when running on separate hardware (e.g., sensor module on Raspberry Pi)
+    that needs to identify faces but doesn't have direct database access.
+    """
+
+    def __init__(
+        self,
+        backend_url: str = "http://localhost:8000",
+        cache_path: Optional[Path] = None,
+        sync_interval: int = 300,  # Seconds between syncs
+    ):
+        self.backend_url = backend_url.rstrip("/")
+        self.cache_path = cache_path or Path(__file__).parent / "face_db_cache"
+        self.sync_interval = sync_interval
+
+        # In-memory data
+        self.embeddings: dict[str, np.ndarray] = {}  # user_id -> centroid embedding
+        self.metadata: dict[str, dict] = {}  # user_id -> {display_name, quality_score}
+
+        self._last_sync: Optional[float] = None
+        self._load_cache()
+
+    def _load_cache(self):
+        """Load cached embeddings from disk."""
+        self.cache_path.mkdir(parents=True, exist_ok=True)
+        cache_file = self.cache_path / "remote_embeddings.pkl"
+
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'rb') as f:
+                    data = pickle.load(f)
+                    self.embeddings = data.get("embeddings", {})
+                    self.metadata = data.get("metadata", {})
+                    self._last_sync = data.get("last_sync")
+                print(f"Loaded {len(self.embeddings)} faces from cache")
+            except Exception as e:
+                print(f"Failed to load cache: {e}")
+
+    def _save_cache(self):
+        """Save embeddings to disk cache."""
+        cache_file = self.cache_path / "remote_embeddings.pkl"
+        try:
+            with open(cache_file, 'wb') as f:
+                pickle.dump({
+                    "embeddings": self.embeddings,
+                    "metadata": self.metadata,
+                    "last_sync": self._last_sync,
+                }, f)
+        except Exception as e:
+            print(f"Failed to save cache: {e}")
+
+    def sync(self) -> bool:
+        """
+        Sync face database from backend.
+
+        Returns:
+            True if sync succeeded
+        """
+        import base64
+        import time
+        try:
+            import requests
+        except ImportError:
+            print("requests library not installed, cannot sync")
+            return False
+
+        try:
+            url = f"{self.backend_url}/admin/face/embeddings"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+            embeddings_list = data.get("embeddings", [])
+
+            # Clear and reload
+            self.embeddings = {}
+            self.metadata = {}
+
+            for item in embeddings_list:
+                user_id = item["user_id"]
+                display_name = item["display_name"]
+                embedding_b64 = item["embedding"]
+                quality = item.get("quality_score", 0.0)
+
+                # Decode embedding (base64 -> pickle -> numpy)
+                embedding_bytes = base64.b64decode(embedding_b64)
+                embedding = pickle.loads(embedding_bytes)
+
+                self.embeddings[user_id] = embedding
+                self.metadata[user_id] = {
+                    "display_name": display_name,
+                    "quality_score": quality,
+                }
+
+            self._last_sync = time.time()
+            self._save_cache()
+
+            print(f"Synced {len(self.embeddings)} faces from backend")
+            return True
+
+        except Exception as e:
+            print(f"Failed to sync from backend: {e}")
+            return False
+
+    def needs_sync(self) -> bool:
+        """Check if we need to sync from backend."""
+        import time
+        if self._last_sync is None:
+            return True
+        return (time.time() - self._last_sync) > self.sync_interval
+
+    def get_all_encodings(self) -> tuple[list[np.ndarray], list[str]]:
+        """Get all encodings and their user IDs for matching."""
+        # Sync if needed
+        if self.needs_sync():
+            self.sync()
+
+        all_encodings = list(self.embeddings.values())
+        all_user_ids = list(self.embeddings.keys())
+        return all_encodings, all_user_ids
+
+    def get_user_name(self, user_id: str) -> Optional[str]:
+        """Get display name for a user ID."""
+        if user_id in self.metadata:
+            return self.metadata[user_id].get("display_name")
+        return None
+
+    def list_users(self) -> list[dict]:
+        """List all enrolled users."""
+        return [
+            {
+                "user_id": uid,
+                "name": meta.get("display_name"),
+                "quality_score": meta.get("quality_score"),
+            }
+            for uid, meta in self.metadata.items()
+        ]
+
+
 class FaceDatabase:
     """
     Database of known faces.
@@ -184,11 +326,23 @@ class FaceRecognizer:
         db_path: Optional[Path] = None,
         tolerance: float = 0.6,  # Lower = stricter matching
         min_confidence: float = 0.4,  # Minimum confidence to report match
+        remote_backend: Optional[str] = None,  # Use remote database from backend URL
     ):
-        if db_path is None:
-            db_path = Path(__file__).parent / "face_db"
+        if remote_backend:
+            # Use remote database that syncs from backend
+            cache_path = Path(__file__).parent / "face_db_cache" if db_path is None else db_path
+            self.db = RemoteFaceDatabase(
+                backend_url=remote_backend,
+                cache_path=cache_path,
+            )
+            self._is_remote = True
+        else:
+            # Use local database
+            if db_path is None:
+                db_path = Path(__file__).parent / "face_db"
+            self.db = FaceDatabase(db_path)
+            self._is_remote = False
 
-        self.db = FaceDatabase(db_path)
         self.tolerance = tolerance
         self.min_confidence = min_confidence
 
@@ -207,7 +361,12 @@ class FaceRecognizer:
         user_id: str,
         user_name: str,
     ) -> bool:
-        """Enroll the first face found in a frame."""
+        """Enroll the first face found in a frame.
+
+        Note: Not available when using remote database - use admin UI instead.
+        """
+        if self._is_remote:
+            raise RuntimeError("Cannot enroll locally with remote database - use admin UI")
         success = self.db.enroll(user_id, user_name, frame)
         if success:
             self._refresh_cache()
@@ -249,6 +408,7 @@ class FaceRecognizer:
 
             # Compare against known faces
             distances = face_recognition.face_distance(self._known_encodings, encoding)
+            print(f"[FaceRecognizer] Distances: {distances}, known_encodings shapes: {[e.shape for e in self._known_encodings]}")
 
             if len(distances) == 0:
                 results.append(RecognizedFace(
