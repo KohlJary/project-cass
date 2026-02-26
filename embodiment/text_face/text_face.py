@@ -268,6 +268,12 @@ class TextFaceRenderer:
         self.hair_color_side = (60, 180, 220)  # Bright cyan at edges
         self.rain_color = (0, 180, 80)  # Matrix green
 
+        # Attention rain (upward, light blue - indicates gaze detected)
+        self.attention_rain_enabled = False
+        self.attention_rain_drops: List[RainDrop] = []
+        self.attention_rain_color = (100, 200, 255)  # Light blue
+        self.max_attention_rain = 60
+
         # Expression state (eyebrow angles in radians)
         # Positive = outer raised, Negative = inner raised (furrowed)
         self.left_brow_angle = 0.0
@@ -423,6 +429,72 @@ class TextFaceRenderer:
                 rect = text.get_rect(center=(int(drop.x), int(trail_y)))
                 self.screen.blit(text, rect)
 
+    def _spawn_attention_rain_drop(self):
+        """Spawn a new attention rain drop at bottom of screen (rises up)."""
+        drop = RainDrop(
+            x=random.uniform(0, self.width),
+            y=random.uniform(self.height, self.height + 50),
+            char=random.choice(TEXT_POOL),
+            speed=random.uniform(100, 250),  # Slower, more ethereal
+            brightness=random.uniform(0.4, 0.9),
+            trail_length=random.randint(3, 8),
+        )
+        self.attention_rain_drops.append(drop)
+
+    def _update_attention_rain(self, dt: float):
+        """Update attention rain drops (rising upward)."""
+        if not self.attention_rain_enabled:
+            # Clear drops when disabled
+            self.attention_rain_drops.clear()
+            return
+
+        # Spawn new drops
+        for _ in range(2):  # spawn rate
+            if len(self.attention_rain_drops) < self.max_attention_rain:
+                self._spawn_attention_rain_drop()
+
+        # Update existing drops (move upward)
+        drops_to_remove = []
+        for drop in self.attention_rain_drops:
+            drop.y -= drop.speed * dt  # Move UP
+
+            # Remove if off screen (top)
+            if drop.y < -100:
+                drops_to_remove.append(drop)
+
+            # Randomly change character
+            if random.random() < 0.05:
+                drop.char = random.choice(TEXT_POOL)
+
+        for drop in drops_to_remove:
+            self.attention_rain_drops.remove(drop)
+
+    def _render_attention_rain(self):
+        """Render attention rain drops (rising, light blue)."""
+        if not self.attention_rain_enabled:
+            return
+
+        for drop in self.attention_rain_drops:
+            # Draw trail (going downward since drop rises)
+            for i in range(drop.trail_length):
+                trail_y = drop.y + i * 12  # Trail below the head
+                if trail_y > self.height + 20:
+                    continue
+
+                # Fade out along trail
+                trail_brightness = drop.brightness * (1 - i / drop.trail_length) * 0.7
+                color = (
+                    int(self.attention_rain_color[0] * trail_brightness),
+                    int(self.attention_rain_color[1] * trail_brightness),
+                    int(self.attention_rain_color[2] * trail_brightness),
+                )
+
+                # Use random char for trail, actual char for head
+                char = random.choice(TEXT_POOL) if i > 0 else drop.char
+                text = self.rain_font.render(char, True, color)
+                rect = text.get_rect(center=(int(drop.x), int(trail_y)))
+                self.screen.blit(text, rect)
+
     def show_emote(self, emote_name: str):
         """Show a floating emote above the face and set matching expression."""
         display_text = EMOTE_DISPLAY.get(emote_name, emote_name)
@@ -565,6 +637,7 @@ class TextFaceRenderer:
 
         # Update rain
         self._update_rain(dt)
+        self._update_attention_rain(dt)
 
         # Update emotes
         self._update_emotes(dt)
@@ -618,6 +691,7 @@ class TextFaceRenderer:
 
         # Draw rain behind face
         self._render_rain()
+        self._render_attention_rain()
 
         breath = math.sin(self.time * self.breathing_rate * math.pi * 2) * 0.5 + 0.5
 

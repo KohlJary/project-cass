@@ -16,10 +16,15 @@ State machine:
 
 import asyncio
 import logging
-import sys
 import os
+import sys
 from enum import Enum
+from pathlib import Path
 from typing import Optional
+
+# Load environment variables from .env
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +43,23 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Optional face recognition (imported after logger configured)
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'vision'))
+    from face_recognition_module import FaceRecognizer, RecognizedFace, FACE_RECOGNITION_AVAILABLE
+except ImportError as e:
+    FACE_RECOGNITION_AVAILABLE = False
+    FaceRecognizer = None
+    logger.warning(f"Face recognition not available: {e}")
+
+# Optional gaze/attention detection
+try:
+    from attention_detector import AttentionDetector, AttentionState, MEDIAPIPE_AVAILABLE
+except ImportError as e:
+    MEDIAPIPE_AVAILABLE = False
+    AttentionDetector = None
+    logger.warning(f"Attention detection not available: {e}")
 
 
 class ModuleState(Enum):
@@ -67,6 +89,9 @@ class SensorModule:
         enable_wake_word: bool = True,
         wake_word_model: Optional[str] = None,
         stt_model: str = "base",
+        enable_face_recognition: bool = False,
+        face_recognition_backend: Optional[str] = None,
+        enable_gaze_detection: bool = False,
     ):
         self.width = width
         self.height = height
@@ -75,6 +100,9 @@ class SensorModule:
         self.enable_wake_word = enable_wake_word
         self.wake_word_model = wake_word_model
         self.stt_model = stt_model
+        self.enable_face_recognition = enable_face_recognition
+        self.face_recognition_backend = face_recognition_backend
+        self.enable_gaze_detection = enable_gaze_detection
 
         # State
         self.state = ModuleState.IDLE
@@ -84,6 +112,9 @@ class SensorModule:
         self._connection_state: str = "disconnected"
         self._last_message: str = ""
         self._wake_word_active = True  # Track if waiting for wake word
+        self._current_face_user: Optional[str] = None  # Currently recognized user
+        self._face_check_interval = 1.0  # Seconds between face checks
+        self._last_face_check = 0.0
 
         # Components
         self.display: Optional[TextFaceRenderer] = None
@@ -92,6 +123,9 @@ class SensorModule:
         self.client: Optional[CassClient] = None
         self.wake_word: Optional[WakeWordDetector] = None
         self.stt: Optional[SpeechToText] = None
+        self.face_recognizer: Optional["FaceRecognizer"] = None
+        self.attention_detector: Optional["AttentionDetector"] = None
+        self.camera = None  # cv2.VideoCapture
 
         # Backend config
         self.backend_url = backend_url
@@ -260,6 +294,80 @@ class SensorModule:
             self._wake_word_active = True
             if self.wake_word:
                 self.wake_word.reset()
+
+    def _check_faces(self):
+        """Check camera for faces and update current user."""
+        import time
+        now = time.time()
+        if now - self._last_face_check < self._face_check_interval:
+            return
+        self._last_face_check = now
+
+        if not self.camera or not self.face_recognizer:
+            logger.debug("No camera or face_recognizer")
+            return
+
+        ret, frame = self.camera.read()
+        if not ret:
+            logger.warning("Failed to read camera frame")
+            return
+
+        # Run face recognition
+        faces = self.face_recognizer.recognize(frame)
+        if faces:
+            for f in faces:
+                if f.is_known:
+                    logger.info(f"Face: {f.user_name} ({f.confidence:.0%})")
+                else:
+                    logger.info(f"Face: unknown (confidence={f.confidence:.2f})")
+
+        # Also check gaze if enabled (reuse the same frame)
+        if self.enable_gaze_detection:
+            self._check_gaze(frame)
+
+        if not faces:
+            # No face visible
+            if self._current_face_user:
+                logger.info("Face lost - no one detected")
+                self._current_face_user = None
+            return
+
+        # Check for known faces
+        for face in faces:
+            if face.is_known and face.user_id:
+                if face.user_id != self._current_face_user:
+                    logger.info(f"Recognized: {face.user_name} ({face.confidence:.0%})")
+                    self._current_face_user = face.user_id
+                    # Update user_id for the Cass client
+                    self.user_id = face.user_id
+                    if self.client:
+                        self.client.user_id = face.user_id
+                    self._last_message = f"👋 Hi, {face.user_name}!"
+                    self._update_status()
+                    # Show happy emote when recognizing someone
+                    if self.display:
+                        self.display.show_emote("happy")
+                return
+
+        # Only unknown faces visible
+        if self._current_face_user:
+            logger.info("Face lost - only unknowns detected")
+            self._current_face_user = None
+
+    def _check_gaze(self, frame):
+        """Check gaze direction and update attention rain effect."""
+        if not self.attention_detector or not self.display:
+            return
+
+        result = self.attention_detector.process_frame(frame)
+
+        # Enable attention rain when looking at camera
+        looking = result.state in [AttentionState.LOOKING_AT_CAMERA, AttentionState.ENGAGED]
+        self.display.attention_rain_enabled = looking
+
+        # Log engagement events
+        if result.state == AttentionState.ENGAGED:
+            logger.debug(f"Engaged: {result.attention_duration:.1f}s")
 
     def _on_error(self, error: str):
         """Handle error from backend."""
@@ -449,6 +557,77 @@ class SensorModule:
                 logger.warning("STT not available")
                 self.stt = None
 
+        # Initialize face recognition
+        if self.enable_face_recognition:
+            if not FACE_RECOGNITION_AVAILABLE:
+                logger.warning("Face recognition not available - dependencies not installed")
+                self.enable_face_recognition = False
+            else:
+                try:
+                    import cv2
+                    # Determine backend URL for remote database
+                    if self.face_recognition_backend:
+                        backend_http = self.face_recognition_backend
+                    else:
+                        # Derive HTTP URL from WebSocket URL
+                        backend_http = self.backend_url.replace("ws://", "http://").replace("wss://", "https://")
+                        backend_http = backend_http.replace("/ws", "")
+
+                    self.face_recognizer = FaceRecognizer(
+                        remote_backend=backend_http,
+                        tolerance=0.6,  # face_recognition default
+                        min_confidence=0.1,  # Low threshold - distance ~0.5 gives ~17% confidence
+                    )
+
+                    # Open camera
+                    self.camera = cv2.VideoCapture(0)
+                    if self.camera.isOpened():
+                        logger.info(f"Face recognition enabled with remote database: {backend_http}")
+                        # Initial sync and refresh cache
+                        if hasattr(self.face_recognizer.db, 'sync'):
+                            if self.face_recognizer.db.sync():
+                                # Refresh the recognizer's cache after sync
+                                self.face_recognizer._refresh_cache()
+                                users = self.face_recognizer.db.list_users()
+                                logger.info(f"Synced {len(users)} face(s) from backend")
+                                for u in users:
+                                    logger.info(f"  - {u.get('name', u.get('user_id'))}")
+                                logger.info(f"Recognizer cache: {len(self.face_recognizer._known_encodings)} encodings")
+                            else:
+                                logger.warning("Failed to sync face database from backend")
+                    else:
+                        logger.warning("Could not open camera for face recognition")
+                        self.camera = None
+                        self.face_recognizer = None
+                        self.enable_face_recognition = False
+                except Exception as e:
+                    logger.error(f"Failed to initialize face recognition: {e}")
+                    self.enable_face_recognition = False
+
+        # Initialize gaze/attention detection
+        if self.enable_gaze_detection:
+            if not MEDIAPIPE_AVAILABLE:
+                logger.warning("Gaze detection not available - mediapipe not installed")
+                self.enable_gaze_detection = False
+            elif not self.camera:
+                # Need camera for gaze detection - try to open if face recognition didn't
+                try:
+                    import cv2
+                    self.camera = cv2.VideoCapture(0)
+                    if not self.camera.isOpened():
+                        logger.warning("Could not open camera for gaze detection")
+                        self.enable_gaze_detection = False
+                except Exception as e:
+                    logger.error(f"Failed to open camera for gaze detection: {e}")
+                    self.enable_gaze_detection = False
+
+            if self.enable_gaze_detection:
+                self.attention_detector = AttentionDetector(
+                    engagement_threshold=1.5,
+                    gaze_threshold=0.15,
+                )
+                logger.info("Gaze detection enabled")
+
         if self.enable_tts:
             self.player = AudioPlayer()
             self.player.on_playback_start = self._on_playback_start
@@ -489,6 +668,15 @@ class SensorModule:
                 elif event.type == pygame.KEYDOWN:
                     self._handle_keyboard_input(event)
 
+            # Check for faces (if enabled) - also runs gaze if enabled
+            if self.enable_face_recognition:
+                self._check_faces()
+            elif self.enable_gaze_detection and self.camera:
+                # Gaze-only mode (no face recognition)
+                ret, frame = self.camera.read()
+                if ret:
+                    self._check_gaze(frame)
+
             # Update and render
             self.display._update(dt)
             self.display._render()
@@ -504,66 +692,113 @@ class SensorModule:
             self.mic.stop()
         if self.player:
             self.player.stop()
+        if self.camera:
+            self.camera.release()
 
         pygame.quit()
         logger.info("Goodbye!")
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    """Get boolean from environment variable."""
+    val = os.environ.get(key, "").lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    if val in ("false", "0", "no", "off"):
+        return False
+    return default
 
 
 def main():
     """Entry point."""
     import argparse
 
+    # Defaults from environment
+    env_backend = os.environ.get("CASS_BACKEND_URL", "ws://localhost:8000/ws")
+    env_width = int(os.environ.get("DISPLAY_WIDTH", "480"))
+    env_height = int(os.environ.get("DISPLAY_HEIGHT", "800"))
+    env_user = os.environ.get("USER_ID", "sensor-module")
+    env_device = os.environ.get("DEVICE_NAME", "Embodiment (Emulated)")
+    env_mic = _env_bool("ENABLE_MIC", True)
+    env_tts = _env_bool("ENABLE_TTS", True)
+    env_wake_word = _env_bool("ENABLE_WAKE_WORD", True)
+    env_wake_model = os.environ.get("WAKE_WORD_MODEL")
+    env_stt_model = os.environ.get("STT_MODEL", "base")
+    env_face_recognition = _env_bool("ENABLE_FACE_RECOGNITION", False)
+    env_gaze_detection = _env_bool("ENABLE_GAZE_DETECTION", False)
+    env_face_backend = os.environ.get("FACE_BACKEND_URL")
+
     parser = argparse.ArgumentParser(description="Cass Sensor Module")
     parser.add_argument(
         "--backend", "-b",
-        default="ws://localhost:8000/ws",
+        default=env_backend,
         help="Cass backend WebSocket URL"
     )
     parser.add_argument(
         "--width", "-W",
-        type=int, default=480,
+        type=int, default=env_width,
         help="Display width"
     )
     parser.add_argument(
         "--height", "-H",
-        type=int, default=800,
+        type=int, default=env_height,
         help="Display height"
     )
     parser.add_argument(
         "--no-mic",
         action="store_true",
+        default=not env_mic,
         help="Disable microphone input"
     )
     parser.add_argument(
         "--no-tts",
         action="store_true",
+        default=not env_tts,
         help="Disable TTS playback"
     )
     parser.add_argument(
         "--user", "-u",
-        default="sensor-module",
+        default=env_user,
         help="User ID for backend"
     )
     parser.add_argument(
         "--device", "-d",
-        default="Embodiment (Emulated)",
+        default=env_device,
         help="Device name shown to Cass (e.g., 'Sensor Module - Kitchen')"
     )
     parser.add_argument(
         "--no-wake-word",
         action="store_true",
+        default=not env_wake_word,
         help="Disable wake word detection (always listening)"
     )
     parser.add_argument(
         "--wake-word-model",
-        default=None,
+        default=env_wake_model,
         help="Path to custom wake word model (.onnx)"
     )
     parser.add_argument(
         "--stt-model",
-        default="base",
+        default=env_stt_model,
         choices=["tiny", "base", "small", "medium", "large-v2", "large-v3"],
         help="Whisper model size (tiny=fastest, large-v3=best quality)"
+    )
+    parser.add_argument(
+        "--face-recognition",
+        action="store_true",
+        default=env_face_recognition,
+        help="Enable face recognition for user identification"
+    )
+    parser.add_argument(
+        "--face-backend",
+        default=env_face_backend,
+        help="Backend URL for face database (defaults to HTTP version of WebSocket URL)"
+    )
+    parser.add_argument(
+        "--gaze-detection",
+        action="store_true",
+        default=env_gaze_detection,
+        help="Enable gaze/attention detection (shows blue rain when looking at camera)"
     )
 
     args = parser.parse_args()
@@ -579,6 +814,9 @@ def main():
         enable_wake_word=not args.no_wake_word,
         wake_word_model=args.wake_word_model,
         stt_model=args.stt_model,
+        enable_face_recognition=args.face_recognition,
+        face_recognition_backend=args.face_backend,
+        enable_gaze_detection=args.gaze_detection,
     )
     module.run()
 
