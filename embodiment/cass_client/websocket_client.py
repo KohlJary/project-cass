@@ -14,6 +14,13 @@ from typing import Callable, Optional
 logger = logging.getLogger(__name__)
 
 try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+    logger.info("aiohttp not available - direct TTS disabled")
+
+try:
     import websockets
     WEBSOCKETS_AVAILABLE = True
 except ImportError:
@@ -253,3 +260,47 @@ class CassClient:
             await asyncio.sleep(1)
 
         await self.disconnect()
+
+    async def generate_tts(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        output_format: str = "wav"
+    ) -> Optional[str]:
+        """
+        Generate TTS audio directly via HTTP API.
+
+        Args:
+            text: Text to synthesize
+            voice: Optional voice name
+            output_format: Audio format - "wav" (default, for effects) or "mp3"
+
+        Returns:
+            Base64-encoded audio data, or None on failure
+        """
+        if not AIOHTTP_AVAILABLE:
+            logger.warning("aiohttp not available for direct TTS")
+            return None
+
+        # Convert ws:// to http://
+        http_url = self.url.replace("ws://", "http://").replace("wss://", "https://")
+        http_url = http_url.replace("/ws", "")
+        tts_url = f"{http_url}/tts/generate"
+
+        payload = {"text": text, "output_format": output_format}
+        if voice:
+            payload["voice"] = voice
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(tts_url, json=payload) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("audio")
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"TTS request failed: {response.status} - {error_text}")
+                        return None
+        except Exception as e:
+            logger.error(f"TTS request error: {e}")
+            return None

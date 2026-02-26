@@ -353,6 +353,16 @@ async def save_face_enrollment(
     # Serialize embedding
     embedding_blob = pickle.dumps(embedding)
 
+    # Ensure user exists (create if not - for face enrollment from admin UI)
+    cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+    if not cursor.fetchone():
+        # Create a minimal user record
+        cursor.execute(
+            "INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)",
+            (user_id, user_id, now)
+        )
+        logger.info(f"Created user record for face enrollment: {user_id}")
+
     # Delete existing enrollment for this user (one face per user)
     cursor.execute(
         "DELETE FROM face_enrollments WHERE user_id = ?",
@@ -521,3 +531,34 @@ async def identify_face(image_data: bytes) -> Optional[FaceMatch]:
 def is_available() -> bool:
     """Check if face identification is available."""
     return FACE_RECOGNITION_AVAILABLE and CV2_AVAILABLE
+
+
+async def get_all_face_embeddings() -> List[Dict[str, Any]]:
+    """
+    Get all face embeddings for remote face recognition.
+
+    Returns list of {user_id, display_name, embedding} dicts.
+    Embedding is base64-encoded pickle for transport.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT fe.user_id, u.display_name, fe.embedding, fe.quality_score
+        FROM face_enrollments fe
+        LEFT JOIN users u ON fe.user_id = u.id
+    """)
+
+    results = []
+    for row in cursor.fetchall():
+        user_id, display_name, embedding_blob, quality = row
+        # Base64 encode the pickle blob for JSON transport
+        embedding_b64 = base64.b64encode(embedding_blob).decode('utf-8')
+        results.append({
+            "user_id": user_id,
+            "display_name": display_name or user_id,
+            "embedding": embedding_b64,
+            "quality_score": quality,
+        })
+
+    return results
