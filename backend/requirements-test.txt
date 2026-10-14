@@ -1,0 +1,20 @@
+# Minimal dependencies for the fast backend test suite (backend/tests).
+# This is only what the tests import; the full runtime set is in
+# requirements.txt. TTS (piper/pydub) isn't needed here because
+# tests/test_tts.py skips itself when it isn't installed.
+#
+#   pip install -r requirements-test.txt
+#   pytest -m "not slow and not tts"
+
+fastapi>=0.109.0
+python-dotenv>=1.0.0
+chromadb>=0.4.22
+pydantic>=2.5.3
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+email-validator>=2.0.0
+PyYAML>=6.0
+httpx>=0.25.0
+
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

@@ -565,15 +565,11 @@ class RoadmapManager:
         if not item:
             return None
 
-        item.assigned_to = assigned_to
+        status = None
         if item.status == ItemStatus.READY.value:
-            item.status = ItemStatus.IN_PROGRESS.value
-        item.updated_at = datetime.now().isoformat()
+            status = ItemStatus.IN_PROGRESS.value
 
-        self._save_item(item)
-        self._update_index_entry(item)
-
-        return item
+        return self.update_item(item_id, assigned_to=assigned_to, status=status)
 
     def complete_item(self, item_id: str) -> Optional[WorkItem]:
         """Mark an item as done"""
@@ -581,13 +577,7 @@ class RoadmapManager:
         if not item:
             return None
 
-        item.status = ItemStatus.DONE.value
-        item.updated_at = datetime.now().isoformat()
-
-        self._save_item(item)
-        self._update_index_entry(item)
-
-        return item
+        return self.update_item(item_id, status=ItemStatus.DONE.value)
 
     def advance_status(self, item_id: str, force: bool = False) -> Dict:
         """
@@ -622,11 +612,9 @@ class RoadmapManager:
                         }
                         # Still advance but include warning
 
-                item.status = status_order[current_idx + 1]
-                item.updated_at = datetime.now().isoformat()
-                self._save_item(item)
-                self._update_index_entry(item)
-                result["item"] = item
+                result["item"] = self.update_item(
+                    item_id, status=status_order[current_idx + 1]
+                )
         except ValueError:
             result["error"] = "Invalid status"
 

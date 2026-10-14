@@ -11,6 +11,13 @@ Tests cover:
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
+# tts.py imports piper (and pydub) at module load; skip cleanly where the
+# TTS stack isn't installed, e.g. the fast CI run.
+pytest.importorskip("piper")
+pytest.importorskip("pydub")
+
+pytestmark = pytest.mark.tts
+
 from tts import (
     extract_dominant_emote,
     get_synth_config,
