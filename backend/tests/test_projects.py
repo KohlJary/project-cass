@@ -204,9 +204,9 @@ class TestProjectManager:
         return path
 
     @pytest.fixture
-    def project_manager(self, projects_dir):
-        """ProjectManager with isolated storage."""
-        return ProjectManager(storage_dir=str(projects_dir))
+    def project_manager(self, seeded_users):
+        """ProjectManager backed by the per-test SQLite database."""
+        return ProjectManager()
 
     @pytest.fixture
     def working_dir(self, test_data_dir):

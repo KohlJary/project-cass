@@ -1,6 +1,7 @@
 """
 Shared pytest fixtures for Cass Vessel backend tests.
 """
+import os
 import pytest
 import tempfile
 import shutil
@@ -8,6 +9,93 @@ import json
 from pathlib import Path
 from datetime import datetime
 from unittest.mock import Mock, AsyncMock, patch
+
+# Point config.DATA_DIR at a throwaway directory before any backend module is
+# imported, so the test run never touches a real daemon's data/cass.db.
+os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="cass_test_data_"))
+
+
+# ---------------------------------------------------------------------------
+# Database Fixtures
+# ---------------------------------------------------------------------------
+
+def _point_db_at(path):
+    """Repoint the thread-local SQLite connection at a different file."""
+    import database.connection as connection
+    import database.migrations as migrations
+    connection.close_connection()
+    connection.DATABASE_PATH = path
+    migrations.DATABASE_PATH = path
+
+
+@pytest.fixture(scope="session")
+def template_db(tmp_path_factory):
+    """Build the full schema plus a default daemon once per session."""
+    import database.connection as connection
+    from database import get_or_create_daemon
+    from database.migrations import init_database
+
+    original = connection.DATABASE_PATH
+    path = tmp_path_factory.mktemp("db_template") / "cass.db"
+    _point_db_at(path)
+    init_database()
+    get_or_create_daemon("cass")
+    connection.close_connection()
+    yield path
+    _point_db_at(original)
+
+
+@pytest.fixture(autouse=True)
+def test_db(template_db, tmp_path):
+    """
+    Fresh SQLite database with the full schema for every test.
+
+    The managers moved from JSON storage dirs to SQLite (database/), so each
+    test gets its own copy of the template cass.db (schema initialized, one
+    default daemon row), and the connection is closed afterwards.
+    """
+    import database.connection as connection
+
+    original = connection.DATABASE_PATH
+    db_path = tmp_path / "cass.db"
+    shutil.copy(template_db, db_path)
+    _point_db_at(db_path)
+    yield db_path
+    _point_db_at(original)
+
+
+# User IDs the manager tests write rows for. Tasks, calendar events,
+# conversations and projects all have a foreign key to users(id).
+TEST_USER_IDS = [
+    "test-user-00000000-0000-0000-0000-000000000001",
+    "test-user-123",
+    "test-user-calendar-001",
+    "user-1",
+    "user-2",
+    "other-user",
+]
+
+
+@pytest.fixture
+def seeded_users(test_db):
+    """Insert placeholder user rows so foreign keys to users(id) resolve."""
+    from database import get_db
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        for uid in TEST_USER_IDS:
+            conn.execute(
+                "INSERT OR IGNORE INTO users (id, display_name, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                (uid, uid, now, now),
+            )
+    return TEST_USER_IDS
+
+
+@pytest.fixture
+def daemon_id(test_db):
+    """ID of the default test daemon."""
+    from database import get_daemon_id
+    return get_daemon_id()
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +139,7 @@ def summaries_dir(test_data_dir):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def conversation_manager(conversations_dir):
+def conversation_manager(conversations_dir, seeded_users):
     """ConversationManager with isolated storage."""
     from conversations import ConversationManager
     return ConversationManager(storage_dir=str(conversations_dir))
@@ -234,24 +322,24 @@ def chroma_dir(test_data_dir):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def project_manager(projects_dir):
-    """ProjectManager with isolated storage."""
+def project_manager(seeded_users):
+    """ProjectManager backed by the per-test SQLite database."""
     from projects import ProjectManager
-    return ProjectManager(storage_dir=str(projects_dir))
+    return ProjectManager()
 
 
 @pytest.fixture
-def calendar_manager(calendar_dir):
-    """CalendarManager with isolated storage."""
+def calendar_manager(daemon_id, seeded_users):
+    """CalendarManager backed by the per-test SQLite database."""
     from calendar_manager import CalendarManager
-    return CalendarManager(storage_dir=str(calendar_dir))
+    return CalendarManager(daemon_id=daemon_id)
 
 
 @pytest.fixture
-def task_manager(tasks_dir):
-    """TaskManager with isolated storage."""
+def task_manager(daemon_id, seeded_users):
+    """TaskManager backed by the per-test SQLite database."""
     from task_manager import TaskManager
-    return TaskManager(storage_dir=str(tasks_dir))
+    return TaskManager(daemon_id=daemon_id)
 
 
 @pytest.fixture
@@ -263,10 +351,13 @@ def roadmap_dir(test_data_dir):
 
 
 @pytest.fixture
-def roadmap_manager(roadmap_dir):
-    """RoadmapManager with isolated storage."""
+def roadmap_manager(daemon_id, tmp_path, monkeypatch):
+    """RoadmapManager backed by the per-test SQLite database."""
+    # Milestones still live in a JSON file at the CWD-relative ./data/roadmap,
+    # so run from tmp_path to keep them out of the repo and isolated per test.
+    monkeypatch.chdir(tmp_path)
     from roadmap import RoadmapManager
-    return RoadmapManager(storage_dir=str(roadmap_dir))
+    return RoadmapManager(daemon_id=daemon_id)
 
 
 # ---------------------------------------------------------------------------

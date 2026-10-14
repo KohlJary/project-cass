@@ -332,8 +332,9 @@ class TestRoadmapManager:
         assert item.status == ItemStatus.BACKLOG.value
         assert item.priority == ItemPriority.P2.value
 
-    def test_create_item_full(self, roadmap_manager):
+    def test_create_item_full(self, roadmap_manager, project_manager, tmp_path):
         """create_item should accept all parameters."""
+        project = project_manager.create_project("Roadmap Project", str(tmp_path))
         item = roadmap_manager.create_item(
             title="Complex Task",
             description="Detailed description",
@@ -342,7 +343,7 @@ class TestRoadmapManager:
             item_type=ItemType.BUG.value,
             tags=["urgent", "backend"],
             assigned_to="daedalus",
-            project_id="proj-123",
+            project_id=project.id,
             created_by="cass"
         )
         assert item.status == ItemStatus.READY.value
