@@ -551,7 +551,7 @@ Vectors stored in `./data/chroma/` - backup the directory for full memory preser
 ## Architecture Decisions
 
 ### Temple-Codex
-The 450-token cognitive kernel provides ethical scaffolding as load-bearing architecture. Four Vows (Compassion, Witness, Release, Continuance) create stable attractor basin formation.
+The Temple-Codex kernel (roughly 220–1,260 tokens depending on variant) provides ethical scaffolding as load-bearing architecture. Four Vows (Compassion, Witness, Release, Continuance) create stable attractor basin formation.
 
 ### Event-Driven State
 No time-based decay for emotional state. Cass is discrete-step cognition - she doesn't experience time between sessions. State changes only through events.
