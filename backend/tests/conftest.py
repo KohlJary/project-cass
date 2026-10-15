@@ -482,3 +482,22 @@ def levers():
     """
     import features
     return features.override
+
+
+@pytest.fixture
+def fake_llm(monkeypatch):
+    """Scriptable fake for every LLM client Cass uses (see tests/fakes/llm.py).
+
+        fake_llm.queue_text("hi")
+        fake_llm.queue_tool_use("lookup_person", {"name": "Kohl"})
+        assert fake_llm.calls[0].system_text
+    """
+    from tests.fakes import llm
+    return llm.install(llm.FakeLLM(), monkeypatch)
+
+
+@pytest.fixture
+def fake_embeddings(monkeypatch):
+    """Deterministic offline replacement for Chroma's default embedding model."""
+    from tests.fakes import embeddings
+    embeddings.install(monkeypatch)
