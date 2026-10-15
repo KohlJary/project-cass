@@ -13,6 +13,7 @@ The graph enables:
 """
 
 import json
+import threading
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -2636,11 +2637,25 @@ class SelfModelGraph:
         return True
 
 
-# Convenience function for creating the graph with default path
+# One shared graph per storage file. Tool handlers used to build a fresh
+# SelfModelGraph per call; the long-lived startup instance never saw their
+# writes, and its next save() (every observation sync) rewrote the whole JSON
+# and wiped them (intentions, stakes, presence logs). Sharing one instance
+# per file makes every caller read and write the same in-memory graph.
+_graph_instances: Dict[str, SelfModelGraph] = {}
+_graph_instances_lock = threading.Lock()
+
+
 def get_self_model_graph(data_dir: Optional[Path] = None) -> SelfModelGraph:
-    """Get or create the self-model graph instance."""
+    """Get the shared self-model graph instance for data_dir (created on first use)."""
     if data_dir is None:
         from config import DATA_DIR
         data_dir = DATA_DIR
 
-    return SelfModelGraph(storage_path=str(data_dir / "cass" / "self_model_graph.json"))
+    storage_path = str((data_dir / "cass" / "self_model_graph.json").resolve())
+    with _graph_instances_lock:
+        graph = _graph_instances.get(storage_path)
+        if graph is None:
+            graph = SelfModelGraph(storage_path=storage_path)
+            _graph_instances[storage_path] = graph
+        return graph

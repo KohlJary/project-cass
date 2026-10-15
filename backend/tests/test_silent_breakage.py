@@ -279,3 +279,25 @@ def test_is_daily_journal_handles_legacy_entries():
     assert not _is_daily_journal({"journal_type": "research", "conversation_count": 3})
     assert _is_daily_journal({"conversation_count": 3})          # legacy nightly journal
     assert not _is_daily_journal({"summary_count": 0, "conversation_count": 0})  # legacy side journal
+
+
+# ---------------------------------------------------------------------------
+# 3. Self-model graph: handler writes survive the startup instance's save()
+# ---------------------------------------------------------------------------
+
+def test_handler_graph_write_survives_background_save(tmp_path, fake_embeddings):
+    import self_model_graph as smg
+
+    startup_graph = smg.get_self_model_graph(tmp_path)   # what startup.py holds
+    handler_graph = smg.get_self_model_graph(tmp_path)   # what a tool handler gets
+    intention_id = handler_graph.register_intention(
+        intention="engage more directly", condition="when I notice I'm narrating")
+
+    # Background path: an observation sync on the startup instance saves the
+    # whole graph (graph_sync.py), which used to overwrite the handler's write.
+    startup_graph.sync_observation(
+        observation_id="obs-1", observation_text="I narrate when unsure",
+        category="pattern", confidence=0.7, timestamp="2026-10-14T12:00:00")
+
+    reloaded = smg.SelfModelGraph(storage_path=str(tmp_path / "cass" / "self_model_graph.json"))
+    assert intention_id in reloaded._nodes
