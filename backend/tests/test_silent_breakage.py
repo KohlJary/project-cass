@@ -163,3 +163,42 @@ def test_outreach_draft_action_stores_draft(monkeypatch):
                          title="Warm check-in", content="Thinking of you.")
     assert result.success, result.message
     assert result.data["status"] == "drafting"
+
+
+# ---------------------------------------------------------------------------
+# 2. 30-minute self-observation job
+# ---------------------------------------------------------------------------
+
+def test_memory_facade_has_conversation_self_observation_extractor():
+    from memory import CassMemory
+    assert hasattr(CassMemory, "extract_self_observations_from_conversation")
+
+
+def test_periodic_self_observation_cycle_records_observations(conversation_manager):
+    """It called get_recent_conversations/get_conversation (neither exists) and
+    a memory method missing from the facade, so it failed every 30 minutes."""
+    from datetime import datetime, timedelta
+    from database import get_db
+    import background_tasks
+
+    conv = conversation_manager.create_conversation(title="obs")
+    for i in range(4):
+        conversation_manager.add_message(conv.id, "user" if i % 2 == 0 else "assistant", f"m{i}")
+    old = (datetime.now() - timedelta(hours=1)).isoformat()
+    with get_db() as conn:
+        conn.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (old, conv.id))
+
+    memory = MagicMock()
+    memory.extract_self_observations_from_conversation = AsyncMock(return_value=[{
+        "observation": "I ask clarifying questions first", "category": "pattern",
+        "confidence": 0.8, "influence_source": "independent"}])
+    self_manager = MagicMock()
+
+    seen = asyncio.run(background_tasks.observe_recent_conversations(
+        conversation_manager, memory, self_manager, set()))
+
+    assert conv.id in seen
+    text = memory.extract_self_observations_from_conversation.await_args.kwargs["conversation_text"]
+    assert "User: m0" in text and "Cass: m1" in text
+    assert self_manager.add_observation.call_args.kwargs["source_conversation_id"] == conv.id
+    memory.embed_self_observation.assert_called_once()

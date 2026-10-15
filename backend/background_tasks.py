@@ -233,7 +233,7 @@ async def extract_post_conversation_observations(
 
     try:
         # Get the conversation
-        conversation = conversation_manager.get_conversation(conversation_id)
+        conversation = conversation_manager.load_conversation(conversation_id)
         if not conversation or len(conversation.messages) < min_messages:
             return 0
 
@@ -302,7 +302,58 @@ async def extract_post_conversation_observations(
         logger.error(f"Post-conversation observation extraction failed: {e}")
         import traceback
         traceback.print_exc()
+        from strict import report_swallowed
+        report_swallowed(e, "Post-conversation self-observation extraction", logger)
         return 0
+
+
+async def observe_recent_conversations(
+    conversation_manager,
+    memory,
+    self_manager,
+    analyzed_conversations: set,
+    limit: int = 10,
+) -> set:
+    """One cycle of the periodic self-observation job (testable on its own).
+
+    ConversationManager has no get_recent_conversations; list_conversations
+    returns metadata dicts (with message_count), most recent first.
+    """
+    recent = conversation_manager.list_conversations(limit=limit)
+
+    for conv in recent:
+        if conv["id"] in analyzed_conversations:
+            continue
+
+        # Skip if too few messages
+        if conv.get("message_count", 0) < 4:
+            analyzed_conversations.add(conv["id"])
+            continue
+
+        # Skip if conversation is still active (updated recently)
+        updated_at = datetime.fromisoformat(conv["updated_at"].replace("Z", "+00:00"))
+        if datetime.now(updated_at.tzinfo) - updated_at < timedelta(minutes=15):
+            continue
+
+        # Extract observations
+        count = await extract_post_conversation_observations(
+            conversation_id=conv["id"],
+            user_id=conv.get("user_id"),
+            conversation_manager=conversation_manager,
+            memory=memory,
+            self_manager=self_manager,
+        )
+
+        analyzed_conversations.add(conv["id"])
+
+        if count > 0:
+            # Small delay between conversations to avoid rate limits
+            await asyncio.sleep(5)
+
+    # Limit the set size to prevent memory growth
+    if len(analyzed_conversations) > 500:
+        analyzed_conversations = set(list(analyzed_conversations)[-250:])
+    return analyzed_conversations
 
 
 async def periodic_conversation_observation_task(
@@ -339,41 +390,9 @@ async def periodic_conversation_observation_task(
                 await asyncio.sleep(300)
                 continue
 
-            # Find recent conversations that haven't been analyzed
-            recent = conversation_manager.get_recent_conversations(limit=10)
-
-            for conv in recent:
-                if conv.id in analyzed_conversations:
-                    continue
-
-                # Skip if too few messages
-                if len(conv.messages) < 4:
-                    analyzed_conversations.add(conv.id)
-                    continue
-
-                # Skip if conversation is still active (updated recently)
-                updated_at = datetime.fromisoformat(conv.updated_at.replace("Z", "+00:00"))
-                if datetime.now(updated_at.tzinfo) - updated_at < timedelta(minutes=15):
-                    continue
-
-                # Extract observations
-                count = await extract_post_conversation_observations(
-                    conversation_id=conv.id,
-                    user_id=conv.user_id,
-                    conversation_manager=conversation_manager,
-                    memory=memory,
-                    self_manager=self_manager,
-                )
-
-                analyzed_conversations.add(conv.id)
-
-                if count > 0:
-                    # Small delay between conversations to avoid rate limits
-                    await asyncio.sleep(5)
-
-            # Limit the set size to prevent memory growth
-            if len(analyzed_conversations) > 500:
-                analyzed_conversations = set(list(analyzed_conversations)[-250:])
+            analyzed_conversations = await observe_recent_conversations(
+                conversation_manager, memory, self_manager, analyzed_conversations,
+            )
 
         except Exception as e:
             logger.error(f"Periodic conversation observation task error: {e}")
