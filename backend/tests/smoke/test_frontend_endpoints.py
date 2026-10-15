@@ -21,53 +21,38 @@ ENDPOINTS = json.loads(FIXTURE.read_text())["endpoints"]
 CARD_07 = "cards/07_tooling_tests_frontends.md (F. Frontends)"
 NEW = "found by extract_frontend_endpoints.py; not listed in the audit cards"
 
+DECIDE = "needs Kohl's decision (see fix/tool-and-endpoint-drift report)"
+
 KNOWN_MISSING = {
-    # Admin: Activity -> Rhythm tab (backend removed or renamed)
+    # Admin: Activity -> Rhythm tab. The rhythm_phases/rhythm_records tables
+    # exist but no code reads or writes them; day phases now live in
+    # DayPhaseTracker. Rebuild the tab on that, or retire it.
     **dict.fromkeys([
         "GET /admin/rhythm/dates", "GET /admin/rhythm/phases", "PUT /admin/rhythm/phases",
         "POST /admin/rhythm/phases/{param}/complete", "POST /admin/rhythm/phases/{param}/trigger",
         "POST /admin/rhythm/regenerate-summary", "GET /admin/rhythm/stats",
         "GET /admin/rhythm/status", "GET /admin/sessions/{param}",
-    ], f"{CARD_07}: Activity -> Rhythm tab has no backend"),
-    # Admin: Goals page research schedules
-    **dict.fromkeys([
-        "GET /admin/research/schedules", "GET /admin/research/schedules/pending",
-        "GET /admin/research/schedules/stats", "GET /admin/research/schedules/{param}",
-        "POST /admin/research/schedules/{param}/approve", "POST /admin/research/schedules/{param}/pause",
-        "POST /admin/research/schedules/{param}/reject", "POST /admin/research/schedules/{param}/resume",
-    ], f"{CARD_07}: /admin/research/schedules* missing"),
-    **dict.fromkeys([
-        "GET /admin/research/notes", "GET /admin/research/notes/session/{param}",
-        "GET /admin/research/notes/{param}",
-    ], f"{CARD_07}: /admin/research/notes* missing"),
-    "GET /admin/system/sessions": f"{CARD_07}: /admin/system/sessions missing",
-    "GET /wiki/stats": f"{CARD_07}: /wiki/stats missing",
-    "GET /testing/health": f"{CARD_07}: /testing/health polled every 30s, always 404",
-    "PATCH /admin/users/{param}": f"{CARD_07}: PATCH vs backend GET only",
-    "PATCH /roadmap/items/{param}": f"{CARD_07}: PATCH vs backend PUT",
-    "PATCH /roadmap/milestones/{param}": f"{CARD_07}: PATCH vs backend PUT",
-    "DELETE /roadmap/milestones/{param}": f"{CARD_07}: no milestone delete route",
-    # Admin: legacy goals API (backend is /admin/goals on UnifiedGoalManager)
+    ], f"{CARD_07}: Activity -> Rhythm tab has no backend; {DECIDE}"),
+    # Admin: Goals page still reads the legacy JSON goals API (questions,
+    # agenda, artifacts, initiatives, progress log). The data now lives in
+    # UnifiedGoalManager (/admin/goals); the page needs a redesign onto it,
+    # and synthesis artifacts have no store at all.
     **dict.fromkeys([
         "GET /goals/agenda", "GET /goals/agenda/{param}", "GET /goals/artifacts",
         "GET /goals/artifacts/{param}", "GET /goals/initiatives",
         "POST /goals/initiatives/{param}/respond", "GET /goals/next-actions",
         "GET /goals/progress", "GET /goals/questions", "GET /goals/questions/{param}",
         "GET /goals/review",
-    ], f"{NEW}: admin goalsApi (knowledge.ts) calls /goals/*, backend only has /admin/goals"),
-    **dict.fromkeys([
-        "POST /import/{param}/preview", "POST /import/{param}/apply",
-    ], f"{NEW}: admin import calls /import/{{type}}/*, backend has /export/import/{{conversations,users}}"),
-    # TUI
-    **dict.fromkeys([
-        "POST /journal/{param}/lock", "POST /journal/{param}/unlock",
-        "POST /journal/{param}/extract-observations",
-    ], f"{CARD_07} (TUI): journal lock/unlock/extract buttons have no routes"),
-    "POST /summarize": f"{NEW}: TUI /summarize command (tui.py _trigger_summarize) has no route",
-    # Godot
-    "GET /unity/gesture_library": f"{CARD_07} (Godot): only exists in legacy main.py",
-    # Mobile
-    "DELETE /users/{param}": f"{NEW}: mobile deleteUser has no DELETE /users/{{id}} route",
+    ], f"{NEW}: admin Goals page calls legacy /goals/*, backend is /admin/goals; {DECIDE}"),
+    # Admin: Settings -> Import and Data Management offer wiki / research /
+    # self-model import; the backend only imports conversations and users.
+    "POST /import/{param}/apply": f"{NEW}: no wiki/research/self-model importers exist; {DECIDE}",
+    # TUI: extract observations from a journal needs an LLM extraction path
+    # the parallel memory fix is reworking (memory.extract_user_observations).
+    "POST /journal/{param}/extract-observations": f"{CARD_07} (TUI): no route; {DECIDE}",
+    # Mobile: delete a user from the login screen. Destructive; who may
+    # delete whom is a policy call.
+    "DELETE /users/{param}": f"{NEW}: mobile deleteUser has no route; {DECIDE}",
 }
 
 
