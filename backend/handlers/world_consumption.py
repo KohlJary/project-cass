@@ -264,3 +264,91 @@ async def execute_world_consumption_tool(
             "success": False,
             "error": f"Tool execution failed: {str(e)}"
         }
+
+
+# Tool definitions offered to the model (agent_client.get_tools, keyword-gated
+# by tool_selector's "world_consumption" group). Copied from
+# tool_capabilities/schemas/world_consumption_tools.json, which nothing loads.
+WORLD_CONSUMPTION_TOOLS = [
+    {
+        "name": "search_articles",
+        "description": "Search articles you've consumed. Use this to recall what you've read about a topic, find articles from a specific source, or review recent reading. Recent articles (last 7 days) are also in ambient memory and may surface naturally.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search text to match in headlines or summaries"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Filter by category",
+                    "enum": [
+                        "technology",
+                        "science",
+                        "business",
+                        "politics",
+                        "culture",
+                        "health",
+                        "general"
+                    ]
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Filter by news source name"
+                },
+                "days_back": {
+                    "type": "integer",
+                    "description": "How many days back to search (default: 30)",
+                    "default": 30
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results to return (default: 10)",
+                    "default": 10
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_article",
+        "description": "Get full details of a specific article you've consumed, including all extracted observations, questions, opinions, and growth edges.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "article_id": {
+                    "type": "string",
+                    "description": "The article ID to retrieve"
+                }
+            },
+            "required": [
+                "article_id"
+            ]
+        }
+    },
+    {
+        "name": "list_article_sources",
+        "description": "List news sources you've been reading from, with article counts. Useful for understanding your information diet.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days_back": {
+                    "type": "integer",
+                    "description": "How many days back to look (default: 30)",
+                    "default": 30
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_reading_stats",
+        "description": "Get statistics about your article consumption - total articles read, breakdown by category, tokens used, recent activity.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    }
+]
