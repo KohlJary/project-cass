@@ -511,3 +511,19 @@ def test_research_session_agenda_tools_use_unified_goals():
     assert upd["success"], upd
     item = json.loads(runner._handle_list_agenda({"status": "in_progress"}))["items"][0]
     assert item["findings_count"] == 1 and item["sources_count"] == 1
+
+
+def test_wiki_note_actions_use_wiki_storage(tmp_path):
+    from wiki.storage import WikiStorage
+    from scheduler.actions.wiki_handlers import create_note_action, update_note_action
+
+    wiki = WikiStorage(str(tmp_path / "wiki"), git_enabled=False)
+    managers = {"wiki_manager": wiki}
+    created = _run_action(create_note_action, managers=managers,
+                          title="Satire as care", content="Momus mocks because he cares.")
+    assert created.success, created.message
+    updated = _run_action(update_note_action, managers=managers,
+                          note_id=created.data["note_id"], content="See also: jesters.")
+    assert updated.success, updated.message
+    page = wiki.read("Satire as care").content
+    assert "Momus mocks because he cares." in page and "See also: jesters." in page
