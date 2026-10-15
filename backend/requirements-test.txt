@@ -18,3 +18,4 @@ httpx>=0.25.0
 
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+pytest-timeout>=2.2.0  # hard per-test timeout (pytest.ini); a hang fails one test, not CI
