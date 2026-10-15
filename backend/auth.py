@@ -11,8 +11,11 @@ from pydantic import BaseModel, EmailStr
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-# Configuration - should come from environment
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_USE_OPENSSL_RAND")
+# Configuration - should come from environment.
+# If JWT_SECRET_KEY is unset we must NOT fall back to a constant (anyone could
+# mint tokens with it); use a random secret persisted in DATA_DIR instead.
+from secret_store import get_or_create_secret
+SECRET_KEY = get_or_create_secret("user_jwt_secret", "JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7"))
@@ -126,12 +129,67 @@ def decode_token(token: str) -> Optional[TokenData]:
 
 # === Request Helpers ===
 
-def is_localhost_request(request: Request) -> bool:
-    """Check if request originates from localhost"""
+# Headers that mean "this connection was forwarded by a proxy on this box".
+# A proxied request arrives from 127.0.0.1 but did not originate locally, so it
+# must never get the localhost bypass. X-Cass-Relayed is set by relay_client.py
+# on every request it proxies from the mobile relay; the others cover common
+# reverse proxies / tunnels (nginx, cloudflared, Caddy).
+PROXY_HEADERS = (
+    "x-cass-relayed",
+    "x-forwarded-for",
+    "x-real-ip",
+    "forwarded",
+    "cf-connecting-ip",
+)
+
+
+def is_localhost_request(request) -> bool:
+    """Check if a request (HTTP or WebSocket) genuinely originates from localhost."""
     client_host = request.client.host if request.client else None
     # Check for localhost addresses
     localhost_addresses = {"127.0.0.1", "::1", "localhost"}
-    return client_host in localhost_addresses
+    if client_host not in localhost_addresses:
+        return False
+    headers = getattr(request, "headers", None)
+    try:
+        if any(h in headers for h in PROXY_HEADERS):
+            return False
+        # A browser on this machine visiting some other website can still send
+        # requests to localhost:8000. Browsers always attach Origin to those,
+        # so only treat a request as local if its Origin (if any) is local too.
+        origin = headers.get("origin") if headers is not None else None
+    except TypeError:
+        return True  # headers is not a mapping (unit-test mocks)
+    if origin:
+        from urllib.parse import urlparse
+        if urlparse(origin).hostname not in localhost_addresses:
+            return False
+    return True
+
+
+def localhost_bypass_user(request) -> Optional[str]:
+    """User id granted by the localhost bypass, or None if it does not apply."""
+    allow_localhost = os.getenv("ALLOW_LOCALHOST_BYPASS", "true").lower() == "true"
+    if allow_localhost and is_localhost_request(request):
+        return os.getenv("DEFAULT_LOCALHOST_USER_ID") or None
+    return None
+
+
+def user_id_from_any_token(token: str) -> Optional[str]:
+    """Resolve a user id from either token family.
+
+    There are two auth systems: this module (mobile/TUI, claim "sub") and the
+    admin dashboard (routes/admin/auth.py, claim "user_id"). Both identify the
+    same SQLite users, so either token proves who the caller is.
+    """
+    token_data = decode_token(token)
+    if token_data is not None:
+        return token_data.user_id if token_data.token_type == "access" else None
+    from routes.admin.auth import verify_token as verify_admin_token
+    payload = verify_admin_token(token)
+    if payload and payload.get("user_id"):
+        return payload["user_id"]
+    return None
 
 
 def get_token_from_request(
@@ -154,14 +212,7 @@ async def get_current_user_optional(
     if token is None:
         return None
 
-    token_data = decode_token(token)
-    if token_data is None:
-        return None
-
-    if token_data.token_type != "access":
-        return None
-
-    return token_data.user_id
+    return user_id_from_any_token(token)
 
 
 async def get_current_user(
@@ -175,7 +226,9 @@ async def get_current_user(
     # Check for localhost bypass
     allow_localhost = os.getenv("ALLOW_LOCALHOST_BYPASS", "true").lower() == "true"
 
-    if user_id is not None:
+    # Guard against being called directly (not via Depends): the default is
+    # then the Depends marker itself, which used to be returned as the "user".
+    if user_id is not None and isinstance(user_id, str):
         return user_id
 
     if allow_localhost and is_localhost_request(request):

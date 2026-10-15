@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { api, authApi } from '../api/client';
+import { graphqlClient } from '../api/graphql';
 
 interface AuthUser {
   user_id: string;
@@ -57,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(JSON.parse(savedUser));
           // Set default auth header
           api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
+          graphqlClient.setHeader('Authorization', `Bearer ${savedToken}`);
           // Verify token is still valid
           await verifyToken(savedToken);
         } else {
@@ -71,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setToken(savedToken);
           setUser(JSON.parse(savedUser));
           api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
+          graphqlClient.setHeader('Authorization', `Bearer ${savedToken}`);
           await verifyToken(savedToken);
         } else {
           setIsLoading(false);
@@ -118,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(USER_KEY, JSON.stringify(newUser));
 
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    graphqlClient.setHeader('Authorization', `Bearer ${newToken}`);
   };
 
   const logout = () => {
@@ -126,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     delete api.defaults.headers.common['Authorization'];
+    graphqlClient.setHeaders({ 'Content-Type': 'application/json' });
     setIsLoading(false);
   };
 

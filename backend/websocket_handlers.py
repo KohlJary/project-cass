@@ -264,12 +264,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
             if admin_payload and admin_payload.get("user_id"):
                 connection_user_id = admin_payload["user_id"]
 
-    # Localhost bypass if no token
+    # Localhost bypass if no token. Shared helper so relayed/proxied
+    # connections (which also arrive from 127.0.0.1) don't get it.
     if not connection_user_id:
-        allow_localhost = os.getenv("ALLOW_LOCALHOST_BYPASS", "true").lower() == "true"
-        client_host = websocket.client.host if websocket.client else None
-        if allow_localhost and client_host in {"127.0.0.1", "::1", "localhost"}:
-            connection_user_id = os.getenv("DEFAULT_LOCALHOST_USER_ID")
+        from auth import localhost_bypass_user
+        connection_user_id = localhost_bypass_user(websocket)
 
     await manager.connect(websocket, user_id=connection_user_id)
 
@@ -281,6 +280,9 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
         "timestamp": datetime.now().isoformat()
     })
     print(f"[WebSocket] Sent connected message, entering message loop for user {connection_user_id}")
+
+    # Read by the disconnect handler; must exist even if no chat was sent.
+    conversation_id = None
 
     try:
         while True:
@@ -313,6 +315,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             "type": "auth_error",
                             "message": "Invalid token"
                         })
+                continue
+
+            # Everything except auth/ping needs an identified user. Before, an
+            # anonymous socket could chat (spending tokens) and run onboarding.
+            if data.get("type") not in ("ping",) and not manager.get_user_id(websocket):
+                await websocket.send_json({
+                    "type": "auth_error",
+                    "message": "Authentication required: send {type: 'auth', token} or connect with ?token="
+                })
                 continue
 
             if data.get("type") == "chat":

@@ -2,7 +2,10 @@
 Document tool handler - manages project documents and file access
 """
 import os
+from pathlib import Path
 from typing import Dict
+
+from path_policy import check_path, is_denied_name, PathNotAllowed
 
 
 async def execute_file_tool(
@@ -28,9 +31,13 @@ async def execute_file_tool(
             if not file_path:
                 return {"success": False, "error": "file_path is required"}
 
-            # Expand ~ and resolve path
-            file_path = os.path.expanduser(file_path)
-            file_path = os.path.abspath(file_path)
+            # Only files under the allowed roots (repo, project dirs, DATA_DIR,
+            # CASS_FILE_ROOTS), never secrets like .env / auth.json / keys.
+            # Previously any readable path was allowed, including backend/.env.
+            try:
+                file_path = str(check_path(file_path))
+            except PathNotAllowed as e:
+                return {"success": False, "error": f"Access denied: {e}"}
 
             if not os.path.exists(file_path):
                 return {"success": False, "error": f"File not found: {file_path}"}
@@ -81,9 +88,11 @@ async def execute_file_tool(
             if not dir_path:
                 return {"success": False, "error": "directory_path is required"}
 
-            # Expand and resolve path
-            dir_path = os.path.expanduser(dir_path)
-            dir_path = os.path.abspath(dir_path)
+            # Same allow-list as read_file.
+            try:
+                dir_path = str(check_path(dir_path))
+            except PathNotAllowed as e:
+                return {"success": False, "error": f"Access denied: {e}"}
 
             if not os.path.exists(dir_path):
                 return {"success": False, "error": f"Directory not found: {dir_path}"}
@@ -97,6 +106,8 @@ async def execute_file_tool(
             try:
                 for entry in sorted(os.listdir(dir_path)):
                     if not fnmatch.fnmatch(entry, pattern):
+                        continue
+                    if is_denied_name(Path(entry)):
                         continue
                     full_path = os.path.join(dir_path, entry)
                     if os.path.isdir(full_path):

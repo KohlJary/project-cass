@@ -2,6 +2,7 @@
 Git REST API routes
 Repository operations for the TUI GitPanel
 """
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from path_policy import check_path, PathNotAllowed
 
 router = APIRouter(prefix="/git", tags=["git"])
 
@@ -44,29 +47,51 @@ class DiffRequest(BaseModel):
     staged: bool = False  # True = show staged changes
 
 
+# A hung git (credential prompt, huge repo) used to block forever.
+GIT_TIMEOUT_SECONDS = 30
+
+# Never let git prompt for credentials on the server's terminal.
+_GIT_ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
+
 # === Helper Functions ===
+
+def safe_arg(value: str, what: str) -> str:
+    """Reject user input that git would parse as an option (e.g. a branch
+    named "--upload-pack=..." or a file "--output=...")."""
+    if value is None or value == "" or value.startswith("-"):
+        raise HTTPException(status_code=400, detail=f"Invalid {what}: {value!r}")
+    return value
+
+
+def _run(cmd: List[str]) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=GIT_TIMEOUT_SECONDS, env=_GIT_ENV, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Git command timed out")
+
 
 def run_git(repo_path: str, args: List[str], check: bool = True) -> subprocess.CompletedProcess:
     """Run a git command in the specified repository"""
-    path = Path(repo_path)
+    # Only repos under the allowed roots (DATA_DIR, the Cass repo, project
+    # working directories, CASS_FILE_ROOTS) - not any path on disk.
+    try:
+        path = check_path(repo_path)
+    except PathNotAllowed as e:
+        raise HTTPException(status_code=403, detail=str(e))
     if not path.exists():
         raise HTTPException(status_code=400, detail=f"Path does not exist: {repo_path}")
 
     if not (path / ".git").exists() and not (path / ".git").is_file():
         # Check if it's inside a git repo
-        result = subprocess.run(
-            [GIT_BINARY, "-C", str(path), "rev-parse", "--git-dir"],
-            capture_output=True,
-            text=True
-        )
+        result = _run([GIT_BINARY, "-C", str(path), "rev-parse", "--git-dir"])
         if result.returncode != 0:
             raise HTTPException(status_code=400, detail=f"Not a git repository: {repo_path}")
 
-    result = subprocess.run(
-        [GIT_BINARY, "-C", str(path)] + args,
-        capture_output=True,
-        text=True
-    )
+    result = _run([GIT_BINARY, "-C", str(path)] + args)
 
     if check and result.returncode != 0:
         raise HTTPException(
@@ -140,7 +165,7 @@ async def stage_files(request: StageRequest):
     if request.files:
         # Stage specific files
         for file in request.files:
-            run_git(request.repo_path, ["add", file])
+            run_git(request.repo_path, ["add", "--", safe_arg(file, "file")])
         return {"staged": request.files, "count": len(request.files)}
     else:
         # Stage all
@@ -157,7 +182,7 @@ async def unstage_files(request: UnstageRequest):
     if request.files:
         # Unstage specific files
         for file in request.files:
-            run_git(request.repo_path, ["reset", "HEAD", "--", file], check=False)
+            run_git(request.repo_path, ["reset", "HEAD", "--", safe_arg(file, "file")], check=False)
         return {"unstaged": request.files, "count": len(request.files)}
     else:
         # Unstage all
@@ -174,9 +199,11 @@ async def create_commit(request: CommitRequest):
         raise HTTPException(status_code=400, detail="No staged changes to commit")
 
     # Build commit command
-    args = ["commit", "-m", request.message]
+    # "-m<msg>" / "--author=<a>" keep the value attached to its flag, so a
+    # value starting with "-" can't become a separate option.
+    args = ["commit", f"--message={request.message}"]
     if request.author:
-        args.extend(["--author", request.author])
+        args.append(f"--author={request.author}")
 
     result = run_git(request.repo_path, args)
 
@@ -199,7 +226,7 @@ async def get_diff(repo_path: str, file: Optional[str] = None, staged: bool = Fa
     if staged:
         args.append("--cached")
     if file:
-        args.extend(["--", file])
+        args.extend(["--", safe_arg(file, "file")])
 
     result = run_git(repo_path, args, check=False)
 
@@ -215,7 +242,7 @@ async def get_log(repo_path: str, count: int = 10):
     """Get recent commit log"""
     result = run_git(
         repo_path,
-        ["log", f"-{count}", "--pretty=format:%h|%s|%an|%ar"],
+        ["log", f"--max-count={max(1, min(int(count), 500))}", "--pretty=format:%h|%s|%an|%ar"],
         check=False
     )
 
@@ -238,10 +265,14 @@ async def get_log(repo_path: str, count: int = 10):
 @router.post("/checkout")
 async def checkout_branch(repo_path: str, branch: str, create: bool = False):
     """Switch branches or create a new branch"""
+    safe_arg(branch, "branch")
     args = ["checkout"]
     if create:
         args.append("-b")
-    args.append(branch)
+        args.append(branch)
+    else:
+        # Trailing "--" makes git treat `branch` as a ref, never a path.
+        args.extend([branch, "--"])
 
     run_git(repo_path, args)
 

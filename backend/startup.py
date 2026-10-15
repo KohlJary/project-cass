@@ -32,8 +32,10 @@ def validate_startup_requirements() -> None:
         errors.append(f"DATA_DIR ({DATA_DIR}) is not writable: {e}")
 
     # Log warnings for optional but recommended settings
-    if os.getenv("JWT_SECRET_KEY", "").startswith("CHANGE_ME"):
-        logger.warning("JWT_SECRET_KEY is using default value - change this in production!")
+    # (Unset/placeholder JWT secrets are now replaced by a generated one that
+    # is persisted in DATA_DIR/.secrets - see secret_store.py.)
+    if os.getenv("DEMO_MODE", "false").lower() == "true":
+        logger.warning("DEMO_MODE is on: anonymous visitors can READ most of the API (writes still need login)")
 
     if errors:
         for error in errors:

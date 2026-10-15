@@ -2548,10 +2548,34 @@ class Mutation:
         )
 
 
+from strawberry.extensions import SchemaExtension
+from strawberry.types.graphql import OperationType
+
+
+class DemoReadOnlyExtension(SchemaExtension):
+    """Block mutations from anonymous DEMO_MODE visitors.
+
+    route_guard lets anonymous POSTs to /graphql through in demo mode so the
+    dashboard's queries work; mutations (PeopleDex create/update/delete/merge)
+    still need a logged-in user.
+    """
+
+    def on_execute(self):
+        ctx = self.execution_context
+        request = (ctx.context or {}).get("request") if isinstance(ctx.context, dict) else None
+        anonymous_demo = bool(request is not None and request.scope.get("cass_demo_anonymous"))
+        if anonymous_demo and ctx.operation_type != OperationType.QUERY:
+            raise PermissionError("Demo mode is read-only. Log in to make changes.")
+        yield
+
+
 # Create the schema with mutations
-schema = strawberry.Schema(query=Query, mutation=Mutation)
+schema = strawberry.Schema(query=Query, mutation=Mutation, extensions=[DemoReadOnlyExtension])
 
 # Create the GraphQL router for FastAPI
 def get_graphql_router() -> GraphQLRouter:
-    """Get the GraphQL router to mount in FastAPI."""
+    """Get the GraphQL router to mount in FastAPI.
+
+    Auth is enforced by the app-wide route_guard (admin by default).
+    """
     return GraphQLRouter(schema)

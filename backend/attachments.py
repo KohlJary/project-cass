@@ -94,8 +94,13 @@ class PersistentAttachmentStorage(BaseAttachmentStorage):
             dir_path = self.base_dir / conversation_id
         else:
             dir_path = self.base_dir / "_unassigned"
+        # Both parts can come from request input; refuse anything (e.g. "../")
+        # that would land outside base_dir.
+        path = (dir_path / attachment_id).resolve()
+        if not path.is_relative_to(self.base_dir.resolve()) or path.parent == self.base_dir.resolve():
+            raise ValueError("Invalid attachment path")
         dir_path.mkdir(parents=True, exist_ok=True)
-        return dir_path / attachment_id
+        return path
 
     def save(self, file_data: bytes, filename: str, media_type: str,
              conversation_id: Optional[str] = None) -> AttachmentMetadata:
