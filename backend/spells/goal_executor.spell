@@ -27,7 +27,8 @@ END IF
 
 ' Get actionable goals from orchestrator
 TASK goals.get_actionable limit=5 AWAIT
-LET $goals = $TASK_RESULT.goals
+' Action payloads live under .data (TASK_RESULT is {success, message, data})
+LET $goals = $TASK_RESULT.data.goals
 
 IF $goals == 0 THEN
     LOG DEBUG "No actionable goals"
@@ -38,15 +39,17 @@ LOG INFO "Found {$goals} actionable goal(s)"
 
 ' Process first available goal
 TASK goals.get_next AWAIT
-LET $goal = $TASK_RESULT.goal
+LET $goal = $TASK_RESULT.data.goal
 
 IF $goal == "" THEN
     EXIT SKIPPED "no goal available"
 END IF
 
-LET $goal_id = $TASK_RESULT.goal_id
-LET $goal_type = $TASK_RESULT.goal_type
-LET $action = $TASK_RESULT.action
+LET $goal_id = $TASK_RESULT.data.goal_id
+LET $goal_type = $TASK_RESULT.data.goal_type
+' "action" is a reserved word, so the handler also returns it as next_action
+LET $action = $TASK_RESULT.data.next_action
+LET $decomposed = $TASK_RESULT.data.decomposed
 
 LOG OBSERVATION "Starting goal execution: {$goal} (type: {$goal_type})"
 
@@ -55,26 +58,26 @@ TASK goals.start goal_id=$goal_id AWAIT
 
 ' Check if goal has decomposed action mapping (from GoalOrchestrator)
 ' Format: action:<action>|phase:<phase>|domain:<domain>|entity:<entity>
-LET $context = $TASK_RESULT.context_summary
-IF $context != "" AND $context CONTAINS "action:" AND NOT ($context CONTAINS "spell:") THEN
+' (goals.get_next sets decomposed = has an action mapping and no spell mapping)
+IF $decomposed THEN
     ' Parse action from context
     ' This is a decomposed sub-goal with action mapping
     LOG INFO "Executing decomposed goal with action: {$action}"
 
     ' Execute based on the mapped action
-    IF $action CONTAINS "session.research" THEN
+    IF $action == "session.research" THEN
         TASK research.run_single AWAIT
         DELTA need.novelty_intake +0.1, need.competence_signal +0.1
-    ELSE IF $action CONTAINS "session.curiosity" THEN
+    ELSE IF $action == "session.curiosity" THEN
         TASK wonderland.explore AWAIT
         DELTA need.novelty_intake +0.15
-    ELSE IF $action CONTAINS "session.reflection" THEN
+    ELSE IF $action == "session.reflection" THEN
         REFLECT "Reflecting on goal: {$goal}. What insights emerge? What progress has been made?" SAVE AS OBSERVATION
         DELTA affect.satisfaction +0.1
-    ELSE IF $action CONTAINS "wonderland.explore" THEN
+    ELSE IF $action == "wonderland.explore" THEN
         TASK wonderland.explore AWAIT
         DELTA need.novelty_intake +0.15, need.autonomy +0.1
-    ELSE IF $action CONTAINS "wonderland.socialize" THEN
+    ELSE IF $action == "wonderland.socialize" THEN
         TASK wonderland.socialize AWAIT
         DELTA need.social_connection +0.15
     ELSE

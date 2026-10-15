@@ -248,11 +248,30 @@ def test_timer_spell_art_study(app):
     _assert_cycle_did_work(*_cast(app, "art_study"))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "CAPABILITIES.md: spells/goal_executor.spell fails to parse at line 49 "
-    "(ACTION is reserved), so the goal executor never loads"))
 def test_timer_spell_goal_executor(app):
-    _assert_cycle_did_work(*_cast(app, "goal_executor"))
+    import goal_orchestrator
+    from database import get_daemon_id
+    from unified_goals import UnifiedGoalManager, GoalStatus
+
+    # One approved research goal for the executor to pick up. The
+    # goal_orchestrator lever is off here, so set up a bare orchestrator.
+    daemon_id = get_daemon_id()
+    manager = UnifiedGoalManager(daemon_id)
+    goal_orchestrator.init_goal_orchestrator(daemon_id=daemon_id, goal_manager=manager)
+    goal = manager.create_goal(title="Smoke research goal", goal_type="research",
+                               created_by="kohl", description="smoke",
+                               completion_criteria=["ran once"])
+    if goal.status != GoalStatus.APPROVED.value:
+        goal = manager.approve_goal(goal.id, approved_by="kohl")
+    try:
+        result, actions = _cast(app, "goal_executor")
+        _assert_cycle_did_work(result, actions)
+        assert [a for a, _ in actions] == [
+            "goals.get_actionable", "goals.get_next", "goals.start",
+            "research.run_single", "goals.complete"]
+        assert manager.get_goal(goal.id).status == GoalStatus.COMPLETED.value
+    finally:
+        goal_orchestrator._orchestrator_cache.pop(daemon_id, None)
 
 
 # ---------------------------------------------------------------------------
