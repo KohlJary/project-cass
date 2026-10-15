@@ -14,14 +14,21 @@ from unittest.mock import Mock, AsyncMock, patch
 # imported, so the test run never touches a real daemon's data/cass.db.
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="cass_test_data_"))
 
-# The smoke batteries (tests/smoke/) boot the real app and need the full
-# runtime deps (requirements.txt). The fast suite only installs
-# requirements-test.txt, so skip collecting them there instead of erroring.
+# Tests that import the real app (main_sdk) need the full runtime deps
+# (requirements.txt). The fast CI job only installs requirements-test.txt, so
+# skip collecting them there instead of erroring. CI's "full" job installs
+# requirements.txt and runs everything, including these.
 try:
     import anthropic  # noqa: F401
     import networkx  # noqa: F401
+    import slowapi  # noqa: F401
+    import multipart  # noqa: F401  (python-multipart)
 except ImportError:
-    collect_ignore = ["smoke"]
+    collect_ignore = [
+        "smoke",                       # boots the app
+        "test_route_auth.py",          # walks main_sdk's route table
+        "test_security_lockdown.py",   # imports routes / handlers needing runtime deps
+    ]
 
 # Feature levers: every background/autonomous/external subsystem is OFF in
 # tests unless a test turns it on with the `levers` fixture (see features.py).
@@ -60,6 +67,22 @@ def template_db(tmp_path_factory):
     path = tmp_path_factory.mktemp("db_template") / "cass.db"
     _point_db_at(path)
     init_database()
+    # If main_sdk was already imported (e.g. tests/test_route_auth.py walks its
+    # route table at collection time), it created its "cass" daemon in the
+    # scratch DATA_DIR db and cached that id in module globals. Reuse the same
+    # id here, or every per-test db copy lacks the daemon main_sdk writes for
+    # and all its inserts fail with FOREIGN KEY errors.
+    import sys
+    main_sdk = sys.modules.get("main_sdk")
+    if main_sdk is not None and getattr(main_sdk, "_daemon_id", None):
+        from database import get_db
+        from datetime import datetime as _dt
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO daemons (id, label, name, created_at, kernel_version, status) "
+                "VALUES (?, 'cass', 'Cass', ?, 'temple-codex-1.0', 'active')",
+                (main_sdk._daemon_id, _dt.now().isoformat()),
+            )
     get_or_create_daemon("cass")
     connection.close_connection()
     yield path
