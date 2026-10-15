@@ -8,6 +8,8 @@ import logging
 from typing import Any, Dict
 from functools import partial
 
+from features import is_enabled
+
 from .core import ScheduledTask, TaskPriority, create_task
 from .budget import TaskCategory
 from .handlers import (
@@ -49,8 +51,11 @@ def register_system_tasks(
         logger.info("System tasks registration skipped (feature flag disabled)")
         return
 
+    # Each job also has its own feature lever (features.py, job_*), so a test
+    # battery or CASS_PROFILE can switch single jobs off.
+
     # GitHub metrics - every 6 hours
-    if managers.get("github_metrics_manager"):
+    if managers.get("github_metrics_manager") and is_enabled("job_github_metrics"):
         scheduler.register_system_task(create_task(
             name="github_metrics",
             category=TaskCategory.SYSTEM,
@@ -65,7 +70,7 @@ def register_system_tasks(
         logger.info("Registered: github_metrics (every 6 hours)")
 
     # Idle summarization - every hour
-    if managers.get("conversation_manager") and managers.get("memory"):
+    if managers.get("conversation_manager") and managers.get("memory") and is_enabled("job_idle_summarization"):
         scheduler.register_system_task(create_task(
             name="idle_summarization",
             category=TaskCategory.SYSTEM,
@@ -83,7 +88,7 @@ def register_system_tasks(
         logger.info("Registered: idle_summarization (every hour, idle-only)")
 
     # Daily journal - 00:05 daily (5 minutes after midnight)
-    if managers.get("generate_missing_journals"):
+    if managers.get("generate_missing_journals") and is_enabled("job_daily_journal"):
         scheduler.register_system_task(create_task(
             name="daily_journal",
             category=TaskCategory.SYSTEM,
@@ -101,7 +106,7 @@ def register_system_tasks(
         logger.info("Registered: daily_journal (00:05 daily)")
 
     # Autonomous research - only register if not in supervised mode
-    if managers.get("research_scheduler"):
+    if managers.get("research_scheduler") and is_enabled("job_autonomous_research"):
         # Try to get mode from config, default to supervised if not available
         research_sched = managers["research_scheduler"]
         mode = None
@@ -128,6 +133,8 @@ def register_system_tasks(
             logger.info(f"Registered: autonomous_research (every 5 min, mode: {mode_value})")
 
     # Goal refinement - daily at 09:00
+    if not is_enabled("job_goal_refinement"):
+        return
     scheduler.register_system_task(create_task(
         name="goal_refinement",
         category=TaskCategory.SYSTEM,

@@ -637,8 +637,10 @@ class GlobalStateBus:
 
         logger.info(f"Registered queryable source: {source_id} (strategy: {source.refresh_strategy.value})")
 
-        # Index capabilities for semantic search
-        if self._capability_registry:
+        # Index capabilities for semantic search ("capability_indexing" lever:
+        # indexing calls Ollama for summaries)
+        from features import is_enabled
+        if self._capability_registry and is_enabled("capability_indexing"):
             asyncio.create_task(self._register_source_capabilities(source))
 
         # Start background refresh for SCHEDULED sources
