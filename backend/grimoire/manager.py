@@ -446,6 +446,7 @@ class GrimoireManager:
                         journal_text=content,
                         summary_count=0,
                         conversation_count=0,
+                        journal_type="spell",
                     )
                     logger.info(f"Saved journal via grimoire: {journal_id}")
                     return journal_id

@@ -241,3 +241,41 @@ def test_session_recall_memories_tool():
     out = asyncio.run(handle_recall_memories(
         {"query": "Momus", "limit": 3}, {"memory": _spec_memory(HITS)}))
     assert out["memories"] == [{"content": "Kohl talked about Momus and myth", "relevance": 0.75}]
+
+
+# ---------------------------------------------------------------------------
+# 7. Side journals don't make the nightly job skip the daily journal
+# ---------------------------------------------------------------------------
+
+def test_nightly_job_ignores_research_journal_for_the_day(admin_managers):
+    import journal_generation
+    from datetime import datetime, timedelta
+
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    mem = admin_managers.memory
+
+    def collection_get(where, include):
+        kind = where["type"]
+        if kind == "journal":  # only a research-session journal exists for yesterday
+            return {"ids": ["r1"], "documents": ["research"], "metadatas": [{
+                "journal_date": yesterday, "journal_type": "research",
+                "summary_count": 0, "conversation_count": 0}]}
+        if kind == "conversation":
+            return {"ids": ["c1"], "documents": ["User: hi\nCass: hello"],
+                    "metadatas": [{"timestamp": f"{yesterday}T12:00:00"}]}
+        return {"ids": [], "documents": [], "metadatas": []}
+
+    mem.collection.get.side_effect = collection_get
+    mem.generate_journal_entry = AsyncMock(return_value=None)  # stop after phase 1
+
+    asyncio.run(journal_generation.generate_missing_journals(days_to_check=1))
+
+    assert mem.generate_journal_entry.await_args.kwargs["date"] == yesterday
+
+
+def test_is_daily_journal_handles_legacy_entries():
+    from journal_generation import _is_daily_journal
+    assert _is_daily_journal({"journal_type": "daily"})
+    assert not _is_daily_journal({"journal_type": "research", "conversation_count": 3})
+    assert _is_daily_journal({"conversation_count": 3})          # legacy nightly journal
+    assert not _is_daily_journal({"summary_count": 0, "conversation_count": 0})  # legacy side journal

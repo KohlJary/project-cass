@@ -25,6 +25,20 @@ def _get_dependencies():
             admin_state.self_manager, admin_state.users)
 
 
+def _is_daily_journal(meta: dict) -> bool:
+    """Is this journal entry the nightly daily journal?
+
+    Research sessions and Grimoire REFLECT ... SAVE AS JOURNAL also store
+    type=journal entries dated today, which made the nightly job skip the real
+    journal for that day. New entries carry journal_type; for older ones, a
+    daily journal is the only kind built from summaries or conversations.
+    """
+    journal_type = meta.get("journal_type")
+    if journal_type:
+        return journal_type == "daily"
+    return bool(meta.get("summary_count") or meta.get("conversation_count"))
+
+
 def _get_daemon_activity_mode() -> str:
     """Get the activity_mode of the active daemon."""
     try:
@@ -119,7 +133,7 @@ async def generate_missing_journals(days_to_check: int = 7):
         if all_journals["metadatas"]:
             for meta in all_journals["metadatas"]:
                 date = meta.get("journal_date", "")
-                if date:
+                if date and _is_daily_journal(meta):
                     _all_journals_cache[date] = True
 
         all_summaries = memory.collection.get(
@@ -169,7 +183,7 @@ async def generate_missing_journals(days_to_check: int = 7):
                 continue
         else:
             existing = memory.get_journal_entry(date_str)
-            if existing:
+            if existing and _is_daily_journal(existing.get("metadata") or {}):
                 continue
 
         # Check if there's content for this date (use cache if available)
@@ -629,7 +643,8 @@ Write in first person as Cass. Be genuine and thoughtful, not performative."""
             date=f"{date_str}-research",
             journal_text=research_journal_full,
             summary_count=0,
-            conversation_count=0
+            conversation_count=0,
+            journal_type="research"
         )
 
         print(f"   ✓ Research journal created ({summary['tasks_completed']} tasks reflected on)")
@@ -910,7 +925,8 @@ Write in first person as Cass. Be genuine and reflective, noting what feels mean
             date=f"{date_str}-world",
             journal_text=world_journal_full,
             summary_count=0,
-            conversation_count=0
+            conversation_count=0,
+            journal_type="world"
         )
 
         print(f"   ✓ World awareness journal created ({len(date_observations)} observations)")
