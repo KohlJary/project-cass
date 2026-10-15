@@ -479,3 +479,35 @@ def test_session_web_search_uses_research_manager(monkeypatch):
     monkeypatch.setattr(research.ResearchManager, "web_search", fake_search)
     result = _tool(tools.handle_web_search, {"query": "Momus"}, {})
     assert result["results"][0]["url"] == "https://example.org/momus"
+
+
+def test_research_session_agenda_tools_use_unified_goals():
+    """The runner called list_research_agenda etc., which UnifiedGoalManager lacks."""
+    import json
+    from research_session_runner import ResearchSessionRunner
+    from unified_goals import UnifiedGoalManager
+
+    gm = UnifiedGoalManager()
+    goal = gm.create_goal(title="How do myths encode critique?", goal_type="research_agenda",
+                          created_by="kohl", description="Momus as a pattern", priority="P1")
+    runner = ResearchSessionRunner.__new__(ResearchSessionRunner)
+    runner.goal_manager = gm
+    runner.session_manager = MagicMock()
+    runner.session_manager.get_current_session.return_value = {}
+
+    # Agenda goals need approval before they can be worked on.
+    assert not json.loads(runner._handle_select_agenda_focus({"item_id": goal.id}))["success"]
+    gm.approve_goal(goal.id, approved_by="kohl")
+
+    listed = json.loads(runner._handle_list_agenda({"priority": "high"}))
+    assert [i["id"] for i in listed["items"]] == [goal.id]
+
+    focus = json.loads(runner._handle_select_agenda_focus({"item_id": goal.id}))
+    assert focus["success"], focus
+    assert gm.get_goal(goal.id).status == "active"
+
+    upd = json.loads(runner._handle_update_agenda_item(
+        {"item_id": goal.id, "add_finding": "Satire as loyalty", "add_source": "https://example.org"}))
+    assert upd["success"], upd
+    item = json.loads(runner._handle_list_agenda({"status": "in_progress"}))["items"][0]
+    assert item["findings_count"] == 1 and item["sources_count"] == 1
