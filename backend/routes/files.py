@@ -10,6 +10,8 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from path_policy import check_path, is_denied_name, PathNotAllowed
+
 router = APIRouter(prefix="/files", tags=["files"])
 
 
@@ -41,13 +43,16 @@ class DeleteRequest(BaseModel):
 # === Helper Functions ===
 
 def validate_path(path: str, must_exist: bool = False, must_not_exist: bool = False) -> Path:
-    """Validate and return a Path object"""
-    p = Path(path)
+    """Validate and return a Path object.
 
-    # Security: prevent path traversal attacks
+    Security: the path must resolve inside an allowed root (DATA_DIR, the Cass
+    repo, project working directories, CASS_FILE_ROOTS) and must not name a
+    secret (.env, keys, auth.json...). resolve() alone did not confine anything.
+    """
     try:
-        # Resolve to absolute path
-        resolved = p.resolve()
+        resolved = check_path(path)
+    except PathNotAllowed as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid path: {e}")
 
@@ -166,10 +171,14 @@ async def delete_path(request: DeleteRequest):
         raise HTTPException(status_code=500, detail=f"Failed to delete: {e}")
 
 
+MAX_READ_SIZE = 5 * 1024 * 1024  # callers may lower max_size, not lift it past this
+
+
 @router.get("/read")
 async def read_file(path: str, max_size: int = 100 * 1024):
     """Read file contents (with size limit for safety)"""
     file_path = validate_path(path, must_exist=True)
+    max_size = min(max_size, MAX_READ_SIZE)
 
     if file_path.is_dir():
         raise HTTPException(status_code=400, detail="Cannot read a directory")
@@ -210,6 +219,8 @@ async def list_directory(path: str, include_hidden: bool = False):
         for entry in dir_path.iterdir():
             if not include_hidden and entry.name.startswith('.'):
                 continue
+            if is_denied_name(Path(entry.name)):
+                continue  # don't even reveal that secrets exist
 
             stat = entry.stat()
             entries.append({
@@ -237,7 +248,7 @@ async def list_directory(path: str, include_hidden: bool = False):
 @router.get("/exists")
 async def check_exists(path: str):
     """Check if a path exists"""
-    p = Path(path)
+    p = validate_path(path)
     exists = p.exists()
 
     return {

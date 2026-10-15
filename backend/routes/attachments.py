@@ -5,9 +5,13 @@ Extracted from main_sdk.py as part of Phase 1 refactoring.
 Handles file/image uploads, retrieval, and deletion.
 """
 
-from fastapi import APIRouter, HTTPException, File, UploadFile, Request
+import re
+
+from fastapi import APIRouter, HTTPException, File, UploadFile, Request, Depends
 from fastapi.responses import Response
 from typing import Optional
+
+from auth import get_current_user
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
 
@@ -25,9 +29,32 @@ def init_attachment_routes(attachment_manager, get_current_user_func):
     _get_current_user_func = get_current_user_func
 
 
-async def _get_current_user(request: Request):
-    """Wrapper to call the injected get_current_user function."""
-    return await _get_current_user_func(request)
+# Conversation ids are uuid4 strings. conversation_id becomes a directory name
+# under data/attachments/, so anything else (e.g. "../../x") is rejected.
+_CONVERSATION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _validate_conversation_id(conversation_id: Optional[str]) -> Optional[str]:
+    if conversation_id is None or conversation_id == "":
+        return None
+    if not _CONVERSATION_ID_RE.match(conversation_id):
+        raise HTTPException(status_code=400, detail="Invalid conversation_id")
+    return conversation_id
+
+
+def _user_may_touch_conversation(conversation_id: Optional[str], user_id: str) -> bool:
+    """True if the conversation has no owner, is owned by user_id, or user is admin."""
+    if not conversation_id:
+        return True
+    from database import get_db
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+        if row is None or row[0] in (None, user_id):
+            return True
+        admin = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(admin and admin[0])
 
 
 # === Attachment Endpoints ===
@@ -37,6 +64,7 @@ async def upload_attachment(
     request: Request,
     file: UploadFile = File(...),
     conversation_id: Optional[str] = None,
+    current_user: str = Depends(get_current_user),
 ):
     """
     Upload a file/image attachment.
@@ -44,7 +72,11 @@ async def upload_attachment(
     Returns attachment metadata including ID for later retrieval.
     In session-only mode, attachments are cleaned up when session disconnects.
     """
-    current_user = await _get_current_user(request)
+    # Auth used to call get_current_user(request) directly, which returned its
+    # own Depends() default as the "user" - i.e. no auth at all.
+    conversation_id = _validate_conversation_id(conversation_id)
+    if not _user_may_touch_conversation(conversation_id, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized for this conversation")
 
     # Read file data
     file_data = await file.read()
@@ -102,9 +134,12 @@ async def get_attachment(attachment_id: str):
 async def delete_attachment(
     request: Request,
     attachment_id: str,
+    current_user: str = Depends(get_current_user),
 ):
-    """Delete an attachment."""
-    current_user = await _get_current_user(request)  # noqa: F841 - may be needed for auth
+    """Delete an attachment (owner of its conversation, or an admin)."""
+    metadata = _attachment_manager.get_metadata(attachment_id)
+    if metadata and not _user_may_touch_conversation(metadata.conversation_id, current_user):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this attachment")
 
     if _attachment_manager.delete(attachment_id):
         return {"status": "success", "message": "Attachment deleted"}
