@@ -238,11 +238,24 @@ def test_timer_spell_research_synthesis(app):
     _assert_cycle_did_work(*_cast(app, "research_synthesis"))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/05_research_creative.md (Art study): handlers pass a sync anthropic client "
-    "to code that awaits it; also list_studies_for_artist() called without daemon_id"))
 def test_timer_spell_art_study(app):
-    _assert_cycle_did_work(*_cast(app, "art_study"))
+    import art_study
+    from art_study.providers.met_museum import MetMuseumProvider
+
+    async def no_artworks(self, artist_name, limit=10):
+        return []
+
+    async def background(artist_id, anthropic_client=None, daemon_id=None):
+        # Stands in for the Wikipedia fetch; the client must be awaitable.
+        response = await anthropic_client.messages.create(
+            model="smoke", max_tokens=10, messages=[{"role": "user", "content": "bio"}])
+        return response.content[0].text
+
+    # No network in smoke tests: stub the Met API and the Wikipedia fetch.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(MetMuseumProvider, "get_artworks_by_artist", no_artworks)
+        mp.setattr(art_study, "study_artist_background", background)
+        _assert_cycle_did_work(*_cast(app, "art_study"))
 
 
 def test_timer_spell_goal_executor(app):

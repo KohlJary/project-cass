@@ -360,7 +360,7 @@ async def triage_items_action(context: Dict[str, Any]) -> ActionResult:
             message="No daemon_id in context"
         )
 
-    limit = context.get("limit", 20)
+    limit = int(context.get("limit", 20))  # spell numbers arrive as floats
     feed_id = context.get("feed_id")
     skip_llm = context.get("skip_llm", False)
 
@@ -464,7 +464,7 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
             message="No daemon_id in context"
         )
 
-    limit = context.get("limit", 5)
+    limit = int(context.get("limit", 5))  # spell numbers arrive as floats
     feed_id = context.get("feed_id")
     use_triage = context.get("use_triage", True)
     skip_llm_triage = context.get("skip_llm_triage", False)
@@ -694,7 +694,7 @@ async def get_recent_items_action(context: Dict[str, Any]) -> ActionResult:
             message="No daemon_id in context"
         )
 
-    limit = context.get("limit", 20)
+    limit = int(context.get("limit", 20))  # spell numbers arrive as floats
     processed_only = context.get("processed_only", False)
 
     items = get_recent_items(daemon_id, limit=limit, processed_only=processed_only)
