@@ -48,23 +48,11 @@ def save_credentials(creds: dict):
 
 def get_jwt_secret():
     """Get the JWT secret (must match what the server uses)"""
-    # Check if server set a persistent secret
-    secret = os.environ.get("ADMIN_JWT_SECRET")
-    if secret:
-        return secret
-
-    # Check if we have a saved secret
-    creds = load_credentials()
-    if "jwt_secret" in creds:
-        return creds["jwt_secret"]
-
-    # Generate and save a new one
-    secret = secrets.token_hex(32)
-    creds["jwt_secret"] = secret
-    save_credentials(creds)
-    print(f"Generated new JWT secret. Set this in your environment:")
-    print(f"  export ADMIN_JWT_SECRET={secret}")
-    return secret
+    # Same lookup the server uses (routes/admin/auth.py): ADMIN_JWT_SECRET if
+    # set, otherwise the secret persisted in DATA_DIR/.secrets/. A separately
+    # generated secret here would mint tokens the server rejects.
+    from secret_store import get_or_create_secret
+    return get_or_create_secret("admin_jwt_secret", "ADMIN_JWT_SECRET")
 
 
 def create_token(user_id: str, display_name: str, secret: str) -> tuple:

@@ -2,7 +2,7 @@
 Admin API - Authentication & User Approval Routes
 Extracted from admin_api.py for better organization.
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict
 from datetime import datetime, timedelta
@@ -16,7 +16,10 @@ from config import DEMO_MODE
 router = APIRouter(tags=["admin-auth"])
 
 # JWT Configuration
-JWT_SECRET = os.environ.get("ADMIN_JWT_SECRET", secrets.token_hex(32))
+# Unset ADMIN_JWT_SECRET used to mean a fresh random secret per process, which
+# logged every admin out on restart. Persist the generated one in DATA_DIR.
+from secret_store import get_or_create_secret
+JWT_SECRET = get_or_create_secret("admin_jwt_secret", "ADMIN_JWT_SECRET")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
@@ -30,6 +33,44 @@ def init_users(users_manager):
     """Initialize users manager reference."""
     global _users
     _users = users_manager
+    init_bootstrap_token()
+
+
+# One-time token for POST /auth/bootstrap. Only exists while no admin has a
+# password; printed to the server log so only someone with access to the
+# machine's logs can claim the first admin account.
+_bootstrap_token: Optional[str] = None
+
+
+def _admin_with_password_exists() -> bool:
+    from database import get_db
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE is_admin = 1 "
+            "AND password_hash IS NOT NULL AND password_hash != ''"
+        ).fetchone()
+    return bool(row and row[0])
+
+
+def init_bootstrap_token() -> Optional[str]:
+    """Generate (and log) the bootstrap token if the install has no usable admin."""
+    global _bootstrap_token
+    import logging
+    try:
+        needed = not _admin_with_password_exists()
+    except Exception:
+        needed = False  # DB not ready; endpoint will refuse until restart
+    if not needed:
+        _bootstrap_token = None
+        return None
+    if _bootstrap_token is None:
+        _bootstrap_token = secrets.token_urlsafe(24)
+        logging.getLogger(__name__).warning(
+            "No admin account with a password exists. To create one, POST "
+            "/admin/auth/bootstrap with JSON {username, password, bootstrap_token} "
+            f"using bootstrap_token={_bootstrap_token} (or run backend/bootstrap_admin.py)."
+        )
+    return _bootstrap_token
 
 
 # ============== Pydantic Models ==============
@@ -63,6 +104,7 @@ class RegisterResponse(BaseModel):
 class BootstrapRequest(BaseModel):
     username: str
     password: str
+    bootstrap_token: str = ""  # printed to the server log at startup
 
 
 class RejectRequest(BaseModel):
@@ -97,14 +139,16 @@ def verify_token(token: str) -> Optional[Dict]:
 
 
 async def require_admin(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict:
     """Dependency that requires valid admin authentication.
 
-    In demo mode, returns a demo user without requiring authentication.
+    In demo mode, anonymous GET requests get a demo user (read-only).
     """
-    # Demo mode bypasses authentication
-    if DEMO_MODE:
+    # Demo mode lets anonymous visitors browse, but read-only: it used to hand
+    # out a full admin principal for writes too.
+    if DEMO_MODE and not credentials and request.method in ("GET", "HEAD", "OPTIONS"):
         return {
             "user_id": "demo",
             "display_name": "Demo User",
@@ -140,14 +184,16 @@ async def require_admin(
 
 
 async def require_auth(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict:
     """Dependency that requires valid authentication (any user, not just admin).
 
-    In demo mode, returns a demo user without requiring authentication.
+    In demo mode, anonymous GET requests get a demo user (read-only).
     """
-    # Demo mode bypasses authentication
-    if DEMO_MODE:
+    # Demo mode lets anonymous visitors browse, but read-only: it used to hand
+    # out a full admin principal for writes too.
+    if DEMO_MODE and not credentials and request.method in ("GET", "HEAD", "OPTIONS"):
         return {
             "user_id": "demo",
             "display_name": "Demo User",
@@ -179,11 +225,21 @@ async def require_auth(
 async def bootstrap_admin(request: BootstrapRequest):
     """One-time bootstrap: set up first admin user.
 
-    If no admin users exist, promotes the specified user to admin, approves them,
-    and sets their password. Otherwise, only sets password for existing passwordless admins.
+    Only works while no admin has a password, and only with the one-time
+    bootstrap_token printed to the server log. If no admin users exist,
+    promotes the specified user to admin, approves them, and sets their
+    password. Otherwise, only sets password for existing passwordless admins.
     """
     if not _users:
         raise HTTPException(status_code=503, detail="User manager not initialized")
+
+    # Lockout: before this check, anyone could claim admin on a fresh install,
+    # or set the password of any passwordless admin.
+    if _admin_with_password_exists():
+        raise HTTPException(status_code=403, detail="Bootstrap is disabled: an admin already exists")
+    expected = init_bootstrap_token()
+    if not expected or not secrets.compare_digest(request.bootstrap_token or "", expected):
+        raise HTTPException(status_code=403, detail="Invalid bootstrap token (see server log)")
 
     profile = _users.get_user_by_name(request.username)
     if not profile:
@@ -216,6 +272,10 @@ async def bootstrap_admin(request: BootstrapRequest):
             raise HTTPException(status_code=500, detail="Failed to set password (returned False)")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set password: {str(e)}")
+
+    # The token is single-use.
+    global _bootstrap_token
+    _bootstrap_token = None
 
     return {"status": "ok", "message": f"Password set for {request.username} (admin: {profile.is_admin})"}
 

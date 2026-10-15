@@ -192,6 +192,13 @@ class RelayClient:
             async with aiohttp.ClientSession() as session:
                 url = f"{BACKEND_BASE_URL}{path}"
 
+                # Mark the request as relayed. It arrives from 127.0.0.1, so
+                # without this marker the backend's localhost auth bypass would
+                # treat remote (mobile/internet) traffic as local.
+                # Drop any caller-supplied Host header so the proxy targets us.
+                headers = {k: v for k, v in headers.items() if k.lower() != "host"}
+                headers["X-Cass-Relayed"] = "1"
+
                 # Prepare request kwargs
                 kwargs: dict = {"headers": headers}
                 if body and method not in ("GET", "HEAD"):
