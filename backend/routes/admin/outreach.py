@@ -25,7 +25,11 @@ def get_outreach_manager() -> OutreachManager:
     """Get or create outreach manager."""
     global _outreach_manager
     if _outreach_manager is None:
-        _outreach_manager = OutreachManager("cass")
+        # init_outreach_manager is never called at boot, and "cass" is the
+        # daemon's label, not its id: outreach_drafts.daemon_id is a foreign
+        # key, so every draft insert failed. Use the real daemon id.
+        from database import get_daemon_id
+        _outreach_manager = OutreachManager(get_daemon_id())
     return _outreach_manager
 
 

@@ -151,3 +151,15 @@ def test_rss_action_uses_registry_daemon_id():
     result = _run_action(get_status_action, managers={"daemon_id": get_daemon_id()})
     assert result.success, result.message
     assert result.data["active_feeds"] == 0
+
+
+def test_outreach_draft_action_stores_draft(monkeypatch):
+    """The default outreach manager used the label 'cass' as daemon_id (FK error)."""
+    import routes.admin.outreach as outreach_routes
+    from scheduler.actions.outreach_handlers import draft_outreach_action
+
+    monkeypatch.setattr(outreach_routes, "_outreach_manager", None)
+    result = _run_action(draft_outreach_action, managers={}, draft_type="email",
+                         title="Warm check-in", content="Thinking of you.")
+    assert result.success, result.message
+    assert result.data["status"] == "drafting"

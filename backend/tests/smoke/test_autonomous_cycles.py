@@ -313,9 +313,6 @@ def _cast_need_spell(app, name):
     return result, actions
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/05_research_creative.md (Outreach): social_care calls "
-    "`TASK outreach.draft type=... tone=...` but the handler requires title and content"))
 def test_need_spell_social_care_outreach(app):
     result, actions = _cast_need_spell(app, "social_care")
     assert any(a == "outreach.draft" for a, _ in actions), "outreach.draft not reached"
