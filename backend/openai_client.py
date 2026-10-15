@@ -5,7 +5,7 @@ OpenAI API client with Temple-Codex as cognitive kernel.
 Uses same architecture as agent_client.py but adapted for OpenAI's API format.
 Tool calling, gestures, and memory work identically.
 """
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from dataclasses import dataclass
 import json
 
@@ -19,6 +19,8 @@ except ImportError:
 
 # Import shared components from agent_client
 from agent_client import (
+    ToolChain,
+    history_to_chat_messages,
     TEMPLE_CODEX_KERNEL,
     get_temple_codex_kernel,
     DEFAULT_DAEMON_NAME,
@@ -58,6 +60,12 @@ def convert_tools_for_openai(tools: List[Dict]) -> List[Dict]:
     return openai_tools
 
 
+# Appended to every OpenAI system prompt (OpenAI models tend toward brevity).
+OPENAI_RESPONSE_STYLE = """## RESPONSE STYLE
+
+Provide thoughtful, complete responses. Don't be unnecessarily terse - take the space needed to fully address what's being discussed. Engage naturally in conversation with appropriate depth and nuance. Short answers are fine for simple questions, but for anything substantive, give it the attention it deserves."""
+
+
 class OpenAIClient:
     """
     OpenAI API client with Temple-Codex cognitive kernel.
@@ -89,10 +97,17 @@ class OpenAIClient:
         self.model = OPENAI_MODEL
         self.max_tokens = OPENAI_MAX_TOKENS
 
-        # Temporary message history for tool call chains only.
-        # Cleared after each complete exchange (no tool calls or tool chain complete).
-        # Long-term context comes from the memory system (working summary + gists).
-        self._tool_chain_messages: List[Dict] = []
+        # Per-turn state is a ToolChain on each AgentResponse (see
+        # agent_client.ToolChain); this is only the most recent one, for
+        # callers that don't pass chain=. Not safe across overlapping turns.
+        self._last_chain: Optional[ToolChain] = None
+
+    def _chain_for(self, chain: Optional[ToolChain]) -> ToolChain:
+        """The turn's own chain, or (legacy callers) the most recent one."""
+        chain = chain or self._last_chain
+        if chain is None:
+            raise RuntimeError("continue_with_tool_results called before send_message")
+        return chain
 
     def get_tools(self, project_id: Optional[str] = None, message: str = "") -> List[Dict]:
         """
@@ -144,6 +159,8 @@ class OpenAIClient:
         relationship_context: Optional[str] = None,
         global_state_context: Optional[str] = None,
         current_activity: Optional[str] = None,
+        continuous_system_prompt: Optional[str] = None,
+        continuous_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentResponse:
         """
         Send a message and get response.
@@ -164,10 +181,17 @@ class OpenAIClient:
             relationship_context: Relationship dynamics (patterns, moments, shaping)
             global_state_context: State bus context snapshot (Locus of Self) - A/B test
             current_activity: Current activity type from state bus - A/B test
+            continuous_system_prompt: Pre-built continuous-context prompt (same one
+                                      the Anthropic client gets); replaces chain/kernel
+            continuous_messages: Recent conversation history
         """
         # Try chain-based prompt first (if daemon has an active chain)
         system_prompt = None
-        if self.daemon_id:
+        if continuous_system_prompt:
+            # Same memory/history-bearing prompt as the Anthropic path; keep the
+            # response-style note this client always appended.
+            system_prompt = continuous_system_prompt + "\n\n" + OPENAI_RESPONSE_STYLE
+        elif self.daemon_id:
             try:
                 from chain_api import get_system_prompt_for_daemon
                 system_prompt = get_system_prompt_for_daemon(
@@ -273,19 +297,24 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
 
         # Start fresh - no history from previous exchanges
         # Context comes from memory system in system_prompt
-        self._tool_chain_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": message}
-        ]
+        chain = ToolChain(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *history_to_chat_messages(continuous_messages),
+                {"role": "user", "content": message}
+            ],
+            system_prompt=system_prompt,
+        )
+        self._last_chain = chain
 
-        return await self._call_openai(tools)
+        return await self._call_openai(chain, tools)
 
-    async def _call_openai(self, tools: Optional[List[Dict]] = None) -> AgentResponse:
+    async def _call_openai(self, chain: ToolChain, tools: Optional[List[Dict]] = None) -> AgentResponse:
         """Make a call to OpenAI API"""
         api_kwargs = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "messages": self._tool_chain_messages,
+            "messages": chain.messages,
         }
 
         if tools:
@@ -332,7 +361,7 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
                 }
                 for tc in tool_calls
             ]
-        self._tool_chain_messages.append(assistant_message)
+        chain.messages.append(assistant_message)
 
         # Parse gestures from response
         gestures = self._parse_gestures(full_text)
@@ -357,14 +386,16 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
             gestures=gestures,
             stop_reason=stop_reason,
             input_tokens=input_tokens,
-            output_tokens=output_tokens
+            output_tokens=output_tokens,
+            chain=chain,
         )
 
     async def continue_with_tool_result(
         self,
         tool_use_id: str,
         result: str,
-        is_error: bool = False
+        is_error: bool = False,
+        chain: Optional[ToolChain] = None,
     ) -> AgentResponse:
         """
         Continue conversation after providing tool result.
@@ -376,8 +407,9 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
             result: Result from tool execution
             is_error: Whether the result is an error
         """
+        chain = self._chain_for(chain)
         # Add tool result in OpenAI format
-        self._tool_chain_messages.append({
+        chain.messages.append({
             "role": "tool",
             "tool_call_id": tool_use_id,
             "content": result if not is_error else f"Error: {result}"
@@ -387,11 +419,12 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
         anthropic_tools = self.get_tools()
         tools = convert_tools_for_openai(anthropic_tools) if anthropic_tools else None
 
-        return await self._call_openai(tools)
+        return await self._call_openai(chain, tools)
 
     async def continue_with_tool_results(
         self,
-        tool_results: List[Dict]
+        tool_results: List[Dict],
+        chain: Optional[ToolChain] = None,
     ) -> AgentResponse:
         """
         Continue conversation after providing multiple tool results at once.
@@ -402,13 +435,14 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
         Args:
             tool_results: List of dicts with keys: tool_use_id, result, is_error
         """
+        chain = self._chain_for(chain)
         # Add each tool result as a separate message
         for tr in tool_results:
             result_content = tr["result"]
             if tr.get("is_error", False):
                 result_content = f"Error: {result_content}"
 
-            self._tool_chain_messages.append({
+            chain.messages.append({
                 "role": "tool",
                 "tool_call_id": tr["tool_use_id"],
                 "content": result_content
@@ -418,7 +452,7 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
         anthropic_tools = self.get_tools()
         tools = convert_tools_for_openai(anthropic_tools) if anthropic_tools else None
 
-        return await self._call_openai(tools)
+        return await self._call_openai(chain, tools)
 
     def _parse_gestures(self, text: str) -> List[Dict]:
         """Extract gesture/emote tags from response"""
