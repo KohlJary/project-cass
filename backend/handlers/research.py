@@ -814,19 +814,20 @@ async def _view_research_dashboard(
             consistency = analyzer.analyze_consistency()
 
             result_lines.append(f"**Overall Score:** {consistency.overall_score:.0%}")
-            result_lines.append(f"**Grade:** {consistency.grade}")
-            result_lines.append(f"**Samples Analyzed:** {consistency.total_samples}")
+            # ConsistencyScore has no grade/total_samples/key_findings; use
+            # the fields it does have (assessment, anomalies, research_questions).
+            result_lines.append(f"**Assessment:** {consistency.assessment}")
             result_lines.append(f"**Anomalies Detected:** {len(consistency.anomalies)}")
 
-            if consistency.key_findings:
-                result_lines.append(f"\n**Key Findings:**")
-                for finding in consistency.key_findings[:3]:
+            if consistency.research_questions:
+                result_lines.append(f"\n**Open Questions:**")
+                for finding in consistency.research_questions[:3]:
                     result_lines.append(f"- {finding}")
 
-            if consistency.context_coverage:
-                result_lines.append(f"\n**Context Coverage:**")
-                for ctx, count in sorted(consistency.context_coverage.items(), key=lambda x: -x[1]):
-                    result_lines.append(f"- {ctx}: {count} samples")
+            if consistency.metric_consistency:
+                result_lines.append(f"\n**Per-metric Consistency:**")
+                for metric, score in sorted(consistency.metric_consistency.items(), key=lambda x: x[1]):
+                    result_lines.append(f"- {metric}: {score:.0%}")
 
         except Exception as e:
             result_lines.append(f"*Cross-context analysis not available: {e}*")

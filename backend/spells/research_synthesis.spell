@@ -114,7 +114,8 @@ ASK "Does anything from this research connect to my current growth edges or area
 IF $connection THEN
     LOG OBSERVATION "Research-growth connection: {$connection}"
 
-    TASK self.update_growth_edge insight=$connection AWAIT
+    ' $connection is the yes/no answer; $how is the explanation worth keeping
+    TASK self.update_growth_edge insight=$how AWAIT
 
     ' This is valuable integration work
     DELTA need.value_coherence +0.1, affect.satisfaction +0.1

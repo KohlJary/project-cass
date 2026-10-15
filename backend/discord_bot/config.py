@@ -11,8 +11,10 @@ from typing import Optional, List
 # Discord bot token (required for operation)
 DISCORD_BOT_TOKEN: Optional[str] = os.getenv("DISCORD_BOT_TOKEN")
 
-# Master enable flag
-DISCORD_ENABLED: bool = os.getenv("DISCORD_ENABLED", "false").lower() == "true"
+# Master enable flag. This is the "discord" feature lever (features.py), which
+# still honours DISCORD_ENABLED=true and also CASS_FEATURE_DISCORD / CASS_PROFILE.
+from features import is_enabled as _lever_enabled
+DISCORD_ENABLED: bool = _lever_enabled("discord")
 
 # Allowed guild IDs (comma-separated, empty = all joined guilds)
 _guilds_str = os.getenv("DISCORD_GUILDS", "")

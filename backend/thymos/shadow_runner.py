@@ -27,6 +27,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Optional, List, Dict
 
+from strict import report_swallowed
 from .models import FeltState, SuggestedGoal
 from .affect_vector import AffectVector
 from .needs_register import NeedsRegister
@@ -475,7 +476,8 @@ class ThymosRunner:
                 }
                 await self._grimoire_on_tick(affects, needs)
             except Exception as e:
-                logger.error(f"Grimoire tick error: {e}")
+                # Logged in production; re-raised under CASS_STRICT=1 (tests/CI)
+                report_swallowed(e, "Grimoire tick error", logger)
 
         # Save state
         await self._save_state()

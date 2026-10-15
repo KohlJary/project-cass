@@ -119,7 +119,7 @@ async def study_artist_background_action(context: Dict[str, Any]) -> ActionResul
     # Get anthropic client
     try:
         import anthropic
-        client = anthropic.Anthropic()
+        client = anthropic.AsyncAnthropic()  # art_study awaits messages.create
     except Exception as e:
         return ActionResult(success=False, message=f"Could not create Anthropic client: {e}")
 
@@ -157,11 +157,13 @@ async def study_artwork_action(context: Dict[str, Any]) -> ActionResult:
     - fetch_count: Number of artworks to fetch from Met API if no artwork_id (default 3)
     """
     from art_study import study_artwork, get_artist, list_artworks_for_artist
-    from art_study.wikiart import fetch_artworks_from_met
+    # fetch_artworks_from_met never existed; import_artist_from_provider is the
+    # real fetch (Met by default) and saves the artworks, so list them after.
+    from art_study.wikiart import import_artist_from_provider
 
     artist_id = context.get("artist_id")
     artwork_id = context.get("artwork_id")
-    fetch_count = context.get("fetch_count", 3)
+    fetch_count = int(context.get("fetch_count", 3))  # spell numbers arrive as floats
 
     if not artist_id:
         return ActionResult(success=False, message="artist_id is required")
@@ -172,7 +174,7 @@ async def study_artwork_action(context: Dict[str, Any]) -> ActionResult:
     # Get anthropic client
     try:
         import anthropic
-        client = anthropic.Anthropic()
+        client = anthropic.AsyncAnthropic()  # art_study awaits messages.create
     except Exception as e:
         return ActionResult(success=False, message=f"Could not create Anthropic client: {e}")
 
@@ -198,7 +200,8 @@ async def study_artwork_action(context: Dict[str, Any]) -> ActionResult:
             existing_titles = {a.title.lower() for a in existing}
 
             # Fetch artworks
-            new_artworks = await fetch_artworks_from_met(artist.name, limit=fetch_count)
+            await import_artist_from_provider(artist_id, max_works=fetch_count)
+            new_artworks = list_artworks_for_artist(artist_id)
 
             # Filter to unstudied
             to_study = [
@@ -257,7 +260,7 @@ async def synthesize_artist_action(context: Dict[str, Any]) -> ActionResult:
     # Get anthropic client
     try:
         import anthropic
-        client = anthropic.Anthropic()
+        client = anthropic.AsyncAnthropic()  # art_study awaits messages.create
     except Exception as e:
         return ActionResult(success=False, message=f"Could not create Anthropic client: {e}")
 
@@ -266,7 +269,7 @@ async def synthesize_artist_action(context: Dict[str, Any]) -> ActionResult:
         return ActionResult(success=False, message=f"Artist {artist_id} not found")
 
     # Check we have enough studies
-    studies = list_studies_for_artist(artist_id)
+    studies = list_studies_for_artist(artist_id, daemon_id)
     if len(studies) < 2:
         return ActionResult(
             success=False,
@@ -322,7 +325,7 @@ async def extract_elements_action(context: Dict[str, Any]) -> ActionResult:
     # Get anthropic client
     try:
         import anthropic
-        client = anthropic.Anthropic()
+        client = anthropic.AsyncAnthropic()  # art_study awaits messages.create
     except Exception as e:
         return ActionResult(success=False, message=f"Could not create Anthropic client: {e}")
 
@@ -377,7 +380,7 @@ async def synthesize_house_style_action(context: Dict[str, Any]) -> ActionResult
     # Get anthropic client
     try:
         import anthropic
-        client = anthropic.Anthropic()
+        client = anthropic.AsyncAnthropic()  # art_study awaits messages.create
     except Exception as e:
         return ActionResult(success=False, message=f"Could not create Anthropic client: {e}")
 
@@ -674,7 +677,7 @@ async def get_study_status_action(context: Dict[str, Any]) -> ActionResult:
         artists_needing_more_studies = []
 
         for artist in studied_artists:
-            studies = list_studies_for_artist(artist.id)
+            studies = list_studies_for_artist(artist.id, daemon_id)
             synthesis = get_synthesis(artist.id, daemon_id)
             elements = list_adopted_elements(daemon_id, artist_id=artist.id, active_only=True)
 
@@ -752,7 +755,7 @@ async def batch_study_artworks_action(context: Dict[str, Any]) -> ActionResult:
     - batch_size: Number of artworks to study (default 3, max 5)
     """
     artist_id = context.get("artist_id")
-    batch_size = min(context.get("batch_size", 3), 5)
+    batch_size = int(min(context.get("batch_size", 3), 5))  # spell numbers arrive as floats
 
     if not artist_id:
         return ActionResult(success=False, message="artist_id is required")
@@ -766,7 +769,9 @@ async def batch_study_artworks_action(context: Dict[str, Any]) -> ActionResult:
         list_studies_for_artist,
         study_artwork,
     )
-    from art_study.wikiart import fetch_artworks_from_met
+    # fetch_artworks_from_met never existed; import_artist_from_provider is the
+    # real fetch (Met by default) and saves the artworks, so list them after.
+    from art_study.wikiart import import_artist_from_provider
 
     artist = get_artist(artist_id)
     if not artist:
@@ -775,14 +780,14 @@ async def batch_study_artworks_action(context: Dict[str, Any]) -> ActionResult:
     # Get anthropic client
     try:
         import anthropic
-        client = anthropic.Anthropic()
+        client = anthropic.AsyncAnthropic()  # art_study awaits messages.create
     except Exception as e:
         return ActionResult(success=False, message=f"Could not create Anthropic client: {e}")
 
     try:
         # Get existing artworks and studies
         existing_artworks = list_artworks_for_artist(artist_id)
-        existing_studies = list_studies_for_artist(artist_id)
+        existing_studies = list_studies_for_artist(artist_id, daemon_id)
         studied_artwork_ids = {s.artwork_id for s in existing_studies}
 
         # Find unstudied existing artworks
@@ -793,7 +798,8 @@ async def batch_study_artworks_action(context: Dict[str, Any]) -> ActionResult:
             needed = batch_size - len(unstudied)
             existing_titles = {a.title.lower() for a in existing_artworks}
 
-            new_artworks = await fetch_artworks_from_met(artist.name, limit=needed + 2)
+            await import_artist_from_provider(artist_id, max_works=needed + 2)
+            new_artworks = list_artworks_for_artist(artist_id)
             for aw in new_artworks:
                 if aw.title.lower() not in existing_titles and len(unstudied) < batch_size:
                     unstudied.append(aw)

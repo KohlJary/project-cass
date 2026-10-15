@@ -14,6 +14,36 @@ from unittest.mock import Mock, AsyncMock, patch
 # imported, so the test run never touches a real daemon's data/cass.db.
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="cass_test_data_"))
 
+# Tests that import the real app (main_sdk) need the full runtime deps
+# (requirements.txt). The fast CI job only installs requirements-test.txt, so
+# skip collecting them there instead of erroring. CI's "full" job installs
+# requirements.txt and runs everything, including these.
+try:
+    import anthropic  # noqa: F401
+    import networkx  # noqa: F401
+    import slowapi  # noqa: F401
+    import multipart  # noqa: F401  (python-multipart)
+except ImportError:
+    collect_ignore = [
+        "smoke",                       # boots the app
+        "test_route_auth.py",          # walks main_sdk's route table
+        "test_security_lockdown.py",   # imports routes / handlers needing runtime deps
+        "test_silent_breakage.py",     # imports scheduler / handlers needing runtime deps
+        "test_goal_tools.py",          # imports self_model_graph (networkx)
+    ]
+
+# Feature levers: every background/autonomous/external subsystem is OFF in
+# tests unless a test turns it on with the `levers` fixture (see features.py).
+os.environ.setdefault("CASS_PROFILE", "test")
+
+# Strict mode: strict.report_swallowed() re-raises instead of only logging.
+os.environ.setdefault("CASS_STRICT", "1")
+
+# Never let a test reach a real model with a real key (config.py would
+# otherwise pick one up from backend/.env). The fake_llm fixture answers calls.
+os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test-not-a-real-key"
+os.environ["OPENAI_API_KEY"] = "sk-test-not-a-real-key"
+
 
 # ---------------------------------------------------------------------------
 # Database Fixtures
@@ -39,6 +69,22 @@ def template_db(tmp_path_factory):
     path = tmp_path_factory.mktemp("db_template") / "cass.db"
     _point_db_at(path)
     init_database()
+    # If main_sdk was already imported (e.g. tests/test_route_auth.py walks its
+    # route table at collection time), it created its "cass" daemon in the
+    # scratch DATA_DIR db and cached that id in module globals. Reuse the same
+    # id here, or every per-test db copy lacks the daemon main_sdk writes for
+    # and all its inserts fail with FOREIGN KEY errors.
+    import sys
+    main_sdk = sys.modules.get("main_sdk")
+    if main_sdk is not None and getattr(main_sdk, "_daemon_id", None):
+        from database import get_db
+        from datetime import datetime as _dt
+        with get_db() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO daemons (id, label, name, created_at, kernel_version, status) "
+                "VALUES (?, 'cass', 'Cass', ?, 'temple-codex-1.0', 'active')",
+                (main_sdk._daemon_id, _dt.now().isoformat()),
+            )
     get_or_create_daemon("cass")
     connection.close_connection()
     yield path
@@ -451,3 +497,41 @@ def mock_httpx_ollama():
         client.post.return_value = response
 
         yield client
+
+
+# ---------------------------------------------------------------------------
+# Feature levers and fake LLM (test harness)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def levers():
+    """Turn feature levers on/off for part of a test.
+
+        def test_x(levers):
+            with levers(thymos=True, grimoire_timer_spells=True):
+                ...
+
+    The conftest default is CASS_PROFILE=test (everything off). Overrides
+    beat env vars and profiles, and are undone when the block exits.
+    """
+    import features
+    return features.override
+
+
+@pytest.fixture
+def fake_llm(monkeypatch):
+    """Scriptable fake for every LLM client Cass uses (see tests/fakes/llm.py).
+
+        fake_llm.queue_text("hi")
+        fake_llm.queue_tool_use("lookup_person", {"name": "Kohl"})
+        assert fake_llm.calls[0].system_text
+    """
+    from tests.fakes import llm
+    return llm.install(llm.FakeLLM(), monkeypatch)
+
+
+@pytest.fixture
+def fake_embeddings(monkeypatch):
+    """Deterministic offline replacement for Chroma's default embedding model."""
+    from tests.fakes import embeddings
+    embeddings.install(monkeypatch)

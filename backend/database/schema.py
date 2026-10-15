@@ -514,7 +514,9 @@ CREATE TABLE IF NOT EXISTS solo_reflections (
     insights_json TEXT,
     questions_raised_json TEXT,
     summary TEXT,
-    model_used TEXT DEFAULT 'ollama'
+    model_used TEXT DEFAULT 'ollama',
+    -- Added by migration v14; fresh installs skip migrations, so it must be here too.
+    focus_edges_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_reflections_daemon ON solo_reflections(daemon_id);

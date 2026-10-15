@@ -226,6 +226,14 @@ MUSIC_KEYWORDS = frozenset({
     "play me", "sing me", "compose me",
 })
 
+# Article recall (world consumption). Kept narrow on purpose: matching is by
+# substring, so short words like "read" would fire on "already"/"ready".
+ARTICLE_KEYWORDS = frozenset({
+    "article", "articles", "news", "headline", "headlines",
+    "what did you read", "what have you read", "remember reading",
+    "you read about", "reading stats", "reading history",
+})
+
 HOME_ASSISTANT_KEYWORDS = frozenset({
     "home assistant", "smart home", "home automation",
     "light", "lights", "turn on", "turn off", "toggle",
@@ -319,6 +327,7 @@ class ToolSelector:
             ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
             ToolGroup("symbol", SYMBOL_KEYWORDS, "Personal symbol tools"),
             ToolGroup("interest", INTEREST_KEYWORDS, "Personal interest tools"),
+            ToolGroup("article", ARTICLE_KEYWORDS, "Article recall tools"),
             ToolGroup("home_assistant", HOME_ASSISTANT_KEYWORDS, "Home Assistant smart home tools"),
         ]
         for group in defaults:
@@ -670,6 +679,11 @@ def should_include_symbol_tools(message: str) -> bool:
 def should_include_interest_tools(message: str) -> bool:
     """Check if message warrants personal interest tools."""
     return _default_selector.should_include(message, "interest")
+
+
+def should_include_article_tools(message: str) -> bool:
+    """Check if message warrants article recall (world consumption) tools."""
+    return _default_selector.should_include(message, "article")
 
 
 def should_include_home_assistant_tools(message: str) -> bool:

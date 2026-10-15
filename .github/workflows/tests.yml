@@ -22,3 +22,31 @@ jobs:
         run: pip install -r requirements-test.txt
       - name: Run fast tests (skips TTS and slow)
         run: pytest -m "not slow and not tts"
+
+  # Full suite with the runtime deps (minus face recognition, a dlib build):
+  # everything above plus the smoke batteries (backend/tests/smoke, see
+  # backend/tests/README.md) and the route-auth/security tests, which import
+  # the real app. pytest.ini sets a 60s per-test timeout.
+  full:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      CASS_PROFILE: test
+      CASS_STRICT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install runtime dependencies (without face recognition)
+        run: |
+          grep -v -E '^(face-recognition|opencv-python-headless|setuptools<70)' requirements.txt > /tmp/requirements-smoke.txt
+          pip install -r /tmp/requirements-smoke.txt
+      - name: Check the frontend endpoint fixture is current
+        run: python scripts/extract_frontend_endpoints.py --check
+      - name: Run full suite (fast + security + smoke batteries)
+        run: pytest -m "not slow and not tts"

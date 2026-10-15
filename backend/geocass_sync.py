@@ -696,6 +696,14 @@ async def sync_to_connection(
     Returns:
         SyncResult with success status
     """
+    from features import is_enabled
+    if not is_enabled("geocass"):
+        return SyncResult(
+            success=False,
+            connection_id=connection.id,
+            error="GeoCass sync disabled by feature lever 'geocass'"
+        )
+
     payload = build_sync_payload(daemon_label, daemon_name, daemon_id)
     if not payload:
         return SyncResult(

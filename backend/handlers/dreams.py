@@ -19,8 +19,9 @@ def get_dream_manager():
     global _dream_manager
     if _dream_manager is None:
         from dreaming.integration import DreamManager
-        data_dir = Path(__file__).parent.parent / "data"
-        _dream_manager = DreamManager(data_dir)
+        # DreamManager takes a daemon_id (SQLite-backed). It used to be passed
+        # the old data/ directory Path, which SQLite then rejected on every call.
+        _dream_manager = DreamManager()
     return _dream_manager
 
 

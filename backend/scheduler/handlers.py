@@ -205,7 +205,7 @@ async def daily_journal_handler(
 
 async def autonomous_research_handler(
     scheduler=None,
-    mode: str = "supervised",
+    mode: Optional[str] = None,
     max_tasks: int = 5,
 ) -> HandlerResult:
     """
@@ -234,6 +234,11 @@ async def autonomous_research_handler(
             message="Daemon is dormant, skipping research",
             data={"skipped": True, "reason": "dormant"}
         )
+
+    if mode is None:
+        # Read the live mode so an admin mode switch applies without a restart.
+        config_mode = getattr(getattr(scheduler, "config", None), "mode", None)
+        mode = getattr(config_mode, "value", config_mode) or "supervised"
 
     try:
         if mode == "supervised":

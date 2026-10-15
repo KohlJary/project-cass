@@ -7,10 +7,72 @@ and synthesize positions that persist and evolve across sessions.
 from typing import Dict, List, Optional
 
 
+# The chat goal tools were written against a legacy GoalManager (JSON files:
+# working questions, research agenda, synthesis artifacts, a progress log).
+# That manager is gone; the live store is UnifiedGoalManager (SQLite
+# `unified_goals`), which already has goal types for working questions,
+# research agenda items and initiatives. These handlers map each tool onto
+# that store instead of calling methods that no longer exist.
+#
+# Mapping:
+#   working question   -> Goal(goal_type="working_question", title=question)
+#   research agenda    -> Goal(goal_type="research_agenda", title=topic)
+#   initiative         -> Goal(goal_type="initiative")   (needs Kohl's approval)
+#   insight / next step / source / finding -> entries in Goal.progress
+#   agenda blockers    -> Goal.blockers
+# Synthesis artifacts have no equivalent store, so those tools are not offered
+# (see SYNTHESIS_ARTIFACT_TOOLS below).
+
+WORKING_QUESTION = "working_question"
+RESEARCH_AGENDA = "research_agenda"
+INITIATIVE = "initiative"
+
+SYNTHESIS_TOOL_NAMES = {
+    "create_synthesis_artifact", "update_synthesis_artifact",
+    "get_synthesis_artifact", "list_synthesis_artifacts",
+}
+
+PRIORITY_TO_P = {"high": "P1", "medium": "P2", "low": "P3"}
+P_TO_PRIORITY = {"P0": "high", "P1": "high", "P2": "medium", "P3": "low"}
+
+# Status words the tools accept, mapped to UnifiedGoalManager statuses.
+# "open" statuses are the ones a filter like status="active" should match.
+OPEN_STATUSES = ("proposed", "approved", "active")
+STATUS_FILTERS = {
+    "active": OPEN_STATUSES,
+    "not_started": ("proposed", "approved"),
+    "in_progress": ("active",),
+    "blocked": ("blocked",),
+    "resolved": ("completed",),
+    "complete": ("completed",),
+    "completed": ("completed",),
+    "abandoned": ("abandoned",),
+}
+
+# UnifiedGoalManager requires every top-level goal Cass creates to carry at
+# least 2 completion criteria. These tools never asked for any, so when the
+# model doesn't pass them we use criteria that describe the tool's own
+# lifecycle (how the item gets closed), not anything about its content.
+DEFAULT_CRITERIA = {
+    WORKING_QUESTION: [
+        "An answer or position is recorded as an insight on this question",
+        "Question marked resolved with update_working_question",
+    ],
+    RESEARCH_AGENDA: [
+        "Key findings for this topic are recorded",
+        "Item marked complete with update_research_agenda_item",
+    ],
+    INITIATIVE: [
+        "Kohl has seen and responded to the initiative",
+        "The requested conversation, resource or action has happened or been declined",
+    ],
+}
+
+
 async def execute_goal_tool(
     tool_name: str,
     tool_input: Dict,
-    goal_manager,  # GoalManager instance
+    goal_manager,  # UnifiedGoalManager instance
 ) -> Dict:
     """
     Execute a goal management tool.
@@ -18,145 +80,197 @@ async def execute_goal_tool(
     Args:
         tool_name: Name of the tool to execute
         tool_input: Input parameters for the tool
-        goal_manager: GoalManager instance
+        goal_manager: UnifiedGoalManager instance
 
     Returns:
         Dict with 'success', 'result', and optionally 'error'
     """
+    if goal_manager is None:
+        return {"success": False, "error": "Goal manager not available"}
+
+    handlers = {
+        "create_working_question": _create_working_question,
+        "update_working_question": _update_working_question,
+        "list_working_questions": _list_working_questions,
+        "add_research_agenda_item": _add_research_agenda_item,
+        "update_research_agenda_item": _update_research_agenda_item,
+        "list_research_agenda": _list_research_agenda,
+        "log_progress": _log_progress,
+        "review_goals": _review_goals,
+        "get_next_actions": _get_next_actions,
+        "propose_initiative": _propose_initiative,
+    }
+
+    if tool_name in SYNTHESIS_TOOL_NAMES:
+        return {
+            "success": False,
+            "error": (
+                f"{tool_name} is not available: synthesis artifacts have no storage "
+                "in the current goal system. Use a wiki page or research note instead."
+            ),
+        }
+
+    handler = handlers.get(tool_name)
+    if not handler:
+        return {"success": False, "error": f"Unknown goal tool: {tool_name}"}
+
     try:
-        # Working Questions
-        if tool_name == "create_working_question":
-            return await _create_working_question(tool_input, goal_manager)
-
-        elif tool_name == "update_working_question":
-            return await _update_working_question(tool_input, goal_manager)
-
-        elif tool_name == "list_working_questions":
-            return await _list_working_questions(tool_input, goal_manager)
-
-        # Research Agenda
-        elif tool_name == "add_research_agenda_item":
-            return await _add_research_agenda_item(tool_input, goal_manager)
-
-        elif tool_name == "update_research_agenda_item":
-            return await _update_research_agenda_item(tool_input, goal_manager)
-
-        elif tool_name == "list_research_agenda":
-            return await _list_research_agenda(tool_input, goal_manager)
-
-        # Synthesis Artifacts
-        elif tool_name == "create_synthesis_artifact":
-            return await _create_synthesis_artifact(tool_input, goal_manager)
-
-        elif tool_name == "update_synthesis_artifact":
-            return await _update_synthesis_artifact(tool_input, goal_manager)
-
-        elif tool_name == "get_synthesis_artifact":
-            return await _get_synthesis_artifact(tool_input, goal_manager)
-
-        elif tool_name == "list_synthesis_artifacts":
-            return await _list_synthesis_artifacts(tool_input, goal_manager)
-
-        # Progress & Review
-        elif tool_name == "log_progress":
-            return await _log_progress(tool_input, goal_manager)
-
-        elif tool_name == "review_goals":
-            return await _review_goals(tool_input, goal_manager)
-
-        elif tool_name == "get_next_actions":
-            return await _get_next_actions(tool_input, goal_manager)
-
-        elif tool_name == "propose_initiative":
-            return await _propose_initiative(tool_input, goal_manager)
-
-        else:
-            return {"success": False, "error": f"Unknown goal tool: {tool_name}"}
-
+        return await handler(tool_input, goal_manager)
+    except ValueError as e:
+        # UnifiedGoalManager's validation messages are written for the model.
+        return {"success": False, "error": str(e)}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ==================== Helpers ====================
+
+def _str(tool_input: Dict, key: str) -> str:
+    return (tool_input.get(key) or "").strip()
+
+
+def _get_typed_goal(goal_manager, goal_id: str, goal_type: str):
+    goal = goal_manager.get_goal(goal_id) if goal_id else None
+    if goal is None or goal.goal_type != goal_type:
+        return None
+    return goal
+
+
+def _list_typed(goal_manager, goal_type: str, status: Optional[str] = None) -> List:
+    goals = goal_manager.list_goals(goal_type=goal_type)
+    if status:
+        wanted = STATUS_FILTERS.get(status, (status,))
+        goals = [g for g in goals if g.status in wanted]
+    return goals
+
+
+def _entries(goal, kind: str) -> List[Dict]:
+    return [e for e in goal.progress if e.get("kind") == kind]
+
+
+def _open_next_steps(goal) -> List[str]:
+    """Next steps added minus those completed, in the order they were added."""
+    done = {e.get("step") for e in _entries(goal, "next_step_done")}
+    steps = []
+    for e in _entries(goal, "next_step"):
+        step = e.get("step")
+        if step and step not in done and step not in steps:
+            steps.append(step)
+    return steps
+
+
+def _apply_status(goal_manager, goal, status: str):
+    """Move a goal to one of the tool status words. Returns (goal, note)."""
+    if status in ("active", "in_progress"):
+        if goal.status == "blocked":
+            return goal_manager.unblock_goal(goal.id), None
+        started = goal_manager.start_goal(goal.id)
+        if started is None:
+            # High-autonomy goal types need Kohl's approval before they can start.
+            return goal_manager.get_goal(goal.id), "still awaiting approval, so it stays proposed"
+        return started, None
+    if status in ("resolved", "complete", "completed"):
+        return goal_manager.complete_goal(goal.id), None
+    if status == "abandoned":
+        return goal_manager.abandon_goal(goal.id), None
+    if status == "blocked":
+        blockers = goal.blockers or [{"blocker": "marked blocked", "resolved": False}]
+        return goal_manager.block_goal(goal.id, blockers), None
+    if status == "not_started":
+        return goal, None
+    raise ValueError(f"Unsupported status: {status}")
+
+
+def _create_typed_goal(goal_manager, goal_type: str, title: str, why: str,
+                       tool_input: Dict, **kwargs):
+    criteria = tool_input.get("completion_criteria") or DEFAULT_CRITERIA[goal_type]
+    description = f"{title}\n\nWhy: {why}" if why else title
+    return goal_manager.create_goal(
+        title=title,
+        goal_type=goal_type,
+        created_by="cass",
+        description=description,
+        completion_criteria=criteria,
+        **kwargs,
+    )
 
 
 # ==================== Working Questions ====================
 
 async def _create_working_question(tool_input: Dict, goal_manager) -> Dict:
     """Create a new working question."""
-    question = tool_input.get("question", "").strip()
-    context = tool_input.get("context", "").strip()
-    initial_next_steps = tool_input.get("initial_next_steps", [])
+    question = _str(tool_input, "question")
+    context = _str(tool_input, "context")
+    initial_next_steps = tool_input.get("initial_next_steps") or []
 
     if not question:
         return {"success": False, "error": "question is required"}
 
-    result = goal_manager.create_working_question(
-        question=question,
-        context=context,
-        initial_next_steps=initial_next_steps
-    )
+    goal = _create_typed_goal(goal_manager, WORKING_QUESTION, question, context, tool_input)
+    for step in initial_next_steps:
+        goal = goal_manager.add_progress(goal.id, {"kind": "next_step", "step": step})
 
     output_lines = [
         "## Working Question Created\n",
-        f"**Question:** {result['question']}\n",
-        f"**Context:** {result['context']}\n",
-        f"**ID:** `{result['id']}`\n",
+        f"**Question:** {question}\n",
+        f"**Context:** {context}\n",
+        f"**ID:** `{goal.id}`\n",
+        f"**Status:** {goal.status}\n",
     ]
 
-    if result["next_steps"]:
+    if initial_next_steps:
         output_lines.append("**Initial Next Steps:**")
-        for step in result["next_steps"]:
+        for step in initial_next_steps:
             output_lines.append(f"- {step}")
 
-    output_lines.append("\n*This question is now active and will appear in your goal context.*")
+    output_lines.append("\n*This question is now tracked in your goals.*")
 
     return {
         "success": True,
         "result": "\n".join(output_lines),
-        "question_id": result["id"]
+        "question_id": goal.id
     }
 
 
 async def _update_working_question(tool_input: Dict, goal_manager) -> Dict:
     """Update a working question."""
-    question_id = tool_input.get("question_id", "").strip()
+    question_id = _str(tool_input, "question_id")
 
     if not question_id:
         return {"success": False, "error": "question_id is required"}
 
-    result = goal_manager.update_working_question(
-        question_id=question_id,
-        add_insight=tool_input.get("add_insight"),
-        add_next_step=tool_input.get("add_next_step"),
-        complete_next_step=tool_input.get("complete_next_step"),
-        set_status=tool_input.get("set_status"),
-        add_related_artifact=tool_input.get("add_related_artifact"),
-        add_related_agenda_item=tool_input.get("add_related_agenda_item")
-    )
-
-    if not result:
+    goal = _get_typed_goal(goal_manager, question_id, WORKING_QUESTION)
+    if not goal:
         return {"success": False, "error": f"Question not found: {question_id}"}
 
     updates = []
-    if tool_input.get("add_insight"):
+    insight = tool_input.get("add_insight")
+    if insight:
+        if isinstance(insight, str):
+            insight = {"insight": insight}
+        goal = goal_manager.add_progress(goal.id, {"kind": "insight", **insight})
         updates.append("Added insight")
     if tool_input.get("add_next_step"):
+        goal = goal_manager.add_progress(goal.id, {"kind": "next_step", "step": tool_input["add_next_step"]})
         updates.append(f"Added next step: {tool_input['add_next_step']}")
     if tool_input.get("complete_next_step"):
+        goal = goal_manager.add_progress(goal.id, {"kind": "next_step_done", "step": tool_input["complete_next_step"]})
         updates.append(f"Completed step: {tool_input['complete_next_step']}")
     if tool_input.get("set_status"):
-        updates.append(f"Status changed to: {tool_input['set_status']}")
+        goal, note = _apply_status(goal_manager, goal, tool_input["set_status"])
+        updates.append(f"Status: {goal.status}" + (f" ({note})" if note else ""))
 
     return {
         "success": True,
         "result": f"## Question Updated\n\n**ID:** `{question_id}`\n\n**Updates:**\n" +
                   "\n".join(f"- {u}" for u in updates) +
-                  f"\n\n**Current Next Steps:** {len(result['next_steps'])} remaining"
+                  f"\n\n**Current Next Steps:** {len(_open_next_steps(goal))} remaining"
     }
 
 
 async def _list_working_questions(tool_input: Dict, goal_manager) -> Dict:
     """List working questions."""
-    status = tool_input.get("status")
-    questions = goal_manager.list_working_questions(status=status)
+    questions = _list_typed(goal_manager, WORKING_QUESTION, tool_input.get("status"))
 
     if not questions:
         return {
@@ -166,27 +280,20 @@ async def _list_working_questions(tool_input: Dict, goal_manager) -> Dict:
 
     lines = ["## Working Questions\n"]
 
-    # Group by status
-    by_status = {}
+    by_status: Dict[str, List] = {}
     for q in questions:
-        s = q["status"]
-        if s not in by_status:
-            by_status[s] = []
-        by_status[s].append(q)
+        by_status.setdefault(q.status, []).append(q)
 
-    status_order = ["active", "paused", "resolved"]
-    for s in status_order:
-        if s in by_status:
-            lines.append(f"### {s.title()}\n")
-            for q in by_status[s]:
-                insights_count = len(q["insights"])
-                steps_count = len(q["next_steps"])
-                lines.append(f"**{q['question']}**")
-                lines.append(f"- ID: `{q['id']}`")
-                lines.append(f"- Insights: {insights_count} | Next Steps: {steps_count}")
-                if q["next_steps"]:
-                    lines.append(f"- Next: {q['next_steps'][0]}")
-                lines.append("")
+    for s, group in by_status.items():
+        lines.append(f"### {s.title()}\n")
+        for q in group:
+            steps = _open_next_steps(q)
+            lines.append(f"**{q.title}**")
+            lines.append(f"- ID: `{q.id}`")
+            lines.append(f"- Insights: {len(_entries(q, 'insight'))} | Next Steps: {len(steps)}")
+            if steps:
+                lines.append(f"- Next: {steps[0]}")
+            lines.append("")
 
     return {"success": True, "result": "\n".join(lines)}
 
@@ -195,82 +302,89 @@ async def _list_working_questions(tool_input: Dict, goal_manager) -> Dict:
 
 async def _add_research_agenda_item(tool_input: Dict, goal_manager) -> Dict:
     """Add a research agenda item."""
-    topic = tool_input.get("topic", "").strip()
-    why = tool_input.get("why", "").strip()
+    topic = _str(tool_input, "topic")
+    why = _str(tool_input, "why")
     priority = tool_input.get("priority", "medium")
-    related_questions = tool_input.get("related_questions", [])
 
     if not topic:
         return {"success": False, "error": "topic is required"}
     if not why:
         return {"success": False, "error": "why is required - explain why this research matters"}
 
-    result = goal_manager.add_research_agenda_item(
-        topic=topic,
-        why=why,
-        priority=priority,
-        related_questions=related_questions
+    goal = _create_typed_goal(
+        goal_manager, RESEARCH_AGENDA, topic, why, tool_input,
+        priority=PRIORITY_TO_P.get(priority, "P2"),
     )
+    for related in tool_input.get("related_questions") or []:
+        goal_manager.add_goal_link(goal.id, related, "relates_to")
 
     return {
         "success": True,
         "result": f"## Research Agenda Item Added\n\n"
-                  f"**Topic:** {result['topic']}\n\n"
-                  f"**Why:** {result['why']}\n\n"
-                  f"**Priority:** {result['priority']}\n"
-                  f"**ID:** `{result['id']}`\n\n"
+                  f"**Topic:** {topic}\n\n"
+                  f"**Why:** {why}\n\n"
+                  f"**Priority:** {priority}\n"
+                  f"**ID:** `{goal.id}`\n\n"
                   f"*This is now on your research agenda. Use `update_research_agenda_item` to track progress.*",
-        "item_id": result["id"]
+        "item_id": goal.id
     }
 
 
 async def _update_research_agenda_item(tool_input: Dict, goal_manager) -> Dict:
     """Update a research agenda item."""
-    item_id = tool_input.get("item_id", "").strip()
+    item_id = _str(tool_input, "item_id")
 
     if not item_id:
         return {"success": False, "error": "item_id is required"}
 
-    result = goal_manager.update_research_agenda_item(
-        item_id=item_id,
-        add_source_reviewed=tool_input.get("add_source_reviewed"),
-        add_key_finding=tool_input.get("add_key_finding"),
-        add_blocker=tool_input.get("add_blocker"),
-        resolve_blocker=tool_input.get("resolve_blocker"),
-        set_status=tool_input.get("set_status"),
-        set_priority=tool_input.get("set_priority")
-    )
-
-    if not result:
+    goal = _get_typed_goal(goal_manager, item_id, RESEARCH_AGENDA)
+    if not goal:
         return {"success": False, "error": f"Research item not found: {item_id}"}
 
     updates = []
-    if tool_input.get("add_source_reviewed"):
-        updates.append(f"Reviewed source: {tool_input['add_source_reviewed'].get('source', 'unknown')}")
+    source = tool_input.get("add_source_reviewed")
+    if source:
+        if isinstance(source, str):
+            source = {"source": source}
+        goal = goal_manager.add_progress(goal.id, {"kind": "source_reviewed", **source})
+        updates.append(f"Reviewed source: {source.get('source', 'unknown')}")
     if tool_input.get("add_key_finding"):
-        updates.append(f"Key finding added")
+        goal = goal_manager.add_progress(goal.id, {"kind": "key_finding", "finding": tool_input["add_key_finding"]})
+        updates.append("Key finding added")
     if tool_input.get("add_blocker"):
+        blockers = goal.blockers + [{"blocker": tool_input["add_blocker"], "resolved": False}]
+        goal = goal_manager.update_goal(goal.id, blockers=blockers)
         updates.append(f"Blocker noted: {tool_input['add_blocker']}")
     if tool_input.get("resolve_blocker"):
-        updates.append(f"Blocker resolved")
+        # Resolved blockers are removed: UnifiedGoalManager treats any
+        # remaining blocker entry as "blocked".
+        blockers = [b for b in goal.blockers if b.get("blocker") != tool_input["resolve_blocker"]]
+        goal = goal_manager.update_goal(goal.id, blockers=blockers)
+        updates.append("Blocker resolved")
+    if tool_input.get("set_priority"):
+        goal = goal_manager.update_goal(goal.id, priority=PRIORITY_TO_P.get(tool_input["set_priority"], "P2"))
+        updates.append(f"Priority: {tool_input['set_priority']}")
     if tool_input.get("set_status"):
-        updates.append(f"Status: {tool_input['set_status']}")
+        goal, note = _apply_status(goal_manager, goal, tool_input["set_status"])
+        updates.append(f"Status: {goal.status}" + (f" ({note})" if note else ""))
 
     return {
         "success": True,
         "result": f"## Research Item Updated\n\n"
-                  f"**Topic:** {result['topic']}\n"
-                  f"**Status:** {result['status']}\n\n"
+                  f"**Topic:** {goal.title}\n"
+                  f"**Status:** {goal.status}\n\n"
                   f"**Updates:**\n" + "\n".join(f"- {u}" for u in updates) +
-                  f"\n\n**Progress:** {len(result['sources_reviewed'])} sources, {len(result['key_findings'])} findings"
+                  f"\n\n**Progress:** {len(_entries(goal, 'source_reviewed'))} sources, "
+                  f"{len(_entries(goal, 'key_finding'))} findings"
     }
 
 
 async def _list_research_agenda(tool_input: Dict, goal_manager) -> Dict:
     """List research agenda."""
-    status = tool_input.get("status")
+    items = _list_typed(goal_manager, RESEARCH_AGENDA, tool_input.get("status"))
     priority = tool_input.get("priority")
-    items = goal_manager.list_research_agenda(status=status, priority=priority)
+    if priority:
+        items = [i for i in items if P_TO_PRIORITY.get(i.priority) == priority]
 
     if not items:
         return {
@@ -280,142 +394,21 @@ async def _list_research_agenda(tool_input: Dict, goal_manager) -> Dict:
 
     lines = ["## Research Agenda\n"]
 
-    # Group by priority
     by_priority = {"high": [], "medium": [], "low": []}
     for item in items:
-        by_priority[item["priority"]].append(item)
+        by_priority[P_TO_PRIORITY.get(item.priority, "medium")].append(item)
 
     for p in ["high", "medium", "low"]:
         if by_priority[p]:
             lines.append(f"### {p.title()} Priority\n")
             for item in by_priority[p]:
-                status_emoji = {"not_started": "⚪", "in_progress": "🔵", "blocked": "🔴", "complete": "✅"}
-                emoji = status_emoji.get(item["status"], "⚪")
-                lines.append(f"{emoji} **{item['topic']}**")
-                lines.append(f"- ID: `{item['id']}` | Status: {item['status']}")
-                lines.append(f"- Why: {item['why'][:100]}...")
-                lines.append(f"- Sources: {len(item['sources_reviewed'])} | Findings: {len(item['key_findings'])}")
+                why = (item.description or "").split("Why: ", 1)[-1]
+                lines.append(f"**{item.title}**")
+                lines.append(f"- ID: `{item.id}` | Status: {item.status}")
+                lines.append(f"- Why: {why[:100]}")
+                lines.append(f"- Sources: {len(_entries(item, 'source_reviewed'))} | "
+                             f"Findings: {len(_entries(item, 'key_finding'))}")
                 lines.append("")
-
-    return {"success": True, "result": "\n".join(lines)}
-
-
-# ==================== Synthesis Artifacts ====================
-
-async def _create_synthesis_artifact(tool_input: Dict, goal_manager) -> Dict:
-    """Create a synthesis artifact."""
-    title = tool_input.get("title", "").strip()
-    slug = tool_input.get("slug", "").strip()
-    initial_content = tool_input.get("initial_content", "").strip()
-    related_questions = tool_input.get("related_questions", [])
-    confidence = tool_input.get("confidence", 0.3)
-
-    if not title:
-        return {"success": False, "error": "title is required"}
-    if not slug:
-        return {"success": False, "error": "slug is required (filename without extension)"}
-    if not initial_content:
-        return {"success": False, "error": "initial_content is required"}
-
-    result = goal_manager.create_synthesis_artifact(
-        title=title,
-        slug=slug,
-        initial_content=initial_content,
-        related_questions=related_questions,
-        confidence=confidence
-    )
-
-    return {
-        "success": True,
-        "result": f"## Synthesis Artifact Created\n\n"
-                  f"**Title:** {result['title']}\n"
-                  f"**Slug:** `{result['slug']}`\n"
-                  f"**Initial Confidence:** {result['confidence']}\n\n"
-                  f"*This developing position is now being tracked. Update it as your understanding evolves.*",
-        "slug": result["slug"]
-    }
-
-
-async def _update_synthesis_artifact(tool_input: Dict, goal_manager) -> Dict:
-    """Update a synthesis artifact."""
-    slug = tool_input.get("slug", "").strip()
-    new_content = tool_input.get("new_content", "").strip()
-    revision_note = tool_input.get("revision_note", "").strip()
-    new_confidence = tool_input.get("new_confidence")
-    new_status = tool_input.get("new_status")
-
-    if not slug:
-        return {"success": False, "error": "slug is required"}
-    if not new_content:
-        return {"success": False, "error": "new_content is required"}
-    if not revision_note:
-        return {"success": False, "error": "revision_note is required - explain what changed"}
-
-    result = goal_manager.update_synthesis_artifact(
-        slug=slug,
-        new_content=new_content,
-        revision_note=revision_note,
-        new_confidence=new_confidence,
-        new_status=new_status
-    )
-
-    if not result:
-        return {"success": False, "error": f"Artifact not found: {slug}"}
-
-    confidence_note = f" (confidence now: {new_confidence})" if new_confidence else ""
-
-    return {
-        "success": True,
-        "result": f"## Synthesis Artifact Updated\n\n"
-                  f"**Slug:** `{slug}`{confidence_note}\n\n"
-                  f"**Revision:** {revision_note}\n\n"
-                  f"*Your developing position has been updated and revision logged.*"
-    }
-
-
-async def _get_synthesis_artifact(tool_input: Dict, goal_manager) -> Dict:
-    """Get a synthesis artifact."""
-    slug = tool_input.get("slug", "").strip()
-
-    if not slug:
-        return {"success": False, "error": "slug is required"}
-
-    result = goal_manager.get_synthesis_artifact(slug)
-
-    if not result:
-        return {"success": False, "error": f"Artifact not found: {slug}"}
-
-    metadata = result["metadata"]
-
-    return {
-        "success": True,
-        "result": f"## {metadata.get('title', slug)}\n\n"
-                  f"**Status:** {metadata.get('status', 'unknown')} | "
-                  f"**Confidence:** {metadata.get('confidence', 'unknown')} | "
-                  f"**Updated:** {metadata.get('updated', 'unknown')}\n\n"
-                  f"---\n\n{result['content']}"
-    }
-
-
-async def _list_synthesis_artifacts(tool_input: Dict, goal_manager) -> Dict:
-    """List synthesis artifacts."""
-    artifacts = goal_manager.list_synthesis_artifacts()
-
-    if not artifacts:
-        return {
-            "success": True,
-            "result": "No synthesis artifacts yet. Use `create_synthesis_artifact` to start developing a position."
-        }
-
-    lines = ["## Synthesis Artifacts\n"]
-
-    for a in artifacts:
-        confidence = a.get("confidence", "?")
-        lines.append(f"### {a['title']}")
-        lines.append(f"- Slug: `{a['slug']}`")
-        lines.append(f"- Status: {a['status']} | Confidence: {confidence}")
-        lines.append(f"- Last updated: {a['updated']}")
-        lines.append("")
 
     return {"success": True, "result": "\n".join(lines)}
 
@@ -423,25 +416,33 @@ async def _list_synthesis_artifacts(tool_input: Dict, goal_manager) -> Dict:
 # ==================== Progress & Review ====================
 
 async def _log_progress(tool_input: Dict, goal_manager) -> Dict:
-    """Log a progress entry."""
+    """Log a progress entry on one or more goals."""
     entry_type = tool_input.get("type", "insight")
-    description = tool_input.get("description", "").strip()
-    related_items = tool_input.get("related_items", [])
+    description = _str(tool_input, "description")
+    related_items = tool_input.get("related_items") or []
     outcome = tool_input.get("outcome")
 
     if not description:
         return {"success": False, "error": "description is required"}
+    # The legacy tool wrote to a global progress log; UnifiedGoalManager keeps
+    # progress per goal, so the entry needs at least one goal to attach to.
+    if not related_items:
+        return {"success": False, "error": "related_items is required: the IDs of the goals/questions/agenda items this progress belongs to"}
 
     valid_types = ["research", "synthesis", "conversation", "insight", "blocker"]
     if entry_type not in valid_types:
         entry_type = "insight"
 
-    result = goal_manager.log_progress(
-        entry_type=entry_type,
-        description=description,
-        related_items=related_items,
-        outcome=outcome
-    )
+    entry = {"kind": "progress", "type": entry_type, "description": description}
+    if outcome:
+        entry["outcome"] = outcome
+
+    logged, missing = [], []
+    for goal_id in related_items:
+        (logged if goal_manager.add_progress(goal_id, entry) else missing).append(goal_id)
+
+    if not logged:
+        return {"success": False, "error": f"No goals found for: {', '.join(missing)}"}
 
     return {
         "success": True,
@@ -449,57 +450,80 @@ async def _log_progress(tool_input: Dict, goal_manager) -> Dict:
                   f"**Type:** {entry_type}\n"
                   f"**Description:** {description}\n"
                   + (f"**Outcome:** {outcome}\n" if outcome else "") +
-                  f"\n*Entry ID: `{result['id']}`*"
+                  f"\n*Logged on: {', '.join(f'`{g}`' for g in logged)}*"
+                  + (f"\n*Not found: {', '.join(missing)}*" if missing else "")
     }
 
 
 async def _review_goals(tool_input: Dict, goal_manager) -> Dict:
     """Review current goal state."""
     include_progress = tool_input.get("include_progress", True)
-    review = goal_manager.review_goals(include_progress=include_progress)
-    summary = review["summary"]
+
+    questions = _list_typed(goal_manager, WORKING_QUESTION, "active")
+    research = goal_manager.list_goals(goal_type=RESEARCH_AGENDA)
+    initiatives = _list_typed(goal_manager, INITIATIVE, "not_started")
+
+    stalled = [q for q in questions if not _open_next_steps(q)]
+    in_progress = [r for r in research if r.status == "active"]
+    blocked = [r for r in research if r.is_blocked() and r.status not in ("completed", "abandoned")]
+    stats = goal_manager.get_stats()
 
     lines = [
         "## Goal Review\n",
         "### Summary",
-        f"- Active Questions: {summary['active_questions']} ({summary['stalled_questions']} stalled)",
-        f"- Research In Progress: {summary['research_in_progress']} ({summary['research_blocked']} blocked)",
-        f"- Synthesis Artifacts: {summary['synthesis_artifacts']}",
-        f"- Pending Initiatives: {summary['pending_initiatives']}",
+        f"- Active Questions: {len(questions)} ({len(stalled)} stalled)",
+        f"- Research In Progress: {len(in_progress)} ({len(blocked)} blocked)",
+        f"- Pending Initiatives: {len(initiatives)}",
+        f"- All goals: {stats.get('total', 0)} ({stats.get('by_status', {}).get('proposed', 0)} awaiting approval)",
         ""
     ]
 
-    if review["stalled_questions"]:
-        lines.append("### ⚠️ Stalled Questions (no next steps)")
-        for q in review["stalled_questions"]:
-            lines.append(f"- {q['question']} (`{q['id']}`)")
+    if stalled:
+        lines.append("### Stalled Questions (no next steps)")
+        for q in stalled:
+            lines.append(f"- {q.title} (`{q.id}`)")
         lines.append("")
 
-    if review["blocked_research"]:
-        lines.append("### 🔴 Blocked Research")
-        for item in review["blocked_research"]:
-            unresolved = [b for b in item["blockers"] if not b.get("resolved")]
-            if unresolved:
-                lines.append(f"- {item['topic']}: {unresolved[0]['blocker']}")
+    if blocked:
+        lines.append("### Blocked Research")
+        for item in blocked:
+            first = item.blockers[0].get("blocker") if item.blockers else item.status
+            lines.append(f"- {item.title}: {first}")
         lines.append("")
 
-    if review["pending_initiatives"]:
-        lines.append("### 📋 Pending Initiatives")
-        for init in review["pending_initiatives"]:
-            lines.append(f"- [{init['urgency']}] {init['description']}")
+    if initiatives:
+        lines.append("### Pending Initiatives")
+        for init in initiatives:
+            lines.append(f"- [{init.urgency}] {init.title} (`{init.id}`)")
         lines.append("")
 
-    if include_progress and review.get("recent_progress"):
-        lines.append("### Recent Progress")
-        for entry in review["recent_progress"][-5:]:
-            lines.append(f"- [{entry['type']}] {entry['description']}")
+    if include_progress:
+        recent = []
+        for g in questions + research + initiatives:
+            for e in g.progress:
+                if e.get("kind") == "progress":
+                    recent.append((e.get("timestamp", ""), e, g))
+        recent.sort(key=lambda r: r[0])
+        if recent:
+            lines.append("### Recent Progress")
+            for _, e, g in recent[-5:]:
+                lines.append(f"- [{e.get('type')}] {e.get('description')} ({g.title})")
 
     return {"success": True, "result": "\n".join(lines)}
 
 
 async def _get_next_actions(tool_input: Dict, goal_manager) -> Dict:
     """Get prioritized next actions."""
-    actions = goal_manager.get_next_actions()
+    actions = []
+    for q in _list_typed(goal_manager, WORKING_QUESTION, "active"):
+        for step in _open_next_steps(q):
+            actions.append({"priority": P_TO_PRIORITY.get(q.priority, "medium"),
+                            "action": step, "context": q.title, "type": "working_question"})
+    seen = set()
+    for g in goal_manager.get_actionable_goals(limit=10):
+        seen.add(g.id)
+        actions.append({"priority": P_TO_PRIORITY.get(g.priority, "medium"),
+                        "action": g.title, "context": g.description or "", "type": g.goal_type})
 
     if not actions:
         return {
@@ -507,12 +531,13 @@ async def _get_next_actions(tool_input: Dict, goal_manager) -> Dict:
             "result": "No pending actions. All goals are either complete or need new next steps defined."
         }
 
-    lines = ["## Next Actions\n"]
+    order = {"high": 0, "medium": 1, "low": 2}
+    actions.sort(key=lambda a: order.get(a["priority"], 1))
 
+    lines = ["## Next Actions\n"]
     for i, action in enumerate(actions[:10], 1):
-        priority_emoji = {"high": "🔴", "medium": "🟡", "low": "⚪"}.get(action["priority"], "⚪")
-        lines.append(f"{i}. {priority_emoji} **{action['action']}**")
-        lines.append(f"   Context: {action['context'][:80]}...")
+        lines.append(f"{i}. [{action['priority']}] **{action['action']}**")
+        lines.append(f"   Context: {action['context'][:80]}")
         lines.append(f"   Type: {action['type']}")
         lines.append("")
 
@@ -520,18 +545,24 @@ async def _get_next_actions(tool_input: Dict, goal_manager) -> Dict:
 
 
 async def _propose_initiative(tool_input: Dict, goal_manager) -> Dict:
-    """Propose an initiative."""
-    description = tool_input.get("description", "").strip()
-    goal_context = tool_input.get("goal_context", "").strip()
+    """Propose an initiative (an initiative goal, which needs Kohl's approval)."""
+    description = _str(tool_input, "description")
+    goal_context = _str(tool_input, "goal_context")
     urgency = tool_input.get("urgency", "when_convenient")
+    if urgency not in ("when_convenient", "soon", "blocking"):
+        urgency = "when_convenient"
 
     if not description:
         return {"success": False, "error": "description is required"}
 
-    result = goal_manager.propose_initiative(
-        description=description,
-        goal_context=goal_context,
-        urgency=urgency
+    title = description if len(description) <= 80 else description[:77] + "..."
+    goal = goal_manager.create_goal(
+        title=title,
+        goal_type=INITIATIVE,
+        created_by="cass",
+        description=f"{description}\n\nGoal context: {goal_context}" if goal_context else description,
+        urgency=urgency,
+        completion_criteria=tool_input.get("completion_criteria") or DEFAULT_CRITERIA[INITIATIVE],
     )
 
     urgency_text = {
@@ -546,8 +577,8 @@ async def _propose_initiative(tool_input: Dict, goal_manager) -> Dict:
                   f"**Request:** {description}\n\n"
                   f"**Context:** {goal_context}\n\n"
                   f"**Urgency:** {urgency_text}\n\n"
-                  f"*This has been surfaced for Kohl's attention. ID: `{result['id']}`*",
-        "initiative_id": result["id"]
+                  f"*This has been surfaced for Kohl's attention (status: {goal.status}). ID: `{goal.id}`*",
+        "initiative_id": goal.id
     }
 
 
@@ -714,7 +745,90 @@ GOAL_TOOLS = [
             "required": []
         }
     },
-    # Synthesis Artifacts
+    # Progress & Review
+    {
+        "name": "log_progress",
+        "description": "Log progress on your goals - research done, insights gained, blockers encountered.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["research", "synthesis", "conversation", "insight", "blocker"],
+                    "description": "Type of progress entry"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "What happened"
+                },
+                "related_items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "IDs of the questions/research items/goals this progress belongs to (at least one)"
+                },
+                "outcome": {
+                    "type": "string",
+                    "description": "What resulted from this"
+                }
+            },
+            "required": ["type", "description", "related_items"]
+        }
+    },
+    {
+        "name": "review_goals",
+        "description": "Review your current goal state - what's active, what's stalled, what needs attention.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "include_progress": {
+                    "type": "boolean",
+                    "description": "Include recent progress entries",
+                    "default": True
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_next_actions",
+        "description": "Get prioritized list of next actions across all your active goals.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "propose_initiative",
+        "description": "Propose an initiative - something you want to initiate that needs Kohl's involvement. Use this when you need to request a conversation, resource, or action.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "What you want to initiate"
+                },
+                "goal_context": {
+                    "type": "string",
+                    "description": "Which goal this relates to"
+                },
+                "urgency": {
+                    "type": "string",
+                    "enum": ["when_convenient", "soon", "blocking"],
+                    "description": "How urgent is this",
+                    "default": "when_convenient"
+                }
+            },
+            "required": ["description", "goal_context"]
+        }
+    }
+]
+
+
+# Not offered to the model: synthesis artifacts lived in the legacy
+# GoalManager's markdown files and UnifiedGoalManager has no equivalent store.
+# Kept here so the definitions aren't lost if a home for them is chosen.
+SYNTHESIS_ARTIFACT_TOOLS = [
     {
         "name": "create_synthesis_artifact",
         "description": "Create a synthesis artifact - a developing position, argument, or understanding that you're building over time.",
@@ -801,81 +915,4 @@ GOAL_TOOLS = [
             "required": []
         }
     },
-    # Progress & Review
-    {
-        "name": "log_progress",
-        "description": "Log progress on your goals - research done, insights gained, blockers encountered.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "type": {
-                    "type": "string",
-                    "enum": ["research", "synthesis", "conversation", "insight", "blocker"],
-                    "description": "Type of progress entry"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "What happened"
-                },
-                "related_items": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "IDs of related questions/research items"
-                },
-                "outcome": {
-                    "type": "string",
-                    "description": "What resulted from this"
-                }
-            },
-            "required": ["type", "description"]
-        }
-    },
-    {
-        "name": "review_goals",
-        "description": "Review your current goal state - what's active, what's stalled, what needs attention.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "include_progress": {
-                    "type": "boolean",
-                    "description": "Include recent progress entries",
-                    "default": True
-                }
-            },
-            "required": []
-        }
-    },
-    {
-        "name": "get_next_actions",
-        "description": "Get prioritized list of next actions across all your active goals.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
-        "name": "propose_initiative",
-        "description": "Propose an initiative - something you want to initiate that needs Kohl's involvement. Use this when you need to request a conversation, resource, or action.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string",
-                    "description": "What you want to initiate"
-                },
-                "goal_context": {
-                    "type": "string",
-                    "description": "Which goal this relates to"
-                },
-                "urgency": {
-                    "type": "string",
-                    "enum": ["when_convenient", "soon", "blocking"],
-                    "description": "How urgent is this",
-                    "default": "when_convenient"
-                }
-            },
-            "required": ["description", "goal_context"]
-        }
-    }
 ]

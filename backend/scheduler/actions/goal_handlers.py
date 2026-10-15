@@ -104,11 +104,13 @@ async def get_next_action(context: Dict[str, Any]) -> ActionResult:
 
         # Parse action from context
         action = ""
+        has_spell = False
         if goal.context_summary:
             for part in goal.context_summary.split("|"):
                 if part.startswith("action:"):
                     action = part[7:]
-                    break
+                elif part.startswith("spell:"):
+                    has_spell = True
 
         return ActionResult(
             success=True,
@@ -118,6 +120,12 @@ async def get_next_action(context: Dict[str, Any]) -> ActionResult:
                 "goal_id": goal.id,
                 "goal_type": goal.goal_type,
                 "action": action,
+                # `action` is a reserved word in Grimoire, so spells can't read
+                # $result.action; they read next_action instead. Grimoire also
+                # has no CONTAINS, so the decomposed-sub-goal test (an action
+                # mapping and no spell mapping) is precomputed here.
+                "next_action": action,
+                "decomposed": bool(action) and not has_spell,
                 "priority": goal.priority,
                 "urgency": goal.urgency,
             },

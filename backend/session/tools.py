@@ -448,13 +448,16 @@ async def handle_add_observation(
         category = tool_input.get("category", "general")
         confidence = tool_input.get("confidence", 0.7)
 
-        # Add observation to self-model
-        obs_id = self_manager.add_observation(
-            content=observation,
+        # Add observation to self-model. SelfManager.add_observation takes
+        # observation=/source_type= (content=/source= raised TypeError) and
+        # returns the observation object.
+        obs = self_manager.add_observation(
+            observation=observation,
             category=category,
             confidence=confidence,
-            source=f"session:{context.get('session_type', 'unknown')}",
+            source_type=f"session:{context.get('session_type', 'unknown')}",
         )
+        obs_id = getattr(obs, "id", None)
 
         return {
             "success": True,
@@ -479,14 +482,16 @@ async def handle_record_insight(
         insight = tool_input.get("insight", "")
         related_topics = tool_input.get("related_topics", [])
 
-        # Record as high-confidence observation
-        obs_id = self_manager.add_observation(
-            content=f"INSIGHT: {insight}",
+        # Record as high-confidence observation (same kwarg fix as above;
+        # add_observation has no metadata, so topics go in the text)
+        topics = f" [topics: {', '.join(related_topics)}]" if related_topics else ""
+        obs = self_manager.add_observation(
+            observation=f"INSIGHT: {insight}{topics}",
             category="insight",
             confidence=0.9,
-            source=f"session:{context.get('session_type', 'unknown')}",
-            metadata={"related_topics": related_topics},
+            source_type=f"session:{context.get('session_type', 'unknown')}",
         )
+        obs_id = getattr(obs, "id", None)
 
         # Emit insight event
         try:
@@ -536,20 +541,21 @@ async def handle_list_observations(
         category = tool_input.get("category")
         limit = tool_input.get("limit", 10)
 
-        observations = self_manager.list_observations(
-            category=category,
-            limit=limit,
-        )
+        # SelfManager has no list_observations; use the real readers.
+        if category:
+            observations = self_manager.get_observations_by_category(category, limit=int(limit))
+        else:
+            observations = self_manager.load_observations()[-int(limit):]
 
         return {
             "observations": [
                 {
-                    "id": o.id if hasattr(o, 'id') else str(i),
-                    "content": o.content if hasattr(o, 'content') else str(o),
-                    "category": o.category if hasattr(o, 'category') else "unknown",
-                    "date": o.date.isoformat() if hasattr(o, 'date') else None,
+                    "id": o.id,
+                    "content": o.observation,
+                    "category": o.category,
+                    "date": o.timestamp,
                 }
-                for i, o in enumerate(observations)
+                for o in observations
             ]
         }
     except Exception as e:
@@ -562,15 +568,22 @@ async def handle_web_search(
     **context,
 ) -> Dict[str, Any]:
     """Handle web_search tool call."""
-    # This would integrate with web search functionality
     query = tool_input.get("query", "")
-    num_results = tool_input.get("num_results", 5)
+    num_results = int(tool_input.get("num_results", 5))
 
-    # [STUB] - needs web search integration
+    # Use the same Tavily-backed ResearchManager as the chat research tools.
+    # Without TAVILY_API_KEY it returns success=False with a reason, which the
+    # model sees as-is (no fake results).
+    from research import ResearchManager
+    result = await ResearchManager().web_search(query, num_results=num_results)
+    if not result.get("success"):
+        return {"error": f"Web search unavailable: {result.get('error', 'unknown error')}",
+                "results": []}
     return {
-        "message": f"[STUB] Web search for: {query}",
-        "results": [],
-        "note": "Web search not yet implemented in session runner"
+        "results": [
+            {"title": r.get("title"), "url": r.get("url"), "snippet": r.get("content", "")[:500]}
+            for r in result.get("results", [])
+        ],
     }
 
 
@@ -582,12 +595,13 @@ async def handle_fetch_url(
     """Handle fetch_url tool call."""
     url = tool_input.get("url", "")
 
-    # [STUB] - needs URL fetching integration
-    return {
-        "message": f"[STUB] Fetch URL: {url}",
-        "content": "",
-        "note": "URL fetching not yet implemented in session runner"
-    }
+    # Same fetcher as the chat research tools.
+    from research import ResearchManager
+    result = await ResearchManager().fetch_url(url)
+    if not result.get("success"):
+        return {"error": f"Could not fetch {url}: {result.get('error', 'unknown error')}",
+                "content": ""}
+    return {"url": url, "title": result.get("title"), "content": result.get("content", "")}
 
 
 async def handle_create_note(
@@ -604,11 +618,17 @@ async def handle_create_note(
 
     if wiki_manager:
         try:
-            note_id = wiki_manager.create_page(
-                title=title,
-                content=content,
-                tags=tags,
-            )
+            # WikiStorage has create(name, content), not create_page; the page
+            # name is the note id the other note tools take.
+            body = f"# {title}\n\n"
+            if tags:
+                body += f"Tags: {', '.join(tags)}\n\n"
+            body += content
+            if wiki_manager.read(title):
+                wiki_manager.update(title, body)
+            else:
+                wiki_manager.create(title, body)
+            note_id = title
             return {
                 "success": True,
                 "note_id": note_id,
@@ -620,6 +640,8 @@ async def handle_create_note(
                 }
             }
         except Exception as e:
+            from strict import report_swallowed
+            report_swallowed(e, "create_note session tool")
             return {"error": str(e)}
 
     # Fallback - save to data dir
@@ -684,7 +706,13 @@ async def handle_update_note(
 
     if wiki_manager:
         try:
-            wiki_manager.update_page(note_id, content, mode=mode)
+            # WikiStorage has update(name, content) (full replace), not
+            # update_page; do the append ourselves.
+            page = wiki_manager.read(note_id)
+            if not page:
+                return {"error": f"Note not found: {note_id}"}
+            new_content = page.content.rstrip() + "\n\n" + content if mode == "append" else content
+            wiki_manager.update(note_id, new_content)
             return {
                 "success": True,
                 "note_id": note_id,
@@ -708,15 +736,20 @@ async def handle_search_notes(
 
     if wiki_manager:
         try:
-            results = wiki_manager.search(query, tags=tags)
+            # WikiStorage.search(query) returns WikiPage objects (no tags
+            # filter); filter on the "Tags:" line create_note writes.
+            results = wiki_manager.search(query)
+            if tags:
+                results = [p for p in results
+                           if all(t.lower() in p.content.lower() for t in tags)]
             return {
                 "results": [
                     {
-                        "id": r.get("id", ""),
-                        "title": r.get("title", ""),
-                        "snippet": r.get("snippet", "")[:200],
+                        "id": p.name,
+                        "title": p.title,
+                        "snippet": p.body[:200],
                     }
-                    for r in results
+                    for p in results
                 ]
             }
         except Exception as e:
@@ -736,18 +769,20 @@ async def handle_list_growth_edges(
         return {"error": "self_manager not available"}
 
     try:
-        status_filter = tool_input.get("status", "active")
-        edges = self_manager.list_growth_edges(status=status_filter)
+        # SelfManager has no list_growth_edges; edges live on the profile and
+        # have no status/progress fields, so the status filter doesn't apply.
+        edges = self_manager.load_profile().growth_edges
 
         return {
             "growth_edges": [
                 {
-                    "id": e.id if hasattr(e, 'id') else str(i),
-                    "title": e.title if hasattr(e, 'title') else str(e),
-                    "status": e.status if hasattr(e, 'status') else "unknown",
-                    "progress": e.progress if hasattr(e, 'progress') else 0.0,
+                    "id": e.edge_id,
+                    "title": e.area,
+                    "current_state": e.current_state,
+                    "desired_state": e.desired_state,
+                    "recent_observations": e.observations[-3:],
                 }
-                for i, e in enumerate(edges)
+                for e in edges
             ]
         }
     except Exception as e:
@@ -767,13 +802,15 @@ async def handle_update_growth_edge(
     try:
         edge_id = tool_input.get("edge_id", "")
         progress_note = tool_input.get("progress_note", "")
-        progress_delta = tool_input.get("progress_delta", 0.0)
 
-        self_manager.update_growth_edge(
-            edge_id=edge_id,
-            progress_note=progress_note,
-            progress_delta=progress_delta,
-        )
+        # SelfManager has no update_growth_edge; append the note to the edge's
+        # observations (edges have no numeric progress, so progress_delta is
+        # not stored).
+        edge = next((e for e in self_manager.load_profile().growth_edges
+                     if e.edge_id == edge_id or e.area.lower() == edge_id.lower()), None)
+        if edge is None:
+            return {"error": f"Growth edge not found: {edge_id}"}
+        self_manager.add_observation_to_growth_edge(edge.area, progress_note)
 
         return {
             "success": True,
@@ -798,18 +835,22 @@ async def handle_recall_memories(
         query = tool_input.get("query", "")
         limit = tool_input.get("limit", 5)
 
-        memories = memory.search(query, limit=limit)
+        # CassMemory has no search(); retrieve_relevant is the semantic search.
+        memories = memory.retrieve_relevant(query, n_results=int(limit))
 
         return {
             "memories": [
                 {
                     "content": m.get("content", str(m)),
-                    "relevance": m.get("relevance", 0.0),
+                    # Chroma returns a distance (lower = closer); report 1 - distance.
+                    "relevance": round(1.0 - m["distance"], 3) if m.get("distance") is not None else 0.0,
                 }
                 for m in memories
             ]
         }
     except Exception as e:
+        from strict import report_swallowed
+        report_swallowed(e, "recall_memories session tool")
         return {"error": str(e), "memories": []}
 
 

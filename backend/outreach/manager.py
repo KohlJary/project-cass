@@ -553,6 +553,9 @@ class OutreachManager:
     def _row_to_draft(self, row) -> Draft:
         """Convert database row to Draft object"""
         import json
+        # sqlite3.Row has no .get(); without this every list/get with a stored
+        # draft raised AttributeError.
+        row = dict(row)
         review_history = json.loads(row['review_history_json'] or '[]')
         return Draft(
             id=row['id'],

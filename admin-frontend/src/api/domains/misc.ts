@@ -22,13 +22,6 @@ export const exportApi = {
   createBackup: () => api.post('/export/backup'),
   listBackups: () => api.get('/export/backups'),
   // Import endpoints
-  previewImport: (file: File, type: string) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return api.post(`/import/${type}/preview`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-  },
   applyImport: (file: File, type: string, options?: Record<string, unknown>) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -166,7 +159,7 @@ export const roadmapApi = {
     status: string;
     milestone_id: string;
     assigned_to: string;
-  }>) => api.patch(`/roadmap/items/${id}`, data),
+  }>) => api.put(`/roadmap/items/${id}`, data),
   deleteItem: (id: string) => api.delete(`/roadmap/items/${id}`),
   pickItem: (id: string, assignedTo: string) =>
     api.post(`/roadmap/items/${id}/pick`, { assigned_to: assignedTo }),
@@ -178,8 +171,7 @@ export const roadmapApi = {
   createMilestone: (data: { title: string; description?: string; target_date?: string; project_id?: string }) =>
     api.post('/roadmap/milestones', data),
   updateMilestone: (id: string, data: Partial<{ title: string; description: string; status: string; target_date: string }>) =>
-    api.patch(`/roadmap/milestones/${id}`, data),
-  deleteMilestone: (id: string) => api.delete(`/roadmap/milestones/${id}`),
+    api.put(`/roadmap/milestones/${id}`, data),
   getMilestoneProgress: (id: string) => api.get(`/roadmap/milestones/${id}/progress`),
   getMilestonePlan: (id: string) => api.get(`/roadmap/milestones/${id}/plan`),
 };

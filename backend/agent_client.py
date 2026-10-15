@@ -45,6 +45,9 @@ from tool_selector import (
     should_include_music_tools,
     should_include_activity_tools,
     should_include_home_assistant_tools,
+    should_include_symbol_tools,
+    should_include_interest_tools,
+    should_include_article_tools,
 )
 
 
@@ -1630,6 +1633,24 @@ from handlers.music import MUSIC_TOOLS
 from handlers.activity import ACTIVITY_TOOLS
 from handlers.home_assistant import HOME_ASSISTANT_TOOLS
 from handlers.home_automation import HOME_AUTOMATION_TOOLS
+from handlers.symbols import SYMBOL_TOOLS
+from handlers.interests import INTEREST_TOOLS
+from handlers.world_consumption import WORLD_CONSUMPTION_TOOLS
+
+
+def home_assistant_available() -> bool:
+    """HA tools are only worth offering when the lever is on and HA is configured.
+
+    Otherwise every call just answers "Home Assistant is not configured", and
+    the HA keyword list is broad ("light", "door", "schedule"...), so they'd be
+    offered often for nothing.
+    """
+    try:
+        from features import is_enabled
+        from home_assistant import get_ha_client
+        return is_enabled("home_assistant") and get_ha_client().is_configured
+    except Exception:
+        return False
 
 
 # ============================================================================
@@ -1819,8 +1840,20 @@ class CassAgentClient:
             if should_include_activity_tools(message):
                 tools.extend(ACTIVITY_TOOLS)
 
-            # Home Assistant tools - smart home control
-            if should_include_home_assistant_tools(message):
+            # Symbol tools - personal motifs (keyword gate existed, tools were never added)
+            if should_include_symbol_tools(message):
+                tools.extend(SYMBOL_TOOLS)
+
+            # Interest tools - intellectual curiosity tracking
+            if should_include_interest_tools(message):
+                tools.extend(INTEREST_TOOLS)
+
+            # Article recall tools - what Cass has read via world consumption
+            if should_include_article_tools(message):
+                tools.extend(WORLD_CONSUMPTION_TOOLS)
+
+            # Home Assistant tools - smart home control (only when HA is set up)
+            if should_include_home_assistant_tools(message) and home_assistant_available():
                 tools.extend(HOME_ASSISTANT_TOOLS)
                 tools.extend(HOME_AUTOMATION_TOOLS)
 

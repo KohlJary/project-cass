@@ -70,8 +70,6 @@ export const usersApi = {
   getObservations: (id: string) => api.get(`/admin/users/${id}/observations`),
   getUserModel: (id: string) => api.get(`/admin/users/${id}/model`),
   getRelationshipModel: (id: string) => api.get(`/admin/users/${id}/relationship`),
-  updateProfile: (id: string, data: unknown) =>
-    api.patch(`/admin/users/${id}`, data),
   setAdminStatus: (id: string, isAdmin: boolean) =>
     api.post(`/admin/users/${id}/admin-status`, { is_admin: isAdmin }),
   setPassword: (id: string, password: string) =>
@@ -90,5 +88,4 @@ export const usersApi = {
 export const systemApi = {
   getHealth: () => api.get('/admin/system/health'),
   getStats: () => api.get('/admin/system/stats'),
-  getActiveSessions: () => api.get('/admin/system/sessions'),
 };

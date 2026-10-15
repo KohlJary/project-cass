@@ -119,7 +119,7 @@ public class VesselApiClient : IDisposable
     {
         try
         {
-            var response = await _httpClient.GetAsync("/unity/gesture_library");
+            var response = await _httpClient.GetAsync("/gestures/library");
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync();
             return JsonConvert.DeserializeObject<GestureLibrary>(json);

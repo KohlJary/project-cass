@@ -344,7 +344,7 @@ Consider using compare_to_baseline for more details.*
 
             response = f"""## Drift Analysis ({window_days} days)
 
-**Overall Assessment**: {report.overall_assessment.upper()}
+**Overall Health**: {report.overall_health.upper()}
 **Snapshots Analyzed**: {report.snapshots_analyzed}
 
 """
@@ -356,9 +356,10 @@ Consider using compare_to_baseline for more details.*
                 response += "\n"
 
             # Concerning drifts
-            if report.concerning_drifts:
+            # DriftReport calls these drift_indicators (the handler used an older name).
+            if report.drift_indicators:
                 response += "**Concerning Patterns** (needs attention):\n"
-                for concern in report.concerning_drifts[:3]:
+                for concern in report.drift_indicators[:3]:
                     response += f"- {concern}\n"
                 response += "\n"
 

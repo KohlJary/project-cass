@@ -32,17 +32,20 @@ async def execute_discord_tool(
     Returns:
         Dict with success status and result
     """
-    # Import bot lazily to avoid circular imports
-    from discord_bot.bot import get_discord_bot, DISCORD_PY_AVAILABLE
+    import importlib.util
     from discord_bot.config import DISCORD_ENABLED
-    from discord_bot.entity_registry import get_entity_registry
-    from discord_bot.context import get_perception_context
 
-    if not DISCORD_ENABLED or not DISCORD_PY_AVAILABLE:
+    # Check before importing discord_bot.bot: that module's class body uses
+    # discord.py at import time, so without the package the import itself
+    # raised AttributeError instead of returning this message.
+    if not DISCORD_ENABLED or importlib.util.find_spec("discord") is None:
         return {
             "success": False,
             "error": "Discord integration not enabled or discord.py not installed"
         }
+
+    # Import bot lazily to avoid circular imports
+    from discord_bot.bot import get_discord_bot
 
     bot = get_discord_bot(daemon_id)
 

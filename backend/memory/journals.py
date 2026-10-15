@@ -722,7 +722,8 @@ Observations (one per line, starting with "{display_name}"):"""
         date: str,
         journal_text: str,
         summary_count: int,
-        conversation_count: int = 0
+        conversation_count: int = 0,
+        journal_type: str = "daily",
     ) -> str:
         """
         Store a journal entry in memory.
@@ -735,6 +736,9 @@ Observations (one per line, starting with "{display_name}"):"""
             journal_text: The generated journal entry
             summary_count: Number of summaries used to generate it
             conversation_count: Number of raw conversations used (if no summaries)
+            journal_type: "daily" for the nightly journal; anything else (e.g.
+                "research", "spell") is a side journal that must not make the
+                nightly job think the day is already journaled.
 
         Returns:
             Memory entry ID
@@ -751,6 +755,7 @@ Observations (one per line, starting with "{display_name}"):"""
             "journal_date": date,
             "summary_count": summary_count,
             "conversation_count": conversation_count,
+            "journal_type": journal_type,
             "is_journal": True  # Quick flag for filtering
         }
 
