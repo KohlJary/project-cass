@@ -185,7 +185,8 @@ export function useWonderlandSession(options: UseWonderlandSessionOptions = {}) 
       wsRef.current.close();
     }
 
-    const ws = new WebSocket(`${WS_BASE}/admin/wonderland/sessions/${sessionId}/stream`);
+    // Browsers can't set headers on WebSockets; the backend accepts ?token= instead.
+    const ws = new WebSocket(`${WS_BASE}/admin/wonderland/sessions/${sessionId}/stream?token=${encodeURIComponent(token ?? '')}`);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -287,7 +288,7 @@ export function useWonderlandSession(options: UseWonderlandSessionOptions = {}) 
         setStatus('ended');
       }
     };
-  }, [options, status]);
+  }, [options, status, token]);
 
   // End the current session
   const endSession = useCallback(async () => {

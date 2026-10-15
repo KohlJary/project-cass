@@ -153,10 +153,14 @@ def get_user_or_ip(request: Request) -> str:
 limiter = Limiter(key_func=get_user_or_ip)
 
 # Initialize FastAPI app
+# route_guard runs before every route and is default-deny (admin-only unless
+# listed as public/user-level in route_guard.py). See route_guard.py.
+from route_guard import route_guard, classify_routes
 app = FastAPI(
     title="Cass Vessel API",
     description="Backend for Cass consciousness embodiment - Agent SDK version",
-    version="0.2.0"
+    version="0.2.0",
+    dependencies=[Depends(route_guard)],
 )
 
 # Add rate limiter to app state and exception handler
@@ -4107,9 +4111,10 @@ async def get_music_audio(filename: str):
 
     # Music files are stored in backend/data/music/
     music_dir = Path(__file__).parent / "data" / "music"
-    audio_path = music_dir / filename
+    audio_path = (music_dir / filename).resolve()
 
-    if not audio_path.exists():
+    # This route is public (loaded by <audio>), so keep it inside music_dir.
+    if not audio_path.is_relative_to(music_dir.resolve()) or not audio_path.is_file():
         raise HTTPException(status_code=404, detail="Audio file not found")
 
     # Determine content type based on extension
@@ -4408,6 +4413,11 @@ if os.path.exists(FRONTEND_DIR):
         raise HTTPException(status_code=404, detail="Frontend not built")
 else:
     logger.info(f"Frontend dist not found at {FRONTEND_DIR} - API-only mode")
+
+
+# Must run after every route above is mounted: assigns each endpoint its auth
+# level. Anything not classified (e.g. added later at runtime) is admin-only.
+ROUTE_AUTH_LEVELS = classify_routes(app)
 
 
 # === Run Server ===
