@@ -141,3 +141,13 @@ def test_autonomous_research_handler_reads_live_mode():
     result = asyncio.run(autonomous_research_handler(scheduler=sched, mode=None))
     assert result.success and result.data["mode"] == "triggered"
     sched.refresh_tasks.assert_called_once()
+
+
+def test_rss_action_uses_registry_daemon_id():
+    """Spells never pass daemon_id; it's only under managers."""
+    from database import get_daemon_id
+    from scheduler.actions.rss_handlers import get_status_action
+
+    result = _run_action(get_status_action, managers={"daemon_id": get_daemon_id()})
+    assert result.success, result.message
+    assert result.data["active_feeds"] == 0

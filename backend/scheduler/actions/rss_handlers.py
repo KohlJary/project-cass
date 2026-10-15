@@ -17,6 +17,12 @@ from . import ActionResult
 logger = logging.getLogger(__name__)
 
 
+def _daemon_id(context: Dict[str, Any]):
+    """daemon_id from the call, else the registry's (spells never pass one;
+    ActionRegistry only has it under managers)."""
+    return context.get("daemon_id") or context.get("managers", {}).get("daemon_id")
+
+
 async def add_feed_action(context: Dict[str, Any]) -> ActionResult:
     """
     Subscribe to a new RSS feed.
@@ -34,7 +40,7 @@ async def add_feed_action(context: Dict[str, Any]) -> ActionResult:
     )
 
     url = context.get("url")
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
 
     if not url:
         return ActionResult(
@@ -107,7 +113,7 @@ async def remove_feed_action(context: Dict[str, Any]) -> ActionResult:
 
     feed_id = context.get("feed_id")
     url = context.get("url")
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     hard = context.get("hard_delete", False)
 
     feed = None
@@ -149,7 +155,7 @@ async def list_feeds_action(context: Dict[str, Any]) -> ActionResult:
     """
     from rss import list_feeds
 
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     if not daemon_id:
         return ActionResult(
             success=False,
@@ -198,7 +204,7 @@ async def check_feeds_action(context: Dict[str, Any]) -> ActionResult:
         store_new_items, update_feed_checked
     )
 
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     if not daemon_id:
         return ActionResult(
             success=False,
@@ -281,7 +287,7 @@ async def get_status_action(context: Dict[str, Any]) -> ActionResult:
         list_feeds, count_unprocessed_items, list_unprocessed_items
     )
 
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     if not daemon_id:
         return ActionResult(
             success=False,
@@ -347,7 +353,7 @@ async def triage_items_action(context: Dict[str, Any]) -> ActionResult:
         triage_item, TriageDecision
     )
 
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     if not daemon_id:
         return ActionResult(
             success=False,
@@ -451,7 +457,7 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
         triage_item, TriageDecision
     )
 
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     if not daemon_id:
         return ActionResult(
             success=False,
@@ -631,7 +637,7 @@ async def check_and_process_action(context: Dict[str, Any]) -> ActionResult:
     - daemon_id: Required
     - process_limit: Max items to process (default 10)
     """
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     if not daemon_id:
         return ActionResult(
             success=False,
@@ -681,7 +687,7 @@ async def get_recent_items_action(context: Dict[str, Any]) -> ActionResult:
     """
     from rss import get_recent_items
 
-    daemon_id = context.get("daemon_id")
+    daemon_id = _daemon_id(context)
     if not daemon_id:
         return ActionResult(
             success=False,

@@ -230,9 +230,6 @@ def test_grimoire_attached_to_thymos_without_starting_it(app):
     assert main_sdk.thymos_runner.running is False
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/05_research_creative.md (RSS feeds): rss.* actions read context['daemon_id'] "
-    "but the spell passes none (it's only under managers), so every step fails"))
 def test_timer_spell_rss_monitor(app):
     _assert_cycle_did_work(*_cast(app, "rss_monitor"))
 
