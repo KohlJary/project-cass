@@ -231,7 +231,7 @@
       "path": "/admin/auth/login",
       "sources": [
         "admin-frontend/src/api/domains/core.ts:58",
-        "admin-frontend/src/context/AuthContext.tsx:108"
+        "admin-frontend/src/context/AuthContext.tsx:111"
       ]
     },
     {
@@ -248,7 +248,7 @@
       "path": "/admin/auth/status",
       "sources": [
         "admin-frontend/src/api/domains/core.ts:60",
-        "admin-frontend/src/context/AuthContext.tsx:39"
+        "admin-frontend/src/context/AuthContext.tsx:40"
       ]
     },
     {
@@ -257,7 +257,7 @@
       "path": "/admin/auth/verify",
       "sources": [
         "admin-frontend/src/api/domains/core.ts:59",
-        "admin-frontend/src/context/AuthContext.tsx:86"
+        "admin-frontend/src/context/AuthContext.tsx:89"
       ]
     },
     {
@@ -2313,7 +2313,7 @@
       "method": "POST",
       "path": "/admin/wonderland/sessions/{param}/end",
       "sources": [
-        "admin-frontend/src/hooks/useWonderlandSession.ts:297"
+        "admin-frontend/src/hooks/useWonderlandSession.ts:298"
       ]
     },
     {
@@ -2321,7 +2321,7 @@
       "method": "GET",
       "path": "/admin/wonderland/sessions/{param}/export",
       "sources": [
-        "admin-frontend/src/hooks/useWonderlandSession.ts:321"
+        "admin-frontend/src/hooks/useWonderlandSession.ts:322"
       ]
     },
     {

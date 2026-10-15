@@ -23,11 +23,11 @@ jobs:
       - name: Run fast tests (skips TTS and slow)
         run: pytest -m "not slow and not tts"
 
-  # Smoke batteries (backend/tests/smoke, see backend/tests/README.md): boot the
-  # real app with CASS_PROFILE=test and the fake LLM, then check a websocket
-  # turn, tool routability, spells, frontend endpoints and autonomous cycles.
-  # Needs the full runtime deps, minus face recognition (dlib build).
-  smoke:
+  # Full suite with the runtime deps (minus face recognition, a dlib build):
+  # everything above plus the smoke batteries (backend/tests/smoke, see
+  # backend/tests/README.md) and the route-auth/security tests, which import
+  # the real app. pytest.ini sets a 60s per-test timeout.
+  full:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,5 +48,5 @@ jobs:
           pip install -r /tmp/requirements-smoke.txt
       - name: Check the frontend endpoint fixture is current
         run: python scripts/extract_frontend_endpoints.py --check
-      - name: Run smoke batteries
-        run: pytest -m smoke
+      - name: Run full suite (fast + security + smoke batteries)
+        run: pytest -m "not slow and not tts"

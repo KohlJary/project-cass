@@ -10,8 +10,28 @@ Run everything from `backend/`.
 | **smoke** (`tests/smoke/`) | Boots the real app and exercises the spine | `requirements.txt` (face recognition optional) | `pytest -m smoke` |
 
 `pytest` with no arguments runs both. When the runtime deps aren't installed,
-the smoke directory is skipped instead of erroring, so the fast CI job still
-works. CI runs both as separate jobs (`.github/workflows/tests.yml`).
+tests that import the real app (the smoke directory, `test_route_auth.py`,
+`test_security_lockdown.py`) are skipped instead of erroring, so the fast CI
+job still works. CI's `full` job installs the runtime deps and runs all of
+them (`.github/workflows/tests.yml`).
+
+Every test has a hard 60s timeout (`pytest-timeout`, set in `pytest.ini`). A
+hang fails that one test with a stack dump instead of stalling CI. Use
+`@pytest.mark.timeout(N)` for a test that legitimately needs longer.
+
+### Authentication
+
+The app is default-deny (`route_guard.py`): every route needs a token unless
+it's on the public list, and `/ws` rejects chat from an anonymous socket. The
+smoke conftest has helpers for this. Never loosen the guard to make a test pass.
+
+- `smoke_user`: `(user_id, token)` for a real user row with a `/auth/login`-style
+  access token. Use it as `client.websocket_connect(f"/ws?token={token}")` or
+  `headers={"Authorization": f"Bearer {token}"}`.
+- `smoke_admin`: `(user_id, token)` for an admin with an admin-dashboard token,
+  which is the only kind routes that declare `require_admin` accept.
+- `create_user(...)`, `access_token(user_id)` and `admin_token(user_id)` are
+  plain functions for module-scoped setups.
 
 No test may call a real LLM, the network or real hardware. In `tests/smoke/`
 a network guard enforces this: any outbound connection or DNS lookup raises.
