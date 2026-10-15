@@ -28,6 +28,8 @@ except ImportError:
         "smoke",                       # boots the app
         "test_route_auth.py",          # walks main_sdk's route table
         "test_security_lockdown.py",   # imports routes / handlers needing runtime deps
+        "test_silent_breakage.py",     # imports scheduler / handlers needing runtime deps
+        "test_goal_tools.py",          # imports self_model_graph (networkx)
     ]
 
 # Feature levers: every background/autonomous/external subsystem is OFF in
