@@ -238,6 +238,26 @@ async def list_journals(limit: int = 10):
     }
 
 
+@router.post("/{date}/lock")
+async def lock_journal(date: str):
+    """Mark a journal entry locked (the TUI disables regenerate for it)."""
+    return _set_locked(date, True)
+
+
+@router.post("/{date}/unlock")
+async def unlock_journal(date: str):
+    """Clear a journal entry's locked flag."""
+    return _set_locked(date, False)
+
+
+def _set_locked(date: str, locked: bool):
+    # The flag lives in the entry's Chroma metadata and comes back from
+    # GET /journal/{date}. Nothing server-side reads it yet.
+    if not _memory.set_journal_locked(date, locked):
+        raise HTTPException(status_code=404, detail=f"No journal entry found for {date}")
+    return {"date": date, "locked": locked}
+
+
 @router.delete("/{date}")
 async def delete_journal(date: str):
     """

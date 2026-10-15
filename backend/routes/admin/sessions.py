@@ -297,6 +297,142 @@ async def get_research_session(session_id: str, user: Dict = Depends(require_aut
     return {"session": session}
 
 
+# ============== Research Schedule Endpoints ==============
+# Cass requests recurring research/reflection sessions with the
+# request_scheduled_session / request_scheduled_research tools; they wait in
+# ResearchScheduler for approval. The admin Goals page -> Schedules tab calls
+# these, which were missing (the scheduler was injected here but unused).
+
+class ApproveScheduleRequest(BaseModel):
+    adjust_time: Optional[str] = None
+    adjust_duration: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class RejectScheduleRequest(BaseModel):
+    reason: str = "No reason provided"
+
+
+def _scheduler():
+    if not research_scheduler:
+        raise HTTPException(status_code=503, detail="Research scheduler not initialized")
+    return research_scheduler
+
+
+def _schedule_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    if not result.get("success"):
+        error = result.get("error", "Schedule action failed")
+        raise HTTPException(status_code=404 if "not found" in error.lower() else 400, detail=error)
+    return result
+
+
+@router.get("/research/schedules")
+async def list_research_schedules(
+    status: Optional[str] = None,
+    limit: int = Query(default=50, le=200),
+    admin: Dict = Depends(require_admin),
+):
+    schedules = _scheduler().list_schedules(status=status, limit=limit)
+    return {"schedules": schedules, "count": len(schedules)}
+
+
+@router.get("/research/schedules/pending")
+async def list_pending_research_schedules(admin: Dict = Depends(require_admin)):
+    schedules = _scheduler().list_schedules(status="pending_approval")
+    return {"schedules": schedules, "count": len(schedules)}
+
+
+@router.get("/research/schedules/stats")
+async def get_research_schedule_stats(admin: Dict = Depends(require_admin)):
+    return _scheduler().get_stats()
+
+
+@router.get("/research/schedules/{schedule_id}")
+async def get_research_schedule(schedule_id: str, admin: Dict = Depends(require_admin)):
+    schedule = _scheduler().get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"schedule": schedule}
+
+
+@router.post("/research/schedules/{schedule_id}/approve")
+async def approve_research_schedule(
+    schedule_id: str,
+    request: ApproveScheduleRequest = ApproveScheduleRequest(),
+    admin: Dict = Depends(require_admin),
+):
+    return _schedule_result(_scheduler().approve_schedule(
+        schedule_id,
+        approved_by=admin.get("display_name") or admin.get("user_id", "admin"),
+        adjust_time=request.adjust_time,
+        adjust_duration=request.adjust_duration,
+        notes=request.notes,
+    ))
+
+
+@router.post("/research/schedules/{schedule_id}/reject")
+async def reject_research_schedule(
+    schedule_id: str,
+    request: RejectScheduleRequest = RejectScheduleRequest(),
+    admin: Dict = Depends(require_admin),
+):
+    return _schedule_result(_scheduler().reject_schedule(
+        schedule_id,
+        rejected_by=admin.get("display_name") or admin.get("user_id", "admin"),
+        reason=request.reason,
+    ))
+
+
+@router.post("/research/schedules/{schedule_id}/pause")
+async def pause_research_schedule(schedule_id: str, admin: Dict = Depends(require_admin)):
+    return _schedule_result(_scheduler().pause_schedule(schedule_id))
+
+
+@router.post("/research/schedules/{schedule_id}/resume")
+async def resume_research_schedule(schedule_id: str, admin: Dict = Depends(require_admin)):
+    return _schedule_result(_scheduler().resume_schedule(schedule_id))
+
+
+# ============== Research Note Endpoints ==============
+# Notes Cass writes during autonomous research sessions (ResearchManager).
+# Used by Activity -> Autonomous Research and the Daily Rhythm tab.
+
+def _research_manager():
+    if not research_manager:
+        raise HTTPException(status_code=503, detail="Research manager not initialized")
+    return research_manager
+
+
+@router.get("/research/notes")
+async def list_research_notes(
+    limit: int = Query(default=50, le=500),
+    session_id: Optional[str] = None,
+    admin: Dict = Depends(require_admin),
+):
+    if session_id:
+        # list_research_notes has no session filter; read wider, then filter.
+        notes = [n for n in _research_manager().list_research_notes(limit=1000)
+                 if n.get("session_id") == session_id][:limit]
+    else:
+        notes = _research_manager().list_research_notes(limit=limit)
+    return {"notes": notes, "count": len(notes)}
+
+
+@router.get("/research/notes/session/{session_id}")
+async def list_research_notes_for_session(session_id: str, admin: Dict = Depends(require_admin)):
+    notes = [n for n in _research_manager().list_research_notes(limit=1000, full_content=True)
+             if n.get("session_id") == session_id]
+    return {"notes": notes, "count": len(notes)}
+
+
+@router.get("/research/notes/{note_id}")
+async def get_research_note(note_id: str, admin: Dict = Depends(require_admin)):
+    note = _research_manager().get_research_note(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"note": note}
+
+
 # ============== Synthesis Session Endpoints ==============
 
 @router.get("/synthesis/status")

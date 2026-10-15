@@ -36,6 +36,45 @@ router.include_router(experiments_router)
 router.include_router(temporal_router)
 router.include_router(cross_context_router)
 
+# Components captured by init_testing_routes, for /testing/health.
+_components: dict = {}
+
+
+@router.get("/health")
+async def testing_health():
+    """Which testing components are wired up, whether a baseline fingerprint
+    exists, and how many A/B experiments are active.
+
+    The admin Consciousness Health and Mind pages poll this every 30s; it
+    used to 404 because the route only existed in the legacy main.py.
+    """
+    names = ["fingerprint_analyzer", "test_runner", "drift_detector",
+             "pre_deploy_validator", "rollback_manager", "ab_testing_framework"]
+    status = {name: _components.get(name) is not None for name in names}
+
+    baseline_set = False
+    analyzer = _components.get("fingerprint_analyzer")
+    if analyzer is not None:
+        try:
+            baseline_set = analyzer.load_baseline() is not None
+        except Exception:
+            baseline_set = False
+
+    active_experiments = 0
+    ab = _components.get("ab_testing_framework")
+    if ab is not None:
+        try:
+            active_experiments = len(ab.get_active_experiments())
+        except Exception:
+            active_experiments = 0
+
+    return {
+        "status": "healthy" if all(status.values()) else "degraded",
+        **status,
+        "baseline_set": baseline_set,
+        "active_experiments": active_experiments,
+    }
+
 
 def init_testing_routes(
     fp_analyzer,
@@ -59,6 +98,15 @@ def init_testing_routes(
 
     This is the main entry point for dependency injection, called from main_sdk.py.
     """
+    _components.update(
+        fingerprint_analyzer=fp_analyzer,
+        test_runner=runner,
+        drift_detector=drift_det,
+        pre_deploy_validator=pre_deploy,
+        rollback_manager=rollback,
+        ab_testing_framework=ab_testing,
+    )
+
     # Initialize each module with its dependencies
     init_fingerprints(fp_analyzer, conv_manager)
     init_probes(probe_runner)
