@@ -750,39 +750,112 @@ class RollbackManager:
         return operation
 
     def _extract_archive(self, archive_path: Path, snapshot_type: SnapshotType):
-        """Extract archive to appropriate location"""
+        """Restore the snapshot's paths, all or nothing.
+
+        The old version extracted into storage_dir/rollback/snapshots/temp_extract,
+        which sits INSIDE the directory being restored (data/testing, or data/
+        for FULL). Moving the original aside carried the extracted files with
+        it, the next move failed, and the live dir was left renamed to
+        *_backup_<ts>.
+
+        Now:
+        1. Extract next to each target (a sibling temp dir on the same
+           filesystem), never inside it.
+        2. Swap: rename the original to a sibling backup, rename the extracted
+           copy into place.
+        3. The rollback store (archives, index, operation log, and the
+           pre-rollback snapshot just taken) lives inside data/testing, so it
+           is carried over from the live tree instead of being rolled back.
+        4. If anything fails, put every original back. On success the backups
+           are removed: the pre-rollback snapshot is the record of old state.
+
+        The snapshot archive itself lives under the restored dir, so it is
+        read fully before anything moves.
+        """
         if not archive_path.exists():
             raise Exception(f"Archive does not exist: {archive_path}")
 
-        # Extract to temp location first
-        temp_dir = self.snapshots_dir / "temp_extract"
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir)
-        temp_dir.mkdir(parents=True)
+        paths = self._restore_targets(snapshot_type)
+        rollback_store = (self.storage_dir / "rollback").resolve()
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S') + f"_{uuid.uuid4().hex[:6]}"
 
+        staging = {}   # original path -> extracted copy (sibling of original)
+        swapped = []   # (original path, backup path or None) already moved
         try:
+            # 1. Extract each member next to the path it restores.
             with tarfile.open(archive_path, "r:gz") as tar:
-                tar.extractall(temp_dir)
+                members = tar.getmembers()
+                for original_path in paths:
+                    top = original_path.name
+                    wanted = [m for m in members if m.name == top or m.name.startswith(top + "/")]
+                    if not wanted:
+                        continue
+                    stage_dir = original_path.parent / f".{top}_restore_{stamp}"
+                    stage_dir.mkdir(parents=True)
+                    tar.extractall(stage_dir, members=wanted, filter="data")
+                    staging[original_path] = stage_dir
 
-            # Move to actual locations based on type
-            paths = self._get_paths_for_type(snapshot_type)
-            for original_path in paths:
-                extracted_name = original_path.name
-                extracted_path = temp_dir / extracted_name
+            # 2. Swap each path into place.
+            for original_path, stage_dir in staging.items():
+                backup_path = None
+                if original_path.exists():
+                    backup_path = original_path.parent / f"{original_path.name}_backup_{stamp}"
+                    os.rename(original_path, backup_path)
+                swapped.append((original_path, backup_path))
+                os.rename(stage_dir / original_path.name, original_path)
 
-                if extracted_path.exists():
-                    # Backup existing
+                # 3. Keep the live rollback store, not the snapshot's old copy.
+                if backup_path is not None and rollback_store.is_relative_to(original_path.resolve()):
+                    relative = rollback_store.relative_to(original_path.resolve())
+                    live_store = backup_path / relative
+                    restored_store = original_path / relative
+                    if live_store.exists():
+                        if restored_store.exists():
+                            shutil.rmtree(restored_store)
+                        restored_store.parent.mkdir(parents=True, exist_ok=True)
+                        os.rename(live_store, restored_store)
+
+        except BaseException:
+            # 4. Undo: drop anything half-restored, put the originals back.
+            for original_path, backup_path in reversed(swapped):
+                if backup_path is None:
                     if original_path.exists():
-                        backup_path = original_path.parent / f"{original_path.name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                        shutil.move(str(original_path), str(backup_path))
-
-                    # Move extracted
-                    shutil.move(str(extracted_path), str(original_path))
-
+                        shutil.rmtree(original_path) if original_path.is_dir() else original_path.unlink()
+                    continue
+                if original_path.exists():
+                    failed_copy = original_path.parent / f".{original_path.name}_failed_{stamp}"
+                    os.rename(original_path, failed_copy)
+                    # The live rollback store may already have moved into the
+                    # restored tree; bring it back before discarding that tree.
+                    if rollback_store.is_relative_to(original_path.resolve()):
+                        relative = rollback_store.relative_to(original_path.resolve())
+                        if (failed_copy / relative).exists() and not (backup_path / relative).exists():
+                            (backup_path / relative).parent.mkdir(parents=True, exist_ok=True)
+                            os.rename(failed_copy / relative, backup_path / relative)
+                    shutil.rmtree(failed_copy, ignore_errors=True)
+                os.rename(backup_path, original_path)
+            raise
+        else:
+            for _original_path, backup_path in swapped:
+                if backup_path is not None:
+                    if backup_path.is_dir():
+                        shutil.rmtree(backup_path, ignore_errors=True)
+                    else:
+                        backup_path.unlink(missing_ok=True)
         finally:
-            # Clean up temp
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
+            for stage_dir in staging.values():
+                if stage_dir.exists():
+                    shutil.rmtree(stage_dir, ignore_errors=True)
+
+    def _restore_targets(self, snapshot_type: SnapshotType) -> List[Path]:
+        """Paths a snapshot of this type can restore (whether or not they exist now)."""
+        if snapshot_type == SnapshotType.FULL:
+            return [self.data_dir]
+        if snapshot_type == SnapshotType.COGNITIVE:
+            return [self.data_dir / sub for sub in ("testing", "self")]
+        if snapshot_type == SnapshotType.MEMORY:
+            return [self.data_dir / sub for sub in ("conversations", "chroma", "summaries")]
+        return self._get_paths_for_type(snapshot_type)
 
     def _save_operation(self, operation: RollbackOperation):
         """Save an operation record"""
