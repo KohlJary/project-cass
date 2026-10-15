@@ -14,6 +14,15 @@ from unittest.mock import Mock, AsyncMock, patch
 # imported, so the test run never touches a real daemon's data/cass.db.
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="cass_test_data_"))
 
+# The smoke batteries (tests/smoke/) boot the real app and need the full
+# runtime deps (requirements.txt). The fast suite only installs
+# requirements-test.txt, so skip collecting them there instead of erroring.
+try:
+    import anthropic  # noqa: F401
+    import networkx  # noqa: F401
+except ImportError:
+    collect_ignore = ["smoke"]
+
 # Feature levers: every background/autonomous/external subsystem is OFF in
 # tests unless a test turns it on with the `levers` fixture (see features.py).
 os.environ.setdefault("CASS_PROFILE", "test")

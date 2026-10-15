@@ -6,6 +6,7 @@ embeddings, and a network guard (any outbound TCP connection fails the test).
 """
 import socket
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -19,11 +20,14 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.smoke)
 
 
-@pytest.fixture(autouse=True)
-def _no_network(monkeypatch):
-    """Fail loudly if anything tries to open an internet socket."""
+_LOCAL_HOSTS = {None, "", "localhost", "127.0.0.1", "::1"}
+
+
+def block_network(mp):
+    """Make outbound internet access raise. `mp` is a pytest MonkeyPatch."""
     real_connect = socket.socket.connect
     real_connect_ex = socket.socket.connect_ex
+    real_getaddrinfo = socket.getaddrinfo
 
     def guard(sock, address):
         if sock.family in (socket.AF_INET, socket.AF_INET6):
@@ -37,8 +41,20 @@ def _no_network(monkeypatch):
         guard(self, address)
         return real_connect_ex(self, address)
 
-    monkeypatch.setattr(socket.socket, "connect", connect)
-    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    def getaddrinfo(host, *args, **kwargs):
+        if host not in _LOCAL_HOSTS:
+            raise socket.gaierror(f"DNS blocked in smoke tests: {host!r}")
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    mp.setattr(socket.socket, "connect", connect)
+    mp.setattr(socket.socket, "connect_ex", connect_ex)
+    mp.setattr(socket, "getaddrinfo", getaddrinfo)
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """Fail loudly if anything tries to reach the network."""
+    block_network(monkeypatch)
 
 
 @pytest.fixture(autouse=True)
@@ -78,12 +94,13 @@ def backend_tasks(client):
     return client.portal.call(collect)
 
 
-@pytest.fixture
-def booted_app(test_db):
+@contextmanager
+def boot_app():
     """Boot main_sdk's FastAPI app under TestClient and wait for deferred init.
 
-    main_sdk keeps module globals across tests, so the readiness markers are
-    reset first; otherwise a second boot would look ready before it is.
+    Levers are read while booting, so wrap this in `levers(...)` to start a
+    subsystem. main_sdk keeps module globals across tests, so the readiness
+    markers are reset first; otherwise a second boot would look ready early.
     """
     from fastapi.testclient import TestClient
     import main_sdk
@@ -109,3 +126,51 @@ def booted_app(test_db):
         # both have finished so tests see the fully started app.
         wait_until(lambda: startup_finished(client), what="deferred startup")
         yield client
+
+
+@pytest.fixture
+def booted_app(test_db):
+    """The app booted under the default CASS_PROFILE=test (every lever off)."""
+    with boot_app() as client:
+        yield client
+
+
+@contextmanager
+def module_app(template_db, tmp_path_factory, **lever_values):
+    """Boot the app once for a whole test module, with some levers on.
+
+    Use from a module-scoped fixture. Installs its own fakes and network guard
+    (function fixtures aren't active yet at module scope) and points the DB at
+    a module-wide copy. The module must also override `test_db` to return
+    that same path, so the test thread and the app thread share one database:
+
+        @pytest.fixture(scope="module")
+        def app(template_db, tmp_path_factory):
+            with module_app(template_db, tmp_path_factory, rss=True) as booted:
+                yield booted
+
+        @pytest.fixture
+        def test_db(app):
+            return app.db_path
+    """
+    import shutil
+    import features
+    from tests.conftest import _point_db_at
+    from tests.fakes import embeddings, llm
+    import database.connection as connection
+
+    original = connection.DATABASE_PATH
+    db_path = tmp_path_factory.mktemp("smoke_module") / "cass.db"
+    shutil.copy(template_db, db_path)
+    _point_db_at(db_path)
+    try:
+        with pytest.MonkeyPatch.context() as mp:
+            block_network(mp)
+            embeddings.install(mp)
+            llm.install(llm.FakeLLM(), mp)
+            with features.override(**lever_values):
+                with boot_app() as client:
+                    client.db_path = db_path
+                    yield client
+    finally:
+        _point_db_at(original)
