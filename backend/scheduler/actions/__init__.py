@@ -151,6 +151,15 @@ class ActionRegistry:
                 message=f"Unknown action: {action_id}"
             )
 
+        # Feature lever per autonomous action domain (rss., research., ...)
+        from features import is_enabled, lever_for_action
+        lever = lever_for_action(action_id)
+        if lever and not is_enabled(lever):
+            return ActionResult(
+                success=False,
+                message=f"Action {action_id} disabled by feature lever '{lever}'"
+            )
+
         handler = self._handlers.get(action_id)
         if not handler:
             # Try to auto-resolve handler from definition
@@ -199,7 +208,10 @@ class ActionRegistry:
 
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"Action {action_id} failed: {e}")
+            # Logged in production; re-raised under CASS_STRICT=1 (tests/CI) so
+            # a crashing handler can't hide behind success=False.
+            from strict import report_swallowed
+            report_swallowed(e, f"Action {action_id} failed", logger)
             return ActionResult(
                 success=False,
                 message=f"Action failed: {e}",

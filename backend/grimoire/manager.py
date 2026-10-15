@@ -446,6 +446,7 @@ class GrimoireManager:
                         journal_text=content,
                         summary_count=0,
                         conversation_count=0,
+                        journal_type="spell",
                     )
                     logger.info(f"Saved journal via grimoire: {journal_id}")
                     return journal_id
@@ -1072,21 +1073,25 @@ def create_grimoire_hooks(manager: GrimoireManager):
     Returns functions that can be called from the shadow runner's
     tick() and process_event() methods.
     """
+    from features import is_enabled
+
     async def on_tick(affects: dict[str, float], needs: dict[str, float]) -> list[SpellExecutionResult]:
         """Called on each Thymos tick."""
         results = []
 
+        # Levers are checked per tick so they can be flipped at runtime/in tests.
         # Check timer triggers (interval/cron based)
-        timer_results = await manager.check_and_execute_timer_triggers()
-        results.extend(timer_results)
+        if is_enabled("grimoire_timer_spells"):
+            timer_results = await manager.check_and_execute_timer_triggers()
+            results.extend(timer_results)
 
-        # Check need triggers
-        need_results = await manager.check_and_execute_need_triggers(needs)
-        results.extend(need_results)
+        # Need and affect thresholds share one lever ("care" spells)
+        if is_enabled("grimoire_need_spells"):
+            need_results = await manager.check_and_execute_need_triggers(needs)
+            results.extend(need_results)
 
-        # Check affect triggers
-        affect_results = await manager.check_and_execute_affect_triggers(affects)
-        results.extend(affect_results)
+            affect_results = await manager.check_and_execute_affect_triggers(affects)
+            results.extend(affect_results)
 
         return results
 

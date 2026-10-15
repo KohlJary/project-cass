@@ -170,6 +170,10 @@ class RelayClient:
         data: Optional[dict] = None,
     ) -> bool:
         """Request the relay to send a push notification."""
+        from features import is_enabled
+        if not is_enabled("push"):
+            logger.info("Push disabled by feature lever 'push'")
+            return False
         return await self.send({
             "type": "push_request",
             "user_id": user_id,

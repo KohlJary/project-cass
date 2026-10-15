@@ -126,6 +126,14 @@ from research_scheduler import ResearchScheduler, SessionType
 from research_session_runner import ResearchSessionRunner
 import base64
 
+# Feature levers: one on/off switch per subsystem (see features.py)
+from features import is_enabled, log_lever_table
+
+
+class _LeverOff(Exception):
+    """Raised inside a startup try-block to skip a subsystem whose lever is off."""
+
+
 # Startup helpers (extracted for clarity)
 from startup import (
     validate_startup_requirements,
@@ -867,28 +875,18 @@ async def ha_conversation(request: Request):
     if not text:
         return {"error": "No text provided", "response": "I didn't hear anything."}
 
-    # Use the default daemon for HA conversations
-    daemon_id = DEFAULT_DAEMON_ID if DEFAULT_DAEMON_ID else None
-
-    # Get or create a conversation for this HA session
-    if conversation_id:
-        conv = conversations_db.get(conversation_id) if conversations_db else None
-    else:
+    # Get or create a conversation for this HA session. (This used to call
+    # an undefined conversations_db; use the real ConversationManager.)
+    # The route guard has authenticated the caller; attribute the voice
+    # conversation to them, and only continue a conversation they own.
+    ha_user_id = request.scope.get("cass_user_id")
+    conv = conversation_manager.load_conversation(conversation_id) if conversation_id else None
+    if conv and conv.user_id != ha_user_id:
         conv = None
-
     if not conv:
-        # Create a new conversation for this HA session
-        conv_id = str(uuid.uuid4())
-        if conversations_db:
-            conversations_db.create(
-                id=conv_id,
-                daemon_id=daemon_id,
-                user_id="ha_user",  # Special HA user
-                title=f"Voice: {text[:30]}...",
-            )
-        conversation_id = conv_id
-    else:
-        conversation_id = conv["id"] if isinstance(conv, dict) else conv.id
+        conv = conversation_manager.create_conversation(
+            title=f"Voice: {text[:30]}...", user_id=ha_user_id)
+    conversation_id = conv.id
 
     # Build context for Cass (simplified for voice)
     home_context = ""
@@ -907,32 +905,33 @@ async def ha_conversation(request: Request):
         if home_context:
             enhanced_message = f"[Current home state for context:\n{home_context}]\n\nUser said: {text}"
 
-        # Use the appropriate client
-        if current_llm_provider == "claude":
-            response = await claude_client.generate_response(
-                message=enhanced_message,
-                conversation_id=conversation_id,
-                user_id="ha_user",
-            )
-        elif current_llm_provider == "openai" and openai_client:
-            response = await openai_client.generate_response(
-                message=enhanced_message,
-                conversation_id=conversation_id,
-                user_id="ha_user",
-            )
+        # Use the active provider's client. (This used to call an undefined
+        # claude_client.generate_response and compared against "claude", which
+        # is not a provider value.) No tool loop here: voice gets the text.
+        if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
+            client = ollama_client
+        elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
+            client = openai_client
+        elif current_llm_provider == LLM_PROVIDER_ANTHROPIC and agent_client:
+            client = agent_client
         else:
             return {"error": "No LLM provider available", "response": "I'm not available right now."}
 
-        # Extract the text response
-        response_text = response.content if hasattr(response, 'content') else str(response)
+        response = await client.send_message(
+            message=enhanced_message,
+            conversation_id=conversation_id,
+        )
+        response_text = response.text
 
-        # Store the conversation
+        # Store the conversation (keyword is assistant_response, not assistant_message)
+        conversation_manager.add_message(conversation_id, "user", text, user_id=ha_user_id)
+        conversation_manager.add_message(conversation_id, "assistant", response_text)
         if memory:
             await memory.store_conversation(
                 user_message=text,
-                assistant_message=response_text,
+                assistant_response=response_text,
                 conversation_id=conversation_id,
-                user_id="ha_user",
+                user_id=ha_user_id,
             )
 
         return {
@@ -943,6 +942,8 @@ async def ha_conversation(request: Request):
 
     except Exception as e:
         logger.error(f"HA conversation error: {e}")
+        from strict import report_swallowed
+        report_swallowed(e, "HA conversation", logger)
         return {
             "error": str(e),
             "response": "I encountered an error processing your request.",
@@ -1511,21 +1512,27 @@ async def startup_event():
     # Validate requirements before proceeding
     validate_startup_requirements()
 
-    # Start scheduled refresh loops for queryable sources
-    # (Sources were registered during module load, but async tasks need event loop)
-    global_state_bus.start_scheduled_refreshes()
-    logger.info("Started scheduled source refreshes")
+    # Every subsystem below that starts on its own is behind a lever
+    # (features.py). Log what's on/off once so a boot log shows it.
+    log_lever_table(logger)
 
-    # Initialize world state (location, weather, time) - do initial refresh and sync
-    try:
-        await world_state_source.refresh_rollups()
-        global_state_bus.sync_world_state_from_source(world_state_source)
-        logger.info("World state initialized")
-    except Exception as e:
-        logger.warning(f"World state initialization failed (non-fatal): {e}")
+    if is_enabled("source_refresh"):
+        # Start scheduled refresh loops for queryable sources
+        # (Sources were registered during module load, but async tasks need event loop)
+        global_state_bus.start_scheduled_refreshes()
+        logger.info("Started scheduled source refreshes")
+
+        # Initialize world state (location, weather, time) - do initial refresh and sync
+        try:
+            await world_state_source.refresh_rollups()
+            global_state_bus.sync_world_state_from_source(world_state_source)
+            logger.info("World state initialized")
+        except Exception as e:
+            logger.warning(f"World state initialization failed (non-fatal): {e}")
 
     # Initialize coherence monitor - first reactive subscriber to state bus
-    if COHERENCE_MONITOR_ENABLED:
+    # (lever reads the legacy COHERENCE_MONITOR_ENABLED env var as its default)
+    if is_enabled("coherence_monitor"):
         config = CoherenceConfig.from_dict(COHERENCE_MONITOR_CONFIG)
         coherence_monitor = init_coherence_monitor(global_state_bus, config)
         logger.info("Coherence monitor initialized and subscribed to events")
@@ -1536,14 +1543,17 @@ async def startup_event():
 
     # Start Thymos runner and subscribe to state bus events
     # Thymos processes events, integrates with Grimoire for reactive behavior
-    await thymos_runner.start()
+    if is_enabled("thymos"):
+        await thymos_runner.start()
 
-    def thymos_event_handler(event_type: str, data: dict):
-        """Forward state bus events to Thymos."""
-        asyncio.create_task(thymos_runner.process_event(event_type, data))
+        def thymos_event_handler(event_type: str, data: dict):
+            """Forward state bus events to Thymos."""
+            asyncio.create_task(thymos_runner.process_event(event_type, data))
 
-    global_state_bus.subscribe("*", thymos_event_handler)
-    logger.info("Thymos shadow runner started and subscribed to events")
+        global_state_bus.subscribe("*", thymos_event_handler)
+        logger.info("Thymos shadow runner started and subscribed to events")
+    else:
+        logger.info("Thymos disabled by lever (no tick loop, no event forwarding)")
 
     # Initialize Grimoire spell system (attached after heavy components load)
     # Spells integrate with Thymos for reactive behavior based on emotional/need state
@@ -1568,7 +1578,9 @@ async def startup_event():
         logger.error(f"Failed to initialize Grimoire: {e}")
 
     # Initialize relay client for remote access (if configured)
-    if RELAY_ENABLED and RELAY_URL and RELAY_SECRET:
+    # (lever reads the legacy RELAY_ENABLED env var as its default)
+    relay_enabled = is_enabled("relay")
+    if relay_enabled and RELAY_URL and RELAY_SECRET:
         async def handle_relay_message(client_id: str, user_id: str, payload: dict):
             """Handle messages from mobile clients via relay."""
             # Forward to the WebSocket handler logic
@@ -1611,7 +1623,7 @@ async def startup_event():
         )
         relay_client.connect_email_manager(email_manager)
         logger.info("Email manager connected to relay client")
-    elif RELAY_ENABLED:
+    elif relay_enabled:
         logger.warning("Relay enabled but RELAY_URL or RELAY_SECRET not configured")
 
     # Note: Capability indexing happens in init_heavy_background after registry is attached
@@ -1772,6 +1784,8 @@ async def startup_event():
 
             # Initialize GoalOrchestrator to bridge Thymos → Goals → Grimoire
             try:
+                if not is_enabled("goal_orchestrator"):
+                    raise _LeverOff("goal_orchestrator")
                 from goal_orchestrator import init_goal_orchestrator
                 from goal_planner import GoalPlanner
                 from unified_goals import UnifiedGoalManager
@@ -1793,12 +1807,15 @@ async def startup_event():
                     goal_planner=goal_planner,
                 )
                 logger.info("Background: GoalOrchestrator initialized with GoalPlanner")
+            except _LeverOff:
+                logger.info("Background: GoalOrchestrator disabled by lever")
             except Exception as e:
                 logger.error(f"Background: Failed to initialize GoalOrchestrator: {e}")
 
             # Index source capabilities now that registry is attached
-            await global_state_bus.start_capability_indexing()
-            logger.info("Background: Indexed source capabilities")
+            if is_enabled("capability_indexing"):
+                await global_state_bus.start_capability_indexing()
+                logger.info("Background: Indexed source capabilities")
 
             # Seed default prompt configurations
             try:
@@ -1843,7 +1860,8 @@ async def startup_event():
     openai_client = clients["openai_client"]
 
     # Preload TTS voice for faster first response
-    preload_tts_voice(tts_voice)
+    if is_enabled("tts"):
+        preload_tts_voice(tts_voice)
 
     # NOTE: Removed automatic missing journal check on startup - was slow and caused
     # excessive LLM calls. Users can manually trigger via POST /admin/journals/generate-missing
@@ -1857,7 +1875,8 @@ async def startup_event():
             await generate_initial_identity_snippet(_daemon_id)
         except Exception as e:
             logger.error(f"Background identity snippet generation failed: {e}")
-    asyncio.create_task(generate_identity_background())
+    if is_enabled("identity_bootstrap"):
+        asyncio.create_task(generate_identity_background())
 
     # Start Home Assistant state cache refresh loop and intelligence subscription
     async def refresh_home_state_loop():
@@ -1883,7 +1902,8 @@ async def startup_event():
                 await asyncio.sleep(60)  # Refresh every 60 seconds
         except ImportError:
             pass  # HA module not available
-    asyncio.create_task(refresh_home_state_loop())
+    if is_enabled("home_assistant"):
+        asyncio.create_task(refresh_home_state_loop())
 
     # Initialize websocket state now (heavy components may still be None, handler has guards)
     _init_websocket_state()
@@ -1918,6 +1938,13 @@ async def startup_event():
             budget_manager = BudgetManager(budget_config, token_tracker)
             synkratos = Synkratos(budget_manager, token_tracker)
 
+            # The wiki research scheduler (queue, run_batch, run_single_task).
+            # Not the same class as `research_scheduler` above, which only
+            # stores session requests; the research.* actions, the
+            # autonomous_research job and the nightly journal need this one.
+            from routes.wiki import get_wiki_research_scheduler
+            wiki_research_scheduler = get_wiki_research_scheduler(memory)
+
             # Build runners dict once
             runners_dict = {
                 "research": get_research_runner(),
@@ -1937,7 +1964,8 @@ async def startup_event():
             from dreaming.dream_runner import generate_nightly_dream
             from journal_generation import generate_missing_journals
 
-            # Register all system tasks
+            # Register all system tasks (each job also has its own lever,
+            # checked inside register_system_tasks)
             register_system_tasks(synkratos, {
                 "github_metrics_manager": github_metrics_manager,
                 "conversation_manager": conversation_manager,
@@ -1950,8 +1978,8 @@ async def startup_event():
                 "generate_nightly_dream": generate_nightly_dream,
                 "self_manager": self_manager,
                 "data_dir": DATA_DIR,
-                # For autonomous_research handler
-                "research_scheduler": research_scheduler,
+                # For autonomous_research handler (the wiki scheduler)
+                "research_scheduler": wiki_research_scheduler,
             }, enabled=True)
 
             # Register approval providers for unified "what needs my attention?" queue
@@ -1997,8 +2025,8 @@ async def startup_event():
             logger.info("Daily activity admin routes initialized")
 
             # Initialize autonomous scheduling (Cass decides her own work)
-            from config import AUTONOMOUS_SCHEDULING_ENABLED
-            if AUTONOMOUS_SCHEDULING_ENABLED:
+            # (lever reads the legacy AUTONOMOUS_SCHEDULING_ENABLED env var as its default)
+            if is_enabled("autonomous_scheduling"):
                 try:
                     from scheduling import (
                         SchedulingDecisionEngine,
@@ -2036,8 +2064,8 @@ async def startup_event():
                             "memory": memory,
                             "conversation_manager": conversation_manager,
                             "state_bus": global_state_bus,
-                            # Research & wiki
-                            "research_scheduler": research_scheduler,
+                            # Research & wiki (research.* actions need the wiki scheduler)
+                            "research_scheduler": wiki_research_scheduler,
                             "wiki_manager": wiki_storage,
                             # Tracking
                             "token_tracker": token_tracker,
@@ -2131,10 +2159,13 @@ async def startup_event():
                         logger.info("Grimoire connected to phase queue manager")
 
                     # Start day phase tracking and autonomous scheduling
-                    asyncio.create_task(day_phase_tracker.start())
-                    asyncio.create_task(autonomous_scheduler.start())
-                    logger.info("Autonomous scheduling enabled - Cass decides her own work")
-                    logger.info(f"Day phase tracker started - current phase: {day_phase_tracker.current_phase}")
+                    if is_enabled("day_phases"):
+                        asyncio.create_task(day_phase_tracker.start())
+                        asyncio.create_task(autonomous_scheduler.start())
+                        logger.info("Autonomous scheduling enabled - Cass decides her own work")
+                        logger.info(f"Day phase tracker started - current phase: {day_phase_tracker.current_phase}")
+                    else:
+                        logger.info("Day phase tracker disabled by lever (wiring kept for admin routes)")
 
                     # Check email inbox on startup (independent of autonomous schedule)
                     async def check_email_on_startup():
@@ -2148,7 +2179,8 @@ async def startup_event():
                                 logger.warning(f"[Email] Startup inbox check failed: {result.message}")
                         except Exception as e:
                             logger.warning(f"[Email] Startup inbox check failed: {e}")
-                    asyncio.create_task(check_email_on_startup())
+                    if is_enabled("phase_email"):
+                        asyncio.create_task(check_email_on_startup())
 
                 except Exception as e:
                     logger.error(f"Failed to initialize autonomous scheduling: {e}")
@@ -2168,19 +2200,23 @@ async def startup_event():
                 pass
             logger.info("Thymos registered with Synkratos for suggestion integration")
 
-            # Start Synkratos
-            asyncio.create_task(synkratos.start())
-            logger.info("Synkratos started with all system tasks enabled")
+            # Start Synkratos (constructed above either way so admin routes work)
+            if is_enabled("scheduler"):
+                asyncio.create_task(synkratos.start())
+                logger.info("Synkratos started")
+            else:
+                logger.info("Synkratos loop disabled by lever")
 
             # Start periodic conversation observation task (proactive self-awareness)
-            from background_tasks import periodic_conversation_observation_task
-            asyncio.create_task(periodic_conversation_observation_task(
-                conversation_manager=conversation_manager,
-                memory=memory,
-                self_manager=self_manager,
-                check_interval_minutes=30,
-            ))
-            logger.info("Periodic conversation observation task started")
+            if is_enabled("conversation_observation"):
+                from background_tasks import periodic_conversation_observation_task
+                asyncio.create_task(periodic_conversation_observation_task(
+                    conversation_manager=conversation_manager,
+                    memory=memory,
+                    self_manager=self_manager,
+                    check_interval_minutes=30,
+                ))
+                logger.info("Periodic conversation observation task started")
 
             # === Discord Perception Bot ===
             # Start Discord bot for social environment perception (if enabled)
@@ -2189,7 +2225,8 @@ async def startup_event():
                 from discord_bot.config import DISCORD_ENABLED
                 from discord_bot.context import build_discord_perception_context, get_user_context_for_discord_entity
 
-                if DISCORD_ENABLED and DISCORD_PY_AVAILABLE:
+                # "discord" lever (reads the legacy DISCORD_ENABLED env var as its default)
+                if is_enabled("discord") and DISCORD_PY_AVAILABLE:
                     discord_bot = await start_discord_bot(_daemon_id)
                     if discord_bot:
                         # Wire up state bus for perception deltas
@@ -2340,7 +2377,7 @@ async def startup_event():
                                                 raw_response_text = response.text
 
                                             if memory and raw_response_text:
-                                                memory.store_conversation(
+                                                await memory.store_conversation(  # async: was never awaited
                                                     user_message=memory_user_msg,
                                                     assistant_response=raw_response_text,
                                                     user_id=linked_user_id,
@@ -2362,7 +2399,7 @@ async def startup_event():
                         logger.info("Discord perception bot started with wake callback")
                     else:
                         logger.info("Discord bot not started (configuration issue)")
-                elif DISCORD_ENABLED:
+                elif is_enabled("discord"):
                     logger.warning("Discord enabled but discord.py not installed")
             except ImportError:
                 logger.debug("Discord bot module not available (discord.py not installed)")
@@ -2374,6 +2411,9 @@ async def startup_event():
             import traceback
             traceback.print_exc()
             # Fallback: start old background tasks
+            if not is_enabled("legacy_background_loops"):
+                logger.warning("Legacy background loops disabled by lever - no fallback")
+                return
             logger.warning("Falling back to legacy background tasks")
             asyncio.create_task(daily_journal_task())
             asyncio.create_task(autonomous_research_task())
@@ -2384,13 +2424,14 @@ async def startup_event():
                 token_tracker=token_tracker
             ))
             # Start periodic conversation observation in fallback mode too
-            from background_tasks import periodic_conversation_observation_task
-            asyncio.create_task(periodic_conversation_observation_task(
-                conversation_manager=conversation_manager,
-                memory=memory,
-                self_manager=self_manager,
-                check_interval_minutes=30,
-            ))
+            if is_enabled("conversation_observation"):
+                from background_tasks import periodic_conversation_observation_task
+                asyncio.create_task(periodic_conversation_observation_task(
+                    conversation_manager=conversation_manager,
+                    memory=memory,
+                    self_manager=self_manager,
+                    check_interval_minutes=30,
+                ))
 
     asyncio.create_task(start_deferred_tasks())
 
@@ -2484,6 +2525,10 @@ async def chat(request: ChatRequest):
 
     # Retrieve relevant memories (hierarchical: summaries first, then details)
     memory_context = ""
+    # Set here too: send_message reads them even when include_memory is False
+    # (that used to raise UnboundLocalError).
+    user_context = ""
+    intro_guidance = None
     if request.include_memory:
         hierarchical = memory.retrieve_hierarchical(
             query=request.message,
@@ -2894,8 +2939,9 @@ async def chat(request: ChatRequest):
         clean_text = processed["text"]
         animations = processed["animations"]
     
-    # Store in memory (with conversation_id and user_id if provided)
-    memory.store_conversation(
+    # Store in memory (with conversation_id and user_id if provided).
+    # store_conversation is async; without await nothing was stored.
+    await memory.store_conversation(
         user_message=request.message,
         assistant_response=raw_response,
         conversation_id=request.conversation_id,
@@ -3611,7 +3657,7 @@ def _init_websocket_state():
         daemon_id=_daemon_id,
     )
     set_use_agent_sdk(USE_AGENT_SDK)
-    set_tts_state(tts_enabled, tts_voice)
+    set_tts_state(tts_enabled and is_enabled("tts"), tts_voice)
 
 
 # === Gesture Library Endpoint ===

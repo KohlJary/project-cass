@@ -43,13 +43,17 @@ async def create_note_action(context: Dict[str, Any]) -> ActionResult:
         wiki_manager = managers.get("wiki_manager")
 
         if wiki_manager:
-            note_id = await wiki_manager.create_note(
-                title=title,
-                content=content,
-                category=category,
-                tags=tags,
-                session_id=session_id
-            )
+            # WikiStorage has create(name, content), not create_note; the page
+            # name is the note id.
+            body = f"# {title}\n\nCategory: {category}\n"
+            if tags:
+                body += f"Tags: {', '.join(tags)}\n"
+            body += f"\n{content}"
+            if wiki_manager.read(title):
+                wiki_manager.update(title, body)
+            else:
+                wiki_manager.create(title, body)
+            note_id = title
             return ActionResult(
                 success=True,
                 message=f"Created note: {title}",
@@ -133,12 +137,17 @@ async def update_note_action(context: Dict[str, Any]) -> ActionResult:
         wiki_manager = managers.get("wiki_manager")
 
         if wiki_manager:
-            result = await wiki_manager.update_note(
-                note_id=note_id,
-                content=content,
-                append=append,
-                tags=new_tags
-            )
+            # WikiStorage has update(name, content) (full replace), not
+            # update_note; append ourselves.
+            page = wiki_manager.read(note_id)
+            if not page:
+                return ActionResult(success=False, message=f"Note not found: {note_id}")
+            new_content = page.content
+            if content:
+                new_content = page.content.rstrip() + "\n\n" + content if append else content
+            if new_tags:
+                new_content += f"\n\nTags: {', '.join(new_tags)}"
+            wiki_manager.update(note_id, new_content)
             return ActionResult(
                 success=True,
                 message=f"Updated note: {note_id}",

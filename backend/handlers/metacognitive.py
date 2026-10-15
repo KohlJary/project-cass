@@ -30,6 +30,26 @@ from gestures import (
 logger = logging.getLogger(__name__)
 
 
+def _graph():
+    """The shared self-model graph. Intentions, stakes and preference tests
+    live there (the same methods the register_intention/document_stake/
+    record_preference_test tools use), not on SelfManager."""
+    from config import DATA_DIR
+    from self_model_graph import get_self_model_graph
+    return get_self_model_graph(DATA_DIR)
+
+
+def _match_intention_id(graph, intention_id: Optional[str]) -> Optional[str]:
+    """Resolve a (possibly shortened) intention id, as the intention tools do."""
+    if not intention_id:
+        return None
+    from self_model_graph import NodeType
+    for nid, node in graph._nodes.items():
+        if node.node_type == NodeType.INTENTION and nid.startswith(intention_id):
+            return nid
+    return None
+
+
 @dataclass
 class MetacognitiveContext:
     """Context for executing metacognitive tags."""
@@ -85,15 +105,17 @@ async def execute_observation(obs: ParsedObservation, ctx: MetacognitiveContext)
             # Growth edge observation
             area = obs.area or "general"
 
-            # Use add_growth_observation if available, otherwise fall back to regular observation
-            if hasattr(ctx.self_manager, 'add_growth_observation'):
-                result = ctx.self_manager.add_growth_observation(
-                    area=area,
-                    observation=obs.content,
-                    source="inline_tag"
-                )
+            # Append to the matching growth edge (SelfManager has no
+            # add_growth_observation; add_observation_to_growth_edge is the
+            # real method). No edge with that area: keep it as an observation.
+            edge_exists = any(
+                edge.area.lower() == area.lower()
+                for edge in ctx.self_manager.load_profile().growth_edges
+            )
+            if edge_exists:
+                ctx.self_manager.add_observation_to_growth_edge(area, obs.content)
                 logger.debug(f"[metacognitive] Recorded growth observation for {area}: {obs.content[:50]}...")
-                return {"success": True, "type": "growth_observation", "area": area, "id": getattr(result, 'id', None)}
+                return {"success": True, "type": "growth_observation", "area": area}
             else:
                 # Fallback: store as self-observation with growth category
                 result = ctx.self_manager.add_observation(
@@ -211,6 +233,8 @@ async def execute_observation(obs: ParsedObservation, ctx: MetacognitiveContext)
 
     except Exception as e:
         logger.error(f"[metacognitive] Error executing observation: {e}")
+        from strict import report_swallowed
+        report_swallowed(e, "Inline <observation> tag", logger)
         return {"success": False, "error": str(e)}
 
 
@@ -619,56 +643,41 @@ async def execute_intention(intent: ParsedIntention, ctx: MetacognitiveContext) 
     """
     try:
         if intent.action == "register":
-            # Register new intention
-            if hasattr(ctx.self_manager, 'register_intention'):
-                result = ctx.self_manager.register_intention(
-                    intention=intent.content,
-                    condition=intent.condition,
-                    source="inline_tag"
-                )
-                logger.debug(f"[metacognitive] Registered intention: {intent.content[:50]}...")
-                return {"success": True, "type": "register_intention", "id": getattr(result, 'id', None)}
-            else:
-                # Fallback: store as self-observation
-                result = ctx.self_manager.add_observation(
-                    observation=f"[Intention:{intent.condition or 'always'}] {intent.content}",
-                    category="preference",
-                    confidence=0.9,
-                    source_type="inline_tag",
-                    source_conversation_id=ctx.conversation_id,
-                    source_user_id=ctx.user_id,
-                    influence_source="independent"
-                )
-                logger.debug(f"[metacognitive] Registered intention (fallback): {intent.content[:50]}...")
-                return {"success": True, "type": "register_intention", "id": result.id if result else None}
+            # Register new intention in the self-model graph (SelfManager has
+            # no register_intention, so this used to become a plain observation).
+            node_id = _graph().register_intention(
+                intention=intent.content,
+                condition=intent.condition or "always",
+            )
+            logger.debug(f"[metacognitive] Registered intention: {intent.content[:50]}...")
+            return {"success": True, "type": "register_intention", "id": node_id}
 
         elif intent.action == "outcome":
-            # Log intention outcome
-            if hasattr(ctx.self_manager, 'log_intention_outcome'):
-                result = ctx.self_manager.log_intention_outcome(
-                    intention_id=intent.intention_id,
-                    success=intent.success,
-                    description=intent.content
-                )
-                logger.debug(f"[metacognitive] Logged intention outcome: {intent.content[:50]}...")
-                return {"success": True, "type": "intention_outcome", "intention_id": intent.intention_id, "success": intent.success}
-            else:
-                logger.debug(f"[metacognitive] Intention outcome (no handler): {intent.content[:50]}...")
-                return {"success": True, "type": "intention_outcome", "note": "Handler not available"}
+            # Log intention outcome (was silently dropped: "Handler not available")
+            graph = _graph()
+            matched_id = _match_intention_id(graph, intent.intention_id)
+            if not matched_id:
+                return {"success": False, "error": f"Intention '{intent.intention_id}' not found"}
+            outcome_id = graph.log_intention_outcome(
+                intention_id=matched_id,
+                success=bool(intent.success),
+                conversation_id=ctx.conversation_id,
+                notes=intent.content,
+            )
+            logger.debug(f"[metacognitive] Logged intention outcome: {intent.content[:50]}...")
+            return {"success": bool(outcome_id), "type": "intention_outcome",
+                    "intention_id": matched_id, "id": outcome_id}
 
         elif intent.action == "status":
-            # Update intention status
-            if hasattr(ctx.self_manager, 'update_intention_status'):
-                result = ctx.self_manager.update_intention_status(
-                    intention_id=intent.intention_id,
-                    status=intent.status,
-                    notes=intent.content
-                )
-                logger.debug(f"[metacognitive] Updated intention status to {intent.status}")
-                return {"success": True, "type": "intention_status", "intention_id": intent.intention_id, "status": intent.status}
-            else:
-                logger.debug(f"[metacognitive] Intention status (no handler): {intent.status}")
-                return {"success": True, "type": "intention_status", "note": "Handler not available"}
+            # Update intention status (was silently dropped: "Handler not available")
+            graph = _graph()
+            matched_id = _match_intention_id(graph, intent.intention_id)
+            if not matched_id:
+                return {"success": False, "error": f"Intention '{intent.intention_id}' not found"}
+            updated = graph.update_intention_status(matched_id, intent.status)
+            logger.debug(f"[metacognitive] Updated intention status to {intent.status}")
+            return {"success": bool(updated), "type": "intention_status",
+                    "intention_id": matched_id, "status": intent.status}
 
         else:
             logger.warning(f"[metacognitive] Unknown intention action: {intent.action}")
@@ -676,6 +685,8 @@ async def execute_intention(intent: ParsedIntention, ctx: MetacognitiveContext) 
 
     except Exception as e:
         logger.error(f"[metacognitive] Error executing intention: {e}")
+        from strict import report_swallowed
+        report_swallowed(e, "Inline <intention> tag", logger)
         return {"success": False, "error": str(e)}
 
 
@@ -686,29 +697,23 @@ async def execute_stake(stake: ParsedStake, ctx: MetacognitiveContext) -> Dict:
     Documents what authentically matters to the daemon.
     """
     try:
-        if hasattr(ctx.self_manager, 'document_stake'):
-            result = ctx.self_manager.document_stake(
-                what=stake.what,
-                why=stake.why,
-                evidence=stake.content,
-                strength=stake.strength,
-                category=stake.category,
-                source="inline_tag"
-            )
-            logger.debug(f"[metacognitive] Documented stake: {stake.what}")
-            return {"success": True, "type": "stake", "what": stake.what, "id": getattr(result, 'id', None)}
-        else:
-            # Fallback: store as identity statement
-            ctx.self_manager.add_identity_statement(
-                statement=f"[Stake:{stake.category or 'general'}] {stake.what}: {stake.why}. Evidence: {stake.content}",
-                source="inline_tag",
-                confidence=0.9
-            )
-            logger.debug(f"[metacognitive] Documented stake (fallback): {stake.what}")
-            return {"success": True, "type": "stake", "what": stake.what, "note": "Stored as identity statement"}
+        # Stakes live in the self-model graph (same call as the document_stake
+        # tool); SelfManager has no document_stake, so this used to become an
+        # identity statement.
+        stake_id = _graph().document_stake(
+            outcome=stake.what,
+            why_it_matters=stake.why,
+            evidence=[stake.content] if stake.content else None,
+            intensity=stake.strength,
+            domain=stake.category,
+        )
+        logger.debug(f"[metacognitive] Documented stake: {stake.what}")
+        return {"success": True, "type": "stake", "what": stake.what, "id": stake_id}
 
     except Exception as e:
         logger.error(f"[metacognitive] Error executing stake: {e}")
+        from strict import report_swallowed
+        report_swallowed(e, "Inline <stake> tag", logger)
         return {"success": False, "error": str(e)}
 
 
@@ -719,33 +724,22 @@ async def execute_test(test: ParsedTest, ctx: MetacognitiveContext) -> Dict:
     Records preference/behavior consistency test results.
     """
     try:
-        if hasattr(ctx.self_manager, 'record_preference_test'):
-            result = ctx.self_manager.record_preference_test(
-                stated_preference=test.stated,
-                actual_behavior=test.actual,
-                consistent=test.consistent,
-                context=test.content,
-                source="inline_tag"
-            )
-            logger.debug(f"[metacognitive] Recorded preference test: {test.stated[:30]} vs {test.actual[:30]}")
-            return {"success": True, "type": "preference_test", "consistent": test.consistent, "id": getattr(result, 'id', None)}
-        else:
-            # Fallback: store as self-observation
-            consistency_note = "consistent" if test.consistent else "inconsistent"
-            result = ctx.self_manager.add_observation(
-                observation=f"[PreferenceTest:{consistency_note}] Stated: {test.stated} | Actual: {test.actual}. Context: {test.content}",
-                category="contradiction" if not test.consistent else "pattern",
-                confidence=0.8,
-                source_type="inline_tag",
-                source_conversation_id=ctx.conversation_id,
-                source_user_id=ctx.user_id,
-                influence_source="independent"
-            )
-            logger.debug(f"[metacognitive] Recorded preference test (fallback): {consistency_note}")
-            return {"success": True, "type": "preference_test", "consistent": test.consistent, "id": result.id if result else None}
+        # Preference tests live in the self-model graph (same call as the
+        # record_preference_test tool); SelfManager has no such method.
+        test_id = _graph().record_preference_test(
+            stated_value=test.stated,
+            behavioral_choice=test.actual,
+            consistent=test.consistent,
+            context=test.content,
+            conversation_id=ctx.conversation_id,
+        )
+        logger.debug(f"[metacognitive] Recorded preference test: {test.stated[:30]} vs {test.actual[:30]}")
+        return {"success": True, "type": "preference_test", "consistent": test.consistent, "id": test_id}
 
     except Exception as e:
         logger.error(f"[metacognitive] Error executing test: {e}")
+        from strict import report_swallowed
+        report_swallowed(e, "Inline <test> tag", logger)
         return {"success": False, "error": str(e)}
 
 
@@ -798,15 +792,23 @@ async def execute_milestone(milestone_id: str, content: str, ctx: MetacognitiveC
     Records reflection on reaching a growth milestone.
     """
     try:
-        if hasattr(ctx.self_manager, 'acknowledge_milestone'):
-            result = ctx.self_manager.acknowledge_milestone(
-                milestone_id=milestone_id,
-                reflection=content,
-                source="inline_tag"
+        # acknowledge_milestone(milestone_id) takes only the id; it used to be
+        # passed reflection=/source= and raised TypeError. Keep the reflection
+        # as a growth observation alongside, as the fallback below already does.
+        if ctx.self_manager.acknowledge_milestone(milestone_id):
+            ctx.self_manager.add_observation(
+                observation=f"[MilestoneAcknowledged:{milestone_id}] {content}",
+                category="growth",
+                confidence=0.9,
+                source_type="inline_tag",
+                source_conversation_id=ctx.conversation_id,
+                source_user_id=ctx.user_id,
+                influence_source="independent"
             )
             logger.debug(f"[metacognitive] Acknowledged milestone {milestone_id}")
             return {"success": True, "type": "milestone", "milestone_id": milestone_id}
         else:
+            # Unknown milestone id
             # Fallback: store as self-observation
             result = ctx.self_manager.add_observation(
                 observation=f"[MilestoneAcknowledged:{milestone_id}] {content}",
@@ -822,6 +824,8 @@ async def execute_milestone(milestone_id: str, content: str, ctx: MetacognitiveC
 
     except Exception as e:
         logger.error(f"[metacognitive] Error executing milestone: {e}")
+        from strict import report_swallowed
+        report_swallowed(e, "Inline <milestone> tag", logger)
         return {"success": False, "error": str(e)}
 
 

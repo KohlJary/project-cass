@@ -72,6 +72,7 @@ async def create_research_journal(
                 journal_text=combined_text,
                 summary_count=0,
                 conversation_count=0,
+                journal_type="research",
             )
             logger.info(f"Appended research journal to existing entry for {date}")
         else:
@@ -81,6 +82,7 @@ async def create_research_journal(
                 journal_text=journal_text,
                 summary_count=0,
                 conversation_count=0,
+                journal_type="research",
             )
             logger.info(f"Created research journal entry for {date}: {entry_id}")
 

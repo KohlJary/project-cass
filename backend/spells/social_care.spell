@@ -32,7 +32,9 @@ ELSE IF $tenderness > 0.4 THEN
     ' Tender mood - good time for meaningful outreach
     LOG INFO "Tender mood - drafting heartfelt outreach"
 
-    TASK outreach.draft type="check_in" tone="warm" AWAIT
+    ' outreach.draft needs a title and content (it only stores a draft for review)
+    GENERATE "Write a short, warm check-in message to someone I care about. Plain text, a few sentences, no greeting placeholder." INTO $checkin
+    TASK outreach.draft draft_type="email" title="Warm check-in" content=$checkin emergence_type="need_driven" AWAIT
 
     DELTA need.social_connection +0.2, affect.tenderness +0.05, affect.satisfaction +0.1
 

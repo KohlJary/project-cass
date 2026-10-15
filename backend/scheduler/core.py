@@ -287,8 +287,11 @@ class Synkratos:
                         **data
                     }
                 )
-        except Exception:
-            pass  # Never break scheduler operations on emit failure
+        except Exception as e:
+            # Never break scheduler operations on emit failure (in production);
+            # re-raised under CASS_STRICT=1 (tests/CI).
+            from strict import report_swallowed
+            report_swallowed(e, f"Scheduler event {event_type} emit failed", logger, logging.WARNING)
 
     def _init_default_queues(self) -> None:
         """Initialize default task queues."""

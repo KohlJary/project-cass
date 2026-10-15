@@ -246,6 +246,10 @@ class CassMemory:
     async def extract_self_observations_from_journal(self, *args, **kwargs):
         return await self._self_model.extract_self_observations_from_journal(*args, **kwargs)
 
+    async def extract_self_observations_from_conversation(self, *args, **kwargs):
+        # Used by background_tasks' post-conversation self-observation hook.
+        return await self._self_model.extract_self_observations_from_conversation(*args, **kwargs)
+
     def _parse_self_observations(self, text: str):
         return self._self_model._parse_self_observations(text)
 

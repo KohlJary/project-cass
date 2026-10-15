@@ -566,6 +566,73 @@ class ResearchSessionData:
         }
 
 
+# --- Research agenda on top of UnifiedGoalManager ---------------------------
+# The agenda tools below were written against the removed goals.py API
+# (list_research_agenda, get_research_agenda_item, update_research_agenda_item),
+# which UnifiedGoalManager doesn't have, so every call raised AttributeError.
+# Agenda items are RESEARCH_AGENDA goals now; these map between the two shapes.
+
+_AGENDA_STATUS = {  # agenda status -> goal statuses
+    "not_started": ("proposed", "approved"),
+    "in_progress": ("active",),
+    "blocked": ("blocked",),
+    "complete": ("completed",),
+}
+_AGENDA_PRIORITY = {"high": ("P0", "P1"), "medium": ("P2",), "low": ("P3",)}
+
+
+def _goal_to_agenda_item(goal) -> Dict[str, Any]:
+    status = next((k for k, v in _AGENDA_STATUS.items() if goal.status in v), goal.status)
+    priority = next((k for k, v in _AGENDA_PRIORITY.items() if goal.priority in v), "medium")
+    progress = goal.progress or []
+    return {
+        "id": goal.id,
+        "topic": goal.title,
+        "why": goal.description or "",
+        "priority": priority,
+        "status": status,
+        "key_findings": [p["finding"] for p in progress if p.get("finding")],
+        "sources_reviewed": [p["source"] for p in progress if p.get("source")],
+    }
+
+
+def _research_agenda_goals(goal_manager):
+    from unified_goals import GoalType
+    return goal_manager.list_goals(goal_type=GoalType.RESEARCH_AGENDA.value)
+
+
+def _list_research_agenda(goal_manager, status=None, priority=None) -> List[Dict[str, Any]]:
+    items = [_goal_to_agenda_item(g) for g in _research_agenda_goals(goal_manager)]
+    return [i for i in items
+            if (not status or i["status"] == status)
+            and (not priority or i["priority"] == priority)]
+
+
+def _get_research_agenda_item(goal_manager, item_id: str) -> Optional[Dict[str, Any]]:
+    goal = goal_manager.get_goal(item_id)
+    return _goal_to_agenda_item(goal) if goal else None
+
+
+def _update_research_agenda_item(goal_manager, item_id, add_key_finding=None,
+                                 add_source_reviewed=None, set_status=None):
+    goal = goal_manager.get_goal(item_id)
+    if not goal:
+        return None
+    if add_key_finding:
+        goal_manager.add_progress(item_id, {"finding": add_key_finding})
+    if add_source_reviewed:
+        goal_manager.add_progress(item_id, {"source": add_source_reviewed})
+    if set_status == "in_progress":
+        goal_manager.start_goal(item_id)
+    elif set_status == "complete":
+        goal_manager.complete_goal(item_id)
+    elif set_status == "blocked":
+        goal_manager.block_goal(item_id, [{"reason": "marked blocked in research session"}])
+    elif set_status == "not_started":
+        goal_manager.update_goal(item_id, status="approved")
+    return _get_research_agenda_item(goal_manager, item_id)
+
+
 class ResearchSessionRunner(BaseSessionRunner):
     """
     Executes autonomous research sessions using BaseSessionRunner framework.
@@ -1049,7 +1116,8 @@ class ResearchSessionRunner(BaseSessionRunner):
         status_filter = tool_input.get("status")
         priority_filter = tool_input.get("priority")
 
-        items = self.goal_manager.list_research_agenda(
+        items = _list_research_agenda(
+            self.goal_manager,
             status=status_filter,
             priority=priority_filter
         )
@@ -1081,12 +1149,15 @@ class ResearchSessionRunner(BaseSessionRunner):
         if not item_id:
             return json.dumps({"success": False, "error": "item_id is required"})
 
-        item = self.goal_manager.get_research_agenda_item(item_id)
+        item = _get_research_agenda_item(self.goal_manager, item_id)
         if not item:
             return json.dumps({"success": False, "error": f"Agenda item not found: {item_id}"})
 
-        # Mark as in progress
-        self.goal_manager.update_research_agenda_item(item_id, set_status="in_progress")
+        # Mark as in progress (a goal that still needs Kohl's approval can't start)
+        updated = _update_research_agenda_item(self.goal_manager, item_id, set_status="in_progress")
+        if not updated or updated["status"] != "in_progress":
+            return json.dumps({"success": False,
+                               "error": f"Agenda item '{item['topic']}' needs approval before it can be worked on"})
 
         # Update session focus
         current = self.session_manager.get_current_session()
@@ -1117,7 +1188,8 @@ class ResearchSessionRunner(BaseSessionRunner):
         add_source = tool_input.get("add_source")
         set_status = tool_input.get("set_status")
 
-        result = self.goal_manager.update_research_agenda_item(
+        result = _update_research_agenda_item(
+            self.goal_manager,
             item_id,
             add_key_finding=add_finding,
             add_source_reviewed=add_source,

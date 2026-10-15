@@ -322,8 +322,10 @@ class PhaseQueueManager:
             f"scheduling dispatch in {delay_seconds}s to allow spell queueing"
         )
 
-        # Check email inbox on phase transitions
-        asyncio.create_task(self._check_email_on_phase_change(new_phase))
+        # Check email inbox on phase transitions (auto-replies; "phase_email" lever)
+        from features import is_enabled
+        if is_enabled("phase_email"):
+            asyncio.create_task(self._check_email_on_phase_change(new_phase))
 
         asyncio.create_task(self._delayed_phase_dispatch(new_phase, delay_seconds, transition))
 

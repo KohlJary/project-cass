@@ -118,16 +118,17 @@ class PageEnricher:
             return []
 
         try:
-            search_results = self._memory.search(page_name, n_results=10)
+            # CassMemory has no search(); retrieve_relevant is the semantic search
+            search_results = self._memory.retrieve_relevant(page_name, n_results=10)
             snippets = []
-            for doc, meta in zip(
-                search_results.get("documents", [[]])[0],
-                search_results.get("metadatas", [[]])[0]
-            ):
+            for hit in search_results:
+                doc = hit.get("content")
                 if doc and page_name.lower() in doc.lower():
                     snippets.append(doc[:500])
             return snippets
-        except Exception:
+        except Exception as e:
+            from strict import report_swallowed
+            report_swallowed(e, "Wiki enricher memory search")
             return []
 
     def _build_enrich_prompt(self, page: Any, context_snippets: List[str]) -> str:
@@ -305,13 +306,17 @@ class PageResearcher:
             return []
 
         try:
-            results = self._memory.search(topic, n_results=5)
+            # CassMemory has no search(); retrieve_relevant is the semantic search
+            results = self._memory.retrieve_relevant(topic, n_results=5)
             context = []
-            for doc in results.get("documents", [[]])[0]:
+            for hit in results:
+                doc = hit.get("content")
                 if doc and topic.lower() in doc.lower():
                     context.append(doc[:400])
             return context
-        except Exception:
+        except Exception as e:
+            from strict import report_swallowed
+            report_swallowed(e, "Wiki enricher memory search")
             return []
 
     def _build_research_prompt(
