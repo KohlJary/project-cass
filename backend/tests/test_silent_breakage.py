@@ -402,3 +402,80 @@ def test_inline_milestone_acknowledges_real_milestone():
     result = asyncio.run(execute_milestone(milestone.id, "It felt freeing", _meta_ctx(sm)))
     assert result["success"], result
     assert sm.get_milestone_by_id(milestone.id).acknowledged
+
+
+# ---------------------------------------------------------------------------
+# 6b. GenericSessionRunner tools
+# ---------------------------------------------------------------------------
+
+def _tool(handler, tool_input, managers):
+    return asyncio.run(handler(tool_input, managers, session_type="knowledge_building"))
+
+
+def test_session_note_tools_use_wiki_storage(tmp_path):
+    from wiki.storage import WikiStorage
+    from session import tools
+
+    wiki = WikiStorage(str(tmp_path / "wiki"), git_enabled=False)
+    managers = {"wiki_manager": wiki}
+
+    created = _tool(tools.handle_create_note,
+                    {"title": "Momus", "content": "Critic of the gods.", "tags": ["myth"]}, managers)
+    assert created.get("success"), created
+    assert "Critic of the gods." in wiki.read("Momus").content
+
+    updated = _tool(tools.handle_update_note,
+                    {"note_id": created["note_id"], "content": "Mocked Aphrodite's sandals."}, managers)
+    assert updated.get("success"), updated
+    assert "Mocked Aphrodite's sandals." in wiki.read("Momus").content
+
+    found = _tool(tools.handle_search_notes, {"query": "critic", "tags": ["myth"]}, managers)
+    assert [r["id"] for r in found["results"]] == ["Momus"]
+
+
+def test_session_self_tools_use_real_selfmanager_api():
+    from self_model import SelfManager
+    from session import tools
+
+    sm = SelfManager()
+    managers = {"self_manager": sm}
+    added = _tool(tools.handle_add_observation,
+                  {"observation": "I like long research sessions", "category": "preference"}, managers)
+    assert added.get("success"), added
+    insight = _tool(tools.handle_record_insight,
+                    {"insight": "Critique is a form of care", "related_topics": ["Momus"]}, managers)
+    assert insight.get("success"), insight
+
+    listed = _tool(tools.handle_list_observations, {"category": "preference"}, managers)
+    assert "I like long research sessions" in [o["content"] for o in listed["observations"]]
+
+    edge = sm.add_growth_edge("patience", "rushing", auto_research=False)
+    edges = _tool(tools.handle_list_growth_edges, {}, managers)
+    assert edge.edge_id in [e["id"] for e in edges["growth_edges"]]
+    upd = _tool(tools.handle_update_growth_edge,
+                {"edge_id": edge.edge_id, "progress_note": "Waited before answering"}, managers)
+    assert upd.get("success"), upd
+    stored = [e for e in sm.load_profile().growth_edges if e.edge_id == edge.edge_id][0]
+    assert "Waited before answering" in stored.observations
+
+
+def test_session_web_search_is_honest_without_a_backend(monkeypatch):
+    """It returned a fake '[STUB]' success; without Tavily it must say unavailable."""
+    from session import tools
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    result = _tool(tools.handle_web_search, {"query": "Momus"}, {})
+    assert "unavailable" in result["error"] and result["results"] == []
+    assert "STUB" not in str(result)
+
+
+def test_session_web_search_uses_research_manager(monkeypatch):
+    from session import tools
+    import research
+
+    async def fake_search(self, query, num_results=10, **kw):
+        return {"success": True, "results": [
+            {"title": "Momus", "url": "https://example.org/momus", "content": "God of satire"}]}
+
+    monkeypatch.setattr(research.ResearchManager, "web_search", fake_search)
+    result = _tool(tools.handle_web_search, {"query": "Momus"}, {})
+    assert result["results"][0]["url"] == "https://example.org/momus"
