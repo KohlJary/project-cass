@@ -2122,6 +2122,8 @@ async def startup_event():
                         synkratos=synkratos,
                         state_bus=global_state_bus,
                         daemon_id=_daemon_id,
+                        # Survive restarts (queues were in-memory only)
+                        persist_path=DATA_DIR / "phase_queues.json",
                     )
 
                     # Share the summary store from autonomous scheduler so completions are recorded
