@@ -798,18 +798,22 @@ async def handle_recall_memories(
         query = tool_input.get("query", "")
         limit = tool_input.get("limit", 5)
 
-        memories = memory.search(query, limit=limit)
+        # CassMemory has no search(); retrieve_relevant is the semantic search.
+        memories = memory.retrieve_relevant(query, n_results=int(limit))
 
         return {
             "memories": [
                 {
                     "content": m.get("content", str(m)),
-                    "relevance": m.get("relevance", 0.0),
+                    # Chroma returns a distance (lower = closer); report 1 - distance.
+                    "relevance": round(1.0 - m["distance"], 3) if m.get("distance") is not None else 0.0,
                 }
                 for m in memories
             ]
         }
     except Exception as e:
+        from strict import report_swallowed
+        report_swallowed(e, "recall_memories session tool")
         return {"error": str(e), "memories": []}
 
 

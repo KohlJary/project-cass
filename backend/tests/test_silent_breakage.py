@@ -202,3 +202,42 @@ def test_periodic_self_observation_cycle_records_observations(conversation_manag
     assert "User: m0" in text and "Cass: m1" in text
     assert self_manager.add_observation.call_args.kwargs["source_conversation_id"] == conv.id
     memory.embed_self_observation.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 4. CassMemory.search doesn't exist; callers use retrieve_relevant
+# ---------------------------------------------------------------------------
+
+def _spec_memory(hits):
+    from memory import CassMemory
+    memory = MagicMock(spec=CassMemory)  # .search raises AttributeError, like the real one
+    memory.retrieve_relevant.return_value = hits
+    return memory
+
+
+HITS = [{"content": "Kohl talked about Momus and myth", "metadata": {"type": "conversation"},
+         "distance": 0.25}]
+
+
+def test_wiki_scheduler_memory_search_returns_context():
+    from wiki.scheduler import ResearchScheduler
+    sched = ResearchScheduler.__new__(ResearchScheduler)
+    sched.memory = _spec_memory(HITS)
+    assert sched._search_memory("Momus") == ["Kohl talked about Momus and myth"]
+
+
+def test_page_enricher_memory_search_returns_context():
+    from wiki.page_enricher import PageEnricher, PageResearcher
+    enricher = PageEnricher.__new__(PageEnricher)
+    enricher._memory = _spec_memory(HITS)
+    assert enricher._get_context_snippets("Momus") == ["Kohl talked about Momus and myth"]
+    researcher = PageResearcher.__new__(PageResearcher)
+    researcher._memory = _spec_memory(HITS)
+    assert researcher._search_memory("momus") == ["Kohl talked about Momus and myth"]
+
+
+def test_session_recall_memories_tool():
+    from session.tools import handle_recall_memories
+    out = asyncio.run(handle_recall_memories(
+        {"query": "Momus", "limit": 3}, {"memory": _spec_memory(HITS)}))
+    assert out["memories"] == [{"content": "Kohl talked about Momus and myth", "relevance": 0.75}]

@@ -1939,9 +1939,12 @@ exploration: true
         if not self.memory:
             return []
         try:
-            results = self.memory.search(query, n_results=5)
-            return [doc[:400] for doc in results.get("documents", [[]])[0] if doc]
-        except Exception:
+            # CassMemory has no search(); retrieve_relevant is the semantic search
+            results = self.memory.retrieve_relevant(query, n_results=5)
+            return [hit["content"][:400] for hit in results if hit.get("content")]
+        except Exception as e:
+            from strict import report_swallowed
+            report_swallowed(e, "Wiki research memory search")
             return []
 
     async def _generate_page_content(

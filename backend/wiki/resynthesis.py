@@ -318,30 +318,33 @@ Respond in JSON format:
         if self.memory:
             try:
                 # Search journals for mentions of this concept
-                journal_results = self.memory.search(
+                # CassMemory has no search(); retrieve_relevant is the semantic search
+                journal_results = self.memory.retrieve_relevant(
                     f"journal {page.name}",
                     n_results=5,
-                    where={"type": "journal"}
+                    filter_type="journal",
                 )
-                for doc in journal_results.get("documents", [[]])[0]:
+                for hit in journal_results:
+                    doc = hit.get("content")
                     if doc and len(doc) > 50:
                         context.journal_entries.append(doc[:500])
-            except Exception:
-                pass
+            except Exception as e:
+                from strict import report_swallowed
+                report_swallowed(e, "Resynthesis journal search")
 
         # 4. Search for relevant conversation snippets
         if self.memory:
             try:
-                conv_results = self.memory.search(
-                    page.name,
-                    n_results=5,
-                    where={"type": {"$ne": "journal"}}
-                )
-                for doc in conv_results.get("documents", [[]])[0]:
+                conv_results = self.memory.retrieve_relevant(page.name, n_results=5)
+                for hit in conv_results:
+                    doc = hit.get("content")
+                    if (hit.get("metadata") or {}).get("type") == "journal":
+                        continue  # journals are gathered above
                     if doc and page.name.lower() in doc.lower():
                         context.conversation_snippets.append(doc[:400])
-            except Exception:
-                pass
+            except Exception as e:
+                from strict import report_swallowed
+                report_swallowed(e, "Resynthesis conversation search")
 
         # 5. Track new connections since last synthesis
         # (These are identified by the maturity tracking)

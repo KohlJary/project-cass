@@ -777,12 +777,16 @@ async def generate_wiki_page(request: GeneratePageRequest) -> Dict:
     if _memory:
         try:
             # Search for mentions of this entity
-            results = _memory.search(request.name, n_results=10)
-            for doc, meta in zip(results.get("documents", [[]])[0], results.get("metadatas", [[]])[0]):
+            # CassMemory has no search(); retrieve_relevant is the semantic search
+            results = _memory.retrieve_relevant(request.name, n_results=10)
+            for hit in results:
+                doc = hit.get("content")
                 if doc and request.name.lower() in doc.lower():
                     context_snippets.append(doc[:500])  # Limit snippet size
         except Exception as e:
             print(f"Memory search failed: {e}")
+            from strict import report_swallowed
+            report_swallowed(e, "Wiki generate-page memory search")
 
     # Build prompt for Ollama
     context_text = "\n\n".join(context_snippets[:5]) if context_snippets else "No specific context found."
