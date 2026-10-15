@@ -96,8 +96,12 @@ class MarkerParser:
 
     # Pattern to remove malformed closing tags: </mark:category>
     # (correct format is </mark>, but LLM sometimes generates </mark:category>)
+    # Skips </mark:milestone>: that's the closing form the kernel teaches for
+    # <mark:milestone id=...>, which context_helpers.process_inline_tags parses
+    # later. Stripping it here (this runs first) orphaned the opening tag, so
+    # the milestone was never recorded and its raw tag leaked into the reply.
     MALFORMED_CLOSE_TAG_PATTERN = re.compile(
-        r'</mark:[a-z-]+>',
+        r'</mark:(?!milestone>)[a-z-]+>',
         re.IGNORECASE
     )
 

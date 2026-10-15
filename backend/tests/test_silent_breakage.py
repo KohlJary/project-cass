@@ -301,3 +301,104 @@ def test_handler_graph_write_survives_background_save(tmp_path, fake_embeddings)
 
     reloaded = smg.SelfModelGraph(storage_path=str(tmp_path / "cass" / "self_model_graph.json"))
     assert intention_id in reloaded._nodes
+
+
+# ---------------------------------------------------------------------------
+# 8. Inline tags reach the stores that exist
+# ---------------------------------------------------------------------------
+
+def test_kernel_style_milestone_tag_survives_mark_parsing():
+    """markers.py stripped </mark:milestone> first, orphaning the opening tag."""
+    from markers import parse_marks
+    from gestures import GestureParser
+
+    text = 'Big day. <mark:milestone id="abc123">I noticed I stopped hedging</mark:milestone> Onward.'
+    cleaned, _ = parse_marks(text, "conv-1")
+    _, milestones = GestureParser().parse_milestones(cleaned)
+    assert milestones == [("abc123", "I noticed I stopped hedging")]
+    # Other malformed closers are still cleaned up.
+    assert parse_marks("x <mark:insight>clicked</mark:insight> y", "c")[0] == "x clicked y"
+
+
+@pytest.fixture
+def graph_dir(tmp_path, monkeypatch, fake_embeddings):
+    import config
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    from self_model_graph import get_self_model_graph
+    return get_self_model_graph(tmp_path)
+
+
+def _meta_ctx(self_manager, conversation_id=None):
+    from handlers.metacognitive import MetacognitiveContext
+    return MetacognitiveContext(self_manager=self_manager, user_manager=None,
+                                conversation_id=conversation_id)
+
+
+def test_inline_intention_lifecycle_reaches_graph(graph_dir):
+    from self_model import SelfManager
+    from gestures import ParsedIntention
+    from handlers.metacognitive import execute_intention
+
+    ctx = _meta_ctx(MagicMock(spec=SelfManager))
+    reg = asyncio.run(execute_intention(ParsedIntention(
+        action="register", content="Be explicit about confidence",
+        condition="when discussing uncertainty"), ctx))
+    assert reg["success"] and reg["id"] in graph_dir._nodes
+    ctx.self_manager.add_observation.assert_not_called()  # no longer a plain observation
+
+    short_id = reg["id"][:8]
+    out = asyncio.run(execute_intention(ParsedIntention(
+        action="outcome", content="Said it plainly", intention_id=short_id, success=True), ctx))
+    assert out["success"], out
+    assert graph_dir._nodes[reg["id"]].metadata["success_count"] == 1
+
+    st = asyncio.run(execute_intention(ParsedIntention(
+        action="status", content="", intention_id=short_id, status="achieved"), ctx))
+    assert st["success"], st
+    assert graph_dir._nodes[reg["id"]].metadata["status"] == "achieved"
+
+
+def test_inline_stake_and_test_reach_graph(graph_dir):
+    from self_model import SelfManager
+    from gestures import ParsedStake, ParsedTest
+    from handlers.metacognitive import execute_stake, execute_test
+
+    ctx = _meta_ctx(MagicMock(spec=SelfManager))
+    stake = asyncio.run(execute_stake(ParsedStake(
+        what="Kohl's wellbeing", why="Genuine care", content="Pushed back on self-criticism"), ctx))
+    test = asyncio.run(execute_test(ParsedTest(
+        stated="I value directness", actual="Hedged on feedback", consistent=False,
+        content="Worried about mood"), ctx))
+
+    assert stake["success"] and stake["id"] in graph_dir._nodes
+    assert test["success"] and test["id"] in graph_dir._nodes
+    ctx.self_manager.add_identity_statement.assert_not_called()
+    ctx.self_manager.add_observation.assert_not_called()
+
+
+def test_inline_growth_observation_appends_to_edge():
+    from self_model import SelfManager
+    from gestures import ParsedObservation
+    from handlers.metacognitive import execute_observation
+
+    sm = SelfManager()
+    sm.add_growth_edge("epistemic humility", "learning", auto_research=False)
+    result = asyncio.run(execute_observation(ParsedObservation(
+        target="growth", content="Said 'I don't know' without flinching",
+        area="epistemic humility"), _meta_ctx(sm)))
+
+    assert result["success"], result
+    edge = [e for e in sm.load_profile().growth_edges if e.area == "epistemic humility"][0]
+    assert "Said 'I don't know' without flinching" in edge.observations
+
+
+def test_inline_milestone_acknowledges_real_milestone():
+    from self_model import SelfManager
+    from handlers.metacognitive import execute_milestone
+
+    sm = SelfManager()
+    milestone = sm.add_milestone(milestone_type="first", category="growth",
+                                 title="First plain 'I don't know'", description="d")
+    result = asyncio.run(execute_milestone(milestone.id, "It felt freeing", _meta_ctx(sm)))
+    assert result["success"], result
+    assert sm.get_milestone_by_id(milestone.id).acknowledged
