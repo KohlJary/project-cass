@@ -14,15 +14,17 @@ import json
 
 def _get_dependencies():
     """
-    Lazily import dependencies from admin_api to avoid circular imports.
+    Lazily read the live managers from routes.admin to avoid circular imports.
 
-    IMPORTANT: Import from admin_api, NOT main_sdk!
-    main_sdk runs as __main__, so importing from it causes a fresh module load
-    with all globals reset to None. admin_api's module-level variables are
-    populated by init_managers() and stay consistent.
+    Read them as attributes of the routes.admin module at call time, NOT via
+    `from admin_api import memory`: admin_api copies the names once at import
+    (while they're still None), and init_managers() only rebinds routes.admin's
+    globals, so the admin_api copies stay None forever and the pipeline no-ops.
+    (Also don't import from main_sdk: it runs as __main__, so importing it
+    loads a fresh copy with every global reset to None.)
     """
-    from admin_api import memory, token_usage_tracker as token_tracker, self_manager
-    return memory, token_tracker, self_manager
+    import routes.admin as admin_state
+    return admin_state.memory, admin_state.token_usage_tracker, admin_state.self_manager
 
 
 def _get_anthropic_client():
@@ -123,6 +125,8 @@ async def _extract_and_queue_new_red_links(date_str: str):
         print(f"   ✗ Failed to extract red links: {e}")
         import traceback
         traceback.print_exc()
+        from strict import report_swallowed
+        report_swallowed(e, "Nightly red-link extraction")
 
 
 async def _integrate_research_into_self_model(date_str: str):
@@ -147,7 +151,9 @@ async def _integrate_research_into_self_model(date_str: str):
         from wiki.research import ProposalQueue, ProposalStatus
         from pathlib import Path
 
-        proposal_queue = ProposalQueue(Path("data/wiki"))
+        # ProposalQueue is SQLite-backed and its first arg is daemon_id; passing
+        # a path here made it query daemon_id='data/wiki' (or crash binding a Path).
+        proposal_queue = ProposalQueue()
         completed_proposals = [
             p for p in proposal_queue.get_all()
             if p.status == ProposalStatus.COMPLETED
@@ -362,3 +368,5 @@ Example:
         print(f"   ✗ Failed to integrate research into self-model: {e}")
         import traceback
         traceback.print_exc()
+        from strict import report_swallowed
+        report_swallowed(e, "Nightly research integration")

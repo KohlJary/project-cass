@@ -155,9 +155,6 @@ def test_job_daily_journal_writes_dream(app):
         assert conn.execute("SELECT COUNT(*) FROM dreams").fetchone()[0] >= 1
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "CAPABILITIES.md: nightly journal pipeline is a no-op - journal_generation.py:21 "
-    "imports memory/self_manager from admin_api, which still holds the None copies"))
 def test_job_daily_journal_writes_journal(app):
     import main_sdk
 
@@ -179,9 +176,6 @@ def test_job_goal_refinement(app):
     assert "goals_checked" in result.data
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/04_autonomy.md 1d: autonomous_research is never registered - "
-    "system_tasks.py reads research_scheduler.config.mode, which doesn't exist"))
 def test_job_autonomous_research(app):
     result = _run_job(app, "autonomous_research")
     assert result.success, result.message
@@ -236,32 +230,58 @@ def test_grimoire_attached_to_thymos_without_starting_it(app):
     assert main_sdk.thymos_runner.running is False
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/05_research_creative.md (RSS feeds): rss.* actions read context['daemon_id'] "
-    "but the spell passes none (it's only under managers), so every step fails"))
 def test_timer_spell_rss_monitor(app):
     _assert_cycle_did_work(*_cast(app, "rss_monitor"))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/04_autonomy.md (action registry): research.run_batch gets "
-    "research_scheduler.ResearchScheduler, which has no refresh_tasks/run_batch"))
 def test_timer_spell_research_synthesis(app):
     _assert_cycle_did_work(*_cast(app, "research_synthesis"))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/05_research_creative.md (Art study): handlers pass a sync anthropic client "
-    "to code that awaits it; also list_studies_for_artist() called without daemon_id"))
 def test_timer_spell_art_study(app):
-    _assert_cycle_did_work(*_cast(app, "art_study"))
+    import art_study
+    from art_study.providers.met_museum import MetMuseumProvider
+
+    async def no_artworks(self, artist_name, limit=10):
+        return []
+
+    async def background(artist_id, anthropic_client=None, daemon_id=None):
+        # Stands in for the Wikipedia fetch; the client must be awaitable.
+        response = await anthropic_client.messages.create(
+            model="smoke", max_tokens=10, messages=[{"role": "user", "content": "bio"}])
+        return response.content[0].text
+
+    # No network in smoke tests: stub the Met API and the Wikipedia fetch.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(MetMuseumProvider, "get_artworks_by_artist", no_artworks)
+        mp.setattr(art_study, "study_artist_background", background)
+        _assert_cycle_did_work(*_cast(app, "art_study"))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "CAPABILITIES.md: spells/goal_executor.spell fails to parse at line 49 "
-    "(ACTION is reserved), so the goal executor never loads"))
 def test_timer_spell_goal_executor(app):
-    _assert_cycle_did_work(*_cast(app, "goal_executor"))
+    import goal_orchestrator
+    from database import get_daemon_id
+    from unified_goals import UnifiedGoalManager, GoalStatus
+
+    # One approved research goal for the executor to pick up. The
+    # goal_orchestrator lever is off here, so set up a bare orchestrator.
+    daemon_id = get_daemon_id()
+    manager = UnifiedGoalManager(daemon_id)
+    goal_orchestrator.init_goal_orchestrator(daemon_id=daemon_id, goal_manager=manager)
+    goal = manager.create_goal(title="Smoke research goal", goal_type="research",
+                               created_by="kohl", description="smoke",
+                               completion_criteria=["ran once"])
+    if goal.status != GoalStatus.APPROVED.value:
+        goal = manager.approve_goal(goal.id, approved_by="kohl")
+    try:
+        result, actions = _cast(app, "goal_executor")
+        _assert_cycle_did_work(result, actions)
+        assert [a for a, _ in actions] == [
+            "goals.get_actionable", "goals.get_next", "goals.start",
+            "research.run_single", "goals.complete"]
+        assert manager.get_goal(goal.id).status == GoalStatus.COMPLETED.value
+    finally:
+        goal_orchestrator._orchestrator_cache.pop(daemon_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -293,9 +313,6 @@ def _cast_need_spell(app, name):
     return result, actions
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/05_research_creative.md (Outreach): social_care calls "
-    "`TASK outreach.draft type=... tone=...` but the handler requires title and content"))
 def test_need_spell_social_care_outreach(app):
     result, actions = _cast_need_spell(app, "social_care")
     assert any(a == "outreach.draft" for a, _ in actions), "outreach.draft not reached"

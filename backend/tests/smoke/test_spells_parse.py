@@ -12,12 +12,7 @@ from grimoire.parser import Parser
 
 SPELLS_DIR = Path(__file__).resolve().parents[2] / "spells"
 
-KNOWN_BROKEN = {
-    "goal_executor.spell": (
-        "CAPABILITIES.md / cards/04_autonomy.md: line 49 uses ACTION, a reserved "
-        "word, so the goal executor never loads"
-    ),
-}
+KNOWN_BROKEN = {}
 
 
 def _params():

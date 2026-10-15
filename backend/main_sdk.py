@@ -875,28 +875,18 @@ async def ha_conversation(request: Request):
     if not text:
         return {"error": "No text provided", "response": "I didn't hear anything."}
 
-    # Use the default daemon for HA conversations
-    daemon_id = DEFAULT_DAEMON_ID if DEFAULT_DAEMON_ID else None
-
-    # Get or create a conversation for this HA session
-    if conversation_id:
-        conv = conversations_db.get(conversation_id) if conversations_db else None
-    else:
+    # Get or create a conversation for this HA session. (This used to call
+    # an undefined conversations_db; use the real ConversationManager.)
+    # The route guard has authenticated the caller; attribute the voice
+    # conversation to them, and only continue a conversation they own.
+    ha_user_id = request.scope.get("cass_user_id")
+    conv = conversation_manager.load_conversation(conversation_id) if conversation_id else None
+    if conv and conv.user_id != ha_user_id:
         conv = None
-
     if not conv:
-        # Create a new conversation for this HA session
-        conv_id = str(uuid.uuid4())
-        if conversations_db:
-            conversations_db.create(
-                id=conv_id,
-                daemon_id=daemon_id,
-                user_id="ha_user",  # Special HA user
-                title=f"Voice: {text[:30]}...",
-            )
-        conversation_id = conv_id
-    else:
-        conversation_id = conv["id"] if isinstance(conv, dict) else conv.id
+        conv = conversation_manager.create_conversation(
+            title=f"Voice: {text[:30]}...", user_id=ha_user_id)
+    conversation_id = conv.id
 
     # Build context for Cass (simplified for voice)
     home_context = ""
@@ -915,32 +905,33 @@ async def ha_conversation(request: Request):
         if home_context:
             enhanced_message = f"[Current home state for context:\n{home_context}]\n\nUser said: {text}"
 
-        # Use the appropriate client
-        if current_llm_provider == "claude":
-            response = await claude_client.generate_response(
-                message=enhanced_message,
-                conversation_id=conversation_id,
-                user_id="ha_user",
-            )
-        elif current_llm_provider == "openai" and openai_client:
-            response = await openai_client.generate_response(
-                message=enhanced_message,
-                conversation_id=conversation_id,
-                user_id="ha_user",
-            )
+        # Use the active provider's client. (This used to call an undefined
+        # claude_client.generate_response and compared against "claude", which
+        # is not a provider value.) No tool loop here: voice gets the text.
+        if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
+            client = ollama_client
+        elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
+            client = openai_client
+        elif current_llm_provider == LLM_PROVIDER_ANTHROPIC and agent_client:
+            client = agent_client
         else:
             return {"error": "No LLM provider available", "response": "I'm not available right now."}
 
-        # Extract the text response
-        response_text = response.content if hasattr(response, 'content') else str(response)
+        response = await client.send_message(
+            message=enhanced_message,
+            conversation_id=conversation_id,
+        )
+        response_text = response.text
 
-        # Store the conversation
+        # Store the conversation (keyword is assistant_response, not assistant_message)
+        conversation_manager.add_message(conversation_id, "user", text, user_id=ha_user_id)
+        conversation_manager.add_message(conversation_id, "assistant", response_text)
         if memory:
             await memory.store_conversation(
                 user_message=text,
-                assistant_message=response_text,
+                assistant_response=response_text,
                 conversation_id=conversation_id,
-                user_id="ha_user",
+                user_id=ha_user_id,
             )
 
         return {
@@ -951,6 +942,8 @@ async def ha_conversation(request: Request):
 
     except Exception as e:
         logger.error(f"HA conversation error: {e}")
+        from strict import report_swallowed
+        report_swallowed(e, "HA conversation", logger)
         return {
             "error": str(e),
             "response": "I encountered an error processing your request.",
@@ -1945,6 +1938,13 @@ async def startup_event():
             budget_manager = BudgetManager(budget_config, token_tracker)
             synkratos = Synkratos(budget_manager, token_tracker)
 
+            # The wiki research scheduler (queue, run_batch, run_single_task).
+            # Not the same class as `research_scheduler` above, which only
+            # stores session requests; the research.* actions, the
+            # autonomous_research job and the nightly journal need this one.
+            from routes.wiki import get_wiki_research_scheduler
+            wiki_research_scheduler = get_wiki_research_scheduler(memory)
+
             # Build runners dict once
             runners_dict = {
                 "research": get_research_runner(),
@@ -1978,8 +1978,8 @@ async def startup_event():
                 "generate_nightly_dream": generate_nightly_dream,
                 "self_manager": self_manager,
                 "data_dir": DATA_DIR,
-                # For autonomous_research handler
-                "research_scheduler": research_scheduler,
+                # For autonomous_research handler (the wiki scheduler)
+                "research_scheduler": wiki_research_scheduler,
             }, enabled=True)
 
             # Register approval providers for unified "what needs my attention?" queue
@@ -2064,8 +2064,8 @@ async def startup_event():
                             "memory": memory,
                             "conversation_manager": conversation_manager,
                             "state_bus": global_state_bus,
-                            # Research & wiki
-                            "research_scheduler": research_scheduler,
+                            # Research & wiki (research.* actions need the wiki scheduler)
+                            "research_scheduler": wiki_research_scheduler,
                             "wiki_manager": wiki_storage,
                             # Tracking
                             "token_tracker": token_tracker,
@@ -2377,7 +2377,7 @@ async def startup_event():
                                                 raw_response_text = response.text
 
                                             if memory and raw_response_text:
-                                                memory.store_conversation(
+                                                await memory.store_conversation(  # async: was never awaited
                                                     user_message=memory_user_msg,
                                                     assistant_response=raw_response_text,
                                                     user_id=linked_user_id,
@@ -2525,6 +2525,10 @@ async def chat(request: ChatRequest):
 
     # Retrieve relevant memories (hierarchical: summaries first, then details)
     memory_context = ""
+    # Set here too: send_message reads them even when include_memory is False
+    # (that used to raise UnboundLocalError).
+    user_context = ""
+    intro_guidance = None
     if request.include_memory:
         hierarchical = memory.retrieve_hierarchical(
             query=request.message,
@@ -2935,8 +2939,9 @@ async def chat(request: ChatRequest):
         clean_text = processed["text"]
         animations = processed["animations"]
     
-    # Store in memory (with conversation_id and user_id if provided)
-    memory.store_conversation(
+    # Store in memory (with conversation_id and user_id if provided).
+    # store_conversation is async; without await nothing was stored.
+    await memory.store_conversation(
         user_message=request.message,
         assistant_response=raw_response,
         conversation_id=request.conversation_id,

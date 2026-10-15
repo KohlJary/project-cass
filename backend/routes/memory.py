@@ -45,7 +45,9 @@ class MemoryQueryRequest(BaseModel):
 async def store_memory(request: MemoryStoreRequest):
     """Manually store conversation in memory"""
     memory = _require_memory()
-    entry_id = memory.store_conversation(
+    # store_conversation is async; without await nothing was stored and the
+    # route returned a coroutine repr as the id.
+    entry_id = await memory.store_conversation(
         user_message=request.user_message,
         assistant_response=request.assistant_response,
         metadata=request.metadata
@@ -74,7 +76,13 @@ async def recent_memories(n: int = 10):
 @router.get("/export")
 async def export_memories():
     """Export all memories"""
+    import json
+    from config import DATA_DIR
+
     memory = _require_memory()
-    filepath = f"./data/memory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    memory.export_memories(filepath)
-    return {"status": "exported", "filepath": filepath}
+    # export_memories() takes no path and returns the data (passing one was a
+    # TypeError); write it out ourselves, under DATA_DIR rather than CWD.
+    data = memory.export_memories()
+    filepath = DATA_DIR / f"memory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    filepath.write_text(json.dumps(data, indent=2, default=str))
+    return {"status": "exported", "filepath": str(filepath), "count": data.get("count", 0)}
