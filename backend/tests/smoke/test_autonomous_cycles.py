@@ -155,9 +155,6 @@ def test_job_daily_journal_writes_dream(app):
         assert conn.execute("SELECT COUNT(*) FROM dreams").fetchone()[0] >= 1
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "CAPABILITIES.md: nightly journal pipeline is a no-op - journal_generation.py:21 "
-    "imports memory/self_manager from admin_api, which still holds the None copies"))
 def test_job_daily_journal_writes_journal(app):
     import main_sdk
 

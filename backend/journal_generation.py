@@ -11,15 +11,18 @@ from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
 def _get_dependencies():
     """
-    Lazily import dependencies from admin_api to avoid circular imports.
+    Lazily read the live managers from routes.admin to avoid circular imports.
 
-    IMPORTANT: Import from admin_api, NOT main_sdk!
-    main_sdk runs as __main__, so importing from it causes a fresh module load
-    with all globals reset to None. admin_api's module-level variables are
-    populated by init_managers() and stay consistent.
+    Read them as attributes of the routes.admin module at call time, NOT via
+    `from admin_api import memory`: admin_api copies the names once at import
+    (while they're still None), and init_managers() only rebinds routes.admin's
+    globals, so the admin_api copies stay None forever and the pipeline no-ops.
+    (Also don't import from main_sdk: it runs as __main__, so importing it
+    loads a fresh copy with every global reset to None.)
     """
-    from admin_api import memory, users as user_manager, self_manager, token_usage_tracker as token_tracker
-    return memory, token_tracker, self_manager, user_manager
+    import routes.admin as admin_state
+    return (admin_state.memory, admin_state.token_usage_tracker,
+            admin_state.self_manager, admin_state.users)
 
 
 def _get_daemon_activity_mode() -> str:
@@ -282,6 +285,8 @@ async def generate_missing_journals(days_to_check: int = 7):
             print(f"   ✗ Failed to generate journal for {date_str}: {e}")
             import traceback
             traceback.print_exc()
+            from strict import report_swallowed
+            report_swallowed(e, f"Nightly journal pipeline for {date_str}")
 
     return generated
 
@@ -355,22 +360,26 @@ async def _generate_user_observations_for_date(user_id: str, date_str: str):
 
     print(f"   👤 Extracting observations about {profile.display_name}...")
 
-    observations = await memory.extract_user_observations(
+    # CassMemory has no extract_user_observations; generate_user_observations
+    # is the real extractor (same call as routes/journals.py). It takes the
+    # conversations as one text blob and returns plain observation strings.
+    conversation_text = "\n\n---\n\n".join(
+        conv.get("content", "") for conv in user_conversations[:15]
+    )
+    observations = await memory.generate_user_observations(
         user_id=user_id,
         display_name=profile.display_name,
-        conversations=user_conversations,
+        conversation_text=conversation_text,
         anthropic_api_key=ANTHROPIC_API_KEY,
-        token_tracker=token_tracker
     )
 
     added = 0
-    for obs_data in observations:
+    for obs_text in observations:
         obs = user_manager.add_observation(
             user_id=user_id,
-            observation=obs_data["observation"],
-            category=obs_data.get("category", "general"),
-            confidence=obs_data.get("confidence", 0.7),
-            source="journal_extraction"
+            observation=obs_text,
+            source_type="journal",
+            source_journal_date=date_str,
         )
         if obs:
             memory.embed_user_observation(
@@ -629,6 +638,8 @@ Write in first person as Cass. Be genuine and thoughtful, not performative."""
         print(f"   ✗ Failed to generate research journal: {e}")
         import traceback
         traceback.print_exc()
+        from strict import report_swallowed
+        report_swallowed(e, "Nightly research journal")
 
 
 async def _review_intentions_for_date(date_str: str, conversations: list):
