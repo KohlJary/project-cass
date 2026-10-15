@@ -3,6 +3,14 @@ Focused tests for the security lockdown: file roots, git option injection,
 attachment traversal, read_file denials, bootstrap lockout, JWT secrets,
 demo mode.
 """
+import pytest
+
+# These tests import the app and its routes, which need the full runtime deps
+# (requirements.txt). The fast CI job installs only requirements-test.txt, so
+# skip the whole module there; the full job runs it.
+for _mod in ("anthropic", "networkx", "slowapi", "multipart"):
+    pytest.importorskip(_mod)
+
 import asyncio
 import os
 import subprocess
