@@ -174,3 +174,55 @@ def module_app(template_db, tmp_path_factory, **lever_values):
                     yield client
     finally:
         _point_db_at(original)
+
+
+# ---------------------------------------------------------------------------
+# Authentication (the app is default-deny: see route_guard.py)
+# ---------------------------------------------------------------------------
+
+def create_user(display_name="Smoke Tester", is_admin=False):
+    """Insert a real user row and return its id."""
+    import uuid
+    from datetime import datetime
+    from database import get_db
+
+    user_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, display_name, is_admin, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, display_name, 1 if is_admin else 0, now, now),
+        )
+    return user_id
+
+
+def access_token(user_id):
+    """A valid access token for `user_id`, issued the way /auth/login issues it."""
+    from auth import create_access_token
+    return create_access_token(user_id)
+
+
+@pytest.fixture
+def smoke_user(test_db):
+    """(user_id, token) for a regular logged-in user."""
+    user_id = create_user()
+    return user_id, access_token(user_id)
+
+
+def admin_token(user_id, display_name="Smoke Admin"):
+    """An admin-dashboard token (the kind /admin/auth/login issues).
+
+    Routes that declare `require_admin` only accept this token family; the
+    app-wide route guard accepts either family and checks users.is_admin.
+    """
+    from routes.admin.auth import create_token
+    token, _expires = create_token(user_id, display_name, is_admin=True)
+    return token
+
+
+@pytest.fixture
+def smoke_admin(test_db):
+    """(user_id, admin-dashboard token) for an admin user."""
+    user_id = create_user("Smoke Admin", is_admin=True)
+    return user_id, admin_token(user_id)

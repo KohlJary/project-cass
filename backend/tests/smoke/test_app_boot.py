@@ -40,3 +40,14 @@ def test_no_llm_called_during_boot(booted_app, fake_llm):
 
 def test_feature_endpoint_mounted_behind_admin_auth(booted_app):
     assert booted_app.get("/admin/features").status_code == 401
+
+
+def test_feature_endpoint_answers_admins_only(booted_app, smoke_admin, smoke_user):
+    _, admin_token = smoke_admin
+    _, user_token = smoke_user
+    response = booted_app.get("/admin/features", headers={"Authorization": f"Bearer {admin_token}"})
+    assert response.status_code == 200
+    assert {row["name"] for row in response.json()["levers"]} >= {"scheduler", "thymos"}
+    denied = booted_app.get("/admin/features", headers={"Authorization": f"Bearer {user_token}"})
+    # require_admin rejects a non-admin user's token (401: wrong token family)
+    assert denied.status_code in (401, 403)

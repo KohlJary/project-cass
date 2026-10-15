@@ -7,16 +7,23 @@ response frame out -> turn persisted to SQLite.
 from tests.fakes.llm import ScriptedResponse
 
 
-def _chat(client, message):
-    """Send one chat message over /ws; return (response_frame, all_frames)."""
+# Frames the server sends while a turn is in progress. Anything else (an
+# auth_error, an unknown type) ends the turn, so a test fails fast instead of
+# waiting forever for a "response" that will never come.
+PROGRESS_FRAMES = {"thinking", "debug", "title_updated", "status"}
+
+
+def _chat(client, token, message):
+    """Send one authenticated chat message over /ws; return (final_frame, all_frames)."""
     frames = []
-    with client.websocket_connect("/ws") as ws:
-        assert ws.receive_json()["type"] == "connected"
+    with client.websocket_connect(f"/ws?token={token}") as ws:
+        connected = ws.receive_json()
+        assert connected["type"] == "connected", connected
         ws.send_json({"type": "chat", "message": message})
         while True:
             frame = ws.receive_json()
             frames.append(frame)
-            if frame["type"] in ("response", "error"):
+            if frame.get("type") not in PROGRESS_FRAMES:
                 return frame, frames
 
 
@@ -36,10 +43,20 @@ def _chat_calls(fake_llm):
     return [c for c in fake_llm.calls if c.tools]
 
 
-def test_plain_chat_turn(booted_app, fake_llm):
+def test_anonymous_chat_is_rejected(booted_app, fake_llm):
+    """The security guard holds on the real app: no token, no chat, no LLM spend."""
+    with booted_app.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["type"] == "connected"
+        ws.send_json({"type": "chat", "message": "hi"})
+        assert ws.receive_json()["type"] == "auth_error"
+    assert fake_llm.calls == []
+
+
+def test_plain_chat_turn(booted_app, fake_llm, smoke_user):
+    user_id, token = smoke_user
     fake_llm.queue_text("Hello Kohl, good to see you.", input_tokens=120, output_tokens=9)
 
-    frame, frames = _chat(booted_app, "hi cass")
+    frame, frames = _chat(booted_app, token, "hi cass")
 
     assert frame["type"] == "response", frames
     assert frame["text"] == "Hello Kohl, good to see you."
@@ -63,13 +80,14 @@ def test_plain_chat_turn(booted_app, fake_llm):
     assert stored[1]["input_tokens"] == 120
 
 
-def test_chat_turn_with_tool_call(booted_app, fake_llm):
+def test_chat_turn_with_tool_call(booted_app, fake_llm, smoke_user):
+    user_id, token = smoke_user
     # Turn 1: the model calls a tool. Turn 2: it answers using the result.
     fake_llm.queue_tool_use("lookup_person", {"name": "Kohl"}, text="Let me check.",
                             tool_id="toolu_smoke_1")
     fake_llm.queue(ScriptedResponse(text="I don't have notes on Kohl yet."))
 
-    frame, frames = _chat(booted_app, "what do you know about Kohl?")
+    frame, frames = _chat(booted_app, token, "what do you know about Kohl?")
 
     assert frame["type"] == "response", frames
     assert frame["text"] == "I don't have notes on Kohl yet."
