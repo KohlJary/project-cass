@@ -30,6 +30,7 @@ except ImportError:
         "test_security_lockdown.py",   # imports routes / handlers needing runtime deps
         "test_silent_breakage.py",     # imports scheduler / handlers needing runtime deps
         "test_goal_tools.py",          # imports self_model_graph (networkx)
+        "test_email_autoreply.py",     # auto-reply path imports networkx
     ]
 
 # Feature levers: every background/autonomous/external subsystem is OFF in

@@ -55,6 +55,8 @@ class Email:
     attachments_json: Optional[str]
     created_at: str
     sent_at: Optional[str]
+    # Why inbound mail looks automated (list, bulk, auto-reply); None = a person
+    automated_reason: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -86,6 +88,7 @@ class Email:
             attachments_json=row.get('attachments_json'),
             created_at=row['created_at'],
             sent_at=row.get('sent_at'),
+            automated_reason=row.get('automated_reason'),
         )
 
     def format_summary(self) -> str:
@@ -115,6 +118,50 @@ class Email:
             lines.append(f"\n{body_preview}")
 
         return "\n".join(lines)
+
+
+# Local parts that mean "nobody reads replies here".
+_NO_REPLY_LOCAL_PARTS = re.compile(
+    r"^(no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer[-_.]daemon|postmaster|bounces?|"
+    r"notifications?|alerts?|news(letter)?|digest|automated|auto[-_.]?(reply|responder))"
+    r"([-_.+].*)?$",
+    re.IGNORECASE,
+)
+
+
+def email_address_of(from_address: str) -> str:
+    """'Name <a@b.c>' -> 'a@b.c' (lowercased)."""
+    match = re.search(r'<([^>]+)>', from_address or "")
+    return (match.group(1) if match else (from_address or "")).strip().lower()
+
+
+def detect_automated_sender(from_address: str, email_data: Optional[Dict] = None) -> Optional[str]:
+    """Why this inbound email should never get an auto-reply, or None.
+
+    Looks at the sender address (no-reply@, mailer-daemon@, ...) and, when the
+    relay forwards them, the standard headers that mark mail as automated:
+    List-Id/List-Unsubscribe (mailing lists), Precedence: bulk/list/junk,
+    Auto-Submitted (RFC 3834 auto-responses) and X-Auto-Response-Suppress.
+    """
+    local_part = email_address_of(from_address).split("@")[0]
+    if _NO_REPLY_LOCAL_PARTS.match(local_part):
+        return f"no-reply sender ({local_part}@)"
+
+    data = email_data or {}
+    headers = {k.lower(): v for k, v in (data.get("headers") or {}).items()}
+    headers.update({k.lower(): v for k, v in data.items() if isinstance(v, str)})
+
+    if headers.get("list-id") or headers.get("list-unsubscribe"):
+        return "mailing list"
+    precedence = (headers.get("precedence") or "").strip().lower()
+    if precedence in ("bulk", "list", "junk"):
+        return f"precedence: {precedence}"
+    auto_submitted = (headers.get("auto-submitted") or "").strip().lower()
+    if auto_submitted and auto_submitted != "no":
+        return f"auto-submitted: {auto_submitted}"
+    if headers.get("x-auto-response-suppress"):
+        return "auto-response suppressed"
+    return None
 
 
 class EmailManager:
@@ -199,6 +246,7 @@ class EmailManager:
             attachments_json=json_serialize(email_data.get('attachments', [])),
             created_at=now,
             sent_at=None,
+            automated_reason=detect_automated_sender(from_address, email_data),
         )
 
         # Store
@@ -208,15 +256,15 @@ class EmailManager:
                     id, daemon_id, direction, status, message_id,
                     from_address, to_address, subject, body_plain, body_html,
                     in_reply_to, thread_id, goal_id, stakeholder_id,
-                    conversation_id, attachments_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    conversation_id, attachments_json, created_at, automated_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 email.id, email.daemon_id, email.direction, email.status,
                 email.message_id, email.from_address, email.to_address,
                 email.subject, email.body_plain, email.body_html,
                 email.in_reply_to, email.thread_id, email.goal_id,
                 email.stakeholder_id, email.conversation_id,
-                email.attachments_json, email.created_at,
+                email.attachments_json, email.created_at, email.automated_reason,
             ))
 
         # Emit event
@@ -474,6 +522,46 @@ class EmailManager:
             """, (self._daemon_id,))
             return [Email.from_row(dict(row)) for row in cursor.fetchall()]
 
+    def own_addresses(self) -> set:
+        """Addresses Cass sends from (her own outbound mail)."""
+        addresses = {f"cass@{self._get_domain()}".lower()}
+        with get_db() as conn:
+            for row in conn.execute(
+                "SELECT DISTINCT from_address FROM emails WHERE daemon_id = ? AND direction = 'outbound'",
+                (self._daemon_id,),
+            ):
+                addresses.add(email_address_of(row[0]))
+        return addresses
+
+    def has_replied_to(self, email: "Email") -> bool:
+        """True if Cass already sent (or queued) a reply to this inbound email."""
+        keys = [k for k in (email.message_id, email.id) if k]
+        if not keys:
+            return False
+        placeholders = ",".join("?" for _ in keys)
+        with get_db() as conn:
+            row = conn.execute(f"""
+                SELECT 1 FROM emails
+                WHERE daemon_id = ? AND direction = 'outbound'
+                AND status IN ('queued', 'sent')
+                AND in_reply_to IN ({placeholders})
+                LIMIT 1
+            """, (self._daemon_id, *keys)).fetchone()
+        return row is not None
+
+    def is_duplicate_delivery(self, email: "Email") -> bool:
+        """True if an earlier inbound row has the same message_id (relay redelivery)."""
+        if not email.message_id:
+            return False
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT 1 FROM emails
+                WHERE daemon_id = ? AND direction = 'inbound' AND message_id = ?
+                AND id != ? AND created_at <= ?
+                LIMIT 1
+            """, (self._daemon_id, email.message_id, email.id, email.created_at)).fetchone()
+        return row is not None
+
     def mark_processed(self, email_id: str) -> bool:
         """Mark email as processed."""
         with get_db() as conn:
@@ -484,12 +572,17 @@ class EmailManager:
             return cursor.rowcount > 0
 
     def mark_processing(self, email_id: str) -> bool:
-        """Mark email as being processed."""
+        """Claim an unprocessed email. False if it was already claimed/handled.
+
+        Only flips 'received' -> 'processing', so two overlapping inbox checks
+        (startup + a phase change) can't both reply to the same email.
+        """
         with get_db() as conn:
             cursor = conn.execute("""
                 UPDATE emails SET status = ?
-                WHERE id = ? AND daemon_id = ?
-            """, (EmailStatus.PROCESSING.value, email_id, self._daemon_id))
+                WHERE id = ? AND daemon_id = ? AND status = ?
+            """, (EmailStatus.PROCESSING.value, email_id, self._daemon_id,
+                  EmailStatus.RECEIVED.value))
             return cursor.rowcount > 0
 
     def get_emails_for_goal(self, goal_id: str) -> List[Email]:

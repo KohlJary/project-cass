@@ -501,6 +501,25 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 53:
         print("Adding timers table for countdown timer support (v53)")
 
+    # v53 -> v54: Remember why an inbound email looks automated (mailing list,
+    # auto-responder, bulk) so Cass never auto-replies to it
+    if from_version < 54:
+        cursor = conn.execute("PRAGMA table_info(emails)")
+        if "automated_reason" not in {row[1] for row in cursor.fetchall()}:
+            conn.execute("ALTER TABLE emails ADD COLUMN automated_reason TEXT")
+        # Quiet-hours columns: QuietHoursManager used to add these at runtime
+        cursor = conn.execute("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in cursor.fetchall()}
+        for column, ddl in (
+            ("quiet_hours_enabled", "INTEGER DEFAULT 0"),
+            ("quiet_hours_start", "INTEGER DEFAULT 22"),
+            ("quiet_hours_end", "INTEGER DEFAULT 8"),
+            ("quiet_hours_timezone", "TEXT DEFAULT 'America/Los_Angeles'"),
+        ):
+            if column not in user_columns:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {column} {ddl}")
+        print("Adding emails.automated_reason and users.quiet_hours_* (v54)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

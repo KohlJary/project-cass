@@ -185,6 +185,291 @@ def update_llm_clients(agent_client=None, openai_client=None, ollama_client=None
         _state["ollama_client"] = ollama_client
 
 
+# =============================================================================
+# Shared chat-turn helpers (used by the websocket loop and the mobile relay)
+# =============================================================================
+
+def mark_user_activity() -> None:
+    """Tell Synkratos a person is active, so idle-only jobs wait.
+
+    Synkratos treats "no activity for 5 minutes" as idle. Nothing used to
+    report activity, so idle-only jobs (e.g. idle summarization) ran even in
+    the middle of a conversation. Called once per chat turn.
+    """
+    try:
+        from routes.admin.scheduler import get_scheduler
+        scheduler = get_scheduler()
+        if scheduler is not None:
+            scheduler.record_activity()
+    except Exception as e:
+        # Never let bookkeeping break a chat turn.
+        print(f"[Activity] Could not record activity: {e}")
+
+
+async def execute_tools_safely(execute_tool_batch, tool_uses, tool_ctx, executors) -> List[Dict]:
+    """Run a turn's tool calls; a tool that raises becomes an error result.
+
+    Before, one tool exception escaped the websocket loop, dropped the
+    connection and the turn was never saved. Now the model gets an
+    is_error tool_result it can react to, and the turn completes.
+    Tools run one at a time, as execute_tool_batch already did.
+    """
+    from strict import report_swallowed
+
+    results = []
+    for tool_use in tool_uses:
+        try:
+            results.extend(await execute_tool_batch([tool_use], tool_ctx, executors))
+        except Exception as e:
+            results.append({
+                "tool_use_id": tool_use["id"],
+                "result": f"Tool '{tool_use.get('tool')}' failed: {type(e).__name__}: {e}",
+                "is_error": True,
+            })
+            # Loud in tests (CASS_STRICT=1), a log line in production.
+            report_swallowed(e, f"[Tools] {tool_use.get('tool')} raised during a chat turn")
+    return results
+
+
+def extract_generated_images(tool_uses: List[Dict], tool_results: List[Dict]) -> List[Dict]:
+    """Pull image metadata out of successful generate_image tool results."""
+    import re
+    images = []
+    for tool_use, result in zip(tool_uses, tool_results):
+        # Results from execute_tool_batch carry is_error (not success)
+        if tool_use['tool'] != 'generate_image' or result.get('is_error', not result.get('success', False)):
+            continue
+        result_data = result.get('result', '')
+        # Handle both string and list (content blocks) formats
+        if isinstance(result_data, list):
+            # Extract text from first content block
+            result_str = next((b.get('text', '') for b in result_data if b.get('type') == 'text'), '')
+        else:
+            result_str = result_data
+        path_match = re.search(r'path:\s*"([^"]+)"', result_str)
+        style_match = re.search(r'style:\s*"([^"]+)"', result_str)
+        purpose_match = re.search(r'purpose:\s*"([^"]+)"', result_str)
+        image_id_match = re.search(r'image_id:\s*"([^"]+)"', result_str)
+        dims_match = re.search(r'Dimensions:\s*(\d+)x(\d+)', result_str)
+        if path_match:
+            images.append({
+                'url': path_match.group(1),
+                'style': style_match.group(1) if style_match else None,
+                'purpose': purpose_match.group(1) if purpose_match else None,
+                'image_id': image_id_match.group(1) if image_id_match else None,
+                'width': int(dims_match.group(1)) if dims_match else None,
+                'height': int(dims_match.group(2)) if dims_match else None,
+            })
+            print(f"[Image] Extracted generated image: {path_match.group(1)}")
+    return images
+
+
+def max_tool_iterations() -> int:
+    """Cap on model->tool->model round trips per chat turn (config, env-overridable)."""
+    from config import CHAT_MAX_TOOL_ITERATIONS
+    return CHAT_MAX_TOOL_ITERATIONS
+
+
+async def finalize_chat_turn(
+    *,
+    user_message: str,
+    raw_response: str,
+    clean_text: str,
+    animations: List[Dict],
+    conversation_id: Optional[str],
+    user_id: Optional[str],
+    input_tokens: int,
+    output_tokens: int,
+    provider: str,
+    model: str,
+    tool_iterations: int,
+    summarize_requested: bool,
+    websocket=None,
+) -> Dict[str, Any]:
+    """Post-turn pipeline shared by every chat entry point.
+
+    Strips and stores marks, symbols, interests and inline tags; stores the
+    exchange in ChromaDB and SQLite; records tokens; updates the state bus;
+    and kicks off title generation and summarization. The websocket loop
+    always did all of this; the mobile relay skipped most of it.
+
+    Returns the cleaned text plus everything extracted, for the response frame.
+    """
+    from markers import parse_marks
+    from symbols import parse_symbols, store_extracted_symbols
+    from interests import parse_interests, store_extracted_interests
+
+    memory = _state["memory"]
+    conversation_manager = _state["conversation_manager"]
+    marker_store = _state["marker_store"]
+    token_tracker = _state["token_tracker"]
+    daemon_id = _state["daemon_id"]
+    process_inline_tags = _state["process_inline_tags"]
+    get_narration_metrics = _state["get_narration_metrics"]
+    generate_conversation_title = _state["generate_conversation_title"]
+    generate_and_store_summary = _state["generate_and_store_summary"]
+    AUTO_SUMMARY_INTERVAL = _state["auto_summary_interval"]
+
+    # Extract and store recognition-in-flow marks before other processing
+    clean_text, marks = parse_marks(clean_text, conversation_id)
+    if marks and marker_store:
+        stored = marker_store.store_marks(marks)
+        if stored > 0:
+            print(f"  Stored {stored} recognition-in-flow mark(s)")
+
+    # Extract and store personal symbols
+    clean_text, extracted_symbols = parse_symbols(clean_text)
+    if extracted_symbols and daemon_id:
+        stored_symbols = store_extracted_symbols(
+            extracted_symbols,
+            daemon_id=daemon_id,
+            source_type="conversation",
+            source_id=conversation_id
+        )
+        if stored_symbols > 0:
+            print(f"  Stored {stored_symbols} personal symbol(s)")
+
+    # Extract and store personal interests
+    clean_text, extracted_interests = parse_interests(clean_text)
+    if extracted_interests and daemon_id:
+        stored_interests = store_extracted_interests(
+            extracted_interests,
+            daemon_id=daemon_id,
+            source_type="conversation",
+            source_id=conversation_id
+        )
+        if stored_interests > 0:
+            print(f"  Stored {stored_interests} personal interest(s)")
+
+    # Process inline XML tags (observations, roadmap items) and strip them
+    # Returns dict with cleaned text and all extracted metacognitive tags
+    processed_tags = await process_inline_tags(
+        text=clean_text,
+        conversation_id=conversation_id,
+        user_id=user_id
+    )
+    clean_text = processed_tags["text"]
+    extracted = {
+        "self_observations": processed_tags["self_observations"],
+        "user_observations": processed_tags["user_observations"],
+        "holds": processed_tags["holds"],
+        "notes": processed_tags["notes"],
+        "intentions": processed_tags["intentions"],
+        "stakes": processed_tags["stakes"],
+        "tests": processed_tags["tests"],
+        "narrations": processed_tags["narrations"],
+        "milestones": processed_tags["milestones"],
+        "feels": processed_tags.get("feels", []),
+    }
+
+    # Store in memory (with conversation_id and user_id if provided)
+    if memory:
+        await memory.store_conversation(
+            user_message=user_message,
+            assistant_response=raw_response,
+            conversation_id=conversation_id,
+            user_id=user_id
+        )
+
+    # Store in conversation if conversation_id provided
+    if conversation_id:
+        conversation_manager.add_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=user_message,
+            user_id=user_id
+        )
+        # Convert marks to dicts for storage
+        marks_for_storage = [
+            {"category": m.category, "description": m.description}
+            for m in marks
+        ] if marks else None
+
+        # Analyze narration patterns
+        narration_metrics = get_narration_metrics(clean_text)
+
+        conversation_manager.add_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=clean_text,
+            animations=animations,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            provider=provider,
+            model=model,
+            self_observations=extracted["self_observations"] or None,
+            user_observations=extracted["user_observations"] or None,
+            marks=marks_for_storage,
+            narration_metrics=narration_metrics,
+            holds=extracted["holds"] or None,
+            notes=extracted["notes"] or None,
+            intentions=extracted["intentions"] or None,
+            stakes=extracted["stakes"] or None,
+            tests=extracted["tests"] or None,
+            narrations=extracted["narrations"] or None,
+            milestones=extracted["milestones"] or None
+        )
+
+        # Track token usage
+        operation = "tool_continuation" if tool_iterations > 0 else "initial_message"
+        token_tracker.record(
+            category="chat",
+            operation=operation,
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            conversation_id=conversation_id,
+            user_id=user_id
+        )
+
+        # Update global state bus with emotional state from emotes
+        state_bus = _state.get("state_bus")
+        if state_bus and animations:
+            from gestures import extract_emotional_state, should_write_emotional_delta
+            from state_models import StateDelta
+
+            emotional_delta = extract_emotional_state(animations)
+            if should_write_emotional_delta(emotional_delta):
+                delta = StateDelta(
+                    source="chat",
+                    emotional_delta=emotional_delta,
+                    activity_delta={
+                        "current_activity": "chat",
+                        "active_user_id": user_id,
+                    },
+                    reason=f"Chat response with emotes: {[a['name'] for a in animations if a.get('type') == 'emote']}"
+                )
+                state_bus.write_delta(delta)
+
+        # Auto-generate title on first exchange
+        message_count = conversation_manager.get_message_count(conversation_id)
+        if message_count == 2:  # First user + first assistant message
+            asyncio.create_task(generate_conversation_title(
+                conversation_id, user_message, clean_text,
+                conversation_manager=conversation_manager,
+                token_tracker=token_tracker,
+                websocket=websocket
+            ))
+
+        # Summarize on a <memory:summarize> tag or after the auto-summary threshold
+        should_summarize = summarize_requested
+        if conversation_manager.needs_auto_summary(conversation_id, AUTO_SUMMARY_INTERVAL):
+            should_summarize = True
+
+        if should_summarize:
+            # Run summarization in background, pass websocket for status updates
+            asyncio.create_task(generate_and_store_summary(
+                conversation_id,
+                memory=memory,
+                conversation_manager=conversation_manager,
+                token_tracker=token_tracker,
+                websocket=websocket
+            ))
+
+    return {"clean_text": clean_text, "marks": marks, **extracted}
+
+
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     """
     WebSocket for real-time bidirectional communication.
@@ -328,6 +613,21 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
             if data.get("type") == "chat":
                 timing_start = time.time()
+
+                # Re-read the provider and clients every turn, not once per
+                # connection: a provider switch (/settings/llm-provider) or a
+                # client re-init must reach sockets that are already open.
+                current_llm_provider = _state["current_llm_provider"]
+                agent_client = _state["agent_client"]
+                openai_client = _state["openai_client"]
+                ollama_client = _state["ollama_client"]
+                USE_AGENT_SDK = _state["use_agent_sdk"]
+                tts_enabled = _state["tts_enabled"]
+                tts_voice = _state["tts_voice"]
+                tts_provider = _state["tts_provider"]
+
+                # A person is talking: idle-only background jobs should wait.
+                mark_user_activity()
 
                 # Get connection-local user_id (may have been set via auth message)
                 ws_user_id = manager.get_user_id(websocket)
@@ -562,171 +862,50 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 tool_iterations_count = 0
                 total_cache_read_tokens = 0  # Track Anthropic prompt cache hits
 
-                # Check if using local LLM
+                # One shape for all three providers: send, then loop over tool
+                # calls. Every provider gets the continuous-context prompt and
+                # recent history (OpenAI/Ollama used to get neither), each turn
+                # carries its own ToolChain (the clients are shared singletons),
+                # tool exceptions become error results, and the loop is capped.
                 if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-                    # Use local Ollama for response (with tool support for llama3.1+)
-                    response = await ollama_client.send_message(
-                        message=user_message,
-                        memory_context=memory_context,
-                        project_id=project_id,
-                        unsummarized_count=unsummarized_count,
-                        conversation_id=conversation_id,
-                        user_context=user_context if user_context else None,
-                        intro_guidance=intro_guidance,
-                        user_model_context=user_model_context,
-                        relationship_context=relationship_context,
-                        global_state_context=global_state_context,
-                        current_activity=current_activity,
-                    )
-                    raw_response = response.raw
-                    clean_text = response.text
-                    animations = response.gestures
-                    tool_uses = response.tool_uses
-                    total_input_tokens = response.input_tokens
-                    total_output_tokens = response.output_tokens
-                    generated_images = []  # Track images generated during this request
-
-                    # Handle tool calls for Ollama (same as Anthropic)
-                    tool_iteration = 0
-                    while response.stop_reason == "tool_use" and tool_uses:
-                        tool_iteration += 1
-                        tool_iterations_count += 1
-                        tool_names = [t['tool'] for t in tool_uses]
-                        tool_names_collected.extend(tool_names)
-                        tool_loop_start = time.time()
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Ollama Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "thinking",
-                            "status": f"Executing: {', '.join(tool_names)}...",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        # Get user name for self-model tools
-                        user_name = None
-                        if ws_user_id:
-                            user_profile = user_manager.load_profile(ws_user_id)
-                            user_name = user_profile.display_name if user_profile else None
-
-                        # Execute all tools via unified router
-                        tool_ctx = create_tool_context(
-                            user_id=ws_user_id,
-                            user_name=user_name,
-                            conversation_id=conversation_id,
-                            project_id=project_id
-                        )
-                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
-
-                        # Continue conversation with all tool results
-                        response = await ollama_client.continue_with_tool_results(all_tool_results)
-
-                        # Track tool execution time for this iteration
-                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
-
-                        # Update response data
-                        raw_response = response.raw
-                        clean_text = response.text
-                        animations = response.gestures
-                        tool_uses = response.tool_uses
-                        total_input_tokens += response.input_tokens
-                        total_output_tokens += response.output_tokens
-
+                    turn_client = ollama_client
+                    loop_label = "Ollama Tool Loop"
                 elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
-                    # Use OpenAI API
-                    response = await openai_client.send_message(
-                        message=user_message,
-                        memory_context=memory_context,
-                        project_id=project_id,
-                        unsummarized_count=unsummarized_count,
-                        conversation_id=conversation_id,
-                        user_context=user_context if user_context else None,
-                        intro_guidance=intro_guidance,
-                        user_model_context=user_model_context,
-                        relationship_context=relationship_context,
-                        global_state_context=global_state_context,
-                        current_activity=current_activity,
-                    )
-                    raw_response = response.raw
-                    clean_text = response.text
-                    animations = response.gestures
-                    tool_uses = response.tool_uses
-                    total_input_tokens = response.input_tokens
-                    total_output_tokens = response.output_tokens
-                    generated_images = []  # Track images generated during this request
-
-                    # Handle tool calls for OpenAI (same pattern as others)
-                    tool_iteration = 0
-                    while response.stop_reason == "tool_use" and tool_uses:
-                        tool_iteration += 1
-                        tool_iterations_count += 1
-                        tool_names = [t['tool'] for t in tool_uses]
-                        tool_names_collected.extend(tool_names)
-                        tool_loop_start = time.time()
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[OpenAI Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "thinking",
-                            "status": f"Executing: {', '.join(tool_names)}...",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        # Get user name for self-model tools
-                        user_name = None
-                        if ws_user_id:
-                            user_profile = user_manager.load_profile(ws_user_id)
-                            user_name = user_profile.display_name if user_profile else None
-
-                        # Execute all tools via unified router
-                        tool_ctx = create_tool_context(
-                            user_id=ws_user_id,
-                            user_name=user_name,
-                            conversation_id=conversation_id,
-                            project_id=project_id
-                        )
-                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
-
-                        # Continue conversation with all tool results
-                        response = await openai_client.continue_with_tool_results(all_tool_results)
-
-                        # Track tool execution time for this iteration
-                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
-
-                        # Update response data
-                        raw_response = response.raw
-                        clean_text = response.text
-                        animations = response.gestures
-                        tool_uses = response.tool_uses
-                        total_input_tokens += response.input_tokens
-                        total_output_tokens += response.output_tokens
-
+                    turn_client = openai_client
+                    loop_label = "OpenAI Tool Loop"
                 elif USE_AGENT_SDK and agent_client:
-                    # Use Anthropic Claude API with Agent SDK
-                    response = await agent_client.send_message(
+                    turn_client = agent_client
+                    loop_label = "Tool Loop"
+                else:
+                    turn_client = None
+
+                processed = None
+                generated_images = []  # Track images generated during this request
+                if turn_client is not None:
+                    send_kwargs = dict(
                         message=user_message,
                         memory_context=memory_context,
                         project_id=project_id,
                         unsummarized_count=unsummarized_count,
-                        image=image_data,
-                        image_media_type=image_media_type,
-                        memory=memory,
                         conversation_id=conversation_id,
                         user_context=user_context if user_context else None,
                         intro_guidance=intro_guidance,
                         user_model_context=user_model_context,
                         relationship_context=relationship_context,
-                        threads_context=threads_context if threads_context else None,
-                        questions_context=questions_context if questions_context else None,
                         global_state_context=global_state_context,
                         current_activity=current_activity,
                         continuous_system_prompt=continuous_system_prompt,
                         continuous_messages=continuous_messages,
                     )
+                    if turn_client is agent_client:
+                        send_kwargs.update(
+                            image=image_data,
+                            image_media_type=image_media_type,
+                            memory=memory,
+                            threads_context=threads_context if threads_context else None,
+                            questions_context=questions_context if questions_context else None,
+                        )
+                    response = await turn_client.send_message(**send_kwargs)
                     raw_response = response.raw
                     clean_text = response.text
                     animations = response.gestures
@@ -736,11 +915,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     total_input_tokens = response.input_tokens
                     total_output_tokens = response.output_tokens
                     total_cache_read_tokens = getattr(response, 'cache_read_tokens', 0) or 0
-                    generated_images = []  # Track images generated during this request
+                    turn_chain = response.chain
 
                     # Handle tool calls
                     tool_iteration = 0
+                    tool_cap = max_tool_iterations()
                     while response.stop_reason == "tool_use" and tool_uses:
+                        if tool_iteration >= tool_cap:
+                            print(f"[WebSocket] Tool loop hit the cap ({tool_cap}); ending turn")
+                            await websocket.send_json({
+                                "type": "debug",
+                                "message": f"[{loop_label}] stopped after {tool_cap} iterations (CHAT_MAX_TOOL_ITERATIONS)",
+                                "timestamp": datetime.now().isoformat()
+                            })
+                            break
                         tool_iteration += 1
                         tool_iterations_count += 1
                         # Send status update with debug info
@@ -749,7 +937,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         tool_loop_start = time.time()
                         await websocket.send_json({
                             "type": "debug",
-                            "message": f"[Tool Loop #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
+                            "message": f"[{loop_label} #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
                             "timestamp": datetime.now().isoformat()
                         })
                         await websocket.send_json({
@@ -771,42 +959,23 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             conversation_id=conversation_id,
                             project_id=project_id
                         )
-                        all_tool_results = await execute_tool_batch(tool_uses, tool_ctx, TOOL_EXECUTORS)
+                        all_tool_results = await execute_tools_safely(
+                            execute_tool_batch, tool_uses, tool_ctx, TOOL_EXECUTORS
+                        )
 
                         # Extract any generated images from tool results
-                        import re
-                        for tool_use, result in zip(tool_uses, all_tool_results):
-                            if tool_use['tool'] == 'generate_image' and result.get('success'):
-                                result_data = result.get('result', '')
-                                # Handle both string and list (content blocks) formats
-                                if isinstance(result_data, list):
-                                    # Extract text from first content block
-                                    result_str = next((b.get('text', '') for b in result_data if b.get('type') == 'text'), '')
-                                else:
-                                    result_str = result_data
-                                path_match = re.search(r'path:\s*"([^"]+)"', result_str)
-                                style_match = re.search(r'style:\s*"([^"]+)"', result_str)
-                                purpose_match = re.search(r'purpose:\s*"([^"]+)"', result_str)
-                                image_id_match = re.search(r'image_id:\s*"([^"]+)"', result_str)
-                                dims_match = re.search(r'Dimensions:\s*(\d+)x(\d+)', result_str)
-                                if path_match:
-                                    generated_images.append({
-                                        'url': path_match.group(1),
-                                        'style': style_match.group(1) if style_match else None,
-                                        'purpose': purpose_match.group(1) if purpose_match else None,
-                                        'image_id': image_id_match.group(1) if image_id_match else None,
-                                        'width': int(dims_match.group(1)) if dims_match else None,
-                                        'height': int(dims_match.group(2)) if dims_match else None,
-                                    })
-                                    print(f"[Image] Extracted generated image: {path_match.group(1)}")
+                        generated_images.extend(extract_generated_images(tool_uses, all_tool_results))
 
                         # Submit ALL results at once
                         await websocket.send_json({
                             "type": "debug",
-                            "message": f"[Submitting {len(all_tool_results)} tool results to Claude...]",
+                            "message": f"[Submitting {len(all_tool_results)} tool results to the model...]",
                             "timestamp": datetime.now().isoformat()
                         })
-                        response = await agent_client.continue_with_tool_results(all_tool_results)
+                        response = await turn_client.continue_with_tool_results(
+                            all_tool_results, chain=turn_chain
+                        )
+                        turn_chain = response.chain or turn_chain
 
                         # Debug: log continuation response
                         text_preview = response.text[:200] if response.text else "(empty)"
@@ -821,13 +990,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                             "timestamp": datetime.now().isoformat()
                         })
 
-                        # Update response data
-                        raw_response += "\n" + response.raw
-                        # Only keep final text response - intermediate "let me check..." text wastes tokens
-                        # when stored and loaded as context. Replace instead of accumulate.
-                        if response.text:
+                        if turn_client is agent_client:
+                            # Anthropic: keep every step's raw text (tags can
+                            # appear before a tool call), but only the final
+                            # clean text - intermediate "let me check..." text
+                            # wastes tokens when stored and loaded as context.
+                            raw_response += "\n" + response.raw
+                            if response.text:
+                                clean_text = response.text
+                            animations.extend(response.gestures)
+                        else:
+                            # OpenAI/Ollama: the last step replaces (unchanged behavior)
+                            raw_response = response.raw
                             clean_text = response.text
-                        animations.extend(response.gestures)
+                            animations = response.gestures
                         tool_uses = response.tool_uses
 
                         # Accumulate token usage
@@ -848,192 +1024,56 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     # Legacy mode doesn't track tokens
                     total_input_tokens = 0
                     total_output_tokens = 0
-                    generated_images = []  # Legacy mode doesn't support image generation
-
-                # Extract and store recognition-in-flow marks before other processing
-                clean_text, marks = parse_marks(clean_text, conversation_id)
-                if marks and marker_store:
-                    stored = marker_store.store_marks(marks)
-                    if stored > 0:
-                        print(f"  Stored {stored} recognition-in-flow mark(s)")
-
-                # Extract and store personal symbols
-                clean_text, extracted_symbols = parse_symbols(clean_text)
-                if extracted_symbols and daemon_id:
-                    stored_symbols = store_extracted_symbols(
-                        extracted_symbols,
-                        daemon_id=daemon_id,
-                        source_type="conversation",
-                        source_id=conversation_id
-                    )
-                    if stored_symbols > 0:
-                        print(f"  Stored {stored_symbols} personal symbol(s)")
-
-                # Extract and store personal interests
-                clean_text, extracted_interests = parse_interests(clean_text)
-                if extracted_interests and daemon_id:
-                    stored_interests = store_extracted_interests(
-                        extracted_interests,
-                        daemon_id=daemon_id,
-                        source_type="conversation",
-                        source_id=conversation_id
-                    )
-                    if stored_interests > 0:
-                        print(f"  Stored {stored_interests} personal interest(s)")
-
-                # Process inline XML tags (observations, roadmap items) and strip them
-                # Returns dict with cleaned text and all extracted metacognitive tags
-                processed_tags = await process_inline_tags(
-                    text=clean_text,
-                    conversation_id=conversation_id,
-                    user_id=ws_user_id
-                )
-                clean_text = processed_tags["text"]
-                extracted_self_obs = processed_tags["self_observations"]
-                extracted_user_obs = processed_tags["user_observations"]
-                extracted_holds = processed_tags["holds"]
-                extracted_notes = processed_tags["notes"]
-                extracted_intentions = processed_tags["intentions"]
-                extracted_stakes = processed_tags["stakes"]
-                extracted_tests = processed_tags["tests"]
-                extracted_narrations = processed_tags["narrations"]
-                extracted_milestones = processed_tags["milestones"]
-                extracted_feels = processed_tags.get("feels", [])
-
-                # Store in memory (with conversation_id and user_id if provided)
-                if memory:
-                    await memory.store_conversation(
-                        user_message=user_message,
-                        assistant_response=raw_response,
-                        conversation_id=conversation_id,
-                        user_id=ws_user_id
-                    )
 
                 # Determine provider and model for this response (needed for conversation storage)
-                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
+                if turn_client is ollama_client and ollama_client:
                     response_provider = "local"
                     response_model = ollama_client.model
-                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
+                elif turn_client is openai_client and openai_client:
                     response_provider = "openai"
                     response_model = openai_client.model if hasattr(openai_client, 'model') else "gpt-4o"
-                elif USE_AGENT_SDK and agent_client:
+                elif turn_client is agent_client and agent_client:
                     response_provider = "anthropic"
                     response_model = agent_client.model if hasattr(agent_client, 'model') else DEFAULT_SESSION_MODEL
                 else:
                     response_provider = "anthropic"
                     response_model = DEFAULT_SESSION_MODEL
 
-                # Store in conversation if conversation_id provided
-                if conversation_id:
-                    conversation_manager.add_message(
-                        conversation_id=conversation_id,
-                        role="user",
-                        content=user_message,
-                        user_id=ws_user_id
-                    )
-                    # Convert marks to dicts for storage
-                    marks_for_storage = [
-                        {"category": m.category, "description": m.description}
-                        for m in marks
-                    ] if marks else None
+                # Check for a <memory:summarize> request (legacy mode reports it via memory_tags)
+                if processed is not None:
+                    summarize_requested = bool(processed.get("memory_tags", {}).get("summarize"))
+                else:
+                    summarize_requested = "<memory:summarize>" in raw_response
 
-                    # Analyze narration patterns
-                    narration_metrics = get_narration_metrics(clean_text)
-
-                    conversation_manager.add_message(
-                        conversation_id=conversation_id,
-                        role="assistant",
-                        content=clean_text,
-                        animations=animations,
-                        input_tokens=total_input_tokens,
-                        output_tokens=total_output_tokens,
-                        provider=response_provider,
-                        model=response_model,
-                        self_observations=extracted_self_obs if extracted_self_obs else None,
-                        user_observations=extracted_user_obs if extracted_user_obs else None,
-                        marks=marks_for_storage,
-                        narration_metrics=narration_metrics,
-                        holds=extracted_holds if extracted_holds else None,
-                        notes=extracted_notes if extracted_notes else None,
-                        intentions=extracted_intentions if extracted_intentions else None,
-                        stakes=extracted_stakes if extracted_stakes else None,
-                        tests=extracted_tests if extracted_tests else None,
-                        narrations=extracted_narrations if extracted_narrations else None,
-                        milestones=extracted_milestones if extracted_milestones else None
-                    )
-
-                    # Track token usage
-                    operation = "tool_continuation" if tool_iterations_count > 0 else "initial_message"
-                    token_tracker.record(
-                        category="chat",
-                        operation=operation,
-                        provider=response_provider,
-                        model=response_model,
-                        input_tokens=total_input_tokens,
-                        output_tokens=total_output_tokens,
-                        conversation_id=conversation_id,
-                        user_id=ws_user_id
-                    )
-
-                    # Update global state bus with emotional state from emotes
-                    state_bus = _state.get("state_bus")
-                    if state_bus and animations:
-                        from gestures import extract_emotional_state, should_write_emotional_delta
-                        from state_models import StateDelta
-
-                        emotional_delta = extract_emotional_state(animations)
-                        if should_write_emotional_delta(emotional_delta):
-                            delta = StateDelta(
-                                source="chat",
-                                emotional_delta=emotional_delta,
-                                activity_delta={
-                                    "current_activity": "chat",
-                                    "active_user_id": ws_user_id,
-                                },
-                                reason=f"Chat response with emotes: {[a['name'] for a in animations if a.get('type') == 'emote']}"
-                            )
-                            state_bus.write_delta(delta)
-
-                    # Auto-generate title on first exchange
-                    message_count = conversation_manager.get_message_count(conversation_id)
-                    if message_count == 2:  # First user + first assistant message
-                        asyncio.create_task(generate_conversation_title(
-                            conversation_id, user_message, clean_text,
-                            conversation_manager=conversation_manager,
-                            token_tracker=token_tracker,
-                            websocket=websocket
-                        ))
-
-                    # Check if summarization is needed
-                    should_summarize = False
-
-                    # Check for <memory:summarize> tag
-                    if USE_AGENT_SDK and agent_client:
-                        # In Agent SDK mode, check raw_response directly
-                        if "<memory:summarize>" in raw_response:
-                            should_summarize = True
-                    else:
-                        # In legacy mode, check processed memory_tags
-                        if "memory_tags" in processed and processed["memory_tags"].get("summarize"):
-                            should_summarize = True
-
-                    # Check for auto-summary threshold
-                    if conversation_manager.needs_auto_summary(conversation_id, AUTO_SUMMARY_INTERVAL):
-                        should_summarize = True
-
-                    # Trigger summarization if needed
-                    if should_summarize:
-                        # Run summarization in background, pass websocket for status updates
-                        asyncio.create_task(generate_and_store_summary(
-                            conversation_id,
-                            memory=memory,
-                            conversation_manager=conversation_manager,
-                            token_tracker=token_tracker,
-                            websocket=websocket
-                        ))
-
-                # NOTE: Inline XML tags are now processed via process_inline_tags() above
-                # This handles both tool-based and tag-based observations/roadmap items
+                # Tags, marks, Chroma + SQLite storage, tokens, title, summary.
+                # Shared with the mobile relay (finalize_chat_turn).
+                turn = await finalize_chat_turn(
+                    user_message=user_message,
+                    raw_response=raw_response,
+                    clean_text=clean_text,
+                    animations=animations,
+                    conversation_id=conversation_id,
+                    user_id=ws_user_id,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                    provider=response_provider,
+                    model=response_model,
+                    tool_iterations=tool_iterations_count,
+                    summarize_requested=summarize_requested,
+                    websocket=websocket,
+                )
+                clean_text = turn["clean_text"]
+                marks = turn["marks"]
+                extracted_self_obs = turn["self_observations"]
+                extracted_user_obs = turn["user_observations"]
+                extracted_holds = turn["holds"]
+                extracted_notes = turn["notes"]
+                extracted_intentions = turn["intentions"]
+                extracted_stakes = turn["stakes"]
+                extracted_tests = turn["tests"]
+                extracted_narrations = turn["narrations"]
+                extracted_milestones = turn["milestones"]
+                extracted_feels = turn["feels"]
 
                 # Generate TTS audio if enabled
                 # Pass raw_response so emote tags can be extracted for tone adjustment

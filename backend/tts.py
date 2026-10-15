@@ -14,22 +14,55 @@ import re
 from pathlib import Path
 from typing import Optional
 
-# Piper TTS
-from piper import PiperVoice
-from piper.config import SynthesisConfig
+import shutil
 
 logger = logging.getLogger(__name__)
 
-# Audio conversion
-from pydub import AudioSegment
-import shutil
+# Piper (speech) and pydub (MP3 conversion) are optional. main_sdk imports
+# this module at startup, so a hard import here meant a missing TTS package
+# stopped the whole server from booting. Without them TTS is "unavailable":
+# synthesize() raises TTSUnavailable, which the chat loop already catches.
+try:
+    from piper import PiperVoice
+    from piper.config import SynthesisConfig
+    PIPER_AVAILABLE = True
+except ImportError as e:  # pragma: no cover - depends on the environment
+    PiperVoice = None
+    PIPER_AVAILABLE = False
+    logger.warning(f"Piper TTS not installed; text-to-speech unavailable ({e})")
+
+    class SynthesisConfig:  # minimal stand-in so the emote table below still loads
+        def __init__(self, length_scale=1.0, noise_scale=0.667, noise_w_scale=0.8):
+            self.length_scale = length_scale
+            self.noise_scale = noise_scale
+            self.noise_w_scale = noise_w_scale
+
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError as e:  # pragma: no cover - depends on the environment
+    AudioSegment = None
+    PYDUB_AVAILABLE = False
+    logger.warning(f"pydub not installed; TTS can only produce WAV ({e})")
+
+
+class TTSUnavailable(RuntimeError):
+    """TTS was asked for but its dependencies (or the TTS lever) are off."""
+
+
+def is_available() -> bool:
+    """True when a TTS provider is installed and the "tts" feature lever is on."""
+    from features import is_enabled
+    return bool(get_available_providers()) and is_enabled("tts")
+
 
 # Configure pydub to find ffmpeg
 _ffmpeg_path = shutil.which("ffmpeg") or "/sbin/ffmpeg" or "/usr/bin/ffmpeg"
 _ffprobe_path = shutil.which("ffprobe") or "/sbin/ffprobe" or "/usr/bin/ffprobe"
-AudioSegment.converter = _ffmpeg_path
-AudioSegment.ffmpeg = _ffmpeg_path
-AudioSegment.ffprobe = _ffprobe_path
+if PYDUB_AVAILABLE:
+    AudioSegment.converter = _ffmpeg_path
+    AudioSegment.ffmpeg = _ffmpeg_path
+    AudioSegment.ffprobe = _ffprobe_path
 
 # Model configuration
 MODELS_DIR = Path(__file__).parent / "models" / "piper"
@@ -112,8 +145,10 @@ def _get_model_path(model_name: str) -> Path:
     return MODELS_DIR / f"{model_name}.onnx"
 
 
-def _load_voice(model_name: str = DEFAULT_MODEL) -> PiperVoice:
+def _load_voice(model_name: str = DEFAULT_MODEL) -> "PiperVoice":
     """Load a Piper voice, with caching"""
+    if not PIPER_AVAILABLE:
+        raise TTSUnavailable("Piper TTS is not installed (pip install piper-tts)")
     if model_name not in _voice_cache:
         model_path = _get_model_path(model_name)
         if not model_path.exists():
@@ -237,6 +272,8 @@ def text_to_speech(
 
     # Convert to MP3 for smaller size (important for WebSocket transfer)
     # Using 32k bitrate for smaller files - still good quality for speech
+    if not PYDUB_AVAILABLE:
+        raise TTSUnavailable("pydub is not installed, so MP3 output is unavailable (use output_format='wav')")
     wav_io.seek(0)
     audio_segment = AudioSegment.from_wav(wav_io)
     mp3_io = io.BytesIO()
@@ -327,7 +364,7 @@ except ImportError:
 
 def get_available_providers() -> list[str]:
     """Get list of available TTS providers."""
-    providers = ["piper"]  # Always available
+    providers = ["piper"] if PIPER_AVAILABLE else []
     if XTTS_AVAILABLE:
         providers.append("xtts")
     return providers
@@ -352,6 +389,9 @@ def synthesize(
 
     Returns:
         Audio bytes in the specified format
+
+    Raises:
+        TTSUnavailable: no TTS provider is installed
     """
     provider = provider or DEFAULT_TTS_PROVIDER
 

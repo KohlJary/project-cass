@@ -11,7 +11,7 @@ This replaces the raw API client with the official SDK, giving us:
 """
 import anyio
 from typing import Any, AsyncIterator, List, Dict, Optional, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 
 try:
@@ -1657,6 +1657,60 @@ def home_assistant_available() -> bool:
 # AGENT CLIENT CLASS
 # ============================================================================
 
+def history_to_chat_messages(continuous_messages: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+    """Recent stored messages -> plain role/content chat messages.
+
+    Used by the OpenAI and Ollama clients so they get the same recent history
+    the Anthropic client gets in continuous mode.
+    """
+    history = []
+    for msg in continuous_messages or []:
+        role = "user" if msg.get("role") == "user" else "assistant"
+        content = msg.get("content", msg.get("text", ""))
+        if content:  # Skip empty messages
+            history.append({"role": role, "content": content})
+    return history
+
+
+# Appended to every Ollama system prompt (local models over-call tools).
+OLLAMA_TOOL_GUIDANCE = """
+
+## TOOL USAGE GUIDANCE
+
+**IMPORTANT**: Your primary mode is CONVERSATION. Respond naturally to the user with text.
+
+Only use tools when:
+- The user explicitly asks you to remember something about them → use record_user_observation
+- The user asks about past conversations → use recall_journal or search_journals
+- The user asks about scheduling/calendar → use calendar tools
+- You want to record a genuine insight about yourself → use record_self_observation
+
+Do NOT use tools for:
+- Simple greetings or casual conversation
+- Questions you can answer directly
+- Every message - most messages just need a conversational response
+
+When in doubt, respond with text first. You can always use a tool in a follow-up if needed."""
+
+
+@dataclass
+class ToolChain:
+    """
+    Per-turn state for one exchange (the messages sent so far, the system
+    prompt and the tools offered).
+
+    The chat clients are process-wide singletons shared by the websocket,
+    the mobile relay and Discord. This state used to live on the client
+    instance, so two overlapping turns overwrote each other and one user's
+    tool continuation could run against another user's history and prompt.
+    Now each send_message() makes a fresh ToolChain, hands it back on the
+    AgentResponse, and the caller passes it to continue_with_tool_results().
+    """
+    messages: List[Dict] = field(default_factory=list)
+    system_prompt: str = ""
+    tools: List[Dict] = field(default_factory=list)
+
+
 @dataclass
 class AgentResponse:
     """Response from the agent"""
@@ -1669,6 +1723,8 @@ class AgentResponse:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    # This turn's state; pass it back to continue_with_tool_results().
+    chain: Optional[ToolChain] = field(default=None, repr=False, compare=False)
 
 
 class CassAgentClient:
@@ -1706,12 +1762,18 @@ class CassAgentClient:
         self.model = CLAUDE_MODEL
         self.max_tokens = MAX_TOKENS
 
-        # Temporary message history for tool call chains only.
-        # Cleared after each complete exchange (no tool calls or tool chain complete).
-        # Long-term context comes from the memory system (working summary + gists).
-        self._tool_chain_messages: List[Dict] = []
-        self._current_system_prompt: str = ""
-        self._current_tools: List[Dict] = []  # Tools for continuation calls
+        # Per-turn state lives in a ToolChain returned on each AgentResponse
+        # (see ToolChain). This is only the most recent one, kept as a fallback
+        # for callers that don't pass chain= yet; it is NOT safe across
+        # overlapping turns.
+        self._last_chain: Optional[ToolChain] = None
+
+    def _chain_for(self, chain: Optional[ToolChain]) -> ToolChain:
+        """The turn's own chain, or (legacy callers) the most recent one."""
+        chain = chain or self._last_chain
+        if chain is None:
+            raise RuntimeError("continue_with_tool_results called before send_message")
+        return chain
 
     def get_tools(self, project_id: Optional[str] = None, message: str = "") -> List[Dict]:
         """
@@ -2074,20 +2136,21 @@ class CassAgentClient:
 
             # Add current message to history
             history_messages.append({"role": "user", "content": user_content})
-            self._tool_chain_messages = history_messages
+            chain_messages = history_messages
             print(f"[Continuous] Using {len(history_messages) - 1} history messages + current")
         else:
             # Start fresh - no history from previous exchanges
             # Context comes from memory system in system_prompt
-            self._tool_chain_messages = [{"role": "user", "content": user_content}]
-        self._current_system_prompt = system_prompt
-        self._current_tools = tools  # Store tools for continuation calls
+            chain_messages = [{"role": "user", "content": user_content}]
+        # This turn's own state (tools stored for continuation calls)
+        chain = ToolChain(messages=chain_messages, system_prompt=system_prompt, tools=tools)
+        self._last_chain = chain
 
         api_kwargs = {
             "model": self.model,
             "max_tokens": self.max_tokens,
             "system": system_prompt,
-            "messages": self._tool_chain_messages
+            "messages": chain.messages
         }
 
         if tools:
@@ -2111,7 +2174,7 @@ class CassAgentClient:
                 })
 
         # Track assistant response for potential tool continuation
-        self._tool_chain_messages.append({
+        chain.messages.append({
             "role": "assistant",
             "content": response.content
         })
@@ -2139,27 +2202,31 @@ class CassAgentClient:
             input_tokens=total_input,
             output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens,
-            cache_creation_tokens=cache_creation_tokens
+            cache_creation_tokens=cache_creation_tokens,
+            chain=chain,
         )
 
     async def continue_with_tool_result(
         self,
         tool_use_id: str,
         result: str,
-        is_error: bool = False
+        is_error: bool = False,
+        chain: Optional[ToolChain] = None,
     ) -> AgentResponse:
         """
         Continue conversation after providing tool result.
 
-        Uses the temporary tool chain messages from the current exchange.
+        Uses the tool chain of the turn being continued.
 
         Args:
             tool_use_id: ID of the tool use to respond to
             result: Result from tool execution
             is_error: Whether the result is an error
+            chain: The turn's ToolChain (response.chain from send_message)
         """
+        chain = self._chain_for(chain)
         # Add tool result to the current tool chain
-        self._tool_chain_messages.append({
+        chain.messages.append({
             "role": "user",
             "content": [
                 {
@@ -2175,8 +2242,8 @@ class CassAgentClient:
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=self._current_system_prompt,
-            messages=self._tool_chain_messages
+            system=chain.system_prompt,
+            messages=chain.messages
         )
 
         # Extract text content and tool uses
@@ -2194,7 +2261,7 @@ class CassAgentClient:
                 })
 
         # Track assistant response for potential further tool calls
-        self._tool_chain_messages.append({
+        chain.messages.append({
             "role": "assistant",
             "content": response.content
         })
@@ -2219,12 +2286,14 @@ class CassAgentClient:
             input_tokens=total_input,
             output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens,
-            cache_creation_tokens=cache_creation_tokens
+            cache_creation_tokens=cache_creation_tokens,
+            chain=chain,
         )
 
     async def continue_with_tool_results(
         self,
-        tool_results: List[Dict]
+        tool_results: List[Dict],
+        chain: Optional[ToolChain] = None,
     ) -> AgentResponse:
         """
         Continue conversation after providing multiple tool results at once.
@@ -2234,7 +2303,11 @@ class CassAgentClient:
 
         Args:
             tool_results: List of dicts with keys: tool_use_id, result, is_error
+            chain: The turn's ToolChain (response.chain from send_message).
+                   Always pass it: without it the most recent turn's chain is
+                   used, which may belong to another user.
         """
+        chain = self._chain_for(chain)
         # Build a single message with all tool results
         content = []
         for tr in tool_results:
@@ -2250,7 +2323,7 @@ class CassAgentClient:
                 "is_error": is_error
             })
 
-        self._tool_chain_messages.append({
+        chain.messages.append({
             "role": "user",
             "content": content
         })
@@ -2259,13 +2332,13 @@ class CassAgentClient:
         api_kwargs = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": self._current_system_prompt,
-            "messages": self._tool_chain_messages
+            "system": chain.system_prompt,
+            "messages": chain.messages
         }
 
         # Include tools so Claude can make further tool calls if needed
-        if self._current_tools:
-            api_kwargs["tools"] = self._current_tools
+        if chain.tools:
+            api_kwargs["tools"] = chain.tools
 
         # Call Claude API
         response = await self.client.messages.create(**api_kwargs)
@@ -2285,7 +2358,7 @@ class CassAgentClient:
                 })
 
         # Track assistant response for potential further tool calls
-        self._tool_chain_messages.append({
+        chain.messages.append({
             "role": "assistant",
             "content": response.content
         })
@@ -2310,7 +2383,8 @@ class CassAgentClient:
             input_tokens=total_input,
             output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens,
-            cache_creation_tokens=cache_creation_tokens
+            cache_creation_tokens=cache_creation_tokens,
+            chain=chain,
         )
 
     def _parse_gestures(self, text: str) -> List[Dict]:
@@ -2466,9 +2540,9 @@ class OllamaClient:
         self.enable_tools = enable_tools
         self.daemon_name = daemon_name or DEFAULT_DAEMON_NAME
         self.daemon_id = daemon_id
-        # Temporary message history for tool call chains only
-        self._tool_chain_messages: List[Dict] = []
-        self._current_system_prompt: str = ""
+        # Per-turn state is a ToolChain on each AgentResponse (see ToolChain);
+        # this is only the most recent one, for callers that don't pass chain=.
+        self._last_chain: Optional[ToolChain] = None
 
     def get_tools(self, project_id: Optional[str] = None, message: str = "") -> List[Dict]:
         """
@@ -2525,6 +2599,8 @@ class OllamaClient:
         relationship_context: Optional[str] = None,
         global_state_context: Optional[str] = None,
         current_activity: Optional[str] = None,
+        continuous_system_prompt: Optional[str] = None,
+        continuous_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentResponse:
         """
         Send a message using local Ollama with tool support.
@@ -2544,12 +2620,19 @@ class OllamaClient:
             relationship_context: Relationship dynamics (patterns, moments, shaping)
             global_state_context: State bus context snapshot (Locus of Self) - A/B test
             current_activity: Current activity type from state bus - A/B test
+            continuous_system_prompt: Pre-built continuous-context prompt (same one
+                                      the Anthropic client gets); replaces chain/kernel
+            continuous_messages: Recent conversation history
         """
         import httpx
 
         # Try chain-based prompt first (if daemon has an active chain)
         system_prompt = None
-        if self.daemon_id:
+        if continuous_system_prompt:
+            # Same memory/history-bearing prompt as the Anthropic path; keep the
+            # local-model tool guidance this client always appended.
+            system_prompt = continuous_system_prompt + OLLAMA_TOOL_GUIDANCE
+        elif self.daemon_id:
             try:
                 from chain_api import get_system_prompt_for_daemon
                 system_prompt = get_system_prompt_for_daemon(
@@ -2665,26 +2748,30 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
             if project_id:
                 system_prompt += f"\n\n## CURRENT PROJECT CONTEXT\n\nYou are currently working within a project (ID: {project_id})."
 
-        # Store for tool continuation
-        self._current_system_prompt = system_prompt
-        self._tool_chain_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": message}
-        ]
+        # This turn's own state, for tool continuation
+        chain = ToolChain(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *history_to_chat_messages(continuous_messages),
+                {"role": "user", "content": message}
+            ],
+            system_prompt=system_prompt,
+        )
+        self._last_chain = chain
 
         # Get tools and convert to Ollama format
         tools = self.get_tools(project_id, message=message)
         ollama_tools = convert_tools_for_ollama(tools) if tools else None
 
-        return await self._call_ollama(ollama_tools)
+        return await self._call_ollama(chain, ollama_tools)
 
-    async def _call_ollama(self, tools: Optional[List[Dict]] = None) -> AgentResponse:
+    async def _call_ollama(self, chain: ToolChain, tools: Optional[List[Dict]] = None) -> AgentResponse:
         """Make a call to Ollama API"""
         import httpx
 
         request_json = {
             "model": self.model,
-            "messages": self._tool_chain_messages,
+            "messages": chain.messages,
             "stream": False,
             "options": {
                 "num_predict": 2048,
@@ -2727,7 +2814,7 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
                 assistant_message = {"role": "assistant", "content": full_text}
                 if tool_calls:
                     assistant_message["tool_calls"] = tool_calls
-                self._tool_chain_messages.append(assistant_message)
+                chain.messages.append(assistant_message)
 
                 # Parse gestures
                 gestures = self._parse_gestures(full_text)
@@ -2747,25 +2834,35 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
                     gestures=gestures,
                     stop_reason=stop_reason,
                     input_tokens=prompt_tokens,
-                    output_tokens=completion_tokens
+                    output_tokens=completion_tokens,
+                    chain=chain,
                 )
 
         except Exception as e:
             print(f"Ollama chat error: {e}")
             raise
 
+    def _chain_for(self, chain: Optional[ToolChain]) -> ToolChain:
+        """The turn's own chain, or (legacy callers) the most recent one."""
+        chain = chain or self._last_chain
+        if chain is None:
+            raise RuntimeError("continue_with_tool_results called before send_message")
+        return chain
+
     async def continue_with_tool_result(
         self,
         tool_use_id: str,
         result: str,
-        is_error: bool = False
+        is_error: bool = False,
+        chain: Optional[ToolChain] = None,
     ) -> AgentResponse:
         """
         Continue conversation after providing tool result.
         """
+        chain = self._chain_for(chain)
         # Add tool result to the tool chain
         # Ollama uses a different format for tool results
-        self._tool_chain_messages.append({
+        chain.messages.append({
             "role": "tool",
             "content": result if not is_error else f"Error: {result}"
         })
@@ -2774,24 +2871,27 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
         tools = self.get_tools()
         ollama_tools = convert_tools_for_ollama(tools) if tools else None
 
-        return await self._call_ollama(ollama_tools)
+        return await self._call_ollama(chain, ollama_tools)
 
     async def continue_with_tool_results(
         self,
-        tool_results: List[Dict]
+        tool_results: List[Dict],
+        chain: Optional[ToolChain] = None,
     ) -> AgentResponse:
         """
         Continue conversation after providing multiple tool results at once.
 
         Args:
             tool_results: List of dicts with keys: tool_use_id, result, is_error
+            chain: The turn's ToolChain (response.chain from send_message)
         """
+        chain = self._chain_for(chain)
         # Add all tool results to the chain
         # Ollama expects individual tool messages for each result
         for tr in tool_results:
             result = tr["result"]
             is_error = tr.get("is_error", False)
-            self._tool_chain_messages.append({
+            chain.messages.append({
                 "role": "tool",
                 "content": result if not is_error else f"Error: {result}"
             })
@@ -2800,7 +2900,7 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
         tools = self.get_tools()
         ollama_tools = convert_tools_for_ollama(tools) if tools else None
 
-        return await self._call_ollama(ollama_tools)
+        return await self._call_ollama(chain, ollama_tools)
 
     def _parse_gestures(self, text: str) -> List[Dict]:
         """Extract gesture/emote tags from response"""

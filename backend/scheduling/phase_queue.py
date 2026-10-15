@@ -14,9 +14,12 @@ work for the appropriate phase rather than executing immediately.
 """
 
 import asyncio
+import json
 import logging
+import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -47,6 +50,15 @@ class QueuedWorkUnit:
             "priority": self.priority,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "QueuedWorkUnit":
+        return cls(
+            work_unit=WorkUnit.from_dict(data["work_unit"]),
+            target_phase=DayPhase(data["target_phase"]),
+            queued_at=datetime.fromisoformat(data["queued_at"]),
+            priority=data.get("priority", 1),
+        )
+
 
 class PhaseQueueManager:
     """
@@ -68,6 +80,7 @@ class PhaseQueueManager:
         summary_store: Optional["WorkSummaryStore"] = None,
         daemon_id: str = "cass",
         action_registry: Optional[Any] = None,
+        persist_path: Optional[Path] = None,
     ):
         self.synkratos = synkratos
         self.state_bus = state_bus
@@ -84,6 +97,56 @@ class PhaseQueueManager:
         # History of dispatched work
         self._dispatch_history: List[Dict[str, Any]] = []
         self._max_history = 50
+
+        # Queues used to live only in memory, so a restart lost queued work
+        # (e.g. the evening journal queued by the morning routine). With a
+        # persist_path they're saved on every change and reloaded here.
+        self._persist_path = Path(persist_path) if persist_path else None
+        self._load_queues()
+
+    # Restored work older than this is dropped (its day has passed).
+    RESTORE_MAX_AGE = timedelta(hours=24)
+
+    def _save_queues(self) -> None:
+        if not self._persist_path:
+            return
+        try:
+            data = [q.to_dict() for phase in DayPhase for q in self._phase_queues[phase]]
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._persist_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2))
+            os.replace(tmp, self._persist_path)  # atomic: never a half-written file
+        except Exception as e:
+            from strict import report_swallowed
+            report_swallowed(e, "Saving phase queues", logger=logger)
+
+    def _load_queues(self) -> None:
+        if not self._persist_path or not self._persist_path.exists():
+            return
+        try:
+            items = json.loads(self._persist_path.read_text())
+        except Exception as e:
+            from strict import report_swallowed
+            report_swallowed(e, f"Reading {self._persist_path}", logger=logger)
+            return
+        cutoff = datetime.now(timezone.utc) - self.RESTORE_MAX_AGE
+        restored = 0
+        for item in items:
+            try:
+                queued = QueuedWorkUnit.from_dict(item)
+            except Exception as e:
+                logger.warning(f"Skipping unreadable queued work unit: {e}")
+                continue
+            if queued.queued_at < cutoff:
+                continue
+            queue = self._phase_queues[queued.target_phase]
+            if len(queue) < self.max_per_phase:
+                queue.append(queued)
+                restored += 1
+        for queue in self._phase_queues.values():
+            queue.sort(key=lambda q: q.priority)
+        if restored:
+            logger.info(f"Restored {restored} queued work units from {self._persist_path}")
 
     def set_summary_store(self, store: "WorkSummaryStore") -> None:
         """Set the summary store after initialization."""
@@ -130,6 +193,7 @@ class PhaseQueueManager:
 
         queue.append(queued)
         queue.sort(key=lambda q: q.priority)
+        self._save_queues()
 
         logger.info(
             f"Queued '{work_unit.name}' for {target_phase.value} "
@@ -179,6 +243,7 @@ class PhaseQueueManager:
         """Clear all queued work for a phase. Returns count cleared."""
         count = len(self._phase_queues[phase])
         self._phase_queues[phase] = []
+        self._save_queues()
         logger.info(f"Cleared {count} items from {phase.value} queue")
         return count
 
@@ -188,6 +253,7 @@ class PhaseQueueManager:
         for i, queued in enumerate(queue):
             if queued.work_unit.id == work_unit_id:
                 queue.pop(i)
+                self._save_queues()
                 logger.info(f"Removed {work_unit_id} from {phase.value} queue")
                 return True
         return False
@@ -240,6 +306,7 @@ class PhaseQueueManager:
         # Clear dispatched items from queue
         for item in dispatched:
             self._phase_queues[current_phase].remove(item)
+        self._save_queues()
 
         return len(dispatched)
 
@@ -283,6 +350,7 @@ class PhaseQueueManager:
         success = await self._dispatch_work(queued)
         if success:
             queue.remove(queued)
+            self._save_queues()
             return queued.work_unit.id
 
         return None
@@ -413,6 +481,7 @@ class PhaseQueueManager:
         # Clear dispatched items from queue
         for item in dispatched:
             self._phase_queues[phase].remove(item)
+        self._save_queues()
 
         # Record in history
         self._dispatch_history.append({

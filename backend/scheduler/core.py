@@ -177,7 +177,10 @@ class CronParser:
         if not cron_expr:
             return None
 
-        from_time = from_time or datetime.now(timezone.utc)
+        from schedule_clock import configured_timezone, cron_now
+        # Match the fields against the configured clock (CASS_TIMEZONE),
+        # else UTC as before. The result stays timezone-aware.
+        from_time = from_time.astimezone(configured_timezone() or timezone.utc) if from_time else cron_now()
         parts = cron_expr.split()
         if len(parts) != 5:
             logger.warning(f"Invalid cron expression: {cron_expr}")

@@ -15,7 +15,8 @@ Key design principles (from Cass's feedback):
 import asyncio
 import json
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Any, TYPE_CHECKING
 from uuid import uuid4
 
@@ -389,6 +390,48 @@ class GlobalStateBus:
 
             conn.commit()
 
+    # state_events used to grow forever (one row per delta and per event).
+    # Old rows are pruned on the write path, at most once per interval per
+    # process, so no background job is needed.
+    PRUNE_INTERVAL_SECONDS = 3600
+    _last_prune_monotonic: Optional[float] = None  # shared by all buses
+
+    def prune_state_events(self, retention_days: Optional[int] = None) -> int:
+        """Delete this daemon's state_events older than the retention window.
+
+        Returns the number of rows deleted. retention_days defaults to
+        config.STATE_EVENTS_RETENTION_DAYS; 0 or less keeps everything.
+        """
+        if retention_days is None:
+            from config import STATE_EVENTS_RETENTION_DAYS
+            retention_days = STATE_EVENTS_RETENTION_DAYS
+        if retention_days <= 0:
+            return 0
+        # Rows store naive local isoformat timestamps; compare the same way.
+        cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
+        with get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM state_events WHERE daemon_id = ? AND created_at < ?",
+                (self.daemon_id, cutoff),
+            )
+            deleted = cursor.rowcount
+        if deleted:
+            logger.info(f"Pruned {deleted} state_events older than {retention_days} days")
+        return deleted
+
+    def _maybe_prune_state_events(self) -> None:
+        now = time.monotonic()
+        last = GlobalStateBus._last_prune_monotonic
+        if last is not None and now - last < self.PRUNE_INTERVAL_SECONDS:
+            return
+        GlobalStateBus._last_prune_monotonic = now
+        try:
+            self.prune_state_events()
+        except Exception as e:
+            from strict import report_swallowed
+            # Retention must never break the event write that triggered it.
+            report_swallowed(e, "state_events retention prune", logger=logger)
+
     def _log_delta(self, delta: StateDelta) -> None:
         """Log a state delta for audit trail."""
         event_id = f"delta-{uuid4().hex[:12]}"
@@ -405,6 +448,7 @@ class GlobalStateBus:
                 delta.timestamp.isoformat(),
             ))
             conn.commit()
+        self._maybe_prune_state_events()
 
     def _log_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Log an event to the database."""
@@ -423,6 +467,7 @@ class GlobalStateBus:
                 datetime.now().isoformat(),
             ))
             conn.commit()
+        self._maybe_prune_state_events()
 
     def sync_world_state_from_source(self, world_source) -> None:
         """

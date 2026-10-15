@@ -1053,6 +1053,19 @@ async def activity_trend(hours: int = 24):
 
 # === Push Notification Endpoints ===
 
+def _user_id_from_bearer(jwt_token: str):
+    """User id from an access token (either token family, as the route guard accepts).
+
+    These endpoints used to call .get() on decode_token()'s TokenData object,
+    which raised, so every request got a 401.
+    """
+    from auth import user_id_from_any_token
+    try:
+        return user_id_from_any_token(jwt_token)
+    except Exception:
+        return None
+
+
 @app.post("/push/register")
 async def register_push_token(request: Request):
     """
@@ -1066,14 +1079,9 @@ async def register_push_token(request: Request):
         return JSONResponse({"error": "Missing authorization"}, status_code=401)
 
     jwt_token = auth_header[7:]
-    try:
-        from auth import decode_token
-        payload = decode_token(jwt_token)
-        user_id = payload.get("user_id")
-        if not user_id:
-            return JSONResponse({"error": "Invalid token"}, status_code=401)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=401)
+    user_id = _user_id_from_bearer(jwt_token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
 
     body = await request.json()
     push_token = body.get("token")
@@ -1113,14 +1121,9 @@ async def get_quiet_hours(request: Request):
         return JSONResponse({"error": "Missing authorization"}, status_code=401)
 
     jwt_token = auth_header[7:]
-    try:
-        from auth import decode_token
-        payload = decode_token(jwt_token)
-        user_id = payload.get("user_id")
-        if not user_id:
-            return JSONResponse({"error": "Invalid token"}, status_code=401)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=401)
+    user_id = _user_id_from_bearer(jwt_token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
 
     manager = get_quiet_hours_manager()
     pref = manager.get_preference(user_id)
@@ -1136,14 +1139,9 @@ async def update_quiet_hours(request: Request):
         return JSONResponse({"error": "Missing authorization"}, status_code=401)
 
     jwt_token = auth_header[7:]
-    try:
-        from auth import decode_token
-        payload = decode_token(jwt_token)
-        user_id = payload.get("user_id")
-        if not user_id:
-            return JSONResponse({"error": "Invalid token"}, status_code=401)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=401)
+    user_id = _user_id_from_bearer(jwt_token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
 
     body = await request.json()
     manager = get_quiet_hours_manager()
@@ -1297,13 +1295,12 @@ async def process_relay_chat_message(
                 "timestamp": datetime.now().isoformat(),
             })
 
-        # Store user message AFTER fetching history (send_message will add it to API call)
-        conversation_manager.add_message(
-            conversation_id=conversation_id,
-            role="user",
-            content=message_text,
-            user_id=user_id,
+        # A person is talking: idle-only background jobs should wait.
+        from websocket_handlers import (
+            mark_user_activity, execute_tools_safely, extract_generated_images,
+            max_tool_iterations, finalize_chat_turn,
         )
+        mark_user_activity()
 
         # Send thinking status: generating response
         if send_status:
@@ -1324,15 +1321,20 @@ async def process_relay_chat_message(
             continuous_messages=continuous_messages,
         )
 
+        raw_response = response.raw
         response_text = response.text
+        animations = response.gestures
         total_input_tokens = response.input_tokens
         total_output_tokens = response.output_tokens
+        # This turn's own history/prompt/tools: agent_client is shared with
+        # the websocket and Discord, so never rely on its "last" turn.
+        turn_chain = response.chain
 
         # Handle tool execution with full loop support
         tool_iteration = 0
-        max_tool_iterations = 10  # Prevent infinite loops
+        tool_cap = max_tool_iterations()  # Prevent infinite loops
         generated_images = []  # Track images generated during this request
-        while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < max_tool_iterations:
+        while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < tool_cap:
             tool_iteration += 1
             tool_names = [t['tool'] for t in response.tool_uses]
             logger.info(f"[Relay] Tool calls (iteration {tool_iteration}): {tool_names}")
@@ -1351,40 +1353,19 @@ async def process_relay_chat_message(
                 user_profile = user_manager.load_profile(user_id)
                 user_name = user_profile.display_name if user_profile else None
 
-            # Execute tools
+            # Execute tools (a tool that raises becomes an error result)
             tool_ctx = create_tool_context(
                 user_id=user_id,
                 user_name=user_name,
                 conversation_id=conversation_id,
                 project_id=None
             )
-            all_tool_results = await execute_tool_batch(response.tool_uses, tool_ctx, TOOL_EXECUTORS)
+            all_tool_results = await execute_tools_safely(
+                execute_tool_batch, response.tool_uses, tool_ctx, TOOL_EXECUTORS
+            )
 
             # Extract any generated images from tool results
-            import re
-            for tool_use, result in zip(response.tool_uses, all_tool_results):
-                if tool_use['tool'] == 'generate_image' and result.get('success'):
-                    # Parse image info from the result (may be string or list of content blocks)
-                    result_data = result.get('result', '')
-                    if isinstance(result_data, list):
-                        # Extract text from first content block
-                        result_str = next((b.get('text', '') for b in result_data if b.get('type') == 'text'), '')
-                    else:
-                        result_str = result_data
-                    path_match = re.search(r'path:\s*"([^"]+)"', result_str)
-                    style_match = re.search(r'style:\s*"([^"]+)"', result_str)
-                    purpose_match = re.search(r'purpose:\s*"([^"]+)"', result_str)
-                    image_id_match = re.search(r'image_id:\s*"([^"]+)"', result_str)
-                    dims_match = re.search(r'Dimensions:\s*(\d+)x(\d+)', result_str)
-                    if path_match:
-                        generated_images.append({
-                            'url': path_match.group(1),
-                            'style': style_match.group(1) if style_match else None,
-                            'purpose': purpose_match.group(1) if purpose_match else None,
-                            'image_id': image_id_match.group(1) if image_id_match else None,
-                            'width': int(dims_match.group(1)) if dims_match else None,
-                            'height': int(dims_match.group(2)) if dims_match else None,
-                        })
+            generated_images.extend(extract_generated_images(response.tool_uses, all_tool_results))
 
             # Send thinking status for continuation
             if send_status:
@@ -1395,28 +1376,43 @@ async def process_relay_chat_message(
                 })
 
             # Continue with tool results
-            response = await agent_client.continue_with_tool_results(all_tool_results)
-            response_text = response.text
+            response = await agent_client.continue_with_tool_results(all_tool_results, chain=turn_chain)
+            turn_chain = response.chain or turn_chain
+            # Same accumulation as the websocket loop
+            raw_response += "\n" + response.raw
+            if response.text:
+                response_text = response.text
+            animations.extend(response.gestures)
             total_input_tokens += response.input_tokens
             total_output_tokens += response.output_tokens
 
-        # Store assistant response
+        model_name = agent_client.model if hasattr(agent_client, 'model') else DEFAULT_SESSION_MODEL
+
+        # Same post-turn pipeline as the websocket: strip/store tags and marks,
+        # store in ChromaDB + SQLite (user and assistant message), record
+        # tokens, title and summaries. The relay used to skip all but storage.
+        turn = await finalize_chat_turn(
+            user_message=message_text,
+            raw_response=raw_response,
+            clean_text=response_text,
+            animations=animations,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            provider="anthropic",
+            model=model_name,
+            tool_iterations=tool_iteration,
+            summarize_requested="<memory:summarize>" in raw_response,
+        )
+        response_text = turn["clean_text"]
+
         token_info = {
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "provider": "anthropic",
-            "model": agent_client.model if hasattr(agent_client, 'model') else DEFAULT_SESSION_MODEL,
+            "model": model_name,
         }
-
-        conversation_manager.add_message(
-            conversation_id=conversation_id,
-            role="assistant",
-            content=response_text,
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
-            provider=token_info["provider"],
-            model=token_info["model"],
-        )
 
         response_data = {
             "type": "response",
@@ -1867,7 +1863,8 @@ async def startup_event():
     openai_client = clients["openai_client"]
 
     # Preload TTS voice for faster first response
-    if is_enabled("tts"):
+    from tts import is_available as tts_available
+    if tts_available():
         preload_tts_voice(tts_voice)
 
     # NOTE: Removed automatic missing journal check on startup - was slow and caused
@@ -2125,6 +2122,8 @@ async def startup_event():
                         synkratos=synkratos,
                         state_bus=global_state_bus,
                         daemon_id=_daemon_id,
+                        # Survive restarts (queues were in-memory only)
+                        persist_path=DATA_DIR / "phase_queues.json",
                     )
 
                     # Share the summary store from autonomous scheduler so completions are recorded
@@ -2683,6 +2682,7 @@ async def chat(request: ChatRequest):
         clean_text = response.text
         animations = response.gestures
         tool_uses = response.tool_uses
+        turn_chain = response.chain  # this turn's state (agent_client is shared)
 
         # Track initial tokens (including cache)
         total_input_tokens += response.input_tokens
@@ -2919,8 +2919,9 @@ async def chat(request: ChatRequest):
 
             # Now continue conversation with ALL tool results at once
             response = await agent_client.continue_with_tool_results(
-                tool_results=collected_results
+                tool_results=collected_results, chain=turn_chain
             )
+            turn_chain = response.chain or turn_chain
 
             # Track tokens from continuation (including cache)
             total_input_tokens += response.input_tokens
@@ -3664,7 +3665,9 @@ def _init_websocket_state():
         daemon_id=_daemon_id,
     )
     set_use_agent_sdk(USE_AGENT_SDK)
-    set_tts_state(tts_enabled and is_enabled("tts"), tts_voice)
+    # Off when the "tts" lever is off or no TTS package is installed
+    from tts import is_available as tts_available
+    set_tts_state(tts_enabled and tts_available(), tts_voice)
 
 
 # === Gesture Library Endpoint ===

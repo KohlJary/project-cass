@@ -127,7 +127,8 @@ class DayPhaseTracker:
 
     def get_phase_for_time(self, dt: Optional[datetime] = None) -> DayPhase:
         """Determine which phase a given time falls into."""
-        dt = dt or datetime.now()
+        from schedule_clock import phase_now
+        dt = dt or phase_now()
         hour = dt.hour
 
         for window in self.phase_windows:
@@ -139,7 +140,8 @@ class DayPhaseTracker:
 
     def get_next_phase_transition(self) -> Dict[str, Any]:
         """Get info about when the next phase transition will occur."""
-        now = datetime.now()
+        from schedule_clock import phase_now
+        now = phase_now()
         current_hour = now.hour
 
         # Find current phase window
@@ -328,7 +330,8 @@ class DayPhaseTracker:
 
     def get_transitions_today(self) -> List[Dict[str, Any]]:
         """Get all phase transitions from today."""
-        today = datetime.now().date()
+        from schedule_clock import phase_now
+        today = phase_now().date()
         return [
             t.to_dict() for t in self._transitions
             if t.transitioned_at.date() == today

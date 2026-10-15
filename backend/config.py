@@ -93,6 +93,21 @@ MEMORY_RETRIEVAL_COUNT = 5  # How many relevant memories to pull
 
 # Memory summarization settings
 AUTO_SUMMARY_INTERVAL = 20  # Generate summary after N messages without one
+
+# Max model->tool->model round trips in one chat turn (websocket and relay).
+# A model that keeps calling tools would otherwise loop (and spend) forever.
+CHAT_MAX_TOOL_ITERATIONS = int(os.getenv("CHAT_MAX_TOOL_ITERATIONS", "10"))
+
+# One clock for everything time-of-day based: Synkratos cron jobs and the
+# day phases (morning/afternoon/evening/night). An IANA name, e.g.
+# "America/New_York". Unset keeps the old behavior: cron in UTC, day phases
+# in the server's local time (so the nightly journal ran at 00:05 UTC while
+# "night" meant 22:00 server time).
+CASS_TIMEZONE = os.getenv("CASS_TIMEZONE") or None
+
+# state_events (state-bus audit log) keeps this many days; older rows are
+# pruned as new ones are written (at most hourly). 0 = keep forever.
+STATE_EVENTS_RETENTION_DAYS = int(os.getenv("STATE_EVENTS_RETENTION_DAYS", "90"))
 SUMMARY_CONTEXT_MESSAGES = 30  # How many recent messages to include when generating summary
 
 # Summarizer provider: "ollama" (local, free), "haiku" (Claude Haiku, fast/cheap), "sonnet" (Claude Sonnet, best quality)
