@@ -1865,7 +1865,8 @@ async def startup_event():
     openai_client = clients["openai_client"]
 
     # Preload TTS voice for faster first response
-    if is_enabled("tts"):
+    from tts import is_available as tts_available
+    if tts_available():
         preload_tts_voice(tts_voice)
 
     # NOTE: Removed automatic missing journal check on startup - was slow and caused
@@ -3664,7 +3665,9 @@ def _init_websocket_state():
         daemon_id=_daemon_id,
     )
     set_use_agent_sdk(USE_AGENT_SDK)
-    set_tts_state(tts_enabled and is_enabled("tts"), tts_voice)
+    # Off when the "tts" lever is off or no TTS package is installed
+    from tts import is_available as tts_available
+    set_tts_state(tts_enabled and tts_available(), tts_voice)
 
 
 # === Gesture Library Endpoint ===
