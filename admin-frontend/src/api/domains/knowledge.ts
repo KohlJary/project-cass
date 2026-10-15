@@ -12,7 +12,6 @@ export const wikiApi = {
   getPage: (name: string) => api.get(`/wiki/pages/${encodeURIComponent(name)}`),
   getBacklinks: (name: string) => api.get(`/wiki/pages/${encodeURIComponent(name)}/backlinks`),
   search: (query: string) => api.get('/wiki/search', { params: { q: query } }),
-  getStats: () => api.get('/wiki/stats'),
   createPage: (data: { name: string; content: string; page_type?: string }) =>
     api.post('/wiki/pages', data),
   updatePage: (name: string, content: string) =>

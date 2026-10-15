@@ -1611,8 +1611,13 @@ class CassVesselTUI(App):
     async def _trigger_summarize(self) -> None:
         """Trigger memory summarization"""
         chat = self.query_one("#chat-container", ChatContainer)
+        if not self.current_conversation_id:
+            await chat.add_message("system", "✗ No conversation selected to summarize", None)
+            return
         try:
-            response = await self.http_client.post("/summarize")
+            # Summarization is per conversation; there is no global /summarize route.
+            response = await self.http_client.post(
+                f"/conversations/{self.current_conversation_id}/summarize")
             if response.status_code == 200:
                 await chat.add_message("system", "✓ Memory summarization triggered", None)
             else:
