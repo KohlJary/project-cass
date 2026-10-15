@@ -109,6 +109,8 @@ from handlers.symbols import execute_symbol_tool
 from handlers.interests import execute_interest_tool
 from handlers.home_assistant import execute_ha_tool, HOME_ASSISTANT_TOOLS
 from handlers.home_automation import execute_home_automation_tool, HOME_AUTOMATION_TOOLS
+from handlers.discord import execute_discord_tool
+from handlers.world_observation import execute_world_observation_tool
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
 from coherence_models import CoherenceConfig
@@ -500,6 +502,9 @@ TOOL_EXECUTORS = {
     "dream": execute_dream_tool,
     "state_query": execute_state_query_tool,
     "janet": execute_janet_tool,
+    "outreach": execute_outreach_tool,
+    "discord": execute_discord_tool,
+    "world_observation": execute_world_observation_tool,
     "peopledex": execute_peopledex_tool,
     "stakeholder": execute_stakeholder_tool,
     "email": execute_email_tool,
@@ -562,6 +567,8 @@ def create_tool_context(
         protocol_manager=protocol_manager,
         interview_dispatcher=interview_dispatcher,
         state_bus=global_state_bus,
+        world_state_source=world_state_source,
+        longitudinal_manager=g.get('longitudinal_test_manager'),
     )
 
 

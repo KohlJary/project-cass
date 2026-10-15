@@ -66,6 +66,9 @@ class ToolContext:
     # World state source for location updates
     world_state_source: Any = None
 
+    # Longitudinal test manager (run_test_battery, get_test_trajectory, ...)
+    longitudinal_manager: Any = None
+
 
 # Tool name -> executor mapping
 # Each entry is (tool_names_list, executor_import_path, requires_special_handling)
@@ -146,6 +149,15 @@ TOOL_REGISTRY = {
     "acknowledge_milestone": "self_model",
     "get_milestone_summary": "self_model",
     "get_unacknowledged_milestones": "self_model",
+    # Graph query and narration tools. These were offered to the model but only
+    # the legacy POST /chat if-chain routed (some of) them; /ws said "Unknown tool".
+    "trace_belief_sources": "self_model",
+    "find_self_contradictions": "self_model",
+    "query_self_graph": "self_model",
+    "check_growth_edge_evidence": "self_model",
+    "get_graph_stats": "self_model",
+    "get_narration_metrics": "self_model",
+    "analyze_narration": "self_model",
     # Stakes inventory tools
     "document_stake": "self_model",
     "get_stakes": "self_model",
@@ -267,6 +279,7 @@ TOOL_REGISTRY = {
 
     # Research scheduler tools
     "request_scheduled_session": "research_scheduler",
+    "request_scheduled_research": "research_scheduler",
     "list_my_schedule_requests": "research_scheduler",
     "cancel_schedule_request": "research_scheduler",
     "get_scheduler_stats": "research_scheduler",
@@ -344,6 +357,20 @@ TOOL_REGISTRY = {
     "describe_my_home": "wonderland",
     "get_wonderland_status": "wonderland",
 
+    # Janet (retrieval sub-agent). Offered on every turn; was HTTP-/chat only.
+    "summon_janet": "janet",
+    "janet_feedback": "janet",
+    "janet_stats": "janet",
+
+    # Outreach drafts (graduated autonomy). Was HTTP-/chat only.
+    "create_outreach_draft": "outreach",
+    "submit_outreach_draft": "outreach",
+    "edit_outreach_draft": "outreach",
+    "get_outreach_draft": "outreach",
+    "list_outreach_drafts": "outreach",
+    "get_outreach_track_record": "outreach",
+    "get_outreach_stats": "outreach",
+
     # Direct message tools (push notification to mobile)
     "send_direct_message": "direct_message",
 
@@ -357,6 +384,11 @@ TOOL_REGISTRY = {
     # Image generation tools (local Stable Diffusion)
     "generate_image": "image_generation",
     "get_my_images": "image_generation",
+    "refine_image": "image_generation",
+    "create_variations": "image_generation",
+    "upscale_image": "image_generation",
+    "save_recipe": "image_generation",
+    "list_recipes": "image_generation",
 
     # Activity introspection tools (self-awareness of autonomous work)
     "get_daily_activity": "activity",
@@ -395,6 +427,9 @@ TOOL_REGISTRY = {
     "complete_shopping_item": "home_assistant",
     "remove_shopping_item": "home_assistant",
     "clear_completed_items": "home_assistant",
+    # Home Assistant calendar integration
+    "list_ha_calendars": "home_assistant",
+    "setup_cass_calendar": "home_assistant",
 
     # Home Automation tools (create/manage automations)
     "draft_automation": "home_automation",
@@ -641,7 +676,9 @@ async def route_tool(
             drift_detector=ctx.drift_detector,
             authenticity_scorer=ctx.authenticity_scorer,
             conversation_manager=ctx.conversation_manager,
-            storage_dir=ctx.storage_dir
+            storage_dir=ctx.storage_dir,
+            # Without this the 5 longitudinal tools always report "not available".
+            longitudinal_manager=ctx.longitudinal_manager,
         )
 
     elif executor_type == "research":
@@ -748,6 +785,7 @@ async def route_tool(
         )
 
     elif executor_type == "world_observation":
+        # Sync handler (no await).
         return executor(
             tool_name=tool_name,
             tool_input=tool_input,
@@ -824,6 +862,21 @@ async def route_tool(
             memory=ctx.memory,
         )
 
+    elif executor_type == "janet":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+            state_bus=ctx.state_bus,
+        )
+
+    elif executor_type == "outreach":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
+        )
+
     elif executor_type == "direct_message":
         # Direct message tools for push notifications
         # If no user_id provided, use current user from context
@@ -874,9 +927,10 @@ async def route_tool(
             daemon_id=ctx.daemon_id,
         )
 
-    elif executor_type == "home_assistant":
-        # Home Assistant smart home tools
-        result_str = await executor(tool_input)
+    elif executor_type in ("home_assistant", "home_automation"):
+        # Home Assistant tools return a plain string (including a clear
+        # "not configured" message when HA isn't set up).
+        result_str = await executor(tool_name=tool_name, tool_input=tool_input)
         return {"success": True, "result": result_str}
 
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}
