@@ -465,7 +465,7 @@ async def identify_face(image_data: bytes) -> Optional[FaceMatch]:
     Returns:
         FaceMatch with identified user, or None if no face detected
     """
-    if not FACE_RECOGNITION_AVAILABLE or not CV2_AVAILABLE:
+    if not is_available():
         return None
 
     # Extract embedding from input
@@ -529,8 +529,9 @@ async def identify_face(image_data: bytes) -> Optional[FaceMatch]:
 
 
 def is_available() -> bool:
-    """Check if face identification is available."""
-    return FACE_RECOGNITION_AVAILABLE and CV2_AVAILABLE
+    """Check if face identification is available (libraries present and "face_id" lever on)."""
+    from features import is_enabled
+    return FACE_RECOGNITION_AVAILABLE and CV2_AVAILABLE and is_enabled("face_id")
 
 
 async def get_all_face_embeddings() -> List[Dict[str, Any]]:

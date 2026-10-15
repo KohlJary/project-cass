@@ -63,6 +63,10 @@ def get_encoder():
     """
     global _encoder, _encoder_loading
 
+    from features import is_enabled
+    if not is_enabled("voice_id"):
+        raise RuntimeError("Voice identification disabled by feature lever 'voice_id'")
+
     if _encoder is not None:
         return _encoder
 

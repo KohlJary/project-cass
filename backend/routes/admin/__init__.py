@@ -95,6 +95,7 @@ from .stt import router as stt_router
 from .tts import router as tts_router
 from .voice import router as voice_router
 from .face import router as face_router
+from .features import router as features_router
 
 # Create combined router
 router = APIRouter()
@@ -124,6 +125,7 @@ router.include_router(stt_router)
 router.include_router(tts_router)
 router.include_router(voice_router)
 router.include_router(face_router)
+router.include_router(features_router)
 
 
 # Module-level references for backward compatibility

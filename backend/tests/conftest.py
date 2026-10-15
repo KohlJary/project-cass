@@ -14,6 +14,18 @@ from unittest.mock import Mock, AsyncMock, patch
 # imported, so the test run never touches a real daemon's data/cass.db.
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="cass_test_data_"))
 
+# Feature levers: every background/autonomous/external subsystem is OFF in
+# tests unless a test turns it on with the `levers` fixture (see features.py).
+os.environ.setdefault("CASS_PROFILE", "test")
+
+# Strict mode: strict.report_swallowed() re-raises instead of only logging.
+os.environ.setdefault("CASS_STRICT", "1")
+
+# Never let a test reach a real model with a real key (config.py would
+# otherwise pick one up from backend/.env). The fake_llm fixture answers calls.
+os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test-not-a-real-key"
+os.environ["OPENAI_API_KEY"] = "sk-test-not-a-real-key"
+
 
 # ---------------------------------------------------------------------------
 # Database Fixtures
@@ -451,3 +463,22 @@ def mock_httpx_ollama():
         client.post.return_value = response
 
         yield client
+
+
+# ---------------------------------------------------------------------------
+# Feature levers and fake LLM (test harness)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def levers():
+    """Turn feature levers on/off for part of a test.
+
+        def test_x(levers):
+            with levers(thymos=True, grimoire_timer_spells=True):
+                ...
+
+    The conftest default is CASS_PROFILE=test (everything off). Overrides
+    beat env vars and profiles, and are undone when the block exits.
+    """
+    import features
+    return features.override
