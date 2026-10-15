@@ -6,6 +6,14 @@ credentials. A new route fails this test unless it is protected (the
 app-wide route_guard does that by default) or added to route_guard.PUBLIC_ROUTES
 on purpose.
 """
+import pytest
+
+# These tests import the app and its routes, which need the full runtime deps
+# (requirements.txt). The fast CI job installs only requirements-test.txt, so
+# skip the whole module there; the full job runs it.
+for _mod in ("anthropic", "networkx", "slowapi", "multipart"):
+    pytest.importorskip(_mod)
+
 import os
 import re
 
