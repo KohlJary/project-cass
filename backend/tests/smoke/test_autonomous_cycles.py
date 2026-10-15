@@ -176,9 +176,6 @@ def test_job_goal_refinement(app):
     assert "goals_checked" in result.data
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/04_autonomy.md 1d: autonomous_research is never registered - "
-    "system_tasks.py reads research_scheduler.config.mode, which doesn't exist"))
 def test_job_autonomous_research(app):
     result = _run_job(app, "autonomous_research")
     assert result.success, result.message
@@ -240,9 +237,6 @@ def test_timer_spell_rss_monitor(app):
     _assert_cycle_did_work(*_cast(app, "rss_monitor"))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/04_autonomy.md (action registry): research.run_batch gets "
-    "research_scheduler.ResearchScheduler, which has no refresh_tasks/run_batch"))
 def test_timer_spell_research_synthesis(app):
     _assert_cycle_did_work(*_cast(app, "research_synthesis"))
 

@@ -77,3 +77,67 @@ def test_phase4_user_observations_use_real_extractor(admin_managers):
     assert add_kwargs["observation"] == "Kohl likes smoke tests a lot."
     assert add_kwargs["source_journal_date"] == "2026-10-14"
     mem.embed_user_observation.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 6. Autonomous research + growth-edge actions
+# ---------------------------------------------------------------------------
+
+def _run_action(handler, **context):
+    return asyncio.run(handler(context))
+
+
+def test_update_growth_edge_action_appends_to_matching_edge():
+    from self_model import SelfManager
+    from scheduler.actions.self_handlers import update_growth_edge_action
+
+    sm = SelfManager()
+    edge = sm.add_growth_edge("epistemic humility", "learning", auto_research=False)
+
+    result = _run_action(update_growth_edge_action, managers={"self_manager": sm},
+                         edge_id=edge.edge_id, progress="Admitted not knowing twice today.")
+
+    assert result.success, result.message
+    stored = [e for e in sm.load_profile().growth_edges if e.edge_id == edge.edge_id][0]
+    assert "Admitted not knowing twice today." in stored.observations
+
+
+def test_update_growth_edge_action_without_edge_keeps_the_insight():
+    """Spells only have an insight, not an edge_id; it used to fail every time."""
+    from self_model import SelfManager
+    from scheduler.actions.self_handlers import update_growth_edge_action
+
+    sm = SelfManager()
+    result = _run_action(update_growth_edge_action, managers={"self_manager": sm},
+                         insight="Research on epistemics ties to my humility edge.")
+
+    assert result.success, result.message
+    assert result.data["observation_id"]
+
+
+def test_add_observation_action_accepts_spell_content_param():
+    from self_model import SelfManager
+    from scheduler.actions.self_handlers import add_observation_action
+
+    sm = SelfManager()
+    result = _run_action(add_observation_action, managers={"self_manager": sm},
+                         content="I enjoy synthesis work.", category="research_insight")
+    assert result.success, result.message
+    assert isinstance(result.data["observation_id"], str)
+
+
+def test_autonomous_research_handler_reads_live_mode():
+    from scheduler.handlers import autonomous_research_handler
+    from wiki.scheduler import SchedulerMode
+
+    sched = MagicMock()
+    sched.config.mode = SchedulerMode.SUPERVISED
+    result = asyncio.run(autonomous_research_handler(scheduler=sched, mode=None))
+    assert result.data["mode"] == "supervised"
+    sched.refresh_tasks.assert_not_called()
+
+    sched.config.mode = SchedulerMode.TRIGGERED  # admin switched mode at runtime
+    sched.queue.get_stats.return_value = {"queued": 2}
+    result = asyncio.run(autonomous_research_handler(scheduler=sched, mode=None))
+    assert result.success and result.data["mode"] == "triggered"
+    sched.refresh_tasks.assert_called_once()

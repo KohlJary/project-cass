@@ -1507,6 +1507,24 @@ def _get_scheduler():
     return _research_scheduler
 
 
+def get_wiki_research_scheduler(memory=None):
+    """The shared wiki ResearchScheduler, for autonomous callers.
+
+    The spell actions (research.*), the autonomous_research job and the nightly
+    journal all need this scheduler (it has the queue, run_batch, etc.), not the
+    session-request ResearchScheduler in research_scheduler.py. `memory` is
+    passed once it's ready, because init_wiki_routes runs at import while
+    memory is still None.
+    """
+    global _memory
+    if memory is not None and _memory is None:
+        _memory = memory
+    scheduler = _get_scheduler()
+    if scheduler is not None and scheduler.memory is None and memory is not None:
+        scheduler.memory = memory
+    return scheduler
+
+
 @router.get("/research/queue")
 async def get_research_queue(
     status: Optional[str] = Query(None, description="Filter by status"),

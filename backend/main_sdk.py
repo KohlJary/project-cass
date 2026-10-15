@@ -1945,6 +1945,13 @@ async def startup_event():
             budget_manager = BudgetManager(budget_config, token_tracker)
             synkratos = Synkratos(budget_manager, token_tracker)
 
+            # The wiki research scheduler (queue, run_batch, run_single_task).
+            # Not the same class as `research_scheduler` above, which only
+            # stores session requests; the research.* actions, the
+            # autonomous_research job and the nightly journal need this one.
+            from routes.wiki import get_wiki_research_scheduler
+            wiki_research_scheduler = get_wiki_research_scheduler(memory)
+
             # Build runners dict once
             runners_dict = {
                 "research": get_research_runner(),
@@ -1978,8 +1985,8 @@ async def startup_event():
                 "generate_nightly_dream": generate_nightly_dream,
                 "self_manager": self_manager,
                 "data_dir": DATA_DIR,
-                # For autonomous_research handler
-                "research_scheduler": research_scheduler,
+                # For autonomous_research handler (the wiki scheduler)
+                "research_scheduler": wiki_research_scheduler,
             }, enabled=True)
 
             # Register approval providers for unified "what needs my attention?" queue
@@ -2064,8 +2071,8 @@ async def startup_event():
                             "memory": memory,
                             "conversation_manager": conversation_manager,
                             "state_bus": global_state_bus,
-                            # Research & wiki
-                            "research_scheduler": research_scheduler,
+                            # Research & wiki (research.* actions need the wiki scheduler)
+                            "research_scheduler": wiki_research_scheduler,
                             "wiki_manager": wiki_storage,
                             # Tracking
                             "token_tracker": token_tracker,
