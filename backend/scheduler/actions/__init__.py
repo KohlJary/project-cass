@@ -208,7 +208,10 @@ class ActionRegistry:
 
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"Action {action_id} failed: {e}")
+            # Logged in production; re-raised under CASS_STRICT=1 (tests/CI) so
+            # a crashing handler can't hide behind success=False.
+            from strict import report_swallowed
+            report_swallowed(e, f"Action {action_id} failed", logger)
             return ActionResult(
                 success=False,
                 message=f"Action failed: {e}",
