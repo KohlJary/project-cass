@@ -55,3 +55,35 @@ class TestLeverWiring:
             await pqm.on_phase_changed(transition)
             await asyncio.sleep(0)
         assert checks == [DayPhase.MORNING]
+
+    def test_late_source_registration_respects_capability_indexing(self, levers, monkeypatch):
+        """Sources registered after boot must not start Ollama-backed indexing when the lever is off."""
+        from state_bus import GlobalStateBus
+
+        bus = GlobalStateBus.__new__(GlobalStateBus)
+        bus._queryable_sources = {}
+        bus._capability_registry = object()
+        started = []
+
+        async def fake_index(source):
+            started.append(source)
+
+        monkeypatch.setattr(bus, "_register_source_capabilities", fake_index, raising=False)
+
+        class Source:
+            source_id = "late"
+            _is_registered = False
+
+            class refresh_strategy:  # anything but SCHEDULED
+                value = "lazy"
+
+        async def register():
+            bus.register_source(Source())
+            await asyncio.sleep(0)
+
+        asyncio.run(register())
+        assert started == []
+
+        with levers(capability_indexing=True):
+            asyncio.run(register())
+        assert len(started) == 1
