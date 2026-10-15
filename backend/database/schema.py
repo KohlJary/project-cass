@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 53  # Timers for countdown timer support
+SCHEMA_VERSION = 54  # emails.automated_reason; users.quiet_hours_* in the schema
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -50,7 +50,12 @@ CREATE TABLE IF NOT EXISTS users (
     registration_reason TEXT,
     discord_handle TEXT,  -- Discord username for linking Discord perception
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    -- Quiet hours (quiet_hours.py). Used to be added at runtime by QuietHoursManager.
+    quiet_hours_enabled INTEGER DEFAULT 0,
+    quiet_hours_start INTEGER DEFAULT 22,
+    quiet_hours_end INTEGER DEFAULT 8,
+    quiet_hours_timezone TEXT DEFAULT 'America/Los_Angeles'
 );
 CREATE INDEX IF NOT EXISTS idx_users_discord_handle ON users(discord_handle);
 
@@ -925,7 +930,8 @@ CREATE TABLE IF NOT EXISTS emails (
     conversation_id TEXT,
     attachments_json TEXT,
     created_at TEXT NOT NULL,
-    sent_at TEXT
+    sent_at TEXT,
+    automated_reason TEXT             -- set when inbound mail is from a list/bot (no auto-reply)
 );
 
 CREATE INDEX IF NOT EXISTS idx_emails_daemon ON emails(daemon_id);

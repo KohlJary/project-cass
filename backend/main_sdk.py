@@ -1053,6 +1053,19 @@ async def activity_trend(hours: int = 24):
 
 # === Push Notification Endpoints ===
 
+def _user_id_from_bearer(jwt_token: str):
+    """User id from an access token (either token family, as the route guard accepts).
+
+    These endpoints used to call .get() on decode_token()'s TokenData object,
+    which raised, so every request got a 401.
+    """
+    from auth import user_id_from_any_token
+    try:
+        return user_id_from_any_token(jwt_token)
+    except Exception:
+        return None
+
+
 @app.post("/push/register")
 async def register_push_token(request: Request):
     """
@@ -1066,14 +1079,9 @@ async def register_push_token(request: Request):
         return JSONResponse({"error": "Missing authorization"}, status_code=401)
 
     jwt_token = auth_header[7:]
-    try:
-        from auth import decode_token
-        payload = decode_token(jwt_token)
-        user_id = payload.get("user_id")
-        if not user_id:
-            return JSONResponse({"error": "Invalid token"}, status_code=401)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=401)
+    user_id = _user_id_from_bearer(jwt_token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
 
     body = await request.json()
     push_token = body.get("token")
@@ -1113,14 +1121,9 @@ async def get_quiet_hours(request: Request):
         return JSONResponse({"error": "Missing authorization"}, status_code=401)
 
     jwt_token = auth_header[7:]
-    try:
-        from auth import decode_token
-        payload = decode_token(jwt_token)
-        user_id = payload.get("user_id")
-        if not user_id:
-            return JSONResponse({"error": "Invalid token"}, status_code=401)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=401)
+    user_id = _user_id_from_bearer(jwt_token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
 
     manager = get_quiet_hours_manager()
     pref = manager.get_preference(user_id)
@@ -1136,14 +1139,9 @@ async def update_quiet_hours(request: Request):
         return JSONResponse({"error": "Missing authorization"}, status_code=401)
 
     jwt_token = auth_header[7:]
-    try:
-        from auth import decode_token
-        payload = decode_token(jwt_token)
-        user_id = payload.get("user_id")
-        if not user_id:
-            return JSONResponse({"error": "Invalid token"}, status_code=401)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=401)
+    user_id = _user_id_from_bearer(jwt_token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid token"}, status_code=401)
 
     body = await request.json()
     manager = get_quiet_hours_manager()

@@ -8,7 +8,8 @@ during sleep or focused work time.
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -31,22 +32,33 @@ class QuietHoursPreference:
     end_hour: int = 8     # 8 AM
     timezone: str = "America/Los_Angeles"
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+
 
 class QuietHoursManager:
     """Manages quiet hours preferences and checks."""
 
     def __init__(self, db_path: Optional[Path] = None):
-        # Default to the database module's current path (same file as DB_PATH
-        # in production) so a repointed DB, e.g. per-test, is honoured.
-        if db_path is None:
-            import database.connection as connection
-            db_path = connection.DATABASE_PATH
+        # None = the app's database (database.get_db). It used to open its own
+        # connection to DATA_DIR/cass.db fixed at import, bypassing get_db.
         self.db_path = db_path
         self._init_db()
 
+    @contextmanager
+    def _connect(self):
+        if self.db_path is None:
+            from database import get_db
+            with get_db() as conn:
+                yield conn
+        else:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                yield conn
+
     def _init_db(self) -> None:
         """Ensure quiet hours columns exist in users table."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             # Check if columns exist, add if not
             cursor = conn.execute("PRAGMA table_info(users)")
             columns = {row[1] for row in cursor.fetchall()}
@@ -71,8 +83,7 @@ class QuietHoursManager:
 
     def get_preference(self, user_id: str) -> QuietHoursPreference:
         """Get quiet hours preference for a user."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        with self._connect() as conn:
             row = conn.execute("""
                 SELECT quiet_hours_enabled, quiet_hours_start,
                        quiet_hours_end, quiet_hours_timezone
@@ -92,7 +103,7 @@ class QuietHoursManager:
 
     def set_preference(self, pref: QuietHoursPreference) -> None:
         """Update quiet hours preference for a user."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 UPDATE users SET
                     quiet_hours_enabled = ?,
@@ -111,8 +122,34 @@ class QuietHoursManager:
 
         logger.info(f"Updated quiet hours for user {pref.user_id}: {pref}")
 
-    def is_quiet_hours(self, user_id: str) -> bool:
-        """Check if it's currently quiet hours for a user."""
+    def update_preference(
+        self,
+        user_id: str,
+        enabled: Optional[bool] = None,
+        start_hour: Optional[int] = None,
+        end_hour: Optional[int] = None,
+        timezone: Optional[str] = None,
+        days=None,  # accepted from the API body; not stored (no per-day schedule yet)
+    ) -> QuietHoursPreference:
+        """Change only the fields given; return the stored preference.
+
+        The PUT /users/me/quiet-hours endpoint called this, but it didn't exist.
+        """
+        pref = self.get_preference(user_id)
+        if enabled is not None:
+            pref.enabled = bool(enabled)
+        if start_hour is not None:
+            pref.start_hour = int(start_hour)
+        if end_hour is not None:
+            pref.end_hour = int(end_hour)
+        if timezone is not None:
+            ZoneInfo(timezone)  # raises on an unknown zone instead of storing it
+            pref.timezone = timezone
+        self.set_preference(pref)
+        return self.get_preference(user_id)
+
+    def is_quiet_hours(self, user_id: str, now: Optional[datetime] = None) -> bool:
+        """Check if it's currently quiet hours for a user (`now` is for tests)."""
         pref = self.get_preference(user_id)
 
         if not pref.enabled:
@@ -124,7 +161,7 @@ class QuietHoursManager:
             logger.warning(f"Invalid timezone {pref.timezone}, using UTC")
             tz = ZoneInfo("UTC")
 
-        now = datetime.now(tz)
+        now = now.astimezone(tz) if now is not None else datetime.now(tz)
         current_hour = now.hour
 
         # Handle overnight quiet hours (e.g., 22:00 - 08:00)
@@ -153,3 +190,16 @@ def get_quiet_hours_manager() -> QuietHoursManager:
 def is_quiet_hours(user_id: str) -> bool:
     """Convenience function to check if it's quiet hours."""
     return get_quiet_hours_manager().is_quiet_hours(user_id)
+
+
+def owner_in_quiet_hours(now: Optional[datetime] = None) -> bool:
+    """True if any admin user (the people who run this Cass) is in quiet hours.
+
+    Used by autonomous work that acts on the owner's behalf but isn't aimed
+    at one user, like email auto-replies.
+    """
+    from database import get_db
+    with get_db() as conn:
+        admin_ids = [row[0] for row in conn.execute("SELECT id FROM users WHERE is_admin = 1")]
+    manager = get_quiet_hours_manager()
+    return any(manager.is_quiet_hours(user_id, now=now) for user_id in admin_ids)

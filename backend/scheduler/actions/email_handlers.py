@@ -106,6 +106,14 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
     - Emails from Kohl (primary user)
 
     On phase transitions, respond_to_all=True processes everyone.
+
+    Never auto-replies (whatever respond_to_all says):
+    - during the owner's quiet hours (emails wait for the next check)
+    - to the same email twice (a reply to it already exists, or it is a
+      redelivery of a message already handled)
+    - to no-reply/automated senders or mailing lists
+    - to Cass's own sent mail
+    Skipped emails are marked processed so they aren't reconsidered.
     """
     managers = context.get("managers", {})
     runners = context.get("runners", {})
@@ -116,14 +124,28 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
         from email_organ import get_email_manager
 
         email_manager = get_email_manager(daemon_id)
+
+        # Quiet hours: leave everything unprocessed for a later check.
+        from quiet_hours import owner_in_quiet_hours
+        if owner_in_quiet_hours():
+            logger.info("[Email] Quiet hours - not checking/replying until later")
+            return ActionResult(
+                success=True,
+                message="Quiet hours - inbox check deferred",
+                data={"email_count": 0, "auto_responded": 0, "deferred": True},
+            )
+
         unprocessed = email_manager.get_unprocessed()
+
+        # Drop what must never get an auto-reply, and mark it handled.
+        unprocessed, skipped = _filter_unreplyable(unprocessed, email_manager)
 
         if not unprocessed:
             logger.info("[Email] No unprocessed emails in inbox")
             return ActionResult(
                 success=True,
                 message="Inbox checked - no new emails",
-                data={"email_count": 0}
+                data={"email_count": 0, "skipped": skipped}
             )
 
         # Categorize emails
@@ -200,6 +222,7 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
                 "email_count": len(unprocessed),
                 "auto_responded": responded,
                 "notify_only": len(notify_only),
+                "skipped": skipped,
                 "summaries": summaries,
             }
         )
@@ -210,6 +233,33 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
             success=False,
             message=f"Failed to check inbox: {e}",
         )
+
+
+def _filter_unreplyable(emails, email_manager):
+    """Split off emails Cass must never auto-reply to; mark those processed.
+
+    Returns (replyable_emails, {email_id: reason}).
+    """
+    from email_organ import email_address_of
+
+    own = email_manager.own_addresses()
+    keep, skipped = [], {}
+    for email in emails:
+        if email_address_of(email.from_address) in own:
+            reason = "own sent mail"
+        elif email.automated_reason:
+            reason = email.automated_reason
+        elif email_manager.has_replied_to(email):
+            reason = "already replied"
+        elif email_manager.is_duplicate_delivery(email):
+            reason = "duplicate delivery"
+        else:
+            keep.append(email)
+            continue
+        skipped[email.id] = reason
+        email_manager.mark_processed(email.id)
+        logger.info(f"[Email] Not auto-replying to {email.from_address} ({reason})")
+    return keep, skipped
 
 
 def _should_auto_respond(email, daemon_id: str) -> bool:
@@ -304,8 +354,9 @@ async def _auto_respond_to_email(
     if not session_runner:
         return {"success": False, "error": "No session runner"}
 
-    # Mark as processing
-    email_manager.mark_processing(email.id)
+    # Claim it; another check may have got there first
+    if not email_manager.mark_processing(email.id):
+        return {"success": False, "error": "already being handled"}
 
     daemon_id = managers.get("daemon_id", "cass")
 
@@ -548,7 +599,17 @@ async def process_inbox_action(context: Dict[str, Any]) -> ActionResult:
         from email_organ import get_email_manager
 
         email_manager = get_email_manager(daemon_id)
-        unprocessed = email_manager.get_unprocessed()
+
+        # Same rules as check_inbox: no replies in quiet hours, none to
+        # lists/bots/own mail, never twice to the same email.
+        from quiet_hours import owner_in_quiet_hours
+        if owner_in_quiet_hours():
+            return ActionResult(
+                success=True,
+                message="Quiet hours - inbox processing deferred",
+                data={"processed": 0, "deferred": True},
+            )
+        unprocessed, _skipped = _filter_unreplyable(email_manager.get_unprocessed(), email_manager)
 
         if not unprocessed:
             return ActionResult(
