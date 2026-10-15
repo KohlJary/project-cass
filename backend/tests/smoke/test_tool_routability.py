@@ -19,40 +19,9 @@ import pytest
 
 from handlers.tool_router import CONSOLIDATED_ACTION_MAP, TOOL_REGISTRY, ToolContext, route_tool
 
-CARD_03 = "cards/03_memory_self.md (self-model graph): extended self-model tools missing from TOOL_REGISTRY"
-CARD_05_JANET = "cards/05_research_creative.md (Janet): janet tools only routed on legacy POST /chat"
-CARD_05_OUTREACH = "cards/05_research_creative.md (Outreach): outreach tools missing from TOOL_REGISTRY"
-CARD_05_NEITHER = "cards/05_research_creative.md fact 1: offered to the LLM but in neither dispatcher"
-CARD_06_DISCORD = "cards/06_world_integrations.md G3: no 'discord' key in TOOL_EXECUTORS"
-CARD_06_HA = "cards/06_world_integrations.md D1: router calls execute_ha_tool(tool_input) with wrong args"
-CARD_06_HA_CAL = "cards/06_world_integrations.md D1: HA calendar tools missing from TOOL_REGISTRY"
-CARD_06_HA_AUTO = "cards/06_world_integrations.md D3: no route_tool branch for 'home_automation'"
-
-KNOWN_UNROUTABLE = {
-    **dict.fromkeys(["summon_janet", "janet_feedback", "janet_stats"], CARD_05_JANET),
-    **dict.fromkeys([
-        "trace_belief_sources", "find_self_contradictions", "query_self_graph",
-        "check_growth_edge_evidence", "get_graph_stats", "get_narration_metrics",
-        "analyze_narration"], CARD_03),
-    **dict.fromkeys([
-        "create_outreach_draft", "submit_outreach_draft", "edit_outreach_draft",
-        "get_outreach_draft", "list_outreach_drafts", "get_outreach_track_record",
-        "get_outreach_stats"], CARD_05_OUTREACH),
-    **dict.fromkeys([
-        "request_scheduled_research", "refine_image", "create_variations",
-        "upscale_image", "save_recipe", "list_recipes"], CARD_05_NEITHER),
-    **dict.fromkeys([
-        "discord_respond", "discord_react", "discord_expand", "discord_history",
-        "discord_snapshot"], CARD_06_DISCORD),
-    **dict.fromkeys([
-        "get_home_state", "get_device_state", "list_devices", "control_device",
-        "list_areas", "get_shopping_list", "add_shopping_item",
-        "complete_shopping_item", "remove_shopping_item", "clear_completed_items"], CARD_06_HA),
-    **dict.fromkeys(["list_ha_calendars", "setup_cass_calendar"], CARD_06_HA_CAL),
-    **dict.fromkeys([
-        "draft_automation", "create_automation", "list_automations",
-        "toggle_automation"], CARD_06_HA_AUTO),
-}
+# Known failures from the audit. Empty means every offered tool routes; add
+# an entry (with the card that found it) only for a newly discovered gap.
+KNOWN_UNROUTABLE = {}
 
 
 def _offered_tools():
@@ -73,9 +42,12 @@ def _offered_tools():
         tools = client.get_tools(project_id=project_id, message="")
         return {t.get("name") or t.get("function", {}).get("name") for t in tools}
 
+    # Integration-gated groups are opened too, so their tools are checked
+    # even though no integration is configured under test.
     with mock.patch.multiple(agent_client, **gates), \
             mock.patch.multiple(openai_client, **openai_gates), \
             mock.patch.object(discord_config, "DISCORD_ENABLED", True), \
+            mock.patch.object(agent_client, "home_assistant_available", lambda: True), \
             mock.patch.object(tool_selector, "filter_blacklisted_tools", lambda tools: tools):
         clients = []
         cass = agent_client.CassAgentClient.__new__(agent_client.CassAgentClient)
@@ -169,15 +141,24 @@ async def test_tool_is_routable(tool_name):
     assert dispatched, f"{tool_name} was not dispatched to any executor: {error or result!r}"
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "cards/07_tooling_tests_frontends.md (test runner): tool_router.py drops "
-    "longitudinal_manager, so the 5 longitudinal tools always fail on /ws"))
 async def test_longitudinal_tools_get_their_manager():
+    # cards/07 (test runner): the router used to drop longitudinal_manager, so
+    # the 5 longitudinal tools always answered "not available" on /ws.
     seen = {}
+    manager = object()
 
     async def testing_executor(tool_name, tool_input, **kwargs):
         seen.update(kwargs)
         return {"success": True}
 
-    await route_tool("list_test_batteries", {}, ToolContext(), {"testing": testing_executor})
-    assert seen.get("longitudinal_manager") is not None
+    await route_tool("list_test_batteries", {}, ToolContext(longitudinal_manager=manager),
+                     {"testing": testing_executor})
+    assert seen.get("longitudinal_manager") is manager
+
+
+def test_tool_context_carries_longitudinal_manager_and_world_state():
+    import main_sdk
+
+    ctx = main_sdk.create_tool_context(user_id="u")
+    assert ctx.longitudinal_manager is main_sdk.longitudinal_test_manager
+    assert ctx.world_state_source is main_sdk.world_state_source
