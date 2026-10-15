@@ -97,6 +97,10 @@ AUTO_SUMMARY_INTERVAL = 20  # Generate summary after N messages without one
 # Max model->tool->model round trips in one chat turn (websocket and relay).
 # A model that keeps calling tools would otherwise loop (and spend) forever.
 CHAT_MAX_TOOL_ITERATIONS = int(os.getenv("CHAT_MAX_TOOL_ITERATIONS", "10"))
+
+# state_events (state-bus audit log) keeps this many days; older rows are
+# pruned as new ones are written (at most hourly). 0 = keep forever.
+STATE_EVENTS_RETENTION_DAYS = int(os.getenv("STATE_EVENTS_RETENTION_DAYS", "90"))
 SUMMARY_CONTEXT_MESSAGES = 30  # How many recent messages to include when generating summary
 
 # Summarizer provider: "ollama" (local, free), "haiku" (Claude Haiku, fast/cheap), "sonnet" (Claude Sonnet, best quality)
