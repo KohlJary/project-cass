@@ -3,10 +3,18 @@ Scheduler time (card 04): Synkratos cron ran in UTC while day phases used
 server-local time, and the phase queues lived only in memory, so a restart
 lost queued work.
 """
+import importlib.util
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
+
+# The scheduling package imports anthropic (decision_engine), which the fast
+# CI job doesn't install; the full job runs these.
+needs_scheduling = pytest.mark.skipif(
+    importlib.util.find_spec("anthropic") is None,
+    reason="scheduling package needs the runtime deps (anthropic)",
+)
 
 
 @pytest.fixture
@@ -34,6 +42,7 @@ def test_unset_keeps_old_clocks(cass_tz):
     assert phase_now().tzinfo is None
 
 
+@needs_scheduling
 def test_cron_and_phases_share_cass_timezone(cass_tz):
     from scheduler.core import CronParser
     from scheduling.day_phase import DayPhase, DayPhaseTracker
@@ -75,6 +84,7 @@ def _unit(name):
     return WorkUnit(id=f"wu-{name}", name=name, description=f"{name} work")
 
 
+@needs_scheduling
 def test_phase_queue_survives_restart(tmp_path):
     from scheduling.day_phase import DayPhase
     from scheduling.phase_queue import PhaseQueueManager
@@ -94,6 +104,7 @@ def test_phase_queue_survives_restart(tmp_path):
     assert PhaseQueueManager(persist_path=path).get_queue(DayPhase.NIGHT) == []
 
 
+@needs_scheduling
 def test_stale_queued_work_is_not_restored(tmp_path):
     import json
     from scheduling.day_phase import DayPhase
@@ -109,6 +120,7 @@ def test_stale_queued_work_is_not_restored(tmp_path):
     assert PhaseQueueManager(persist_path=path).get_queue(DayPhase.MORNING) == []
 
 
+@needs_scheduling
 def test_no_persist_path_stays_in_memory(tmp_path, monkeypatch):
     from scheduling.day_phase import DayPhase
     from scheduling.phase_queue import PhaseQueueManager
