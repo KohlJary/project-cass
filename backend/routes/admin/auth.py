@@ -148,7 +148,10 @@ async def require_admin(
     """
     # Demo mode lets anonymous visitors browse, but read-only: it used to hand
     # out a full admin principal for writes too.
-    if DEMO_MODE and not credentials and request.method in ("GET", "HEAD", "OPTIONS"):
+    # (The demo frontend sends the placeholder "Bearer demo-token", so treat an
+    # invalid token like no token here.)
+    if (DEMO_MODE and request.method in ("GET", "HEAD", "OPTIONS")
+            and (not credentials or verify_token(credentials.credentials) is None)):
         return {
             "user_id": "demo",
             "display_name": "Demo User",
@@ -193,7 +196,10 @@ async def require_auth(
     """
     # Demo mode lets anonymous visitors browse, but read-only: it used to hand
     # out a full admin principal for writes too.
-    if DEMO_MODE and not credentials and request.method in ("GET", "HEAD", "OPTIONS"):
+    # (The demo frontend sends the placeholder "Bearer demo-token", so treat an
+    # invalid token like no token here.)
+    if (DEMO_MODE and request.method in ("GET", "HEAD", "OPTIONS")
+            and (not credentials or verify_token(credentials.credentials) is None)):
         return {
             "user_id": "demo",
             "display_name": "Demo User",

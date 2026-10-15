@@ -425,6 +425,10 @@ class TestTokensAndDemo:
         get = Mock(method="GET")
         post = Mock(method="POST")
         assert _run(admin_auth.require_admin(get, None))["demo_mode"] is True
+        placeholder = Mock(credentials="demo-token")  # what the demo frontend sends
+        assert _run(admin_auth.require_admin(get, placeholder))["demo_mode"] is True
+        with pytest.raises(HTTPException):
+            _run(admin_auth.require_admin(post, placeholder))
         with pytest.raises(HTTPException) as exc:
             _run(admin_auth.require_admin(post, None))
         assert exc.value.status_code == 401
