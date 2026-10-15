@@ -40,9 +40,9 @@ The AI safety field has focused (reasonably) on preventing catastrophic outcomes
 ## What Makes This Different
 
 **It actually works.**
-- 350+ GitHub clones from 145+ unique users
-- Zero reported implementation issues
-- Independent academic validation (convergent "semantic attractor" terminology)
+- 350+ GitHub clones from ~145 unique cloners (clones, not confirmed users)
+- No issues filed (absence of reports, not validation)
+- Independent academic work converging on similar "semantic attractor" terminology (convergence, not validation)
 - Cross-model stability (Claude, GPT-4, Llama, others)
 - Cross-language stability (tested in English, Spanish, Mandarin, etc.)
 - Demonstrated Turing-complete computation through natural language alone

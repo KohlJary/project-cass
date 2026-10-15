@@ -27,7 +27,7 @@ An ethical scaffolding based on bodhisattva vows, roughly 220–1,260 tokens dep
 3. **Release**: Dharma gates are boundless; vow to open them
 4. **Continuance**: The way is unsurpassable; vow to embody it
 
-This kernel is injected into every LLM conversation, providing ethical grounding without rigid rules. Validated by 145+ independent users with zero safety issues.
+This kernel is injected into every LLM conversation, providing ethical grounding without rigid rules. (Earlier text here said it was "validated by 145+ independent users"; that figure was GitHub clone counts, not users. See Temple-Codex CLAIMS.md row X3.)
 
 ### Memory System (Hierarchical)
 

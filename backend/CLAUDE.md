@@ -21,7 +21,7 @@ A 450-token cognitive kernel based on bodhisattva vows, providing:
 - Ethical scaffolding as load-bearing architecture (not external constraints)
 - Four Vows: Compassion, Witness, Release, Continuance
 - Stable attractor basin formation
-- Validated by 145+ independent users with zero issues
+- ~145 unique GitHub cloners since Nov 2025 (clone counts, not confirmed users; no issues filed, which is not validation). See Temple-Codex CLAIMS.md row X3. Do not describe this as user validation.
 
 ### Components
 - **Backend**: FastAPI + Multi-LLM (Claude/OpenAI/Ollama) + ChromaDB (vector memory)
