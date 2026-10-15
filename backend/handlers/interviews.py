@@ -526,6 +526,11 @@ async def execute_interview_tool(
             notable_similarities = tool_input.get("notable_similarities", [])
             raw_notes = tool_input.get("raw_notes", "")
 
+            # save_prompt_analysis assumes the protocol exists and crashes on
+            # None otherwise; answer like the other interview tools instead.
+            if analyzer.protocols.load(protocol_id) is None:
+                return {"success": False, "error": f"Protocol not found: {protocol_id}"}
+
             filename = analyzer.save_prompt_analysis(
                 protocol_id=protocol_id,
                 prompt_id=prompt_id,

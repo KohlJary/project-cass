@@ -102,7 +102,9 @@ class RecipeManager:
             import sqlite3
             if self._db_path is None:
                 # Import from main database module
-                from ..database import get_connection
+                # backend/ is the import root, so this is a top-level import
+                # (".." went above the top-level package and always raised).
+                from database import get_connection
                 return get_connection()
             self._conn = sqlite3.connect(self._db_path)
         return self._conn

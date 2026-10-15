@@ -35,7 +35,12 @@ class QuietHoursPreference:
 class QuietHoursManager:
     """Manages quiet hours preferences and checks."""
 
-    def __init__(self, db_path: Path = DB_PATH):
+    def __init__(self, db_path: Optional[Path] = None):
+        # Default to the database module's current path (same file as DB_PATH
+        # in production) so a repointed DB, e.g. per-test, is honoured.
+        if db_path is None:
+            import database.connection as connection
+            db_path = connection.DATABASE_PATH
         self.db_path = db_path
         self._init_db()
 

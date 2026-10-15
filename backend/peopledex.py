@@ -1765,11 +1765,12 @@ class PeopleDexManager:
             um = UserManager()
             profile = um.load_profile(user_id)
             if profile:
-                entity = self.create_entity(
+                # create_entity returns the new id, not an Entity.
+                entity = self.get_entity(self.create_entity(
                     primary_name=profile.display_name,
                     entity_type=EntityType.PERSON,
                     user_id=user_id,
-                )
+                ))
         if not entity:
             return None
         return self.add_observation(entity.id, observation_type, content, **kwargs)
@@ -1836,11 +1837,12 @@ class PeopleDexManager:
             um = UserManager()
             profile = um.load_profile(user_id)
             if profile:
-                entity = self.create_entity(
+                # create_entity returns the new id, not an Entity.
+                entity = self.get_entity(self.create_entity(
                     primary_name=profile.display_name,
                     entity_type=EntityType.PERSON,
                     user_id=user_id,
-                )
+                ))
         if not entity:
             return None
         return self.add_fact(entity.id, fact_type, content, **kwargs)
