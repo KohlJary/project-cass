@@ -25,28 +25,7 @@ import pytest
 from handlers.tool_router import CONSOLIDATED_ACTION_MAP, TOOL_REGISTRY, route_tool
 from tests.smoke.conftest import create_user, module_app
 
-SELF_MODEL_AWAIT = (
-    "handlers/self_model.py execute_self_model_tool awaits every handler, but "
-    "this one is sync, so it always fails with \"object dict can't be used in "
-    "'await' expression\" (owned by the memory/self-model fix)")
-
-KNOWN_BROKEN = {
-    **dict.fromkeys([
-        "reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement",
-        "review_self_model", "add_growth_observation", "trace_observation_evolution",
-        "recall_development_stage", "compare_self_over_time", "list_developmental_milestones",
-        "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots",
-        "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones",
-        "get_milestone_details", "acknowledge_milestone", "get_milestone_summary",
-        "get_unacknowledged_milestones", "trace_belief_sources", "find_self_contradictions",
-        "query_self_graph", "check_growth_edge_evidence", "get_graph_stats",
-        "get_narration_metrics", "analyze_narration", "register_intention",
-        "log_intention_outcome", "get_active_intentions", "review_friction",
-        "update_intention_status", "log_situational_inference", "get_situational_inferences",
-        "analyze_inference_patterns", "log_presence", "get_presence_logs",
-        "analyze_presence_patterns",
-    ], SELF_MODEL_AWAIT),
-}
+KNOWN_BROKEN = {}
 
 # Error text that means "the code path is broken", not "the input was wrong".
 WIRING_ERRORS = re.compile(

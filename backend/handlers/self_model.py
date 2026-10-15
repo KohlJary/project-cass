@@ -10,6 +10,7 @@ These tools allow Cass to:
 
 Refactored: Each tool has its own handler function for maintainability.
 """
+import inspect
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -2298,7 +2299,11 @@ async def execute_self_model_tool(
 
         handler = TOOL_HANDLERS.get(tool_name)
         if handler:
-            return await handler(tool_input, ctx)
+            # TOOL_HANDLERS mixes sync and async functions; only await coroutines.
+            result = handler(tool_input, ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
         else:
             return {"success": False, "error": f"Unknown self-model tool: {tool_name}"}
 
