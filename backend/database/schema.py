@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 55  # research_focus table (her own research direction)
+SCHEMA_VERSION = 57  # image_artist_notes (what she meant by a painting, and what she saw)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1870,6 +1870,23 @@ CREATE INDEX IF NOT EXISTS idx_generated_images_daemon ON generated_images(daemo
 CREATE INDEX IF NOT EXISTS idx_generated_images_purpose ON generated_images(daemon_id, purpose);
 CREATE INDEX IF NOT EXISTS idx_generated_images_context ON generated_images(context_id);
 CREATE INDEX IF NOT EXISTS idx_generated_images_created ON generated_images(created_at);
+
+-- Artist's notes (v57): for a painting she made on her own, who chose the
+-- subject (her, or the code's random pick when her choice failed), what she
+-- meant by it, and what she saw when shown the result. A side table so the
+-- generation record itself stays about generation.
+CREATE TABLE IF NOT EXISTS image_artist_notes (
+    image_id TEXT PRIMARY KEY REFERENCES generated_images(id),
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    chosen_by TEXT NOT NULL,            -- 'cass' | 'code'
+    subject TEXT NOT NULL,              -- what the painting is of (the prompt's subject)
+    why TEXT,                           -- her reason for choosing it, if she chose
+    artist_note TEXT,                   -- what she saw when shown the finished painting
+    noted_at TEXT,                      -- when the note was written
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_artist_notes_daemon ON image_artist_notes(daemon_id, created_at);
 
 -- =============================================================================
 -- THYMOS - Homeostatic Emotional/Motivational System (v36)

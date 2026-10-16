@@ -147,6 +147,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("self_context", "Self-context section in her chat prompt: time since last contact, "
            "what she did meanwhile, latest dream/reflection, her own threads (epic #63)",
            where="continuous_context.build_continuous_context"),
+    _lever("art_choice", "Before an autonomous painting, ask her what she wants to paint and why; "
+           "after it, show her the result for an artist's note (two Haiku calls per painting)",
+           LLM, where="scheduler/actions/creative_handlers.generate_image_action"),
 ]}
 
 # Action-id prefix -> lever, used by ActionRegistry.execute.
