@@ -326,6 +326,11 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
     - style: Optional override style
     - purpose: autonomous, dream, or relational
     - mood: Optional mood override
+
+    With the `art_choice` lever on and no prompt override, an autonomous
+    painting's subject is her choice (art_choice.choose_subject, falling back
+    to the random pick below), and she is shown the result afterwards; who
+    chose, what she meant and what she saw go to image_artist_notes.
     """
     from handlers.image_generation import execute_image_generation_tool
 
@@ -369,11 +374,30 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
 
     # Allow overrides from context
     prompt = context.get("prompt")
+    # Who picked the subject: 'cass' or 'code' (art_choice.py), or None when
+    # the lever is off or the prompt was handed in, in which case nothing is recorded.
+    chosen_by = None
+    why = None
     if not prompt:
         prompt = _generate_prompt_from_context(
             growth_edges, recent_observations, emotional_state,
             activity_context=activity_context,
         )
+        if purpose == "autonomous":
+            import art_choice
+            if art_choice.is_on():
+                # Her hand: offer her what the code would have drawn from and ask.
+                # A failed or refused answer keeps the random pick above.
+                chosen_by = art_choice.CHOSEN_BY_CODE
+                choice = await art_choice.choose_subject(
+                    daemon_id,
+                    art_choice.candidate_subjects(daemon_id, activity_context),
+                    token_tracker=managers.get("token_tracker"),
+                )
+                if choice:
+                    prompt = choice["subject"]
+                    why = choice["why"] or None
+                    chosen_by = art_choice.CHOSEN_BY_CASS
 
     style = context.get("style")
     if not style:
@@ -412,17 +436,34 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
                     ""
                 )
 
+            data = {
+                "prompt": prompt,
+                "style": style,
+                "mood": mood,
+                "purpose": purpose,
+                "result": result_text,
+            }
+
+            # Her eye: show her what she made, store her note alongside who chose.
+            if chosen_by:
+                import art_choice
+                image_id = art_choice.image_id_from_result(result_text)
+                data["chosen_by"] = chosen_by
+                data["why"] = why
+                if image_id:
+                    data["image_id"] = image_id
+                    data["artist_note"] = await art_choice.note_painting(
+                        image_id, daemon_id, chosen_by, prompt, why,
+                        token_tracker=managers.get("token_tracker"),
+                    )
+                else:
+                    logger.warning("Generated image reported no image_id; no artist's note")
+
             return ActionResult(
                 success=True,
                 message=f"Generated {style} image with {mood} mood",
                 cost_usd=0.0,  # Local generation is free
-                data={
-                    "prompt": prompt,
-                    "style": style,
-                    "mood": mood,
-                    "purpose": purpose,
-                    "result": result_text,
-                }
+                data=data,
             )
         else:
             return ActionResult(

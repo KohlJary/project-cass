@@ -563,6 +563,25 @@ def _apply_schema_updates(conn, from_version: int):
             "ON reach_outs(daemon_id, user_id, created_at)"
         )
         print("Adding reach_outs table (v56)")
+    # v56 -> v57: artist's notes on her own paintings.
+    if from_version < 57:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS image_artist_notes (
+                image_id TEXT PRIMARY KEY REFERENCES generated_images(id),
+                daemon_id TEXT NOT NULL REFERENCES daemons(id),
+                chosen_by TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                why TEXT,
+                artist_note TEXT,
+                noted_at TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_image_artist_notes_daemon "
+            "ON image_artist_notes(daemon_id, created_at)"
+        )
+        print("Adding image_artist_notes table (v57)")
 
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:

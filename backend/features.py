@@ -154,6 +154,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "and the reach_out chat tool. Email only with REACH_OUT_EMAIL set.",
            BACKGROUND, LLM,
            where="reach_out.nightly_reach_out (daily_journal_handler), handlers/self_model.py reach_out tool"),
+
+    _lever("art_choice", "Before an autonomous painting, ask her what she wants to paint and why; "
+           "after it, show her the result for an artist's note (two Haiku calls per painting)",
+           LLM, where="scheduler/actions/creative_handlers.generate_image_action"),
 ]}
 
 # Action-id prefix -> lever, used by ActionRegistry.execute.
