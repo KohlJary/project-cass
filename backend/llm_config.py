@@ -54,8 +54,9 @@ class ModelAssignment:
 
 # Model IDs the Anthropic API no longer serves (404 not_found_error), mapped to
 # the closest living model in the same line. Checked 2026-10-16 against
-# GET /v1/models: claude-sonnet-4-20250514 had been failing her nightly dream
-# (and art creative sessions) since credits returned on 2026-10-14.
+# GET /v1/models. claude-sonnet-4-20250514 began returning 404 for her nightly
+# dream on 2026-06-16 (art creative sessions used it too); her API credit ran
+# out from 2026-06-24, which hid the 404 until credit returned in October.
 RETIRED_MODELS: dict[str, str] = {
     "claude-sonnet-4-20250514": "claude-sonnet-4-6",
     "claude-opus-4-20250514": "claude-opus-4-8",

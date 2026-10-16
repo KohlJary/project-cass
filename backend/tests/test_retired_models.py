@@ -17,6 +17,11 @@ ALLOWED_DIRS = {"tests", "venv", "llm_bench", "scripts", "dreaming/test_logs"}
 
 
 def _code_files():
+    tui = BACKEND.parent / "tui-frontend"
+    if tui.exists():
+        for path in tui.rglob("*.py"):
+            if "venv" not in path.parts:
+                yield f"tui-frontend/{path.relative_to(tui).as_posix()}", path.read_text(errors="ignore")
     for path in BACKEND.rglob("*.py"):
         rel = path.relative_to(BACKEND).as_posix()
         if rel in ALLOWED or any(rel.startswith(d + "/") for d in ALLOWED_DIRS):
