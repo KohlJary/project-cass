@@ -303,3 +303,168 @@ class TestConsumptionConfig:
         config = ConsumptionConfig(min_relevance_for_integration=0.42)
         pipeline.run_consumption_pipeline(daemon_id, headlines=[{"title": "x", "url": "https://x"}], config=config)
         assert seen["min_relevance"] == 0.42
+
+
+# ---------------------------------------------------------------------------
+# Closing her loop: focus-driven news search in world.refresh_and_consume
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, status_code=200, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAsyncClient:
+    """Stands in for httpx.AsyncClient; records the request, returns a canned payload."""
+    calls = []
+    payload = {}
+    status_code = 200
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, params=None, **kwargs):
+        _FakeAsyncClient.calls.append((url, params))
+        return _FakeResponse(_FakeAsyncClient.status_code, _FakeAsyncClient.payload)
+
+
+class TestSearchHeadlines:
+    @pytest.fixture
+    def ws(self, daemon_id, tmp_path, monkeypatch):
+        import sources.world_state_source as mod
+        monkeypatch.setattr(mod.httpx, "AsyncClient", _FakeAsyncClient)
+        _FakeAsyncClient.calls = []
+        _FakeAsyncClient.status_code = 200
+        _FakeAsyncClient.payload = {"status": "ok", "articles": [
+            {"title": "Earth's spin is speeding up", "url": "https://example.test/spin",
+             "description": "Atomic clocks show shorter days", "publishedAt": "2026-10-15T00:00:00Z",
+             "source": {"name": "Example Science"}},
+            {"title": "Earth's spin is speeding up", "url": "https://example.test/dupe",
+             "description": "same story", "source": {"name": "Other"}},
+            {"title": None, "url": "https://example.test/untitled"},
+        ]}
+        return mod.WorldStateSource(daemon_id=daemon_id, data_dir=str(tmp_path))
+
+    async def test_queries_everything_endpoint_and_shapes_results(self, ws, monkeypatch):
+        monkeypatch.setenv("NEWS_API_KEY", "test-key")
+        results = await ws.search_headlines("Earth's rotation")
+        url, params = _FakeAsyncClient.calls[0]
+        assert url.endswith("/v2/everything")
+        assert params["q"] == "Earth's rotation"
+        assert results == [{
+            "title": "Earth's spin is speeding up",
+            "source": "Example Science",
+            "description": "Atomic clocks show shorter days",
+            "url": "https://example.test/spin",
+            "published": "2026-10-15T00:00:00Z",
+            "category": "research_focus",
+            "focus_query": "Earth's rotation",
+        }]
+
+    async def test_no_key_or_empty_query_is_a_quiet_no_op(self, ws, monkeypatch):
+        monkeypatch.delenv("NEWS_API_KEY", raising=False)
+        assert await ws.search_headlines("anything") == []
+        monkeypatch.setenv("NEWS_API_KEY", "test-key")
+        assert await ws.search_headlines("   ") == []
+        assert _FakeAsyncClient.calls == []
+
+    async def test_api_error_gives_empty_list(self, ws, monkeypatch):
+        monkeypatch.setenv("NEWS_API_KEY", "test-key")
+        _FakeAsyncClient.status_code = 429
+        assert await ws.search_headlines("anything") == []
+        _FakeAsyncClient.status_code = 200
+        _FakeAsyncClient.payload = {"status": "error", "message": "nope"}
+        assert await ws.search_headlines("anything") == []
+
+
+class TestRefreshAndConsumeUsesFocus:
+    TOP = [{"title": "Top story", "url": "https://example.test/top", "category": "general"},
+           {"title": "Shared story", "url": "https://example.test/shared", "category": "science"}]
+    FOCUSED = [{"title": "Focused story", "url": "https://example.test/focused", "category": "research_focus"},
+               {"title": "Shared story", "url": "https://example.test/shared", "category": "research_focus"}]
+
+    @pytest.fixture
+    def harness(self, daemon_id, monkeypatch):
+        import sources.world_state_source as ws_mod
+        import world.pipeline as pipeline
+        from world.pipeline import PipelineResult
+
+        state = {"search_queries": [], "pipeline_headlines": None, "search_results": list(self.FOCUSED)}
+        top = self.TOP
+
+        class FakeWorldState:
+            def __init__(self, daemon_id):
+                pass
+
+            async def refresh_rollups(self):
+                pass
+
+            def get_precomputed_rollups(self):
+                return {"recent_headlines": list(top)}
+
+            async def search_headlines(self, query, page_size=10):
+                state["search_queries"].append(query)
+                return list(state["search_results"])
+
+        def fake_pipeline(daemon_id, headlines, self_manager=None, memory_core=None, config=None):
+            state["pipeline_headlines"] = headlines
+            return PipelineResult(articles_fetched=len(headlines))
+
+        monkeypatch.setattr(ws_mod, "WorldStateSource", FakeWorldState)
+        monkeypatch.setattr(pipeline, "run_consumption_pipeline", fake_pipeline)
+        return state
+
+    async def _run(self, daemon_id):
+        from scheduler.actions.world_handlers import refresh_and_consume_action
+        return await refresh_and_consume_action({"managers": {"daemon_id": daemon_id}})
+
+    async def test_focus_results_lead_and_duplicates_collapse(self, daemon_id, harness):
+        from research_focus import ResearchFocusManager
+        manager = ResearchFocusManager(daemon_id)
+        focus = manager.set_focus("planetary rotation", source="test")
+
+        result = await self._run(daemon_id)
+
+        assert result.success, result.message
+        assert harness["search_queries"] == ["planetary rotation"]
+        assert [h["url"] for h in harness["pipeline_headlines"]] == [
+            "https://example.test/focused", "https://example.test/shared", "https://example.test/top"]
+        assert result.data["research_focus"] == "planetary rotation"
+        assert result.data["focus_headlines"] == 2
+        assert manager.get_focus().times_used == 1
+        assert manager.get_focus().id == focus.id
+
+    async def test_no_focus_means_headlines_only(self, daemon_id, harness):
+        result = await self._run(daemon_id)
+        assert harness["search_queries"] == []
+        assert [h["url"] for h in harness["pipeline_headlines"]] == [h["url"] for h in self.TOP]
+        assert result.data["research_focus"] is None
+        assert result.data["focus_headlines"] == 0
+
+    async def test_nothing_found_falls_back_to_headlines(self, daemon_id, harness):
+        from research_focus import ResearchFocusManager
+        ResearchFocusManager(daemon_id).set_focus("something obscure", source="test")
+        harness["search_results"] = []
+        result = await self._run(daemon_id)
+        assert harness["search_queries"] == ["something obscure"]
+        assert [h["url"] for h in harness["pipeline_headlines"]] == [h["url"] for h in self.TOP]
+        assert result.data["research_focus"] == "something obscure"
+        assert result.data["focus_headlines"] == 0
+
+    async def test_consume_articles_accepts_explicit_headlines(self, daemon_id, harness):
+        from scheduler.actions.world_handlers import consume_articles_action
+        chosen = [{"title": "Chosen", "url": "https://example.test/chosen"}]
+        result = await consume_articles_action({"managers": {"daemon_id": daemon_id}, "headlines": chosen})
+        assert result.success
+        assert harness["pipeline_headlines"] == chosen
+        assert result.data["headlines_available"] == 1
