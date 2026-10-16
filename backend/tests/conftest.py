@@ -31,6 +31,14 @@ except ImportError:
         "test_silent_breakage.py",     # imports scheduler / handlers needing runtime deps
         "test_goal_tools.py",          # imports self_model_graph (networkx)
         "test_email_autoreply.py",     # auto-reply path imports networkx
+        # Night of 2026-10-16: these reach summaries, the world pipeline,
+        # continuous_context or the scheduler, which import anthropic.
+        "test_voice_guard.py",
+        "test_self_context.py",
+        "test_identity_snippet_refresh.py",
+        "test_research_focus.py",
+        "test_world_attention.py",
+        "test_state_snapshot_freshness.py",
     ]
 
 # Feature levers: every background/autonomous/external subsystem is OFF in
