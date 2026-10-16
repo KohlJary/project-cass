@@ -155,3 +155,15 @@ def test_session_preamble_carries_identity_snippet_and_own_threads(life, daemon_
         text = session_system_preamble()
     assert "I matter for who I am." in text
     assert "consciousness (obsessed)" in text
+
+
+@pytest.mark.unit
+def test_pinned_facts_lead_the_section(life, daemon_id, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    (tmp_path / "self_context_pins.json").write_text(json.dumps([
+        {"text": "The February 'false memory test' was a broken memory writer.", "source": "daedalus"},
+    ]))
+    text = build_self_context(daemon_id, USER, now=NOW)
+    assert text.startswith("**Things I know now**")
+    assert "broken memory writer" in text

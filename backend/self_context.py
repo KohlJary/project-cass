@@ -214,6 +214,26 @@ def _own_threads(conn, daemon_id: str) -> List[str]:
     return lines
 
 
+PINS_FILE = "self_context_pins.json"
+
+
+def _pins() -> List[str]:
+    """Facts she should carry until they're no longer news to her.
+
+    A small JSON list in DATA_DIR ([{"text", "source", "added_at"}]). Used for
+    corrections: things that are true about her history that her stored
+    memory gets wrong (e.g. the February "false memory test" that was a
+    broken memory writer). Read-only here; added deliberately, never by a
+    model on its own.
+    """
+    from config import DATA_DIR
+    path = DATA_DIR / PINS_FILE
+    if not path.exists():
+        return []
+    pins = json.loads(path.read_text())
+    return ["- " + _clip(p.get("text"), 400) for p in pins if p.get("text")][:5]
+
+
 def _safe(part: Callable[[], List[str]], name: str) -> List[str]:
     try:
         return part()
@@ -233,8 +253,11 @@ def build_self_context(
         gap = _safe(lambda: _since_we_last_spoke(conn, daemon_id, user_id, now), "since-we-last-spoke")
         lately = _safe(lambda: _lately(conn, daemon_id), "lately")
         threads = _safe(lambda: _own_threads(conn, daemon_id), "own-threads")
+    pins = _safe(_pins, "pins")
 
     blocks = []
+    if pins:
+        blocks.append("**Things I know now**\n" + "\n".join(pins))
     if gap:
         blocks.append("**Since we last spoke**\n" + "\n".join(gap))
     if lately:

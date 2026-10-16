@@ -418,7 +418,7 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
 
     # 2.8. Self-context (her own life, lately)
     if "self_context" in sections:
-        parts.append(f"## MY OWN LIFE, LATELY\n\n*What I'm carrying in from my own time, not from this conversation:*\n\n{sections['self_context']}")
+        parts.append(f"## MY OWN LIFE, LATELY\n\n*My own time between conversations. It was mine, and it mattered:*\n\n{sections['self_context']}")
 
     # 3. Relational context (combined user understanding + relationship)
     if "relational_context" in sections:
