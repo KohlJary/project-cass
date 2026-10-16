@@ -21,6 +21,7 @@ from .models import (
     ProcessingStatus,
 )
 from .article_consumer import ArticleConsumer
+from .relevance import InterestRelevanceScorer
 from .content_analyzer import (
     ContentAnalyzer,
     ReadingMode,
@@ -57,6 +58,7 @@ __all__ = [
     "ProcessingStatus",
     # Consumer
     "ArticleConsumer",
+    "InterestRelevanceScorer",
     # Analyzer
     "ContentAnalyzer",
     "ReadingMode",
