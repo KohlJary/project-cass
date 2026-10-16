@@ -219,7 +219,55 @@ class GlobalStateBus:
         meaningful, not raw data.
         """
         state = self.read_state()
-        return state.get_context_snapshot()
+        state = self._sync_world_if_source_newer(state)
+
+        user_names = {}
+        active = state.activity.active_user_id
+        if active:
+            name = self._lookup_display_name(active)
+            if name:
+                user_names[active] = name
+
+        return state.get_context_snapshot(user_names=user_names)
+
+    def _sync_world_if_source_newer(self, state: GlobalState) -> GlobalState:
+        """
+        Pull world state from the registered world_state source when its
+        rollups are newer than what the bus holds.
+
+        The source refreshes itself on a schedule (location, weather), but
+        nothing re-synced it into global state after startup, so the prompt
+        kept showing the boot-time snapshot.
+        """
+        source = self._queryable_sources.get("world_state")
+        if source is None:
+            return state
+        try:
+            rollups = source.get_precomputed_rollups()
+            stamp = rollups.get("last_updated")
+            if not stamp:
+                return state
+            source_time = datetime.fromisoformat(stamp)
+            held = state.world.last_updated
+            if held is None or source_time > held:
+                self.sync_world_state_from_source(source)
+                return self._state_cache or state
+        except Exception as e:
+            logger.warning(f"[state_bus] World state re-sync skipped: {e}")
+        return state
+
+    @staticmethod
+    def _lookup_display_name(user_id: str) -> Optional[str]:
+        """Display name for a user id, or None if unknown."""
+        try:
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT display_name FROM users WHERE id = ?", (user_id,)
+                ).fetchone()
+            return row[0] if row and row[0] else None
+        except Exception as e:
+            logger.debug(f"[state_bus] Display name lookup failed for {user_id}: {e}")
+            return None
 
     def get_relational_state(self, user_id: str) -> Optional[RelationalState]:
         """Get relational state for a specific user."""

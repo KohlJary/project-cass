@@ -44,7 +44,7 @@ HOST = "0.0.0.0"
 PORT = 8000
 
 # World State Configuration
-SERVER_LOCATION = os.getenv("SERVER_LOCATION", "Seattle, WA")  # Fallback location for geolocation
+SERVER_LOCATION = os.getenv("SERVER_LOCATION", "")  # Fallback when geolocation fails; empty = unknown, not a guessed city
 WORLD_STATE_ENABLED = os.getenv("WORLD_STATE_ENABLED", "true").lower() == "true"
 
 # Temple-Codex Core Context

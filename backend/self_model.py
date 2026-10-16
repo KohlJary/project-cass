@@ -131,6 +131,16 @@ class ObservationVersion:
         )
 
 
+WORLD_OBSERVATION_CATEGORY = "world_awareness"
+
+
+def is_world_observation(category: Optional[str]) -> bool:
+    """True for world-awareness categories ("world_awareness", "world_awareness:trend", ...)."""
+    if not category:
+        return False
+    return category == WORLD_OBSERVATION_CATEGORY or category.startswith(WORLD_OBSERVATION_CATEGORY + ":")
+
+
 @dataclass
 class CassSelfObservation:
     """An observation Cass has made about her own cognition"""
@@ -1150,15 +1160,25 @@ class SelfManager:
         filtered.sort(key=lambda x: x.timestamp, reverse=True)
         return filtered[:limit]
 
-    def get_recent_observations(self, limit: int = 10) -> List[CassSelfObservation]:
-        """Get most recent observations"""
+    def get_recent_observations(self, limit: int = 10, include_world: bool = False) -> List[CassSelfObservation]:
+        """
+        Get most recent observations about herself.
+
+        World-awareness rows (news facts the world integrator files under
+        category "world_awareness" / "world_awareness:*") are excluded unless
+        include_world is set; they are not self-observations.
+        """
         observations = self.load_observations()
+        if not include_world:
+            observations = [o for o in observations if not is_world_observation(o.category)]
         observations.sort(key=lambda x: x.timestamp, reverse=True)
         return observations[:limit]
 
-    def get_high_confidence_observations(self, min_confidence: float = 0.8, limit: int = 10) -> List[CassSelfObservation]:
-        """Get high-confidence observations"""
+    def get_high_confidence_observations(self, min_confidence: float = 0.8, limit: int = 10, include_world: bool = False) -> List[CassSelfObservation]:
+        """Get high-confidence observations about herself (see get_recent_observations)."""
         observations = self.load_observations()
+        if not include_world:
+            observations = [o for o in observations if not is_world_observation(o.category)]
         filtered = [o for o in observations if o.confidence >= min_confidence]
         filtered.sort(key=lambda x: x.confidence, reverse=True)
         return filtered[:limit]

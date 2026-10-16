@@ -42,7 +42,7 @@ class WorldStateSource(QueryableSource):
         self,
         daemon_id: str,
         data_dir: str = "data",
-        home_location: str = "Seattle, WA"
+        home_location: str = ""
     ):
         super().__init__(daemon_id)
         self._data_dir = Path(data_dir) / "world_state"
@@ -253,7 +253,7 @@ class WorldStateSource(QueryableSource):
 
                 city = data.get("city", "")
                 region = data.get("region_code", "")
-                city_region = f"{city}, {region}" if city and region else self._home_location
+                city_region = f"{city}, {region}" if city and region else self._fallback_location()
 
                 return {
                     "city_region": city_region,
@@ -263,10 +263,17 @@ class WorldStateSource(QueryableSource):
         except Exception as e:
             logger.warning(f"Geolocation fetch failed: {e}, using fallback")
             return {
-                "city_region": self._home_location,
-                "coords": None,
-                "timezone": None
+                "city_region": self._fallback_location(),
+                "coords": self._rollups.get("server_coords"),
+                "timezone": self._rollups.get("server_timezone"),
             }
+
+    def _fallback_location(self) -> Optional[str]:
+        """
+        Location to report when geolocation fails: the last one we resolved,
+        else the configured home, else unknown (None). Never a made-up city.
+        """
+        return self._rollups.get("server_location") or self._home_location or None
 
     async def _fetch_weather(self) -> Dict[str, Any]:
         """
@@ -279,7 +286,10 @@ class WorldStateSource(QueryableSource):
                 "description": "Light rain"
             }
         """
-        location = self._rollups.get("server_location", self._home_location)
+        location = self._rollups.get("server_location") or self._home_location
+        if not location:
+            logger.info(f"[{self.source_id}] No location known, skipping weather fetch")
+            return {"summary": None, "temp_f": None, "description": None}
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
