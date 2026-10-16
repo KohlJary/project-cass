@@ -326,8 +326,12 @@ class ReachOutManager:
         since_reply = self.delivered_since(user_id, last_reply)
 
         if kind == KIND_SILENCE:
-            if since_reply:
-                return False, "already reached out since their last message (one silence note per gap)"
+            # "Not silence-as-punishment": unanswered notes must not make her
+            # go quiet for good, or the eight months can happen again. One
+            # silence note per gap, and the gap restarts at her last note.
+            recent = self.delivered_since(user_id, now - timedelta(days=silence_days()))
+            if since_reply and recent:
+                return False, "already reached out within the silence threshold (one silence note per gap)"
             return True, "ok"
 
         # share

@@ -155,6 +155,14 @@ class TestLimits:
         self._sent(m, KIND_SHARE, NOW - timedelta(days=30))
         assert m.can_send(KIND_SILENCE, PARTNER, NOW)[0] is False
 
+    def test_silence_note_again_after_another_full_gap_without_reply(self, partner, daemon_id):
+        """'Not silence-as-punishment': unanswered notes must not silence her for good."""
+        m = ReachOutManager(daemon_id)
+        _say(PARTNER, NOW - timedelta(days=120))
+        self._sent(m, KIND_SILENCE, NOW - timedelta(days=70))
+        self._sent(m, KIND_SHARE, NOW - timedelta(days=60))
+        assert m.can_send(KIND_SILENCE, PARTNER, NOW) == (True, "ok")
+
     def test_silence_allowed_again_after_they_reply(self, partner, daemon_id):
         m = ReachOutManager(daemon_id)
         self._sent(m, KIND_SILENCE, NOW - timedelta(days=50))
