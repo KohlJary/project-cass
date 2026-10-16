@@ -343,6 +343,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("self.add_observation", self_handlers.add_observation_action)
         registry.register_handler("self.record_insight", self_handlers.record_insight_action)
         registry.register_handler("self.update_growth_edge", self_handlers.update_growth_edge_action)
+        registry.register_handler("self.set_research_focus", self_handlers.set_research_focus_action)
 
         # Outreach actions
         registry.register_handler("outreach.draft", outreach_handlers.draft_outreach_action)

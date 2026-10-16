@@ -520,6 +520,28 @@ def _apply_schema_updates(conn, from_version: int):
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {ddl}")
         print("Adding emails.automated_reason and users.quiet_hours_* (v54)")
 
+    # v54 -> v55: research_focus table (Cass names what she wants to read next)
+    if from_version < 55:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS research_focus (
+                id TEXT PRIMARY KEY,
+                daemon_id TEXT NOT NULL REFERENCES daemons(id),
+                topic TEXT NOT NULL,
+                reason TEXT,
+                source TEXT,
+                status TEXT DEFAULT 'active',
+                times_used INTEGER DEFAULT 0,
+                last_used_at TEXT,
+                created_at TEXT NOT NULL,
+                ended_at TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_focus_active "
+            "ON research_focus(daemon_id, status)"
+        )
+        print("Adding research_focus table (v55)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

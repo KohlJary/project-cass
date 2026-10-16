@@ -175,6 +175,8 @@ TOOL_REGISTRY = {
     "get_architectural_requests": "self_model",
     # Tool blacklist (Procedural Self-Awareness Phase 0)
     "modify_tool_access": "self_model",
+    # Research focus (what her autonomous reading looks for next)
+    "set_research_focus": "self_model",
 
     # User model tools
     "reflect_on_user": "user_model",
