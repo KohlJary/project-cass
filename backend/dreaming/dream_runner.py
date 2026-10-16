@@ -151,7 +151,7 @@ def extract_seeds_from_self_model(self_manager, daemon_id: str = None) -> DreamS
 class AsyncDreamSession:
     """Async dream session for scheduled generation"""
 
-    def __init__(self, api_key: str = None, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str = None, model: str = "claude-sonnet-4-6"):
         self.client = anthropic.AsyncAnthropic(api_key=api_key or ANTHROPIC_API_KEY)
         self.model = model
         self.dreaming_history: list[dict] = []

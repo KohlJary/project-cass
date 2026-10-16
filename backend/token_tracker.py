@@ -24,6 +24,7 @@ COST_PER_1M_TOKENS = {
         "claude-opus-4-20250514": {"input": 15.0, "output": 75.0},
         "claude-opus-4-5-20251101": {"input": 15.0, "output": 75.0},
         "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+        "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
         "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.0},
         "claude-3-5-haiku-latest": {"input": 0.80, "output": 4.0},
         # Legacy models
@@ -105,7 +106,7 @@ class TokenUsageTracker:
             category="chat",
             operation="initial_message",
             provider="anthropic",
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             input_tokens=1000,
             output_tokens=500,
             duration_ms=2000

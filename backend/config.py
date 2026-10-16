@@ -24,7 +24,7 @@ CLAUDE_MODEL = "claude-haiku-4-5-20251001"  # Primary model for Cass
 CLAUDE_INTERNAL_MODEL = "claude-haiku-4-5-20251001"  # For background/internal tasks (fallback when Ollama unavailable)
 # Default model for autonomous sessions (reflection, research, etc.)
 # Override with environment variable for flexibility without code changes
-# Options: claude-haiku-4-5-20251001 (cost-efficient), claude-sonnet-4-20250514 (higher quality)
+# Options: claude-haiku-4-5-20251001 (cost-efficient), claude-sonnet-4-6 (higher quality)
 DEFAULT_SESSION_MODEL = os.getenv("DEFAULT_SESSION_MODEL", CLAUDE_INTERNAL_MODEL)
 MAX_TOKENS = 4096
 
@@ -114,7 +114,7 @@ SUMMARY_CONTEXT_MESSAGES = 30  # How many recent messages to include when genera
 # Haiku recommended for better narrative quality while staying cost-effective
 SUMMARIZER_PROVIDER = os.getenv("SUMMARIZER_PROVIDER", "haiku")
 SUMMARIZER_MODEL_HAIKU = "claude-haiku-4-5-20251001"
-SUMMARIZER_MODEL_SONNET = "claude-sonnet-4-20250514"
+SUMMARIZER_MODEL_SONNET = "claude-sonnet-4-6"
 
 # Onboarding Introduction Prompt
 # Used when a new user creates their profile and Cass introduces herself

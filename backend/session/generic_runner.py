@@ -110,7 +110,7 @@ class GenericSessionRunner:
     # These are approximations - actual cost depends on model used
     MODEL_PRICING = {
         "claude-haiku-4-5-20251001": {"input": 0.0008, "output": 0.004},
-        "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
+        "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
     }
     DEFAULT_INPUT_COST_PER_1K = 0.001  # Fallback if model not in pricing table
     DEFAULT_OUTPUT_COST_PER_1K = 0.005

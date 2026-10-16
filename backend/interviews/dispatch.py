@@ -32,12 +32,12 @@ DEFAULT_MODELS = [
     ModelConfig(
         name="claude-sonnet",
         provider="anthropic",
-        model_id="claude-sonnet-4-20250514"
+        model_id="claude-sonnet-4-6"
     ),
     ModelConfig(
         name="claude-opus",
         provider="anthropic",
-        model_id="claude-opus-4-20250514"
+        model_id="claude-opus-4-8"
     ),
     ModelConfig(
         name="gpt-4o",

@@ -354,7 +354,7 @@ Be specific and grounded in what you actually observe. Develop your own voice as
 
     try:
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=2500,
             messages=[{
                 "role": "user",
@@ -599,7 +599,7 @@ Speak in your own voice as an artist who has genuinely learned from studying thi
 
     try:
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=2500,
             messages=[{"role": "user", "content": synthesis_prompt}]
         )

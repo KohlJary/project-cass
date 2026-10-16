@@ -27,7 +27,7 @@ class Message:
     output_tokens: Optional[int] = None
     # Provider/model metadata (for assistant messages)
     provider: Optional[str] = None  # "anthropic", "openai", "local"
-    model: Optional[str] = None  # e.g., "claude-sonnet-4-20250514", "gpt-4o"
+    model: Optional[str] = None  # e.g., "claude-sonnet-4-6", "gpt-4o"
     # Recognition-in-flow markers (for assistant messages)
     self_observations: Optional[List[Dict]] = None
     user_observations: Optional[List[Dict]] = None

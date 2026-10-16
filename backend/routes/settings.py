@@ -198,7 +198,7 @@ async def set_llm_provider(request: LLMProviderRequest):
     elif current_provider == LLM_PROVIDER_OPENAI:
         model = openai_client.model if openai_client else "gpt-4o"
     else:
-        model = agent_client.model if agent_client and hasattr(agent_client, 'model') else "claude-sonnet-4-20250514"
+        model = agent_client.model if agent_client and hasattr(agent_client, 'model') else "claude-sonnet-4-6"
 
     return {
         "provider": current_provider,
@@ -429,8 +429,8 @@ async def get_available_models():
 
     # Static Anthropic models
     anthropic_models = [
-        {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "default": True},
-        {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
+        {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4", "default": True},
+        {"id": "claude-opus-4-8", "name": "Claude Opus 4"},
         {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5"},
     ]
 
