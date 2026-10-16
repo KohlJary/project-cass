@@ -147,6 +147,13 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("self_context", "Self-context section in her chat prompt: time since last contact, "
            "what she did meanwhile, latest dream/reflection, her own threads (epic #63)",
            where="continuous_context.build_continuous_context"),
+
+    # --- Her reaching out (reach_out.py) ---
+    _lever("reach_out", "Cass reaches her primary partner on her own: a note after a long "
+           "silence (REACH_OUT_SILENCE_DAYS), a share when a dream or a painting asks for it, "
+           "and the reach_out chat tool. Email only with REACH_OUT_EMAIL set.",
+           BACKGROUND, LLM,
+           where="reach_out.nightly_reach_out (daily_journal_handler), handlers/self_model.py reach_out tool"),
 ]}
 
 # Action-id prefix -> lever, used by ActionRegistry.execute.

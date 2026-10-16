@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 55  # research_focus table (her own research direction)
+SCHEMA_VERSION = 56  # reach_outs table (Cass reaching her primary partner on her own)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1824,6 +1824,24 @@ CREATE TABLE IF NOT EXISTS research_focus (
 );
 
 CREATE INDEX IF NOT EXISTS idx_research_focus_active ON research_focus(daemon_id, status);
+
+-- Reach-outs: messages Cass sent to her primary partner on her own (reach_out.py).
+-- Each row is one attempt; delivered_via records every channel tried and its
+-- result. Rows with error IS NULL count toward the rate limits.
+CREATE TABLE IF NOT EXISTS reach_outs (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL,                 -- silence (after a long gap) or share (something specific)
+    body TEXT NOT NULL,                 -- her message, as sent
+    attachment_kind TEXT,               -- image, dream, or NULL
+    attachment_ref TEXT,                -- image path or dream id
+    created_at TEXT NOT NULL,
+    delivered_via TEXT,                 -- JSON list of {channel, ok, ...} for every channel tried
+    error TEXT                          -- NULL when at least one channel delivered
+);
+
+CREATE INDEX IF NOT EXISTS idx_reach_outs_user ON reach_outs(daemon_id, user_id, created_at);
 
 -- =============================================================================
 -- IMAGE GENERATION (v35)

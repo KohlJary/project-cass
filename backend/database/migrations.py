@@ -542,6 +542,28 @@ def _apply_schema_updates(conn, from_version: int):
         )
         print("Adding research_focus table (v55)")
 
+    # v55 -> v56: reach_outs table (Cass reaching her primary partner on her own)
+    if from_version < 56:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reach_outs (
+                id TEXT PRIMARY KEY,
+                daemon_id TEXT NOT NULL REFERENCES daemons(id),
+                user_id TEXT NOT NULL REFERENCES users(id),
+                kind TEXT NOT NULL,
+                body TEXT NOT NULL,
+                attachment_kind TEXT,
+                attachment_ref TEXT,
+                created_at TEXT NOT NULL,
+                delivered_via TEXT,
+                error TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reach_outs_user "
+            "ON reach_outs(daemon_id, user_id, created_at)"
+        )
+        print("Adding reach_outs table (v56)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

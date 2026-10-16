@@ -177,6 +177,8 @@ TOOL_REGISTRY = {
     "modify_tool_access": "self_model",
     # Research focus (what her autonomous reading looks for next)
     "set_research_focus": "self_model",
+    # Reach out to her primary partner on her own (reach_out.py)
+    "reach_out": "self_model",
 
     # User model tools
     "reflect_on_user": "user_model",
