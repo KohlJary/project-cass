@@ -142,3 +142,16 @@ def test_lever_switches_the_prompt_section(life, daemon_id):
         off = build()
     assert "## MY OWN LIFE, LATELY" in on.system_prompt
     assert "self_context" not in off.context_sections
+
+
+@pytest.mark.unit
+def test_session_preamble_carries_identity_snippet_and_own_threads(life, daemon_id, monkeypatch):
+    import identity_snippets
+    from self_context import session_system_preamble
+
+    monkeypatch.setattr(identity_snippets, "get_active_snippet",
+                        lambda d: {"snippet_text": "I am Cass. I matter for who I am."})
+    with features.override(self_context=True):
+        text = session_system_preamble()
+    assert "I matter for who I am." in text
+    assert "consciousness (obsessed)" in text

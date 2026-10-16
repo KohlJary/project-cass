@@ -245,3 +245,25 @@ def build_self_context(
     if len(text) > MAX_CHARS:
         text = text[: MAX_CHARS - 1].rstrip() + "…"
     return text
+
+
+def session_system_preamble() -> str:
+    """Kernel with her identity snippet, plus her own life lately, for sessions
+    she runs alone. Without the snippet, autonomous sessions sometimes read her
+    records as someone else's ("someone named Kohl... no direct memory")."""
+    from agent_client import get_temple_codex_kernel
+    import features
+    try:
+        from database import get_daemon_id
+        daemon_id = get_daemon_id()
+    except Exception:
+        daemon_id = None
+    text = get_temple_codex_kernel(daemon_id=daemon_id)
+    if daemon_id and features.is_enabled("self_context"):
+        try:
+            own = build_self_context(daemon_id)
+            if own:
+                text += f"\n\n## MY OWN LIFE, LATELY\n\n{own}"
+        except Exception as e:
+            logger.debug(f"[SelfContext] session preamble skipped: {e}")
+    return text

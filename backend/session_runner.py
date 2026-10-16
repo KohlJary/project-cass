@@ -658,7 +658,8 @@ class BaseSessionRunner(ABC):
                 pass  # Thymos not available
 
             # Compose full system prompt: kernel + activity-specific + thymos + self-context
-            system_prompt = f"{TEMPLE_CODEX_KERNEL}\n\n---\n\n## Activity: {state.activity_type.value.replace('_', ' ').title()}\n\n{activity_prompt}"
+            from self_context import session_system_preamble
+            system_prompt = f"{session_system_preamble()}\n\n---\n\n## Activity: {state.activity_type.value.replace('_', ' ').title()}\n\n{activity_prompt}"
             if thymos_context:
                 system_prompt = f"{system_prompt}\n\n{thymos_context}"
             if self_context:
