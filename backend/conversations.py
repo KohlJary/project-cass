@@ -738,14 +738,25 @@ class ConversationManager:
         return True
 
     def get_working_summary(self, conversation_id: str) -> Optional[str]:
-        """Get the working summary for a conversation."""
+        """Get the working summary for a conversation, as it should reach her prompt.
+
+        A stored summary that is a writer's refusal is withheld (returns None):
+        it isn't her memory, and showing it to her says the conversation never
+        happened. The row is left as is; the next summary cycle rebuilds it.
+        """
+        from memory.voice_guard import looks_like_refusal
         with get_db() as conn:
             cursor = conn.execute(
                 "SELECT working_summary FROM conversations WHERE id = ?",
                 (conversation_id,)
             )
             row = cursor.fetchone()
-            return row['working_summary'] if row else None
+            summary = row['working_summary'] if row else None
+        refusal = looks_like_refusal(summary)
+        if refusal:
+            print(f"[Memory] Withholding working summary of {conversation_id}: it is a refusal ({refusal!r})")
+            return None
+        return summary
 
     def get_idle_conversations_needing_summary(
         self,
