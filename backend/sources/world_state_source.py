@@ -422,6 +422,63 @@ class WorldStateSource(QueryableSource):
             logger.error(f"Headlines fetch failed: {e}")
             return []
 
+    async def search_headlines(self, query: str, page_size: int = 10) -> List[Dict[str, Any]]:
+        """
+        Search recent news for a topic she chose (NewsAPI /v2/everything).
+
+        Used by world.refresh_and_consume when a research focus is set, so her
+        reading is not limited to whatever the top headlines are. Same dict
+        shape as _fetch_headlines, with category "research_focus". Returns []
+        when NEWS_API_KEY is missing, the query is empty, or the call fails.
+        """
+        api_key = os.getenv("NEWS_API_KEY")
+        query = (query or "").strip()
+        if not api_key or not query:
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    "https://newsapi.org/v2/everything",
+                    params={
+                        "q": query,
+                        "apiKey": api_key,
+                        "pageSize": page_size,
+                        "sortBy": "relevancy",
+                        "language": "en",
+                    }
+                )
+            if response.status_code != 200:
+                logger.warning(f"NewsAPI search returned {response.status_code} for {query!r}")
+                return []
+            data = response.json()
+            if data.get("status") != "ok":
+                logger.warning(f"NewsAPI search error for {query!r}: {data.get('message')}")
+                return []
+
+            results = []
+            seen_titles = set()
+            for article in data.get("articles", []):
+                title = article.get("title")
+                if not title or title in seen_titles or not article.get("url"):
+                    continue
+                seen_titles.add(title)
+                results.append({
+                    "title": title,
+                    "source": (article.get("source") or {}).get("name"),
+                    "description": article.get("description"),
+                    "url": article.get("url"),
+                    "published": article.get("publishedAt"),
+                    "category": "research_focus",
+                    "focus_query": query,
+                })
+            logger.info(f"Found {len(results)} articles for research focus {query!r}")
+            return results
+
+        except Exception as e:
+            logger.warning(f"NewsAPI search failed for {query!r}: {e}")
+            return []
+
     def _load_rollups(self) -> None:
         """Load rollups from database."""
         try:

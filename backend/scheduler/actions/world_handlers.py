@@ -221,11 +221,15 @@ async def consume_articles_action(context: Dict[str, Any]) -> ActionResult:
     - max_articles: int (optional) - Max articles to consume (default from config)
     - memory_core: MemoryCore (optional) - For ChromaDB storage
     - self_manager: SelfManager (optional) - For growth edge integration
+    - headlines: list (optional) - Candidate headlines; defaults to the
+      WorldStateSource cache. refresh_and_consume passes focus search results
+      ahead of the top headlines.
     """
     # Get managers dict for daemon_id and other dependencies
     managers = context.get("managers", {})
     daemon_id = context.get("daemon_id") or managers.get("daemon_id", "cass")
     max_articles = context.get("max_articles")
+    provided_headlines = context.get("headlines")
     memory_core = context.get("memory_core")
     self_manager = context.get("self_manager")
     if not self_manager:
@@ -237,10 +241,13 @@ async def consume_articles_action(context: Dict[str, Any]) -> ActionResult:
         from world.pipeline import run_consumption_pipeline, ConsumptionConfig, get_daily_budget
         from sources.world_state_source import WorldStateSource
 
-        # Get headlines from world state source
-        ws = WorldStateSource(daemon_id=daemon_id)
-        rollups = ws.get_precomputed_rollups()
-        headlines = rollups.get("recent_headlines", [])
+        # Get headlines from world state source (unless the caller chose them)
+        if provided_headlines is not None:
+            headlines = list(provided_headlines)
+        else:
+            ws = WorldStateSource(daemon_id=daemon_id)
+            rollups = ws.get_precomputed_rollups()
+            headlines = rollups.get("recent_headlines", [])
 
         if not headlines:
             return ActionResult(
@@ -304,13 +311,45 @@ async def consume_articles_action(context: Dict[str, Any]) -> ActionResult:
         )
 
 
+async def _focused_headlines(ws, daemon_id: str) -> tuple:
+    """
+    If she has set a research focus, search news for it.
+
+    Returns (focus_topic or None, [headline dicts]). Marks the focus as used
+    when the search ran. Any failure falls back to (topic, []) so the top
+    headlines still get consumed.
+    """
+    try:
+        from research_focus import ResearchFocusManager
+        manager = ResearchFocusManager(daemon_id)
+        focus = manager.get_focus()
+    except Exception as e:
+        logger.warning(f"Could not read research focus: {e}")
+        return None, []
+
+    if not focus:
+        return None, []
+
+    try:
+        found = await ws.search_headlines(focus.topic)
+        manager.mark_used(focus.id)
+        logger.info(f"Research focus {focus.topic!r}: {len(found)} candidate articles")
+        return focus.topic, found
+    except Exception as e:
+        logger.warning(f"Research focus search failed for {focus.topic!r}: {e}")
+        return focus.topic, []
+
+
 async def refresh_and_consume_action(context: Dict[str, Any]) -> ActionResult:
     """
     Refresh world state (including headlines) then consume articles.
 
     This is a combined action that:
     1. Refreshes the world state source (weather, location, headlines)
-    2. Runs article consumption on the fresh headlines
+    2. If she has set a research focus, searches news for it
+    3. Runs article consumption on the focus results followed by the fresh
+       headlines (relevance weighting in ArticleConsumer orders them; when
+       the focus search finds nothing new, the headlines are what is left)
 
     Context params:
     - daemon_id: str (required) - Daemon ID
@@ -324,6 +363,9 @@ async def refresh_and_consume_action(context: Dict[str, Any]) -> ActionResult:
     # Step 1: Refresh world state (which fetches headlines via NewsAPI)
     logger.info("Refreshing world state including headlines...")
     headlines_count = 0
+    headlines = []
+    focus_topic = None
+    focused = []
 
     try:
         from sources.world_state_source import WorldStateSource
@@ -331,20 +373,31 @@ async def refresh_and_consume_action(context: Dict[str, Any]) -> ActionResult:
         await ws.refresh_rollups()
 
         rollups = ws.get_precomputed_rollups()
-        headlines = rollups.get("recent_headlines", [])
-        headlines_count = len(headlines) if headlines else 0
+        headlines = rollups.get("recent_headlines", []) or []
+        headlines_count = len(headlines)
         logger.info(f"World state refreshed with {headlines_count} headlines")
+
+        # Step 2: Her own direction, if she has given one
+        focus_topic, focused = await _focused_headlines(ws, daemon_id)
 
     except Exception as e:
         logger.warning(f"World state refresh failed: {e}")
         # Continue anyway - pipeline may have cached headlines
 
-    # Step 2: Consume articles
-    consume_result = await consume_articles_action(context)
+    # Step 3: Consume articles. Focus results go first; the consumer drops
+    # anything already read and ranks the rest by relevance + priority.
+    if focused:
+        seen_urls = {h.get("url") for h in focused}
+        candidates = focused + [h for h in headlines if h.get("url") not in seen_urls]
+        consume_result = await consume_articles_action({**context, "headlines": candidates})
+    else:
+        consume_result = await consume_articles_action(context)
 
     # Combine results
     combined_data = {
         "headlines_refreshed": headlines_count,
+        "research_focus": focus_topic,
+        "focus_headlines": len(focused),
     }
     if consume_result.data:
         combined_data.update(consume_result.data)

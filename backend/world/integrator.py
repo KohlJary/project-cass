@@ -7,6 +7,12 @@ Takes ArticleInsights from content analysis and integrates them:
 - Questions -> open_questions table
 - Opinions -> opinions table
 - Growth edges -> growth_edges table (if significant)
+
+Relevance gate: when `min_relevance` is set and the article's relevance to her
+(world/relevance.py) is below it, the article is still remembered as world
+awareness (memory summary, world_awareness:* observations, consumed_articles)
+but writes nothing into her self-model proper: no opinions, growth edges or
+open questions. Off-interest news was producing nearly all of those.
 """
 
 import logging
@@ -36,6 +42,8 @@ class IntegrationResult:
     interests_added: int = 0
     symbols_added: int = 0
     memory_id: Optional[str] = None  # ChromaDB entry ID for summary
+    relevance_score: Optional[float] = None
+    gated: bool = False  # True when relevance was below the threshold
 
     @property
     def total_items_added(self) -> int:
@@ -56,10 +64,24 @@ class InsightIntegrator:
     Integrates article insights into Cass's self-model.
     """
 
-    def __init__(self, daemon_id: str, min_confidence: float = 0.5, memory_core=None):
+    def __init__(
+        self,
+        daemon_id: str,
+        min_confidence: float = 0.5,
+        memory_core=None,
+        min_relevance: Optional[float] = None,
+    ):
         self.daemon_id = daemon_id
         self.min_confidence = min_confidence
         self.memory_manager = ArticleMemoryManager(daemon_id, memory_core) if memory_core else None
+        # None disables the gate (RSS feeds she or Kohl chose pass through as before)
+        self.min_relevance = min_relevance
+
+    def passes_relevance_gate(self, article: Article) -> bool:
+        """Should this article's opinions / growth edges / questions be kept?"""
+        if self.min_relevance is None or article.relevance_score is None:
+            return True
+        return article.relevance_score >= self.min_relevance
 
     def integrate(
         self,
@@ -78,8 +100,17 @@ class InsightIntegrator:
         Returns:
             IntegrationResult with IDs of created items
         """
-        result = IntegrationResult(article_id=article.id)
+        result = IntegrationResult(article_id=article.id, relevance_score=article.relevance_score)
         now = datetime.now().isoformat()
+
+        integrate_self_model = self.passes_relevance_gate(article)
+        if not integrate_self_model:
+            result.gated = True
+            logger.info(
+                f"Article {article.id} below relevance threshold "
+                f"({article.relevance_score:.2f} < {self.min_relevance:.2f}): "
+                f"kept as world awareness only"
+            )
 
         # 0. Store summary in ChromaDB for ambient retrieval
         if self.memory_manager and insights.summary:
@@ -110,7 +141,7 @@ class InsightIntegrator:
 
         # 2. Store questions
         for q in insights.questions:
-            if q.importance >= self.min_confidence:
+            if integrate_self_model and q.importance >= self.min_confidence:
                 q_id = self._add_question(
                     question=q.question,
                     question_type=q.question_type,
@@ -124,7 +155,7 @@ class InsightIntegrator:
 
         # 3. Store opinions
         for op in insights.opinions:
-            if op.confidence >= self.min_confidence:
+            if integrate_self_model and op.confidence >= self.min_confidence:
                 success = self._add_opinion(
                     topic=op.topic,
                     position=op.position,
@@ -138,7 +169,7 @@ class InsightIntegrator:
 
         # 4. Optionally add growth edges (only if significant)
         for ge in insights.growth_edges:
-            if ge.importance >= 0.6:  # Higher threshold for growth edges
+            if integrate_self_model and ge.importance >= 0.6:  # Higher threshold for growth edges
                 success = self._add_growth_edge(
                     area=ge.area,
                     current_state=ge.current_state,
@@ -206,6 +237,7 @@ class InsightIntegrator:
             f"{result.opinions_added} opinions, {result.growth_edges_added} edges, "
             f"{result.author_observations_added} author obs, {result.author_facts_added} author facts, "
             f"{result.interests_added} interests, {result.symbols_added} symbols"
+            + (" [self-model gated: off-interest]" if result.gated else "")
         )
 
         return result
@@ -561,6 +593,7 @@ def integrate_article_insights(
     self_manager=None,
     memory_core=None,
     min_confidence: float = 0.5,
+    min_relevance: Optional[float] = None,
 ) -> IntegrationResult:
     """
     Convenience function to integrate article insights.
@@ -572,9 +605,10 @@ def integrate_article_insights(
         self_manager: Optional SelfManager
         memory_core: Optional MemoryCore for ChromaDB storage
         min_confidence: Minimum confidence threshold
+        min_relevance: Relevance gate for self-model writes (None = no gate)
 
     Returns:
         IntegrationResult
     """
-    integrator = InsightIntegrator(daemon_id, min_confidence, memory_core)
+    integrator = InsightIntegrator(daemon_id, min_confidence, memory_core, min_relevance)
     return integrator.integrate(article, insights, self_manager)

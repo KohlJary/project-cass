@@ -50,6 +50,8 @@ def _structured_answers(source, kwargs):
         return None
     if '"rating"' in system:
         return ScriptedResponse(text=json.dumps({"rating": 0.9, "reasoning": "smoke"}))
+    if "ONE specific topic you would rather research" in str(kwargs.get("messages")):
+        return ScriptedResponse(text="the physics of planetary rotation")
     if '"answer"' in system:
         return ScriptedResponse(text=json.dumps({"answer": True, "reasoning": "smoke"}))
     if '"should_summarize"' in str(kwargs.get("messages")):
@@ -239,7 +241,15 @@ def test_timer_spell_rss_monitor(app):
 
 
 def test_timer_spell_research_synthesis(app):
-    _assert_cycle_did_work(*_cast(app, "research_synthesis"))
+    result, actions = _cast(app, "research_synthesis")
+    _assert_cycle_did_work(result, actions)
+    # RATE answers 0.9 (< 5), so the low-value branch runs: she names what to
+    # read next and the focus lands in the store for the next world cycle.
+    assert "self.set_research_focus" in [a for a, _ in actions]
+    from research_focus import get_research_focus_manager
+    focus = get_research_focus_manager().get_focus()
+    assert focus is not None and focus.topic == "the physics of planetary rotation"
+    assert focus.source == "spell:research_synthesis"
 
 
 def test_timer_spell_art_study(app):
