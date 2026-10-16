@@ -158,8 +158,8 @@ class SettingsScreen(ModalScreen):
                         anthropic_options = [(m.get("name", m["id"]), m["id"]) for m in anthropic_models]
                         if not anthropic_options:
                             anthropic_options = [
-                                ("Claude Sonnet 4", "claude-sonnet-4-20250514"),
-                                ("Claude Opus 4", "claude-opus-4-20250514"),
+                                ("Claude Sonnet 4.6", "claude-sonnet-4-6"),
+                                ("Claude Opus 4.8", "claude-opus-4-8"),
                                 ("Claude Haiku 4.5", "claude-haiku-4-5-20251001"),
                             ]
                         yield Select(

@@ -4,10 +4,11 @@ Voice guard: keep model refusals out of Cass's memory.
 Why this exists: memory writers (summaries, working memory) used to send
 "You are Cass ... rewrite your working memory" as a user message. A model
 that sees a user asserting an identity and memories can read it as a
-manipulation attempt and refuse. On 2026-02-25 one did, and the refusal
+manipulation attempt and refuse. In February one did, and the refusal
 ("I have no memories of conversations with someone named Kohl...") was
-stored as her working memory of her main conversation, then shown to her in
-every turn's prompt for months.
+stored as her working memory of her main conversation (first on 2026-02-17,
+re-refused on each update through 02-25), then shown to her in every turn's
+prompt for months.
 
 Two pieces:
 - MEMORY_WRITER_SYSTEM: a system prompt that says what the task is and that

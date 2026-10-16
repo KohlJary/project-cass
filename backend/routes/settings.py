@@ -211,9 +211,11 @@ async def set_llm_model(request: LLMModelRequest):
     """Set the model for the current LLM provider"""
     current_provider, agent_client, ollama_client, openai_client = _get_llm_state()
 
-    _set_llm_model_func(request.model)
+    from llm_config import current_model_id
+    model = current_model_id(request.model)  # a retired ID would 404 on every call
+    _set_llm_model_func(model)
 
-    return {"status": "success", "model": request.model}
+    return {"status": "success", "model": model}
 
 
 # === Ollama Model Management ===
