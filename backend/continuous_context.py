@@ -314,6 +314,12 @@ def _retrieve_semantic_memories(
             if distance and distance > 1.5:
                 continue
 
+            # Never hand her a memory that is a writer's refusal or an identity
+            # break ("I'm Claude..."): it isn't hers (memory/voice_guard.py).
+            from memory.voice_guard import looks_like_refusal
+            if looks_like_refusal(content):
+                continue
+
             # Format with relevance indicator
             relevance = "high" if distance and distance < 0.5 else "moderate"
             formatted_parts.append(f"[{mem_type} - {relevance}]: {content}")

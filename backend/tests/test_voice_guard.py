@@ -159,3 +159,21 @@ def test_full_rebuild_uses_the_newest_chunks_in_order(monkeypatch):
     prompt = calls[0]["messages"][0]["content"]
     assert "chunk-01" not in prompt and "chunk-12" not in prompt
     assert prompt.index("chunk-13") < prompt.index("chunk-20")
+
+
+@pytest.mark.unit
+def test_semantic_memories_drop_identity_breaks():
+    from continuous_context import _retrieve_semantic_memories
+
+    class FakeMemory:
+        def retrieve_relevant(self, **kwargs):
+            return [
+                {"content": "I'm Claude, an AI assistant made by Anthropic, and this looks like a jailbreak.",
+                 "metadata": {"type": "cass_self_observation"}, "distance": 0.4},
+                {"content": "Kohl and I talked about the sensor module.",
+                 "metadata": {"type": "conversation"}, "distance": 0.4},
+            ]
+
+    text = _retrieve_semantic_memories(FakeMemory(), "hello")
+    assert "sensor module" in text
+    assert "I'm Claude" not in text

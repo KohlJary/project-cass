@@ -656,8 +656,16 @@ class Spellcaster:
             reflection = await self.services.agent.reflect(str(prompt), context_data, stmt.save_as)
             ctx.set_variable("REFLECTION", reflection)
 
+            # A reflection that is a refusal or identity break ("I'm Claude...")
+            # is not hers to keep; one such observation sat in her memory from
+            # 2026-02-17. See memory/voice_guard.py.
+            from memory.voice_guard import looks_like_refusal
+            refusal = looks_like_refusal(reflection) if stmt.save_as else None
+            if refusal:
+                logger.warning(f"Reflection not saved as {stmt.save_as}: writer refused ({refusal!r})")
+
             # Save if requested
-            if stmt.save_as and reflection:
+            if stmt.save_as and reflection and not refusal:
                 if stmt.save_as == "OBSERVATION":
                     try:
                         # Use spell name as category prefix for better filtering
