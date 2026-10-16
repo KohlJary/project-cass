@@ -1,13 +1,23 @@
 """
-Her attention in world consumption: relevance scoring and priority weighting
-(world/relevance.py, article_consumer.py).
+Her attention in world consumption: relevance scoring, priority weighting and
+the self-model relevance gate (world/relevance.py, article_consumer.py,
+integrator.py, pipeline.py).
 
 No LLM is involved anywhere here; the scorer is token overlap by design.
 """
 import pytest
 
 from world.article_consumer import ArticleConsumer, RELEVANCE_WEIGHT
-DEFAULT_MIN_RELEVANCE = 0.3  # the integration threshold, for the "weak match" assertions
+from world.integrator import InsightIntegrator
+from world.models import (
+    Article,
+    ArticleInsights,
+    ExtractedGrowthEdge,
+    ExtractedObservation,
+    ExtractedOpinion,
+    ExtractedQuestion,
+)
+from world.pipeline import ConsumptionConfig, DEFAULT_MIN_RELEVANCE
 from world.relevance import InterestRelevanceScorer, tokenize
 
 # Generic stand-ins for her interests (names match the real table's shape, the
@@ -203,3 +213,93 @@ class TestPriorityScore:
         assert consumer.relevance_scorer.is_empty  # nothing seeded
         assert consumer.get_priority_score({"title": ON_INTEREST[0], "category": "general"}) == pytest.approx(0.6)
 
+
+def _insights():
+    return ArticleInsights(
+        summary="summary",
+        observations=[ExtractedObservation(text="The world did a thing", confidence=0.9, category="news")],
+        questions=[ExtractedQuestion(question="What next?", importance=0.9)],
+        opinions=[ExtractedOpinion(topic="a-topic", position="a position", confidence=0.9)],
+        growth_edges=[ExtractedGrowthEdge(area="an-area", importance=0.9)],
+    )
+
+
+def _article(daemon_id, relevance):
+    return Article(
+        id="article-test", daemon_id=daemon_id, url="https://example.test/a",
+        headline="headline", relevance_score=relevance,
+    )
+
+
+def _counts(daemon_id):
+    from database import get_db
+    with get_db() as conn:
+        return {
+            "observations": conn.execute(
+                "SELECT COUNT(*) FROM self_observations WHERE daemon_id = ? AND category LIKE 'world_awareness:%'",
+                (daemon_id,)).fetchone()[0],
+            "questions": conn.execute(
+                "SELECT COUNT(*) FROM open_questions WHERE daemon_id = ?", (daemon_id,)).fetchone()[0],
+            "opinions": conn.execute(
+                "SELECT COUNT(*) FROM opinions WHERE daemon_id = ?", (daemon_id,)).fetchone()[0],
+            "growth_edges": conn.execute(
+                "SELECT COUNT(*) FROM growth_edges WHERE daemon_id = ?", (daemon_id,)).fetchone()[0],
+        }
+
+
+class TestIntegrationGate:
+    def test_off_interest_is_world_awareness_only(self, daemon_id):
+        integrator = InsightIntegrator(daemon_id, min_relevance=0.3)
+        result = integrator.integrate(_article(daemon_id, relevance=0.1), _insights())
+        assert result.gated is True
+        assert result.relevance_score == 0.1
+        assert len(result.observations_added) == 1
+        assert result.questions_added == [] and result.opinions_added == 0 and result.growth_edges_added == 0
+        assert _counts(daemon_id) == {"observations": 1, "questions": 0, "opinions": 0, "growth_edges": 0}
+
+    def test_on_interest_integrates_as_before(self, daemon_id):
+        integrator = InsightIntegrator(daemon_id, min_relevance=0.3)
+        result = integrator.integrate(_article(daemon_id, relevance=0.9), _insights())
+        assert result.gated is False
+        assert _counts(daemon_id) == {"observations": 1, "questions": 1, "opinions": 1, "growth_edges": 1}
+
+    def test_threshold_is_inclusive(self, daemon_id):
+        integrator = InsightIntegrator(daemon_id, min_relevance=0.3)
+        assert integrator.passes_relevance_gate(_article(daemon_id, 0.3))
+        assert not integrator.passes_relevance_gate(_article(daemon_id, 0.29))
+
+    def test_no_gate_when_unset_or_unscored(self, daemon_id):
+        # RSS path constructs the integrator without a threshold: unchanged behavior
+        assert InsightIntegrator(daemon_id).passes_relevance_gate(_article(daemon_id, 0.0))
+        # An article loaded from the DB has no score: never gated on a None
+        assert InsightIntegrator(daemon_id, min_relevance=0.3).passes_relevance_gate(_article(daemon_id, None))
+
+    def test_zero_threshold_disables(self, daemon_id):
+        assert InsightIntegrator(daemon_id, min_relevance=0.0).passes_relevance_gate(_article(daemon_id, 0.0))
+
+
+class TestConsumptionConfig:
+    def test_default_threshold(self, monkeypatch):
+        monkeypatch.delenv("WORLD_CONSUMPTION_MIN_RELEVANCE", raising=False)
+        assert ConsumptionConfig.from_env().min_relevance_for_integration == DEFAULT_MIN_RELEVANCE
+        assert ConsumptionConfig().min_relevance_for_integration == DEFAULT_MIN_RELEVANCE
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("WORLD_CONSUMPTION_MIN_RELEVANCE", "0.55")
+        assert ConsumptionConfig.from_env().min_relevance_for_integration == 0.55
+
+    def test_pipeline_hands_threshold_to_integrator(self, daemon_id, monkeypatch):
+        import world.pipeline as pipeline
+        seen = {}
+
+        class SpyIntegrator(InsightIntegrator):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                seen["min_relevance"] = self.min_relevance
+
+        monkeypatch.setattr(pipeline, "InsightIntegrator", SpyIntegrator)
+        monkeypatch.setattr(pipeline.ArticleConsumer, "consume_headlines", lambda self, headlines, max_articles=5: [])
+        monkeypatch.setattr(pipeline.ContentAnalyzer, "__init__", lambda self, **kw: None)
+        config = ConsumptionConfig(min_relevance_for_integration=0.42)
+        pipeline.run_consumption_pipeline(daemon_id, headlines=[{"title": "x", "url": "https://x"}], config=config)
+        assert seen["min_relevance"] == 0.42
