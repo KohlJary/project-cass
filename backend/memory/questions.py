@@ -30,6 +30,24 @@ from database import get_db, dict_from_row
 QuestionType = Literal["curiosity", "decision", "blocker", "philosophical"]
 QuestionStatus = Literal["open", "resolved", "superseded"]
 
+# Questions the world integrator derives from news articles carry this context
+# prefix (world/integrator.py). They are hers to keep, but they are not the
+# questions she asked herself, so the prompt treats them separately.
+ARTICLE_CONTEXT_PREFIX = "From article:"
+
+
+def is_article_derived(question: Dict) -> bool:
+    """True if this question was generated from a news article."""
+    return (question.get("context") or "").startswith(ARTICLE_CONTEXT_PREFIX)
+
+
+def article_headline(question: Dict) -> str:
+    """Headline an article-derived question came from, or ''."""
+    context = question.get("context") or ""
+    if not context.startswith(ARTICLE_CONTEXT_PREFIX):
+        return ""
+    return context[len(ARTICLE_CONTEXT_PREFIX):].split("\n", 1)[0].strip()
+
 
 class OpenQuestionManager:
     """
@@ -192,7 +210,8 @@ class OpenQuestionManager:
         user_id: Optional[str] = None,
         question_type: Optional[QuestionType] = None,
         limit: int = 10,
-        include_shared: bool = True
+        include_shared: bool = True,
+        article_derived: Optional[bool] = None
     ) -> List[Dict]:
         """
         Get open questions for context injection.
@@ -202,6 +221,8 @@ class OpenQuestionManager:
             question_type: Filter by type if provided
             limit: Maximum questions to return
             include_shared: If True, include daemon-wide questions
+            article_derived: True for only news-derived questions, False for
+                only her own, None (default) for both
 
         Returns:
             Open questions ordered by importance and recency
@@ -212,6 +233,13 @@ class OpenQuestionManager:
         if question_type:
             conditions.append("question_type = ?")
             params.append(question_type)
+
+        if article_derived is True:
+            conditions.append("context LIKE ?")
+            params.append(f"{ARTICLE_CONTEXT_PREFIX}%")
+        elif article_derived is False:
+            conditions.append("(context IS NULL OR context NOT LIKE ?)")
+            params.append(f"{ARTICLE_CONTEXT_PREFIX}%")
 
         if user_id and include_shared:
             conditions.append("(user_id IS NULL OR user_id = ?)")
@@ -314,42 +342,64 @@ class OpenQuestionManager:
     def format_questions_context(
         self,
         user_id: Optional[str] = None,
-        limit: int = 5
+        limit: int = 5,
+        max_article_questions: int = 1
     ) -> str:
         """
         Format open questions for system prompt injection.
 
+        Her own questions come first and get the whole budget. Questions the
+        world integrator derived from news fill leftover slots only, capped at
+        `max_article_questions`, and are labeled as reading rather than shown
+        as her own curiosities. Nothing is filtered out of storage.
+
         Returns markdown-formatted context suitable for injection
         into Cass's system prompt.
         """
-        questions = self.get_open_questions(user_id=user_id, limit=limit)
+        own = self.get_open_questions(user_id=user_id, limit=limit, article_derived=False)
 
-        if not questions:
+        article_slots = min(max_article_questions, max(0, limit - len(own)))
+        from_reading = []
+        if article_slots > 0:
+            from_reading = self.get_open_questions(
+                user_id=user_id, limit=article_slots, article_derived=True
+            )
+
+        if not own and not from_reading:
             return ""
 
         lines = ["### Open Questions", ""]
         lines.append("*Things you're curious about or need to resolve:*")
         lines.append("")
 
-        for q in questions:
-            # Type indicator
-            type_indicator = {
-                "curiosity": "💭",
-                "decision": "⚖️",
-                "blocker": "🚧",
-                "philosophical": "🌀"
-            }.get(q.get("question_type", "curiosity"), "•")
-
-            question_text = q.get("question", "")
+        for q in own:
+            lines.append(f"- {self._type_indicator(q)} {q.get('question', '')}")
             context = q.get("context", "")
-
-            lines.append(f"- {type_indicator} {question_text}")
             if context:
                 # Truncate long context
                 ctx = context[:100] + "..." if len(context) > 100 else context
                 lines.append(f"  *(Context: {ctx})*")
 
+        if from_reading:
+            if own:
+                lines.append("")
+            lines.append("*From recent reading (news, not your own question):*")
+            for q in from_reading:
+                lines.append(f"- 📰 {q.get('question', '')}")
+                headline = article_headline(q)
+                if headline:
+                    lines.append(f"  *(Article: {headline[:100]})*")
+
         return "\n".join(lines)
+
+    @staticmethod
+    def _type_indicator(question: Dict) -> str:
+        return {
+            "curiosity": "💭",
+            "decision": "⚖️",
+            "blocker": "🚧",
+            "philosophical": "🌀"
+        }.get(question.get("question_type", "curiosity"), "•")
 
     def get_recent_resolutions(
         self,

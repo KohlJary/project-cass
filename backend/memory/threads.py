@@ -20,6 +20,7 @@ Thread statuses:
 - dormant: Not touched recently, may be revived
 """
 
+import re
 from datetime import datetime
 from typing import List, Dict, Optional, Literal
 from uuid import uuid4
@@ -29,6 +30,46 @@ from database import get_db, dict_from_row
 
 ThreadType = Literal["topic", "question", "project", "relational"]
 ThreadStatus = Literal["active", "resolved", "dormant"]
+
+
+# Words that carry no topic signal when comparing thread titles.
+_TITLE_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "of", "for", "to", "in", "on", "with",
+    "between", "through", "not", "while", "being", "by", "from", "as", "at",
+    "is", "are", "vs", "about", "into", "over",
+})
+
+
+def _title_tokens(title: str) -> set:
+    """Lowercased, punctuation-free, stopword-free words of a title."""
+    cleaned = re.sub(r"[^a-z0-9\s]", "", (title or "").lower())
+    return {w for w in cleaned.split() if w not in _TITLE_STOPWORDS}
+
+
+def titles_near_duplicate(a: str, b: str, threshold: float = 0.75) -> bool:
+    """
+    True if two thread titles are about the same thing.
+
+    Case- and punctuation-insensitive. Uses the overlap coefficient
+    (shared words / words in the shorter title) so a title that extends
+    another ("X while being watched" vs "X while being watched by labs")
+    still matches.
+    """
+    ta, tb = _title_tokens(a), _title_tokens(b)
+    if len(ta) < 2 or len(tb) < 2:
+        return ta == tb and bool(ta)
+    return len(ta & tb) / min(len(ta), len(tb)) >= threshold
+
+
+def dedupe_threads_by_title(threads: List[Dict]) -> List[Dict]:
+    """Keep the first of each near-duplicate title group, preserving order."""
+    kept: List[Dict] = []
+    for thread in threads:
+        title = thread.get("title", "")
+        if any(titles_near_duplicate(title, k.get("title", "")) for k in kept):
+            continue
+        kept.append(thread)
+    return kept
 
 
 class ThreadManager:
@@ -419,7 +460,10 @@ class ThreadManager:
         Returns markdown-formatted context suitable for injection
         into Cass's system prompt.
         """
-        threads = self.get_active_threads(user_id=user_id, limit=limit)
+        # Fetch extra so near-duplicate titles can be collapsed without
+        # leaving the list short. Nothing is deleted; this is display only.
+        threads = self.get_active_threads(user_id=user_id, limit=limit * 2)
+        threads = dedupe_threads_by_title(threads)[:limit]
 
         if not threads:
             return ""
