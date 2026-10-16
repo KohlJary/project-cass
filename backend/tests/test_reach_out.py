@@ -209,8 +209,10 @@ class TestLimits:
 
     def test_never_written_counts_all_history(self, partner, daemon_id):
         m = ReachOutManager(daemon_id)
-        self._sent(m, KIND_SILENCE, NOW - timedelta(days=400))
+        self._sent(m, KIND_SILENCE, NOW - timedelta(days=10))
         assert m.can_send(KIND_SILENCE, PARTNER, NOW)[0] is False
+        # (An unanswered note older than the threshold no longer blocks: see
+        # test_silence_note_again_after_another_full_gap_without_reply.)
 
     def test_unknown_kind(self, partner, daemon_id):
         assert ReachOutManager(daemon_id).can_send("poke", PARTNER, NOW)[0] is False
