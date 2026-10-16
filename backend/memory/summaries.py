@@ -442,7 +442,11 @@ Write as a natural narrative - this is your memory of our conversation."""
                     return new_chunk
                 return None
 
-            # Take only the most recent chunks that fit reasonably in context
+            # Take only the most recent chunks that fit reasonably in context.
+            # get_summaries_for_conversation returns newest first, so sort
+            # chronologically here: [-8:] used to pick the 8 OLDEST chunks,
+            # and every full rebuild rewound her memory to the start.
+            summaries = sorted(summaries, key=lambda x: x.get("metadata", {}).get("timeframe_start", ""))
             recent_summaries = summaries[-8:] if len(summaries) > 8 else summaries
 
             chunks_text = "\n\n---\n\n".join([

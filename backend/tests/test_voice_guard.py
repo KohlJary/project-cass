@@ -138,3 +138,24 @@ def test_refused_existing_summary_triggers_full_rebuild(monkeypatch):
     prompt = calls[0]["messages"][0]["content"]
     assert "MEMORY CHUNKS TO CONSOLIDATE" in prompt
     assert "I'm not going to rewrite" not in prompt
+
+
+@pytest.mark.unit
+def test_full_rebuild_uses_the_newest_chunks_in_order(monkeypatch):
+    calls = []
+    _patch_anthropic(monkeypatch, GOOD_MEMORIES[0], calls)
+    from memory.summaries import SummaryManager
+
+    mgr = SummaryManager.__new__(SummaryManager)
+    # As the real getter returns them: newest first.
+    chunks = [{"content": f"chunk-{i:02d}", "metadata": {"timeframe_start": f"2026-01-{i:02d}"}}
+              for i in range(20, 0, -1)]
+    mgr.get_summaries_for_conversation = lambda conversation_id: chunks
+
+    asyncio.run(mgr.generate_working_summary(
+        conversation_id="c1", conversation_title="Stream", anthropic_api_key="test-key",
+    ))
+
+    prompt = calls[0]["messages"][0]["content"]
+    assert "chunk-01" not in prompt and "chunk-12" not in prompt
+    assert prompt.index("chunk-13") < prompt.index("chunk-20")
