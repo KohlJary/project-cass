@@ -15,9 +15,13 @@ from datetime import datetime
 
 import pytest
 
-import art_choice
-from database import get_db
-from scheduler.actions import creative_handlers
+# The fast CI job installs only requirements-test.txt; this module reaches
+# anthropic through the scheduler and the fake LLM, so it runs in the full job.
+pytest.importorskip("anthropic")
+
+import art_choice  # noqa: E402
+from database import get_db  # noqa: E402
+from scheduler.actions import creative_handlers  # noqa: E402
 
 RANDOM_PICK = "visual symbol: the lantern"
 REFUSAL = "I'm Claude, an AI assistant made by Anthropic. I don't have personal memories of paintings."
