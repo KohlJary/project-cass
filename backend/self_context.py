@@ -11,7 +11,8 @@ reply seven months later, or know what she'd done in between.
 This section is small and ranked. It carries:
 - Since we last spoke: how long it has been with this person, and what she
   did in the meantime (counts and a few named sessions).
-- Lately: her latest dream and solo reflection, briefly.
+- Lately: her latest dream and solo reflection, briefly, and the last painting
+  she was shown and wrote a note on (art_choice.py).
 - Her own threads: interests, open questions, opinions and growth edges that
   are hers, not derived from news articles (those are labeled world
   awareness elsewhere and kept out of here).
@@ -169,6 +170,19 @@ def _lately(conn, daemon_id: str) -> List[str]:
         when = _parse_ts(refl["started_at"])
         stamp = when.strftime("%B %d, %Y") if when else "earlier"
         lines.append(f"- Last solo reflection ({stamp}): {_clip(refl['summary'], 240)}")
+
+    # Her latest painting that she was shown and wrote a note on (art_choice.py).
+    # The table is v57; _rows gives no line on an older database.
+    painting = _rows(conn,
+        """SELECT n.subject, n.artist_note, n.noted_at FROM image_artist_notes n
+           WHERE n.daemon_id = ? AND n.artist_note IS NOT NULL
+           ORDER BY n.noted_at DESC LIMIT 1""",
+        (daemon_id,))
+    if painting:
+        row = painting[0]
+        when = _parse_ts(row["noted_at"])
+        stamp = when.strftime("%B %d, %Y") if when else "earlier"
+        lines.append(f"- Last painting ({stamp}): {_clip(row['subject'], 120)} — {_clip(row['artist_note'], 160)}")
     return lines
 
 
