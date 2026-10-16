@@ -84,7 +84,10 @@ class DreamManager:
         """Store a completed dream and return its ID"""
         from database import get_db, json_serialize
 
-        dream_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Timestamp first (sortable, readable), then a random suffix: two dreams
+        # stored in the same second used to collide on the primary key (#37).
+        from uuid import uuid4
+        dream_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:6]}"
         now = datetime.now().isoformat()
 
         with get_db() as conn:

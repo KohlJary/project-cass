@@ -167,7 +167,11 @@ def test_job_daily_journal_writes_journal(app):
 
     result = _run_job(app, "daily_journal")
 
-    assert result.data["journal_generated"] is True, result.message
+    # The job writes yesterday's journal once; an earlier test in this module
+    # (writes_dream) runs the same job, so here it may already exist. What
+    # matters is that after the job, yesterday has a daily journal.
+    assert result.success, result.message
+    assert result.data["journal_generated"] or main_sdk.memory.get_journal_entry(yesterday), result.message
 
 
 def test_job_goal_refinement(app):
