@@ -2090,6 +2090,53 @@ async def _handle_get_architectural_requests(tool_input: Dict, ctx: ToolContext)
 
 
 # =============================================================================
+# RESEARCH FOCUS (what she wants to read next)
+# =============================================================================
+
+def _handle_set_research_focus(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """
+    Handle set_research_focus: Cass names the topic her autonomous news
+    reading should look for next. With no topic it reports the current focus;
+    with clear=true it retires the focus without naming a new one.
+    """
+    from research_focus import get_research_focus_manager
+
+    daemon_id = getattr(ctx.self_manager, "_daemon_id", None)
+    manager = get_research_focus_manager(daemon_id)
+
+    if tool_input.get("clear"):
+        cleared = manager.clear_focus()
+        return {
+            "success": True,
+            "result": "Research focus cleared; headlines alone steer reading again."
+            if cleared else "No research focus was set.",
+        }
+
+    topic = tool_input.get("topic")
+    if not topic:
+        focus = manager.get_focus()
+        if not focus:
+            return {"success": True, "result": "No research focus is set. Name a topic to set one."}
+        used = f", searched {focus.times_used} time(s)" if focus.times_used else ""
+        return {
+            "success": True,
+            "result": f"Current research focus: {focus.topic} (set {focus.created_at[:10]} via {focus.source}{used})"
+            + (f"\nReason: {focus.reason}" if focus.reason else ""),
+        }
+
+    try:
+        previous = manager.get_focus()
+        focus = manager.set_focus(topic=topic, reason=tool_input.get("reason"), source="chat")
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+    result = f"Research focus set: {focus.topic}. The next news cycle searches for it."
+    if previous:
+        result += f" (replaces: {previous.topic})"
+    return {"success": True, "result": result}
+
+
+# =============================================================================
 # TOOL BLACKLIST (Procedural Self-Awareness Phase 0)
 # =============================================================================
 
@@ -2259,6 +2306,8 @@ TOOL_HANDLERS = {
     "get_architectural_requests": _handle_get_architectural_requests,
     # Tool blacklist (Procedural Self-Awareness Phase 0)
     "modify_tool_access": _handle_modify_tool_access,
+    # Research focus
+    "set_research_focus": _handle_set_research_focus,
 }
 
 
@@ -3445,6 +3494,31 @@ Requests are logged for human review and create a record of your evolving needs.
                     "type": "integer",
                     "description": "Maximum requests to return",
                     "default": 20
+                }
+            },
+            "required": []
+        }
+    },
+    # === Research Focus ===
+    {
+        "name": "set_research_focus",
+        "description": """Choose what your autonomous news reading looks for next.
+
+Every few hours you read articles on your own. Without a focus, that reading follows whatever the top headlines are. Set a focus and the next cycles search news for your topic and weight relevance toward it. Call with no topic to see the current focus, or clear=true to let headlines steer again.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "One specific topic to research next (e.g. a phenomenon, a question, a field). Omit to view the current focus."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why this, in your words (optional)"
+                },
+                "clear": {
+                    "type": "boolean",
+                    "description": "Retire the current focus without setting a new one"
                 }
             },
             "required": []

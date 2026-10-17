@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
+# Env: WORLD_CONSUMPTION_MIN_RELEVANCE (0 disables the self-model gate)
+DEFAULT_MIN_RELEVANCE = 0.3
+
+
 @dataclass
 class ConsumptionConfig:
     """Configuration for world state consumption."""
@@ -38,6 +42,12 @@ class ConsumptionConfig:
     # Quality thresholds
     min_confidence: float = 0.5
     min_importance_for_growth_edge: float = 0.6
+
+    # Relevance gate: an article scoring below this against her interests,
+    # open questions and research focus (world/relevance.py, 0..1) is kept as
+    # world awareness only; no opinions, growth edges or open questions.
+    # 0.3 is roughly "one of her interests is clearly present"; 0 disables.
+    min_relevance_for_integration: float = DEFAULT_MIN_RELEVANCE
 
     # Model selection
     analysis_model: str = "claude-haiku-4-5-20251001"
@@ -63,6 +73,9 @@ class ConsumptionConfig:
             ),
             min_confidence=float(
                 os.getenv("WORLD_CONSUMPTION_MIN_CONFIDENCE", "0.5")
+            ),
+            min_relevance_for_integration=float(
+                os.getenv("WORLD_CONSUMPTION_MIN_RELEVANCE", str(DEFAULT_MIN_RELEVANCE))
             ),
             analysis_model=os.getenv(
                 "WORLD_CONSUMPTION_MODEL", "claude-haiku-4-5-20251001"
@@ -179,7 +192,12 @@ def run_consumption_pipeline(
         model=config.analysis_model,
         max_paragraphs_per_turn=config.max_paragraphs_per_turn,
     )
-    integrator = InsightIntegrator(daemon_id, config.min_confidence, memory_core)
+    integrator = InsightIntegrator(
+        daemon_id,
+        config.min_confidence,
+        memory_core,
+        min_relevance=config.min_relevance_for_integration,
+    )
 
     # Consume headlines
     articles = consumer.consume_headlines(headlines, max_articles=remaining)
@@ -230,6 +248,8 @@ def run_consumption_pipeline(
                 "article_id": article.id,
                 "headline": article.headline[:80],
                 "status": "completed",
+                "relevance": article.relevance_score,
+                "self_model_gated": integration.gated,
                 "observations": len(insights.observations),
                 "questions": len(insights.questions),
                 "opinions": len(insights.opinions),

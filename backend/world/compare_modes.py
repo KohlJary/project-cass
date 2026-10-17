@@ -32,8 +32,8 @@ from world.content_analyzer import ContentAnalyzer, ReadingMode
 CONFIGS = [
     {"mode": ReadingMode.PROGRESSIVE, "model": "claude-haiku-4-5-20251001", "label": "Progressive + Haiku 4.5"},
     {"mode": ReadingMode.SINGLE_PASS, "model": "claude-haiku-4-5-20251001", "label": "Single Pass + Haiku 4.5"},
-    {"mode": ReadingMode.PROGRESSIVE, "model": "claude-3-5-haiku-20241022", "label": "Progressive + Haiku 3.5"},
-    {"mode": ReadingMode.SINGLE_PASS, "model": "claude-3-5-haiku-20241022", "label": "Single Pass + Haiku 3.5"},
+    {"mode": ReadingMode.PROGRESSIVE, "model": "claude-haiku-4-5-20251001", "label": "Progressive + Haiku 3.5"},
+    {"mode": ReadingMode.SINGLE_PASS, "model": "claude-haiku-4-5-20251001", "label": "Single Pass + Haiku 3.5"},
 ]
 
 

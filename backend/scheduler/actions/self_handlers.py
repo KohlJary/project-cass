@@ -227,3 +227,59 @@ async def update_growth_edge_action(context: Dict[str, Any]) -> ActionResult:
             success=False,
             message=f"Update growth edge failed: {e}"
         )
+
+
+async def set_research_focus_action(context: Dict[str, Any]) -> ActionResult:
+    """
+    Record the topic Cass wants to research next.
+
+    research_synthesis.spell calls this after a low-value session, with the
+    topic she named in a GENERATE step. world.refresh_and_consume then searches
+    news for it and weights article relevance toward it.
+
+    Context params:
+    - topic: str - One specific topic (required)
+    - reason: str (optional) - Why, in her words
+    - source: str (optional) - Where this came from (default "spell:research_synthesis")
+    """
+    managers = context.get("managers", {})
+    daemon_id = context.get("daemon_id") or managers.get("daemon_id")
+
+    topic = context.get("topic") or context.get("focus")
+    reason = context.get("reason")
+    source = context.get("source", "spell:research_synthesis")
+
+    if isinstance(topic, bool) or not topic:
+        return ActionResult(
+            success=False,
+            message="topic parameter required"
+        )
+
+    try:
+        from research_focus import get_research_focus_manager
+
+        manager = get_research_focus_manager(daemon_id)
+        previous = manager.get_focus()
+        focus = manager.set_focus(topic=str(topic), reason=reason, source=source)
+        logger.info(f"Research focus set: {focus.topic}")
+        return ActionResult(
+            success=True,
+            message=f"Research focus set: {focus.topic}",
+            data={
+                "focus_id": focus.id,
+                "topic": focus.topic,
+                "previous_topic": previous.topic if previous else None,
+            }
+        )
+
+    except ValueError as e:
+        return ActionResult(
+            success=False,
+            message=f"Set research focus rejected: {e}"
+        )
+    except Exception as e:
+        logger.error(f"Set research focus failed: {e}")
+        return ActionResult(
+            success=False,
+            message=f"Set research focus failed: {e}"
+        )

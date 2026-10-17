@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 54  # emails.automated_reason; users.quiet_hours_* in the schema
+SCHEMA_VERSION = 55  # research_focus table (her own research direction)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1807,6 +1807,23 @@ CREATE INDEX IF NOT EXISTS idx_consumed_articles_status ON consumed_articles(pro
 CREATE INDEX IF NOT EXISTS idx_consumed_articles_consumed ON consumed_articles(consumed_at);
 CREATE INDEX IF NOT EXISTS idx_consumed_articles_category ON consumed_articles(category);
 CREATE INDEX IF NOT EXISTS idx_consumed_articles_author ON consumed_articles(author_entity_id);
+
+-- Research focus (v55): a topic Cass named for herself that steers which news
+-- she reads next. One active row per daemon; older rows are kept as history.
+CREATE TABLE IF NOT EXISTS research_focus (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    topic TEXT NOT NULL,                -- The topic she wants to research next
+    reason TEXT,                        -- Why, in her words (optional)
+    source TEXT,                        -- spell:research_synthesis, chat, admin
+    status TEXT DEFAULT 'active',       -- active, superseded, cleared
+    times_used INTEGER DEFAULT 0,       -- How many consumption cycles searched for it
+    last_used_at TEXT,
+    created_at TEXT NOT NULL,
+    ended_at TEXT                       -- When superseded or cleared
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_focus_active ON research_focus(daemon_id, status);
 
 -- =============================================================================
 -- IMAGE GENERATION (v35)

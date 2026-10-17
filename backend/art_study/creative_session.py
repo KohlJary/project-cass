@@ -411,7 +411,7 @@ Create pieces that are clearly influenced by but not imitative of {artist_name}.
 
     try:
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -758,7 +758,7 @@ Create pieces that feel authentically YOURS - not imitation of your influences, 
 
     try:
         response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}]
         )

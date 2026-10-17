@@ -138,6 +138,11 @@ class Article:
     processing_time_ms: Optional[int] = None
     tokens_used: Optional[int] = None
 
+    # Relevance to her interests / open questions / research focus, in [0, 1],
+    # set when the headline is picked (world/relevance.py). Not persisted;
+    # None means it was never scored (e.g. loaded from the DB).
+    relevance_score: Optional[float] = None
+
     # Extracted insights (stored as JSON in DB)
     observations: List[ExtractedObservation] = field(default_factory=list)
     questions: List[ExtractedQuestion] = field(default_factory=list)
@@ -169,6 +174,7 @@ class Article:
             "consumed_at": self.consumed_at,
             "processing_time_ms": self.processing_time_ms,
             "tokens_used": self.tokens_used,
+            "relevance_score": self.relevance_score,
             "observations": [
                 {"text": o.text, "confidence": o.confidence, "category": o.category}
                 for o in self.observations
@@ -226,6 +232,7 @@ class Article:
             consumed_at=data.get("consumed_at"),
             processing_time_ms=data.get("processing_time_ms"),
             tokens_used=data.get("tokens_used"),
+            relevance_score=data.get("relevance_score"),
             observations=[
                 ExtractedObservation(**o)
                 for o in (data.get("observations") or [])

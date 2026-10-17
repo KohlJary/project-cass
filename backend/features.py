@@ -142,6 +142,11 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            LOCAL, where="main_sdk.startup_event, websocket_handlers.set_tts_state"),
     _lever("face_id", "Face identification", LOCAL, where="face_identification.is_available/identify_face"),
     _lever("voice_id", "Voice (speaker) identification", LOCAL, where="voice_identification.get_encoder"),
+
+    # --- What reaches her prompt (ablation switches for benchmark Tier 3) ---
+    _lever("self_context", "Self-context section in her chat prompt: time since last contact, "
+           "what she did meanwhile, latest dream/reflection, her own threads (epic #63)",
+           where="continuous_context.build_continuous_context"),
 ]}
 
 # Action-id prefix -> lever, used by ActionRegistry.execute.

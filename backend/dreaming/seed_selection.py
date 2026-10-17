@@ -278,11 +278,21 @@ def select_dream_seeds(
     # Import here to avoid circular imports
     from memory.questions import OpenQuestionManager
     question_manager = OpenQuestionManager(daemon_id)
-    open_questions = question_manager.get_open_questions(limit=20)
+    # Dream from her own threads, not the news. Since 2026-03 almost every
+    # open question (1,785 of 1,800) and growth edge came from news articles,
+    # so dreams were seeded with headlines ("Is the shift of handheld gaming
+    # ..."). Asked what she wants alone, Cass named her dreams: "following
+    # threads through them". Fall back to everything only if she has none.
+    open_questions = (
+        question_manager.get_open_questions(limit=20, article_derived=False)
+        or question_manager.get_open_questions(limit=20)
+    )
+    own_edges = [e for e in profile.growth_edges if (e.category or "") != "world_engagement"]
+    growth_edges = own_edges or list(profile.growth_edges)
 
     # Score all edges
     edge_scores = {}
-    for edge in profile.growth_edges:
+    for edge in growth_edges:
         if mode == "resolution_ready":
             edge_scores[edge.edge_id] = calculate_edge_readiness(edge, now)
         elif mode == "active":
@@ -306,7 +316,7 @@ def select_dream_seeds(
 
     # Select top edges by score
     sorted_edges = sorted(
-        profile.growth_edges,
+        growth_edges,
         key=lambda e: edge_scores.get(e.edge_id, 0),
         reverse=True
     )

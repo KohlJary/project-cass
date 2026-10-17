@@ -378,6 +378,17 @@
       "priority": "normal",
       "requires_idle": false
     },
+    "self.set_research_focus": {
+      "id": "self.set_research_focus",
+      "name": "Set Research Focus",
+      "description": "Record the topic Cass wants to research next; world.refresh_and_consume searches news for it",
+      "category": "reflection",
+      "handler": "self_handlers.set_research_focus_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
     "wonderland.enter": {
       "id": "wonderland.enter",
       "name": "Enter Wonderland",

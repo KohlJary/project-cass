@@ -24,8 +24,15 @@ from .models import (
     ExtractedOpinion,
     ExtractedGrowthEdge,
 )
+from .relevance import InterestRelevanceScorer
 
 logger = logging.getLogger(__name__)
+
+# How much interest relevance (0..1) counts in the priority score. The legacy
+# part (category + source + recency) is capped at 1.0, so with weight 2.0 any
+# headline at or above the integration threshold (0.3 by default -> +0.6)
+# outranks every off-interest headline no matter how fresh or well-sourced.
+RELEVANCE_WEIGHT = 2.0
 
 
 @dataclass
@@ -59,7 +66,8 @@ class ArticleConsumer:
     - Content extraction via trafilatura (handles most news sites well)
     - Local caching to avoid re-fetching
     - Database storage with processing status tracking
-    - Priority scoring for headline selection
+    - Priority scoring for headline selection, weighted by relevance to her
+      interests, open questions and research focus (world/relevance.py)
     """
 
     def __init__(
@@ -67,9 +75,11 @@ class ArticleConsumer:
         daemon_id: str,
         cache_dir: Optional[Path] = None,
         fetch_timeout: int = 30,
+        relevance_scorer: Optional[InterestRelevanceScorer] = None,
     ):
         self.daemon_id = daemon_id
         self.fetch_timeout = fetch_timeout
+        self._relevance_scorer = relevance_scorer
 
         # Set up cache directory
         if cache_dir is None:
@@ -231,13 +241,35 @@ class ArticleConsumer:
 
         return None, author_info
 
+    @property
+    def relevance_scorer(self) -> InterestRelevanceScorer:
+        """Her interests / questions / focus, loaded once per consumer."""
+        if self._relevance_scorer is None:
+            self._relevance_scorer = InterestRelevanceScorer.load(self.daemon_id)
+        return self._relevance_scorer
+
+    def relevance(self, headline: Dict) -> float:
+        """
+        Relevance of a headline to her, in [0, 1]. Cached on the headline dict
+        as "relevance_score" so callers (and logs) can see why it was picked.
+        """
+        cached = headline.get("relevance_score")
+        if cached is not None:
+            return float(cached)
+        score = self.relevance_scorer.score_headline(headline)
+        headline["relevance_score"] = score
+        return score
+
     def get_priority_score(self, headline: Dict) -> float:
         """
         Calculate priority score for a headline.
 
-        Higher scores = more likely to be consumed.
+        Higher scores = more likely to be consumed. Range is
+        [0, 1 + RELEVANCE_WEIGHT]: the first 1.0 is the legacy score below,
+        the rest is RELEVANCE_WEIGHT * relevance to her.
 
         Factors:
+        - Relevance to her interests, open questions and research focus
         - Category relevance (technology, science > general)
         - Source credibility (major outlets score higher)
         - Recency (newer articles score higher)
@@ -280,7 +312,13 @@ class ArticleConsumer:
             except (ValueError, TypeError):
                 pass
 
-        return min(max(score, 0.0), 1.0)
+        score = min(max(score, 0.0), 1.0)
+
+        # Relevance to her: the only factor here that is about Cass rather
+        # than about the outlet.
+        score += RELEVANCE_WEIGHT * self.relevance(headline)
+
+        return score
 
     def is_already_consumed(self, url: str) -> bool:
         """Check if an article URL has already been consumed."""
@@ -310,6 +348,7 @@ class ArticleConsumer:
             published_at=headline.get("published_at") or headline.get("published"),
             processing_status=ProcessingStatus.PENDING,
             consumed_at=now,
+            relevance_score=self.relevance(headline),
         )
 
         # Store in database
@@ -456,6 +495,10 @@ class ArticleConsumer:
         articles = []
         for headline in sorted_headlines[:max_articles]:
             try:
+                logger.info(
+                    f"Picked headline (relevance {self.relevance(headline):.2f}): "
+                    f"{str(headline.get('title') or '')[:70]}"
+                )
                 article = self.create_article(headline)
                 article = self.process_article(article)
                 articles.append(article)

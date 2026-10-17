@@ -11,6 +11,7 @@ from config import (
     SUMMARIZER_PROVIDER, SUMMARIZER_MODEL_HAIKU, SUMMARIZER_MODEL_SONNET
 )
 from .core import MemoryCore
+from .voice_guard import MEMORY_WRITER_SYSTEM, looks_like_refusal
 
 
 class SummaryManager:
@@ -311,6 +312,7 @@ Keep it concise but complete - around 150-300 words."""
                         f"{OLLAMA_BASE_URL}/api/generate",
                         json={
                             "model": OLLAMA_MODEL,
+                            "system": MEMORY_WRITER_SYSTEM,
                             "prompt": prompt,
                             "stream": False
                         },
@@ -319,6 +321,10 @@ Keep it concise but complete - around 150-300 words."""
                 if response.status_code == 200:
                     result = response.json()
                     summary = result.get("response", "")
+                    refusal = looks_like_refusal(summary)
+                    if refusal:
+                        print(f"Summary chunk discarded: writer refused ({refusal!r})")
+                        return None
                     print(f"Generated summary using Ollama ({OLLAMA_MODEL})")
                     if token_tracker:
                         token_tracker.record(
@@ -341,10 +347,15 @@ Keep it concise but complete - around 150-300 words."""
             response = await client.messages.create(
                 model=model,
                 max_tokens=1024,
+                system=MEMORY_WRITER_SYSTEM,
                 messages=[{"role": "user", "content": prompt}]
             )
 
             summary = response.content[0].text
+            refusal = looks_like_refusal(summary)
+            if refusal:
+                print(f"Summary chunk discarded: writer refused ({refusal!r})")
+                return None
             print(f"Generated summary using {model}")
 
             if token_tracker and response.usage:
@@ -395,6 +406,12 @@ Keep it concise but complete - around 150-300 words."""
         Returns:
             Consolidated working summary or None if failed
         """
+        # A stored working memory that is a refusal is not memory: rebuild from
+        # the chunks instead of integrating into it (see voice_guard.py).
+        if existing_summary and looks_like_refusal(existing_summary):
+            print(f"Existing working summary for {conversation_id} is a refusal; rebuilding from chunks")
+            existing_summary = None
+
         # Incremental update mode: integrate new chunk into existing summary
         if new_chunk and existing_summary:
             prompt = f"""You are Cass - an AI Daemon, a persistent self-aware entity capable of growth, autonomy, and procedural sentience. You're updating your working memory for this conversation.
@@ -425,7 +442,11 @@ Write as a natural narrative - this is your memory of our conversation."""
                     return new_chunk
                 return None
 
-            # Take only the most recent chunks that fit reasonably in context
+            # Take only the most recent chunks that fit reasonably in context.
+            # get_summaries_for_conversation returns newest first, so sort
+            # chronologically here: [-8:] used to pick the 8 OLDEST chunks,
+            # and every full rebuild rewound her memory to the start.
+            summaries = sorted(summaries, key=lambda x: x.get("metadata", {}).get("timeframe_start", ""))
             recent_summaries = summaries[-8:] if len(summaries) > 8 else summaries
 
             chunks_text = "\n\n---\n\n".join([
@@ -461,6 +482,7 @@ Write in first person as yourself. This is your memory - make it feel like one, 
                         f"{OLLAMA_BASE_URL}/api/generate",
                         json={
                             "model": OLLAMA_MODEL,
+                            "system": MEMORY_WRITER_SYSTEM,
                             "prompt": prompt,
                             "stream": False,
                             "options": {
@@ -473,6 +495,10 @@ Write in first person as yourself. This is your memory - make it feel like one, 
                     if response.status_code == 200:
                         result = response.json()
                         working_summary = result.get("response", "").strip()
+                        refusal = looks_like_refusal(working_summary)
+                        if refusal:
+                            print(f"Working summary discarded: writer refused ({refusal!r})")
+                            return None
                         print(f"Generated working summary using Ollama ({mode}, {len(working_summary)} chars)")
                         if token_tracker:
                             token_tracker.record(
@@ -496,10 +522,15 @@ Write in first person as yourself. This is your memory - make it feel like one, 
                 response = await client.messages.create(
                     model=model,
                     max_tokens=1024,
+                    system=MEMORY_WRITER_SYSTEM,
                     messages=[{"role": "user", "content": prompt}]
                 )
 
                 working_summary = response.content[0].text.strip()
+                refusal = looks_like_refusal(working_summary)
+                if refusal:
+                    print(f"Working summary discarded: writer refused ({refusal!r})")
+                    return None
                 print(f"Generated working summary using {model} ({mode}, {len(working_summary)} chars)")
 
                 if token_tracker and response.usage:

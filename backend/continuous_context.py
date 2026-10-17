@@ -173,6 +173,21 @@ def build_continuous_context(
             context_sections["voice_recognition"] = voice_context
 
     # ==========================================================================
+    # 2.8. SELF-CONTEXT (What of her own life reaches her - epic #63)
+    # ==========================================================================
+    # Time since last contact, what she did meanwhile, latest dream and
+    # reflection, her own threads. Lever: self_context.
+    import features
+    if daemon_id and features.is_enabled("self_context"):
+        try:
+            from self_context import build_self_context
+            self_ctx = build_self_context(daemon_id, user_id)
+            if self_ctx:
+                context_sections["self_context"] = self_ctx
+        except Exception as e:
+            print(f"[SelfContext] skipped: {e}")
+
+    # ==========================================================================
     # 3. RELATIONAL CONTEXT (PeopleDex)
     # ==========================================================================
     # Who we're talking to, how we relate, observations, shared history
@@ -299,6 +314,12 @@ def _retrieve_semantic_memories(
             if distance and distance > 1.5:
                 continue
 
+            # Never hand her a memory that is a writer's refusal or an identity
+            # break ("I'm Claude..."): it isn't hers (memory/voice_guard.py).
+            from memory.voice_guard import looks_like_refusal
+            if looks_like_refusal(content):
+                continue
+
             # Format with relevance indicator
             relevance = "high" if distance and distance < 0.5 else "moderate"
             formatted_parts.append(f"[{mem_type} - {relevance}]: {content}")
@@ -394,6 +415,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.7. Voice recognition (speaker identification from STT)
     if "voice_recognition" in sections:
         parts.append(f"## VOICE RECOGNITION\n\n{sections['voice_recognition']}")
+
+    # 2.8. Self-context (her own life, lately)
+    if "self_context" in sections:
+        parts.append(f"## MY OWN LIFE, LATELY\n\n*My own time between conversations. It was mine, and it mattered:*\n\n{sections['self_context']}")
 
     # 3. Relational context (combined user understanding + relationship)
     if "relational_context" in sections:

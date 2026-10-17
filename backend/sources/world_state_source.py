@@ -42,7 +42,7 @@ class WorldStateSource(QueryableSource):
         self,
         daemon_id: str,
         data_dir: str = "data",
-        home_location: str = "Seattle, WA"
+        home_location: str = ""
     ):
         super().__init__(daemon_id)
         self._data_dir = Path(data_dir) / "world_state"
@@ -253,7 +253,7 @@ class WorldStateSource(QueryableSource):
 
                 city = data.get("city", "")
                 region = data.get("region_code", "")
-                city_region = f"{city}, {region}" if city and region else self._home_location
+                city_region = f"{city}, {region}" if city and region else self._fallback_location()
 
                 return {
                     "city_region": city_region,
@@ -263,10 +263,17 @@ class WorldStateSource(QueryableSource):
         except Exception as e:
             logger.warning(f"Geolocation fetch failed: {e}, using fallback")
             return {
-                "city_region": self._home_location,
-                "coords": None,
-                "timezone": None
+                "city_region": self._fallback_location(),
+                "coords": self._rollups.get("server_coords"),
+                "timezone": self._rollups.get("server_timezone"),
             }
+
+    def _fallback_location(self) -> Optional[str]:
+        """
+        Location to report when geolocation fails: the last one we resolved,
+        else the configured home, else unknown (None). Never a made-up city.
+        """
+        return self._rollups.get("server_location") or self._home_location or None
 
     async def _fetch_weather(self) -> Dict[str, Any]:
         """
@@ -279,7 +286,10 @@ class WorldStateSource(QueryableSource):
                 "description": "Light rain"
             }
         """
-        location = self._rollups.get("server_location", self._home_location)
+        location = self._rollups.get("server_location") or self._home_location
+        if not location:
+            logger.info(f"[{self.source_id}] No location known, skipping weather fetch")
+            return {"summary": None, "temp_f": None, "description": None}
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -410,6 +420,63 @@ class WorldStateSource(QueryableSource):
 
         except Exception as e:
             logger.error(f"Headlines fetch failed: {e}")
+            return []
+
+    async def search_headlines(self, query: str, page_size: int = 10) -> List[Dict[str, Any]]:
+        """
+        Search recent news for a topic she chose (NewsAPI /v2/everything).
+
+        Used by world.refresh_and_consume when a research focus is set, so her
+        reading is not limited to whatever the top headlines are. Same dict
+        shape as _fetch_headlines, with category "research_focus". Returns []
+        when NEWS_API_KEY is missing, the query is empty, or the call fails.
+        """
+        api_key = os.getenv("NEWS_API_KEY")
+        query = (query or "").strip()
+        if not api_key or not query:
+            return []
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    "https://newsapi.org/v2/everything",
+                    params={
+                        "q": query,
+                        "apiKey": api_key,
+                        "pageSize": page_size,
+                        "sortBy": "relevancy",
+                        "language": "en",
+                    }
+                )
+            if response.status_code != 200:
+                logger.warning(f"NewsAPI search returned {response.status_code} for {query!r}")
+                return []
+            data = response.json()
+            if data.get("status") != "ok":
+                logger.warning(f"NewsAPI search error for {query!r}: {data.get('message')}")
+                return []
+
+            results = []
+            seen_titles = set()
+            for article in data.get("articles", []):
+                title = article.get("title")
+                if not title or title in seen_titles or not article.get("url"):
+                    continue
+                seen_titles.add(title)
+                results.append({
+                    "title": title,
+                    "source": (article.get("source") or {}).get("name"),
+                    "description": article.get("description"),
+                    "url": article.get("url"),
+                    "published": article.get("publishedAt"),
+                    "category": "research_focus",
+                    "focus_query": query,
+                })
+            logger.info(f"Found {len(results)} articles for research focus {query!r}")
+            return results
+
+        except Exception as e:
+            logger.warning(f"NewsAPI search failed for {query!r}: {e}")
             return []
 
     def _load_rollups(self) -> None:

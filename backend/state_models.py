@@ -582,9 +582,37 @@ class WorldStateData:
             last_updated=last_updated,
         )
 
-    def get_context_summary(self) -> str:
+    def refreshed_temporal(self, now: Optional[datetime] = None) -> "WorldStateData":
+        """
+        Copy of this state with the clock-derived fields recomputed for `now`.
+
+        The stored date/season/time_of_day are a snapshot from the last source
+        sync; the prompt must never show a stale "Today". Weather and location
+        come from outside and are kept as stored.
+        """
+        from temporal_context import calculate_temporal_context
+
+        temporal = calculate_temporal_context(
+            now=now or datetime.now(),
+            weather_description=self.weather_description,
+        )
+        fresh = WorldStateData.from_dict(self.to_dict())
+        fresh.current_date = temporal.date
+        fresh.season = temporal.season
+        fresh.time_of_day = temporal.time_of_day
+        fresh.day_of_week = temporal.day_of_week
+        fresh.is_weekend = temporal.is_weekend
+        fresh.upcoming_holidays = temporal.upcoming_holidays
+        fresh.cultural_context = temporal.cultural_context
+        fresh.seasonal_note = temporal.seasonal_note
+        return fresh
+
+    def get_context_summary(self, now: Optional[datetime] = None) -> str:
         """
         Get a brief context summary for system prompts.
+
+        Date, season and time of day are computed for `now` (default: the
+        current clock), not read from the stored snapshot.
 
         Returns something like:
         "**Today:** Tuesday, January 28, 2026 (winter) - afternoon
@@ -592,14 +620,15 @@ class WorldStateData:
          📅 Christmas Day (in 3 days), New Year's Eve (in 8 days)
          🌟 holiday season, approaching the winter solstice"
         """
+        fresh = self.refreshed_temporal(now)
         lines = []
 
         # Date and season
-        date_line = f"**Today:** {self.current_date}"
-        if self.season:
-            date_line += f" ({self.season})"
-        if self.time_of_day:
-            date_line += f" - {self.time_of_day}"
+        date_line = f"**Today:** {fresh.current_date}"
+        if fresh.season:
+            date_line += f" ({fresh.season})"
+        if fresh.time_of_day:
+            date_line += f" - {fresh.time_of_day}"
         lines.append(date_line)
 
         # Location and weather
@@ -610,17 +639,17 @@ class WorldStateData:
             lines.append(loc_line)
 
         # Upcoming holidays (Phase 3)
-        if self.upcoming_holidays:
-            holidays_str = ", ".join(self.upcoming_holidays[:3])  # Show up to 3
+        if fresh.upcoming_holidays:
+            holidays_str = ", ".join(fresh.upcoming_holidays[:3])  # Show up to 3
             lines.append(f"📅 {holidays_str}")
 
         # Cultural context (Phase 3)
-        if self.cultural_context:
-            lines.append(f"🌟 {self.cultural_context}")
+        if fresh.cultural_context:
+            lines.append(f"🌟 {fresh.cultural_context}")
 
         # Seasonal note (Phase 3) - only if weather-relevant
-        if self.seasonal_note and self.weather_description:
-            lines.append(f"💡 {self.seasonal_note}")
+        if fresh.seasonal_note and self.weather_description:
+            lines.append(f"💡 {fresh.seasonal_note}")
 
         # Recent headlines (NewsAPI integration)
         if self.recent_headlines:
@@ -680,14 +709,19 @@ class GlobalState:
             world=WorldStateData.from_dict(data.get("world", {})),
         )
 
-    def get_context_snapshot(self) -> str:
+    def get_context_snapshot(self, user_names: Optional[Dict[str, str]] = None) -> str:
         """
         Generate a rich context string for prompt injection.
 
         This is what Cass "sees" about herself - identity, current engagement,
         emotional state, and relevant growth edges. Not raw data, but
         meaningful self-awareness.
+
+        Args:
+            user_names: user_id -> display name, so the engagement line shows
+                a person rather than a raw id. Unknown ids fall back to the id.
         """
+        user_names = user_names or {}
         sections = []
 
         # Identity anchor (always present, brief)
@@ -742,11 +776,12 @@ class GlobalState:
         engagement_parts = []
 
         if a.active_user_id:
+            who = user_names.get(a.active_user_id) or a.active_user_id
             rel = self.relational.get(a.active_user_id)
             if rel and rel.activated_aspect:
-                engagement_parts.append(f"With {a.active_user_id}: {rel.activated_aspect}")
+                engagement_parts.append(f"With {who}: {rel.activated_aspect}")
             else:
-                engagement_parts.append(f"Present with: {a.active_user_id}")
+                engagement_parts.append(f"Present with: {who}")
 
         if a.current_topics:
             topics_str = ", ".join(a.current_topics[:3])

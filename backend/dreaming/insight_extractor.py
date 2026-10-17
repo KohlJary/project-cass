@@ -107,7 +107,7 @@ class DreamInsightExtractor:
 
     def __init__(self, api_key: str = None):
         self.client = anthropic.Anthropic(api_key=api_key or ANTHROPIC_API_KEY)
-        self.model = "claude-sonnet-4-20250514"
+        self.model = "claude-sonnet-4-6"
 
     def extract_insights(self, dream: dict) -> Optional[DreamInsights]:
         """

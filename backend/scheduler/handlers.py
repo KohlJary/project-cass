@@ -195,6 +195,20 @@ async def daily_journal_handler(
             logger.warning(f"Nightly dream generation failed: {e}")
             # Don't fail the whole task for dream failure
 
+    # Let her identity snippet follow her (#30). Identity statements she forms
+    # in chat, dreams and reflection never reached the snippet her prompt
+    # carries; it was last generated in December. Once a night, and only when
+    # the statements' hash changed; every version is kept for rollback.
+    try:
+        from database import get_daemon_id
+        from identity_snippets import trigger_snippet_regeneration
+        snippet = await trigger_snippet_regeneration(get_daemon_id())
+        if snippet:
+            results["identity_snippet_version"] = snippet.get("version")
+            logger.info(f"Identity snippet refreshed to v{snippet.get('version')}")
+    except Exception as e:
+        logger.warning(f"Identity snippet refresh failed: {e}")
+
     return HandlerResult(
         success=True,
         message=f"Daily journal complete (journal: {results['journal_generated']}, dream: {results['dream_generated']})",

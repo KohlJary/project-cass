@@ -99,6 +99,15 @@ ELSE
     ' Reflect on why it didn't work well
     REFLECT "This research session didn't yield much value. Why might that be? Was the topic not right? Was I not in the right state? What would make future sessions more productive?" SAVE AS OBSERVATION
 
+    ' Close the loop: that reflection used to go nowhere. Name what to read
+    ' next; world.refresh_and_consume searches news for it next cycle and
+    ' weights article relevance toward it.
+    GENERATE "Name ONE specific topic you would rather research in your next session, given what you just reflected on and what genuinely interests you. Reply with only the topic as a short phrase (under twelve words), no explanation." INTO $next_focus
+
+    TASK self.set_research_focus topic=$next_focus reason="Chose this after a low-value research session" AWAIT
+
+    LOG OBSERVATION "Set research focus for next session: {$next_focus}"
+
     DELTA affect.frustration +0.05
 END IF
 

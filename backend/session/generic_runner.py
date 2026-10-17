@@ -110,7 +110,7 @@ class GenericSessionRunner:
     # These are approximations - actual cost depends on model used
     MODEL_PRICING = {
         "claude-haiku-4-5-20251001": {"input": 0.0008, "output": 0.004},
-        "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
+        "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
     }
     DEFAULT_INPUT_COST_PER_1K = 0.001  # Fallback if model not in pricing table
     DEFAULT_OUTPUT_COST_PER_1K = 0.005
@@ -191,9 +191,10 @@ class GenericSessionRunner:
             max_turns=max_turns,
         )
 
-        # Build the system message with Temple-Codex kernel
-        kernel = get_temple_codex_kernel()
-        full_system = f"{kernel}\n\n{system_prompt}"
+        # Kernel with her identity snippet (her own words) and her own life
+        # lately; see self_context.session_system_preamble.
+        from self_context import session_system_preamble
+        full_system = f"{session_system_preamble()}\n\n{system_prompt}"
 
         # Add Thymos felt state for emotional/motivational context
         try:

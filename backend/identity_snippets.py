@@ -241,9 +241,11 @@ Requirements:
 
 Output ONLY the identity snippet, no preamble or explanation."""
 
+        from memory.voice_guard import MEMORY_WRITER_SYSTEM, looks_like_refusal
         response = await client.messages.create(
             model=HAIKU_MODEL,
             max_tokens=500,
+            system=MEMORY_WRITER_SYSTEM,
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -259,6 +261,11 @@ Output ONLY the identity snippet, no preamble or explanation."""
             )
 
         snippet_text = response.content[0].text.strip()
+        refusal = looks_like_refusal(snippet_text)
+        if refusal:
+            # Her identity text is the last place a refusal may land.
+            print(f"Identity snippet discarded: writer refused ({refusal!r})")
+            return None
         return snippet_text
 
     except Exception as e:

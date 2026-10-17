@@ -41,12 +41,35 @@ class ModelAssignment:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ModelAssignment":
+        # Saved configs can name models the API has since retired; map them on
+        # read so a stored assignment never silently 404s (see RETIRED_MODELS).
+        fallback = data.get("fallback_model_id")
         return cls(
             provider=data.get("provider", "anthropic"),
-            model_id=data.get("model_id", "claude-haiku-4-5-20251001"),
+            model_id=current_model_id(data.get("model_id", "claude-haiku-4-5-20251001")),
             fallback_provider=data.get("fallback_provider"),
-            fallback_model_id=data.get("fallback_model_id"),
+            fallback_model_id=current_model_id(fallback) if fallback else fallback,
         )
+
+
+# Model IDs the Anthropic API no longer serves (404 not_found_error), mapped to
+# the closest living model in the same line. Checked 2026-10-16 against
+# GET /v1/models. claude-sonnet-4-20250514 began returning 404 for her nightly
+# dream on 2026-06-16 (art creative sessions used it too); her API credit ran
+# out from 2026-06-24, which hid the 404 until credit returned in October.
+RETIRED_MODELS: dict[str, str] = {
+    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+    "claude-opus-4-20250514": "claude-opus-4-8",
+    "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
+    "claude-3-5-haiku-20241022": "claude-haiku-4-5-20251001",
+    "claude-3-5-haiku-latest": "claude-haiku-4-5-20251001",
+    "claude-3-haiku-20240307": "claude-haiku-4-5-20251001",
+}
+
+
+def current_model_id(model_id: str) -> str:
+    """Return a model ID the API still serves (retired IDs map to successors)."""
+    return RETIRED_MODELS.get(model_id, model_id)
 
 
 # Default assignments (Haiku for everything, matching current behavior)
@@ -142,27 +165,27 @@ DEFAULT_ASSIGNMENTS: dict[str, ModelAssignment] = {
     # LOW priority - keep on high-quality models
     "dreaming.the_dreaming": ModelAssignment(
         provider="anthropic",
-        model_id="claude-sonnet-4-20250514",
+        model_id="claude-sonnet-4-6",
     ),
     "dreaming.cass_voice": ModelAssignment(
         provider="anthropic",
-        model_id="claude-sonnet-4-20250514",
+        model_id="claude-sonnet-4-6",
     ),
     "dreaming.insight_extraction": ModelAssignment(
         provider="anthropic",
-        model_id="claude-sonnet-4-20250514",
+        model_id="claude-sonnet-4-6",
     ),
     "art_study.deep_analysis": ModelAssignment(
         provider="anthropic",
-        model_id="claude-sonnet-4-20250514",
+        model_id="claude-sonnet-4-6",
     ),
     "art_study.house_style_generation": ModelAssignment(
         provider="anthropic",
-        model_id="claude-sonnet-4-20250514",
+        model_id="claude-sonnet-4-6",
     ),
     "art_study.creative_session": ModelAssignment(
         provider="anthropic",
-        model_id="claude-sonnet-4-20250514",
+        model_id="claude-sonnet-4-6",
     ),
 }
 
@@ -276,7 +299,7 @@ def get_model_for(call_site: str) -> ModelAssignment:
 AVAILABLE_MODELS = [
     # Anthropic
     {"provider": "anthropic", "model_id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "local": False},
-    {"provider": "anthropic", "model_id": "claude-sonnet-4-20250514", "name": "Sonnet 4", "local": False},
+    {"provider": "anthropic", "model_id": "claude-sonnet-4-6", "name": "Sonnet 4", "local": False},
 
     # Ollama - common models
     {"provider": "ollama", "model_id": "llama3.1:8b-instruct-q8_0", "name": "Llama 3.1 8B", "local": True},

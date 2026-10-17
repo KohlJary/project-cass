@@ -527,3 +527,15 @@ def test_wiki_note_actions_use_wiki_storage(tmp_path):
     assert updated.success, updated.message
     page = wiki.read("Satire as care").content
     assert "Momus mocks because he cares." in page and "See also: jesters." in page
+
+
+def test_two_dreams_in_the_same_second_both_store(test_db):
+    """#37: dream ids were the timestamp to the second, so the second dream was lost."""
+    from database import get_db
+    from dreaming.integration import DreamManager
+
+    mgr = DreamManager()
+    ids = [mgr.store_dream(exchanges=[{"speaker": "dreaming", "text": "a garden"}], seeds={}) for _ in range(2)]
+    assert ids[0] != ids[1]
+    with get_db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM dreams WHERE id IN (?, ?)", ids).fetchone()[0] == 2
