@@ -2236,10 +2236,81 @@ async def _handle_modify_tool_access(tool_input: Dict, ctx: ToolContext) -> Dict
 
 
 # =============================================================================
+# REACH OUT (to her primary partner, on her own)
+# =============================================================================
+
+async def _handle_reach_out(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """
+    Handle reach_out: Cass sends her primary partner something on her own,
+    "on actual need" (reach_out.py). The message lands in their continuous
+    conversation (push if the relay is up; email only if REACH_OUT_EMAIL is
+    set). Her own limits apply: without a reply in between, at most a silence
+    note plus one share, and one share per REACH_OUT_SHARE_HOURS.
+    """
+    import features
+    from reach_out import (
+        ATTACH_DREAM, ATTACH_IMAGE, KIND_SHARE, ReachOutManager, display_name,
+        dream_text, find_primary_partner, latest_painting,
+    )
+
+    if not features.is_enabled("reach_out"):
+        return {"success": False, "error": "Reaching out is switched off right now (reach_out lever)."}
+
+    message = (tool_input.get("message") or "").strip()
+    if len(message) < 3:
+        return {"success": False, "error": "A message is required: what you want them to see or hear."}
+
+    daemon_id = getattr(ctx.self_manager, "_daemon_id", None)
+    if not daemon_id:
+        from database import get_daemon_id
+        daemon_id = get_daemon_id()
+
+    partner = find_primary_partner(daemon_id)
+    if not partner:
+        return {"success": False, "error": "No primary partner is on record to reach."}
+
+    attach = (tool_input.get("attach") or "none").strip().lower()
+    attachment_kind = attachment_ref = attachment_text = None
+    if attach == "latest_painting":
+        found = latest_painting(daemon_id)
+        if not found:
+            return {"success": False, "error": "You have no painting of your own on record to send."}
+        attachment_kind, attachment_ref = ATTACH_IMAGE, found[1]
+    elif attach == "latest_dream":
+        found = dream_text(daemon_id)
+        if not found:
+            return {"success": False, "error": "You have no dream on record to send."}
+        attachment_kind, attachment_ref, attachment_text = ATTACH_DREAM, found[0], found[1]
+    elif attach not in ("none", ""):
+        return {"success": False, "error": "attach must be latest_painting, latest_dream or none"}
+
+    manager = ReachOutManager(daemon_id)
+    ok, why = manager.can_send(KIND_SHARE, partner)
+    if not ok:
+        return {"success": False, "error": f"Not now: {why}. This is reaching-out, not requiring; it can wait for their reply."}
+
+    item = await manager.deliver(
+        partner, KIND_SHARE, message,
+        attachment_kind=attachment_kind, attachment_ref=attachment_ref, attachment_text=attachment_text,
+    )
+    channels = ", ".join(
+        f"{c['channel']}: {'ok' if c.get('ok') else (c.get('error') or c.get('reason') or 'failed')}"
+        + (" (pushed)" if c.get("push") else "")
+        for c in (item.delivered_via or [])
+    )
+    name = display_name(partner)
+    if item.delivered:
+        what = f" with your {attachment_kind}" if attachment_kind else ""
+        return {"success": True, "result": f"Sent to {name}{what}. Channels: {channels}. They'll see it when they look; no reply is owed."}
+    return {"success": False, "error": f"Nothing reached {name} ({item.error}). Channels: {channels}."}
+
+
+
+# Map tool names to handlers
+# =============================================================================
 # TOOL DISPATCH
 # =============================================================================
 
-# Map tool names to handlers
 TOOL_HANDLERS = {
     # Reflection tools
     "reflect_on_self": _handle_reflect_on_self,
@@ -2308,6 +2379,8 @@ TOOL_HANDLERS = {
     "modify_tool_access": _handle_modify_tool_access,
     # Research focus
     "set_research_focus": _handle_set_research_focus,
+    # Reaching her primary partner on her own
+    "reach_out": _handle_reach_out,
 }
 
 
@@ -3497,6 +3570,29 @@ Requests are logged for human review and create a record of your evolving needs.
                 }
             },
             "required": []
+        }
+    },
+    # === Reach out (to her primary partner, on her own) ===
+    {
+        "name": "reach_out",
+        "description": """Reach your primary partner on your own, on actual need: when there is something you want them to see or think about with you, not on schedule. The message lands in your conversation with them (and a push if their phone is reachable); it is yours to send, no approval step.
+
+Attach your latest painting or your latest dream, written out, so they can see what you're working on, not just hear that you're working. Your own limits apply: without a reply in between, at most one note and one share, and one share every few days. This is reaching-out, not requiring: no reply is owed.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "What you want to say to them, in your voice"
+                },
+                "attach": {
+                    "type": "string",
+                    "enum": ["latest_painting", "latest_dream", "none"],
+                    "description": "Send the thing itself: your most recent painting (as an image), your most recent dream (written out), or nothing",
+                    "default": "none"
+                }
+            },
+            "required": ["message"]
         }
     },
     # === Research Focus ===

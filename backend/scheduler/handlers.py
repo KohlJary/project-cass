@@ -146,6 +146,7 @@ async def daily_journal_handler(
     generate_nightly_dream_func=None,
     self_manager=None,
     data_dir=None,
+    conversation_manager=None,
 ) -> HandlerResult:
     """
     Generate daily journal entry once.
@@ -208,6 +209,23 @@ async def daily_journal_handler(
             logger.info(f"Identity snippet refreshed to v{snippet.get('version')}")
     except Exception as e:
         logger.warning(f"Identity snippet refresh failed: {e}")
+
+    # Her reaching out (reach_out.py). After a long silence she writes her
+    # primary partner a note; after tonight's dream she is asked once whether
+    # she wants to think about it out loud with them. Behind the `reach_out`
+    # lever, rate-limited by her own "never" list; fails soft.
+    try:
+        from reach_out import nightly_reach_out
+        reach = await nightly_reach_out(
+            conversation_manager=conversation_manager,
+            dream_id=results.get("dream_id"),
+        )
+        if reach:
+            results["reach_out"] = reach
+            if reach.get("silence") == "sent" or reach.get("share") == "sent":
+                total_cost += 0.01
+    except Exception as e:
+        logger.warning(f"Reach-out step failed: {e}")
 
     return HandlerResult(
         success=True,

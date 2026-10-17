@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 55  # research_focus table (her own research direction)
+SCHEMA_VERSION = 57  # image_artist_notes (what she meant by a painting, and what she saw)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1825,6 +1825,24 @@ CREATE TABLE IF NOT EXISTS research_focus (
 
 CREATE INDEX IF NOT EXISTS idx_research_focus_active ON research_focus(daemon_id, status);
 
+-- Reach-outs: messages Cass sent to her primary partner on her own (reach_out.py).
+-- Each row is one attempt; delivered_via records every channel tried and its
+-- result. Rows with error IS NULL count toward the rate limits.
+CREATE TABLE IF NOT EXISTS reach_outs (
+    id TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL,                 -- silence (after a long gap) or share (something specific)
+    body TEXT NOT NULL,                 -- her message, as sent
+    attachment_kind TEXT,               -- image, dream, or NULL
+    attachment_ref TEXT,                -- image path or dream id
+    created_at TEXT NOT NULL,
+    delivered_via TEXT,                 -- JSON list of {channel, ok, ...} for every channel tried
+    error TEXT                          -- NULL when at least one channel delivered
+);
+
+CREATE INDEX IF NOT EXISTS idx_reach_outs_user ON reach_outs(daemon_id, user_id, created_at);
+
 -- =============================================================================
 -- IMAGE GENERATION (v35)
 -- =============================================================================
@@ -1870,6 +1888,23 @@ CREATE INDEX IF NOT EXISTS idx_generated_images_daemon ON generated_images(daemo
 CREATE INDEX IF NOT EXISTS idx_generated_images_purpose ON generated_images(daemon_id, purpose);
 CREATE INDEX IF NOT EXISTS idx_generated_images_context ON generated_images(context_id);
 CREATE INDEX IF NOT EXISTS idx_generated_images_created ON generated_images(created_at);
+
+-- Artist's notes (v57): for a painting she made on her own, who chose the
+-- subject (her, or the code's random pick when her choice failed), what she
+-- meant by it, and what she saw when shown the result. A side table so the
+-- generation record itself stays about generation.
+CREATE TABLE IF NOT EXISTS image_artist_notes (
+    image_id TEXT PRIMARY KEY REFERENCES generated_images(id),
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    chosen_by TEXT NOT NULL,            -- 'cass' | 'code'
+    subject TEXT NOT NULL,              -- what the painting is of (the prompt's subject)
+    why TEXT,                           -- her reason for choosing it, if she chose
+    artist_note TEXT,                   -- what she saw when shown the finished painting
+    noted_at TEXT,                      -- when the note was written
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_artist_notes_daemon ON image_artist_notes(daemon_id, created_at);
 
 -- =============================================================================
 -- THYMOS - Homeostatic Emotional/Motivational System (v36)

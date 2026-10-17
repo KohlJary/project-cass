@@ -99,6 +99,7 @@ def register_system_tasks(
                 generate_nightly_dream_func=managers.get("generate_nightly_dream"),
                 self_manager=managers.get("self_manager"),
                 data_dir=managers.get("data_dir"),
+                conversation_manager=managers.get("conversation_manager"),
             ),
             cron="5 0 * * *",  # 00:05 daily
             estimated_cost_usd=0.20,

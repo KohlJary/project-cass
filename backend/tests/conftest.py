@@ -39,6 +39,7 @@ except ImportError:
         "test_research_focus.py",
         "test_world_attention.py",
         "test_state_snapshot_freshness.py",
+        "test_reach_out.py",
     ]
 
 # Feature levers: every background/autonomous/external subsystem is OFF in

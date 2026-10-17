@@ -332,9 +332,15 @@ class EmailManager:
         goal_id: Optional[str] = None,
         stakeholder_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Send an email via relay/Mailgun.
+
+        `attachments` is an optional list of {"filename", "content_type",
+        "content_base64"}; it is stored with the email and forwarded in the
+        relay payload (only present when given, so the payload shape for
+        plain emails is unchanged). Used by reach_out.py to send a painting.
 
         Returns dict with success status and message_id or error.
         """
@@ -372,7 +378,7 @@ class EmailManager:
             goal_id=goal_id,
             stakeholder_id=stakeholder_id,
             conversation_id=conversation_id,
-            attachments_json=None,
+            attachments_json=json_serialize(attachments) if attachments else None,
             created_at=now,
             sent_at=None,
         )
@@ -405,17 +411,20 @@ class EmailManager:
         self._pending_sends[request_id] = future
 
         try:
+            payload_data: Dict[str, Any] = {
+                "to": to,
+                "subject": subject,
+                "body_plain": body_plain,
+                "body_html": body_html,
+                "reply_to": reply_to,
+                "in_reply_to": in_reply_to,
+            }
+            if attachments:
+                payload_data["attachments"] = attachments
             await self._relay_client.send_message({
                 "type": "email_outbound",
                 "request_id": request_id,
-                "data": {
-                    "to": to,
-                    "subject": subject,
-                    "body_plain": body_plain,
-                    "body_html": body_html,
-                    "reply_to": reply_to,
-                    "in_reply_to": in_reply_to,
-                },
+                "data": payload_data,
             })
 
             # Wait for response (with timeout)
