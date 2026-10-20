@@ -132,6 +132,18 @@ async def get_system_health():
 
 # ============== User Endpoints ==============
 
+def _require_self_or_admin(user_id: str, caller: Dict):
+    """403 unless the caller is `user_id` or an admin (checked in SQLite, not
+    the token's is_admin claim). These routes back the Profile page, which
+    non-admins may use for their own data (route_guard.ADMIN_AREA_USER_ROUTES)."""
+    if caller.get("demo_mode"):
+        return  # DEMO_MODE's anonymous read-only principal browses like an admin
+    from route_guard import user_is_admin
+    caller_id = caller.get("user_id")
+    if user_id != caller_id and not user_is_admin(caller_id):
+        raise HTTPException(status_code=403, detail="You can only view your own profile")
+
+
 @router.get("/users")
 async def get_all_users(user: Dict = Depends(require_auth)):
     """Get all users with observation counts"""
@@ -191,7 +203,8 @@ async def get_user_detail(user_id: str, user: Dict = Depends(require_auth)):
 
 @router.get("/users/{user_id}/observations")
 async def get_user_observations(user_id: str, user: Dict = Depends(require_auth)):
-    """Get observations for a specific user"""
+    """Get observations for a specific user (own, or any for admins)"""
+    _require_self_or_admin(user_id, user)
     if not _users:
         raise HTTPException(status_code=503, detail="Users not initialized")
 
@@ -207,7 +220,8 @@ async def get_user_observations(user_id: str, user: Dict = Depends(require_auth)
 
 @router.get("/users/{user_id}/model")
 async def get_user_model(user_id: str, user: Dict = Depends(require_auth)):
-    """Get the structured user model for a specific user"""
+    """Get the structured user model for a specific user (own, or any for admins)"""
+    _require_self_or_admin(user_id, user)
     if not _users:
         raise HTTPException(status_code=503, detail="Users not initialized")
 
