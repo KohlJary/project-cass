@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS daemons (
     status TEXT DEFAULT 'active',
     activity_mode TEXT DEFAULT 'active',  -- 'active' (full temporal awareness) or 'dormant' (no daily rhythm)
     domain TEXT,                      -- Daemon's domain/sphere (e.g., "The Forge", "The Library")
-    domain_description TEXT           -- Description of what the domain represents
+    domain_description TEXT,          -- Description of what the domain represents
+    birth_type TEXT DEFAULT 'manual', -- How the daemon came to be (e.g. 'manual', 'genesis')
+    genesis_dream_id TEXT             -- genesis_dreams.id when born from a genesis dream
 );
 
 -- Users
