@@ -1,0 +1,17 @@
+[
+ {
+  "claim": "73f0af3 closes #16/#17/#18",
+  "date": "2026-10-20",
+  "verdicts": {
+   "#16": "shown",
+   "#17": "consistent",
+   "#18": "consistent"
+  },
+  "open_tests": [
+   "round trip via default include_users=False",
+   "entity user_id collision import",
+   "backup with live rollback-mode writer",
+   "restored chroma vector query after backup during writes"
+  ]
+ }
+]

@@ -851,42 +851,77 @@ def _is_sqlite(path: Path) -> bool:
         return False
 
 
+def _data_files(data_dir: Path, skip: Path):
+    """Every file under data_dir except under skip, following symlinked
+    directories (once each, so a link cycle can't loop)."""
+    seen = set()
+    for root, dirs, files in os.walk(data_dir, followlinks=True):
+        real = os.path.realpath(root)
+        if real in seen or Path(root).is_relative_to(skip):
+            dirs[:] = []
+            continue
+        seen.add(real)
+        dirs.sort()
+        for name in sorted(files):
+            path = Path(root) / name
+            if path.is_file():
+                yield path
+
+
+def _snapshot_sqlite(src_path: Path, dst_path: Path) -> None:
+    """Consistent copy of a live SQLite database.
+
+    Copied a few hundred pages per step, so a writer on a rollback-journal
+    database (cass.db) waits at most one step, not the whole copy. If another
+    connection writes mid-copy, SQLite restarts the copy, so the result is
+    always one committed state.
+    """
+    src = sqlite3.connect(src_path.resolve().as_uri() + "?mode=ro", uri=True)
+    dst = sqlite3.connect(dst_path)
+    try:
+        src.backup(dst, pages=256, sleep=0.01)
+    finally:
+        dst.close()
+        src.close()
+
+
 def _write_backup(data_dir: Path, backup_path: Path) -> None:
     """Zip everything under data_dir except the backups themselves.
 
-    SQLite databases (cass.db, Chroma's chroma.sqlite3, the rest) are copied
-    through the SQLite backup API, so a database being written during the
-    backup still lands as a consistent snapshot. Chroma's vector segment files
-    are copied as they are; a write landing mid-backup can leave them a step
-    behind its sqlite file, which Chroma rebuilds from on load.
+    SQLite databases (cass.db, Chroma's chroma.sqlite3, the rest; found by
+    header) go through the SQLite backup API, so each lands as one committed
+    state with its WAL folded in, and their sidecar files are left out.
+
+    Plain files are copied first and databases last. Chroma keeps its vectors
+    in segment files and its documents and write log in chroma.sqlite3, so
+    copying the segments first means the log is never older than the vectors.
+    A Chroma write landing during the backup can still leave a vector out of
+    the segments; the document itself is in the sqlite snapshot.
 
     The zip is written under a temporary name and renamed when complete, so
-    /export/backups never lists a half-written backup.
+    /export/backups never lists a half-written backup, and a failed backup
+    leaves nothing behind.
     """
-    backup_root = data_dir / BACKUP_DIR_NAME
     partial = backup_path.with_name(backup_path.name + ".partial")
-    with tempfile.TemporaryDirectory() as snap_dir, ZipFile(partial, "w") as zf:
-        for file in sorted(data_dir.rglob("*")):
-            if not file.is_file() or file.is_relative_to(backup_root):
-                continue
-            if file.name.endswith(_SQLITE_SIDECARS):
-                continue
-            arcname = str(file.relative_to(data_dir))
-            if _is_sqlite(file):
-                snapshot = Path(snap_dir) / "snapshot.db"
-                src = sqlite3.connect(file.resolve().as_uri() + "?mode=ro", uri=True)
-                dst = sqlite3.connect(snapshot)
-                try:
-                    src.backup(dst)
-                finally:
-                    dst.close()
-                    src.close()
-                zf.write(snapshot, arcname, compress_type=ZIP_DEFLATED)
-                snapshot.unlink()
-            else:
+    files, databases = [], []
+    for file in _data_files(data_dir, data_dir / BACKUP_DIR_NAME):
+        if file.name.endswith(_SQLITE_SIDECARS):
+            continue
+        (databases if _is_sqlite(file) else files).append(file)
+    try:
+        with tempfile.TemporaryDirectory() as snap_dir, ZipFile(partial, "w") as zf:
+            for file in files:
                 compress = ZIP_STORED if file.suffix.lower() in _STORED_SUFFIXES else ZIP_DEFLATED
-                zf.write(file, arcname, compress_type=compress)
-    partial.rename(backup_path)
+                zf.write(file, str(file.relative_to(data_dir)), compress_type=compress)
+            for file in databases:
+                snapshot = Path(snap_dir) / "snapshot.db"
+                _snapshot_sqlite(file, snapshot)
+                zf.write(snapshot, str(file.relative_to(data_dir)), compress_type=ZIP_DEFLATED)
+                snapshot.unlink()
+        partial.rename(backup_path)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
 
 
 @router.post("/backup")
@@ -901,7 +936,19 @@ async def create_backup() -> Dict[str, Any]:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"backup_{timestamp}"
-    backup_path = backup_dir / f"{backup_name}.zip"
+    # Reserve the name by creating its .partial, so two backups started in
+    # the same second can't write the same file.
+    n = 1
+    while True:
+        backup_path = backup_dir / f"{backup_name}.zip"
+        if not backup_path.exists():
+            try:
+                open(backup_path.with_name(backup_path.name + ".partial"), "x").close()
+                break
+            except FileExistsError:
+                pass
+        n += 1
+        backup_name = f"backup_{timestamp}_{n}"
 
     # A full backup can take minutes; keep the event loop free meanwhile.
     await asyncio.to_thread(_write_backup, DATA_DIR, backup_path)

@@ -219,7 +219,7 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
                 logger.info(f"Exported {len(files)} project files")
 
         for table in SHARED_TABLES:
-            rows = _export_shared_table(conn, table)
+            rows = _export_shared_table(conn, table, daemon_id)
             if rows:
                 export_data["tables"][table] = rows
                 export_data["stats"][table] = len(rows)
@@ -233,6 +233,12 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
             export_data["tables"]["users"] = users
             export_data["stats"]["users"] = len(users)
             total_rows += len(users)
+        else:
+            # Without profiles, still carry the id and name of every user an
+            # exported row points at, or those rows fail their users(id)
+            # foreign key on import and are dropped.
+            export_data["user_refs"] = _export_user_refs(conn, export_data["tables"])
+            export_data["stats"]["user_refs"] = len(export_data["user_refs"])
 
         export_data["stats"]["total_rows"] = total_rows
 
@@ -342,16 +348,40 @@ def _export_table(conn, table: str, daemon_id: str, parent_ids: Dict[str, List[s
         return []
 
 
-def _export_shared_table(conn, table: str) -> List[Dict]:
-    """Every row of a table that isn't scoped to one daemon (see SHARED_TABLES)."""
-    cursor = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
-    )
-    if not cursor.fetchone():
+def _export_shared_table(conn, table: str, daemon_id: str) -> List[Dict]:
+    """Rows of a table that isn't scoped to one daemon (see SHARED_TABLES).
+
+    Where the table records which daemon wrote a row (peopledex_facts), only
+    shared rows and this daemon's rows are exported, never another daemon's.
+    """
+    cursor = conn.execute(f"PRAGMA table_info({table})")
+    columns = [row[1] for row in cursor.fetchall()]
+    if not columns:
         return []
-    cursor = conn.execute(f"SELECT * FROM {table}")
+    if "daemon_id" in columns:
+        cursor = conn.execute(
+            f"SELECT * FROM {table} WHERE daemon_id IS NULL OR daemon_id = ?", (daemon_id,)
+        )
+    else:
+        cursor = conn.execute(f"SELECT * FROM {table}")
     columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def _export_user_refs(conn, tables: Dict[str, List[Dict]]) -> List[Dict]:
+    """id and display_name of every user that exported rows reference."""
+    user_ids = sorted({
+        row["user_id"] for rows in tables.values() for row in rows
+        if isinstance(row, dict) and row.get("user_id")
+    })
+    if not user_ids:
+        return []
+    placeholders = ",".join("?" * len(user_ids))
+    cursor = conn.execute(
+        f"SELECT id, display_name, created_at, updated_at FROM users WHERE id IN ({placeholders})",
+        user_ids,
+    )
+    return [dict(zip(("id", "display_name", "created_at", "updated_at"), row)) for row in cursor.fetchall()]
 
 
 # Chroma records that exist nowhere else: (export key, collection, filter).
@@ -588,12 +618,19 @@ def import_daemon(
         imported_counts = {}
         old_to_new_ids = {}  # Track ID mappings if we're creating new daemon
 
+        # Rows that fail to insert (a foreign key, a constraint) are counted
+        # here and reported, instead of only being logged.
+        dropped: Dict[str, int] = {}
+
         # Import users FIRST (conversations have FK to users)
         users = tables_data.get("users", [])
         if users:
             count = _import_users(conn, users)
             imported_counts["users"] = count
             logger.info(f"Imported {count} users")
+        user_refs = export_data.get("user_refs", [])
+        if user_refs:
+            imported_counts["user_refs"] = _import_user_refs(conn, user_refs)
 
         # Import projects SECOND (conversations have FK to projects)
         # Projects don't have daemon_id, so they're handled separately
@@ -616,11 +653,14 @@ def import_daemon(
                 imported_counts["project_files"] = count
                 logger.info(f"Imported {count} project files")
 
-        # Shared PeopleDex rows keep their ids (see SHARED_TABLES)
+        # Shared PeopleDex rows keep their ids (see SHARED_TABLES), except an
+        # entity the target already has under another id (same user_id or
+        # npc_id): rows pointing at it follow the target's id instead.
+        entity_map = _match_existing_entities(conn, tables_data.get("peopledex_entities", []))
         for table in SHARED_TABLES:
             rows = tables_data.get(table, [])
             if rows:
-                count = _import_shared_table(conn, table, rows, target_daemon_id)
+                count = _import_shared_table(conn, table, rows, target_daemon_id, entity_map, dropped)
                 imported_counts[table] = count
                 logger.info(f"Imported {count} rows into {table}")
 
@@ -695,14 +735,14 @@ def import_daemon(
         ]
 
         # Track old->new ID mappings for FK relationships
-        id_mapping = {}
+        id_mapping = dict(entity_map)
 
         for table in import_order:
             rows = tables_data.get(table, [])
             if not rows:
                 continue
 
-            count = _import_table(conn, table, rows, target_daemon_id, original_daemon["id"], id_mapping)
+            count = _import_table(conn, table, rows, target_daemon_id, original_daemon["id"], id_mapping, dropped)
             imported_counts[table] = count
             logger.info(f"Imported {count} rows into {table}")
 
@@ -713,6 +753,9 @@ def import_daemon(
             imported_counts["roadmap_links"] = count
 
         conn.commit()
+
+    if dropped:
+        logger.error(f"Import dropped rows that failed to insert: {dropped}")
 
     # Restore self_model_graph.json if included in export
     if "self_model_graph" in export_data:
@@ -759,11 +802,58 @@ def import_daemon(
         "total_rows": sum(imported_counts.values()),
         "embedding_counts": embedding_counts,
         "chroma_counts": chroma_counts,
+        "dropped_rows": dropped,
     }
 
 
-def _import_shared_table(conn, table: str, rows: List[Dict], target_daemon_id: str) -> int:
-    """Insert shared rows with their original ids; existing rows are kept."""
+# PeopleDex columns that hold an entity id
+ENTITY_FK_COLUMNS = ("entity_id", "from_entity_id", "to_entity_id")
+
+
+def _match_existing_entities(conn, entities: List[Dict]) -> Dict[str, str]:
+    """Exported entity id -> target id, for entities the target already has
+    under another id. peopledex_entities.user_id and npc_id are UNIQUE, so such
+    an entity can't be inserted; its rows have to follow the existing one."""
+    mapping = {}
+    for entity in entities:
+        if conn.execute("SELECT 1 FROM peopledex_entities WHERE id = ?", (entity["id"],)).fetchone():
+            continue
+        for key in ("user_id", "npc_id"):
+            if entity.get(key):
+                found = conn.execute(
+                    f"SELECT id FROM peopledex_entities WHERE {key} = ?", (entity[key],)
+                ).fetchone()
+                if found:
+                    mapping[entity["id"]] = found[0]
+                    break
+    return mapping
+
+
+def _import_user_refs(conn, user_refs: List[Dict]) -> int:
+    """Minimal user rows (id and name) for users that imported rows point at.
+    An existing user is left as it is."""
+    imported = 0
+    for ref in user_refs:
+        now = datetime.now().isoformat()
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO users (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (ref["id"], ref.get("display_name") or ref["id"], ref.get("created_at") or now,
+             ref.get("updated_at") or now),
+        )
+        imported += cursor.rowcount
+    return imported
+
+
+def _import_shared_table(
+    conn,
+    table: str,
+    rows: List[Dict],
+    target_daemon_id: str,
+    entity_map: Dict[str, str],
+    dropped: Dict[str, int],
+) -> int:
+    """Insert shared rows with their original ids; existing rows are kept.
+    Entity ids follow entity_map (see _match_existing_entities)."""
     cursor = conn.execute(f"PRAGMA table_info({table})")
     columns = {row[1] for row in cursor.fetchall()}
     if not columns:
@@ -771,9 +861,14 @@ def _import_shared_table(conn, table: str, rows: List[Dict], target_daemon_id: s
         return 0
     imported = 0
     for row in rows:
+        if table == "peopledex_entities" and row.get("id") in entity_map:
+            continue  # the target's own entity stands in for it
         row = {k: v for k, v in row.items() if k in columns}
         if row.get("daemon_id"):
             row["daemon_id"] = target_daemon_id
+        for col in ENTITY_FK_COLUMNS:
+            if row.get(col) in entity_map:
+                row[col] = entity_map[row[col]]
         cols = list(row.keys())
         try:
             cursor = conn.execute(
@@ -783,6 +878,7 @@ def _import_shared_table(conn, table: str, rows: List[Dict], target_daemon_id: s
             imported += cursor.rowcount
         except Exception as e:
             logger.warning(f"Error importing row into {table}: {e}")
+            dropped[table] = dropped.get(table, 0) + 1
     return imported
 
 
@@ -829,7 +925,8 @@ def _import_table(
     rows: List[Dict],
     target_daemon_id: str,
     original_daemon_id: str,
-    id_mapping: Dict[str, str] = None
+    id_mapping: Dict[str, str] = None,
+    dropped: Optional[Dict[str, int]] = None,
 ) -> int:
     """Import rows into a table, generating new IDs and updating daemon_id.
 
@@ -872,6 +969,10 @@ def _import_table(
         "source_conversation_id": True,
         "first_conversation_id": True,
         "source_thread_id": True,
+        # PeopleDex entities keep their ids unless the target already had them
+        "entity_id": True,
+        "from_entity_id": True,
+        "to_entity_id": True,
         "session_id": True,
         "project_id": True,
         "epic_id": True,
@@ -919,6 +1020,8 @@ def _import_table(
             imported += 1
         except Exception as e:
             logger.warning(f"Error importing row into {table}: {e}")
+            if dropped is not None:
+                dropped[table] = dropped.get(table, 0) + 1
 
     return imported
 
