@@ -79,6 +79,19 @@ class ApiClient {
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
+      // Login/register/refresh: show the server's message (e.g. "Account
+      // pending approval...") instead of the raw status line and JSON.
+      if (options?.skipAuth) {
+        let detail: unknown;
+        try {
+          detail = JSON.parse(errorBody)?.detail;
+        } catch {
+          detail = undefined;
+        }
+        if (typeof detail === 'string' && detail) {
+          throw new Error(detail);
+        }
+      }
       throw new Error(`API error: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`);
     }
 

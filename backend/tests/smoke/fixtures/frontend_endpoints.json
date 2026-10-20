@@ -4089,7 +4089,7 @@
       "method": "POST",
       "path": "/auth/login",
       "sources": [
-        "mobile-frontend/src/api/client.ts:99"
+        "mobile-frontend/src/api/client.ts:112"
       ]
     },
     {
@@ -4097,7 +4097,7 @@
       "method": "GET",
       "path": "/auth/me",
       "sources": [
-        "mobile-frontend/src/api/client.ts:118"
+        "mobile-frontend/src/api/client.ts:131"
       ]
     },
     {
@@ -4105,7 +4105,7 @@
       "method": "POST",
       "path": "/auth/refresh",
       "sources": [
-        "mobile-frontend/src/api/client.ts:110"
+        "mobile-frontend/src/api/client.ts:123"
       ]
     },
     {
@@ -4113,7 +4113,7 @@
       "method": "POST",
       "path": "/auth/register",
       "sources": [
-        "mobile-frontend/src/api/client.ts:91"
+        "mobile-frontend/src/api/client.ts:104"
       ]
     },
     {
@@ -4121,7 +4121,7 @@
       "method": "GET",
       "path": "/conversations",
       "sources": [
-        "mobile-frontend/src/api/client.ts:124"
+        "mobile-frontend/src/api/client.ts:137"
       ]
     },
     {
@@ -4129,7 +4129,7 @@
       "method": "GET",
       "path": "/conversations/continuous",
       "sources": [
-        "mobile-frontend/src/api/client.ts:147"
+        "mobile-frontend/src/api/client.ts:160"
       ]
     },
     {
@@ -4137,7 +4137,7 @@
       "method": "POST",
       "path": "/conversations/new",
       "sources": [
-        "mobile-frontend/src/api/client.ts:133"
+        "mobile-frontend/src/api/client.ts:146"
       ]
     },
     {
@@ -4145,7 +4145,7 @@
       "method": "GET",
       "path": "/conversations/{param}",
       "sources": [
-        "mobile-frontend/src/api/client.ts:129"
+        "mobile-frontend/src/api/client.ts:142"
       ]
     },
     {
@@ -4153,7 +4153,7 @@
       "method": "GET",
       "path": "/conversations/{param}/messages",
       "sources": [
-        "mobile-frontend/src/api/client.ts:169"
+        "mobile-frontend/src/api/client.ts:182"
       ]
     },
     {
@@ -4161,7 +4161,7 @@
       "method": "GET",
       "path": "/conversations/{param}/observations",
       "sources": [
-        "mobile-frontend/src/api/client.ts:173"
+        "mobile-frontend/src/api/client.ts:186"
       ]
     },
     {
@@ -4169,7 +4169,7 @@
       "method": "GET",
       "path": "/conversations/{param}/summaries",
       "sources": [
-        "mobile-frontend/src/api/client.ts:158"
+        "mobile-frontend/src/api/client.ts:171"
       ]
     },
     {
@@ -4177,7 +4177,7 @@
       "method": "POST",
       "path": "/conversations/{param}/summarize",
       "sources": [
-        "mobile-frontend/src/api/client.ts:177"
+        "mobile-frontend/src/api/client.ts:190"
       ]
     },
     {
@@ -4185,7 +4185,7 @@
       "method": "PUT",
       "path": "/conversations/{param}/title",
       "sources": [
-        "mobile-frontend/src/api/client.ts:151"
+        "mobile-frontend/src/api/client.ts:164"
       ]
     },
     {
@@ -4193,7 +4193,7 @@
       "method": "GET",
       "path": "/journal",
       "sources": [
-        "mobile-frontend/src/api/client.ts:227"
+        "mobile-frontend/src/api/client.ts:240"
       ]
     },
     {
@@ -4201,7 +4201,7 @@
       "method": "GET",
       "path": "/journal/{param}",
       "sources": [
-        "mobile-frontend/src/api/client.ts:231"
+        "mobile-frontend/src/api/client.ts:244"
       ]
     },
     {
@@ -4209,7 +4209,7 @@
       "method": "GET",
       "path": "/status",
       "sources": [
-        "mobile-frontend/src/api/client.ts:184"
+        "mobile-frontend/src/api/client.ts:197"
       ]
     },
     {
@@ -4217,7 +4217,7 @@
       "method": "GET",
       "path": "/users",
       "sources": [
-        "mobile-frontend/src/api/client.ts:189"
+        "mobile-frontend/src/api/client.ts:202"
       ]
     },
     {
@@ -4225,7 +4225,7 @@
       "method": "POST",
       "path": "/users",
       "sources": [
-        "mobile-frontend/src/api/client.ts:199"
+        "mobile-frontend/src/api/client.ts:212"
       ]
     },
     {
@@ -4233,7 +4233,7 @@
       "method": "POST",
       "path": "/users/current",
       "sources": [
-        "mobile-frontend/src/api/client.ts:207"
+        "mobile-frontend/src/api/client.ts:220"
       ]
     },
     {
@@ -4241,7 +4241,7 @@
       "method": "DELETE",
       "path": "/users/{param}",
       "sources": [
-        "mobile-frontend/src/api/client.ts:214"
+        "mobile-frontend/src/api/client.ts:227"
       ]
     },
     {
@@ -4249,8 +4249,8 @@
       "method": "GET",
       "path": "/users/{param}",
       "sources": [
-        "mobile-frontend/src/api/client.ts:194",
-        "mobile-frontend/src/api/client.ts:220"
+        "mobile-frontend/src/api/client.ts:207",
+        "mobile-frontend/src/api/client.ts:233"
       ]
     },
     {
@@ -4258,7 +4258,7 @@
       "method": "GET",
       "path": "/users/{param}/journals",
       "sources": [
-        "mobile-frontend/src/api/client.ts:238"
+        "mobile-frontend/src/api/client.ts:251"
       ]
     },
     {

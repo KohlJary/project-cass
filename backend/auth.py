@@ -319,9 +319,9 @@ class AuthService:
         # Create user profile
         profile = self.user_manager.create_user(
             display_name=display_name,
-            relationship="user"
+            relationship="user",
+            status="pending",
         )
-        self.user_manager.set_user_status(profile.user_id, "pending")
 
         # Create auth record
         now = datetime.now().isoformat()
