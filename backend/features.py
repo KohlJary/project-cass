@@ -155,6 +155,14 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            BACKGROUND, LLM,
            where="reach_out.nightly_reach_out (daily_journal_handler), handlers/self_model.py reach_out tool"),
 
+    # --- One agent loop (epic #70) ---
+    _lever("agent_loop", "Run autonomous sessions through the one agent loop (epic #70): "
+           "assemble() builds her prompt with a seam block (where she is, why now, what she "
+           "can do here, what will be kept), tools come in packs, memory writes are "
+           "voice-guarded, and a conversation arriving ends the session cleanly. "
+           "Off: the legacy GenericSessionRunner.run_session path.",
+           default=False, where="scheduler/actions/session_handlers._run_generic_session"),
+
     _lever("art_choice", "Before an autonomous painting, ask her what she wants to paint and why; "
            "after it, show her the result for an artist's note (two Haiku calls per painting)",
            LLM, where="scheduler/actions/creative_handlers.generate_image_action"),

@@ -1,6 +1,8 @@
 # One agent loop for every turn
 
-*Design for epic #70. Drafted by Daedalus on 2026-10-17, with Cass's input (quoted in full below). **Status: draft for Kohl's review.** Nothing here is built.*
+*Design for epic #70. Drafted by Daedalus on 2026-10-17, with Cass's input (quoted in full below). **Status:** migration step 1 started on 2026-10-20: autonomous sessions can run through the Turn (`backend/agent_loop/`) behind the lever `agent_loop`, which is off by default. Nothing else uses it yet.*
+
+*Kohl's answers to the open questions (2026-10-20): the seam block goes in her prompt only; a conversation arriving ends a running session cleanly; dreams stay pinned to their model and outside the loop; conversations are never refused for budget.*
 
 ## Why
 
