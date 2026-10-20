@@ -81,6 +81,29 @@ DAEMON_TABLES = [
 
     # Identity snippets (auto-generated identity narratives)
     "daemon_identity_snippets",
+
+    # What she carries between conversations
+    "conversation_threads",
+    "open_questions",
+    "symbols",
+    "interests",
+
+    # PeopleDex: her knowledge of the people in her life (daemon-scoped part)
+    "peopledex_observations",
+    "peopledex_moments",
+    "peopledex_relationship_patterns",
+    "peopledex_mutual_shaping",
+    "peopledex_relationship_meta",
+]
+
+# PeopleDex tables that aren't scoped to one daemon. They're exported whole and
+# imported with their own ids (INSERT OR IGNORE), so the daemon-scoped PeopleDex
+# rows above still point at the right entities after an import.
+SHARED_TABLES = [
+    "peopledex_entities",
+    "peopledex_attributes",
+    "peopledex_relationships",
+    "peopledex_facts",
 ]
 
 # Tables that need special handling (foreign keys to other daemon tables)
@@ -195,6 +218,13 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
                 total_rows += len(files)
                 logger.info(f"Exported {len(files)} project files")
 
+        for table in SHARED_TABLES:
+            rows = _export_shared_table(conn, table)
+            if rows:
+                export_data["tables"][table] = rows
+                export_data["stats"][table] = len(rows)
+                total_rows += len(rows)
+
         # Optionally include users
         if include_users:
             cursor = conn.execute("SELECT * FROM users")
@@ -220,6 +250,13 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
             logger.info(f"Included self_model_graph: {node_count} nodes, {edge_count} edges")
         except Exception as e:
             logger.warning(f"Could not include self_model_graph: {e}")
+
+    # Journals and marks live only in Chroma, not in SQLite.
+    chroma_records = _export_chroma_records()
+    if chroma_records:
+        export_data["chroma"] = chroma_records
+        for key, records in chroma_records.items():
+            export_data["stats"][f"chroma_{key}"] = len(records)
 
     # Write output if path specified
     if output_path:
@@ -303,6 +340,67 @@ def _export_table(conn, table: str, daemon_id: str, parent_ids: Dict[str, List[s
     except Exception as e:
         logger.warning(f"Error exporting table {table}: {e}")
         return []
+
+
+def _export_shared_table(conn, table: str) -> List[Dict]:
+    """Every row of a table that isn't scoped to one daemon (see SHARED_TABLES)."""
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    )
+    if not cursor.fetchone():
+        return []
+    cursor = conn.execute(f"SELECT * FROM {table}")
+    columns = [desc[0] for desc in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+# Chroma records that exist nowhere else: (export key, collection, filter).
+# Journals are written to the memory collection only (memory/journals.py), and
+# marks to their own collection (markers.py). Embeddings aren't exported; they're
+# recomputed on import.
+def _chroma_sources():
+    from config import COLLECTION_NAME
+    from markers import MarkerStore
+    return [
+        ("journals", COLLECTION_NAME, {"type": "journal"}),
+        ("marks", MarkerStore.COLLECTION_NAME, None),
+    ]
+
+
+def _chroma_client():
+    import chromadb
+    from chromadb.config import Settings
+    from memory import core
+    return chromadb.PersistentClient(
+        path=core.CHROMA_PERSIST_DIR, settings=Settings(anonymized_telemetry=False)
+    )
+
+
+def _export_chroma_records() -> Dict[str, List[Dict]]:
+    """Documents and metadata of the Chroma-only records, by export key."""
+    try:
+        client = _chroma_client()
+    except Exception as e:
+        logger.warning(f"Could not open ChromaDB for export: {e}")
+        return {}
+    existing = {c if isinstance(c, str) else c.name for c in client.list_collections()}
+    out = {}
+    for key, name, where in _chroma_sources():
+        if name not in existing:
+            continue
+        collection = client.get_collection(name)
+        kwargs = {"include": ["documents", "metadatas"]}
+        if where:
+            kwargs["where"] = where
+        result = collection.get(**kwargs)
+        records = [
+            {"id": id_, "document": doc, "metadata": meta}
+            for id_, doc, meta in zip(result["ids"], result["documents"], result["metadatas"])
+        ]
+        if records:
+            out[key] = records
+            logger.info(f"Exported {len(records)} {key} from ChromaDB")
+    return out
 
 
 def _export_roadmap_links(conn, roadmap_item_ids: List[str]) -> List[Dict]:
@@ -518,6 +616,14 @@ def import_daemon(
                 imported_counts["project_files"] = count
                 logger.info(f"Imported {count} project files")
 
+        # Shared PeopleDex rows keep their ids (see SHARED_TABLES)
+        for table in SHARED_TABLES:
+            rows = tables_data.get(table, [])
+            if rows:
+                count = _import_shared_table(conn, table, rows, target_daemon_id)
+                imported_counts[table] = count
+                logger.info(f"Imported {count} rows into {table}")
+
         # Import in order (independent tables first)
         import_order = [
             # Core identity (no dependencies on other daemon tables)
@@ -558,6 +664,19 @@ def import_daemon(
 
             # Self observations (has FK to conversations.id via source_conversation_id)
             "self_observations",
+
+            # Threads point at conversations; questions at both
+            "conversation_threads",
+            "open_questions",
+            "symbols",
+            "interests",
+
+            # PeopleDex, daemon-scoped (entities came in with the shared tables)
+            "peopledex_observations",
+            "peopledex_moments",
+            "peopledex_relationship_patterns",
+            "peopledex_mutual_shaping",
+            "peopledex_relationship_meta",
 
             # Operational
             "roadmap_epics",
@@ -612,6 +731,16 @@ def import_daemon(
         except Exception as e:
             logger.warning(f"Could not restore self_model_graph: {e}")
 
+    # Journals and marks exist only in Chroma, so they're data, not an index:
+    # restored even when skip_embeddings is set.
+    chroma_counts = {}
+    if export_data.get("chroma"):
+        try:
+            chroma_counts = _restore_chroma_records(export_data["chroma"], id_mapping)
+        except Exception as e:
+            logger.error(f"Restoring journals and marks into ChromaDB failed: {e}")
+            chroma_counts = {"error": str(e)}
+
     # Regenerate ChromaDB embeddings from imported data
     embedding_counts = {}
     if not skip_embeddings:
@@ -629,7 +758,69 @@ def import_daemon(
         "imported_counts": imported_counts,
         "total_rows": sum(imported_counts.values()),
         "embedding_counts": embedding_counts,
+        "chroma_counts": chroma_counts,
     }
+
+
+def _import_shared_table(conn, table: str, rows: List[Dict], target_daemon_id: str) -> int:
+    """Insert shared rows with their original ids; existing rows are kept."""
+    cursor = conn.execute(f"PRAGMA table_info({table})")
+    columns = {row[1] for row in cursor.fetchall()}
+    if not columns:
+        logger.warning(f"Table {table} does not exist, skipping")
+        return 0
+    imported = 0
+    for row in rows:
+        row = {k: v for k, v in row.items() if k in columns}
+        if row.get("daemon_id"):
+            row["daemon_id"] = target_daemon_id
+        cols = list(row.keys())
+        try:
+            cursor = conn.execute(
+                f"INSERT OR IGNORE INTO {table} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                list(row.values()),
+            )
+            imported += cursor.rowcount
+        except Exception as e:
+            logger.warning(f"Error importing row into {table}: {e}")
+    return imported
+
+
+def _restore_chroma_records(chroma: Dict[str, List[Dict]], id_mapping: Dict[str, str]) -> Dict[str, int]:
+    """Write exported journals and marks back into their collections.
+
+    Ids and metadata are kept as exported (journals keep journal_date, which
+    get_journal_entry looks up by), except a mark's conversation_id, which
+    follows its conversation's new id. Upsert, so a repeated import doesn't
+    duplicate them.
+    """
+    from memory import CassMemory
+    from markers import MarkerStore
+
+    memory = CassMemory()
+    collections = {
+        "journals": memory._core.collection,
+        "marks": MarkerStore(client=memory._core.client).collection,
+    }
+    counts = {}
+    for key, collection in collections.items():
+        records = chroma.get(key) or []
+        if not records:
+            continue
+        metadatas = []
+        for record in records:
+            meta = dict(record.get("metadata") or {})
+            if key == "marks" and meta.get("conversation_id") in id_mapping:
+                meta["conversation_id"] = id_mapping[meta["conversation_id"]]
+            metadatas.append(meta)
+        collection.upsert(
+            ids=[r["id"] for r in records],
+            documents=[r["document"] for r in records],
+            metadatas=metadatas,
+        )
+        counts[key] = len(records)
+        logger.info(f"Restored {len(records)} {key} into ChromaDB")
+    return counts
 
 
 def _import_table(
@@ -679,6 +870,8 @@ def _import_table(
     fk_columns = {
         "conversation_id": True,
         "source_conversation_id": True,
+        "first_conversation_id": True,
+        "source_thread_id": True,
         "session_id": True,
         "project_id": True,
         "epic_id": True,
@@ -897,15 +1090,18 @@ def regenerate_embeddings(daemon_id: str, tables_data: Dict[str, List[Dict]]) ->
     for journal in journals:
         try:
             content = journal.get("content", "")
-            if content:
+            date = journal.get("date", "")
+            # A journal already restored from Chroma (the real store) wins
+            if content and not memory.get_journal_entry(date):
                 # Journals are embedded via store_journal_entry but we need sync version
-                # Use the core collection directly
-                entry_id = memory._generate_id(content, journal.get("date", ""))
+                # Use the core collection directly, with its metadata keys
+                entry_id = memory._generate_id(content, date)
                 memory.collection.add(
                     documents=[content],
                     metadatas=[{
                         "type": "journal",
-                        "date": journal.get("date", ""),
+                        "journal_date": date,
+                        "is_journal": True,
                         "daemon_id": daemon_id,
                         "timestamp": journal.get("created_at", ""),
                     }],
