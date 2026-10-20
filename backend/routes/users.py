@@ -13,6 +13,13 @@ from auth import get_current_user
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+def _require_self_or_admin(user_id: str, current_user: str):
+    """403 unless the caller is `user_id` or an admin."""
+    from route_guard import user_is_admin
+    if user_id != current_user and not user_is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Access denied: not your user")
+
+
 # === Request Models ===
 
 class SetCurrentUserRequest(BaseModel):
@@ -140,12 +147,16 @@ async def set_current_user_endpoint(
     This endpoint is deprecated. Use /auth/login to switch users.
     Kept for backwards compatibility with TUI during transition.
     """
+    # Only your own id, so one user can't switch the global current user to
+    # someone else. Admins may pick any user: the TUI's user switcher
+    # (tui.py _do_select_user) and the mobile app's admin-only "create user"
+    # screen rely on that.
+    _require_self_or_admin(user_request.user_id, current_user)
+
     profile = _user_manager.load_profile(user_request.user_id)
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Only allow setting to own user ID (prevents user switching attack)
-    # During localhost bypass, this still allows TUI to set user
     _set_current_user_id(user_request.user_id)
 
     return {
@@ -195,8 +206,12 @@ async def create_user(user_request: CreateUserRequest):
 # === Per-User Journal Endpoints ===
 
 @router.get("/{user_id}/journals")
-async def get_user_journals(user_id: str, limit: int = 10):
-    """Get Cass's journal entries about a specific user"""
+async def get_user_journals(
+    user_id: str, limit: int = 10,
+    current_user: str = Depends(get_current_user)
+):
+    """Get Cass's journal entries about a specific user (own, or any for admins)"""
+    _require_self_or_admin(user_id, current_user)
     profile = _user_manager.load_profile(user_id)
     if not profile:
         raise HTTPException(status_code=404, detail=f"User not found: {user_id}")
@@ -210,8 +225,12 @@ async def get_user_journals(user_id: str, limit: int = 10):
 
 
 @router.get("/{user_id}/journals/{date}")
-async def get_user_journal_by_date(user_id: str, date: str):
-    """Get Cass's journal about a user for a specific date"""
+async def get_user_journal_by_date(
+    user_id: str, date: str,
+    current_user: str = Depends(get_current_user)
+):
+    """Get Cass's journal about a user for a specific date (own, or any for admins)"""
+    _require_self_or_admin(user_id, current_user)
     profile = _user_manager.load_profile(user_id)
     if not profile:
         raise HTTPException(status_code=404, detail=f"User not found: {user_id}")
@@ -228,8 +247,12 @@ async def get_user_journal_by_date(user_id: str, date: str):
 
 
 @router.get("/{user_id}/journals/search/{query}")
-async def search_user_journals(user_id: str, query: str, limit: int = 5):
-    """Search in Cass's journals about a user"""
+async def search_user_journals(
+    user_id: str, query: str, limit: int = 5,
+    current_user: str = Depends(get_current_user)
+):
+    """Search in Cass's journals about a user (own, or any for admins)"""
+    _require_self_or_admin(user_id, current_user)
     profile = _user_manager.load_profile(user_id)
     if not profile:
         raise HTTPException(status_code=404, detail=f"User not found: {user_id}")

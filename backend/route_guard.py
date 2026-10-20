@@ -71,9 +71,8 @@ USER_ROUTES = [
     ("DELETE", "/attachments/{attachment_id}"),
     ("GET", "/journal"),
     ("GET", "/journal/{date}"),
-    ("GET", "/users/{user_id}/journals"),
-    ("GET", "/users/{user_id}/journals/{date}"),
-    ("GET", "/users/{user_id}/journals/search/{query}"),
+    # /users/{user_id}/journals* declare get_current_user (SELF level) and
+    # check ownership themselves: own journals, or any for admins.
     ("POST", "/push/register"),
     ("DELETE", "/push/register"),
     ("GET", "/users/me/quiet-hours"),

@@ -74,6 +74,12 @@ export function useAuth() {
       display_name: data.display_name,
     });
 
+    // New accounts start pending admin approval and get no tokens; surface
+    // the server's message instead of calling getMe() without a token.
+    if (!response.access_token || !response.refresh_token) {
+      throw new Error(response.message || 'Registration submitted. Please wait for admin approval, then log in.');
+    }
+
     // Save tokens first so subsequent calls can use them
     await setTokens({ access_token: response.access_token, refresh_token: response.refresh_token });
 

@@ -7,6 +7,7 @@ import {
   Message,
   UserProfileData,
   AuthResponse,
+  RegisterResponse,
   AuthTokens,
   AuthUser,
   RegisterRequest,
@@ -86,7 +87,7 @@ class ApiClient {
 
   // === Auth Endpoints ===
 
-  async register(data: RegisterRequest): Promise<AuthResponse> {
+  async register(data: RegisterRequest): Promise<RegisterResponse> {
     return this.fetch('/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),

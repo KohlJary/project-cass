@@ -35,19 +35,21 @@ async def register(request: Request, body: RegisterRequest):
     """
     Register a new user account.
 
-    Returns user_id and tokens on success.
+    The account starts PENDING, the same approval flow as
+    /admin/auth/register: no tokens are returned, and /auth/login refuses the
+    account until an admin approves it. (This used to create an active user
+    and return tokens, so anyone who could reach the port got a session.)
     Rate limited to 5 requests per minute per IP.
     """
-    user_id, tokens = _auth_service.register(
+    user_id = _auth_service.register(
         email=body.email,
         password=body.password,
         display_name=body.display_name
     )
     return {
         "user_id": user_id,
-        "access_token": tokens.access_token,
-        "refresh_token": tokens.refresh_token,
-        "token_type": "bearer"
+        "status": "pending",
+        "message": "Registration submitted. Please wait for admin approval."
     }
 
 
