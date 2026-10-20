@@ -672,9 +672,16 @@ class UserManager:
         background: Optional[Dict] = None,
         communication: Optional[Dict] = None,
         values: Optional[List[str]] = None,
-        notes: str = ""
+        notes: str = "",
+        status: str = "approved"
     ) -> UserProfile:
-        """Create a new user profile"""
+        """Create a new user profile.
+
+        `status` is written in the same INSERT, so a self-registered user
+        created as 'pending' can never exist as 'approved', even briefly.
+        """
+        if status not in ('pending', 'approved', 'rejected'):
+            raise ValueError(f"Invalid user status: {status}")
         user_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
 
@@ -683,8 +690,8 @@ class UserManager:
                 INSERT INTO users (
                     id, display_name, relationship, background_json,
                     communication_json, preferences_json, password_hash,
-                    is_admin, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    is_admin, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 user_id,
                 display_name,
@@ -694,6 +701,7 @@ class UserManager:
                 json_serialize(UserPreferences().to_dict()),
                 None,  # password_hash
                 0,     # is_admin
+                status,
                 now,
                 now
             ))
@@ -715,7 +723,8 @@ class UserManager:
             communication=communication or {},
             projects=[],
             values=values or [],
-            notes=notes
+            notes=notes,
+            status=status
         )
 
     def load_profile(self, user_id: str) -> Optional[UserProfile]:

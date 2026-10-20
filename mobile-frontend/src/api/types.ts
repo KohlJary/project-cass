@@ -101,6 +101,13 @@ export interface AuthResponse extends AuthTokens {
   token_type: string;
 }
 
+// /auth/register: new accounts are pending admin approval, so no tokens.
+export interface RegisterResponse extends Partial<AuthTokens> {
+  user_id: string;
+  status?: string;
+  message?: string;
+}
+
 export interface RegisterRequest {
   email: string;
   password: string;

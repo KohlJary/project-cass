@@ -8,7 +8,7 @@ cognitive snapshots, milestones, and development logs.
 
 import asyncio
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, Callable
 
@@ -217,8 +217,23 @@ async def get_cass_growth_edges():
 
 
 @router.get("/disagreements")
-async def get_cass_disagreements(user_id: Optional[str] = None):
-    """Get Cass's recorded disagreements, optionally filtered by user"""
+async def get_cass_disagreements(request: Request, user_id: Optional[str] = None):
+    """Get Cass's recorded disagreements, optionally filtered by user.
+
+    Each one records what a user argued, so non-admins see only their own:
+    no user_id means their own, another user's id is 403. Admins see any.
+    (Anonymous DEMO_MODE readers keep the old read-only view of everything,
+    like the rest of the demo.)
+    """
+    caller = request.scope.get("cass_user_id")  # set by route_guard
+    if caller is None and not request.scope.get("cass_demo_anonymous"):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if caller is not None:
+        from route_guard import user_is_admin
+        if not user_is_admin(caller):
+            if user_id and user_id != caller:
+                raise HTTPException(status_code=403, detail="Access denied: not your user")
+            user_id = caller
     if user_id:
         disagreements = _self_manager.get_disagreements_with_user(user_id)
     else:

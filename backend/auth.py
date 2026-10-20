@@ -302,11 +302,12 @@ class AuthService:
         email: str,
         password: str,
         display_name: str
-    ) -> tuple[str, Token]:
+    ) -> str:
         """
-        Register a new user.
-        Returns (user_id, tokens) on success.
-        Raises HTTPException on failure.
+        Register a new user as PENDING (same approval flow as
+        /admin/auth/register). No tokens are issued: the user can log in once
+        an admin approves them (POST /admin/users/{id}/approve).
+        Returns the new user_id. Raises HTTPException on failure.
         """
         # Check if email already exists
         if self.get_user_by_email(email):
@@ -318,7 +319,8 @@ class AuthService:
         # Create user profile
         profile = self.user_manager.create_user(
             display_name=display_name,
-            relationship="user"
+            relationship="user",
+            status="pending",
         )
 
         # Create auth record
@@ -331,10 +333,23 @@ class AuthService:
         )
         self._save_auth(profile.user_id, auth)
 
-        # Generate tokens
-        tokens = create_tokens(profile.user_id)
+        return profile.user_id
 
-        return profile.user_id, tokens
+    def _require_approved(self, user_id: str):
+        """Refuse pending/rejected accounts (mirrors /admin/auth/login)."""
+        profile = self.user_manager.load_profile(user_id)
+        account_status = getattr(profile, "status", None) or "approved"
+        if account_status == "pending":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account pending approval. Please wait for an administrator to approve your registration."
+            )
+        if account_status == "rejected":
+            reason = getattr(profile, "rejection_reason", None) or "No reason provided"
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Account rejected: {reason}"
+            )
 
     def login(self, email: str, password: str) -> tuple[str, Token]:
         """
@@ -356,6 +371,8 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
             )
+
+        self._require_approved(user_id)
 
         # Update last login
         auth.last_login = datetime.now().isoformat()
@@ -392,6 +409,7 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found"
             )
+        self._require_approved(token_data.user_id)
 
         # Generate new tokens
         return create_tokens(token_data.user_id)
