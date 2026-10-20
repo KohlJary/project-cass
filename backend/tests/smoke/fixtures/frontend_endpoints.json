@@ -3137,7 +3137,7 @@
       "method": "GET",
       "path": "/solo-reflection/sessions",
       "sources": [
-        "admin-frontend/src/api/domains/testing.ts:144"
+        "admin-frontend/src/api/domains/testing.ts:109"
       ]
     },
     {
@@ -3145,7 +3145,7 @@
       "method": "POST",
       "path": "/solo-reflection/sessions",
       "sources": [
-        "admin-frontend/src/api/domains/testing.ts:148"
+        "admin-frontend/src/api/domains/testing.ts:113"
       ]
     },
     {
@@ -3153,7 +3153,7 @@
       "method": "DELETE",
       "path": "/solo-reflection/sessions/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/testing.ts:150"
+        "admin-frontend/src/api/domains/testing.ts:115"
       ]
     },
     {
@@ -3161,7 +3161,7 @@
       "method": "GET",
       "path": "/solo-reflection/sessions/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/testing.ts:145"
+        "admin-frontend/src/api/domains/testing.ts:110"
       ]
     },
     {
@@ -3169,7 +3169,7 @@
       "method": "GET",
       "path": "/solo-reflection/sessions/{param}/stream",
       "sources": [
-        "admin-frontend/src/api/domains/testing.ts:146"
+        "admin-frontend/src/api/domains/testing.ts:111"
       ]
     },
     {
@@ -3177,7 +3177,7 @@
       "method": "GET",
       "path": "/solo-reflection/stats",
       "sources": [
-        "admin-frontend/src/api/domains/testing.ts:142"
+        "admin-frontend/src/api/domains/testing.ts:107"
       ]
     },
     {
@@ -3185,119 +3185,7 @@
       "method": "POST",
       "path": "/solo-reflection/stop",
       "sources": [
-        "admin-frontend/src/api/domains/testing.ts:149"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "GET",
-      "path": "/testing/ab/experiments",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:113"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "POST",
-      "path": "/testing/ab/experiments",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:111"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "GET",
-      "path": "/testing/ab/experiments/active",
-      "sources": [
         "admin-frontend/src/api/domains/testing.ts:114"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "GET",
-      "path": "/testing/ab/experiments/{param}",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:116"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "POST",
-      "path": "/testing/ab/experiments/{param}/conclude",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:126"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "POST",
-      "path": "/testing/ab/experiments/{param}/pause",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:122"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "GET",
-      "path": "/testing/ab/experiments/{param}/results",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:132"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "POST",
-      "path": "/testing/ab/experiments/{param}/resume",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:124"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "POST",
-      "path": "/testing/ab/experiments/{param}/rollback",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:128"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "POST",
-      "path": "/testing/ab/experiments/{param}/rollout",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:120"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "POST",
-      "path": "/testing/ab/experiments/{param}/start",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:118"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "GET",
-      "path": "/testing/ab/experiments/{param}/stats",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:130"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "GET",
-      "path": "/testing/ab/statuses",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:134"
-      ]
-    },
-    {
-      "frontend": "admin-frontend",
-      "method": "GET",
-      "path": "/testing/ab/strategies",
-      "sources": [
-        "admin-frontend/src/api/domains/testing.ts:133"
       ]
     },
     {

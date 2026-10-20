@@ -736,12 +736,6 @@
   margin-left: 6px;
 }
 
-/* Experiment Active Status */
-.status-indicator.experiment-active .indicator-dot {
-  background: #c4b5fd;
-  box-shadow: 0 0 6px #c4b5fd;
-}
-
 /* Header Actions */
 .header-actions {
   display: flex;
@@ -1141,210 +1135,6 @@
   font-style: italic;
 }
 
-/* A/B Testing Experiments Tab */
-.experiments-tab h3 {
-  color: #c4b5fd;
-  margin: 1.5rem 0 1rem;
-  font-size: 1rem;
-}
-
-.active-experiments-summary {
-  background: rgba(124, 58, 237, 0.1);
-  border: 1px solid rgba(124, 58, 237, 0.3);
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.active-experiments-summary h3 {
-  margin: 0 0 1rem;
-}
-
-.active-list {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.active-experiment-card {
-  background: #2a2a3e;
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-  cursor: pointer;
-  transition: all 0.2s;
-  border-left: 3px solid #c4b5fd;
-}
-
-.active-experiment-card:hover {
-  background: #3a3a4e;
-}
-
-.active-experiment-card .exp-name {
-  font-weight: 500;
-  color: #e0e0e0;
-  margin-bottom: 0.25rem;
-}
-
-.active-experiment-card .exp-meta {
-  display: flex;
-  gap: 0.75rem;
-  font-size: 0.8rem;
-}
-
-.experiments-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.experiment-item {
-  background: #2a2a3e;
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
-  cursor: pointer;
-  transition: all 0.2s;
-  border-left: 3px solid #666;
-}
-
-.experiment-item:hover {
-  background: #32324a;
-}
-
-.experiment-item.selected {
-  background: #32324a;
-  border-left-color: #c4b5fd;
-}
-
-.experiment-item.draft { border-left-color: #888; }
-.experiment-item.shadow { border-left-color: #60a5fa; }
-.experiment-item.gradual { border-left-color: #a78bfa; }
-.experiment-item.full { border-left-color: #4ade80; }
-.experiment-item.paused { border-left-color: #fbbf24; }
-.experiment-item.concluded { border-left-color: #888; }
-.experiment-item.rolled-back { border-left-color: #f87171; }
-
-.exp-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.exp-name {
-  font-weight: 500;
-  color: #e0e0e0;
-}
-
-.exp-status-badge {
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
-.exp-status-badge.draft { background: rgba(136, 136, 136, 0.2); color: #888; }
-.exp-status-badge.shadow { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
-.exp-status-badge.gradual { background: rgba(167, 139, 250, 0.2); color: #a78bfa; }
-.exp-status-badge.full { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-.exp-status-badge.paused { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-.exp-status-badge.concluded { background: rgba(136, 136, 136, 0.2); color: #888; }
-.exp-status-badge.rolled_back { background: rgba(248, 113, 113, 0.2); color: #f87171; }
-
-.exp-description {
-  font-size: 0.9rem;
-  color: #aaa;
-  margin-bottom: 0.5rem;
-}
-
-.exp-meta {
-  display: flex;
-  gap: 1rem;
-  font-size: 0.8rem;
-  color: #888;
-}
-
-.exp-status { text-transform: capitalize; }
-.exp-rollout { color: #c4b5fd; font-weight: 500; }
-
-/* Experiment Details */
-.exp-details {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #3a3a4e;
-}
-
-.exp-variants {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.variant-card {
-  background: #1a1a2e;
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-}
-
-.variant-card.control {
-  border-left: 3px solid #888;
-}
-
-.variant-card.variant {
-  border-left: 3px solid #c4b5fd;
-}
-
-.variant-card h5 {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-  color: #e0e0e0;
-}
-
-.prompt-preview {
-  font-size: 0.75rem;
-  color: #888;
-  background: #0a0a1e;
-  padding: 0.5rem;
-  border-radius: 4px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 100px;
-  overflow-y: auto;
-}
-
-/* Stats Comparison */
-.exp-stats {
-  margin-bottom: 1rem;
-}
-
-.exp-stats h5 {
-  margin: 0 0 0.75rem;
-  font-size: 0.9rem;
-  color: #e0e0e0;
-}
-
-.stats-comparison {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-.stat-col {
-  background: #1a1a2e;
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-}
-
-.stat-col .stat-header {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: #c4b5fd;
-  margin-bottom: 0.5rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #2a2a3e;
-}
-
 .stat-row {
   display: flex;
   justify-content: space-between;
@@ -1358,28 +1148,6 @@
 
 .stat-row span:last-child {
   color: #e0e0e0;
-}
-
-/* Rollout Control */
-.rollout-control {
-  margin-bottom: 1rem;
-}
-
-.rollout-control h5 {
-  margin: 0 0 0.75rem;
-  font-size: 0.9rem;
-  color: #e0e0e0;
-}
-
-.rollout-control input[type="range"] {
-  width: 100%;
-  margin-bottom: 0.75rem;
-  accent-color: #7c3aed;
-}
-
-.rollout-presets {
-  display: flex;
-  gap: 0.5rem;
 }
 
 .preset-btn {
@@ -1404,13 +1172,6 @@
   color: #fff;
 }
 
-/* Experiment Actions */
-.exp-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
 .action-btn.warning {
   background: rgba(251, 191, 36, 0.2);
   border-color: #fbbf24;
@@ -1429,11 +1190,6 @@
 
 .action-btn.success:hover:not(:disabled) {
   background: rgba(74, 222, 128, 0.3);
-}
-
-/* Create Experiment Modal */
-.create-experiment-modal {
-  max-width: 600px;
 }
 
 .form-group {

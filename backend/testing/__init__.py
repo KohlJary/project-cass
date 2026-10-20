@@ -45,16 +45,6 @@ from .rollback import (
     StateSnapshot,
     SnapshotType,
 )
-from .ab_testing import (
-    ABTestingFramework,
-    Experiment,
-    ExperimentStatus,
-    ExperimentResult,
-    ExperimentStats,
-    PromptVariant,
-    RolloutStrategy,
-    RollbackTrigger as ABRollbackTrigger,
-)
 from .longitudinal import (
     LongitudinalTestManager,
     TestBattery,
@@ -101,14 +91,6 @@ __all__ = [
     "RollbackReport",
     "StateSnapshot",
     "SnapshotType",
-    "ABTestingFramework",
-    "Experiment",
-    "ExperimentStatus",
-    "ExperimentResult",
-    "ExperimentStats",
-    "PromptVariant",
-    "RolloutStrategy",
-    "ABRollbackTrigger",
     "LongitudinalTestManager",
     "TestBattery",
     "TestBatteryType",

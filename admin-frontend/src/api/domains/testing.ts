@@ -97,41 +97,6 @@ export const testingApi = {
   getLatestGoodSnapshot: () => api.get('/testing/rollback/latest-good'),
   checkRollbackConditions: () => api.get('/testing/rollback/check-conditions'),
   getSnapshotTypes: () => api.get('/testing/rollback/snapshot-types'),
-
-  // A/B Testing
-  createExperiment: (data: {
-    name: string;
-    description: string;
-    control_prompt: string;
-    variant_prompt: string;
-    control_name?: string;
-    variant_name?: string;
-    strategy?: string;
-    rollback_triggers?: Array<{ metric: string; threshold: number; comparison: string; min_samples?: number }>;
-  }) => api.post('/testing/ab/experiments', data),
-  listExperiments: (status?: string, limit?: number) =>
-    api.get('/testing/ab/experiments', { params: { status, limit } }),
-  getActiveExperiments: () => api.get('/testing/ab/experiments/active'),
-  getExperiment: (experimentId: string) =>
-    api.get(`/testing/ab/experiments/${experimentId}`),
-  startExperiment: (experimentId: string, initialRolloutPercent?: number) =>
-    api.post(`/testing/ab/experiments/${experimentId}/start`, { initial_rollout_percent: initialRolloutPercent || 0 }),
-  updateRollout: (experimentId: string, newPercent: number) =>
-    api.post(`/testing/ab/experiments/${experimentId}/rollout`, { new_percent: newPercent }),
-  pauseExperiment: (experimentId: string) =>
-    api.post(`/testing/ab/experiments/${experimentId}/pause`),
-  resumeExperiment: (experimentId: string) =>
-    api.post(`/testing/ab/experiments/${experimentId}/resume`),
-  concludeExperiment: (experimentId: string, keepVariant?: boolean, notes?: string) =>
-    api.post(`/testing/ab/experiments/${experimentId}/conclude`, { keep_variant: keepVariant, notes }),
-  rollbackExperiment: (experimentId: string, reason: string) =>
-    api.post(`/testing/ab/experiments/${experimentId}/rollback`, { reason }),
-  getExperimentStats: (experimentId: string) =>
-    api.get(`/testing/ab/experiments/${experimentId}/stats`),
-  getExperimentResults: (experimentId: string, limit?: number) =>
-    api.get(`/testing/ab/experiments/${experimentId}/results`, { params: { limit } }),
-  getRolloutStrategies: () => api.get('/testing/ab/strategies'),
-  getExperimentStatuses: () => api.get('/testing/ab/statuses'),
 };
 
 // =============================================================================

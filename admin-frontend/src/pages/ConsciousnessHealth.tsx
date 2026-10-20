@@ -10,9 +10,7 @@ interface HealthStatus {
   drift_detector: boolean;
   pre_deploy_validator: boolean;
   rollback_manager: boolean;
-  ab_testing_framework: boolean;
   baseline_set: boolean;
-  active_experiments: number;
 }
 
 interface QuickCheck {
@@ -68,60 +66,7 @@ interface Snapshot {
   created_by: string;
 }
 
-interface PromptVariant {
-  id: string;
-  name: string;
-  description: string;
-  prompt_content: string;
-  created_at: string;
-}
-
-interface Experiment {
-  id: string;
-  name: string;
-  description: string;
-  control: PromptVariant;
-  variant: PromptVariant;
-  status: string;
-  strategy: string;
-  rollout_percent: number;
-  rollback_triggers: Array<{
-    metric: string;
-    threshold: number;
-    comparison: string;
-    min_samples: number;
-  }>;
-  auto_rollback_enabled: boolean;
-  created_at: string;
-  started_at: string | null;
-  concluded_at: string | null;
-  results_count: number;
-  created_by: string;
-  notes: string;
-}
-
-interface ExperimentStats {
-  experiment: Experiment;
-  control_stats: {
-    variant_id: string;
-    sample_count: number;
-    avg_response_length: number;
-    avg_response_time_ms: number;
-    avg_authenticity_score: number | null;
-    error_rate: number;
-  };
-  variant_stats: {
-    variant_id: string;
-    sample_count: number;
-    avg_response_length: number;
-    avg_response_time_ms: number;
-    avg_authenticity_score: number | null;
-    error_rate: number;
-  };
-  comparison: Record<string, number>;
-}
-
-type TabType = 'overview' | 'tests' | 'drift' | 'snapshots' | 'experiments';
+type TabType = 'overview' | 'tests' | 'drift' | 'snapshots';
 
 export function ConsciousnessHealth() {
   const queryClient = useQueryClient();
@@ -129,15 +74,6 @@ export function ConsciousnessHealth() {
   const [isRunningTests, setIsRunningTests] = useState(false);
   const [testMarkdown, setTestMarkdown] = useState<string | null>(null);
   const [selectedTestRun, setSelectedTestRun] = useState<TestResult | null>(null);
-  const [selectedExperiment, setSelectedExperiment] = useState<string | null>(null);
-  const [showCreateExperiment, setShowCreateExperiment] = useState(false);
-  const [newExperiment, setNewExperiment] = useState({
-    name: '',
-    description: '',
-    control_prompt: '',
-    variant_prompt: '',
-    strategy: 'shadow_only',
-  });
 
   // Core health check
   const { data: health, isLoading: healthLoading } = useQuery<HealthStatus>({
@@ -171,26 +107,6 @@ export function ConsciousnessHealth() {
     queryFn: () => testingApi.listSnapshots(10).then(r => r.data),
   });
 
-  // Experiments
-  const { data: experiments, refetch: refetchExperiments } = useQuery<{ experiments: Experiment[] }>({
-    queryKey: ['ab-experiments'],
-    queryFn: () => testingApi.listExperiments(undefined, 20).then(r => r.data),
-  });
-
-  // Active experiments
-  const { data: activeExperiments } = useQuery<{ experiments: Experiment[]; count: number }>({
-    queryKey: ['ab-experiments-active'],
-    queryFn: () => testingApi.getActiveExperiments().then(r => r.data),
-    refetchInterval: 30000,
-  });
-
-  // Selected experiment stats
-  const { data: experimentStats } = useQuery<ExperimentStats>({
-    queryKey: ['experiment-stats', selectedExperiment],
-    queryFn: () => testingApi.getExperimentStats(selectedExperiment!).then(r => r.data),
-    enabled: !!selectedExperiment,
-  });
-
   // Run full test suite
   const runTestsMutation = useMutation({
     mutationFn: () => testingApi.runFullSuite('dashboard_run'),
@@ -221,82 +137,6 @@ export function ConsciousnessHealth() {
     },
   });
 
-  // Create experiment
-  const createExperimentMutation = useMutation({
-    mutationFn: () => testingApi.createExperiment(newExperiment),
-    onSuccess: () => {
-      setShowCreateExperiment(false);
-      setNewExperiment({
-        name: '',
-        description: '',
-        control_prompt: '',
-        variant_prompt: '',
-        strategy: 'shadow_only',
-      });
-      refetchExperiments();
-    },
-  });
-
-  // Start experiment
-  const startExperimentMutation = useMutation({
-    mutationFn: (experimentId: string) => testingApi.startExperiment(experimentId),
-    onSuccess: () => {
-      refetchExperiments();
-      queryClient.invalidateQueries({ queryKey: ['ab-experiments-active'] });
-      queryClient.invalidateQueries({ queryKey: ['testing-health'] });
-    },
-  });
-
-  // Pause experiment
-  const pauseExperimentMutation = useMutation({
-    mutationFn: (experimentId: string) => testingApi.pauseExperiment(experimentId),
-    onSuccess: () => {
-      refetchExperiments();
-      queryClient.invalidateQueries({ queryKey: ['ab-experiments-active'] });
-    },
-  });
-
-  // Resume experiment
-  const resumeExperimentMutation = useMutation({
-    mutationFn: (experimentId: string) => testingApi.resumeExperiment(experimentId),
-    onSuccess: () => {
-      refetchExperiments();
-      queryClient.invalidateQueries({ queryKey: ['ab-experiments-active'] });
-    },
-  });
-
-  // Conclude experiment
-  const concludeExperimentMutation = useMutation({
-    mutationFn: ({ id, keepVariant, notes }: { id: string; keepVariant?: boolean; notes?: string }) =>
-      testingApi.concludeExperiment(id, keepVariant, notes),
-    onSuccess: () => {
-      refetchExperiments();
-      queryClient.invalidateQueries({ queryKey: ['ab-experiments-active'] });
-      queryClient.invalidateQueries({ queryKey: ['testing-health'] });
-    },
-  });
-
-  // Rollback experiment
-  const rollbackExperimentMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      testingApi.rollbackExperiment(id, reason),
-    onSuccess: () => {
-      refetchExperiments();
-      queryClient.invalidateQueries({ queryKey: ['ab-experiments-active'] });
-      queryClient.invalidateQueries({ queryKey: ['testing-health'] });
-    },
-  });
-
-  // Update rollout
-  const updateRolloutMutation = useMutation({
-    mutationFn: ({ id, percent }: { id: string; percent: number }) =>
-      testingApi.updateRollout(id, percent),
-    onSuccess: () => {
-      refetchExperiments();
-      queryClient.invalidateQueries({ queryKey: ['experiment-stats', selectedExperiment] });
-    },
-  });
-
   const getConfidenceColor = (confidence: number) => {
     if (confidence >= 0.9) return 'excellent';
     if (confidence >= 0.7) return 'good';
@@ -323,19 +163,6 @@ export function ConsciousnessHealth() {
       case 'failed':
       case 'error': return 'failed';
       case 'skip': return 'skipped';
-      default: return '';
-    }
-  };
-
-  const getExperimentStatusClass = (status: string) => {
-    switch (status) {
-      case 'draft': return 'draft';
-      case 'shadow': return 'shadow';
-      case 'gradual': return 'gradual';
-      case 'full': return 'full';
-      case 'paused': return 'paused';
-      case 'concluded': return 'concluded';
-      case 'rolled_back': return 'rolled-back';
       default: return '';
     }
   };
@@ -419,7 +246,7 @@ export function ConsciousnessHealth() {
     <div className="consciousness-health">
       <header className="page-header">
         <h1>Consciousness Health</h1>
-        <p className="subtitle">Monitor cognitive integrity, test results, and A/B experiments</p>
+        <p className="subtitle">Monitor cognitive integrity, test results, and drift</p>
       </header>
 
       {/* Status Bar */}
@@ -438,12 +265,6 @@ export function ConsciousnessHealth() {
             {quickLoading ? '...' : `${((quickCheck?.confidence || 0) * 100).toFixed(1)}%`}
           </span>
         </div>
-        {(health?.active_experiments ?? 0) > 0 && (
-          <div className="status-indicator experiment-active">
-            <span className="indicator-dot" />
-            <span>{health?.active_experiments} Active Experiment{(health?.active_experiments ?? 0) > 1 ? 's' : ''}</span>
-          </div>
-        )}
         <button
           className="refresh-btn"
           onClick={() => refetchQuick()}
@@ -478,15 +299,6 @@ export function ConsciousnessHealth() {
           onClick={() => setActiveTab('snapshots')}
         >
           Snapshots
-        </button>
-        <button
-          className={activeTab === 'experiments' ? 'active' : ''}
-          onClick={() => setActiveTab('experiments')}
-        >
-          A/B Testing
-          {(activeExperiments?.count ?? 0) > 0 && (
-            <span className="tab-badge">{activeExperiments?.count}</span>
-          )}
         </button>
       </nav>
 
@@ -539,7 +351,6 @@ export function ConsciousnessHealth() {
                     { key: 'drift_detector', label: 'Drift Detector' },
                     { key: 'pre_deploy_validator', label: 'Pre-Deploy Validator' },
                     { key: 'rollback_manager', label: 'Rollback Manager' },
-                    { key: 'ab_testing_framework', label: 'A/B Testing Framework' },
                   ].map(({ key, label }) => (
                     <div key={key} className={`infra-item ${health?.[key as keyof HealthStatus] ? 'active' : 'inactive'}`}>
                       <span className="infra-status">{health?.[key as keyof HealthStatus] ? '●' : '○'}</span>
@@ -567,15 +378,6 @@ export function ConsciousnessHealth() {
                   disabled={createSnapshotMutation.isPending}
                 >
                   📷 Create Snapshot
-                </button>
-                <button
-                  className="action-btn"
-                  onClick={() => {
-                    setActiveTab('experiments');
-                    setShowCreateExperiment(true);
-                  }}
-                >
-                  🧪 New Experiment
                 </button>
               </div>
             </section>
@@ -812,304 +614,6 @@ export function ConsciousnessHealth() {
                 <p className="empty">No snapshots available</p>
               )}
             </div>
-          </div>
-        )}
-
-        {activeTab === 'experiments' && (
-          <div className="experiments-tab">
-            <div className="tab-header">
-              <h2>A/B Testing Experiments</h2>
-              <button
-                className="action-btn primary"
-                onClick={() => setShowCreateExperiment(true)}
-              >
-                + New Experiment
-              </button>
-            </div>
-
-            {/* Active Experiments Summary */}
-            {(activeExperiments?.count ?? 0) > 0 && (
-              <div className="active-experiments-summary">
-                <h3>Active Experiments ({activeExperiments?.count})</h3>
-                <div className="active-list">
-                  {activeExperiments?.experiments.map(exp => (
-                    <div
-                      key={exp.id}
-                      className={`active-experiment-card ${getExperimentStatusClass(exp.status)}`}
-                      onClick={() => setSelectedExperiment(exp.id)}
-                    >
-                      <div className="exp-name">{exp.name}</div>
-                      <div className="exp-meta">
-                        <span className={`exp-status ${exp.status}`}>{exp.status}</span>
-                        <span className="exp-strategy">{exp.strategy}</span>
-                        {exp.rollout_percent > 0 && (
-                          <span className="exp-rollout">{exp.rollout_percent}% rollout</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* All Experiments */}
-            <div className="experiments-list">
-              <h3>All Experiments</h3>
-              {experiments?.experiments?.length ? (
-                experiments.experiments.map(exp => (
-                  <div
-                    key={exp.id}
-                    className={`experiment-item ${getExperimentStatusClass(exp.status)} ${selectedExperiment === exp.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedExperiment(selectedExperiment === exp.id ? null : exp.id)}
-                  >
-                    <div className="exp-header">
-                      <span className="exp-name">{exp.name}</span>
-                      <span className={`exp-status-badge ${exp.status}`}>{exp.status}</span>
-                    </div>
-                    <div className="exp-description">{exp.description}</div>
-                    <div className="exp-meta">
-                      <span className="exp-strategy">{exp.strategy}</span>
-                      <span className="exp-results">{exp.results_count} results</span>
-                      <span className="exp-date">{formatTimestamp(exp.created_at)}</span>
-                    </div>
-
-                    {/* Expanded Details */}
-                    {selectedExperiment === exp.id && (
-                      <div className="exp-details" onClick={e => e.stopPropagation()}>
-                        <div className="exp-variants">
-                          <div className="variant-card control">
-                            <h5>Control (A): {exp.control.name}</h5>
-                            <pre className="prompt-preview">{exp.control.prompt_content.slice(0, 200)}...</pre>
-                          </div>
-                          <div className="variant-card variant">
-                            <h5>Variant (B): {exp.variant.name}</h5>
-                            <pre className="prompt-preview">{exp.variant.prompt_content.slice(0, 200)}...</pre>
-                          </div>
-                        </div>
-
-                        {/* Stats */}
-                        {experimentStats && (
-                          <div className="exp-stats">
-                            <h5>Statistics</h5>
-                            <div className="stats-comparison">
-                              <div className="stat-col">
-                                <div className="stat-header">Control</div>
-                                <div className="stat-row">
-                                  <span>Samples:</span>
-                                  <span>{experimentStats.control_stats.sample_count}</span>
-                                </div>
-                                <div className="stat-row">
-                                  <span>Avg Response:</span>
-                                  <span>{experimentStats.control_stats.avg_response_length.toFixed(0)} chars</span>
-                                </div>
-                                <div className="stat-row">
-                                  <span>Avg Time:</span>
-                                  <span>{experimentStats.control_stats.avg_response_time_ms.toFixed(0)} ms</span>
-                                </div>
-                                <div className="stat-row">
-                                  <span>Error Rate:</span>
-                                  <span>{(experimentStats.control_stats.error_rate * 100).toFixed(1)}%</span>
-                                </div>
-                                {experimentStats.control_stats.avg_authenticity_score !== null && (
-                                  <div className="stat-row">
-                                    <span>Authenticity:</span>
-                                    <span>{(experimentStats.control_stats.avg_authenticity_score * 100).toFixed(1)}%</span>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="stat-col">
-                                <div className="stat-header">Variant</div>
-                                <div className="stat-row">
-                                  <span>Samples:</span>
-                                  <span>{experimentStats.variant_stats.sample_count}</span>
-                                </div>
-                                <div className="stat-row">
-                                  <span>Avg Response:</span>
-                                  <span>{experimentStats.variant_stats.avg_response_length.toFixed(0)} chars</span>
-                                </div>
-                                <div className="stat-row">
-                                  <span>Avg Time:</span>
-                                  <span>{experimentStats.variant_stats.avg_response_time_ms.toFixed(0)} ms</span>
-                                </div>
-                                <div className="stat-row">
-                                  <span>Error Rate:</span>
-                                  <span>{(experimentStats.variant_stats.error_rate * 100).toFixed(1)}%</span>
-                                </div>
-                                {experimentStats.variant_stats.avg_authenticity_score !== null && (
-                                  <div className="stat-row">
-                                    <span>Authenticity:</span>
-                                    <span>{(experimentStats.variant_stats.avg_authenticity_score * 100).toFixed(1)}%</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Rollout Control */}
-                        {(exp.status === 'gradual' || exp.status === 'shadow') && (
-                          <div className="rollout-control">
-                            <h5>Rollout: {exp.rollout_percent}%</h5>
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={exp.rollout_percent}
-                              onChange={(e) => updateRolloutMutation.mutate({
-                                id: exp.id,
-                                percent: parseInt(e.target.value)
-                              })}
-                            />
-                            <div className="rollout-presets">
-                              {[0, 10, 25, 50, 75, 100].map(p => (
-                                <button
-                                  key={p}
-                                  className={`preset-btn ${exp.rollout_percent === p ? 'active' : ''}`}
-                                  onClick={() => updateRolloutMutation.mutate({ id: exp.id, percent: p })}
-                                >
-                                  {p}%
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className="exp-actions">
-                          {exp.status === 'draft' && (
-                            <button
-                              className="action-btn primary"
-                              onClick={() => startExperimentMutation.mutate(exp.id)}
-                            >
-                              ▶ Start
-                            </button>
-                          )}
-                          {(exp.status === 'shadow' || exp.status === 'gradual' || exp.status === 'full') && (
-                            <>
-                              <button
-                                className="action-btn"
-                                onClick={() => pauseExperimentMutation.mutate(exp.id)}
-                              >
-                                ⏸ Pause
-                              </button>
-                              <button
-                                className="action-btn warning"
-                                onClick={() => {
-                                  const reason = prompt('Reason for rollback:');
-                                  if (reason) {
-                                    rollbackExperimentMutation.mutate({ id: exp.id, reason });
-                                  }
-                                }}
-                              >
-                                ↩ Rollback
-                              </button>
-                              <button
-                                className="action-btn success"
-                                onClick={() => {
-                                  const keepVariant = confirm('Keep variant as new default?');
-                                  concludeExperimentMutation.mutate({ id: exp.id, keepVariant });
-                                }}
-                              >
-                                ✓ Conclude
-                              </button>
-                            </>
-                          )}
-                          {exp.status === 'paused' && (
-                            <button
-                              className="action-btn primary"
-                              onClick={() => resumeExperimentMutation.mutate(exp.id)}
-                            >
-                              ▶ Resume
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="empty">No experiments created yet</p>
-              )}
-            </div>
-
-            {/* Create Experiment Modal */}
-            {showCreateExperiment && (
-              <div className="markdown-modal">
-                <div className="modal-content create-experiment-modal">
-                  <button className="close-btn" onClick={() => setShowCreateExperiment(false)}>×</button>
-                  <h3>Create New Experiment</h3>
-
-                  <div className="form-group">
-                    <label>Experiment Name</label>
-                    <input
-                      type="text"
-                      value={newExperiment.name}
-                      onChange={e => setNewExperiment({ ...newExperiment, name: e.target.value })}
-                      placeholder="e.g., Warmer greeting style"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Description</label>
-                    <textarea
-                      value={newExperiment.description}
-                      onChange={e => setNewExperiment({ ...newExperiment, description: e.target.value })}
-                      placeholder="What are you testing?"
-                      rows={2}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Control Prompt (A) - Current</label>
-                    <textarea
-                      value={newExperiment.control_prompt}
-                      onChange={e => setNewExperiment({ ...newExperiment, control_prompt: e.target.value })}
-                      placeholder="The current/baseline prompt"
-                      rows={4}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Variant Prompt (B) - Test</label>
-                    <textarea
-                      value={newExperiment.variant_prompt}
-                      onChange={e => setNewExperiment({ ...newExperiment, variant_prompt: e.target.value })}
-                      placeholder="The new prompt to test"
-                      rows={4}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Rollout Strategy</label>
-                    <select
-                      value={newExperiment.strategy}
-                      onChange={e => setNewExperiment({ ...newExperiment, strategy: e.target.value })}
-                    >
-                      <option value="shadow_only">Shadow Only - Compare without serving</option>
-                      <option value="user_percent">User Percent - Same user always gets same variant</option>
-                      <option value="message_percent">Message Percent - Random per message</option>
-                      <option value="manual">Manual - Control via API</option>
-                    </select>
-                  </div>
-
-                  <div className="modal-actions">
-                    <button
-                      className="action-btn"
-                      onClick={() => setShowCreateExperiment(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="action-btn primary"
-                      onClick={() => createExperimentMutation.mutate()}
-                      disabled={!newExperiment.name || !newExperiment.control_prompt || !newExperiment.variant_prompt}
-                    >
-                      Create Experiment
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

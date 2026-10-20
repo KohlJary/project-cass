@@ -15,8 +15,6 @@ from .runner import router as runner_router, init_runner
 from .deployment import router as deployment_router, init_deployment
 from .rollback import router as rollback_router, init_rollback
 from .authenticity import router as authenticity_router, init_authenticity
-from .experiments import router as experiments_router, init_experiments
-from .temporal import router as temporal_router, init_temporal
 from .cross_context import router as cross_context_router, init_cross_context
 
 # Main router that composes all sub-routers
@@ -32,8 +30,6 @@ router.include_router(runner_router)
 router.include_router(deployment_router)
 router.include_router(rollback_router)
 router.include_router(authenticity_router)
-router.include_router(experiments_router)
-router.include_router(temporal_router)
 router.include_router(cross_context_router)
 
 # Components captured by init_testing_routes, for /testing/health.
@@ -42,14 +38,14 @@ _components: dict = {}
 
 @router.get("/health")
 async def testing_health():
-    """Which testing components are wired up, whether a baseline fingerprint
-    exists, and how many A/B experiments are active.
+    """Which testing components are wired up and whether a baseline
+    fingerprint exists.
 
     The admin Consciousness Health and Mind pages poll this every 30s; it
     used to 404 because the route only existed in the legacy main.py.
     """
     names = ["fingerprint_analyzer", "test_runner", "drift_detector",
-             "pre_deploy_validator", "rollback_manager", "ab_testing_framework"]
+             "pre_deploy_validator", "rollback_manager"]
     status = {name: _components.get(name) is not None for name in names}
 
     baseline_set = False
@@ -60,19 +56,10 @@ async def testing_health():
         except Exception:
             baseline_set = False
 
-    active_experiments = 0
-    ab = _components.get("ab_testing_framework")
-    if ab is not None:
-        try:
-            active_experiments = len(ab.get_active_experiments())
-        except Exception:
-            active_experiments = 0
-
     return {
         "status": "healthy" if all(status.values()) else "degraded",
         **status,
         "baseline_set": baseline_set,
-        "active_experiments": active_experiments,
     }
 
 
@@ -87,10 +74,6 @@ def init_testing_routes(
     runner=None,
     pre_deploy=None,
     rollback=None,
-    ab_testing=None,
-    temporal_tracker=None,
-    alert_manager=None,
-    ml_trainer=None,
     cross_context=None,
 ):
     """
@@ -104,7 +87,6 @@ def init_testing_routes(
         drift_detector=drift_det,
         pre_deploy_validator=pre_deploy,
         rollback_manager=rollback,
-        ab_testing_framework=ab_testing,
     )
 
     # Initialize each module with its dependencies
@@ -116,14 +98,7 @@ def init_testing_routes(
     init_runner(runner)
     init_deployment(pre_deploy)
     init_rollback(rollback)
-    init_authenticity(
-        authenticity_scorer=auth_scorer,
-        temporal_metrics_tracker=temporal_tracker,
-        authenticity_alert_manager=alert_manager,
-        ml_authenticity_trainer=ml_trainer,
-    )
-    init_experiments(ab_testing)
-    init_temporal(temporal_tracker)
+    init_authenticity(auth_scorer)
     init_cross_context(cross_context)
 
 

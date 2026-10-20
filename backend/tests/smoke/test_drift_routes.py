@@ -30,15 +30,29 @@ def test_testing_health_reports_components(app, admin):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     for key in ("fingerprint_analyzer", "test_runner", "drift_detector",
-                "pre_deploy_validator", "rollback_manager", "ab_testing_framework"):
+                "pre_deploy_validator", "rollback_manager"):
         assert body[key] is True, key
     assert body["status"] == "healthy"
     assert body["baseline_set"] is False
-    assert body["active_experiments"] == 0
+    # The A/B framework was retired (#47); health no longer reports it.
+    assert "ab_testing_framework" not in body
+    assert "active_experiments" not in body
 
 
 def test_testing_health_requires_auth(app):
     assert app.get("/testing/health").status_code == 401
+
+
+@pytest.mark.parametrize("path", [
+    "/testing/ab/experiments",
+    "/testing/temporal/statistics",
+    "/testing/authenticity/alerts",
+    "/testing/authenticity/ml/status",
+])
+def test_retired_testing_routes_are_gone(app, admin, path):
+    # #47: the A/B, authenticity alert/ML and temporal-metrics subsystems
+    # were retired (kept on attic/stabilization), not wired.
+    assert app.get(path, headers=admin).status_code == 404
 
 
 def test_research_schedule_approval_flow(app, admin):

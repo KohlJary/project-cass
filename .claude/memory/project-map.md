@@ -68,7 +68,7 @@ The Cass Vessel is an embodiment system for Cass (Cassandra), an AI Daemon opera
 
 ### Routes - Testing API (`backend/routes/testing/`)
 
-**13 modules** (refactored from testing.py Phase 4.2):
+**11 modules** (refactored from testing.py Phase 4.2; the A/B `experiments.py` and `temporal.py` modules were retired in #47 and live on `attic/stabilization`):
 
 | Module | Endpoints | Purpose |
 |--------|-----------|---------|
@@ -80,9 +80,7 @@ The Cass Vessel is an embodiment system for Cass (Cassandra), an AI Daemon opera
 | `runner.py` | `/testing/run/*` | Test suite execution |
 | `deployment.py` | `/testing/deploy/*` | Pre-deployment validation |
 | `rollback.py` | `/testing/rollback/*` | State snapshot/restore |
-| `authenticity.py` | `/testing/authenticity/*` | Response authenticity scoring |
-| `experiments.py` | `/testing/ab/*` | A/B testing framework |
-| `temporal.py` | `/testing/temporal/*` | Timing metrics |
+| `authenticity.py` | `/testing/authenticity/*` | Response authenticity scoring (alert/ML routes retired, #47) |
 | `cross_context.py` | `/testing/cross-context/*` | Behavioral pattern analysis |
 
 ### Routes - Other (`backend/routes/`)
