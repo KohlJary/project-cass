@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 58  # daemons.birth_type / genesis_dream_id in CREATE TABLE (fresh databases)
+SCHEMA_VERSION = 60  # journals: journal_type, chroma_id, metadata_json, search_indexed (#56)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -403,7 +403,11 @@ CREATE TABLE IF NOT EXISTS journals (
     date TEXT NOT NULL,
     content TEXT NOT NULL,
     themes_json TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    journal_type TEXT DEFAULT 'daily',    -- daily | research | world | spell | ... (v60)
+    chroma_id TEXT,                       -- id of the matching search-index doc in Chroma (v60)
+    metadata_json TEXT,                   -- summary, summary_count, conversation_count (v60)
+    search_indexed INTEGER DEFAULT 1      -- 0 = Chroma write failed, re-index pending (v60)
 );
 
 CREATE INDEX IF NOT EXISTS idx_journals_date ON journals(daemon_id, date);

@@ -191,12 +191,6 @@ class CassMemory:
     async def generate_journal_entry(self, *args, **kwargs):
         return await self._journals.generate_journal_entry(*args, **kwargs)
 
-    async def generate_conversation_digest(self, *args, **kwargs):
-        return await self._journals.generate_conversation_digest(*args, **kwargs)
-
-    async def generate_journal_from_digests(self, *args, **kwargs):
-        return await self._journals.generate_journal_from_digests(*args, **kwargs)
-
     async def extract_observations_from_summaries(self, *args, **kwargs):
         return await self._journals.extract_observations_from_summaries(*args, **kwargs)
 
@@ -205,6 +199,12 @@ class CassMemory:
 
     def get_journal_entry(self, date: str):
         return self._journals.get_journal_entry(date)
+
+    def delete_journal_entry(self, date: str):
+        return self._journals.delete_journal_entry(date)
+
+    def reindex_pending_journals(self):
+        return self._journals.reindex_pending_journals()
 
     def set_journal_locked(self, date: str, locked: bool):
         return self._journals.set_journal_locked(date, locked)

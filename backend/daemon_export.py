@@ -258,7 +258,9 @@ def export_daemon(daemon_id: str, output_path: Optional[Path] = None, include_us
         except Exception as e:
             logger.warning(f"Could not include self_model_graph: {e}")
 
-    # Journals and marks live only in Chroma, not in SQLite.
+    # Marks live only in Chroma. Journals are in SQLite (exported with the
+    # tables above) and Chroma; the Chroma copy keeps the search index's ids
+    # and metadata, and older journals may exist only there.
     chroma_records = _export_chroma_records()
     if chroma_records:
         export_data["chroma"] = chroma_records
@@ -385,9 +387,10 @@ def _export_user_refs(conn, tables: Dict[str, List[Dict]]) -> List[Dict]:
     return [dict(zip(("id", "display_name", "created_at", "updated_at"), row)) for row in cursor.fetchall()]
 
 
-# Chroma records that exist nowhere else: (export key, collection, filter).
-# Journals are written to the memory collection only (memory/journals.py), and
-# marks to their own collection (markers.py). Embeddings aren't exported; they're
+# Chroma records to export: (export key, collection, filter). Journals are
+# written to SQLite and to the memory collection (memory/journals.py); journals
+# from before v60 may exist only in Chroma. Marks live only in their own
+# collection (markers.py). Embeddings aren't exported; they're
 # recomputed on import.
 def _chroma_sources():
     from config import COLLECTION_NAME
@@ -775,8 +778,9 @@ def import_daemon(
         except Exception as e:
             logger.warning(f"Could not restore self_model_graph: {e}")
 
-    # Journals and marks exist only in Chroma, so they're data, not an index:
-    # restored even when skip_embeddings is set.
+    # Marks (and pre-v60 journals) exist only in Chroma, so they're data, not
+    # an index: restored even when skip_embeddings is set. Upsert by id, so the
+    # journals regenerate_embeddings() sees below are skipped, not doubled.
     chroma_counts = {}
     if export_data.get("chroma"):
         try:
@@ -1195,23 +1199,33 @@ def regenerate_embeddings(daemon_id: str, tables_data: Dict[str, List[Dict]]) ->
         try:
             content = journal.get("content", "")
             date = journal.get("date", "")
-            # A journal already restored from Chroma (the real store) wins
-            if content and not memory.get_journal_entry(date):
-                # Journals are embedded via store_journal_entry but we need sync version
-                # Use the core collection directly, with its metadata keys
-                entry_id = memory._generate_id(content, date)
-                memory.collection.add(
-                    documents=[content],
-                    metadatas=[{
-                        "type": "journal",
-                        "journal_date": date,
-                        "is_journal": True,
-                        "daemon_id": daemon_id,
-                        "timestamp": journal.get("created_at", ""),
-                    }],
-                    ids=[entry_id]
-                )
-                embedded_journals += 1
+            chroma_id = journal.get("chroma_id")
+            if not content:
+                continue
+            # Already indexed: the export's Chroma records were restored under
+            # the same ids (rows written since v60 carry chroma_id). Rows from
+            # before v60 have no chroma_id; any journal for that date counts.
+            if chroma_id:
+                if memory.collection.get(ids=[chroma_id], include=[])["ids"]:
+                    continue
+            elif memory.get_journal_entry(date):
+                continue
+            # Journals are embedded via store_journal_entry but we need sync version
+            # Use the core collection directly, with its metadata keys
+            entry_id = chroma_id or memory._generate_id(content, date)
+            memory.collection.upsert(
+                documents=[content],
+                metadatas=[{
+                    "type": "journal",
+                    "journal_date": date,
+                    "journal_type": journal.get("journal_type") or "daily",
+                    "is_journal": True,
+                    "daemon_id": daemon_id,
+                    "timestamp": journal.get("created_at", ""),
+                }],
+                ids=[entry_id]
+            )
+            embedded_journals += 1
         except Exception as e:
             logger.warning(f"Failed to embed journal {journal.get('date')}: {e}")
     counts["journals"] = embedded_journals

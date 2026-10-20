@@ -59,21 +59,27 @@ async def generate_journal(request: JournalGenerateRequest):
     """
     Generate a journal entry for a specific date (or today).
 
-    Uses summary chunks from that date to create a reflective journal entry
-    in Cass's voice about what we did and how it made her feel.
+    Uses the same generator as the nightly job (journal_generation.
+    write_daily_journal), then extracts user and self observations from it.
     """
+    from journal_generation import (
+        _is_daily_journal,
+        _generate_user_observations_for_date,
+        content_for_date,
+        extract_self_observations,
+        write_daily_journal,
+    )
+
     if not _memory:
         raise HTTPException(status_code=503, detail="Memory system initializing, please wait")
 
     # Default to today if no date provided
-    if request.date:
-        date = request.date
-    else:
-        date = datetime.now().strftime("%Y-%m-%d")
+    date = request.date or datetime.now().strftime("%Y-%m-%d")
 
-    # Check if journal already exists for this date
+    # Check if the daily journal already exists for this date (a research or
+    # spell journal for the same date doesn't count)
     existing = _memory.get_journal_entry(date)
-    if existing:
+    if existing and _is_daily_journal(existing.get("metadata") or {}):
         return {
             "status": "exists",
             "message": f"Journal entry already exists for {date}",
@@ -84,104 +90,34 @@ async def generate_journal(request: JournalGenerateRequest):
             }
         }
 
-    # Get summaries for this date to check if there's content
-    summaries = _memory.get_summaries_by_date(date)
-    conversations = _memory.get_conversations_by_date(date) if not summaries else []
-
+    summaries, conversations = content_for_date(_memory, date)
     if not summaries and not conversations:
         raise HTTPException(
             status_code=404,
             detail=f"No memories found for {date}. Cannot generate journal."
         )
 
-    # Generate the journal entry
-    journal_text = await _memory.generate_journal_entry(
-        date=date,
-        anthropic_api_key=_anthropic_api_key,
-        token_tracker=_token_tracker
+    written = await write_daily_journal(
+        date, summaries, conversations,
+        memory=_memory, self_manager=_self_manager, token_tracker=_token_tracker,
     )
+    if not written:
+        raise HTTPException(status_code=500, detail="Failed to generate journal entry")
 
-    if not journal_text:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate journal entry"
-        )
-
-    # Store the journal entry (generates summary via local LLM)
-    entry_id = await _memory.store_journal_entry(
-        date=date,
-        journal_text=journal_text,
-        summary_count=len(summaries),
-        conversation_count=len(conversations)
-    )
-
-    # Generate user observations for each user who had conversations that day
     observations_added = 0
-    user_ids_for_date = _memory.get_user_ids_by_date(date)
-    for user_id in user_ids_for_date:
-        profile = _user_manager.load_profile(user_id)
-        if not profile:
-            continue
+    for user_id in _memory.get_user_ids_by_date(date):
+        observations_added += await _generate_user_observations_for_date(
+            user_id, date, memory=_memory, user_manager=_user_manager)
 
-        # Get conversations filtered to just this user
-        user_conversations = _memory.get_conversations_by_date(date, user_id=user_id)
-        if not user_conversations:
-            continue
-
-        conversation_text = "\n\n---\n\n".join([
-            conv.get("content", "") for conv in user_conversations[:15]
-        ])
-        new_observations = await _memory.generate_user_observations(
-            user_id=user_id,
-            display_name=profile.display_name,
-            conversation_text=conversation_text,
-            anthropic_api_key=_anthropic_api_key
-        )
-        for obs_text in new_observations:
-            obs = _user_manager.add_observation(user_id, obs_text)
-            if obs:
-                _memory.embed_user_observation(
-                    user_id=user_id,
-                    observation_id=obs.id,
-                    observation_text=obs.observation,
-                    display_name=profile.display_name,
-                    timestamp=obs.timestamp
-                )
-                observations_added += 1
-
-    # Extract self-observations from this journal
-    self_observations_added = 0
-    self_observations = await _memory.extract_self_observations_from_journal(
-        journal_text=journal_text,
-        journal_date=date,
-        anthropic_api_key=_anthropic_api_key
-    )
-    for obs_data in self_observations:
-        obs = _self_manager.add_observation(
-            observation=obs_data["observation"],
-            category=obs_data["category"],
-            confidence=obs_data["confidence"],
-            source_type="journal",
-            source_journal_date=date,
-            influence_source=obs_data["influence_source"]
-        )
-        if obs:
-            _memory.embed_self_observation(
-                observation_id=obs.id,
-                observation_text=obs.observation,
-                category=obs.category,
-                confidence=obs.confidence,
-                influence_source=obs.influence_source,
-                timestamp=obs.timestamp
-            )
-            self_observations_added += 1
+    self_observations_added = await extract_self_observations(
+        written["text"], date, memory=_memory, self_manager=_self_manager)
 
     return {
         "status": "created",
         "journal": {
-            "id": entry_id,
+            "id": written["id"],
             "date": date,
-            "content": journal_text,
+            "content": written["text"],
             "summaries_used": len(summaries),
             "conversations_used": len(conversations),
             "observations_added": observations_added,
@@ -265,16 +201,12 @@ async def delete_journal(date: str):
 
     This allows regenerating the journal if needed.
     """
-    journal = _memory.get_journal_entry(date)
-
-    if not journal:
+    # Deletes the Chroma entry and its SQLite row together
+    if not _memory.delete_journal_entry(date):
         raise HTTPException(
             status_code=404,
             detail=f"No journal entry found for {date}"
         )
-
-    # Delete from collection
-    _memory.collection.delete(ids=[journal["id"]])
 
     return {
         "status": "deleted",
