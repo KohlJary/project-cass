@@ -173,11 +173,6 @@ function ConsciousnessOverviewCard() {
         <span className={`indicator ${health?.baseline_set ? 'active' : 'inactive'}`}>
           {health?.baseline_set ? '●' : '○'} Baseline
         </span>
-        {(health?.active_experiments ?? 0) > 0 && (
-          <span className="indicator experiment">
-            ● {health?.active_experiments} Experiment{(health?.active_experiments ?? 0) > 1 ? 's' : ''}
-          </span>
-        )}
       </div>
     </div>
   );

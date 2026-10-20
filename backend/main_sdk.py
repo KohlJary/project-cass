@@ -716,12 +716,10 @@ from testing.memory_coherence import MemoryCoherenceTests
 from testing.cognitive_diff import CognitiveDiffEngine
 from testing.authenticity_scorer import AuthenticityScorer
 from testing.drift_detector import DriftDetector
-from testing.temporal_metrics import TemporalMetricsTracker, create_timing_data
 from testing.runner import ConsciousnessTestRunner
 from testing.longitudinal import LongitudinalTestManager
 from testing.pre_deploy import PreDeploymentValidator
 from testing.rollback import RollbackManager
-from testing.ab_testing import ABTestingFramework
 from testing.cross_context_analyzer import CrossContextAnalyzer
 fingerprint_analyzer = CognitiveFingerprintAnalyzer(storage_dir=DATA_DIR / "testing")
 cross_context_analyzer = CrossContextAnalyzer(storage_dir=DATA_DIR / "testing" / "cross_context")
@@ -741,7 +739,6 @@ authenticity_scorer = AuthenticityScorer(
     storage_dir=DATA_DIR / "testing",
     fingerprint_analyzer=fingerprint_analyzer,
 )
-temporal_metrics_tracker = TemporalMetricsTracker(storage_dir=DATA_DIR / "testing")
 drift_detector = DriftDetector(
     storage_dir=DATA_DIR / "testing",
     fingerprint_analyzer=fingerprint_analyzer,
@@ -773,11 +770,6 @@ rollback_manager = RollbackManager(
     test_runner=consciousness_test_runner,
     fingerprint_analyzer=fingerprint_analyzer,
 )
-ab_testing_framework = ABTestingFramework(
-    storage_dir=DATA_DIR / "testing",
-    authenticity_scorer=authenticity_scorer,
-    fingerprint_analyzer=fingerprint_analyzer,
-)
 init_testing_routes(
     fingerprint_analyzer,
     conversation_manager,
@@ -789,7 +781,6 @@ init_testing_routes(
     consciousness_test_runner,
     pre_deploy_validator,
     rollback_manager,
-    ab_testing_framework,
 )
 init_cross_context_analyzer(cross_context_analyzer)
 app.include_router(testing_router)
@@ -3604,7 +3595,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 def _init_websocket_state():
     """Initialize websocket handlers with all dependencies. Called at startup."""
     from handlers import ToolContext as create_tool_context_class, execute_tool_batch as exec_batch
-    from testing.temporal_metrics import create_timing_data as create_timing
     from narration import get_metrics_dict as narration_metrics
 
     # Create a tool context factory - uses the full create_tool_context from main_sdk
@@ -3626,7 +3616,6 @@ def _init_websocket_state():
         goal_manager=goal_manager,
         marker_store=marker_store,
         token_tracker=token_tracker,
-        temporal_metrics_tracker=temporal_metrics_tracker,
         connection_manager=manager,
         agent_client=agent_client,
         openai_client=openai_client,
@@ -3635,7 +3624,6 @@ def _init_websocket_state():
         tool_executors=TOOL_EXECUTORS,
         create_tool_context_fn=create_tool_ctx,
         execute_tool_batch_fn=exec_batch,
-        create_timing_data_fn=create_timing,
         get_automatic_wiki_context_fn=get_automatic_wiki_context,
         process_inline_tags_fn=process_inline_tags,
         generate_and_store_summary_fn=generate_and_store_summary,

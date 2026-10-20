@@ -17,7 +17,6 @@ from datetime import datetime
 import asyncio
 import base64
 import os
-import time
 
 # LLM Provider constants
 LLM_PROVIDER_ANTHROPIC = "anthropic"
@@ -41,7 +40,6 @@ _state = {
     "goal_manager": None,
     "marker_store": None,
     "token_tracker": None,
-    "temporal_metrics_tracker": None,
     "connection_manager": None,
     "thread_manager": None,
     "question_manager": None,
@@ -67,7 +65,6 @@ _state = {
     "tool_executors": None,
     "create_tool_context": None,
     "execute_tool_batch": None,
-    "create_timing_data": None,
 
     # Context helpers
     "get_automatic_wiki_context": None,
@@ -90,7 +87,6 @@ def init_websocket_state(
     goal_manager,
     marker_store,
     token_tracker,
-    temporal_metrics_tracker,
     connection_manager,
     agent_client,
     openai_client,
@@ -99,7 +95,6 @@ def init_websocket_state(
     tool_executors,
     create_tool_context_fn,
     execute_tool_batch_fn,
-    create_timing_data_fn,
     get_automatic_wiki_context_fn,
     process_inline_tags_fn,
     generate_and_store_summary_fn,
@@ -119,7 +114,6 @@ def init_websocket_state(
     _state["goal_manager"] = goal_manager
     _state["marker_store"] = marker_store
     _state["token_tracker"] = token_tracker
-    _state["temporal_metrics_tracker"] = temporal_metrics_tracker
     _state["connection_manager"] = connection_manager
     _state["agent_client"] = agent_client
     _state["openai_client"] = openai_client
@@ -128,7 +122,6 @@ def init_websocket_state(
     _state["tool_executors"] = tool_executors
     _state["create_tool_context"] = create_tool_context_fn
     _state["execute_tool_batch"] = execute_tool_batch_fn
-    _state["create_timing_data"] = create_timing_data_fn
     _state["get_automatic_wiki_context"] = get_automatic_wiki_context_fn
     _state["process_inline_tags"] = process_inline_tags_fn
     _state["generate_and_store_summary"] = generate_and_store_summary_fn
@@ -506,7 +499,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     goal_manager = _state["goal_manager"]
     marker_store = _state["marker_store"]
     token_tracker = _state["token_tracker"]
-    temporal_metrics_tracker = _state["temporal_metrics_tracker"]
     agent_client = _state["agent_client"]
     openai_client = _state["openai_client"]
     ollama_client = _state["ollama_client"]
@@ -519,7 +511,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     TOOL_EXECUTORS = _state["tool_executors"]
     create_tool_context = _state["create_tool_context"]
     execute_tool_batch = _state["execute_tool_batch"]
-    create_timing_data = _state["create_timing_data"]
     get_automatic_wiki_context = _state["get_automatic_wiki_context"]
     process_inline_tags = _state["process_inline_tags"]
     generate_and_store_summary = _state["generate_and_store_summary"]
@@ -608,8 +599,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 continue
 
             if data.get("type") == "chat":
-                timing_start = time.time()
-
                 # Re-read the provider and clients every turn, not once per
                 # connection: a provider switch (/settings/llm-provider) or a
                 # client re-init must reach sockets that are already open.
@@ -844,17 +833,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "timestamp": datetime.now().isoformat()
                 })
 
-                # Initialize timing data
-                timing_data = create_timing_data(
-                    conversation_id=conversation_id,
-                    provider=provider_label.lower().replace(" ", "_"),
-                    model=None  # Will be set after response
-                )
-                timing_data.start_time = timing_start
-                timing_data.message_length = len(user_message)
-                timing_first_token = time.time()
-                tool_execution_total_ms = 0.0
-                tool_names_collected = []
                 tool_iterations_count = 0
                 total_cache_read_tokens = 0  # Track Anthropic prompt cache hits
 
@@ -929,8 +907,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         tool_iterations_count += 1
                         # Send status update with debug info
                         tool_names = [t['tool'] for t in tool_uses]
-                        tool_names_collected.extend(tool_names)
-                        tool_loop_start = time.time()
                         await websocket.send_json({
                             "type": "debug",
                             "message": f"[{loop_label} #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
@@ -1006,9 +982,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         total_input_tokens += response.input_tokens
                         total_output_tokens += response.output_tokens
                         total_cache_read_tokens += getattr(response, 'cache_read_tokens', 0) or 0
-
-                        # Track tool execution time
-                        tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
                 else:
                     # No client for the selected provider. The old raw-API
                     # fallback (claude_client.py, now on attic/stabilization)
@@ -1128,24 +1101,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     "feels": extracted_feels if extracted_feels else None,
                     "generated_images": generated_images if generated_images else None,
                 })
-
-                # Record timing metrics
-                timing_data.first_token_time = timing_first_token
-                timing_data.completion_time = time.time()
-                timing_data.input_tokens = total_input_tokens or 0
-                timing_data.output_tokens = total_output_tokens or 0
-                timing_data.tool_call_count = len(tool_uses) if tool_uses else 0
-                timing_data.tool_execution_ms = tool_execution_total_ms
-                timing_data.tool_names = tool_names_collected
-                timing_data.tool_iterations = tool_iterations_count
-                timing_data.response_length = len(clean_text.split()) if clean_text else 0
-                timing_data.model = response_model
-                timing_data.provider = response_provider
-                # Get conversation depth
-                if conversation_id:
-                    conv = conversation_manager.load_conversation(conversation_id)
-                    timing_data.conversation_depth = len(conv.messages) if conv else 0
-                temporal_metrics_tracker.record_response(timing_data)
 
             elif data.get("type") == "ping":
                 await websocket.send_json({

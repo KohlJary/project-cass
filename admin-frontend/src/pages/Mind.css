@@ -233,10 +233,6 @@
   color: #666;
 }
 
-.consciousness-indicators .indicator.experiment {
-  color: #FF9800;
-}
-
 /* Self-Model Card */
 .capabilities-preview {
   background: var(--bg-tertiary, #252525);
