@@ -23,12 +23,19 @@ from tests.conftest import _point_db_at
 NOW = datetime(2026, 10, 20, 12, 0, 0).isoformat()
 
 
+def _needs_app():
+    """routes.export imports the wiki routes, which need python-multipart.
+    CI's fast job installs only requirements-test.txt; the full job runs these."""
+    pytest.importorskip("multipart")
+
+
 def _client(chroma_path):
     return chromadb.PersistentClient(path=str(chroma_path), settings=Settings(anonymized_telemetry=False))
 
 
 @pytest.fixture
 def export_app():
+    _needs_app()
     from routes.export import router
     app = FastAPI()
     app.include_router(router)
@@ -38,6 +45,7 @@ def export_app():
 # --- #16 ---------------------------------------------------------------------
 
 def test_export_routes_read_config_data_dir():
+    _needs_app()
     import routes.export as export
     assert export.DATA_DIR == config.DATA_DIR
 
@@ -58,6 +66,7 @@ def test_wiki_export_returns_page_written_under_data_dir(export_app, tmp_path, m
 
 @pytest.fixture
 def seeded_data_dir(tmp_path, monkeypatch):
+    _needs_app()
     import routes.export as export
 
     data = tmp_path / "data"
