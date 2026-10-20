@@ -27,7 +27,6 @@ All tool execution lives here. Pattern: `execute_<type>_tool(tool_name, tool_inp
 ### LLM Clients
 - `agent_client.py` - Claude client with Temple-Codex kernel
 - `openai_client.py` - OpenAI client
-- `claude_client.py` - Legacy raw API client
 
 ### Supporting
 - `config.py` - Configuration constants

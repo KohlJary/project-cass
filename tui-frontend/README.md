@@ -42,7 +42,7 @@ echo "BACKEND_PORT=8000" >> .env
 1. Make sure the backend is running:
 ```bash
 cd ../backend
-python main_sdk.py  # or python main.py for legacy mode
+python main_sdk.py
 ```
 
 2. Launch the TUI:

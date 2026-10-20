@@ -143,7 +143,6 @@ Built a goal tracking system for Cass's autonomous planning:
 
 **Key files**:
 - `backend/unified_goals.py` - UnifiedGoalManager
-- `backend/goal_context.py` - GoalContextGatherer
 - `backend/sources/goal_source.py` - GoalQueryableSource
 - `backend/routes/admin/goals.py` - Admin API
 

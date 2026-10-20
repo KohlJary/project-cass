@@ -52,7 +52,6 @@ _state = {
     "agent_client": None,
     "openai_client": None,
     "ollama_client": None,
-    "legacy_client": None,
     "response_processor": None,
 
     # LLM state
@@ -96,7 +95,6 @@ def init_websocket_state(
     agent_client,
     openai_client,
     ollama_client,
-    legacy_client,
     response_processor,
     tool_executors,
     create_tool_context_fn,
@@ -126,7 +124,6 @@ def init_websocket_state(
     _state["agent_client"] = agent_client
     _state["openai_client"] = openai_client
     _state["ollama_client"] = ollama_client
-    _state["legacy_client"] = legacy_client
     _state["response_processor"] = response_processor
     _state["tool_executors"] = tool_executors
     _state["create_tool_context"] = create_tool_context_fn
@@ -513,7 +510,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     agent_client = _state["agent_client"]
     openai_client = _state["openai_client"]
     ollama_client = _state["ollama_client"]
-    legacy_client = _state["legacy_client"]
     response_processor = _state["response_processor"]
     current_llm_provider = _state["current_llm_provider"]
     USE_AGENT_SDK = _state["use_agent_sdk"]
@@ -1014,16 +1010,12 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         # Track tool execution time
                         tool_execution_total_ms += (time.time() - tool_loop_start) * 1000
                 else:
-                    raw_response = legacy_client.send_message(
-                        user_message=user_message,
-                        memory_context=memory_context
+                    # No client for the selected provider. The old raw-API
+                    # fallback (claude_client.py, now on attic/stabilization)
+                    # needed the same anthropic package, so it never ran.
+                    raise RuntimeError(
+                        f"No LLM client available for provider {current_llm_provider!r}"
                     )
-                    processed = response_processor.process(raw_response)
-                    clean_text = processed["text"]
-                    animations = processed["animations"]
-                    # Legacy mode doesn't track tokens
-                    total_input_tokens = 0
-                    total_output_tokens = 0
 
                 # Determine provider and model for this response (needed for conversation storage)
                 if turn_client is ollama_client and ollama_client:

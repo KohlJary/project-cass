@@ -268,7 +268,8 @@ async def execute_world_consumption_tool(
 
 # Tool definitions offered to the model (agent_client.get_tools, keyword-gated
 # by tool_selector's "world_consumption" group). Copied from
-# tool_capabilities/schemas/world_consumption_tools.json, which nothing loads.
+# tool_capabilities/schemas/world_consumption_tools.json (that package is now
+# on the attic/stabilization branch; nothing ever loaded it).
 WORLD_CONSUMPTION_TOOLS = [
     {
         "name": "search_articles",
