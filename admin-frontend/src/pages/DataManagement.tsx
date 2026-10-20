@@ -552,13 +552,14 @@ function BackupsPanel() {
       <div className="backup-schedule">
         <h3>Automatic Backups</h3>
         <p>
-          Automatic daily backups run at 3:00 AM and are retained for 30 days.
-          To enable automatic backups, install the systemd timer:
+          The cass-backup timer zips the whole data directory daily, around 4:30 AM,
+          into a folder outside it, keeping the last 7 days and 4 weeks. It is a
+          systemd user unit; the steps are in backend/cass-backup.service.template.
+          Backups made here go to the data directory's backups/ folder instead.
         </p>
         <pre className="code-block">
-{`sudo cp backend/scripts/cass-backup.* /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now cass-backup.timer`}
+{`systemctl --user list-timers cass-backup.timer   # is it installed?
+systemctl --user start cass-backup.service       # back up now`}
         </pre>
       </div>
     </div>

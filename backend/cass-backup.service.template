@@ -1,0 +1,24 @@
+[Unit]
+Description=Cass data backup (daily zip of DATA_DIR, 7 daily + 4 weekly kept)
+
+[Service]
+Type=oneshot
+WorkingDirectory=${INSTALL_DIR}/backend
+Environment="CASS_BACKUP_DIR=${BACKUP_DIR}"
+ExecStart=${INSTALL_DIR}/backend/venv/bin/python scripts/backup.py
+Nice=10
+IOSchedulingClass=idle
+
+# --- Installation Instructions (a user unit: no sudo) ---
+# Install it together with cass-backup.timer:
+#    mkdir -p ~/.config/systemd/user
+#    sed "s|\${INSTALL_DIR}|/path/to/cass-vessel|g; s|\${BACKUP_DIR}|$HOME/cass/backups|g" \
+#        cass-backup.service.template > ~/.config/systemd/user/cass-backup.service
+#    cp cass-backup.timer ~/.config/systemd/user/
+#    systemctl --user daemon-reload
+#    systemctl --user enable --now cass-backup.timer
+#    loginctl enable-linger "$USER"   # so it runs while you're logged out
+#
+# Run one now:   systemctl --user start cass-backup.service
+# Check it:      systemctl --user list-timers cass-backup.timer
+#                journalctl --user -u cass-backup.service

@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import config
+import data_backup
 from tests.conftest import _point_db_at
 
 NOW = datetime(2026, 10, 20, 12, 0, 0).isoformat()
@@ -138,7 +139,7 @@ def test_backup_of_rollback_journal_db_with_open_writer_holds_committed_rows_onl
     writer.execute("BEGIN IMMEDIATE")
     writer.execute("INSERT INTO t VALUES ('in flight')")
     try:
-        export._write_backup(seeded_data_dir, tmp_path / "b.zip")
+        data_backup.write_backup(seeded_data_dir, tmp_path / "b.zip")
     finally:
         writer.execute("ROLLBACK")
         writer.close()
@@ -154,9 +155,9 @@ def test_failed_backup_leaves_no_partial(seeded_data_dir, tmp_path, monkeypatch)
 
     def boom(*_):
         raise OSError("disk full")
-    monkeypatch.setattr(export, "_snapshot_sqlite", boom)
+    monkeypatch.setattr(data_backup, "_snapshot_sqlite", boom)
     with pytest.raises(OSError):
-        export._write_backup(seeded_data_dir, tmp_path / "b.zip")
+        data_backup.write_backup(seeded_data_dir, tmp_path / "b.zip")
     assert list(tmp_path.glob("b.zip*")) == []
 
 
