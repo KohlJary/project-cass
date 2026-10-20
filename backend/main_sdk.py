@@ -33,7 +33,7 @@ from typing import Optional, List, Dict, Any
 import json
 import asyncio
 from datetime import datetime, timedelta
-
+# Agent client (needs the anthropic package; startup fails clearly without it)
 # Try to use Agent SDK client, fall back to raw API
 try:
     from agent_client import CassAgentClient, CassClient, OllamaClient, SDK_AVAILABLE
@@ -2510,7 +2510,7 @@ async def status():
         "memory_entries": memory.count() if memory else 0,
         "memory_ready": _heavy_components_ready,
         "timestamp": datetime.now().isoformat(),
-        "kernel": "Temple-Codex" if USE_AGENT_SDK else "Legacy"
+        "kernel": "Temple-Codex"
     }
 
 @app.post("/chat", response_model=ChatResponse)
