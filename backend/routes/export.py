@@ -9,28 +9,36 @@ Provides endpoints to export:
 - Complete research dataset packages
 """
 
+import asyncio
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
+from config import DATA_DIR
+
 router = APIRouter(prefix="/export", tags=["export"])
 
-# Data directories
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-WIKI_DIR = DATA_DIR / "wiki"
-CHROMA_DIR = DATA_DIR / "chroma"
-CONVERSATIONS_DIR = DATA_DIR / "conversations"
-USERS_DIR = DATA_DIR / "users"
-CASS_DIR = DATA_DIR / "cass"
-ROADMAP_DIR = DATA_DIR / "roadmap"
+BACKUP_DIR_NAME = "backups"
+
+# SQLite sidecar files: the backup API copies their committed contents into
+# the main file, so the sidecars themselves are never zipped.
+_SQLITE_SIDECARS = ("-wal", "-shm", "-journal")
+_SQLITE_HEADER = b"SQLite format 3\x00"
+
+# Already compressed; deflating them again only costs time.
+_STORED_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp3", ".ogg", ".flac",
+    ".m4a", ".mp4", ".webm", ".zip", ".gz", ".anima",
+}
 
 
 # === Wiki Export ===
@@ -835,33 +843,115 @@ Cass has formed {len(profile.opinions)} opinions on various topics:
     }
 
 
+def _is_sqlite(path: Path) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(_SQLITE_HEADER)) == _SQLITE_HEADER
+    except OSError:
+        return False
+
+
+def _data_files(data_dir: Path, skip: Path):
+    """Every file under data_dir except under skip, following symlinked
+    directories (once each, so a link cycle can't loop)."""
+    seen = set()
+    for root, dirs, files in os.walk(data_dir, followlinks=True):
+        real = os.path.realpath(root)
+        if real in seen or Path(root).is_relative_to(skip):
+            dirs[:] = []
+            continue
+        seen.add(real)
+        dirs.sort()
+        for name in sorted(files):
+            path = Path(root) / name
+            if path.is_file():
+                yield path
+
+
+def _snapshot_sqlite(src_path: Path, dst_path: Path) -> None:
+    """Consistent copy of a live SQLite database.
+
+    Copied a few hundred pages per step, so a writer on a rollback-journal
+    database (cass.db) waits at most one step, not the whole copy. If another
+    connection writes mid-copy, SQLite restarts the copy, so the result is
+    always one committed state.
+    """
+    src = sqlite3.connect(src_path.resolve().as_uri() + "?mode=ro", uri=True)
+    dst = sqlite3.connect(dst_path)
+    try:
+        src.backup(dst, pages=256, sleep=0.01)
+    finally:
+        dst.close()
+        src.close()
+
+
+def _write_backup(data_dir: Path, backup_path: Path) -> None:
+    """Zip everything under data_dir except the backups themselves.
+
+    SQLite databases (cass.db, Chroma's chroma.sqlite3, the rest; found by
+    header) go through the SQLite backup API, so each lands as one committed
+    state with its WAL folded in, and their sidecar files are left out.
+
+    Plain files are copied first and databases last. Chroma keeps its vectors
+    in segment files and its documents and write log in chroma.sqlite3, so
+    copying the segments first means the log is never older than the vectors.
+    A Chroma write landing during the backup can still leave a vector out of
+    the segments; the document itself is in the sqlite snapshot.
+
+    The zip is written under a temporary name and renamed when complete, so
+    /export/backups never lists a half-written backup, and a failed backup
+    leaves nothing behind.
+    """
+    partial = backup_path.with_name(backup_path.name + ".partial")
+    files, databases = [], []
+    for file in _data_files(data_dir, data_dir / BACKUP_DIR_NAME):
+        if file.name.endswith(_SQLITE_SIDECARS):
+            continue
+        (databases if _is_sqlite(file) else files).append(file)
+    try:
+        with tempfile.TemporaryDirectory() as snap_dir, ZipFile(partial, "w") as zf:
+            for file in files:
+                compress = ZIP_STORED if file.suffix.lower() in _STORED_SUFFIXES else ZIP_DEFLATED
+                zf.write(file, str(file.relative_to(data_dir)), compress_type=compress)
+            for file in databases:
+                snapshot = Path(snap_dir) / "snapshot.db"
+                _snapshot_sqlite(file, snapshot)
+                zf.write(snapshot, str(file.relative_to(data_dir)), compress_type=ZIP_DEFLATED)
+                snapshot.unlink()
+        partial.rename(backup_path)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+
+
 @router.post("/backup")
 async def create_backup() -> Dict[str, Any]:
     """
-    Create a complete backup of all data directories.
+    Create a complete backup of the data directory (config.DATA_DIR): every
+    database, Chroma, and the file stores. Restore by unzipping into an empty
+    DATA_DIR.
     """
-    backup_dir = DATA_DIR / "backups"
+    backup_dir = DATA_DIR / BACKUP_DIR_NAME
     backup_dir.mkdir(exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"backup_{timestamp}"
-    backup_path = backup_dir / f"{backup_name}.zip"
+    # Reserve the name by creating its .partial, so two backups started in
+    # the same second can't write the same file.
+    n = 1
+    while True:
+        backup_path = backup_dir / f"{backup_name}.zip"
+        if not backup_path.exists():
+            try:
+                open(backup_path.with_name(backup_path.name + ".partial"), "x").close()
+                break
+            except FileExistsError:
+                pass
+        n += 1
+        backup_name = f"backup_{timestamp}_{n}"
 
-    dirs_to_backup = [
-        ("wiki", WIKI_DIR),
-        ("conversations", CONVERSATIONS_DIR),
-        ("users", USERS_DIR),
-        ("cass", CASS_DIR),
-        ("roadmap", ROADMAP_DIR),
-    ]
-
-    with ZipFile(backup_path, 'w') as zf:
-        for name, dir_path in dirs_to_backup:
-            if dir_path.exists():
-                for file in dir_path.rglob("*"):
-                    if file.is_file():
-                        arcname = f"{name}/{file.relative_to(dir_path)}"
-                        zf.write(file, arcname)
+    # A full backup can take minutes; keep the event loop free meanwhile.
+    await asyncio.to_thread(_write_backup, DATA_DIR, backup_path)
 
     # Get backup size
     size_mb = backup_path.stat().st_size / (1024 * 1024)
@@ -880,7 +970,7 @@ async def list_backups() -> Dict[str, Any]:
     """
     List available backups.
     """
-    backup_dir = DATA_DIR / "backups"
+    backup_dir = DATA_DIR / BACKUP_DIR_NAME
     if not backup_dir.exists():
         return {"backups": []}
 
