@@ -1,0 +1,32 @@
+# Momus review: PR #78 (fix/admin-routes-admin-only, HEAD a25abd7)
+
+CLAIM (plainly): Every /admin route except PUBLIC_ROUTES and ADMIN_AREA_USER_ROUTES is refused to a user whose users.is_admin is 0 in SQLite, whatever auth dependency the handler declares; the exempt routes are scoped to the caller.
+FALSIFIER: a non-admin token getting a non-403/401 on an unlisted /admin route (any path spelling), or an exempt route returning another user's data.
+VERDICT: shown for the route-table claim and the path-spelling variants tried; consistent (not shown) for "no per-user data" on the self-model reads.
+
+## Run
+- `pytest tests/smoke/test_admin_area.py tests/test_route_auth.py`: 819 passed, 22 skipped.
+- Guard reverted (route_guard.py from ec1d06d, in a scratch copy from `git archive`): 7 of 13 fail. Confirmed PR's count. At least one of the 7 (test_exemption_list_names_only_mounted_routes) fails by ImportError, not by behavior.
+- Schema reverted alone: 2 fail (test_daemon_picker_shows_only_cass_and_own, test_dashboard_auth_flow_for_non_admin). Schema fix is covered.
+- My probe (scratch, not in repo), non-admin dashboard token, raw ASGI scope: `//admin/users`, `/admin//users`, `/ADMIN/users`, `/admin/Users`, `/admin/users%00`, `/admin/users;x`, `/admin2/users`, `/admin`, `/admin/` -> 404; `/admin/users/`, `/admin/./users`, `/admin%2Fusers`, `/%61dmin/users`, `/admin/%75sers` -> 403; HEAD/OPTIONS -> 405. (A TestClient 200 on `//admin/users` was httpx reading `//admin` as a host, so it hit /users, which returns only the caller.)
+- Route table: 395 admin-level + 9 self + 8 user + 5 public under /admin; 0 endpoints missing from _ENDPOINT_LEVELS after boot; no endpoint function shared between an /admin and non-/admin path; only mounts are StaticFiles (/assets, /generated-images), none under /admin; the two /admin websocket routes (wonderland stream, /graphql is not under /admin) classify admin.
+- Level is chosen by the matched endpoint (route_guard.py route_guard, `_ENDPOINT_LEVELS.get(endpoint, ADMIN)`), not by the request string, so normalization cannot select a different level. Unknown endpoints default to ADMIN.
+
+## Findings, ranked
+
+1. (Medium, consistent not shown) "Cass's own self-model, no per-user data" (route_guard.py ADMIN_AREA_USER_ROUTES comment, PR table). The handlers return free-text fields: stakes `evidence`, `why_it_matters`; preference-tests `context`, `reflection`, `stated_value`; narration `trigger`, `notes` (self_model_graph.py:2227-2260, 2352-2385, 2473-2500). preference tests are recorded with a conversation_id (self_model_graph.py ~2313). Nothing stops Cass from writing a user's name or a quote there. Falsifier: any stored value naming or quoting a user other than the caller. Cheapest test: Kohl (admin) greps those node metadata fields for display names of non-admin users. I did not read her data, per the hard rule. This exposure is by Kohl's decision; the open point is only the claim's wording.
+2. (Low) Wildcard exemptions `/admin/self-model/stakes*`, `preference-*`, `narration-*` (route_guard.py ADMIN_AREA_USER_ROUTES) match 2/2/2 routes today, but fnmatch `*` also crosses `/`, so a future GET such as `/admin/self-model/stakes-export` or `narration-raw` becomes non-admin-readable silently. That softens "fails closed for new routes". test_exemption_list_names_only_mounted_routes only checks each rule matches at least one route, not that it matches only the intended ones. Fix: list the six paths exactly.
+3. (Low, pre-existing, now load-bearing) Exempt SELF routes rely on require_auth (routes/admin/auth.py:189-225), which verifies the JWT only. It does not check users.status or existence. A user rejected/deleted after login keeps genesis/feedback/daemons-mine until token expiry (JWT_EXPIRATION_HOURS). The guard skips SELF routes entirely (route_guard.py `if level == SELF`). Only the two /users/{id}/model|observations routes consult the DB.
+4. (Low, DEMO_MODE only, pre-existing) `_require_self_or_admin` returns early for `demo_mode` (stats.py:135-145), and require_auth hands anonymous GETs a demo principal, so with DEMO_MODE on an anonymous caller can read any user's /admin/users/{id}/model and /observations. The same was true before the PR; the new check does not change it, but the docstring "own or admin" is not true in that mode.
+5. (Info) Admin-user loss: none found. The guard reads SQLite is_admin (route_guard.py user_is_admin; fails closed on exception), the same source require_admin uses (routes/admin/auth.py:179-182). test_admin_still_reaches_formerly_open_routes covers GETs only; admin POST/PUT on formerly-SELF routes are not exercised.
+6. (Info) Non-admin frontend: I mapped every API call from Chat, SelfDevelopment (+tabs), UserProfile, Feedback, GenesisDream, GenesisNotification, DaemonContext to the exemption list. The only new losses are Chat's `/admin/conversations*` and `/admin/memory/search` (PR acknowledges). `identity-snippet*` (default Self-Development tab) and `/admin/daemons/import/genesis*` (Genesis import) were already require_admin handlers, so not regressions, but those parts of the "kept" pages still 403 for non-admins. I did not run the frontend, so how Chat renders after the 403 is untested.
+7. (Info) Schema: SCHEMA_VERSION stays 57; no bump. migrate_daemon_genesis (migrations.py:23, 758-784) is an unconditional, idempotent ALTER run on every startup before the version check, so existing DBs are covered and a bump adds nothing. It returns early on a fresh DB (table not yet created), so before this PR a new install lacked the columns until its second startup; the CREATE TABLE change closes that. The repo rule's literal "bump" is not followed, with no functional effect. PR text "failed on new installs" is true for the first boot only.
+
+## Not found
+No non-admin path to an unlisted /admin route; no exempt route returning another user's rows by id (genesis message/abandon/complete check session.user_id, genesis.py:146,173,193; daemons/mine filters by caller id; feedback records caller; profile routes 403 on other ids, probed with upper-cased id too).
+
+## Open falsifiers (ledger)
+- F1: user-naming text in stakes/preference/narration nodes (Kohl, admin session).
+- F2: a test that fails if any new GET under /admin/self-model/stakes*|preference-*|narration-* appears.
+- F3: Chat page behavior for a non-admin after 403 on conversations (browser run).
+Outside reader suggested: someone to log in as a non-admin in the built frontend.

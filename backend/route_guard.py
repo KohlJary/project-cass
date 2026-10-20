@@ -14,6 +14,10 @@ How it works:
         user    - any authenticated user
         self    - the route declares its own auth dependency; leave it alone
         admin   - everything else (the default, including any route added later)
+  - The /admin area is admin-only: every /admin/* route is ADMIN level unless
+    it is public or listed in ADMIN_AREA_USER_ROUTES, whatever auth dependency
+    the handler declares. (Many admin handlers declare require_auth, which
+    accepts any dashboard user, admin or not.)
   - "Authenticated" means: a bearer token from EITHER auth system (mobile/TUI
     tokens from auth.py or admin-dashboard tokens from routes/admin/auth.py),
     or the localhost bypass (ALLOW_LOCALHOST_BYPASS + DEFAULT_LOCALHOST_USER_ID)
@@ -62,6 +66,42 @@ PUBLIC_ROUTES = [
     ("GET", "/{full_path:path}"),
 ]
 
+# The only /admin/* routes a non-admin may call (see ADMIN_AREA). Everything
+# else under /admin is admin-only. Taken from what the admin frontend's
+# non-admin pages call (api/domains/*.ts), plus the smart speaker. Listed
+# routes that declare their own auth (require_auth) stay SELF; the rest are
+# USER. Routes that take a user id check ownership in the handler.
+ADMIN_AREA_USER_ROUTES = [
+    # Every page: DaemonContext's daemon picker for non-admins (own daemons + Cass)
+    ("GET", "/admin/daemons/mine"),
+    # Genesis page (GenesisDream.tsx, GenesisNotification.tsx); handlers act
+    # on the caller's own session only
+    ("GET", "/admin/genesis/active"),
+    ("POST", "/admin/genesis/start"),
+    ("POST", "/admin/genesis/{session_id}/message"),
+    ("POST", "/admin/genesis/{session_id}/complete"),
+    ("POST", "/admin/genesis/{session_id}/abandon"),
+    # Profile page (UserProfile.tsx); own user id only, any for admins
+    ("GET", "/admin/users/{user_id}/model"),
+    ("GET", "/admin/users/{user_id}/observations"),
+    # Feedback page (Feedback.tsx); records the caller as the author
+    ("POST", "/admin/feedback"),
+    # Self-Development page tabs (Stakes, Consistency, Narration): reads of
+    # Cass's self-model nodes. Their free-text fields may mention people.
+    # Exact paths, so a new route here is admin-only until listed.
+    ("GET", "/admin/self-model/stakes"),
+    ("GET", "/admin/self-model/stakes/stats"),
+    ("GET", "/admin/self-model/preference-tests"),
+    ("GET", "/admin/self-model/preference-consistency"),
+    ("GET", "/admin/self-model/narration-contexts"),
+    ("GET", "/admin/self-model/narration-patterns"),
+    # Smart speaker
+    ("POST", "/admin/stt/transcribe"),
+    ("GET", "/admin/stt/status"),
+]
+
+ADMIN_AREA = "/admin"
+
 # Any logged-in user (not just admins). Taken from what the mobile app, the
 # admin frontend's non-admin pages (Chat, Genesis, Self-Dev, Profile,
 # Feedback), Godot and the smart speaker call.
@@ -78,13 +118,8 @@ USER_ROUTES = [
     ("GET", "/users/me/quiet-hours"),
     ("PUT", "/users/me/quiet-hours"),
     ("GET", "/cass/*"),                         # Self-Development page (reads)
-    ("GET", "/admin/self-model/stakes*"),
-    ("GET", "/admin/self-model/preference-*"),
-    ("GET", "/admin/self-model/narration-*"),
-    ("GET", "/admin/self-model/architectural-requests"),
+    # /admin/* routes for non-admins are in ADMIN_AREA_USER_ROUTES, not here.
     ("GET", "/gestures/library"),
-    ("POST", "/admin/stt/transcribe"),          # smart speaker
-    ("GET", "/admin/stt/status"),
     ("POST", "/tts/generate"),                  # TUI voice playback
     ("GET", "/tts/config"),
     ("POST", "/api/ha/conversation"),           # Home Assistant integration
@@ -147,9 +182,19 @@ def _declares_own_auth(route) -> bool:
     return walk(dependant)
 
 
+def _in_admin_area(path: str) -> bool:
+    return path == ADMIN_AREA or path.startswith(ADMIN_AREA + "/")
+
+
 def level_for(method: str, path: str, route=None) -> str:
     if _matches(PUBLIC_ROUTES, method, path):
         return PUBLIC
+    if _in_admin_area(path):
+        if not _matches(ADMIN_AREA_USER_ROUTES, method, path):
+            return ADMIN
+        if route is not None and _declares_own_auth(route):
+            return SELF
+        return USER
     if _matches(SELF_ROUTES, method, path):
         return SELF
     if route is not None and _declares_own_auth(route):

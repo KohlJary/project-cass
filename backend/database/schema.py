@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 57  # image_artist_notes (what she meant by a painting, and what she saw)
+SCHEMA_VERSION = 58  # daemons.birth_type / genesis_dream_id in CREATE TABLE (fresh databases)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS daemons (
     status TEXT DEFAULT 'active',
     activity_mode TEXT DEFAULT 'active',  -- 'active' (full temporal awareness) or 'dormant' (no daily rhythm)
     domain TEXT,                      -- Daemon's domain/sphere (e.g., "The Forge", "The Library")
-    domain_description TEXT           -- Description of what the domain represents
+    domain_description TEXT,          -- Description of what the domain represents
+    birth_type TEXT DEFAULT 'manual', -- How the daemon came to be (e.g. 'manual', 'genesis')
+    genesis_dream_id TEXT             -- genesis_dreams.id when born from a genesis dream
 );
 
 -- Users

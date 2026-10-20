@@ -583,6 +583,16 @@ def _apply_schema_updates(conn, from_version: int):
         )
         print("Adding image_artist_notes table (v57)")
 
+    # v57 -> v58: daemons.birth_type / genesis_dream_id joined CREATE TABLE.
+    # migrate_daemon_genesis() already adds them on every startup; this is the
+    # same idempotent check, kept here so the version history records it.
+    if from_version < 58:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(daemons)").fetchall()}
+        if 'birth_type' not in columns:
+            conn.execute("ALTER TABLE daemons ADD COLUMN birth_type TEXT DEFAULT 'manual'")
+        if 'genesis_dream_id' not in columns:
+            conn.execute("ALTER TABLE daemons ADD COLUMN genesis_dream_id TEXT")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """
