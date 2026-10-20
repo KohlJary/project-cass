@@ -489,7 +489,7 @@ export function Homepage() {
                       </div>
                     ) : (
                       <p className="no-artifacts-hint">
-                        Feature artifacts from dreams, journals, research notes, and wiki pages to showcase on the homepage.
+                        Feature artifacts from dreams, journals, and research notes to showcase on the homepage.
                       </p>
                     )}
                   </div>

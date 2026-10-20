@@ -10,7 +10,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { outreachApi } from '../../api/client';
-import { fetchUnifiedGoals, fetchRootGoals, fetchGoalChildren, fetchWorkItemsForGoal } from '../../api/graphql';
+import { fetchUnifiedGoals, fetchRootGoals, fetchGoalChildren } from '../../api/graphql';
 import type { UnifiedGoal as GqlUnifiedGoal } from '../../api/graphql';
 import './AgencyTab.css';
 
@@ -289,14 +289,6 @@ function DraftCard({ draft, onApprove, onReject, onRequestRevision }: {
 // =============================================================================
 
 function GoalDetailPanel({ goal }: { goal: UnifiedGoal }) {
-  // Fetch work items for this goal
-  const { data: workItemsData } = useQuery({
-    queryKey: ['work-items-for-goal', goal.id],
-    queryFn: () => fetchWorkItemsForGoal(goal.id),
-  });
-
-  const workItems = workItemsData?.workItemsForGoal || [];
-
   const emergenceInfo = goal.emergence_type
     ? EMERGENCE_INFO[goal.emergence_type]
     : EMERGENCE_INFO['seeded-collaborative'];
@@ -308,16 +300,6 @@ function GoalDetailPanel({ goal }: { goal: UnifiedGoal }) {
     completed: '#2196F3',
     blocked: '#666',
     abandoned: '#999',
-  };
-
-  const workStatusColors: Record<string, string> = {
-    planned: '#9E9E9E',
-    scheduled: '#2196F3',
-    ready: '#8BC34A',
-    running: '#FF9800',
-    completed: '#4CAF50',
-    failed: '#F44336',
-    cancelled: '#666',
   };
 
   return (
@@ -355,50 +337,6 @@ function GoalDetailPanel({ goal }: { goal: UnifiedGoal }) {
           Created: {new Date(goal.created_at).toLocaleDateString()}
         </div>
       )}
-
-      {/* Work Items / Atomic Actions */}
-      <div className="goal-work-items">
-        <h4 className="work-items-header">
-          Actions ({workItems.length})
-        </h4>
-        {workItems.length === 0 ? (
-          <p className="no-work-items">No actions planned for this goal yet</p>
-        ) : (
-          <div className="work-items-list">
-            {workItems.map((item) => (
-              <div key={item.id} className="work-item-card">
-                <div className="work-item-header">
-                  <span
-                    className="work-item-status"
-                    style={{ backgroundColor: workStatusColors[item.status] || '#666' }}
-                  >
-                    {item.status}
-                  </span>
-                  <span className="work-item-category">{item.category}</span>
-                </div>
-                <div className="work-item-title">{item.title}</div>
-                {item.description && (
-                  <div className="work-item-description">{item.description}</div>
-                )}
-                {item.actionSequence.length > 0 && (
-                  <div className="work-item-actions">
-                    <span className="actions-label">Atomic actions:</span>
-                    <div className="action-tags">
-                      {item.actionSequence.map((action, idx) => (
-                        <span key={idx} className="action-tag">{action}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="work-item-meta">
-                  <span className="work-item-duration">~{item.estimatedDurationMinutes}m</span>
-                  <span className="work-item-cost">${item.estimatedCostUsd.toFixed(2)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

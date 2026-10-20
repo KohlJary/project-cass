@@ -709,136 +709,6 @@ def migrate_roadmap(conn, daemon_id: str):
     print(f"  Migrated {count} roadmap items")
 
 
-def migrate_wiki(conn, daemon_id: str):
-    """Migrate wiki pages from data/wiki/"""
-    print("\n=== Migrating Wiki ===")
-    wiki_dir = DATA_DIR / "wiki"
-
-    if not wiki_dir.exists():
-        print("  No wiki directory found")
-        return
-
-    count = 0
-    for category_dir in wiki_dir.iterdir():
-        if not category_dir.is_dir():
-            continue
-
-        category = category_dir.name
-
-        for wiki_file in category_dir.glob("*.md"):
-            # Use filename as ID/slug
-            slug = wiki_file.stem
-            page_id = f"{category}/{slug}"
-
-            if record_exists(conn, "wiki_pages", "id", page_id):
-                continue
-
-            content = wiki_file.read_text()
-
-            # Parse frontmatter if present
-            frontmatter = None
-            if content.startswith("---"):
-                parts = content.split("---", 2)
-                if len(parts) >= 3:
-                    try:
-                        frontmatter = yaml.safe_load(parts[1])
-                        content = parts[2].strip()
-                    except yaml.YAMLError:
-                        pass
-
-            title = slug.replace("-", " ").replace("_", " ").title()
-            if frontmatter and "title" in frontmatter:
-                title = frontmatter["title"]
-
-            conn.execute("""
-                INSERT INTO wiki_pages (
-                    id, daemon_id, category, title, content,
-                    frontmatter_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                page_id,
-                daemon_id,
-                category,
-                title,
-                content,
-                json_serialize(frontmatter),
-                datetime.now().isoformat(),
-                datetime.now().isoformat()
-            ))
-            count += 1
-
-    print(f"  Migrated {count} wiki pages")
-
-
-def migrate_goals(conn, daemon_id: str):
-    """Migrate goals from data/goals/"""
-    print("\n=== Migrating Goals ===")
-    goals_dir = DATA_DIR / "goals"
-
-    if not goals_dir.exists():
-        print("  No goals directory found")
-        return
-
-    # Load initiatives - format is {"initiatives": [...]}
-    initiatives_data = load_json(goals_dir / "initiatives.json") or {}
-    initiatives = initiatives_data.get("initiatives", []) if isinstance(initiatives_data, dict) else []
-
-    count = 0
-    for goal in initiatives:
-        goal_id = goal.get("id", str(uuid.uuid4()))
-
-        if record_exists(conn, "goals", "id", goal_id):
-            continue
-
-        conn.execute("""
-            INSERT INTO goals (
-                id, daemon_id, title, description,
-                goal_type, status, parent_id, progress_json,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            goal_id,
-            daemon_id,
-            goal.get("title", "Untitled"),
-            goal.get("description"),
-            goal.get("goal_type", goal.get("type", "initiative")),
-            goal.get("status", "active"),
-            goal.get("parent_id"),
-            json_serialize(goal.get("progress")),
-            goal.get("created_at", datetime.now().isoformat()),
-            goal.get("updated_at")
-        ))
-        count += 1
-
-    # Also load working_questions as goals - format is {"questions": [...]}
-    questions_data = load_json(goals_dir / "working_questions.json") or {}
-    questions = questions_data.get("questions", []) if isinstance(questions_data, dict) else []
-    for q in questions:
-        q_id = q.get("id", str(uuid.uuid4()))
-
-        if record_exists(conn, "goals", "id", q_id):
-            continue
-
-        conn.execute("""
-            INSERT INTO goals (
-                id, daemon_id, title, description,
-                goal_type, status, progress_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            q_id,
-            daemon_id,
-            q.get("question", q.get("title", "Unknown")),
-            q.get("context", q.get("description")),
-            "question",
-            q.get("status", "active"),
-            json_serialize(q.get("progress")),
-            q.get("created_at", datetime.now().isoformat())
-        ))
-        count += 1
-
-    print(f"  Migrated {count} goals")
-
-
 def migrate_rhythm(conn, daemon_id: str):
     """Migrate daily rhythm configuration"""
     print("\n=== Migrating Daily Rhythm ===")
@@ -1000,47 +870,6 @@ def migrate_research_queue(conn, daemon_id: str):
     print(f"  Migrated {queue_count} queue tasks, {history_count} history tasks")
 
 
-def migrate_usage(conn, daemon_id: str):
-    """Migrate token usage logs"""
-    print("\n=== Migrating Token Usage ===")
-    usage_dir = DATA_DIR / "usage"
-
-    if not usage_dir.exists():
-        print("  No usage directory found")
-        return
-
-    count = 0
-    for usage_file in usage_dir.glob("*.json"):
-        date = usage_file.stem
-        usage = load_json(usage_file)
-
-        if not usage:
-            continue
-
-        # Usage files might be structured differently
-        if isinstance(usage, dict):
-            for provider, models in usage.items():
-                if isinstance(models, dict):
-                    for model, stats in models.items():
-                        conn.execute("""
-                            INSERT INTO token_usage (
-                                daemon_id, date, provider, model,
-                                input_tokens, output_tokens, cost_usd
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            daemon_id,
-                            date,
-                            provider,
-                            model,
-                            stats.get("input_tokens", 0),
-                            stats.get("output_tokens", 0),
-                            stats.get("cost_usd", 0)
-                        ))
-                        count += 1
-
-    print(f"  Migrated {count} usage records")
-
-
 # =============================================================================
 # MAIN MIGRATION
 # =============================================================================
@@ -1075,11 +904,8 @@ def run_migration():
         migrate_dreams(conn, daemon_id)
         migrate_solo_reflections(conn, daemon_id)
         migrate_roadmap(conn, daemon_id)
-        migrate_wiki(conn, daemon_id)
-        migrate_goals(conn, daemon_id)
         migrate_rhythm(conn, daemon_id)
         migrate_research_queue(conn, daemon_id)
-        migrate_usage(conn, daemon_id)
 
         # Re-enable foreign keys and verify
         conn.execute("PRAGMA foreign_keys = ON")
@@ -1103,9 +929,9 @@ def run_migration():
             "daemon_profiles", "growth_edges", "opinions",
             "cognitive_snapshots", "milestones", "self_observations",
             "user_observations", "dreams", "solo_reflections",
-            "roadmap_items", "wiki_pages", "goals",
+            "roadmap_items",
             "rhythm_phases", "rhythm_records",
-            "research_tasks", "research_task_history", "token_usage"
+            "research_tasks", "research_task_history",
         ]
 
         print("\nRecord counts:")

@@ -1180,47 +1180,6 @@ export const fetchGoalChildren = async (goalId: string): Promise<{ goalChildren:
   return getGraphQLClient().request(GOAL_CHILDREN_QUERY, { goalId });
 };
 
-// Work items for a goal (atomic actions to achieve the goal)
-export interface WorkItemSummary {
-  id: string;
-  title: string;
-  description: string | null;
-  category: string;
-  priority: number;
-  status: string;
-  estimatedDurationMinutes: number;
-  estimatedCostUsd: number;
-  requiresApproval: boolean;
-  approvalStatus: string;
-  goalId: string | null;
-  createdAt: string;
-  actionSequence: string[];
-}
-
-export const WORK_ITEMS_FOR_GOAL_QUERY = gql`
-  query WorkItemsForGoal($goalId: String!) {
-    workItemsForGoal(goalId: $goalId) {
-      id
-      title
-      description
-      category
-      priority
-      status
-      estimatedDurationMinutes
-      estimatedCostUsd
-      requiresApproval
-      approvalStatus
-      goalId
-      createdAt
-      actionSequence
-    }
-  }
-`;
-
-export const fetchWorkItemsForGoal = async (goalId: string): Promise<{ workItemsForGoal: WorkItemSummary[] }> => {
-  return getGraphQLClient().request(WORK_ITEMS_FOR_GOAL_QUERY, { goalId });
-};
-
 // =============================================================================
 // WORK HISTORY / SUMMARIES (Completed scheduled work)
 // =============================================================================

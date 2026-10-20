@@ -58,14 +58,15 @@ DAEMON_TABLES = [
     "research_proposals",
     "research_queue",
 
-    # Wiki
+    # Legacy tables with no runtime readers or writers (wiki is file-based,
+    # goals moved to unified_goals, nothing writes epics). Existing databases
+    # still hold their rows from the JSON->SQLite migration, so exports keep
+    # carrying them rather than silently dropping her history (#54).
     "wiki_pages",
-
-    # Goals
     "goals",
 
     # Operational
-    "roadmap_epics",
+    "roadmap_epics",  # legacy, see above; roadmap_items.epic_id references it
     "roadmap_items",
     "calendar_events",
     "tasks",
@@ -74,7 +75,7 @@ DAEMON_TABLES = [
     "rhythm_daily_summaries",
 
     # Metrics
-    "token_usage",
+    "token_usage",  # legacy, see above; live usage is in token_usage_records
     "token_usage_records",
     "github_metrics",
     "research_schedules",

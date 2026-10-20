@@ -18,8 +18,6 @@ from .memory_source import MemoryQueryableSource
 from .self_source import SelfQueryableSource
 from .goal_source import GoalQueryableSource
 from .action_source import ActionQueryableSource
-from .work_source import WorkItemQueryableSource
-from .schedule_source import ScheduleQueryableSource
 from .world_state_source import WorldStateSource
 
 __all__ = [
@@ -30,7 +28,5 @@ __all__ = [
     "SelfQueryableSource",
     "GoalQueryableSource",
     "ActionQueryableSource",
-    "WorkItemQueryableSource",
-    "ScheduleQueryableSource",
     "WorldStateSource",
 ]

@@ -433,7 +433,6 @@ TOOL_REGISTRY = {
     "clear_completed_items": "home_assistant",
     # Home Assistant calendar integration
     "list_ha_calendars": "home_assistant",
-    "setup_cass_calendar": "home_assistant",
 
     # Home Automation tools (create/manage automations)
     "draft_automation": "home_automation",
