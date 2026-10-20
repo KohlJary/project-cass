@@ -12,7 +12,7 @@ topics:
   watch_out: Prompt caching depends on exact kernel text; changes invalidate cache.
   tunable: false
 - name: multi-provider
-  how: CassAgentClient (Anthropic SDK), ClaudeClient (raw API), OpenAIClient, OllamaClient.
+  how: CassAgentClient (Anthropic SDK), OpenAIClient, OllamaClient.
     Abstraction layer for consistency.
   why: Caching and provider diversity optimize cost and reliability.
   watch_out: Model-specific tool schema variations need careful handling.

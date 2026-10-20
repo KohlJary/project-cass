@@ -420,7 +420,7 @@ def create_keepers():
                 ),
                 Topic(
                     name="multi-provider",
-                    how="CassAgentClient (Anthropic SDK), ClaudeClient (raw API), OpenAIClient, OllamaClient. Abstraction layer for consistency.",
+                    how="CassAgentClient (Anthropic SDK), OpenAIClient, OllamaClient. Abstraction layer for consistency.",
                     why="Caching and provider diversity optimize cost and reliability.",
                     watch_out="Model-specific tool schema variations need careful handling.",
                 ),
@@ -474,13 +474,13 @@ def create_keepers():
         ),
         Entity(
             name="NarrativeKeeper",
-            location="title_generator",
+            location="summary_generation",
             role="Guardian of narrative generation - titles, narration metrics, creative synthesis",
             personality="A storyteller. Sees threads where others see messages.",
             topics=[
                 Topic(
                     name="title generation",
-                    how="generate_title() creates conversation titles from gists. Titles for organization and searchability.",
+                    how="summary_generation.generate_conversation_title() creates conversation titles from the first exchange. Titles for organization and searchability.",
                     why="Good titles enable navigation through conversation history.",
                     watch_out="Titles should be distinctive, not generic.",
                 ),

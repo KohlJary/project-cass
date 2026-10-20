@@ -2945,99 +2945,36 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
 
 
 # ============================================================================
-# STREAMING CLIENT FOR REAL-TIME RESPONSES
-# ============================================================================
-
-class CassStreamingClient:
-    """
-    Streaming client using Anthropic SDK for real-time responses.
-    Better for UI integration where you want to show text as it generates.
-    """
-
-    def __init__(self, daemon_name: str = None, daemon_id: str = None):
-        if not SDK_AVAILABLE:
-            raise RuntimeError("Anthropic SDK not available")
-
-        from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS
-        self.client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-        self.model = CLAUDE_MODEL
-        self.max_tokens = MAX_TOKENS
-        self.daemon_name = daemon_name or DEFAULT_DAEMON_NAME
-        self.daemon_id = daemon_id
-        self.conversation_history: List[Dict] = []
-
-    async def stream_message(self, message: str) -> AsyncIterator[str]:
-        """
-        Send message and stream response chunks.
-        Yields text as it's generated.
-        """
-        # Add user message to history
-        self.conversation_history.append({
-            "role": "user",
-            "content": message
-        })
-
-        # Build system prompt with identity snippet if available
-        system_prompt = get_temple_codex_kernel(self.daemon_name, self.daemon_id)
-
-        # Stream response
-        full_response_content = []
-
-        async with self.client.messages.stream(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            system=system_prompt,
-            messages=self.conversation_history
-        ) as stream:
-            async for text in stream.text_stream:
-                yield text
-
-            # Get final message to store in history
-            final_message = await stream.get_final_message()
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": final_message.content
-            })
-
-
-# ============================================================================
 # COMPATIBILITY WRAPPER
-# Falls back to raw API if SDK not available
 # ============================================================================
 
 class CassClient:
     """
-    Unified client that uses Agent SDK if available, raw API otherwise.
-    This ensures the system works even without the SDK installed.
+    Thin wrapper over CassAgentClient with a dict-shaped send_message().
+
+    Requires the `anthropic` package. There used to be a raw-API fallback
+    (claude_client.ClaudeClient) for when it was missing, but that client
+    imported `anthropic` too, so the fallback could never run. It now lives
+    on the attic/stabilization branch.
     """
-    
+
     def __init__(self, **kwargs):
-        if SDK_AVAILABLE:
-            self._impl = CassAgentClient(**kwargs)
-            self._use_sdk = True
-        else:
-            from claude_client import ClaudeClient
-            self._impl = ClaudeClient()
-            self._use_sdk = False
-            print("Warning: Using raw API client. Install claude-agent-sdk for full features.")
-    
+        if not SDK_AVAILABLE:
+            raise RuntimeError(
+                "The anthropic package is not installed; CassClient needs it. "
+                "Run: pip install anthropic"
+            )
+        self._impl = CassAgentClient(**kwargs)
+
     async def send_message(self, message: str, memory_context: str = "") -> Dict:
         """Send message and get response"""
-        if self._use_sdk:
-            response = await self._impl.send_message(message)
-            return {
-                "text": response.text,
-                "raw": response.raw,
-                "animations": response.gestures,
-                "tool_uses": response.tool_uses,
-            }
-        else:
-            # Fallback to sync client
-            raw = self._impl.send_message(message, memory_context)
-            from gestures import ResponseProcessor
-            processor = ResponseProcessor()
-            processed = processor.process(raw)
-            return processed
+        response = await self._impl.send_message(message)
+        return {
+            "text": response.text,
+            "raw": response.raw,
+            "animations": response.gestures,
+            "tool_uses": response.tool_uses,
+        }
 
     async def generate(
         self,
@@ -3050,16 +2987,12 @@ class CassClient:
         Generate a response from a conversation history.
         Delegates to the underlying implementation.
         """
-        if self._use_sdk:
-            return await self._impl.generate(
-                messages=messages,
-                system=system,
-                max_tokens=max_tokens,
-                temperature=temperature
-            )
-        else:
-            # Fallback - raw client doesn't support this
-            raise NotImplementedError("generate() requires Agent SDK")
+        return await self._impl.generate(
+            messages=messages,
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
 
 
 # ============================================================================

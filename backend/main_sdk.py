@@ -33,7 +33,7 @@ from typing import Optional, List, Dict, Any
 import json
 import asyncio
 from datetime import datetime, timedelta
-
+# Agent client (needs the anthropic package; startup fails clearly without it)
 # Try to use Agent SDK client, fall back to raw API
 try:
     from agent_client import CassAgentClient, CassClient, OllamaClient, SDK_AVAILABLE
@@ -53,7 +53,6 @@ LLM_PROVIDER_ANTHROPIC = "anthropic"
 LLM_PROVIDER_OPENAI = "openai"
 LLM_PROVIDER_LOCAL = "local"
 
-from claude_client import ClaudeClient
 from memory import CassMemory, initialize_attractor_basins
 from gestures import ResponseProcessor, GestureParser
 from conversations import ConversationManager
@@ -797,7 +796,6 @@ app.include_router(testing_router)
 
 # Client will be initialized on startup
 agent_client = None
-legacy_client = None
 ollama_client = None
 openai_client = None
 
@@ -1510,7 +1508,7 @@ async def _generate_user_observations_for_date(user_id: str, date_str: str):
 
 @app.on_event("startup")
 async def startup_event():
-    global agent_client, legacy_client, ollama_client, openai_client, current_user_id
+    global agent_client, ollama_client, openai_client, current_user_id
 
     # Validate requirements before proceeding
     validate_startup_requirements()
@@ -1858,7 +1856,6 @@ async def startup_event():
         use_agent_sdk=USE_AGENT_SDK
     )
     agent_client = clients["agent_client"]
-    legacy_client = clients["legacy_client"]
     ollama_client = clients["ollama_client"]
     openai_client = clients["openai_client"]
 
@@ -2513,7 +2510,7 @@ async def status():
         "memory_entries": memory.count() if memory else 0,
         "memory_ready": _heavy_components_ready,
         "timestamp": datetime.now().isoformat(),
-        "kernel": "Temple-Codex" if USE_AGENT_SDK else "Legacy"
+        "kernel": "Temple-Codex"
     }
 
 @app.post("/chat", response_model=ChatResponse)
@@ -2938,14 +2935,13 @@ async def chat(request: ChatRequest):
             tool_uses = response.tool_uses
 
     else:
-        # Legacy raw API path
-        raw_response = legacy_client.send_message(
-            user_message=request.message,
-            memory_context=memory_context
+        # No Anthropic client. The old raw-API fallback (claude_client.py,
+        # now on attic/stabilization) needed the same package, so it never
+        # worked here either; say so instead of crashing on None.
+        raise HTTPException(
+            status_code=503,
+            detail="No Anthropic client available (is the anthropic package installed?)",
         )
-        processed = response_processor.process(raw_response)
-        clean_text = processed["text"]
-        animations = processed["animations"]
     
     # Store in memory (with conversation_id and user_id if provided).
     # store_conversation is async; without await nothing was stored.
@@ -3046,21 +3042,6 @@ async def chat(request: ChatRequest):
 
 
 # Note: Memory endpoints moved to routes/memory.py
-
-
-@app.post("/conversation/clear")
-async def clear_conversation():
-    """Clear conversation history"""
-    if legacy_client:
-        legacy_client.clear_history()
-    return {"status": "cleared"}
-
-@app.get("/conversation/history")
-async def get_history():
-    """Get conversation history"""
-    if legacy_client:
-        return {"history": legacy_client.get_history()}
-    return {"history": [], "note": "Agent SDK manages history internally"}
 
 
 # Note: Conversation Management Endpoints moved to routes/conversations.py
@@ -3650,7 +3631,6 @@ def _init_websocket_state():
         agent_client=agent_client,
         openai_client=openai_client,
         ollama_client=ollama_client,
-        legacy_client=legacy_client,
         response_processor=response_processor,
         tool_executors=TOOL_EXECUTORS,
         create_tool_context_fn=create_tool_ctx,

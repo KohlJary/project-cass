@@ -8,7 +8,7 @@ Godot 4.2 C#/.NET frontend for rendering Cass's avatar and handling real-time in
 
 - Godot 4.2+ with .NET support
 - .NET 6.0 SDK
-- Backend running (`python main.py` in `/backend`)
+- Backend running (`python main_sdk.py` in `/backend`)
 
 ## Setup
 
@@ -52,7 +52,7 @@ dotnet build
 
 1. Make sure backend is running:
    ```bash
-   cd ../backend && python main.py
+   cd ../backend && python main_sdk.py
    ```
 
 2. Press F5 in Godot or click Play
@@ -132,7 +132,7 @@ The hologram aesthetic is designed to look great on AR displays with transparent
 ## Troubleshooting
 
 **"Backend offline" error:**
-- Make sure `python main.py` is running in backend folder
+- Make sure `python main_sdk.py` is running in backend folder
 - Check it's on port 8000
 
 **C# build errors:**

@@ -119,32 +119,32 @@ def init_llm_clients(
     Initialize LLM clients based on configuration.
 
     Returns dict with:
-        - agent_client: CassAgentClient or None
-        - legacy_client: ClaudeClient or None
+        - agent_client: CassAgentClient
         - ollama_client: OllamaClient or None
         - openai_client: OpenAIClient or None
     """
     from config import OLLAMA_ENABLED, OPENAI_ENABLED
 
     agent_client = None
-    legacy_client = None
     ollama_client = None
     openai_client = None
 
-    # Initialize appropriate Claude client
-    if use_agent_sdk:
-        from agent_client import CassAgentClient
-        logger.info("Using Claude Agent SDK with Temple-Codex kernel")
-        agent_client = CassAgentClient(
-            enable_tools=True,
-            enable_memory_tools=True,
-            daemon_name=daemon_name,
-            daemon_id=daemon_id
+    # Initialize the Claude client. There is no fallback: the old raw-API
+    # client (claude_client.py, now on attic/stabilization) needed the same
+    # `anthropic` package, so without it nothing could work anyway.
+    if not use_agent_sdk:
+        raise RuntimeError(
+            "The anthropic package is not installed; the backend needs it. "
+            "Run: pip install anthropic"
         )
-    else:
-        from claude_client import ClaudeClient
-        logger.warning("Agent SDK not available, using raw API client")
-        legacy_client = ClaudeClient()
+    from agent_client import CassAgentClient
+    logger.info("Using Claude Agent SDK with Temple-Codex kernel")
+    agent_client = CassAgentClient(
+        enable_tools=True,
+        enable_memory_tools=True,
+        daemon_name=daemon_name,
+        daemon_id=daemon_id
+    )
 
     # Initialize Ollama client for local mode
     if OLLAMA_ENABLED:
@@ -171,7 +171,6 @@ def init_llm_clients(
 
     return {
         "agent_client": agent_client,
-        "legacy_client": legacy_client,
         "ollama_client": ollama_client,
         "openai_client": openai_client,
     }

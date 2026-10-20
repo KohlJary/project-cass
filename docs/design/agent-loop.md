@@ -182,7 +182,7 @@ Not yet decided.
    - WebSocket and relay, which already share `finalize_chat_turn`;
    - then POST /chat (keeping `cass_chat.py` working);
    - then HA and Discord.
-4. **Attic:** the chain system, `prompt_composer`/`prompt_assembler` and their admin routes, `session_init`, `chat_context`, the legacy runners, the three kernel copies. Each goes when nothing calls it any more (#58, #59).
+4. **Attic:** the chain system, `prompt_composer`/`prompt_assembler` and their admin routes, `session_init`, the legacy runners, the three kernel copies. Each goes when nothing calls it any more (#58, #59). (`chat_context` already went with the #54 dead-code cut.)
 5. **Dreams and the Grimoire agent** go last. They work, and they're the most "her". Each moves only with a before/after read of real output.
 
 ## Done when (from #70)

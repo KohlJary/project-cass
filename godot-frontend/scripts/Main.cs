@@ -118,7 +118,7 @@ public partial class Main : Node3D
         
         if (!isOnline)
         {
-            UpdateStatus("Backend offline. Start with: python main.py");
+            UpdateStatus("Backend offline. Start with: python main_sdk.py");
             AppendChat("[SYSTEM]", "Backend not reachable at " + BackendUrl, Colors.Red);
             return;
         }
