@@ -135,7 +135,11 @@ async def get_system_health():
 def _require_self_or_admin(user_id: str, caller: Dict):
     """403 unless the caller is `user_id` or an admin (checked in SQLite, not
     the token's is_admin claim). These routes back the Profile page, which
-    non-admins may use for their own data (route_guard.ADMIN_AREA_USER_ROUTES)."""
+    non-admins may use for their own data (route_guard.ADMIN_AREA_USER_ROUTES).
+
+    Exception: with DEMO_MODE on, require_auth gives anonymous GETs a demo
+    principal, and that principal may read any user's profile, as it may
+    read other admin GET routes in demo mode."""
     if caller.get("demo_mode"):
         return  # DEMO_MODE's anonymous read-only principal browses like an admin
     from route_guard import user_is_admin

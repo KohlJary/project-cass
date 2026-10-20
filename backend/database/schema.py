@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 57  # image_artist_notes (what she meant by a painting, and what she saw)
+SCHEMA_VERSION = 58  # daemons.birth_type / genesis_dream_id in CREATE TABLE (fresh databases)
 
 SCHEMA_SQL = """
 -- Schema version tracking

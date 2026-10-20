@@ -222,7 +222,36 @@ async def require_auth(
             headers={"WWW-Authenticate": "Bearer"}
         )
 
+    _require_active_account(payload.get("user_id"))
     return payload
+
+
+def _require_active_account(user_id: Optional[str]):
+    """The token's user must still exist and be approved.
+
+    A token stays valid for JWT_EXPIRATION_HOURS, so this is read from SQLite
+    on every call: deleted -> 401, pending or rejected -> 403 (the same status
+    rules as login). Any error reading the row refuses the request.
+    """
+    from database import get_db
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT status FROM users WHERE id = ?", (user_id,)).fetchone()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not verify account")
+    if row is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Account not found",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    account_status = row[0] or "approved"
+    if account_status == "pending":
+        raise HTTPException(status_code=403, detail="Account pending approval")
+    if account_status == "rejected":
+        raise HTTPException(status_code=403, detail="Account rejected")
+    if account_status != "approved":
+        raise HTTPException(status_code=403, detail="Account not approved")
 
 
 # ============== Auth Endpoints ==============

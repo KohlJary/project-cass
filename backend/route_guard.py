@@ -87,10 +87,14 @@ ADMIN_AREA_USER_ROUTES = [
     # Feedback page (Feedback.tsx); records the caller as the author
     ("POST", "/admin/feedback"),
     # Self-Development page tabs (Stakes, Consistency, Narration): reads of
-    # Cass's own self-model, no per-user data
-    ("GET", "/admin/self-model/stakes*"),
-    ("GET", "/admin/self-model/preference-*"),
-    ("GET", "/admin/self-model/narration-*"),
+    # Cass's self-model nodes. Their free-text fields may mention people.
+    # Exact paths, so a new route here is admin-only until listed.
+    ("GET", "/admin/self-model/stakes"),
+    ("GET", "/admin/self-model/stakes/stats"),
+    ("GET", "/admin/self-model/preference-tests"),
+    ("GET", "/admin/self-model/preference-consistency"),
+    ("GET", "/admin/self-model/narration-contexts"),
+    ("GET", "/admin/self-model/narration-patterns"),
     # Smart speaker
     ("POST", "/admin/stt/transcribe"),
     ("GET", "/admin/stt/status"),

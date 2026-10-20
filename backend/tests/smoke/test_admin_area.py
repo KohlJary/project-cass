@@ -83,22 +83,62 @@ def test_admin_still_reaches_formerly_open_routes(booted_app, smoke_admin):
         assert r.status_code not in (401, 403), (url, r.status_code, r.text)
 
 
+def test_admin_still_writes_through_formerly_self_checked_routes(booted_app, smoke_admin):
+    """POSTs on routes whose handlers declare require_auth: the guard's
+    admin check and the handler's own check both pass for an admin."""
+    _admin, token = smoke_admin
+    h = _bearer(token)
+    r = booted_app.post("/admin/narrative/threads", json={"title": "A thread"}, headers=h)
+    assert r.status_code == 200, r.text
+    thread_id = r.json()["id"]
+    r = booted_app.post(f"/admin/narrative/threads/{thread_id}/resolve",
+                        json={"resolution_summary": "settled"}, headers=h)
+    assert r.status_code == 200, r.text
+    r = booted_app.post("/admin/narrative/questions", json={"question": "Why?"}, headers=h)
+    assert r.status_code == 200, r.text
+    r = booted_app.post("/admin/feedback", json={"message": "from an admin"}, headers=h)
+    assert r.status_code == 200, r.text
+
+
 # --- every /admin route, from the route table ---------------------------------
+
+# The /admin routes a non-admin may call, spelled out. route_guard's
+# ADMIN_AREA_USER_ROUTES must expand to exactly this set over the mounted
+# routes; adding to it is a deliberate decision.
+EXPECTED_NON_ADMIN = {
+    ("GET", "/admin/daemons/mine"),
+    ("GET", "/admin/genesis/active"),
+    ("POST", "/admin/genesis/start"),
+    ("POST", "/admin/genesis/{session_id}/message"),
+    ("POST", "/admin/genesis/{session_id}/complete"),
+    ("POST", "/admin/genesis/{session_id}/abandon"),
+    ("GET", "/admin/users/{user_id}/model"),
+    ("GET", "/admin/users/{user_id}/observations"),
+    ("POST", "/admin/feedback"),
+    ("GET", "/admin/self-model/stakes"),
+    ("GET", "/admin/self-model/stakes/stats"),
+    ("GET", "/admin/self-model/preference-tests"),
+    ("GET", "/admin/self-model/preference-consistency"),
+    ("GET", "/admin/self-model/narration-contexts"),
+    ("GET", "/admin/self-model/narration-patterns"),
+    ("POST", "/admin/stt/transcribe"),
+    ("GET", "/admin/stt/status"),
+}
+
 
 def _admin_area_routes():
     import main_sdk
-    from route_guard import iter_mounted_routes, _in_admin_area
+    from route_guard import iter_mounted_routes
     seen = set()
     for method, path, route, _endpoint in iter_mounted_routes(main_sdk.app):
-        if _in_admin_area(path) and (method, path) not in seen:
+        if (path == "/admin" or path.startswith("/admin/")) and (method, path) not in seen:
             seen.add((method, path))
             yield method, path, route
 
 
 def _exempt(method, path):
-    from route_guard import ADMIN_AREA_USER_ROUTES, PUBLIC_ROUTES, _matches
-    return (_matches(PUBLIC_ROUTES, method, path)
-            or _matches(ADMIN_AREA_USER_ROUTES, method, path))
+    from route_guard import PUBLIC_ROUTES, _matches
+    return _matches(PUBLIC_ROUTES, method, path) or (method, path) in EXPECTED_NON_ADMIN
 
 
 def test_every_admin_route_is_admin_level_unless_exempt():
@@ -138,12 +178,19 @@ def test_every_non_exempt_admin_route_refuses_a_non_admin(booted_app, plain_user
     assert not failures, failures
 
 
-def test_exemption_list_names_only_mounted_routes():
-    """A stale exemption (route renamed or removed) should not linger."""
-    from route_guard import ADMIN_AREA_USER_ROUTES, _matches
+def test_exemption_list_matches_exactly_the_intended_routes():
+    """Each guard exemption matches exactly one mounted route, and together
+    they are EXPECTED_NON_ADMIN: no stale entry, and no pattern that would
+    quietly open a route added later."""
+    import route_guard
+    rules = getattr(route_guard, "ADMIN_AREA_USER_ROUTES", [])
     mounted = [(m, p) for m, p, _r in _admin_area_routes()]
-    for rule in ADMIN_AREA_USER_ROUTES:
-        assert any(_matches([rule], m, p) for m, p in mounted), rule
+    matched = set()
+    for rule in rules:
+        hits = [mp for mp in mounted if route_guard._matches([rule], *mp)]
+        assert len(hits) == 1, (rule, hits)
+        matched.update(hits)
+    assert matched == EXPECTED_NON_ADMIN
 
 
 # --- exempted pages still work for a non-admin, scoped to their own data ------
@@ -272,3 +319,34 @@ def test_dashboard_auth_flow_for_non_admin(booted_app, test_db):
     assert booted_app.get(f"/admin/users/{profile.user_id}/model", headers=_bearer(token)).status_code == 200
     assert booted_app.get("/admin/daemons/mine", headers=_bearer(token)).status_code == 200
     assert booted_app.get("/admin/users", headers=_bearer(token)).status_code == 403
+
+
+# --- require_auth re-checks the account on every call -------------------------
+
+def test_rejected_user_token_refused_on_exempt_routes(booted_app, plain_user):
+    from users import UserManager
+    me, token = plain_user
+    assert booted_app.get("/admin/daemons/mine", headers=_bearer(token)).status_code == 200
+    UserManager().set_user_status(me, "rejected", "spam")
+    for method, url in (("GET", "/admin/daemons/mine"), ("GET", "/admin/genesis/active"),
+                        ("POST", "/admin/feedback"), ("GET", f"/admin/users/{me}/model")):
+        r = booted_app.request(method, url, json={"message": "x"}, headers=_bearer(token))
+        assert r.status_code == 403, (url, r.status_code, r.text)
+
+
+def test_pending_user_token_refused_on_exempt_routes(booted_app, plain_user):
+    from users import UserManager
+    me, token = plain_user
+    UserManager().set_user_status(me, "pending")
+    r = booted_app.get("/admin/genesis/active", headers=_bearer(token))
+    assert r.status_code == 403, r.text
+
+
+def test_deleted_user_token_refused_on_exempt_routes(booted_app, plain_user):
+    from database import get_db
+    me, token = plain_user
+    with get_db() as conn:
+        conn.execute("DELETE FROM users WHERE id = ?", (me,))
+    for url in ("/admin/daemons/mine", "/admin/genesis/active"):
+        r = booted_app.get(url, headers=_bearer(token))
+        assert r.status_code == 401, (url, r.status_code, r.text)
