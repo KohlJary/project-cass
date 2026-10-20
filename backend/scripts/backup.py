@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Daily backup of Cass's data directory, run by the cass-backup user timer
-(scripts/systemd/). Writes cass-YYYY-MM-DD-HHMM.zip to CASS_BACKUP_DIR (or
+(backend/cass-backup.service.template and cass-backup.timer). Writes cass-YYYY-MM-DD-HHMM.zip to CASS_BACKUP_DIR (or
 --out), then prunes to the last 7 days and 4 weeks.
 
 The data directory is config.DATA_DIR: $DATA_DIR, from the environment or
@@ -11,6 +11,7 @@ backend/.env, else backend/data. Needs no running server and no login.
 """
 import argparse
 import os
+import signal
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -34,7 +35,30 @@ def main(argv=None) -> int:
     out_dir = Path(args.out).expanduser().resolve()
     if out_dir.is_relative_to(DATA_DIR):
         parser.error(f"{out_dir} is inside the data directory it backs up")
+    # config creates DATA_DIR if it's missing, so an unmounted or renamed
+    # data dir would otherwise back up as an empty folder and, a week later,
+    # be all that's left. Her main database must be there.
+    main_db = DATA_DIR / "cass.db"
+    if not main_db.is_file() or main_db.stat().st_size == 0:
+        print(f"Refusing to back up {DATA_DIR}: {main_db.name} is missing or empty", file=sys.stderr)
+        return 1
+    if args.keep_daily < 1 or args.keep_weekly < 0:
+        parser.error("--keep-daily must be at least 1 and --keep-weekly at least 0")
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # A run cut short by a signal or a crash leaves a .partial nothing else
+    # would remove; the timer runs one backup at a time, so sweep them first.
+    for stale in out_dir.glob("cass-*.zip.partial"):
+        stale.unlink()
+    for stale in out_dir.glob(".snap-*"):
+        if stale.is_dir():
+            for f in stale.iterdir():
+                f.unlink()
+            stale.rmdir()
+
+    # systemd stops units with SIGTERM; turn it into an exception so the
+    # partial zip is removed on the way out.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 
     path = daily_backup_path(out_dir, datetime.now())
     write_backup(DATA_DIR, path)

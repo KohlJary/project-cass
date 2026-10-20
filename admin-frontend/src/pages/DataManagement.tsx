@@ -552,7 +552,7 @@ function BackupsPanel() {
       <div className="backup-schedule">
         <h3>Automatic Backups</h3>
         <p>
-          The cass-backup timer zips the whole data directory daily at 4:30 AM
+          The cass-backup timer zips the whole data directory daily, around 4:30 AM,
           into a folder outside it, keeping the last 7 days and 4 weeks. It is a
           systemd user unit; the steps are in backend/cass-backup.service.template.
           Backups made here go to the data directory's backups/ folder instead.
