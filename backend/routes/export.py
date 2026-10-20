@@ -1090,30 +1090,30 @@ async def import_users(request: ImportUsersRequest) -> Dict[str, Any]:
                     )
                     imported += 1
 
-                # Import observations (always merge - observations are additive)
-                # Need daemon_id for observations - get default daemon
-                daemon_row = conn.execute("SELECT id FROM daemons LIMIT 1").fetchone()
-                daemon_id = daemon_row[0] if daemon_row else None
+                # Import observations into PeopleDex (always merge -
+                # observations are additive; an identical text is skipped).
+                from database import get_daemon_id
+                from peopledex import PeopleDexManager, observation_type_for_category
+                daemon_id = get_daemon_id()
 
-                if daemon_id:
-                    for obs in user.observations:
-                        # Check if similar observation exists
-                        content_str = json.dumps(obs.content)
-                        existing_obs = conn.execute(
-                            """SELECT id FROM user_observations
-                               WHERE user_id = ? AND observation_type = ? AND content_json = ?""",
-                            (user.id, obs.observation_type, content_str)
-                        ).fetchone()
-
-                        if not existing_obs:
-                            import uuid
-                            conn.execute(
-                                """INSERT INTO user_observations
-                                   (id, daemon_id, user_id, observation_type, content_json, confidence, created_at)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                                (str(uuid.uuid4()), daemon_id, user.id, obs.observation_type,
-                                 content_str, obs.confidence, obs.created_at)
-                            )
+                if daemon_id and user.observations:
+                    pdx = PeopleDexManager(daemon_id=daemon_id)
+                    entity = pdx.ensure_entity_for_user(user.id)
+                    existing = {o.content for o in pdx.get_observations(entity.id, limit=100000)} if entity else set()
+                    for obs in user.observations if entity else []:
+                        content = obs.content if isinstance(obs.content, dict) else {"observation": obs.content}
+                        text = content.get("observation") or content.get("content")
+                        if not text or text in existing:
+                            continue
+                        pdx.add_observation(
+                            entity.id,
+                            observation_type_for_category(obs.observation_type),
+                            text,
+                            metadata={"category": obs.observation_type},
+                            confidence=obs.confidence if obs.confidence is not None else 0.7,
+                            source_type="import",
+                        )
+                        existing.add(text)
 
             except Exception as e:
                 errors.append({"user_id": user.id, "error": str(e)})
@@ -1161,19 +1161,17 @@ async def export_users_json(
             }
 
             if include_observations:
-                obs_cursor = conn.execute(
-                    """SELECT observation_type, content_json, confidence, created_at
-                       FROM user_observations WHERE user_id = ?""",
-                    (user_id,)
-                )
+                # Observations live in PeopleDex (epic #55); exported in the
+                # same shape as before (observation_type = legacy category).
+                from users import UserManager
                 user_data["observations"] = [
                     {
-                        "observation_type": obs_type,
-                        "content": json.loads(content_json) if content_json else {},
-                        "confidence": conf,
-                        "created_at": created_at,
+                        "observation_type": obs.category,
+                        "content": {"observation": obs.observation},
+                        "confidence": obs.confidence,
+                        "created_at": obs.timestamp,
                     }
-                    for obs_type, content_json, conf, created_at in obs_cursor.fetchall()
+                    for obs in UserManager().load_observations(user_id)
                 ]
 
             users.append(user_data)

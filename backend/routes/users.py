@@ -116,25 +116,19 @@ async def delete_observation_endpoint(
     current_user: str = Depends(get_current_user)
 ):
     """Delete a specific observation (only own observations)"""
-    # Only check current user's observations
-    observations = _user_manager.load_observations(current_user)
+    # delete_observation only matches observations about current_user, so
+    # nobody can delete observations about someone else (#31: this used to
+    # call a no-op save, and only the Chroma copy went away).
+    if not _user_manager.delete_observation(current_user, observation_id):
+        raise HTTPException(status_code=404, detail="Observation not found")
 
-    # Find and remove the observation
-    for obs in observations:
-        if obs.id == observation_id:
-            # Remove from user's observations
-            updated_obs = [o for o in observations if o.id != observation_id]
-            _user_manager._save_observations(current_user, updated_obs)
+    # Remove from ChromaDB
+    try:
+        _memory.collection.delete(ids=[f"user_observation_{observation_id}"])
+    except Exception:
+        pass  # May not exist in ChromaDB
 
-            # Remove from ChromaDB
-            try:
-                _memory.collection.delete(ids=[f"user_observation_{observation_id}"])
-            except Exception:
-                pass  # May not exist in ChromaDB
-
-            return {"status": "deleted", "observation_id": observation_id}
-
-    raise HTTPException(status_code=404, detail="Observation not found")
+    return {"status": "deleted", "observation_id": observation_id}
 
 
 @router.post("/current")

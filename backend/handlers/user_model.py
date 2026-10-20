@@ -208,18 +208,9 @@ async def execute_user_model_tool(
                     "error": "No user specified. Provide user_id or ensure there's a current user."
                 }
 
-            # Map old category names to PeopleDex observation_type
-            category_to_type = {
-                "interest": "general",
-                "preference": "general",
-                "background": "identity_statement",
-                "value": "value",
-                "communication_style": "communication_style",
-                "relationship_dynamic": "general",
-                "growth": "growth_observation",
-                "contradiction": "contradiction",
-            }
-            observation_type = category_to_type.get(category, "general")
+            # Map the legacy category to a PeopleDex observation_type
+            from peopledex import observation_type_for_category
+            observation_type = observation_type_for_category(category)
 
             # Use PeopleDex
             pdx, entity, display_name = _get_pdx_and_entity(user_id)
@@ -228,6 +219,7 @@ async def execute_user_model_tool(
                 user_id=user_id,
                 observation_type=observation_type,
                 content=observation,
+                metadata={"category": category},
                 confidence=confidence,
                 source_conversation_id=conversation_id,
                 source_type="explicit_reflection"

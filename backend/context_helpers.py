@@ -368,7 +368,7 @@ async def process_inline_tags(
                     },
                     user_manager=user_manager,
                     memory=memory,
-                    user_id=user_id,  # Target the conversation user
+                    target_user_id=user_id,  # Target the conversation user
                     conversation_id=conversation_id
                 )
                 # Track for TUI display

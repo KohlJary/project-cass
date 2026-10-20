@@ -271,9 +271,9 @@ ACTIVITY_SOURCES: Dict[str, ActivitySource] = {
         id="user_observations",
         name="User Observations",
         category="social",
-        table="user_observations",
+        table="peopledex_observations",  # epic #55: user observations live in PeopleDex
         timestamp_field="created_at",
-        select_fields="id, user_id, category, observation, confidence, created_at",
+        select_fields="id, entity_id, observation_type, content, confidence, created_at",
         icon="users",
     ),
 

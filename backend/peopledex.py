@@ -2,8 +2,10 @@
 PeopleDex - Biographical Entity Database
 
 A knowledge graph for storing factual/biographical information about entities
-(people, organizations, teams, daemons). Complements UserObservations which
-stores *relational* data (how Cass relates to someone).
+(people, organizations, teams, daemons), and the relational data about them
+(observations, shared moments, relationship patterns, mutual shaping). It is
+the one store for what Cass knows about users: the legacy user_observations
+table and the per-user YAML models are no longer written (epic #55).
 
 PeopleDex stores:
 - Entity info: names, birthdays, pronouns, contact details
@@ -18,6 +20,53 @@ from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
 from database import get_db, dict_from_row
+
+# Legacy user-observation categories (the old user_observations table and the
+# record_user_observation / <observe target="user:X"> tags) mapped to PeopleDex
+# observation types. "background" -> identity_statement matches the mapping the
+# record_user_observation tool already used. The original category is kept in
+# the observation's metadata as "category" so it can be shown again.
+LEGACY_CATEGORY_TO_OBSERVATION_TYPE = {
+    "interest": "general",
+    "preference": "general",
+    "background": "identity_statement",
+    "identity": "identity_statement",
+    "value": "value",
+    "communication_style": "communication_style",
+    "relationship_dynamic": "general",
+    "growth": "growth_observation",
+    "contradiction": "contradiction",
+    "general": "general",
+}
+
+OBSERVATION_TYPE_TO_LEGACY_CATEGORY = {
+    "identity_statement": "background",
+    "value": "value",
+    "communication_style": "communication_style",
+    "growth_observation": "growth",
+    "contradiction": "contradiction",
+    "open_question": "open_question",
+    "general": "general",
+}
+
+
+def observation_type_for_category(category: Optional[str]) -> str:
+    """PeopleDex observation_type for a legacy user-observation category."""
+    return LEGACY_CATEGORY_TO_OBSERVATION_TYPE.get(category or "background", "general")
+
+
+def legacy_category_for(observation_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    """The legacy category to show for a PeopleDex observation.
+
+    Prefers the category recorded in metadata; rows from the Dec 2025
+    migration carry it in the type itself ("general_<category>").
+    """
+    if metadata and metadata.get("category"):
+        return metadata["category"]
+    if observation_type.startswith("general_"):
+        return observation_type[len("general_"):]
+    return OBSERVATION_TYPE_TO_LEGACY_CATEGORY.get(observation_type, observation_type)
+
 
 # Optional state bus import - allow PeopleDex to work without it
 try:
@@ -1097,6 +1146,11 @@ class PeopleDexManager:
             comm_style = [o for o in observations if o.observation_type == "communication_style"]
             growth_obs = [o for o in observations if o.observation_type == "growth_observation"]
             open_questions = [o for o in observations if o.observation_type == "open_question" and o.status == "active"]
+            # "general" covers interests, preferences and relationship dynamics
+            # from <observe target="user:X">; "general_<category>" rows come
+            # from the Dec 2025 migration of the legacy user_observations table.
+            general = [o for o in observations if o.status == "active" and (
+                       o.observation_type == "general" or o.observation_type.startswith("general_"))]
 
             if identity_stmts:
                 sections.append("\n### Who They Are")
@@ -1129,6 +1183,11 @@ class PeopleDexManager:
             if open_questions:
                 sections.append("\n### Open Questions")
                 for obs in open_questions[:5]:
+                    sections.append(f"- {obs.content}")
+
+            if general:
+                sections.append("\n### Other Things I've Noticed")
+                for obs in general[:5]:
                     sections.append(f"- {obs.content}")
 
         # Shared moments
@@ -1746,6 +1805,41 @@ class PeopleDexManager:
 
         return True
 
+    def ensure_entity_for_user(self, user_id: str) -> Optional[Entity]:
+        """The PeopleDex entity linked to a user, created from the users row
+        if it doesn't exist yet. None if there is no such user."""
+        if not user_id:
+            return None
+        entity = self.get_entity_by_user(user_id)
+        if entity:
+            return entity
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT display_name FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        if not row:
+            return None
+        # create_entity returns the new id, not an Entity.
+        return self.get_entity(self.create_entity(
+            primary_name=row[0],
+            entity_type=EntityType.PERSON,
+            user_id=user_id,
+        ))
+
+    def delete_observation(self, observation_id: str, entity_id: Optional[str] = None) -> bool:
+        """Delete one observation (optionally only if it belongs to entity_id)."""
+        with get_db() as conn:
+            if entity_id:
+                result = conn.execute(
+                    "DELETE FROM peopledex_observations WHERE id = ? AND entity_id = ?",
+                    (observation_id, entity_id),
+                )
+            else:
+                result = conn.execute(
+                    "DELETE FROM peopledex_observations WHERE id = ?", (observation_id,)
+                )
+            return result.rowcount > 0
+
     def add_observation_for_user(
         self,
         user_id: str,
@@ -1758,19 +1852,7 @@ class PeopleDexManager:
 
         Creates the entity if it doesn't exist.
         """
-        entity = self.get_entity_by_user(user_id)
-        if not entity:
-            # Create entity for this user
-            from users import UserManager
-            um = UserManager()
-            profile = um.load_profile(user_id)
-            if profile:
-                # create_entity returns the new id, not an Entity.
-                entity = self.get_entity(self.create_entity(
-                    primary_name=profile.display_name,
-                    entity_type=EntityType.PERSON,
-                    user_id=user_id,
-                ))
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_observation(entity.id, observation_type, content, **kwargs)
@@ -1784,7 +1866,7 @@ class PeopleDexManager:
         """
         Add a shared moment for a user (by user_id rather than entity_id).
         """
-        entity = self.get_entity_by_user(user_id)
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_moment(entity.id, description, **kwargs)
@@ -1799,7 +1881,7 @@ class PeopleDexManager:
         """
         Add a relationship pattern for a user (by user_id rather than entity_id).
         """
-        entity = self.get_entity_by_user(user_id)
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_relationship_pattern(entity.id, pattern_type, description, **kwargs)
@@ -1813,7 +1895,7 @@ class PeopleDexManager:
         """
         Add a mutual shaping note for a user (by user_id rather than entity_id).
         """
-        entity = self.get_entity_by_user(user_id)
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_mutual_shaping(entity.id, shaping_type, note)
@@ -1830,19 +1912,7 @@ class PeopleDexManager:
 
         Creates the entity if it doesn't exist.
         """
-        entity = self.get_entity_by_user(user_id)
-        if not entity:
-            # Create entity for this user
-            from users import UserManager
-            um = UserManager()
-            profile = um.load_profile(user_id)
-            if profile:
-                # create_entity returns the new id, not an Entity.
-                entity = self.get_entity(self.create_entity(
-                    primary_name=profile.display_name,
-                    entity_type=EntityType.PERSON,
-                    user_id=user_id,
-                ))
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_fact(entity.id, fact_type, content, **kwargs)

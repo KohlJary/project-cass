@@ -3,11 +3,15 @@ Cass Vessel - User Manager
 Handles user profiles and Cass's observations about users.
 Supports multi-user with SQLite storage.
 
-Now uses SQLite database for core data (profiles, observations)
-while keeping complex nested models (UserModel, RelationshipModel) in files.
+Profiles live in the SQLite users table. What Cass knows about a user
+(observations, the user model, the relationship model) lives in PeopleDex
+(backend/peopledex.py, epic #55): the observation and model methods below are
+a compatibility layer that reads and writes PeopleDex. Nothing here writes the
+legacy user_observations table or the per-user YAML model files any more;
+scripts/migrate_legacy_users_to_peopledex.py copies what's in them into
+PeopleDex, and leaves them in place.
 
-DEPRECATION NOTICE: Many methods in this module are deprecated in favor of
-PeopleDex (backend/peopledex.py). The following are deprecated:
+New code should call PeopleDex directly:
 - add_observation() -> use PeopleDexManager.add_observation_for_user()
 - add_identity_understanding() -> use PeopleDexManager.add_observation_for_user(observation_type="identity_statement")
 - add_shared_moment() -> use PeopleDexManager.add_moment_for_user()
@@ -33,8 +37,11 @@ import yaml
 
 from database import get_db, json_serialize, json_deserialize, get_daemon_id
 
-# Import extracted observation manager (UserObservation kept local for backward compat)
-from user_observations import UserObservationManager
+from peopledex import (
+    PeopleDexManager,
+    legacy_category_for,
+    observation_type_for_category,
+)
 
 
 # Valid categories for user observations
@@ -604,10 +611,9 @@ class PerUserJournalEntry:
 
 class UserManager:
     """
-    Manages user profiles and observations with SQLite persistence.
-
-    Core data (profiles, observations) stored in SQLite.
-    Complex nested models (UserModel, RelationshipModel) stored as YAML files.
+    Manages user profiles (SQLite users table), per-user journals, and a
+    compatibility layer over PeopleDex for observations and the
+    UserModel/RelationshipModel views.
     """
 
     def __init__(self, storage_dir: str = None):
@@ -622,10 +628,31 @@ class UserManager:
         self.storage_dir = Path(storage_dir) if storage_dir else DATA_DIR / "users"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize extracted observation manager
-        self._observation_manager = UserObservationManager(
-            daemon_id=self.daemon_id,
-            load_profile_fn=self.load_profile,
+    def _pdx(self) -> PeopleDexManager:
+        """PeopleDex, where observations and user/relationship models live."""
+        return PeopleDexManager(daemon_id=self.daemon_id)
+
+    def _entity(self, user_id: str, create: bool = False):
+        pdx = self._pdx()
+        return pdx.ensure_entity_for_user(user_id) if create else pdx.get_entity_by_user(user_id)
+
+    @staticmethod
+    def _to_user_observation(obs) -> "UserObservation":
+        """A PeopleDex Observation in the legacy UserObservation shape."""
+        meta = obs.metadata or {}
+        return UserObservation(
+            id=obs.id,
+            timestamp=obs.created_at,
+            observation=obs.content,
+            category=legacy_category_for(obs.observation_type, meta),
+            confidence=obs.confidence if obs.confidence is not None else 0.7,
+            source_conversation_id=obs.source_conversation_id,
+            source_summary_id=meta.get("source_summary_id"),
+            source_message_id=meta.get("source_message_id"),
+            source_journal_date=meta.get("source_journal_date"),
+            source_type=obs.source_type or "conversation",
+            validation_count=max(obs.validation_count or 0, meta.get("validation_count") or 0, 1),
+            last_validated=obs.last_validated,
         )
 
     def _emit_user_event(self, event_type: str, data: dict) -> None:
@@ -795,33 +822,19 @@ class UserManager:
             ))
 
     def load_observations(self, user_id: str) -> List[UserObservation]:
-        """Load all observations about a user. Delegates to UserObservationManager."""
-        from user_observations import UserObservation as ExtractedObs
-        extracted = self._observation_manager.load_observations(user_id)
-        # Convert to local UserObservation type for backward compatibility
-        return [
-            UserObservation(
-                id=obs.id,
-                timestamp=obs.timestamp,
-                observation=obs.observation,
-                category=obs.category,
-                confidence=obs.confidence,
-                source_conversation_id=obs.source_conversation_id,
-                source_summary_id=obs.source_summary_id,
-                source_message_id=obs.source_message_id,
-                source_journal_date=obs.source_journal_date,
-                source_type=obs.source_type,
-                validation_count=obs.validation_count,
-                last_validated=obs.last_validated,
-            )
-            for obs in extracted
-        ]
+        """All active PeopleDex observations about a user, newest first."""
+        entity = self._entity(user_id)
+        if not entity:
+            return []
+        observations = self._pdx().get_observations(entity.id, status="active", limit=100000)
+        return [self._to_user_observation(o) for o in observations]
 
-    def _save_observations(self, user_id: str, observations: List[UserObservation]):
-        """Save observations - used for batch updates"""
-        # For SQLite, we don't need to save all at once
-        # Individual observations are saved via add_observation
-        pass
+    def delete_observation(self, user_id: str, observation_id: str) -> bool:
+        """Delete one of this user's observations from PeopleDex."""
+        entity = self._entity(user_id)
+        if not entity:
+            return False
+        return self._pdx().delete_observation(observation_id, entity_id=entity.id)
 
     def update_profile(
         self,
@@ -973,77 +986,50 @@ class UserManager:
         source_type: str = "conversation"
     ) -> Optional[UserObservation]:
         """
-        Add an observation about a user. Delegates to UserObservationManager.
-
-        DEPRECATED: Use PeopleDexManager.add_observation_for_user() instead.
+        Add an observation about a user. Writes PeopleDex (the category maps
+        to an observation_type; the category itself is kept in metadata).
         """
-        warnings.warn(
-            "UserManager.add_observation() is deprecated. Use PeopleDexManager.add_observation_for_user() instead.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        result = self._observation_manager.add_observation(
-            user_id=user_id,
-            observation=observation,
-            category=category,
-            confidence=confidence,
-            source_conversation_id=source_conversation_id,
-            source_summary_id=source_summary_id,
-            source_message_id=source_message_id,
-            source_journal_date=source_journal_date,
-            source_type=source_type,
-        )
-        if result is None:
+        if category not in USER_OBSERVATION_CATEGORIES:
+            category = "background"
+        if not self.load_profile(user_id):
             return None
 
-        # Emit observation added event
+        metadata = {"category": category}
+        for key, value in (
+            ("source_summary_id", source_summary_id),
+            ("source_message_id", source_message_id),
+            ("source_journal_date", source_journal_date),
+        ):
+            if value:
+                metadata[key] = value
+
+        obs = self._pdx().add_observation_for_user(
+            user_id=user_id,
+            observation_type=observation_type_for_category(category),
+            content=observation,
+            metadata=metadata,
+            confidence=confidence,
+            source_type=source_type,
+            source_conversation_id=source_conversation_id,
+        )
+        if obs is None:
+            return None
+
         self._emit_user_event("user.observation_added", {
             "user_id": user_id,
-            "observation_id": result.id,
+            "observation_id": obs.id,
             "category": category,
             "confidence": confidence,
         })
-
-        # Convert to local UserObservation type for backward compatibility
-        return UserObservation(
-            id=result.id,
-            timestamp=result.timestamp,
-            observation=result.observation,
-            category=result.category,
-            confidence=result.confidence,
-            source_conversation_id=result.source_conversation_id,
-            source_summary_id=result.source_summary_id,
-            source_message_id=result.source_message_id,
-            source_journal_date=result.source_journal_date,
-            source_type=result.source_type,
-            validation_count=result.validation_count,
-            last_validated=result.last_validated,
-        )
+        return self._to_user_observation(obs)
 
     def get_recent_observations(
         self,
         user_id: str,
         limit: int = 10
     ) -> List[UserObservation]:
-        """Get most recent observations about a user. Delegates to UserObservationManager."""
-        extracted = self._observation_manager.get_recent_observations(user_id, limit)
-        return [
-            UserObservation(
-                id=obs.id,
-                timestamp=obs.timestamp,
-                observation=obs.observation,
-                category=obs.category,
-                confidence=obs.confidence,
-                source_conversation_id=obs.source_conversation_id,
-                source_summary_id=obs.source_summary_id,
-                source_message_id=obs.source_message_id,
-                source_journal_date=obs.source_journal_date,
-                source_type=obs.source_type,
-                validation_count=obs.validation_count,
-                last_validated=obs.last_validated,
-            )
-            for obs in extracted
-        ]
+        """Most recent observations about a user."""
+        return self.load_observations(user_id)[:limit]
 
     def get_observations_by_category(
         self,
@@ -1051,25 +1037,8 @@ class UserManager:
         category: str,
         limit: int = 10
     ) -> List[UserObservation]:
-        """Get observations filtered by category. Delegates to UserObservationManager."""
-        extracted = self._observation_manager.get_observations_by_category(user_id, category, limit)
-        return [
-            UserObservation(
-                id=obs.id,
-                timestamp=obs.timestamp,
-                observation=obs.observation,
-                category=obs.category,
-                confidence=obs.confidence,
-                source_conversation_id=obs.source_conversation_id,
-                source_summary_id=obs.source_summary_id,
-                source_message_id=obs.source_message_id,
-                source_journal_date=obs.source_journal_date,
-                source_type=obs.source_type,
-                validation_count=obs.validation_count,
-                last_validated=obs.last_validated,
-            )
-            for obs in extracted
-        ]
+        """Observations in one legacy category, newest first."""
+        return [o for o in self.load_observations(user_id) if o.category == category][:limit]
 
     def get_high_confidence_observations(
         self,
@@ -1077,44 +1046,27 @@ class UserManager:
         min_confidence: float = 0.8,
         limit: int = 10
     ) -> List[UserObservation]:
-        """Get high-confidence observations about a user. Delegates to UserObservationManager."""
-        extracted = self._observation_manager.get_high_confidence_observations(
-            user_id, min_confidence, limit
-        )
-        return [
-            UserObservation(
-                id=obs.id,
-                timestamp=obs.timestamp,
-                observation=obs.observation,
-                category=obs.category,
-                confidence=obs.confidence,
-                source_conversation_id=obs.source_conversation_id,
-                source_summary_id=obs.source_summary_id,
-                source_message_id=obs.source_message_id,
-                source_journal_date=obs.source_journal_date,
-                source_type=obs.source_type,
-                validation_count=obs.validation_count,
-                last_validated=obs.last_validated,
-            )
-            for obs in extracted
-        ]
+        """Observations at or above min_confidence, most confident first."""
+        observations = [o for o in self.load_observations(user_id) if o.confidence >= min_confidence]
+        observations.sort(key=lambda o: o.confidence, reverse=True)
+        return observations[:limit]
 
     def validate_observation(
         self,
         user_id: str,
         observation_id: str
     ) -> Optional[UserObservation]:
-        """Validate an observation (increment validation_count, update timestamp). Delegates to UserObservationManager."""
-        success = self._observation_manager.validate_observation(user_id, observation_id)
-        if not success:
+        """Validate an observation: bump its validation count and nudge its
+        confidence up (capped at 0.95)."""
+        current = next((o for o in self.load_observations(user_id) if o.id == observation_id), None)
+        if current is None:
             return None
-
-        # Return updated observation
-        obs_list = self.load_observations(user_id)
-        for obs in obs_list:
-            if obs.id == observation_id:
-                return obs
-        return None
+        self._pdx().update_observation(
+            observation_id,
+            confidence=min(0.95, current.confidence + 0.05),
+            validation_count_increment=True,
+        )
+        return next((o for o in self.load_observations(user_id) if o.id == observation_id), None)
 
     # === Per-User Journals (still file-based for now) ===
 
@@ -1224,31 +1176,112 @@ class UserManager:
     # === Structured User Model (file-based) ===
 
     def load_user_model(self, user_id: str) -> Optional[UserModel]:
-        """Load or create user's structured model"""
-        path = self._get_user_model_path(user_id)
+        """The user model, assembled from PeopleDex. None if PeopleDex holds
+        nothing model-shaped for this user yet."""
+        profile = self.load_profile(user_id)
+        if not profile:
+            return None
+        entity = self._entity(user_id)
+        if not entity:
+            return None
+        pdx = self._pdx()
+        observations = pdx.get_observations(entity.id, limit=100000)
+        moments = pdx.get_moments(entity.id, limit=100000)
+        meta = pdx.get_relationship_meta(entity.id)
 
-        if not path.exists():
-            # Return None if user doesn't exist
-            profile = self.load_profile(user_id)
-            if not profile:
-                return None
-            # Don't auto-create - return None so caller knows there's no model yet
+        def of_type(t, active_only=True):
+            return [o for o in observations
+                    if o.observation_type == t and (o.status == "active" or not active_only)]
+
+        identity = of_type("identity_statement")
+        values = of_type("value")
+        comm = of_type("communication_style")
+        growth = of_type("growth_observation")
+        questions = of_type("open_question")
+        contradictions = of_type("contradiction", active_only=False)
+        if not (identity or values or comm or growth or questions or contradictions or moments or meta):
             return None
 
-        try:
-            with open(path, 'r') as f:
-                data = yaml.safe_load(f)
-            return UserModel.from_dict(data)
-        except Exception:
-            return None
+        style = CommunicationStyle()
+        if comm:
+            latest = comm[0]
+            m = latest.metadata or {}
+            style = CommunicationStyle(
+                style=latest.content,
+                preferences=m.get("preferences", []),
+                patterns=m.get("patterns", {}),
+                effective_approaches=m.get("effective_approaches", []),
+                avoid=m.get("avoid", []),
+            )
+
+        stamps = [o.updated_at or o.created_at for o in observations] + [mo.created_at for mo in moments]
+        if meta:
+            stamps.append(meta.updated_at)
+        return UserModel(
+            user_id=user_id,
+            updated_at=max((t for t in stamps if t), default=datetime.now().isoformat()),
+            identity_statements=[
+                IdentityUnderstanding(
+                    statement=o.content,
+                    confidence=o.confidence,
+                    source=(o.metadata or {}).get("source") or o.source_type or "observation",
+                    first_noticed=o.first_noticed or o.created_at,
+                    last_affirmed=(o.metadata or {}).get("last_affirmed") or o.last_validated or o.created_at,
+                    evidence=(o.metadata or {}).get("evidence") or [],
+                )
+                for o in reversed(identity)
+            ],
+            values=[o.content for o in reversed(values)],
+            communication_style=style,
+            relationship_type=(meta.relationship_type if meta and meta.relationship_type else profile.relationship),
+            shared_history=[
+                SharedMoment(
+                    id=mo.id,
+                    timestamp=mo.timestamp,
+                    description=mo.description,
+                    significance=mo.significance or "",
+                    category=mo.category,
+                    conversation_id=mo.conversation_id,
+                )
+                for mo in reversed(moments)
+            ],
+            growth_observations=[
+                UserGrowthObservation(
+                    id=o.id,
+                    timestamp=o.created_at,
+                    area=(o.metadata or {}).get("area") or "",
+                    observation=o.content,
+                    direction=(o.metadata or {}).get("direction") or "growth",
+                    evidence=(o.metadata or {}).get("evidence") or "",
+                )
+                for o in reversed(growth)
+            ],
+            open_questions=[o.content for o in reversed(questions)],
+            contradictions=[
+                UserContradiction(
+                    id=o.id,
+                    timestamp=o.created_at,
+                    aspect_a=(o.metadata or {}).get("aspect_a") or o.content,
+                    aspect_b=(o.metadata or {}).get("aspect_b") or "",
+                    context=(o.metadata or {}).get("context") or "",
+                    resolution=o.resolution,
+                    resolved=o.status == "resolved",
+                    resolution_timestamp=o.resolved_at,
+                )
+                for o in reversed(contradictions)
+            ],
+            first_interaction=(meta.first_interaction if meta else "") or profile.created_at,
+            last_interaction=(meta.last_interaction if meta else "") or "",
+        )
 
     def save_user_model(self, model: UserModel) -> bool:
-        """Save user's structured model"""
+        """Write a UserModel to the legacy YAML file.
+
+        Legacy: nothing reads these files at runtime any more (load_user_model
+        reads PeopleDex). Kept for scripts/bootstrap_kohl_model.py; runtime
+        code must use the add_* methods, which write PeopleDex.
+        """
         path = self._get_user_model_path(model.user_id)
-
-        # Ensure user directory exists
-        user_dir = self._get_user_dir(model.user_id)
-
         try:
             model.updated_at = datetime.now().isoformat()
             with open(path, 'w') as f:
@@ -1258,30 +1291,24 @@ class UserManager:
             return False
 
     def create_user_model(self, user_id: str) -> Optional[UserModel]:
-        """Create a new empty user model"""
+        """An empty user model for an existing user (not persisted; the
+        add_* methods write PeopleDex)."""
         profile = self.load_profile(user_id)
         if not profile:
             return None
-
-        now = datetime.now().isoformat()
         model = UserModel(
             user_id=user_id,
-            updated_at=now,
+            updated_at=datetime.now().isoformat(),
             relationship_type=profile.relationship,
             values=profile.values.copy() if profile.values else [],
             first_interaction=profile.created_at,
         )
-
-        # Initialize communication style from profile if available
         if profile.communication:
             model.communication_style = CommunicationStyle(
                 style=profile.communication.get("style", ""),
                 preferences=profile.communication.get("preferences", []),
             )
-
-        if self.save_user_model(model):
-            return model
-        return None
+        return model
 
     def get_or_create_user_model(self, user_id: str) -> Optional[UserModel]:
         """Load existing user model or create a new one"""
@@ -1291,25 +1318,65 @@ class UserManager:
         return self.create_user_model(user_id)
 
     def load_relationship_model(self, user_id: str) -> Optional[RelationshipModel]:
-        """Load relationship model for a user"""
-        path = self._get_relationship_model_path(user_id)
-
-        if not path.exists():
+        """The relationship model, assembled from PeopleDex. None if PeopleDex
+        holds nothing relationship-shaped for this user yet."""
+        entity = self._entity(user_id)
+        if not entity:
+            return None
+        pdx = self._pdx()
+        meta = pdx.get_relationship_meta(entity.id)
+        patterns = pdx.get_relationship_patterns(entity.id)
+        shaping = pdx.get_mutual_shaping(entity.id)
+        if not (meta or patterns or shaping):
             return None
 
-        try:
-            with open(path, 'r') as f:
-                data = yaml.safe_load(f)
-            return RelationshipModel.from_dict(data)
-        except Exception:
-            return None
+        def by_type(t):
+            return [p for p in reversed(patterns) if p.pattern_type == t]
+
+        stamps = [p.created_at for p in patterns] + [sh.created_at for sh in shaping]
+        if meta:
+            stamps.append(meta.updated_at)
+        return RelationshipModel(
+            user_id=user_id,
+            updated_at=max((t for t in stamps if t), default=datetime.now().isoformat()),
+            formation_date=(meta.formation_date if meta else "") or "",
+            significant_shifts=[
+                RelationshipShift(
+                    id=p.id,
+                    timestamp=p.timestamp,
+                    description=p.description,
+                    from_state=p.from_state or "",
+                    to_state=p.to_state or "",
+                    catalyst=p.catalyst or "",
+                )
+                for p in by_type("shift")
+            ],
+            current_phase=(meta.current_phase if meta else None) or "establishing",
+            patterns=[
+                RelationalPattern(
+                    id=p.id,
+                    name=p.name or "",
+                    description=p.description,
+                    frequency=p.frequency or "regular",
+                    valence=p.valence or "positive",
+                    first_noticed=p.first_noticed or p.timestamp,
+                    examples=p.examples or [],
+                )
+                for p in by_type("pattern")
+            ],
+            rituals=[p.description for p in by_type("ritual")],
+            how_they_shape_me=[sh.note for sh in shaping if sh.shaping_type == "they_shape_me"],
+            how_i_shape_them=[sh.note for sh in shaping if sh.shaping_type == "i_shape_them"],
+            is_foundational=bool(meta.is_foundational) if meta else False,
+            inherited_values=[sh.note for sh in shaping if sh.shaping_type == "inherited_value"],
+        )
 
     def save_relationship_model(self, model: RelationshipModel) -> bool:
-        """Save relationship model"""
+        """Write a RelationshipModel to the legacy YAML file.
+
+        Legacy, like save_user_model: nothing reads the file at runtime.
+        """
         path = self._get_relationship_model_path(model.user_id)
-
-        user_dir = self._get_user_dir(model.user_id)
-
         try:
             model.updated_at = datetime.now().isoformat()
             with open(path, 'w') as f:
@@ -1323,22 +1390,17 @@ class UserManager:
         user_id: str,
         is_foundational: bool = False
     ) -> Optional[RelationshipModel]:
-        """Create a new relationship model"""
+        """Create relationship metadata in PeopleDex and return the model."""
         profile = self.load_profile(user_id)
-        if not profile:
+        entity = self._entity(user_id, create=True) if profile else None
+        if not entity:
             return None
-
-        now = datetime.now().isoformat()
-        model = RelationshipModel(
-            user_id=user_id,
-            updated_at=now,
+        self._pdx().update_relationship_meta(
+            entity.id,
             formation_date=profile.created_at,
             is_foundational=is_foundational,
         )
-
-        if self.save_relationship_model(model):
-            return model
-        return None
+        return self.load_relationship_model(user_id)
 
     def get_or_create_relationship_model(
         self,
@@ -1361,24 +1423,55 @@ class UserManager:
         source: str = "observation",
         evidence: Optional[List[str]] = None
     ) -> Optional[IdentityUnderstanding]:
-        """Add an identity understanding about a user"""
-        model = self.get_or_create_user_model(user_id)
-        if not model:
+        """Add an identity understanding about a user (PeopleDex identity_statement)."""
+        obs = self._pdx().add_observation_for_user(
+            user_id, "identity_statement", statement,
+            metadata={"source": source, "evidence": evidence or []},
+            confidence=confidence,
+            source_type=source,
+        )
+        if not obs:
             return None
-
-        now = datetime.now().isoformat()
-        understanding = IdentityUnderstanding(
+        return IdentityUnderstanding(
             statement=statement,
             confidence=confidence,
             source=source,
-            first_noticed=now,
-            last_affirmed=now,
-            evidence=evidence or []
+            first_noticed=obs.created_at,
+            last_affirmed=obs.created_at,
+            evidence=evidence or [],
         )
 
-        model.identity_statements.append(understanding)
-        self.save_user_model(model)
-        return understanding
+    def update_communication_style(
+        self,
+        user_id: str,
+        style: Optional[str] = None,
+        add_preference: Optional[str] = None,
+        add_effective_approach: Optional[str] = None,
+    ) -> bool:
+        """Revise the user's communication style. Writes a new PeopleDex
+        communication_style observation carrying the merged style (the newest
+        one is the current style; earlier ones stay as history)."""
+        entity = self._entity(user_id, create=True)
+        if not entity:
+            return False
+        model = self.load_user_model(user_id)
+        current = model.communication_style if model else CommunicationStyle()
+        preferences = list(current.preferences)
+        approaches = list(current.effective_approaches)
+        if add_preference and add_preference not in preferences:
+            preferences.append(add_preference)
+        if add_effective_approach and add_effective_approach not in approaches:
+            approaches.append(add_effective_approach)
+        return self._pdx().add_observation(
+            entity.id, "communication_style", style or current.style or "",
+            metadata={
+                "preferences": preferences,
+                "patterns": current.patterns,
+                "effective_approaches": approaches,
+                "avoid": current.avoid,
+            },
+            source_type="synthesis_session",
+        ) is not None
 
     def add_shared_moment(
         self,
@@ -1388,24 +1481,23 @@ class UserManager:
         category: str = "connection",
         conversation_id: Optional[str] = None
     ) -> Optional[SharedMoment]:
-        """Record a significant moment in the relationship"""
-        model = self.get_or_create_user_model(user_id)
-        if not model:
+        """Record a significant moment in the relationship (PeopleDex moment)."""
+        moment = self._pdx().add_moment_for_user(
+            user_id, description,
+            significance=significance,
+            category=category,
+            conversation_id=conversation_id,
+        )
+        if not moment:
             return None
-
-        now = datetime.now().isoformat()
-        moment = SharedMoment(
-            id=str(uuid.uuid4()),
-            timestamp=now,
+        return SharedMoment(
+            id=moment.id,
+            timestamp=moment.timestamp,
             description=description,
             significance=significance,
             category=category,
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
         )
-
-        model.shared_history.append(moment)
-        self.save_user_model(model)
-        return moment
 
     def add_user_contradiction(
         self,
@@ -1414,23 +1506,20 @@ class UserManager:
         aspect_b: str,
         context: str = ""
     ) -> Optional[UserContradiction]:
-        """Record an observed contradiction about a user"""
-        model = self.get_or_create_user_model(user_id)
-        if not model:
+        """Record an observed contradiction about a user (PeopleDex contradiction)."""
+        obs = self._pdx().add_observation_for_user(
+            user_id, "contradiction", f"{aspect_a} vs {aspect_b}",
+            metadata={"aspect_a": aspect_a, "aspect_b": aspect_b, "context": context},
+        )
+        if not obs:
             return None
-
-        now = datetime.now().isoformat()
-        contradiction = UserContradiction(
-            id=str(uuid.uuid4()),
-            timestamp=now,
+        return UserContradiction(
+            id=obs.id,
+            timestamp=obs.created_at,
             aspect_a=aspect_a,
             aspect_b=aspect_b,
-            context=context
+            context=context,
         )
-
-        model.contradictions.append(contradiction)
-        self.save_user_model(model)
-        return contradiction
 
     def resolve_user_contradiction(
         self,
@@ -1438,21 +1527,17 @@ class UserManager:
         contradiction_id: str,
         resolution: str
     ) -> Optional[UserContradiction]:
-        """Mark a contradiction as resolved"""
-        model = self.load_user_model(user_id)
-        if not model:
+        """Mark a contradiction as resolved."""
+        entity = self._entity(user_id)
+        if not entity:
             return None
-
-        now = datetime.now().isoformat()
-        for c in model.contradictions:
-            if c.id == contradiction_id:
-                c.resolved = True
-                c.resolution = resolution
-                c.resolution_timestamp = now
-                self.save_user_model(model)
-                return c
-
-        return None
+        pdx = self._pdx()
+        owned = any(o.id == contradiction_id
+                    for o in pdx.get_observations(entity.id, observation_type="contradiction", limit=100000))
+        if not owned or not pdx.update_observation(contradiction_id, status="resolved", resolution=resolution):
+            return None
+        model = self.load_user_model(user_id)
+        return next((c for c in (model.contradictions if model else []) if c.id == contradiction_id), None)
 
     def add_user_growth_observation(
         self,
@@ -1462,55 +1547,52 @@ class UserManager:
         direction: str = "growth",
         evidence: str = ""
     ) -> Optional[UserGrowthObservation]:
-        """Record an observation about user's growth/development"""
-        model = self.get_or_create_user_model(user_id)
-        if not model:
+        """Record an observation about the user's growth (PeopleDex growth_observation)."""
+        obs = self._pdx().add_observation_for_user(
+            user_id, "growth_observation", observation,
+            metadata={"area": area, "direction": direction, "evidence": evidence},
+        )
+        if not obs:
             return None
-
-        now = datetime.now().isoformat()
-        growth_obs = UserGrowthObservation(
-            id=str(uuid.uuid4()),
-            timestamp=now,
+        return UserGrowthObservation(
+            id=obs.id,
+            timestamp=obs.created_at,
             area=area,
             observation=observation,
             direction=direction,
-            evidence=evidence
+            evidence=evidence,
         )
-
-        model.growth_observations.append(growth_obs)
-        self.save_user_model(model)
-        return growth_obs
 
     def add_open_question_about_user(
         self,
         user_id: str,
         question: str
     ) -> bool:
-        """Add an open question about a user (something still learning)"""
-        model = self.get_or_create_user_model(user_id)
-        if not model:
+        """Add an open question about a user (skipped if already open)."""
+        entity = self._entity(user_id, create=True)
+        if not entity:
             return False
-
-        if question not in model.open_questions:
-            model.open_questions.append(question)
-            self.save_user_model(model)
-        return True
+        pdx = self._pdx()
+        open_now = pdx.get_observations(entity.id, observation_type="open_question", status="active", limit=100000)
+        if any(o.content == question for o in open_now):
+            return True
+        return pdx.add_observation(entity.id, "open_question", question) is not None
 
     def remove_open_question_about_user(
         self,
         user_id: str,
         question: str
     ) -> bool:
-        """Remove an open question (when answered)"""
-        model = self.load_user_model(user_id)
-        if not model:
+        """Close an open question (when answered). Marked resolved, not deleted."""
+        entity = self._entity(user_id)
+        if not entity:
             return False
-
-        if question in model.open_questions:
-            model.open_questions.remove(question)
-            self.save_user_model(model)
-            return True
-        return False
+        pdx = self._pdx()
+        closed = False
+        for o in pdx.get_observations(entity.id, observation_type="open_question", status="active", limit=100000):
+            if o.content == question:
+                closed = pdx.update_observation(o.id, status="resolved", resolution="answered") or closed
+        return closed
 
     # === Relationship Model Updates ===
 
@@ -1522,25 +1604,24 @@ class UserManager:
         to_state: str,
         catalyst: str = ""
     ) -> Optional[RelationshipShift]:
-        """Record a significant shift in the relationship"""
-        model = self.get_or_create_relationship_model(user_id)
-        if not model:
+        """Record a significant shift in the relationship; the current phase
+        becomes to_state."""
+        pdx = self._pdx()
+        shift = pdx.add_relationship_pattern_for_user(
+            user_id, "shift", description,
+            from_state=from_state, to_state=to_state, catalyst=catalyst or None,
+        )
+        if not shift:
             return None
-
-        now = datetime.now().isoformat()
-        shift = RelationshipShift(
-            id=str(uuid.uuid4()),
-            timestamp=now,
+        pdx.update_relationship_meta(shift.entity_id, current_phase=to_state)
+        return RelationshipShift(
+            id=shift.id,
+            timestamp=shift.timestamp,
             description=description,
             from_state=from_state,
             to_state=to_state,
-            catalyst=catalyst
+            catalyst=catalyst,
         )
-
-        model.significant_shifts.append(shift)
-        model.current_phase = to_state  # Update current phase
-        self.save_relationship_model(model)
-        return shift
 
     def add_relational_pattern(
         self,
@@ -1551,25 +1632,31 @@ class UserManager:
         valence: str = "positive",
         examples: Optional[List[str]] = None
     ) -> Optional[RelationalPattern]:
-        """Record a recurring relational pattern"""
-        model = self.get_or_create_relationship_model(user_id)
-        if not model:
+        """Record a recurring relational pattern (PeopleDex pattern)."""
+        pattern = self._pdx().add_relationship_pattern_for_user(
+            user_id, "pattern", description,
+            name=name, frequency=frequency, valence=valence, examples=examples,
+        )
+        if not pattern:
             return None
-
-        now = datetime.now().isoformat()
-        pattern = RelationalPattern(
-            id=str(uuid.uuid4()),
+        return RelationalPattern(
+            id=pattern.id,
             name=name,
             description=description,
             frequency=frequency,
             valence=valence,
-            first_noticed=now,
-            examples=examples or []
+            first_noticed=pattern.first_noticed or pattern.timestamp,
+            examples=examples or [],
         )
 
-        model.patterns.append(pattern)
-        self.save_relationship_model(model)
-        return pattern
+    def _add_shaping_once(self, user_id: str, shaping_type: str, note: str) -> bool:
+        entity = self._entity(user_id, create=True)
+        if not entity:
+            return False
+        pdx = self._pdx()
+        if any(sh.note == note for sh in pdx.get_mutual_shaping(entity.id, shaping_type)):
+            return True
+        return pdx.add_mutual_shaping(entity.id, shaping_type, note) is not None
 
     def add_mutual_shaping_note(
         self,
@@ -1577,34 +1664,23 @@ class UserManager:
         how_they_shape_me: Optional[str] = None,
         how_i_shape_them: Optional[str] = None
     ) -> bool:
-        """Add notes about mutual shaping in the relationship"""
-        model = self.get_or_create_relationship_model(user_id)
-        if not model:
+        """Add notes about mutual shaping in the relationship (skips repeats)."""
+        if not self._entity(user_id, create=True):
             return False
-
-        if how_they_shape_me and how_they_shape_me not in model.how_they_shape_me:
-            model.how_they_shape_me.append(how_they_shape_me)
-
-        if how_i_shape_them and how_i_shape_them not in model.how_i_shape_them:
-            model.how_i_shape_them.append(how_i_shape_them)
-
-        self.save_relationship_model(model)
-        return True
+        ok = True
+        if how_they_shape_me:
+            ok = self._add_shaping_once(user_id, "they_shape_me", how_they_shape_me) and ok
+        if how_i_shape_them:
+            ok = self._add_shaping_once(user_id, "i_shape_them", how_i_shape_them) and ok
+        return ok
 
     def add_inherited_value(
         self,
         user_id: str,
         value: str
     ) -> bool:
-        """Record a value that Cass has inherited from this user"""
-        model = self.get_or_create_relationship_model(user_id)
-        if not model:
-            return False
-
-        if value not in model.inherited_values:
-            model.inherited_values.append(value)
-            self.save_relationship_model(model)
-        return True
+        """Record a value that Cass has inherited from this user."""
+        return self._add_shaping_once(user_id, "inherited_value", value)
 
     # === Context Building ===
 
