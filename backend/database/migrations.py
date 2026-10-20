@@ -496,8 +496,9 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 52:
         print("Adding user_calendar_config table for HA calendar integration (v52)")
 
-    # v52 -> v53: Timers for countdown timer support
-    # Table (timers) created by SCHEMA_SQL
+    # v52 -> v53: Timers for countdown timer support. The table came from
+    # SCHEMA_SQL; since #54 fresh databases no longer create it (no code uses
+    # it), and existing databases keep it untouched.
     if from_version < 53:
         print("Adding timers table for countdown timer support (v53)")
 

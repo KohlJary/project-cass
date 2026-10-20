@@ -401,11 +401,10 @@ token_tracker = TokenUsageTracker()
 from sources import (
     GitHubQueryableSource, TokenQueryableSource, ConversationQueryableSource,
     MemoryQueryableSource, SelfQueryableSource, GoalQueryableSource, ActionQueryableSource,
-    WorkItemQueryableSource, ScheduleQueryableSource, WorldStateSource
+    WorldStateSource
 )
 from config import SERVER_LOCATION
 # UnifiedGoalManager imported earlier (line ~115)
-from work_planning import WorkItemManager, ScheduleManager
 
 github_source = GitHubQueryableSource(_daemon_id, github_metrics_manager)
 token_source = TokenQueryableSource(_daemon_id, token_tracker)
@@ -414,12 +413,6 @@ memory_source = MemoryQueryableSource(_daemon_id)  # memory_core set later when 
 self_source = SelfQueryableSource(_daemon_id)  # Uses unified self-model graph
 goal_source = GoalQueryableSource(_daemon_id, UnifiedGoalManager(_daemon_id))
 action_source = ActionQueryableSource(_daemon_id)
-
-# Cass's work planning infrastructure
-work_manager = WorkItemManager(_daemon_id)
-schedule_manager = ScheduleManager(_daemon_id)
-work_source = WorkItemQueryableSource(_daemon_id, work_manager)
-schedule_source = ScheduleQueryableSource(_daemon_id, schedule_manager)
 world_state_source = WorldStateSource(_daemon_id, str(DATA_DIR), SERVER_LOCATION)
 
 global_state_bus.register_source(github_source)
@@ -429,10 +422,8 @@ global_state_bus.register_source(memory_source)
 global_state_bus.register_source(self_source)
 global_state_bus.register_source(goal_source)
 global_state_bus.register_source(action_source)
-global_state_bus.register_source(work_source)
-global_state_bus.register_source(schedule_source)
 global_state_bus.register_source(world_state_source)
-print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals, actions, work, schedule, world_state)")
+print("STARTUP: Queryable sources registered (github, tokens, conversations, memory, self, goals, actions, world_state)")
 
 # Register roadmap routes
 from routes.roadmap import router as roadmap_router, init_roadmap_routes

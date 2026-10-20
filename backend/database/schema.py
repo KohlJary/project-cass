@@ -2349,28 +2349,7 @@ CREATE TABLE IF NOT EXISTS user_calendar_config (
 CREATE INDEX IF NOT EXISTS idx_user_calendar_config_daemon ON user_calendar_config(daemon_id);
 CREATE INDEX IF NOT EXISTS idx_user_calendar_config_user ON user_calendar_config(user_id);
 
--- =============================================================================
--- TIMERS (v53)
--- =============================================================================
-
--- Countdown timers with HA integration and local fallback
-CREATE TABLE IF NOT EXISTS timers (
-    id TEXT PRIMARY KEY,
-    daemon_id TEXT NOT NULL REFERENCES daemons(id),
-    user_id TEXT NOT NULL REFERENCES users(id),
-    label TEXT NOT NULL,
-    duration_seconds INTEGER NOT NULL,
-    started_at TEXT NOT NULL,
-    ends_at TEXT NOT NULL,
-    status TEXT DEFAULT 'active',           -- active, paused, completed, cancelled
-    source TEXT DEFAULT 'local',            -- local, ha
-    ha_entity_id TEXT,                      -- HA timer entity if using HA
-    remaining_seconds INTEGER,              -- For paused timers
-    created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_timers_daemon ON timers(daemon_id);
-CREATE INDEX IF NOT EXISTS idx_timers_user ON timers(user_id);
-CREATE INDEX IF NOT EXISTS idx_timers_status ON timers(daemon_id, status);
-CREATE INDEX IF NOT EXISTS idx_timers_ends ON timers(ends_at);
+-- TIMERS (v53): the timers table was created here until #54. Its only writer
+-- (timer_manager) went to the attic in #74, so fresh databases no longer get
+-- it. Existing databases keep the table and its rows; nothing reads them.
 """

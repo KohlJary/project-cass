@@ -121,17 +121,15 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
         stats_cursor = conn.execute("""
             SELECT
                 (SELECT COUNT(*) FROM conversations WHERE daemon_id = ?) as conversations,
-                (SELECT COUNT(*) FROM wiki_pages WHERE daemon_id = ?) as wiki_pages,
                 (SELECT COUNT(*) FROM journals WHERE daemon_id = ?) as journals,
                 (SELECT COUNT(*) FROM dreams WHERE daemon_id = ?) as dreams
-        """, (daemon_id, daemon_id, daemon_id, daemon_id))
+        """, (daemon_id, daemon_id, daemon_id))
 
         stats_row = stats_cursor.fetchone()
         daemon["stats"] = {
             "conversations": stats_row[0] or 0,
-            "wiki_pages": stats_row[1] or 0,
-            "journals": stats_row[2] or 0,
-            "dreams": stats_row[3] or 0,
+            "journals": stats_row[1] or 0,
+            "dreams": stats_row[2] or 0,
         }
 
     return daemon

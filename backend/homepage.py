@@ -198,7 +198,7 @@ class HomepageManifest:
     assets: List[Dict[str, str]] = None  # [{"filename": "avatar.png", "description": "My avatar", "alt": "...", "url": "..."}, ...]
     asset_base_url: str = None  # Optional external asset repository URL
     allowed_image_domains: List[str] = None  # Domains allowed for external images
-    # Featured artifacts from daily activities (research, dreams, journals, wiki)
+    # Featured artifacts from daily activities (research, dreams, journals)
     # [{"type": "dream", "id": "...", "title": "...", "excerpt": "...", "featured_at": "..."}]
     featured_artifacts: List[Dict[str, str]] = None
     public: bool = True
@@ -1346,23 +1346,6 @@ def get_available_artifacts(daemon_id: str, limit: int = 50) -> List[Dict[str, A
                 "date": row[3]
             })
 
-        # Wiki pages
-        cursor = conn.execute("""
-            SELECT id, title, content, updated_at
-            FROM wiki_pages
-            WHERE daemon_id = ?
-            ORDER BY updated_at DESC
-            LIMIT ?
-        """, (daemon_id, limit // 4))
-        for row in cursor.fetchall():
-            artifacts.append({
-                "type": "wiki",
-                "id": row[0],
-                "title": row[1] or "Wiki Page",
-                "excerpt": (row[2] or "")[:200].replace('\n', ' '),
-                "date": row[3]
-            })
-
     # Sort by date descending
     artifacts.sort(key=lambda x: x.get('date', ''), reverse=True)
     return artifacts[:limit]
@@ -1551,22 +1534,6 @@ def get_artifact_full_content(artifact_type: str, artifact_id: str, daemon_id: s
                         "date": row[5]
                     }
 
-            elif artifact_type == "wiki":
-                cursor = conn.execute("""
-                    SELECT id, category, title, content, updated_at
-                    FROM wiki_pages WHERE id = ? AND daemon_id = ?
-                """, (artifact_id, daemon_id))
-                row = cursor.fetchone()
-                if row:
-                    return {
-                        "type": "wiki",
-                        "id": row[0],
-                        "category": row[1],
-                        "title": row[2],
-                        "content": row[3],
-                        "date": row[4]
-                    }
-
     except Exception as e:
         logger.error(f"Error fetching artifact {artifact_type}/{artifact_id}: {e}")
 
@@ -1636,14 +1603,6 @@ def format_artifact_for_prompt(artifact: Dict[str, Any]) -> str:
         tags = safe_slice(artifact.get("tags", []), 5)
         if tags:
             lines.append(f"\n**Tags:** {', '.join(str(t) for t in tags)}")
-
-    elif artifact_type == "wiki":
-        lines.append(f"### Wiki: {artifact.get('title', 'Untitled')} ({artifact.get('category', 'uncategorized')})")
-        content = safe_str(artifact.get("content", ""))
-        if len(content) > 2000:
-            lines.append(content[:2000] + "...\n\n[truncated]")
-        else:
-            lines.append(content)
 
     return "\n".join(lines)
 

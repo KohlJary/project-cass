@@ -233,7 +233,6 @@ export function DaemonTab() {
                       </span>
                       <span className="daemon-stats">
                         {stats?.conversations || 0} conversations |{' '}
-                        {stats?.wiki_pages || 0} wiki pages |{' '}
                         {stats?.journals || 0} journals
                       </span>
                     </div>

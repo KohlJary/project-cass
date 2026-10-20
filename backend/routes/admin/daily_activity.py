@@ -105,15 +105,6 @@ ACTIVITY_SOURCES: Dict[str, ActivitySource] = {
         select_fields="id, type, status, focus_area, started_at, ended_at, insights_json",
         icon="brain",
     ),
-    "work_items": ActivitySource(
-        id="work_items",
-        name="Work Items",
-        category="autonomous",
-        table="work_items",
-        timestamp_field="created_at",
-        select_fields="id, title, status, priority, created_at, completed_at",
-        icon="clipboard",
-    ),
 
     # === CONVERSATIONS ===
     "messages": ActivitySource(
@@ -195,15 +186,6 @@ ACTIVITY_SOURCES: Dict[str, ActivitySource] = {
         select_fields="id, feed_id, title, link, processed, processed_at, skip_reason",
         where_extra="AND processed = 1",
         icon="rss",
-    ),
-    "wiki_updates": ActivitySource(
-        id="wiki_updates",
-        name="Wiki Updates",
-        category="world",
-        table="wiki_pages",
-        timestamp_field="updated_at",
-        select_fields="id, title, category, updated_at",
-        icon="book",
     ),
 
     # === JOURNALS & DREAMS ===
