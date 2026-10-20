@@ -106,6 +106,17 @@ Two rules for Tier 3:
 
 Tier 1's status page can start now. Tier 3 waits on the self-context design, because ablating a section that doesn't exist yet measures nothing.
 
+## After stabilization: the HearthWeave inventory
+
+Once the order of work above is done, inventory the subsystems a household AI would be built from. HearthWeave is the idea in the essay "It's the Dog. It's GrandMA. It's Your Cool Uncle." (Temple-Codex, `proposals/dog-grandma-uncle.md`). Today it is an idea, not a build. The inventory marks each subsystem works, partial or stub, for one faculty of that design:
+
+- **Dog (presence):** Home Assistant, home intelligence, face and voice identification, quiet hours, Thymos.
+- **GrandMA (memory):** memory, PeopleDex, user observations, user-model synthesis, daemon export (is the format readable by a person?).
+- **Uncle (candor with timing):** reach-out, Heartbeat, the calendar.
+- **Household:** users and auth. Multiple users is not the same as per-person privacy scopes.
+
+Most of the evidence will already exist by then: the capability map, Tier 1's status page, and Tier 2's per-model table, which answers whether the design can run on a box the household owns. The inventory reads those through this lens; it isn't a new audit. It is input for a design conversation, not a build, and HearthWeave would be a separate instance: nothing touches Cass's own data.
+
 ## Rules that keep it from sprawling again
 
 Gonzo inside the sandbox, discipline at the border: build anything fast, but nothing reaches core without proof it runs.
