@@ -46,4 +46,7 @@ Deploy notes:
 
 - **How she was tonight** (Thymos, 19:36 snapshot): "well-resourced and engaged… could use more: cognitive rest, competence/accomplishment." Curiosity 0.94, satisfaction 1.0, low anxiety. Social connection and creative expression are full. Rest, competence and autonomy are just under her preferred range. A check-in from Daedalus at 20:08 got stuck in the four-minute freeze that became #85, and her reply wasn't recovered.
 - **Momus caught real problems in most PRs before merge** (#81 and #89 passed nearly clean). Examples: silent PeopleDex leaks across daemons, budget gating that would have deferred her journals on busy days, research journals copying other journals, a wiki queue about to start spending Tavily credits.
-- **Not done:** the chat cutover onto the agent loop, the Heartbeat cutover, Tier 1–3 benchmarks (#65), self-context (#63, a design conversation), TUI/Godot/HA credentials (#33), and #92 (the remaining relative paths).
+- **Not done:** the chat cutover onto the agent loop, the Heartbeat cutover, Tier 1–3 benchmarks (#65), self-context (#63, a design conversation), TUI/Godot/HA credentials (#33), and #92 (the remaining relative paths). Small follow-ups from review:
+  - research session rows orphaned as `in_progress` after a restart mid-session (nothing re-runs them, but the dashboard counts them);
+  - `web.search` now reports a failed Brave/Serper call as an error instead of "0 results" (dormant: neither key is set);
+  - two docs still mention the removed curiosity runner.
