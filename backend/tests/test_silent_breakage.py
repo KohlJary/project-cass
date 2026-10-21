@@ -273,6 +273,26 @@ def test_nightly_job_ignores_research_journal_for_the_day(admin_managers):
     assert mem.generate_journal_entry.await_args.kwargs["date"] == yesterday
 
 
+def test_nightly_job_skips_a_day_with_a_sqlite_daily_row(admin_managers):
+    # SQLite is the source of truth (#56): a daily row there means the day is
+    # journaled, even if Chroma has nothing for it.
+    import journal_generation
+    from datetime import datetime, timedelta
+    from memory.journals import insert_journal_row
+
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    insert_journal_row(date=yesterday, content="already written", created_at="x",
+                       journal_type="daily", chroma_id=None)
+    mem = admin_managers.memory
+    mem.collection.get.return_value = {"ids": ["c1"], "documents": ["hi"],
+                                       "metadatas": [{"timestamp": f"{yesterday}T12:00:00"}]}
+    mem.generate_journal_entry = AsyncMock(return_value="should not be called")
+
+    asyncio.run(journal_generation.generate_missing_journals(days_to_check=1))
+
+    mem.generate_journal_entry.assert_not_awaited()
+
+
 def test_is_daily_journal_handles_legacy_entries():
     from journal_generation import _is_daily_journal
     assert _is_daily_journal({"journal_type": "daily"})

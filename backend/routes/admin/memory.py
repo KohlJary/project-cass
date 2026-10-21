@@ -202,6 +202,7 @@ async def get_memory_stats(
             # Get journal count from database
             journal_cursor = conn.execute("""
                 SELECT COUNT(*) FROM journals WHERE daemon_id = ?
+                  AND COALESCE(journal_type, 'daily') = 'daily'
             """, (effective_daemon_id,))
             journal_count = journal_cursor.fetchone()[0] or 0
 
@@ -236,7 +237,9 @@ async def get_memory_stats(
             type_counts["dream"] = dream_count
 
             return {
-                "total_memories": chromadb_total + self_obs_count + journal_count + dream_count,
+                # Journals are already in chromadb_total (every journal is
+                # indexed there), so they aren't added again.
+                "total_memories": chromadb_total + self_obs_count + dream_count,
                 "by_type": type_counts,
                 "journals": journal_count
             }
@@ -251,9 +254,10 @@ async def get_memory_stats(
 async def get_all_journals(
     daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
     limit: int = Query(default=30, le=100),
+    journal_type: str = Query(default="daily", description="daily, research, world, spell, ... or 'all'"),
     user: Dict = Depends(require_auth)
 ):
-    """Get all journal entries"""
+    """Get journal entries (the daily journals unless journal_type says otherwise)"""
     from database import get_db
 
     try:
@@ -264,9 +268,10 @@ async def get_all_journals(
                 SELECT date, content, themes_json, created_at
                 FROM journals
                 WHERE daemon_id = ?
-                ORDER BY date DESC
+                  AND (? = 'all' OR COALESCE(journal_type, 'daily') = ?)
+                ORDER BY date DESC, created_at DESC
                 LIMIT ?
-            """, (effective_daemon_id, limit))
+            """, (effective_daemon_id, journal_type, journal_type, limit))
 
             journal_list = []
             for row in cursor.fetchall():
@@ -286,6 +291,41 @@ async def get_all_journals(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Declared before /journals/{date}, which would otherwise match "calendar".
+@router.get("/journals/calendar")
+async def get_journal_calendar(
+    year: int = Query(...),
+    month: int = Query(...),
+    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
+    user: Dict = Depends(require_auth)
+):
+    """Get journal dates for a specific month (for calendar view)"""
+    from database import get_db
+
+    try:
+        effective_daemon_id = get_effective_daemon_id(daemon_id)
+        month_str = f"{year}-{month:02d}"
+
+        with get_db() as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT date FROM journals
+                WHERE daemon_id = ? AND date LIKE ?
+                  AND COALESCE(journal_type, 'daily') = 'daily'
+                ORDER BY date
+            """, (effective_daemon_id, f"{month_str}%"))
+
+            dates_with_journals = [row[0] for row in cursor.fetchall()]
+
+        return {
+            "year": year,
+            "month": month,
+            "dates": dates_with_journals
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/journals/{date}")
 async def get_journal_by_date(
     date: str,
@@ -299,10 +339,15 @@ async def get_journal_by_date(
         effective_daemon_id = get_effective_daemon_id(daemon_id)
 
         with get_db() as conn:
+            # A date can also have research/spell journals; the daily one wins,
+            # then the one in the search index (what Cass's own recall sees)
             cursor = conn.execute("""
                 SELECT id, date, content, themes_json, created_at
                 FROM journals
                 WHERE daemon_id = ? AND date = ?
+                ORDER BY (COALESCE(journal_type, 'daily') = 'daily') DESC,
+                         (chroma_id IS NOT NULL) DESC, created_at DESC
+                LIMIT 1
             """, (effective_daemon_id, date))
 
             row = cursor.fetchone()
@@ -320,39 +365,6 @@ async def get_journal_by_date(
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/journals/calendar")
-async def get_journal_calendar(
-    year: int = Query(...),
-    month: int = Query(...),
-    daemon_id: Optional[str] = Query(None, description="Filter by daemon ID"),
-    user: Dict = Depends(require_auth)
-):
-    """Get journal dates for a specific month (for calendar view)"""
-    from database import get_db
-
-    try:
-        effective_daemon_id = get_effective_daemon_id(daemon_id)
-        month_str = f"{year}-{month:02d}"
-
-        with get_db() as conn:
-            cursor = conn.execute("""
-                SELECT date FROM journals
-                WHERE daemon_id = ? AND date LIKE ?
-                ORDER BY date
-            """, (effective_daemon_id, f"{month_str}%"))
-
-            dates_with_journals = [row[0] for row in cursor.fetchall()]
-
-        return {
-            "year": year,
-            "month": month,
-            "dates": dates_with_journals
-        }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

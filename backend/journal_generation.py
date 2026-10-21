@@ -25,18 +25,8 @@ def _get_dependencies():
             admin_state.self_manager, admin_state.users)
 
 
-def _is_daily_journal(meta: dict) -> bool:
-    """Is this journal entry the nightly daily journal?
-
-    Research sessions and Grimoire REFLECT ... SAVE AS JOURNAL also store
-    type=journal entries dated today, which made the nightly job skip the real
-    journal for that day. New entries carry journal_type; for older ones, a
-    daily journal is the only kind built from summaries or conversations.
-    """
-    journal_type = meta.get("journal_type")
-    if journal_type:
-        return journal_type == "daily"
-    return bool(meta.get("summary_count") or meta.get("conversation_count"))
+# The rule lives with the journal store; kept under the old name for callers.
+from memory.journals import is_daily_journal as _is_daily_journal  # noqa: E402
 
 
 def _get_daemon_activity_mode() -> str:
@@ -68,6 +58,109 @@ def _had_interaction_on_date(date) -> bool:
             return count > 0
     except Exception:
         return True  # Default to True to not skip on errors
+
+
+def _sqlite_daily_journal_dates() -> set:
+    """Dates with a daily journal row in SQLite (the source of truth)."""
+    try:
+        from database import get_db, get_daemon_id
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT date FROM journals WHERE daemon_id = ? "
+                "AND COALESCE(journal_type, 'daily') = 'daily'",
+                (get_daemon_id(),),
+            ).fetchall()
+        return {row[0] for row in rows}
+    except Exception as e:
+        from strict import report_swallowed
+        report_swallowed(e, "Reading daily journal dates from SQLite")
+        return set()
+
+
+def content_for_date(memory, date_str: str):
+    """(summaries, conversations) to journal about; conversations only when there are no summaries."""
+    summaries = memory.get_summaries_by_date(date_str)
+    conversations = memory.get_conversations_by_date(date_str) if not summaries else []
+    return summaries, conversations
+
+
+async def write_daily_journal(
+    date_str: str,
+    summaries: list,
+    conversations: list,
+    memory=None,
+    self_manager=None,
+    token_tracker=None,
+):
+    """The one daily-journal generator.
+
+    Writes Cass's journal for `date_str` and stores it (SQLite row + Chroma
+    index entry, via store_journal_entry). Both the nightly job and POST
+    /journal/generate call this. The prompt lives in
+    JournalManager.generate_journal_entry.
+
+    Returns {"id", "text"} or None if generation failed.
+    """
+    dep_memory, dep_tracker, dep_self, _ = _get_dependencies()
+    memory = memory or dep_memory
+    self_manager = self_manager or dep_self
+    token_tracker = token_tracker or dep_tracker
+
+    self_context = None
+    if self_manager:
+        self_context = self_manager.get_self_context(include_observations=True)
+
+    journal_text = await memory.generate_journal_entry(
+        date=date_str,
+        anthropic_api_key=ANTHROPIC_API_KEY,
+        token_tracker=token_tracker,
+        self_context=self_context
+    )
+    if not journal_text:
+        return None
+
+    entry_id = await memory.store_journal_entry(
+        date=date_str,
+        journal_text=journal_text,
+        summary_count=len(summaries),
+        conversation_count=len(conversations),
+        journal_type="daily",
+    )
+    return {"id": entry_id, "text": journal_text}
+
+
+async def extract_self_observations(journal_text: str, date_str: str, memory=None, self_manager=None) -> int:
+    """Extract self-observations from a journal and store them. Returns how many were added."""
+    dep_memory, _, dep_self, _ = _get_dependencies()
+    memory = memory or dep_memory
+    self_manager = self_manager or dep_self
+
+    self_observations = await memory.extract_self_observations_from_journal(
+        journal_text=journal_text,
+        journal_date=date_str,
+        anthropic_api_key=ANTHROPIC_API_KEY
+    )
+    added = 0
+    for obs_data in self_observations:
+        obs = self_manager.add_observation(
+            observation=obs_data["observation"],
+            category=obs_data["category"],
+            confidence=obs_data["confidence"],
+            source_type="journal",
+            source_journal_date=date_str,
+            influence_source=obs_data["influence_source"]
+        )
+        if obs:
+            memory.embed_self_observation(
+                observation_id=obs.id,
+                observation_text=obs.observation,
+                category=obs.category,
+                confidence=obs.confidence,
+                influence_source=obs.influence_source,
+                timestamp=obs.timestamp
+            )
+            added += 1
+    return added
 
 
 async def generate_missing_journals(days_to_check: int = 7):
@@ -115,6 +208,17 @@ async def generate_missing_journals(days_to_check: int = 7):
 
     generated = []
     today = datetime.now().date()
+
+    # Journals whose Chroma write failed last time: index them now.
+    try:
+        reindexed = memory.reindex_pending_journals()
+        if isinstance(reindexed, int) and reindexed:
+            print(f"  Re-indexed {reindexed} journal(s) in Chroma")
+    except Exception as e:
+        from strict import report_swallowed
+        report_swallowed(e, "Re-indexing pending journals")
+
+    sqlite_daily_dates = _sqlite_daily_journal_dates()
 
     # Pre-fetch all data in a single batch to avoid repeated ChromaDB scans
     # and cold-start latency on individual queries
@@ -177,7 +281,9 @@ async def generate_missing_journals(days_to_check: int = 7):
         if is_dormant and not _had_interaction_on_date(check_date):
             continue
 
-        # Check if journal already exists (use cache if available)
+        # Check if journal already exists: SQLite first, then Chroma
+        if date_str in sqlite_daily_dates:
+            continue
         if _all_journals_cache is not None:
             if date_str in _all_journals_cache:
                 continue
@@ -203,29 +309,15 @@ async def generate_missing_journals(days_to_check: int = 7):
         # Generate journal
         print(f"📓 Generating missing journal for {date_str}...")
         try:
-            # Build self-model context for journal generation
-            self_context = None
-            if self_manager:
-                self_context = self_manager.get_self_context(include_observations=True)
-
-            # === PHASE 1: Main Journal (existing) ===
-            journal_text = await memory.generate_journal_entry(
-                date=date_str,
-                anthropic_api_key=ANTHROPIC_API_KEY,
-                token_tracker=token_tracker,
-                self_context=self_context
+            # === PHASE 1: Main Journal ===
+            written = await write_daily_journal(
+                date_str, summaries, conversations,
+                memory=memory, self_manager=self_manager, token_tracker=token_tracker,
             )
-
-            if not journal_text:
+            if not written:
                 print(f"   ✗ Failed to generate main journal for {date_str}")
                 continue
-
-            await memory.store_journal_entry(
-                date=date_str,
-                journal_text=journal_text,
-                summary_count=len(summaries),
-                conversation_count=len(conversations)
-            )
+            journal_text = written["text"]
             generated.append(date_str)
             print(f"   ✓ Journal created for {date_str}")
 
@@ -238,31 +330,10 @@ async def generate_missing_journals(days_to_check: int = 7):
 
             # === PHASE 3: Self-Observations (existing) ===
             print(f"   🔍 Extracting self-observations from journal...")
-            self_observations = await memory.extract_self_observations_from_journal(
-                journal_text=journal_text,
-                journal_date=date_str,
-                anthropic_api_key=ANTHROPIC_API_KEY
-            )
-            for obs_data in self_observations:
-                obs = self_manager.add_observation(
-                    observation=obs_data["observation"],
-                    category=obs_data["category"],
-                    confidence=obs_data["confidence"],
-                    source_type="journal",
-                    source_journal_date=date_str,
-                    influence_source=obs_data["influence_source"]
-                )
-                if obs:
-                    memory.embed_self_observation(
-                        observation_id=obs.id,
-                        observation_text=obs.observation,
-                        category=obs.category,
-                        confidence=obs.confidence,
-                        influence_source=obs.influence_source,
-                        timestamp=obs.timestamp
-                    )
-            if self_observations:
-                print(f"   ✓ Added {len(self_observations)} self-observations")
+            added = await extract_self_observations(
+                journal_text, date_str, memory=memory, self_manager=self_manager)
+            if added:
+                print(f"   ✓ Added {added} self-observations")
 
             # === PHASE 4: User Observations (existing) ===
             for user_id in user_ids_for_date:
@@ -360,17 +431,23 @@ async def _generate_per_user_journal_for_date(user_id: str, date_str: str):
             print(f"   ✓ Created journal about {profile.display_name}")
 
 
-async def _generate_user_observations_for_date(user_id: str, date_str: str):
-    """Generate user observations from conversations for a specific date."""
-    memory, token_tracker, self_manager, user_manager = _get_dependencies()
+async def _generate_user_observations_for_date(user_id: str, date_str: str,
+                                               memory=None, user_manager=None) -> int:
+    """Generate user observations from conversations for a specific date.
+
+    Returns how many were added.
+    """
+    dep_memory, _, _, dep_users = _get_dependencies()
+    memory = memory or dep_memory
+    user_manager = user_manager or dep_users
 
     profile = user_manager.load_profile(user_id)
     if not profile:
-        return
+        return 0
 
     user_conversations = memory.get_conversations_by_date(date_str, user_id=user_id)
     if not user_conversations:
-        return
+        return 0
 
     print(f"   👤 Extracting observations about {profile.display_name}...")
 
@@ -408,6 +485,7 @@ async def _generate_user_observations_for_date(user_id: str, date_str: str):
 
     if added:
         print(f"   ✓ Added {added} observations about {profile.display_name}")
+    return added
 
 
 async def _evaluate_and_store_growth_edges(journal_text: str, date_str: str):

@@ -594,6 +594,23 @@ def _apply_schema_updates(conn, from_version: int):
         if 'genesis_dream_id' not in columns:
             conn.execute("ALTER TABLE daemons ADD COLUMN genesis_dream_id TEXT")
 
+    # v59 -> v60: journals become the source of truth (#56). Chroma stays the
+    # search index; these columns link a row to its Chroma doc and mark rows
+    # whose Chroma write failed so they can be re-indexed. No index on
+    # chroma_id: SCHEMA_SQL re-runs before this block on upgrades, so a CREATE
+    # INDEX there on a new column would fail, and the table is small.
+    if from_version < 60:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(journals)").fetchall()}
+        for name, decl in (
+            ("journal_type", "TEXT DEFAULT 'daily'"),
+            ("chroma_id", "TEXT"),
+            ("metadata_json", "TEXT"),
+            ("search_indexed", "INTEGER DEFAULT 1"),
+        ):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE journals ADD COLUMN {name} {decl}")
+        print("Adding journals source-of-truth columns (v60)")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

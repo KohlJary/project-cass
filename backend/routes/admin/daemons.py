@@ -125,7 +125,7 @@ async def get_daemon(daemon_id: str, admin: Dict = Depends(require_admin)):
         stats_cursor = conn.execute("""
             SELECT
                 (SELECT COUNT(*) FROM conversations WHERE daemon_id = ?) as conversations,
-                (SELECT COUNT(*) FROM journals WHERE daemon_id = ?) as journals,
+                (SELECT COUNT(*) FROM journals WHERE daemon_id = ? AND COALESCE(journal_type, 'daily') = 'daily') as journals,
                 (SELECT COUNT(*) FROM dreams WHERE daemon_id = ?) as dreams
         """, (daemon_id, daemon_id, daemon_id))
 

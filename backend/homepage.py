@@ -1315,7 +1315,7 @@ def get_available_artifacts(daemon_id: str, limit: int = 50) -> List[Dict[str, A
         cursor = conn.execute("""
             SELECT id, date, content
             FROM journals
-            WHERE daemon_id = ?
+            WHERE daemon_id = ? AND COALESCE(journal_type, 'daily') = 'daily'
             ORDER BY date DESC
             LIMIT ?
         """, (daemon_id, limit // 4))
