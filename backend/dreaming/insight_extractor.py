@@ -133,7 +133,10 @@ class DreamInsightExtractor:
         )
 
         try:
-            response = self.client.messages.create(
+            from llm_caller import create_message_sync
+            response = create_message_sync(
+                "dreaming.insight_extraction",
+                client=self.client,
                 model=self.model,
                 max_tokens=2000,
                 temperature=0.3,  # Lower for more consistent extraction

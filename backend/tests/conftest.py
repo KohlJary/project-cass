@@ -120,6 +120,21 @@ def test_db(template_db, tmp_path):
     _point_db_at(original)
 
 
+@pytest.fixture(autouse=True)
+def llm_config_file(tmp_path, monkeypatch):
+    """Each test gets its own (empty) llm_config overrides file."""
+    try:
+        import llm_config
+    except Exception:  # pragma: no cover
+        yield None
+        return
+    path = tmp_path / "llm_config.json"
+    monkeypatch.setattr(llm_config, "CONFIG_PATH", path)
+    llm_config.LLMConfigManager.reset_instance()
+    yield path
+    llm_config.LLMConfigManager.reset_instance()
+
+
 # User IDs the manager tests write rows for. Tasks, calendar events,
 # conversations and projects all have a foreign key to users(id).
 TEST_USER_IDS = [

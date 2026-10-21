@@ -6,7 +6,7 @@ self-model, including opinion extraction, self-observations, and growth
 edge evaluation.
 """
 
-from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
+from config import ANTHROPIC_API_KEY
 from wiki import WikiStorage, WikiRetrieval, ResearchQueue, ProposalQueue
 import re
 import json
@@ -202,8 +202,10 @@ async def _integrate_research_into_self_model(date_str: str):
         profile = self_manager.load_profile()
         existing_opinions = [op.to_dict() for op in profile.opinions]
 
-        opinion_response = await anthropic_client.messages.create(
-            model=CLAUDE_INTERNAL_MODEL,
+        from llm_caller import create_message
+        opinion_response = await create_message(
+            "research.integration.opinions",
+            client=anthropic_client,
             max_tokens=2000,
             messages=[{
                 "role": "user",
@@ -253,8 +255,10 @@ Example format:
         # === Extract self-observations about research patterns ===
         print(f"   🔍 Extracting self-observations from research...")
 
-        observation_response = await anthropic_client.messages.create(
-            model=CLAUDE_INTERNAL_MODEL,
+        from llm_caller import create_message
+        observation_response = await create_message(
+            "research.integration.observations",
+            client=anthropic_client,
             max_tokens=1500,
             messages=[{
                 "role": "user",
@@ -308,8 +312,10 @@ Example:
         existing_edges = [edge.to_dict() for edge in profile.growth_edges]
 
         if existing_edges:
-            growth_response = await anthropic_client.messages.create(
-                model=CLAUDE_INTERNAL_MODEL,
+            from llm_caller import create_message
+            growth_response = await create_message(
+                "research.integration.growth",
+                client=anthropic_client,
                 max_tokens=1500,
                 messages=[{
                     "role": "user",

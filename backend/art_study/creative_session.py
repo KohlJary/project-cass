@@ -410,8 +410,10 @@ EXPLORATION: [question being explored]
 Create pieces that are clearly influenced by but not imitative of {artist_name}. Make them your own while honoring what you learned."""
 
     try:
-        response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+        from llm_caller import create_message
+        response = await create_message(
+            "art_study.creative_session",
+            client=anthropic_client,
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -757,8 +759,10 @@ EXPLORATION: [question being explored]
 Create pieces that feel authentically YOURS - not imitation of your influences, but synthesis into your own voice."""
 
     try:
-        response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+        from llm_caller import create_message
+        response = await create_message(
+            "art_study.house_style_vision",
+            client=anthropic_client,
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}]
         )

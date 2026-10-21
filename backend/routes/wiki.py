@@ -807,29 +807,26 @@ Start with a # heading. Be personal - this is YOUR wiki about YOUR understanding
 If you don't have much context, write what you can infer and note what you'd like to learn more about."""
 
     # Call Ollama
-    import httpx
     import os
 
     ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{ollama_url}/api/generate",
-                json={
-                    "model": ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 500,
-                    }
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-            generated_content = result.get("response", "").strip()
+        from llm_caller import call_llm, ModelAssignment
+        response = await call_llm(
+            "wiki.generate_page",
+            user_prompt=prompt,
+            max_tokens=500,
+            temperature=0.7,
+            timeout=60.0,
+            ollama_options={"temperature": 0.7, "num_predict": 500},
+            ollama_base_url=ollama_url,
+            default=ModelAssignment("ollama", ollama_model),
+        )
+        if response.error is not None:
+            raise RuntimeError(response.error)
+        generated_content = response.content.strip()
     except Exception as e:
         # Fallback to stub if Ollama fails
         generated_content = f"# {request.name}\n\n*Page created from conversation analysis. Content generation failed: {str(e)}*\n"
@@ -2475,23 +2472,21 @@ Write a comprehensive summary (3-4 paragraphs) that:
 
 Write in first person as Cass reflecting on this research session."""
 
-        with httpx.Client(timeout=90.0) as http_client:
-            response = http_client.post(
-                f"{ollama_url}/api/generate",
-                json={
-                    "model": ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 800,
-                    }
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-            proposal.summary = result.get("response", "Research completed.")
-            print(f"  Summary generated successfully ({len(proposal.summary)} chars)")
+        from llm_caller import call_llm_sync, ModelAssignment
+        response = call_llm_sync(
+            "wiki.execute_proposal",
+            user_prompt=prompt,
+            max_tokens=800,
+            temperature=0.7,
+            timeout=90.0,
+            ollama_options={"temperature": 0.7, "num_predict": 800},
+            ollama_base_url=ollama_url,
+            default=ModelAssignment("ollama", ollama_model),
+        )
+        if response.error is not None:
+            raise RuntimeError(response.error)
+        proposal.summary = response.content or "Research completed."
+        print(f"  Summary generated successfully ({len(proposal.summary)} chars)")
 
     except Exception as e:
         import traceback
@@ -2624,35 +2619,32 @@ Write in first person as Cass reflecting on this research session."""
     ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
 
     try:
-        import httpx
-        with httpx.Client(timeout=90.0) as http_client:
-            response = http_client.post(
-                f"{ollama_url}/api/generate",
-                json={
-                    "model": ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 800,
-                    }
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-            proposal.summary = result.get("response", "Research completed.")
+        from llm_caller import call_llm_sync, ModelAssignment
+        response = call_llm_sync(
+            "wiki.proposal_summary",
+            user_prompt=prompt,
+            max_tokens=800,
+            temperature=0.7,
+            timeout=90.0,
+            ollama_options={"temperature": 0.7, "num_predict": 800},
+            ollama_base_url=ollama_url,
+            default=ModelAssignment("ollama", ollama_model),
+        )
+        if response.error is not None:
+            raise RuntimeError(response.error)
+        proposal.summary = response.content or "Research completed."
 
-            # Also update key insights if we have new questions
-            if new_questions and not proposal.key_insights:
-                proposal.key_insights = new_questions[:5]
+        # Also update key insights if we have new questions
+        if new_questions and not proposal.key_insights:
+            proposal.key_insights = new_questions[:5]
 
-            queue.update(proposal)
+        queue.update(proposal)
 
-            return {
-                "success": True,
-                "proposal_id": proposal_id,
-                "summary": proposal.summary,
-            }
+        return {
+            "success": True,
+            "proposal_id": proposal_id,
+            "summary": proposal.summary,
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Summary generation failed: {str(e)}")

@@ -15,7 +15,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-import httpx
 
 from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL
 from query_models import StateQuery, TimeRange, Aggregation
@@ -72,7 +71,8 @@ class QueryConstructor:
         Returns:
             ConstructionResult with query or error
         """
-        if not OLLAMA_ENABLED:
+        from llm_caller import resolve_model
+        if resolve_model("query_constructor", self._default_model()) is None:
             logger.debug("Ollama disabled, using heuristic construction")
             return await self._heuristic_construct(intent, capabilities, available_sources)
 
@@ -94,31 +94,32 @@ class QueryConstructor:
 
         prompt = self._build_prompt(intent, capabilities, available_sources)
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self._base_url}/api/generate",
-                json={
-                    "model": self._model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,
-                        "num_predict": 200,
-                    }
-                }
+        from llm_caller import call_llm
+        # Model from llm_config ("query_constructor"); default is this
+        # constructor's Ollama model when Ollama is enabled.
+        response = await call_llm(
+            "query_constructor",
+            user_prompt=prompt,
+            max_tokens=200,
+            temperature=0.3,
+            timeout=30.0,
+            ollama_options={"temperature": 0.3, "num_predict": 200},
+            ollama_base_url=self._base_url,
+            default=self._default_model(),
+        )
+        if response.error is not None:
+            return ConstructionResult(
+                success=False,
+                error=f"Ollama request failed: {response.error}",
+                raw_output="",
             )
 
-            if response.status_code != 200:
-                return ConstructionResult(
-                    success=False,
-                    error=f"Ollama request failed: {response.status_code}",
-                    raw_output=response.text,
-                )
+        raw_output = response.content.strip()
+        return self._parse_llm_output(raw_output)
 
-            result = response.json()
-            raw_output = result.get("response", "").strip()
-
-            return self._parse_llm_output(raw_output)
+    def _default_model(self):
+        from llm_config import ModelAssignment
+        return ModelAssignment("ollama", self._model) if OLLAMA_ENABLED else None
 
     def _build_prompt(
         self,

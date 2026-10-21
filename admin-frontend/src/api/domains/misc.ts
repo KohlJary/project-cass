@@ -233,12 +233,41 @@ export interface ModelAssignment {
   model_id: string;
   fallback_provider: string | null;
   fallback_model_id: string | null;
-  metadata?: {
-    name: string;
-    description: string;
-    priority: 'high' | 'medium' | 'low';
-    frequency: string;
-  };
+  metadata?: CallSiteMetadata;
+}
+
+export interface CallSiteMetadata {
+  name: string;
+  description: string;
+  priority: 'high' | 'medium' | 'low';
+  frequency: string;
+  default?: string;
+  pinned?: boolean;
+  pinned_reason?: string;
+  text_only?: boolean;
+}
+
+export interface CallSiteUsage {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  last_call: string | null;
+  models: string[];
+}
+
+export interface CallSiteView {
+  call_site: string;
+  metadata: CallSiteMetadata;
+  default: Omit<ModelAssignment, 'metadata'> | null;
+  default_note: string;
+  default_from_caller: boolean;
+  override: Omit<ModelAssignment, 'metadata'> | null;
+  effective: Omit<ModelAssignment, 'metadata'> | null;
+  pinned: boolean;
+  pinned_reason: string;
+  text_only: boolean;
+  usage: CallSiteUsage;
 }
 
 export interface AvailableModel {
@@ -246,18 +275,23 @@ export interface AvailableModel {
   model_id: string;
   name: string;
   local: boolean;
-  installed: boolean;
+  installed?: boolean;
 }
 
 export const llmConfigApi = {
-  getConfig: () => api.get<{
+  getConfig: (days = 30) => api.get<{
+    days: number;
+    call_sites: CallSiteView[];
+    other_usage: Record<string, CallSiteUsage>;
     assignments: Record<string, ModelAssignment>;
     available_models: AvailableModel[];
-    call_site_metadata: Record<string, ModelAssignment['metadata']>;
-  }>('/admin/llm-config'),
+    call_site_metadata: Record<string, CallSiteMetadata>;
+  }>('/admin/llm-config', { params: { days } }),
 
   setAssignment: (callSite: string, assignment: Omit<ModelAssignment, 'metadata'>) =>
     api.put(`/admin/llm-config/${callSite}`, assignment),
+
+  clearAssignment: (callSite: string) => api.delete(`/admin/llm-config/${callSite}`),
 
   resetToDefaults: () => api.post('/admin/llm-config/reset'),
 

@@ -181,31 +181,21 @@ async def generate_conversation_title(
         websocket: Optional WebSocket for notifications
     """
     try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        from llm_caller import call_llm
 
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        # Model comes from llm_config ("title_generation"); usage is recorded
+        # in the token ledger by llm_caller.
+        response = await call_llm(
+            "title_generation",
+            user_prompt=f"Generate a short, descriptive title (3-6 words) for a conversation that started with:\n\nUser: {user_message[:500]}\n\nAssistant: {assistant_response[:500]}\n\nRespond with ONLY the title, no quotes or punctuation.",
             max_tokens=50,
-            messages=[{
-                "role": "user",
-                "content": f"Generate a short, descriptive title (3-6 words) for a conversation that started with:\n\nUser: {user_message[:500]}\n\nAssistant: {assistant_response[:500]}\n\nRespond with ONLY the title, no quotes or punctuation."
-            }]
+            anthropic_api_key=ANTHROPIC_API_KEY,
+            conversation_id=conversation_id,
         )
+        if not response.success:
+            raise RuntimeError(response.error or "empty title")
 
-        # Track token usage for title generation
-        if token_tracker and response.usage:
-            token_tracker.record(
-                category="internal",
-                operation="title_generation",
-                provider="anthropic",
-                model="claude-haiku-4-5-20251001",
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-                conversation_id=conversation_id
-            )
-
-        title = response.content[0].text.strip().strip('"').strip("'")
+        title = response.content.strip().strip('"').strip("'")
 
         # Ensure reasonable length
         if len(title) > 60:

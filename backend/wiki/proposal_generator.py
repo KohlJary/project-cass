@@ -298,7 +298,6 @@ class ProposalGenerator:
         rationale = f"Investigating {len(proposal_tasks)} topics across {len(type_counts)} research types."
 
         try:
-            import httpx
 
             prompt = f"""You are Cass, creating a research proposal for your autonomous knowledge expansion.
 
@@ -322,24 +321,22 @@ TITLE: [your title]
 THEME: [your theme]
 RATIONALE: [your rationale]"""
 
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
-                    f"{self._ollama_url}/api/generate",
-                    json={
-                        "model": self._ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.7,
-                            "num_predict": 400,
-                        }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
+            from llm_caller import call_llm_sync, ModelAssignment
+            response = call_llm_sync(
+                "wiki.proposal_metadata",
+                user_prompt=prompt,
+                max_tokens=400,
+                temperature=0.7,
+                timeout=60.0,
+                ollama_options={"temperature": 0.7, "num_predict": 400},
+                ollama_base_url=self._ollama_url,
+                default=ModelAssignment("ollama", self._ollama_model),
+            )
+            if response.error is not None:
+                raise RuntimeError(response.error)
 
             # Parse response
-            text = result.get("response", "")
+            text = response.content
             print(f"LLM proposal response (first 500 chars): {text[:500]}")
 
             for line in text.strip().split("\n"):

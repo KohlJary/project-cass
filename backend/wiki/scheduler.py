@@ -1231,7 +1231,6 @@ class ResearchScheduler:
 
         Returns dict with 'synthesis' and 'follow_up_questions'.
         """
-        import httpx
         import os
         import json
 
@@ -1269,67 +1268,65 @@ Format your response as JSON:
 }}"""
 
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                response = await client.post(
-                    f"{ollama_url}/api/generate",
-                    json={
-                        "model": ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.7,
-                            "num_predict": 800,
-                        }
+            from llm_caller import call_llm, ModelAssignment
+            response = await call_llm(
+                "wiki.exploration_synthesis",
+                user_prompt=prompt,
+                max_tokens=800,
+                temperature=0.7,
+                timeout=90.0,
+                ollama_options={"temperature": 0.7, "num_predict": 800},
+                ollama_base_url=ollama_url,
+                default=ModelAssignment("ollama", ollama_model),
+            )
+            if response.error is not None:
+                raise RuntimeError(response.error)
+            content = response.content.strip()
+
+            # Try to parse as JSON
+            try:
+                # Find JSON in the response
+                start = content.find("{")
+                end = content.rfind("}") + 1
+                if start >= 0 and end > start:
+                    json_str = content[start:end]
+                    # Try to fix common JSON issues with multiline strings
+                    parsed = json.loads(json_str)
+                    return {
+                        "synthesis": parsed.get("synthesis", "").strip(),
+                        "follow_up_questions": parsed.get("follow_up_questions", []),
                     }
-                )
-                response.raise_for_status()
-                result = response.json()
-                content = result.get("response", "").strip()
+            except json.JSONDecodeError:
+                # Try alternate extraction: look for the synthesis value
+                import re
+                synthesis_match = re.search(r'"synthesis"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[,}]', content, re.DOTALL)
+                questions_match = re.search(r'"follow_up_questions"\s*:\s*\[(.*?)\]', content, re.DOTALL)
 
-                # Try to parse as JSON
-                try:
-                    # Find JSON in the response
-                    start = content.find("{")
-                    end = content.rfind("}") + 1
-                    if start >= 0 and end > start:
-                        json_str = content[start:end]
-                        # Try to fix common JSON issues with multiline strings
-                        parsed = json.loads(json_str)
-                        return {
-                            "synthesis": parsed.get("synthesis", "").strip(),
-                            "follow_up_questions": parsed.get("follow_up_questions", []),
-                        }
-                except json.JSONDecodeError:
-                    # Try alternate extraction: look for the synthesis value
-                    import re
-                    synthesis_match = re.search(r'"synthesis"\s*:\s*"((?:[^"\\]|\\.)*)"\s*[,}]', content, re.DOTALL)
-                    questions_match = re.search(r'"follow_up_questions"\s*:\s*\[(.*?)\]', content, re.DOTALL)
+                if synthesis_match:
+                    synthesis = synthesis_match.group(1).replace('\\n', '\n').replace('\\"', '"')
+                    questions = []
+                    if questions_match:
+                        # Extract question strings
+                        q_content = questions_match.group(1)
+                        questions = re.findall(r'"([^"]+)"', q_content)
+                    return {
+                        "synthesis": synthesis,
+                        "follow_up_questions": questions,
+                    }
 
-                    if synthesis_match:
-                        synthesis = synthesis_match.group(1).replace('\\n', '\n').replace('\\"', '"')
-                        questions = []
-                        if questions_match:
-                            # Extract question strings
-                            q_content = questions_match.group(1)
-                            questions = re.findall(r'"([^"]+)"', q_content)
-                        return {
-                            "synthesis": synthesis,
-                            "follow_up_questions": questions,
-                        }
+            # Fallback: treat whole response as synthesis, stripping any JSON artifacts
+            if content.startswith('{'):
+                # Looks like malformed JSON, try to extract meaningful text
+                clean = re.sub(r'^\s*\{\s*"synthesis"\s*:\s*"?', '', content)
+                clean = re.sub(r'"\s*,?\s*"follow_up_questions"\s*:.*$', '', clean, flags=re.DOTALL)
+                clean = clean.strip().strip('"')
+                if clean:
+                    content = clean
 
-                # Fallback: treat whole response as synthesis, stripping any JSON artifacts
-                if content.startswith('{'):
-                    # Looks like malformed JSON, try to extract meaningful text
-                    clean = re.sub(r'^\s*\{\s*"synthesis"\s*:\s*"?', '', content)
-                    clean = re.sub(r'"\s*,?\s*"follow_up_questions"\s*:.*$', '', clean, flags=re.DOTALL)
-                    clean = clean.strip().strip('"')
-                    if clean:
-                        content = clean
-
-                return {
-                    "synthesis": content,
-                    "follow_up_questions": [],
-                }
+            return {
+                "synthesis": content,
+                "follow_up_questions": [],
+            }
         except Exception as e:
             return None
 
@@ -1955,7 +1952,6 @@ exploration: true
         task_context: str,
     ) -> Optional[str]:
         """Generate wiki page content using LLM."""
-        import httpx
         import os
 
         ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -1991,28 +1987,26 @@ Include:
 Start with # {page_name}. Be thoughtful and curious."""
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{ollama_url}/api/generate",
-                    json={
-                        "model": ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.7,
-                            "num_predict": 600,
-                        }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-                content = result.get("response", "").strip()
+            from llm_caller import call_llm, ModelAssignment
+            response = await call_llm(
+                "wiki.page_content",
+                user_prompt=prompt,
+                max_tokens=600,
+                temperature=0.7,
+                timeout=60.0,
+                ollama_options={"temperature": 0.7, "num_predict": 600},
+                ollama_base_url=ollama_url,
+                default=ModelAssignment("ollama", ollama_model),
+            )
+            if response.error is not None:
+                raise RuntimeError(response.error)
+            content = response.content.strip()
 
-                if not content.startswith("#"):
-                    content = f"# {page_name}\n\n{content}"
+            if not content.startswith("#"):
+                content = f"# {page_name}\n\n{content}"
 
-                # Add frontmatter
-                content = f"""---
+            # Add frontmatter
+            content = f"""---
 type: concept
 generated: true
 researched: true
@@ -2020,6 +2014,6 @@ researched: true
 
 {content}
 """
-                return content
+            return content
         except Exception as e:
             return None

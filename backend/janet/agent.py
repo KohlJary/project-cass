@@ -315,7 +315,8 @@ class JanetAgent:
             if tools:
                 api_kwargs["tools"] = tools
 
-            response = client.messages.create(**api_kwargs)
+            from llm_caller import create_message_sync
+            response = create_message_sync("janet.summon", client=client, **api_kwargs)
 
             # Handle tool use loop
             iterations = 0
@@ -339,7 +340,7 @@ class JanetAgent:
 
                 # Continue conversation
                 api_kwargs["messages"] = messages
-                response = client.messages.create(**api_kwargs)
+                response = create_message_sync("janet.summon", client=client, **api_kwargs)
 
             # Extract final text response
             content = ""

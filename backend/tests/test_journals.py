@@ -93,7 +93,7 @@ class TestStoreJournalEntry:
         """Should store journal entry with metadata."""
         _, collection = mock_memory_core
 
-        with patch('memory.journals.OLLAMA_ENABLED', False):
+        with patch('config.OLLAMA_ENABLED', False):
             entry_id = await journal_manager.store_journal_entry(
                 date="2025-01-15",
                 journal_text="Today was a meaningful day...",
@@ -306,7 +306,7 @@ class TestGenerateJournalSummary:
     @pytest.mark.asyncio
     async def test_summary_disabled_when_ollama_off(self, journal_manager):
         """Should return None when OLLAMA_ENABLED is False."""
-        with patch('memory.journals.OLLAMA_ENABLED', False):
+        with patch('config.OLLAMA_ENABLED', False):
             result = await journal_manager.generate_journal_summary("Long journal text...")
 
         assert result is None
@@ -314,7 +314,7 @@ class TestGenerateJournalSummary:
     @pytest.mark.asyncio
     async def test_summary_truncates_long_result(self, journal_manager):
         """Should truncate summaries over 250 chars."""
-        with patch('memory.journals.OLLAMA_ENABLED', True):
+        with patch('config.OLLAMA_ENABLED', True):
             with patch('httpx.AsyncClient') as mock_client_cls:
                 mock_client = AsyncMock()
                 mock_response = Mock()
@@ -334,7 +334,7 @@ class TestGenerateJournalSummary:
     @pytest.mark.asyncio
     async def test_summary_handles_error(self, journal_manager):
         """Should return None on error."""
-        with patch('memory.journals.OLLAMA_ENABLED', True):
+        with patch('config.OLLAMA_ENABLED', True):
             with patch('httpx.AsyncClient') as mock_client_cls:
                 mock_client = AsyncMock()
                 mock_client.post.side_effect = Exception("Connection failed")

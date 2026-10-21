@@ -5,11 +5,7 @@ Summary generation, working summaries, and two-tier retrieval strategy.
 from typing import List, Dict, Optional
 from datetime import datetime
 
-from config import (
-    MEMORY_RETRIEVAL_COUNT,
-    OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL,
-    SUMMARIZER_PROVIDER, SUMMARIZER_MODEL_HAIKU, SUMMARIZER_MODEL_SONNET
-)
+from config import MEMORY_RETRIEVAL_COUNT
 from .core import MemoryCore
 from .voice_guard import MEMORY_WRITER_SYSTEM, looks_like_refusal
 
@@ -67,8 +63,12 @@ class SummaryManager:
         Returns:
             Dict with 'should_summarize', 'reason', and 'confidence'
         """
-        if not OLLAMA_ENABLED:
-            # Fall back to Haiku for evaluation
+        from llm_caller import call_llm, resolve_model
+
+        # Model from llm_config ("memory.summary_readiness"): Ollama when
+        # enabled, otherwise Claude Haiku (the _evaluate_with_haiku path).
+        assignment = resolve_model("memory.summary_readiness")
+        if assignment is None or assignment.provider != "ollama":
             return await self._evaluate_with_haiku(messages)
 
         if not messages:
@@ -106,20 +106,16 @@ Respond with ONLY a JSON object (no other text):
 {{"should_summarize": true/false, "reason": "brief 1-sentence explanation", "confidence": 0.0-1.0}}"""
 
         try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    },
-                    timeout=30.0
-                )
+            response = await call_llm(
+                "memory.summary_readiness",
+                user_prompt=prompt,
+                max_tokens=200,
+                timeout=30.0,
+                ollama_options={},
+            )
 
-            if response.status_code == 200:
-                result_text = response.json().get("response", "").strip()
+            if response.error is None:
+                result_text = response.content.strip()
 
                 # Parse JSON from response (handle potential markdown wrapping)
                 import re
@@ -141,7 +137,7 @@ Respond with ONLY a JSON object (no other text):
                         "confidence": 0.0
                     }
             else:
-                print(f"Ollama evaluation request failed: {response.status_code}")
+                print(f"Ollama evaluation request failed: {response.error}")
                 return {
                     "should_summarize": True,
                     "reason": "Evaluation request failed, using fallback",
@@ -160,7 +156,6 @@ Respond with ONLY a JSON object (no other text):
         """
         Fallback evaluation using Claude Haiku when local LLM is not available.
         """
-        import anthropic
         import os
         import json
         import re
@@ -209,14 +204,17 @@ Respond with ONLY a JSON object (no other text):
 {{"should_summarize": true/false, "reason": "brief 1-sentence explanation", "confidence": 0.0-1.0}}"""
 
         try:
-            client = anthropic.AsyncAnthropic(api_key=api_key)
-            response = await client.messages.create(
-                model=SUMMARIZER_MODEL_HAIKU,
+            from llm_caller import call_llm
+            response = await call_llm(
+                "memory.summary_readiness",
+                user_prompt=prompt,
                 max_tokens=200,
-                messages=[{"role": "user", "content": prompt}]
+                anthropic_api_key=api_key,
             )
+            if response.error is not None:
+                raise RuntimeError(response.error)
 
-            result_text = response.content[0].text.strip()
+            result_text = response.content.strip()
 
             # Parse JSON from response
             json_match = re.search(r'\{[^}]+\}', result_text)
@@ -265,7 +263,6 @@ Respond with ONLY a JSON object (no other text):
         Returns:
             Generated summary text or None if failed
         """
-        import anthropic
 
         if not messages:
             return None
@@ -302,75 +299,30 @@ Write in first person as yourself - not bullet points or structured templates. T
 Keep it concise but complete - around 150-300 words."""
 
         try:
-            provider = SUMMARIZER_PROVIDER.lower()
+            from llm_caller import call_llm
 
-            # Ollama (local) - only if explicitly configured
-            if provider == "ollama" and OLLAMA_ENABLED:
-                import httpx
-                async with httpx.AsyncClient() as http_client:
-                    response = await http_client.post(
-                        f"{OLLAMA_BASE_URL}/api/generate",
-                        json={
-                            "model": OLLAMA_MODEL,
-                            "system": MEMORY_WRITER_SYSTEM,
-                            "prompt": prompt,
-                            "stream": False
-                        },
-                        timeout=120.0
-                    )
-                if response.status_code == 200:
-                    result = response.json()
-                    summary = result.get("response", "")
-                    refusal = looks_like_refusal(summary)
-                    if refusal:
-                        print(f"Summary chunk discarded: writer refused ({refusal!r})")
-                        return None
-                    print(f"Generated summary using Ollama ({OLLAMA_MODEL})")
-                    if token_tracker:
-                        token_tracker.record(
-                            category="summarization",
-                            operation="generate_chunk",
-                            provider="ollama",
-                            model=OLLAMA_MODEL,
-                            input_tokens=result.get("prompt_eval_count", 0),
-                            output_tokens=result.get("eval_count", 0),
-                            conversation_id=conversation_id
-                        )
-                    return summary
-                else:
-                    print(f"Ollama request failed: {response.status_code}, falling back to Haiku")
-                    provider = "haiku"  # Fallback
-
-            # Claude Haiku or Sonnet
-            model = SUMMARIZER_MODEL_HAIKU if provider == "haiku" else SUMMARIZER_MODEL_SONNET
-            client = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
-            response = await client.messages.create(
-                model=model,
+            # Model from llm_config ("memory.summary_chunk"); the default
+            # follows SUMMARIZER_PROVIDER (ollama -> Haiku fallback, haiku, sonnet).
+            response = await call_llm(
+                "memory.summary_chunk",
+                system_prompt=MEMORY_WRITER_SYSTEM,
+                user_prompt=prompt,
                 max_tokens=1024,
-                system=MEMORY_WRITER_SYSTEM,
-                messages=[{"role": "user", "content": prompt}]
+                timeout=120.0,
+                ollama_options={},
+                anthropic_api_key=anthropic_api_key,
+                conversation_id=conversation_id,
+                operation="generate_chunk",
             )
+            if response.error is not None:
+                raise RuntimeError(response.error)
 
-            summary = response.content[0].text
+            summary = response.content
             refusal = looks_like_refusal(summary)
             if refusal:
                 print(f"Summary chunk discarded: writer refused ({refusal!r})")
                 return None
-            print(f"Generated summary using {model}")
-
-            if token_tracker and response.usage:
-                input_tokens = response.usage.input_tokens
-                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                token_tracker.record(
-                    category="summarization",
-                    operation="generate_chunk",
-                    provider="anthropic",
-                    model=model,
-                    input_tokens=input_tokens + cache_read,
-                    output_tokens=response.usage.output_tokens,
-                    cache_read_tokens=cache_read,
-                    conversation_id=conversation_id
-                )
+            print(f"Generated summary using {response.provider}:{response.model_id}")
             return summary
 
         except Exception as e:
@@ -470,91 +422,43 @@ Create a unified working memory (under 500 words) that captures:
 Write in first person as yourself. This is your memory - make it feel like one, not a structured report."""
 
         try:
-            import anthropic
-            provider = SUMMARIZER_PROVIDER.lower()
+            from llm_caller import resolve_model, call_llm
             mode = "incremental" if (new_chunk and existing_summary) else "full_rebuild"
 
-            # Ollama (local) - only if explicitly configured
-            if provider == "ollama" and OLLAMA_ENABLED:
-                import httpx
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        f"{OLLAMA_BASE_URL}/api/generate",
-                        json={
-                            "model": OLLAMA_MODEL,
-                            "system": MEMORY_WRITER_SYSTEM,
-                            "prompt": prompt,
-                            "stream": False,
-                            "options": {
-                                "num_predict": 1024,
-                                "temperature": 0.7,
-                            }
-                        },
-                        timeout=60.0
-                    )
-                    if response.status_code == 200:
-                        result = response.json()
-                        working_summary = result.get("response", "").strip()
-                        refusal = looks_like_refusal(working_summary)
-                        if refusal:
-                            print(f"Working summary discarded: writer refused ({refusal!r})")
-                            return None
-                        print(f"Generated working summary using Ollama ({mode}, {len(working_summary)} chars)")
-                        if token_tracker:
-                            token_tracker.record(
-                                category="summarization",
-                                operation=f"working_summary_{mode}",
-                                provider="ollama",
-                                model=OLLAMA_MODEL,
-                                input_tokens=result.get("prompt_eval_count", 0),
-                                output_tokens=result.get("eval_count", 0),
-                                conversation_id=conversation_id
-                            )
-                        return working_summary
-                    else:
-                        print(f"Ollama working summary failed: {response.status_code}, falling back to Haiku")
-                        provider = "haiku"
-
-            # Claude Haiku or Sonnet
-            if anthropic_api_key:
-                model = SUMMARIZER_MODEL_HAIKU if provider == "haiku" else SUMMARIZER_MODEL_SONNET
-                client = anthropic.AsyncAnthropic(api_key=anthropic_api_key)
-                response = await client.messages.create(
-                    model=model,
-                    max_tokens=1024,
-                    system=MEMORY_WRITER_SYSTEM,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-
-                working_summary = response.content[0].text.strip()
-                refusal = looks_like_refusal(working_summary)
-                if refusal:
-                    print(f"Working summary discarded: writer refused ({refusal!r})")
-                    return None
-                print(f"Generated working summary using {model} ({mode}, {len(working_summary)} chars)")
-
-                if token_tracker and response.usage:
-                    input_tokens = response.usage.input_tokens
-                    cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                    token_tracker.record(
-                        category="summarization",
-                        operation=f"working_summary_{mode}",
-                        provider="anthropic",
-                        model=model,
-                        input_tokens=input_tokens + cache_read,
-                        output_tokens=response.usage.output_tokens,
-                        cache_read_tokens=cache_read,
-                        conversation_id=conversation_id
-                    )
-                return working_summary
-            else:
-                # No API key - simple fallback
+            # Model from llm_config ("memory.working_summary"); the default
+            # follows SUMMARIZER_PROVIDER. Claude needs an API key: without
+            # one, fall back to concatenation as before.
+            assignment = resolve_model("memory.working_summary")
+            if assignment is None or (assignment.provider == "anthropic" and not anthropic_api_key):
                 print("No API key available, using simple fallback")
                 if new_chunk and existing_summary:
                     return f"{existing_summary}\n\n{new_chunk}"[:2000]
                 elif new_chunk:
                     return new_chunk
                 return None
+
+            response = await call_llm(
+                "memory.working_summary",
+                system_prompt=MEMORY_WRITER_SYSTEM,
+                user_prompt=prompt,
+                max_tokens=1024,
+                timeout=60.0,
+                ollama_options={"num_predict": 1024, "temperature": 0.7},
+                anthropic_api_key=anthropic_api_key,
+                conversation_id=conversation_id,
+                operation=f"working_summary_{mode}",
+            )
+            if response.error is not None:
+                raise RuntimeError(response.error)
+
+            working_summary = response.content.strip()
+            refusal = looks_like_refusal(working_summary)
+            if refusal:
+                print(f"Working summary discarded: writer refused ({refusal!r})")
+                return None
+            print(f"Generated working summary using {response.provider}:{response.model_id} "
+                  f"({mode}, {len(working_summary)} chars)")
+            return working_summary
 
         except Exception as e:
             print(f"Failed to generate working summary: {e}")

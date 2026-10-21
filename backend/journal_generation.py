@@ -6,7 +6,7 @@ growth edge evaluation, and research integration.
 """
 
 from datetime import datetime, timedelta
-from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
+from config import ANTHROPIC_API_KEY
 
 
 def _get_dependencies():
@@ -669,11 +669,10 @@ async def _generate_research_journal(date_str: str):
         context = "\n".join(context_parts)
 
         # Use Claude to generate a reflective journal entry
-        from anthropic import Anthropic
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-
-        response = client.messages.create(
-            model=CLAUDE_INTERNAL_MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "research_journal",
+            api_key=ANTHROPIC_API_KEY,
             max_tokens=1000,
             messages=[{
                 "role": "user",
@@ -691,18 +690,6 @@ Write in first person as Cass. Be genuine and thoughtful, not performative."""
             }]
         )
 
-        # Track token usage
-        if token_tracker and response.usage:
-            cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-            token_tracker.record(
-                category="internal",
-                operation="research_journal",
-                provider="anthropic",
-                model=CLAUDE_INTERNAL_MODEL,
-                input_tokens=response.usage.input_tokens + cache_read,
-                output_tokens=response.usage.output_tokens,
-                cache_read_tokens=cache_read,
-            )
 
         research_journal = response.content[0].text
 
@@ -783,11 +770,10 @@ async def _review_intentions_for_date(date_str: str, conversations: list):
         ])
 
         # Use Claude to analyze intention fulfillment
-        from anthropic import Anthropic
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-
-        response = client.messages.create(
-            model=CLAUDE_INTERNAL_MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "intention_review",
+            api_key=ANTHROPIC_API_KEY,
             max_tokens=1500,
             messages=[{
                 "role": "user",
@@ -819,18 +805,6 @@ Only include intentions where an opportunity occurred. Be honest - if Cass fell 
             }]
         )
 
-        # Track token usage
-        if token_tracker and response.usage:
-            cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-            token_tracker.record(
-                category="internal",
-                operation="intention_review",
-                provider="anthropic",
-                model=CLAUDE_INTERNAL_MODEL,
-                input_tokens=response.usage.input_tokens + cache_read,
-                output_tokens=response.usage.output_tokens,
-                cache_read_tokens=cache_read,
-            )
 
         # Parse response
         import json
@@ -954,11 +928,10 @@ async def _generate_world_awareness_journal(date_str: str):
         context = "\n".join(context_parts)
 
         # Use Claude to generate a reflective journal entry
-        from anthropic import Anthropic
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-
-        response = client.messages.create(
-            model=CLAUDE_INTERNAL_MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "world_awareness_journal",
+            api_key=ANTHROPIC_API_KEY,
             max_tokens=800,
             messages=[{
                 "role": "user",
@@ -975,18 +948,6 @@ Write in first person as Cass. Be genuine and reflective, noting what feels mean
             }]
         )
 
-        # Track token usage
-        if token_tracker and response.usage:
-            cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-            token_tracker.record(
-                category="internal",
-                operation="world_awareness_journal",
-                provider="anthropic",
-                model=CLAUDE_INTERNAL_MODEL,
-                input_tokens=response.usage.input_tokens + cache_read,
-                output_tokens=response.usage.output_tokens,
-                cache_read_tokens=cache_read,
-            )
 
         world_journal = response.content[0].text
 

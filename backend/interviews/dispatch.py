@@ -91,8 +91,10 @@ class InterviewDispatcher:
         if temperature is not None:
             kwargs["temperature"] = temperature
 
+        # Pinned call site: the interview names the model; llm_caller records usage.
+        from llm_caller import create_message
         start_time = datetime.now()
-        response = await client.messages.create(**kwargs)
+        response = await create_message("interviews.dispatch", client=client, **kwargs)
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
 
         return {
@@ -113,36 +115,29 @@ class InterviewDispatcher:
         temperature: float = 1.0
     ) -> Dict:
         """Call OpenAI API."""
-        import openai
-
-        client = openai.AsyncOpenAI(api_key=self.openai_api_key)
-
-        # OpenAI uses system message in messages array
-        full_messages = []
-        if system_prompt:
-            full_messages.append({"role": "system", "content": system_prompt})
-        full_messages.extend(messages)
-
-        kwargs = {
-            "model": model_id,
-            "messages": full_messages,
-        }
-        if max_tokens:
-            kwargs["max_tokens"] = max_tokens
-        if temperature is not None:
-            kwargs["temperature"] = temperature
+        from llm_caller import call_llm, ModelAssignment
 
         start_time = datetime.now()
-        response = await client.chat.completions.create(**kwargs)
+        resp = await call_llm(
+            "interviews.dispatch",
+            system_prompt=system_prompt,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            openai_api_key=self.openai_api_key,
+            default=ModelAssignment("openai", model_id),
+        )
+        if resp.error is not None:
+            raise RuntimeError(resp.error)
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
 
         return {
-            "content": response.choices[0].message.content,
-            "input_tokens": response.usage.prompt_tokens,
-            "output_tokens": response.usage.completion_tokens,
+            "content": resp.raw.choices[0].message.content,
+            "input_tokens": resp.input_tokens,
+            "output_tokens": resp.output_tokens,
             "elapsed_ms": elapsed_ms,
             "model_id": model_id,
-            "stop_reason": response.choices[0].finish_reason
+            "stop_reason": resp.raw.choices[0].finish_reason
         }
 
     async def _call_ollama(
@@ -154,7 +149,6 @@ class InterviewDispatcher:
         temperature: float = None
     ) -> Dict:
         """Call Ollama API."""
-        import httpx
 
         # Build prompt from messages
         prompt_parts = []
@@ -173,19 +167,22 @@ class InterviewDispatcher:
         if temperature is not None:
             options["temperature"] = temperature
 
+        from llm_caller import call_llm, ModelAssignment
+
         start_time = datetime.now()
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.ollama_base_url}/api/generate",
-                json={
-                    "model": model_id,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": options if options else None
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
+        resp = await call_llm(
+            "interviews.dispatch",
+            user_prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout=120.0,
+            ollama_options=options,
+            ollama_base_url=self.ollama_base_url,
+            default=ModelAssignment("ollama", model_id),
+        )
+        if resp.error is not None:
+            raise RuntimeError(resp.error)
+        result = resp.raw
 
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
 

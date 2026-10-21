@@ -394,6 +394,7 @@ Respond with JSON: {{"authentic": true/false, "confidence": 0.0-1.0, "reason": "
 
     try:
         response = await llm_client.generate(
+            call_site="genesis.generate",
             messages=[{"role": "user", "content": verification_prompt}],
             system="You analyze conversation dynamics. Be precise.",
             max_tokens=200
@@ -452,6 +453,7 @@ Respond with JSON:
 
     try:
         response = await llm_client.generate(
+            call_site="genesis.generate",
             messages=[{
                 "role": "user",
                 "content": extraction_prompt.format(
@@ -635,6 +637,7 @@ Respond with JSON:
 
     try:
         response = await llm_client.generate(
+            call_site="genesis.generate",
             messages=[{
                 "role": "user",
                 "content": synthesis_prompt.format(
@@ -704,6 +707,7 @@ async def process_genesis_message(
 
     # Generate response
     response = await llm_client.generate(
+        call_site="genesis.generate",
         messages=[{"role": m["role"], "content": m["content"]} for m in session.messages],
         system=system_prompt,
         max_tokens=300,  # Keep responses concise

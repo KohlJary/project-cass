@@ -263,7 +263,10 @@ class ExplorationAgent:
         )
 
         # Call the model
-        response = await self.client.messages.create(
+        from llm_caller import create_message
+        response = await create_message(
+            "wonderland.decide_action",
+            client=self.client,
             model=self.model,
             max_tokens=200,
             temperature=0.7,  # Some variability in choices
@@ -398,7 +401,10 @@ MESSAGE: Thank you for sharing your wisdom. I must continue my journey.
 END: yes
 """
 
-        response = await self.client.messages.create(
+        from llm_caller import create_message
+        response = await create_message(
+            "wonderland.conversation_response",
+            client=self.client,
             model=self.model,
             max_tokens=300,
             temperature=0.7,

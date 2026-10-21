@@ -285,6 +285,145 @@
   cursor: not-allowed;
 }
 
+/* Routing: state badges, usage, other usage */
+.routing-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.routing-summary strong {
+  color: var(--text);
+}
+
+.config-card .state-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.config-card .state-badge.override {
+  border-color: var(--accent-yellow);
+  color: var(--accent-yellow);
+}
+
+.config-card .state-badge.pinned {
+  border-color: var(--accent-purple);
+  color: var(--accent-purple);
+}
+
+.config-card .call-site-name {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-bottom: 0.25rem;
+}
+
+.config-card .usage-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: var(--text);
+  border-top: 1px solid var(--border);
+}
+
+.config-card .usage-line.empty {
+  color: var(--text-dim);
+}
+
+.config-card .usage-line .cost {
+  color: var(--accent-green);
+}
+
+.config-card .usage-line .last,
+.config-card .models-seen {
+  color: var(--text-dim);
+}
+
+.config-card .models-seen {
+  padding: 0 1rem 0.5rem;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.config-card .default-line {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.config-card .hint,
+.config-card .pinned-note {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-bottom: 0.5rem;
+}
+
+.config-card .card-footer {
+  gap: 0.5rem;
+}
+
+.config-card .revert-button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.config-card .revert-button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.other-usage {
+  margin-top: 2rem;
+}
+
+.other-usage h3 {
+  margin: 0 0 0.25rem;
+  color: var(--text);
+}
+
+.other-usage .description {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.other-usage table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.other-usage th,
+.other-usage td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.other-usage th {
+  color: var(--text-dim);
+  font-weight: normal;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .llm-config-header {

@@ -611,6 +611,19 @@ def _apply_schema_updates(conn, from_version: int):
                 conn.execute(f"ALTER TABLE journals ADD COLUMN {name} {decl}")
         print("Adding journals source-of-truth columns (v60)")
 
+    # v58 -> v61: token_usage_records.call_site, the llm_config call site that
+    # made the call (per-subsystem spend, #64). Rows from before stay NULL.
+    if from_version < 61:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(token_usage_records)").fetchall()}
+        if columns and 'call_site' not in columns:
+            conn.execute("ALTER TABLE token_usage_records ADD COLUMN call_site TEXT")
+            print("Adding token_usage_records.call_site (v61)")
+        if columns:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_token_records_call_site "
+                "ON token_usage_records(daemon_id, call_site)"
+            )
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

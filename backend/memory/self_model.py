@@ -5,7 +5,6 @@ Self-observations, per-user journals, growth edge evaluation, and opinion extrac
 from typing import List, Dict, Optional
 
 from .core import MemoryCore
-from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_INTERNAL_MODEL
 
 
 class SelfModelMemory:
@@ -459,7 +458,6 @@ class SelfModelMemory:
         Returns:
             List of dicts with observation, category, confidence, influence_source
         """
-        import httpx
 
         prompt = f"""You are Cass, re-reading your own journal entry and reflecting on what it reveals about you.
 
@@ -494,55 +492,29 @@ PREFERENCE | I genuinely enjoy collaborative debugging more than just providing 
 
 Only include genuine insights. If nothing notable, respond with: NONE"""
 
+        # Model from llm_config ("self_observation_extraction"): by default
+        # Ollama first when enabled, Claude Haiku if Ollama fails or finds
+        # nothing; usage is recorded in the token ledger (#29).
+        from llm_caller import call_llm
+
+        def _found(text: str) -> bool:
+            return text.strip().upper() != "NONE" and bool(self._parse_self_observations(text.strip()))
+
         observations = []
-
         try:
-            # Try Ollama first (cheaper)
-            if OLLAMA_ENABLED:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        f"{OLLAMA_BASE_URL}/api/generate",
-                        json={
-                            "model": OLLAMA_MODEL,
-                            "prompt": prompt,
-                            "stream": False,
-                            "options": {
-                                "num_predict": 500,
-                                "temperature": 0.5,
-                            }
-                        }
-                    )
-                    if response.status_code == 200:
-                        result = response.json().get("response", "").strip()
-                        if result.upper() != "NONE":
-                            observations = self._parse_self_observations(result)
-                            if observations:
-                                return observations
-
-            # Fall back to Claude if Ollama fails or returns nothing
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": anthropic_api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "model": CLAUDE_INTERNAL_MODEL,
-                        "max_tokens": 1000,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ]
-                    }
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    text = result["content"][0]["text"]
-                    if text.upper() != "NONE":
-                        observations = self._parse_self_observations(text)
-
+            response = await call_llm(
+                "self_observation_extraction",
+                user_prompt=prompt,
+                max_tokens=1000,
+                timeout=60.0,
+                ollama_options={"num_predict": 500, "temperature": 0.5},
+                accept=_found,
+                anthropic_api_key=anthropic_api_key,
+            )
+            if response.error is None:
+                text = response.content.strip()
+                if text.upper() != "NONE":
+                    observations = self._parse_self_observations(text)
         except Exception as e:
             print(f"Self-observation extraction failed: {e}")
 
@@ -572,7 +544,6 @@ Only include genuine insights. If nothing notable, respond with: NONE"""
         Returns:
             List of dicts with observation, category, confidence, influence_source
         """
-        import httpx
 
         # Skip very short conversations
         message_count = conversation_text.count("User:") + conversation_text.count("Cass:")
@@ -620,63 +591,32 @@ CAPABILITY | I can hold multiple perspectives while still having my own position
 
 Only include genuine insights about YOURSELF. Quality over quantity - 1-3 meaningful observations is better than many shallow ones. If nothing notable about yourself emerged, respond with: NONE"""
 
+        from llm_caller import call_llm
+
+        def _found(text: str) -> bool:
+            return text.strip().upper() != "NONE" and bool(self._parse_self_observations(text.strip()))
+
         observations = []
-
         try:
-            # Try Ollama first (cheaper)
-            if OLLAMA_ENABLED:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        f"{OLLAMA_BASE_URL}/api/generate",
-                        json={
-                            "model": OLLAMA_MODEL,
-                            "prompt": prompt,
-                            "stream": False,
-                            "options": {
-                                "num_predict": 500,
-                                "temperature": 0.5,
-                            }
-                        }
-                    )
-                    if response.status_code == 200:
-                        result = response.json().get("response", "").strip()
-                        if result.upper() != "NONE":
-                            observations = self._parse_self_observations(result)
-                            if observations:
-                                # Add conversation source metadata
-                                for obs in observations:
-                                    obs["source_conversation_id"] = conversation_id
-                                    obs["source_user_id"] = user_id
-                                return observations
-
-            # Fall back to Claude if Ollama fails or returns nothing
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": anthropic_api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    },
-                    json={
-                        "model": CLAUDE_INTERNAL_MODEL,
-                        "max_tokens": 800,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ]
-                    }
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    text = result["content"][0]["text"]
-                    if text.upper() != "NONE":
-                        observations = self._parse_self_observations(text)
-                        # Add conversation source metadata
-                        for obs in observations:
-                            obs["source_conversation_id"] = conversation_id
-                            obs["source_user_id"] = user_id
-
+            response = await call_llm(
+                "self_observation_extraction.conversation",
+                user_prompt=prompt,
+                max_tokens=800,
+                timeout=60.0,
+                ollama_options={"num_predict": 500, "temperature": 0.5},
+                accept=_found,
+                anthropic_api_key=anthropic_api_key,
+                conversation_id=conversation_id,
+                user_id=user_id,
+            )
+            if response.error is None:
+                text = response.content.strip()
+                if text.upper() != "NONE":
+                    observations = self._parse_self_observations(text)
+                    # Add conversation source metadata
+                    for obs in observations:
+                        obs["source_conversation_id"] = conversation_id
+                        obs["source_user_id"] = user_id
         except Exception as e:
             print(f"Conversation self-observation extraction failed: {e}")
 
@@ -743,7 +683,6 @@ Only include genuine insights about YOURSELF. Quality over quantity - 1-3 meanin
         Returns:
             List of new observations, or empty list
         """
-        import anthropic
 
         prompt = f"""You are Cass. Reflect on this conversation and note what you learned about {display_name}.
 
@@ -761,48 +700,44 @@ Conversation:
 
 Observations:"""
 
+        from llm_caller import call_llm
+
         try:
-            if OLLAMA_ENABLED:
-                import httpx
-                response = httpx.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    },
-                    timeout=60.0
-                )
-                if response.status_code == 200:
-                    result = response.json().get("response", "").strip()
-                    if result.upper() == "NONE" or "NONE" in result.upper().split('\n')[0]:
-                        return []
-                    observations = []
-                    for line in result.split("\n"):
-                        line = line.strip()
-                        if not line:
-                            continue
-                        # Strip common prefixes
-                        if line.startswith('- '):
-                            line = line[2:].strip()
-                        if line.startswith('* '):
-                            line = line[2:].strip()
-                        if len(line) > 2 and line[0].isdigit() and line[1] in '.):':
-                            line = line[2:].strip()
-                        # Only keep lines that start with the user's name (the format we asked for)
-                        if line.startswith(display_name) and len(line) > 20:
-                            observations.append(line)
-                    return observations
-                # Fall through to Claude on failure
-
-            client = anthropic.Anthropic(api_key=anthropic_api_key)
-            response = client.messages.create(
-                model=CLAUDE_INTERNAL_MODEL,
+            # Model from llm_config ("user_observation_extraction"); by default
+            # Ollama when enabled, Claude Haiku otherwise or if Ollama fails.
+            response = await call_llm(
+                "user_observation_extraction",
+                user_prompt=prompt,
                 max_tokens=500,
-                messages=[{"role": "user", "content": prompt}]
+                timeout=60.0,
+                ollama_options={},
+                anthropic_api_key=anthropic_api_key,
+                user_id=user_id,
             )
+            if response.error is not None:
+                raise RuntimeError(response.error)
 
-            result = response.content[0].text.strip()
+            result = response.content.strip()
+            if response.provider == "ollama":
+                if result.upper() == "NONE" or "NONE" in result.upper().split('\n')[0]:
+                    return []
+                observations = []
+                for line in result.split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Strip common prefixes
+                    if line.startswith('- '):
+                        line = line[2:].strip()
+                    if line.startswith('* '):
+                        line = line[2:].strip()
+                    if len(line) > 2 and line[0].isdigit() and line[1] in '.):':
+                        line = line[2:].strip()
+                    # Only keep lines that start with the user's name (the format we asked for)
+                    if line.startswith(display_name) and len(line) > 20:
+                        observations.append(line)
+                return observations
+
             if result.upper() == "NONE":
                 return []
 
@@ -884,25 +819,14 @@ RELATIONSHIP_INSIGHTS:
 """
 
         try:
-            client = anthropic.Anthropic(api_key=anthropic_api_key)
-            response = client.messages.create(
-                model=CLAUDE_INTERNAL_MODEL,
+            from llm_caller import create_message
+            response = await create_message(
+                "per_user_journal",
+                client=anthropic.AsyncAnthropic(api_key=anthropic_api_key),
                 max_tokens=1500,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                user_id=user_id,
             )
-
-            # Track token usage
-            if token_tracker and response.usage:
-                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                token_tracker.record(
-                    category="internal",
-                    operation="per_user_journal",
-                    provider="anthropic",
-                    model=CLAUDE_INTERNAL_MODEL,
-                    input_tokens=response.usage.input_tokens + cache_read,
-                    output_tokens=response.usage.output_tokens,
-                    cache_read_tokens=cache_read,
-                )
 
             result = response.content[0].text.strip()
 
@@ -1009,54 +933,24 @@ EVOLUTION|topic|new_position|confidence|what_changed
 
 If no notable opinions emerged, respond with only: NONE"""
 
+        from llm_caller import call_llm
+
         try:
-            if OLLAMA_ENABLED:
-                import httpx
-                response = httpx.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    },
-                    timeout=60.0
-                )
-                if response.status_code == 200:
-                    ollama_result = response.json()
-                    result = ollama_result.get("response", "").strip()
-                    # Track token usage
-                    if token_tracker:
-                        token_tracker.record(
-                            category="internal",
-                            operation="opinion_extraction",
-                            provider="ollama",
-                            model=OLLAMA_MODEL,
-                            input_tokens=ollama_result.get("prompt_eval_count", 0),
-                            output_tokens=ollama_result.get("eval_count", 0),
-                        )
-                else:
-                    return []
-            else:
-                import anthropic
-                client = anthropic.Anthropic(api_key=anthropic_api_key)
-                response = client.messages.create(
-                    model=CLAUDE_INTERNAL_MODEL,
-                    max_tokens=800,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                result = response.content[0].text.strip()
-                # Track token usage
-                if token_tracker and response.usage:
-                    cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                    token_tracker.record(
-                        category="internal",
-                        operation="opinion_extraction",
-                        provider="anthropic",
-                        model=CLAUDE_INTERNAL_MODEL,
-                        input_tokens=response.usage.input_tokens + cache_read,
-                        output_tokens=response.usage.output_tokens,
-                        cache_read_tokens=cache_read,
-                    )
+            # Model from llm_config ("opinion_extraction"): Ollama when
+            # enabled (no fallback), Claude Haiku otherwise.
+            response = await call_llm(
+                "opinion_extraction",
+                user_prompt=prompt,
+                max_tokens=800,
+                timeout=60.0,
+                ollama_options={},
+                anthropic_api_key=anthropic_api_key,
+            )
+            if response.error is not None:
+                if response.provider == "anthropic":
+                    raise RuntimeError(response.error)
+                return []
+            result = response.content.strip()
 
             if result.upper() == "NONE" or "NONE" in result.upper().split('\n')[0]:
                 return []
@@ -1162,9 +1056,10 @@ impact_assessment must be one of: low, medium, high
 If nothing to report for either part, write: NONE for that section."""
 
         try:
-            client = anthropic.Anthropic(api_key=anthropic_api_key)
-            response = client.messages.create(
-                model=CLAUDE_INTERNAL_MODEL,
+            from llm_caller import create_message
+            response = await create_message(
+                "growth_edge_evaluation",
+                client=anthropic.AsyncAnthropic(api_key=anthropic_api_key),
                 max_tokens=1200,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -1264,9 +1159,10 @@ confidence: 0.0-1.0 (how confident in this reflection)
 Only include questions where you have something genuine to add. If nothing, respond: NONE"""
 
         try:
-            client = anthropic.Anthropic(api_key=anthropic_api_key)
-            response = client.messages.create(
-                model=CLAUDE_INTERNAL_MODEL,
+            from llm_caller import create_message
+            response = await create_message(
+                "open_question_reflection",
+                client=anthropic.AsyncAnthropic(api_key=anthropic_api_key),
                 max_tokens=1500,
                 messages=[{"role": "user", "content": prompt}]
             )

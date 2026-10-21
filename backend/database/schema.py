@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 60  # journals: journal_type, chroma_id, metadata_json, search_indexed (#56)
+SCHEMA_VERSION = 61  # v60 journals (#56); v61 token_usage_records.call_site (#64)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -673,10 +673,12 @@ CREATE TABLE IF NOT EXISTS token_usage_records (
     user_id TEXT,
     tool_name TEXT,
     duration_ms INTEGER DEFAULT 0,
-    estimated_cost_usd REAL
+    estimated_cost_usd REAL,
+    call_site TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_token_records_daemon ON token_usage_records(daemon_id);
+CREATE INDEX IF NOT EXISTS idx_token_records_call_site ON token_usage_records(daemon_id, call_site);
 CREATE INDEX IF NOT EXISTS idx_token_records_date ON token_usage_records(daemon_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_token_records_category ON token_usage_records(daemon_id, category);
 

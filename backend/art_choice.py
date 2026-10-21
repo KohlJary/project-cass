@@ -130,20 +130,6 @@ def _text_of(response) -> str:
     return "\n".join(parts).strip()
 
 
-def _track(token_tracker, response, operation: str) -> None:
-    usage = getattr(response, "usage", None)
-    if not token_tracker or not usage:
-        return
-    try:
-        token_tracker.record(
-            category="internal", operation=operation, provider="anthropic", model=MODEL,
-            input_tokens=getattr(usage, "input_tokens", 0) or 0,
-            output_tokens=getattr(usage, "output_tokens", 0) or 0,
-        )
-    except Exception as e:
-        logger.debug(f"[ArtChoice] token tracking skipped: {e}")
-
-
 def _parse_json(text: str) -> Optional[Dict[str, Any]]:
     """The reply should be one JSON object; tolerate fences and prose around it."""
     if "```" in text:
@@ -200,8 +186,10 @@ async def choose_subject(
     from self_context import session_system_preamble
 
     try:
-        response = await _client().messages.create(
-            model=MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "art_choice.choose_subject",
+            client=_client(),
             max_tokens=300,
             system=session_system_preamble(),
             messages=[{"role": "user", "content": choice_prompt(candidates)}],
@@ -209,7 +197,6 @@ async def choose_subject(
     except Exception as e:
         logger.warning(f"[ArtChoice] choice call failed, using the code's pick: {e}")
         return None
-    _track(token_tracker, response, "art_choice")
 
     text = _text_of(response)
     refusal = looks_like_refusal(text)
@@ -278,8 +265,10 @@ async def see_painting(
         return None
     media_type, data = encoded
     try:
-        response = await _client().messages.create(
-            model=MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "art_choice.see_painting",
+            client=_client(),
             max_tokens=300,
             system=session_system_preamble(),
             messages=[{
@@ -293,7 +282,6 @@ async def see_painting(
     except Exception as e:
         logger.warning(f"[ArtChoice] viewing call failed, no artist's note: {e}")
         return None
-    _track(token_tracker, response, "art_note")
 
     note = _clean(_text_of(response), MAX_NOTE_CHARS)
     if not note:

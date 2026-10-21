@@ -35,3 +35,16 @@ fake LLM. See `tests/README.md`.
 `strict.report_swallowed(exc, context)` is the helper for except-blocks that
 log and carry on: same behavior in production, re-raises under `CASS_STRICT=1`
 (tests and CI), so silent failures fail a test.
+
+## LLM calls (`llm_caller.py`, `llm_config.py`)
+
+Every LLM call goes through `llm_caller` (`call_llm` / `call_llm_sync` for
+text, `create_message` / `create_message_sync` for Messages-API requests,
+`ollama_raw` for native Ollama tool loops). Each call names a call site
+registered in `llm_config.CALL_SITES`, whose default policy is the model that
+call site ran before routing. An admin override (Settings > LLM, or
+`PUT /admin/llm-config/{call_site}`) wins over the default; dreams, chat and
+model interviews are pinned. Usage lands in `token_usage_records` with the
+call site name. `tests/test_llm_routing.py` fails on a direct client call or
+an unregistered call site. Chat turns are the exception for now (each user's
+model setting; see the test's exception list).

@@ -14,7 +14,6 @@ import hashlib
 
 from config import (
     CHROMA_PERSIST_DIR, COLLECTION_NAME, MEMORY_RETRIEVAL_COUNT,
-    OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL
 )
 
 
@@ -70,12 +69,10 @@ class MemoryCore:
         # MAP:ROOM generate_gist
         # MAP:HAZARD Requires Ollama to be running - returns None if unavailable
         # MAP:EXIT:EAST store_conversation (gists are stored with messages)
-        if not OLLAMA_ENABLED:
-            return None
-
+        # Model from llm_config ("memory.gist"): Ollama when enabled, else skipped.
         try:
-            import httpx
             import re
+            from llm_caller import call_llm
 
             # Clean the response of gesture/emote tags for gist generation
             clean_response = re.sub(r'<(gesture|emote):[^>]+>', '', assistant_response).strip()
@@ -87,27 +84,20 @@ Cass: {clean_response[:1000]}
 
 Write ONLY the summary, no quotes or labels:"""
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "num_predict": 100,
-                            "temperature": 0.3,
-                        }
-                    }
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    gist = result.get("response", "").strip()
-                    # Ensure it's not too long
-                    if len(gist) > 200:
-                        gist = gist[:197] + "..."
-                    return gist if gist else None
+            response = await call_llm(
+                "memory.gist",
+                user_prompt=prompt,
+                max_tokens=100,
+                temperature=0.3,
+                timeout=30.0,
+                ollama_options={"num_predict": 100, "temperature": 0.3},
+            )
+            if response.error is None:
+                gist = response.content.strip()
+                # Ensure it's not too long
+                if len(gist) > 200:
+                    gist = gist[:197] + "..."
+                return gist if gist else None
 
         except Exception as e:
             print(f"Gist generation failed: {e}")
