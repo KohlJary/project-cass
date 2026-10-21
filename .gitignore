@@ -196,3 +196,4 @@ embodiment/.env
 # Coverage reports (CI produces fresh ones)
 coverage.json
 .coverage
+backend/test-results/
