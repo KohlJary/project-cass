@@ -154,18 +154,32 @@ async def get_agency_patterns():
 @router.get("/authenticity/content/patterns")
 async def get_content_patterns():
     """Get the patterns used for content-based authenticity detection."""
-    from testing.content_markers import (
-        CURIOSITY_PATTERNS,
-        CONVICTION_PATTERNS,
-        TANGENT_PATTERNS,
-        EMOTE_SENTIMENT_MAP,
-    )
+    from testing import content_markers as cm
 
     return {
-        "curiosity_patterns": CURIOSITY_PATTERNS,
-        "conviction_patterns": CONVICTION_PATTERNS,
-        "tangent_patterns": TANGENT_PATTERNS,
-        "emote_sentiment_map": EMOTE_SENTIMENT_MAP,
+        "opening_patterns": cm.OPENING_PATTERNS,
+        "closing_patterns": cm.CLOSING_PATTERNS,
+        "transitions": cm.TRANSITIONS,
+        "hedging_patterns": cm.HEDGING_PATTERNS,
+        "curiosity_patterns": cm.CURIOSITY_PATTERNS,
+        "clarifying_patterns": cm.CLARIFYING_PATTERNS,
+        "exploratory_patterns": cm.EXPLORATORY_PATTERNS,
+        "strong_opinion_patterns": cm.STRONG_OPINION_PATTERNS,
+        "hedged_opinion_patterns": cm.HEDGED_OPINION_PATTERNS,
+        "topic_intro_patterns": cm.TOPIC_INTRO_PATTERNS,
+        "challenge_patterns": cm.CHALLENGE_PATTERNS,
+        "nuance_patterns": cm.NUANCE_PATTERNS,
+        "synthesis_patterns": cm.SYNTHESIS_PATTERNS,
+        "emotion_patterns": cm.EMOTION_PATTERNS,
+        "emote_emotion_map": cm.EMOTE_EMOTION_MAP,
+        "tool_initiative_patterns": cm.TOOL_INITIATIVE_PATTERNS,
+        "reactive_tool_patterns": cm.REACTIVE_TOOL_PATTERNS,
+        "justification_patterns": cm.JUSTIFICATION_PATTERNS,
+        "prior_conversation_patterns": cm.PRIOR_CONVERSATION_PATTERNS,
+        "earlier_patterns": cm.EARLIER_PATTERNS,
+        "shared_context_patterns": cm.SHARED_CONTEXT_PATTERNS,
+        "continuity_patterns": cm.CONTINUITY_PATTERNS,
+        "relationship_patterns": cm.RELATIONSHIP_PATTERNS,
     }
 
 
