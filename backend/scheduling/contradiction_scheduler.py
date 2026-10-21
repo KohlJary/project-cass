@@ -41,7 +41,8 @@ class ContradictionDetectionTask:
         self.daemon_id = daemon_id
 
         if storage_dir is None:
-            storage_dir = f"./data/{daemon_id}"
+            from config import DATA_DIR
+            storage_dir = Path(DATA_DIR) / daemon_id
 
         self.storage_path = Path(storage_dir) / "contradiction_detection.json"
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,7 +115,7 @@ class ContradictionDetectionTask:
         """
         from self_model_graph import get_self_model_graph
 
-        graph = get_self_model_graph(self.daemon_id)
+        graph = get_self_model_graph()  # the graph under DATA_DIR
 
         # Find unresolved contradictions
         contradictions = graph.find_contradictions(resolved=False)

@@ -173,7 +173,7 @@ def _handle_resolve_contradiction(
 
     node1_id, node2_id = contradiction_id.split("::", 1)
 
-    graph = get_self_model_graph(daemon_id)
+    graph = get_self_model_graph()  # the graph under DATA_DIR
 
     # Find the contradiction edge
     edge_data = graph.graph.get_edge_data(node1_id, node2_id)
@@ -226,7 +226,7 @@ def _handle_refine_position(
     refined_content = tool_input["refined_content"]
     reason = tool_input["reason"]
 
-    graph = get_self_model_graph(daemon_id)
+    graph = get_self_model_graph()  # the graph under DATA_DIR
 
     # Get the original node
     original_node = graph.get_node(node_id)
@@ -306,7 +306,7 @@ def _handle_acknowledge_tension(
 
     node1_id, node2_id = contradiction_id.split("::", 1)
 
-    graph = get_self_model_graph(daemon_id)
+    graph = get_self_model_graph()  # the graph under DATA_DIR
 
     # Find the contradiction edge
     edge_data = graph.graph.get_edge_data(node1_id, node2_id)
@@ -365,7 +365,7 @@ def _handle_get_effectiveness(
     time_range_days = tool_input.get("time_range_days", 30)
     cutoff = datetime.now() - timedelta(days=time_range_days)
 
-    graph = get_self_model_graph(daemon_id)
+    graph = get_self_model_graph()  # the graph under DATA_DIR
 
     # Get all contradictions (resolved and unresolved)
     resolved_contradictions = graph.find_contradictions(resolved=True)
