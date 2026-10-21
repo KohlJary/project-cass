@@ -67,6 +67,7 @@ class LLMResponse:
         raw: Any = None,
         call_site: Optional[str] = None,
         rejected: bool = False,
+        error_kind: Optional[str] = None,
     ):
         self.content = content
         self.provider = provider
@@ -79,6 +80,9 @@ class LLMResponse:
         self.raw = raw
         self.call_site = call_site
         self.rejected = rejected  # content came back but the caller's accept() said no
+        # "http": the provider answered with an error status; "exception": no
+        # answer (connection refused, timeout, ...). See CallSite.fallback_on_exception.
+        self.error_kind = error_kind
 
     @property
     def success(self) -> bool:
@@ -201,11 +205,15 @@ def _ollama_url(base_url: Optional[str]) -> str:
         return OLLAMA_BASE_URL
 
 
+class ProviderHTTPError(RuntimeError):
+    """The provider answered with a non-200 status."""
+
+
 async def _ollama_request(base_url: str, endpoint: str, payload: dict, timeout: float) -> dict:
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.post(f"{base_url}/api/{endpoint}", json=payload)
     if response.status_code != 200:
-        raise RuntimeError(f"Ollama HTTP {response.status_code}: {response.text[:200]}")
+        raise ProviderHTTPError(f"Ollama HTTP {response.status_code}: {response.text[:200]}")
     return response.json()
 
 
@@ -213,7 +221,7 @@ def _ollama_request_sync(base_url: str, endpoint: str, payload: dict, timeout: f
     with httpx.Client(timeout=timeout) as client:
         response = client.post(f"{base_url}/api/{endpoint}", json=payload)
     if response.status_code != 200:
-        raise RuntimeError(f"Ollama HTTP {response.status_code}: {response.text[:200]}")
+        raise ProviderHTTPError(f"Ollama HTTP {response.status_code}: {response.text[:200]}")
     return response.json()
 
 
@@ -307,6 +315,24 @@ class _Request:
         return endpoint, payload
 
 
+def _error_kind(e: Exception) -> str:
+    if isinstance(e, ProviderHTTPError):
+        return "http"
+    try:
+        import anthropic
+        if isinstance(e, anthropic.APIStatusError):
+            return "http"
+    except Exception:
+        pass
+    try:
+        import openai
+        if isinstance(e, openai.APIStatusError):
+            return "http"
+    except Exception:
+        pass
+    return "exception"
+
+
 def _anthropic_to_response(msg, model_id: str) -> LLMResponse:
     text = "".join(getattr(b, "text", "") or "" for b in (msg.content or [])
                    if getattr(b, "type", "text") == "text")
@@ -360,7 +386,7 @@ async def _call_provider(provider: str, model_id: str, req: _Request) -> LLMResp
             return _openai_to_response(completion, model_id)
         return LLMResponse("", provider, model_id, error=f"Unknown provider: {provider}")
     except Exception as e:
-        return LLMResponse("", provider, model_id, error=f"{type(e).__name__}: {e}")
+        return LLMResponse("", provider, model_id, error=f"{type(e).__name__}: {e}", error_kind=_error_kind(e))
 
 
 def _call_provider_sync(provider: str, model_id: str, req: _Request) -> LLMResponse:
@@ -380,7 +406,7 @@ def _call_provider_sync(provider: str, model_id: str, req: _Request) -> LLMRespo
             return _openai_to_response(completion, model_id)
         return LLMResponse("", provider, model_id, error=f"Unknown provider: {provider}")
     except Exception as e:
-        return LLMResponse("", provider, model_id, error=f"{type(e).__name__}: {e}")
+        return LLMResponse("", provider, model_id, error=f"{type(e).__name__}: {e}", error_kind=_error_kind(e))
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +416,22 @@ def _call_provider_sync(provider: str, model_id: str, req: _Request) -> LLMRespo
 _REQ_KEYS = ("messages", "ollama_options", "ollama_extra", "ollama_base_url", "json_mode",
              "anthropic_kwargs", "client", "anthropic_api_key", "openai_api_key")
 _LEDGER_KEYS = ("category", "operation", "conversation_id", "user_id")
+
+
+def _stop_on_exception(call_site: str, resp: LLMResponse) -> bool:
+    """No fallback after an exception for call sites that never had one.
+
+    Before routing, several Ollama-first call sites fell back to Claude only
+    when Ollama answered with an error status; an exception (Ollama down)
+    ended the call with nothing. Their defaults keep that, so an outage never
+    starts paid calls. An admin override falls back on any failure.
+    """
+    if resp.error_kind != "exception":
+        return False
+    site = CALL_SITES.get(call_site)
+    if site is None or site.fallback_on_exception:
+        return False
+    return LLMConfigManager().override_for(call_site) is None
 
 
 def _skipped(call_site: str) -> LLMResponse:
@@ -459,7 +501,7 @@ async def call_llm(
         resp = await _call_provider(provider, model_id, req)
         _record_response(call_site, resp, started, ledger)
         resp, ok = _finish(call_site, resp, accept)
-        if ok:
+        if ok or _stop_on_exception(call_site, resp):
             return resp
     return resp
 
@@ -488,7 +530,7 @@ def call_llm_sync(
         resp = _call_provider_sync(provider, model_id, req)
         _record_response(call_site, resp, started, ledger)
         resp, ok = _finish(call_site, resp, accept)
-        if ok:
+        if ok or _stop_on_exception(call_site, resp):
             return resp
     return resp
 

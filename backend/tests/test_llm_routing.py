@@ -232,7 +232,7 @@ PRE_ROUTING_MODELS = {
     "art_study.plan_refinement": ("anthropic", SONNET),
     "wonderland.self_observations": ("anthropic", HAIKU),
 }
-LOCAL_FIRST = ["memory.journal_entry", "memory.conversation_digest", "memory.journal_from_digests",
+LOCAL_FIRST = ["memory.journal_entry",
                "self_observation_extraction", "self_observation_extraction.conversation",
                "user_observation_extraction"]
 LOCAL_NO_FALLBACK = ["opinion_extraction", "memory.observation_extraction"]
@@ -609,3 +609,104 @@ def test_call_site_summary_groups_by_call_site(fake_llm):
     assert summary["grimoire.rate"]["input_tokens"] == 20
     assert summary["grimoire.rate"]["cost_usd"] > 0
     assert summary["chat"]["calls"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Ollama down: no paid fallback where there was none before routing
+# ---------------------------------------------------------------------------
+
+def _ollama_down(monkeypatch):
+    async def unreachable(*a, **k):
+        import httpx
+        raise httpx.ConnectError("connection refused")
+
+    def unreachable_sync(*a, **k):
+        import httpx
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(llm_caller, "_ollama_request", unreachable)
+    monkeypatch.setattr(llm_caller, "_ollama_request_sync", unreachable_sync)
+
+
+def _ollama_status(monkeypatch, code=500):
+    async def failing(*a, **k):
+        raise llm_caller.ProviderHTTPError(f"Ollama HTTP {code}: boom")
+
+    monkeypatch.setattr(llm_caller, "_ollama_request", failing)
+
+
+NO_FALLBACK_ON_EXCEPTION = ["memory.summary_chunk", "memory.working_summary", "memory.journal_entry",
+                            "self_observation_extraction", "self_observation_extraction.conversation",
+                            "user_observation_extraction"]
+
+
+@pytest.mark.unit
+@needs_sdk
+@pytest.mark.parametrize("site", NO_FALLBACK_ON_EXCEPTION)
+def test_ollama_exception_makes_no_paid_call_where_main_made_none(site, fake_llm, ollama_on, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "SUMMARIZER_PROVIDER", "ollama")
+    assert LLMConfigManager().resolve(site).fallback_provider == "anthropic"
+    _ollama_down(monkeypatch)
+    resp = asyncio.run(llm_caller.call_llm(site, user_prompt="x"))
+    assert resp.error_kind == "exception" and resp.provider == "ollama"
+    assert fake_llm.calls == [] and _ledger() == []
+
+
+@pytest.mark.unit
+@needs_sdk
+@pytest.mark.parametrize("site", NO_FALLBACK_ON_EXCEPTION)
+def test_ollama_error_status_still_falls_back_as_before(site, fake_llm, ollama_on, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "SUMMARIZER_PROVIDER", "ollama")
+    _ollama_status(monkeypatch)
+    fake_llm.queue_text("from Claude")
+    resp = asyncio.run(llm_caller.call_llm(site, user_prompt="x"))
+    assert resp.provider == "anthropic" and resp.success
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_summary_chunk_with_ollama_down_returns_none_without_claude(fake_llm, ollama_on, monkeypatch):
+    """main: generate_summary_chunk returned None on an Ollama exception."""
+    import config
+    from memory.summaries import SummaryManager
+    monkeypatch.setattr(config, "SUMMARIZER_PROVIDER", "ollama")
+    _ollama_down(monkeypatch)
+    mgr = SummaryManager.__new__(SummaryManager)
+    out = asyncio.run(mgr.generate_summary_chunk(
+        "c1", [{"role": "user", "content": "hi", "timestamp": "t"}], "test-key"))
+    assert out is None and fake_llm.calls == []
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_user_observations_with_ollama_down_returns_empty_without_claude(fake_llm, ollama_on, monkeypatch):
+    """main: generate_user_observations returned [] on an Ollama exception."""
+    from memory.self_model import SelfModelMemory
+    _ollama_down(monkeypatch)
+    mem = SelfModelMemory.__new__(SelfModelMemory)
+    out = asyncio.run(mem.generate_user_observations("u1", "Kohl", "User: hi\nCass: hello", "test-key"))
+    assert out == [] and fake_llm.calls == []
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_admin_override_falls_back_on_any_failure(fake_llm, monkeypatch):
+    LLMConfigManager().set("memory.journal_entry",
+                           ModelAssignment("ollama", "qwen2.5:14b", "anthropic", HAIKU))
+    _ollama_down(monkeypatch)
+    fake_llm.queue_text("journal")
+    resp = asyncio.run(llm_caller.call_llm("memory.journal_entry", user_prompt="x"))
+    assert resp.provider == "anthropic"
+
+
+@pytest.mark.unit
+def test_dream_pin_ignores_the_callers_model():
+    m = LLMConfigManager()
+    for site in ("dreaming.the_dreaming", "dreaming.cass_voice", "dreaming.insight_extraction"):
+        a = m.resolve(site, ModelAssignment("anthropic", "claude-something-else"))
+        assert (a.provider, a.model_id) == ("anthropic", SONNET)
+    # Pinned sites whose model is the caller's by design keep the caller's.
+    caller = ModelAssignment("openai", "gpt-4o")
+    assert m.resolve("interviews.dispatch", caller) == caller

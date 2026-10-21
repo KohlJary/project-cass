@@ -14,6 +14,49 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# --- What the budget gate counts (#64) --------------------------------------
+# Before #64, only some LLM calls wrote to the token ledger; the gate below
+# (can_spend, via sync_from_token_tracker) counted those. #64 records every
+# routed call, so dreams, sessions, art study, Wonderland and the rest now
+# land in the ledger too. Counting them would quietly tighten the budget
+# (most fall into SYSTEM, 10% of the daily budget) and defer system tasks
+# such as idle summarization and the daily journal on busy days.
+#
+# So the gate counts what it counted before: rows with no call site (written
+# directly, as all rows were before #64) and rows from the call sites below,
+# which recorded their usage before #64. Everything else is still in the
+# ledger and on the admin Model Routing page, just not in can_spend().
+#
+# Kohl's switch: set COUNT_ALL_LEDGER_SPEND = True to have the gate count all
+# recorded spend (and revisit the allocations when doing so).
+COUNT_ALL_LEDGER_SPEND = False
+
+BUDGET_COUNTED_CALL_SITES = frozenset({
+    "title_generation",
+    "identity_snippet",
+    "narrative.extraction",
+    "memory.summary_chunk",
+    "memory.working_summary",
+    "memory.journal_entry",
+    "memory.observation_extraction",
+    "per_user_journal",
+    "opinion_extraction",
+    "research_journal",
+    "intention_review",
+    "world_awareness_journal",
+    "art_choice.choose_subject",
+    "art_choice.see_painting",
+    "wiki.resynthesis",
+    "wiki.resynthesis_validation",
+    "session.legacy",
+})
+
+
+def counts_toward_budget(call_site: Optional[str]) -> bool:
+    """Whether a ledger row's spend counts in the budget gate."""
+    return COUNT_ALL_LEDGER_SPEND or call_site is None or call_site in BUDGET_COUNTED_CALL_SITES
+
+
 class TaskCategory(Enum):
     """Categories of scheduled tasks."""
     SYSTEM = "system"           # Crontab-style recurring (github, summarization)
@@ -210,8 +253,17 @@ class BudgetManager:
         )
 
         try:
-            summary = self.tracker.get_summary(start_date=today_start)
-            by_category = summary.get("by_category", {})
+            # Same window and records as get_summary(start_date=today_start),
+            # filtered to the spend the gate counts (see BUDGET_COUNTED_CALL_SITES).
+            # NOTE: today_start is UTC midnight but ledger timestamps are naive
+            # local time; see test_budget_window_timezone (strict xfail).
+            by_category: Dict[str, Dict[str, float]] = {}
+            for record in self.tracker.get_records(start_date=today_start, limit=100000):
+                if not counts_toward_budget(record.get("call_site")):
+                    continue
+                cat = record.get("category", "unknown")
+                entry = by_category.setdefault(cat, {"cost": 0.0})
+                entry["cost"] += record.get("estimated_cost_usd") or 0
 
             # Map token_tracker categories to TaskCategory
             # NOTE: "chat" is explicitly excluded - it's user-driven, not autonomous

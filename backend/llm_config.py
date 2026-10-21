@@ -213,6 +213,10 @@ class CallSite:
     pinned: bool = False             # admin overrides refused/ignored
     pinned_reason: str = ""
     text_only: bool = True           # False: uses tools/images; only Claude can run it
+    # False: with the default policy, a fallback runs only when the first
+    # provider answers with an error status, not when it can't be reached
+    # (as these call sites behaved before routing).
+    fallback_on_exception: bool = True
     priority: str = "medium"
 
 
@@ -273,27 +277,23 @@ CALL_SITES: dict[str, CallSite] = _sites(
     CallSite("memory.summary_readiness", local_first("SUMMARIZER_MODEL_HAIKU", fallback=False), "Summary readiness",
              "Decide whether now is a good point to summarize", "per message batch"),
     CallSite("memory.summary_chunk", summarizer(), "Summary chunk",
-             "Summarize a conversation segment into memory", "per segment", category="summarization"),
+             "Summarize a conversation segment into memory", "per segment", category="summarization", fallback_on_exception=False),
     CallSite("memory.working_summary", summarizer(), "Working summary",
-             "Rebuild/update the conversation's working memory", "per segment", category="summarization"),
+             "Rebuild/update the conversation's working memory", "per segment", category="summarization", fallback_on_exception=False),
     CallSite("memory.gist", local_only(), "Message gist",
              "Short gist of a long message for retrieval", "per long message"),
     CallSite("memory.journal_summary", local_only(), "Journal summary",
              "1-2 sentence summary of a journal entry", "daily"),
     CallSite("memory.journal_entry", local_first(), "Daily journal",
-             "Daily journal entry from summaries", "daily", category="internal"),
-    CallSite("memory.conversation_digest", local_first(), "Conversation digest",
-             "Digest of one conversation for the journal", "per conversation per day", category="internal"),
-    CallSite("memory.journal_from_digests", local_first(), "Journal from digests",
-             "Daily journal entry from conversation digests", "daily", category="internal"),
+             "Daily journal entry from summaries", "daily", category="internal", fallback_on_exception=False),
     CallSite("memory.observation_extraction", local_first(fallback=False), "Observation extraction",
              "Observations about users from summaries", "daily", category="internal"),
     CallSite("self_observation_extraction", local_first(), "Self Observations (journal)",
-             "Self-observations from a journal entry", "daily", priority="high"),
+             "Self-observations from a journal entry", "daily", priority="high", fallback_on_exception=False),
     CallSite("self_observation_extraction.conversation", local_first(), "Self Observations (conversation)",
-             "Self-observations from a finished conversation", "per conversation", priority="high"),
+             "Self-observations from a finished conversation", "per conversation", priority="high", fallback_on_exception=False),
     CallSite("user_observation_extraction", local_first(), "User Observations",
-             "Observations about a user from a journal", "per user per day", priority="high"),
+             "Observations about a user from a journal", "per user per day", priority="high", fallback_on_exception=False),
     CallSite("per_user_journal", claude_internal(), "Per-User Journal",
              "Journal about relationship with user", "per user per day", category="internal"),
     CallSite("opinion_extraction", local_first(fallback=False), "Opinion Extraction",
@@ -522,10 +522,20 @@ class LLMConfigManager:
         return None
 
     def resolve(self, call_site: str, default: Optional[ModelAssignment] = None) -> Optional[ModelAssignment]:
-        """The model this call should use. None means: skip the call (no model)."""
+        """The model this call should use. None means: skip the call (no model).
+
+        A pinned call site with a fixed policy (the dreams) runs that model
+        whatever the caller passes and whatever the overrides file says. A
+        pinned site whose model is the caller's by design (chat, interviews)
+        runs the caller's model and ignores overrides.
+        """
         site = CALL_SITES.get(call_site)
+        if site is not None and site.pinned:
+            if getattr(site.default, "from_caller", False):
+                return default if default is not None else site.default()
+            return site.default()
         override = self._overrides.get(call_site)
-        if override is not None and not (site and site.pinned):
+        if override is not None:
             return override
         return self.default_for(call_site, default)
 

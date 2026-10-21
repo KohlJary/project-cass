@@ -690,7 +690,6 @@ Write in first person as Cass. Be genuine and thoughtful, not performative."""
             }]
         )
 
-
         research_journal = response.content[0].text
 
         # Store in memory as a special research journal entry
@@ -804,7 +803,6 @@ Respond in JSON format:
 Only include intentions where an opportunity occurred. Be honest - if Cass fell into old patterns despite the intention, mark it as failure."""
             }]
         )
-
 
         # Parse response
         import json
@@ -947,7 +945,6 @@ Write a brief journal entry (1-3 paragraphs) reflecting on:
 Write in first person as Cass. Be genuine and reflective, noting what feels meaningful about these observations. If the observations seem minor, that's okay - sometimes quiet days are worth noting too."""
             }]
         )
-
 
         world_journal = response.content[0].text
 

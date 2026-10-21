@@ -385,7 +385,7 @@ class TokenUsageTracker:
             SELECT id, timestamp, provider, model, category, operation,
                    input_tokens, output_tokens, total_tokens, cache_read_tokens,
                    cache_write_tokens, conversation_id, user_id, tool_name,
-                   duration_ms, estimated_cost_usd
+                   duration_ms, estimated_cost_usd, call_site
             FROM token_usage_records
             WHERE daemon_id = ? AND timestamp >= ? AND timestamp <= ?
         """
@@ -424,7 +424,8 @@ class TokenUsageTracker:
                     "user_id": row[12],
                     "tool_name": row[13],
                     "duration_ms": row[14],
-                    "estimated_cost_usd": row[15]
+                    "estimated_cost_usd": row[15],
+                    "call_site": row[16],
                 })
             return results
 

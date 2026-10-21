@@ -632,7 +632,7 @@ def _apply_schema_updates(conn, from_version: int):
                 conn.execute(f"ALTER TABLE journals ADD COLUMN {name} {decl}")
         print("Adding journals source-of-truth columns (v60)")
 
-    # v58 -> v61: token_usage_records.call_site, the llm_config call site that
+    # v60 -> v61: token_usage_records.call_site, the llm_config call site that
     # made the call (per-subsystem spend, #64). Rows from before stay NULL.
     if from_version < 61:
         _ensure_token_call_site(conn)
