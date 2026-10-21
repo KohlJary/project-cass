@@ -12,6 +12,7 @@ Usage:
     python scripts/cass_chat.py list                  # List recent conversations
     python scripts/cass_chat.py history <conv_id>    # Show conversation history
     python scripts/cass_chat.py summary <conv_id>    # Show working summary
+    python scripts/cass_chat.py whoami                # User the server sees for our token
 
 Environment:
     CASS_API_URL - Base URL (default: http://localhost:8000)
@@ -21,12 +22,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))  # daedalus_auth
 
 from config import DATA_DIR
 
@@ -58,26 +60,59 @@ def save_state(state: dict):
         json.dump(state, f, indent=2)
 
 
+def _token_expiring(creds: dict, margin: timedelta = timedelta(minutes=5)) -> bool:
+    """True if the stored token is missing, unparseable, or about to expire.
+
+    token_expires is written by daedalus_auth.py as naive UTC.
+    """
+    if not creds.get("token") or not creds.get("token_expires"):
+        return True
+    try:
+        expires = datetime.fromisoformat(creds["token_expires"])
+    except ValueError:
+        return True
+    return expires <= datetime.utcnow() + margin
+
+
+def _refresh_token(creds: dict) -> dict:
+    """Mint a fresh token for the Daedalus user, as `daedalus_auth.py token` does."""
+    import daedalus_auth
+    token, expires = daedalus_auth.create_token(
+        creds["user_id"], creds["display_name"], daedalus_auth.get_jwt_secret()
+    )
+    creds["token"] = token
+    creds["token_expires"] = expires.isoformat()
+    daedalus_auth.save_credentials(creds)
+    return creds
+
+
 def get_auth_headers():
-    """Get authorization headers"""
+    """Authorization headers carrying the Daedalus user's own token.
+
+    Tokens last 24h. An expired one used to be sent anyway; the server then
+    fell back to the localhost default user, so requests ran as someone else
+    and the ownership checks (#73) answered 403. Refresh first instead.
+    """
     creds = load_credentials()
-    if "token" in creds:
+    if _token_expiring(creds) and "password" in creds:
+        try:
+            creds = _refresh_token(creds)
+        except Exception as e:
+            print(f"Warning: could not refresh Daedalus token: {e}", file=sys.stderr)
+    if creds.get("token"):
         return {"Authorization": f"Bearer {creds['token']}"}
+    print("Warning: no Daedalus token; run scripts/daedalus_auth.py setup", file=sys.stderr)
     return {}
 
 
-def ensure_user_set():
-    """Ensure current user is set to Daedalus"""
-    try:
-        response = requests.post(
-            f"{API_BASE}/users/current",
-            json={"user_id": DAEDALUS_USER_ID},
-            timeout=5
-        )
-        response.raise_for_status()
-    except Exception:
-        # Ignore errors - the global user might already be set
-        pass
+def whoami() -> str:
+    """The user id the server sees for our token (GET /auth/me)."""
+    response = requests.get(f"{API_BASE}/auth/me", headers=get_auth_headers(), timeout=10)
+    response.raise_for_status()
+    user_id = response.json().get("user_id")
+    if user_id != DAEDALUS_USER_ID:
+        print(f"Warning: authenticated as {user_id}, not the Daedalus user", file=sys.stderr)
+    return user_id
 
 
 def create_conversation(title: str = None) -> dict:
@@ -91,9 +126,8 @@ def create_conversation(title: str = None) -> dict:
         dict with 'success', 'conversation_id'
     """
     try:
-        payload = {
-            "user_id": DAEDALUS_USER_ID,
-        }
+        # No user_id: the server attributes the conversation to the token's user.
+        payload = {}
         if title:
             payload["title"] = title
 
@@ -127,9 +161,6 @@ def send_message(message: str, conversation_id: str = None, new: bool = False) -
     Returns:
         dict with 'success', 'response', 'conversation_id', 'animations'
     """
-    # Ensure Daedalus is the current user
-    ensure_user_set()
-    
     state = load_state()
 
     # Determine conversation ID
@@ -198,12 +229,13 @@ def list_conversations(limit: int = 10) -> dict:
     try:
         response = requests.get(
             f"{API_BASE}/conversations",
-            params={"user_id": DAEDALUS_USER_ID, "limit": limit},
+            # No user_id: the server lists the token's own conversations.
+            params={"limit": limit},
             headers=get_auth_headers(),
             timeout=10
         )
         response.raise_for_status()
-        return {"success": True, "conversations": response.json()}
+        return {"success": True, "conversations": response.json().get("conversations", [])}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -211,12 +243,16 @@ def list_conversations(limit: int = 10) -> dict:
 def get_conversation(conversation_id: str) -> dict:
     """Get full conversation history"""
     try:
-        # Read directly from file since API might have auth issues
-        conv_file = DATA_DIR / "conversations" / f"{conversation_id}.json"
-        if conv_file.exists():
-            with open(conv_file) as f:
-                return {"success": True, "conversation": json.load(f)}
-        return {"success": False, "error": "Conversation not found"}
+        # Conversations live in SQLite now; the old per-file JSON is gone.
+        response = requests.get(
+            f"{API_BASE}/conversations/{conversation_id}",
+            headers=get_auth_headers(),
+            timeout=10
+        )
+        if response.status_code == 404:
+            return {"success": False, "error": "Conversation not found"}
+        response.raise_for_status()
+        return {"success": True, "conversation": response.json()}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -337,6 +373,15 @@ def cmd_summary(args):
         sys.exit(1)
 
 
+def cmd_whoami(args):
+    """Show which user the server sees for our token"""
+    try:
+        print(whoami())
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_current(args):
     """Show current conversation state"""
     state = load_state()
@@ -380,6 +425,10 @@ def main():
     # current command
     current_parser = subparsers.add_parser("current", help="Show current conversation")
     current_parser.set_defaults(func=cmd_current)
+
+    # whoami command
+    whoami_parser = subparsers.add_parser("whoami", help="Show the user the server sees for our token")
+    whoami_parser.set_defaults(func=cmd_whoami)
 
     args = parser.parse_args()
     args.func(args)

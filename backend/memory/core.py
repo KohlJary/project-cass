@@ -4,6 +4,7 @@ ChromaDB setup, conversation storage/retrieval, and base utilities.
 
 This is the foundation that other memory modules build on.
 """
+import asyncio
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
@@ -170,8 +171,10 @@ Write ONLY the summary, no quotes or labels:"""
 
         entry_id = self._generate_id(combined_content, timestamp)
 
-        # Add to collection
-        self.collection.add(
+        # Add to collection. Embedding the document is synchronous, CPU-bound
+        # work; a worker thread keeps it off the event loop (issue #85).
+        await asyncio.to_thread(
+            self.collection.add,
             documents=[combined_content],
             metadatas=[entry_metadata],
             ids=[entry_id]

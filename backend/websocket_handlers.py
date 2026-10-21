@@ -752,7 +752,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                         )
                         print(f"[Voice] Speaker recognition: {speaker_recognition.display_name} ({speaker_recognition.confidence_level})")
 
-                    continuous_ctx = build_continuous_context(
+                    # Worker thread: semantic retrieval is synchronous Chroma/
+                    # embedding work and blocked the event loop (issue #85).
+                    continuous_ctx = await asyncio.to_thread(
+                        build_continuous_context,
                         user_id=ws_user_id,
                         conversation_id=conversation_id,
                         user_manager=user_manager,

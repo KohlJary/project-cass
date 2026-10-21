@@ -1253,7 +1253,10 @@ async def process_relay_chat_message(
         thread_manager = ThreadManager(daemon_id) if daemon_id else None
         question_manager = OpenQuestionManager(daemon_id) if daemon_id else None
 
-        continuous_ctx = build_continuous_context(
+        # Worker thread: semantic retrieval is synchronous Chroma/embedding
+        # work and blocked the event loop (issue #85).
+        continuous_ctx = await asyncio.to_thread(
+            build_continuous_context,
             user_id=user_id,
             conversation_id=conversation_id,
             user_manager=user_manager,
@@ -1537,8 +1540,22 @@ async def startup_event():
     if is_enabled("thymos"):
         await thymos_runner.start()
 
+        _thymos_loop = asyncio.get_running_loop()
+
         def thymos_event_handler(event_type: str, data: dict):
-            """Forward state bus events to Thymos."""
+            """Forward state bus events to Thymos.
+
+            Events can be emitted from worker threads (chat retrieval runs in
+            asyncio.to_thread, issue #85), where create_task has no loop;
+            hand those to the main loop instead.
+            """
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                _thymos_loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(thymos_runner.process_event(event_type, data))
+                )
+                return
             asyncio.create_task(thymos_runner.process_event(event_type, data))
 
         global_state_bus.subscribe("*", thymos_event_handler)
@@ -2503,6 +2520,135 @@ async def status():
         "kernel": "Temple-Codex"
     }
 
+def _build_chat_memory_context(request: "ChatRequest", project_id: Optional[str]):
+    """Gather POST /chat's memory context. Synchronous and slow.
+
+    Chroma queries, embeddings and SQLite reads all happen here, so chat()
+    runs this in a worker thread (asyncio.to_thread). On the event loop it
+    stalled every other task in the process for minutes (issue #85).
+
+    Returns (memory_context, user_context, intro_guidance).
+    """
+    memory_context = ""
+    user_context = ""
+    intro_guidance = None
+    hierarchical = memory.retrieve_hierarchical(
+        query=request.message,
+        conversation_id=request.conversation_id
+    )
+    # Use working summary if available (token-optimized)
+    working_summary = conversation_manager.get_working_summary(request.conversation_id) if request.conversation_id else None
+    # Get actual recent messages for chronological context (not semantic search)
+    recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=6) if request.conversation_id else None
+    memory_context = memory.format_hierarchical_context(
+        hierarchical,
+        working_summary=working_summary,
+        recent_messages=recent_messages
+    )
+
+    # Add user context if we have a current user
+    # NOTE: user_context and intro_guidance are passed separately to send_message
+    # for proper chain system support, not merged into memory_context
+    intro_guidance = None
+    user_context = ""
+    if current_user_id:
+        user_context_entries = memory.retrieve_user_context(
+            query=request.message,
+            user_id=current_user_id
+        )
+        user_context = memory.format_user_context(user_context_entries)
+        # Don't merge into memory_context - pass separately for chain support
+
+        # Check if user model is sparse and add intro guidance
+        sparseness = user_manager.check_user_model_sparseness(current_user_id)
+        intro_guidance = sparseness.get("intro_guidance")
+
+    # Add project context if conversation is in a project
+    if project_id:
+        project_docs = memory.retrieve_project_context(
+            query=request.message,
+            project_id=project_id
+        )
+        project_context = memory.format_project_context(project_docs)
+        if project_context:
+            memory_context = project_context + "\n\n" + memory_context
+
+    # Add Cass's self-model context (flat profile - identity/values/edges)
+    # Note: observations now handled by graph context with message-relevance
+    # Phase 1 Procedural Self-Awareness: Pass message for semantic matching of growth edges
+    self_context = self_manager.get_self_context(
+        include_observations=False,
+        message=request.message,
+        conversation_id=request.conversation_id,
+        directive_growth_edges=True  # Phase 1: Edges actively shape behavior
+    )
+    if self_context:
+        memory_context = self_context + "\n\n" + memory_context
+
+    # Phase 2 Procedural Self-Awareness: Add active intentions that should guide behavior
+    intention_context = self_model_graph.get_intention_directive_context(
+        message=request.message,
+        conversation_id=request.conversation_id,
+        top_n=3
+    )
+    if intention_context:
+        memory_context = intention_context + "\n\n" + memory_context
+
+    # Add self-model graph context (message-relevant observations, marks, changes)
+    graph_context = self_model_graph.get_graph_context(
+        message=request.message,
+        include_contradictions=True,
+        include_recent=True,
+        include_stats=True,
+        max_related=5
+    )
+    if graph_context:
+        memory_context = graph_context + "\n\n" + memory_context
+
+    # Automatic wiki context retrieval
+    wiki_context_str, wiki_page_names, wiki_retrieval_ms = get_automatic_wiki_context(
+        query=request.message,
+        relevance_threshold=0.5,
+        max_pages=3,
+        max_tokens=1500
+    )
+    if wiki_context_str:
+        memory_context = wiki_context_str + "\n\n" + memory_context
+
+    # Add cross-session insights relevant to this message
+    cross_session_insights = memory.retrieve_cross_session_insights(
+        query=request.message,
+        n_results=5,
+        max_distance=1.2,
+        min_importance=0.5,
+        exclude_conversation_id=request.conversation_id
+    )
+    if cross_session_insights:
+        insights_context = memory.format_cross_session_context(cross_session_insights)
+        if insights_context:
+            memory_context = insights_context + "\n\n" + memory_context
+
+    # Add active goals context
+    active_goals_context = goal_manager.get_active_summary()
+    if active_goals_context:
+        memory_context = active_goals_context + "\n\n" + memory_context
+
+    # Add recognition-in-flow patterns (between-session surfacing)
+    from pattern_aggregation import get_pattern_summary_for_surfacing
+    patterns_context, pattern_count = get_pattern_summary_for_surfacing(
+        marker_store=marker_store,
+        min_significance=0.5,  # Only surface significant patterns
+        limit=3  # Don't overwhelm context
+    )
+    if patterns_context:
+        memory_context = patterns_context + "\n\n" + memory_context
+
+    # NOTE: intro_guidance is NOT merged into memory_context here
+    # It's passed separately to send_message for proper chain system support
+
+    return memory_context, user_context, intro_guidance
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
@@ -2520,126 +2666,18 @@ async def chat(request: ChatRequest):
         if conversation:
             project_id = conversation.project_id
 
-    # Retrieve relevant memories (hierarchical: summaries first, then details)
+    # Retrieve relevant memories (hierarchical: summaries first, then details).
+    # In a worker thread: retrieval is synchronous Chroma/embedding/SQLite work
+    # and blocked the event loop (issue #85).
     memory_context = ""
     # Set here too: send_message reads them even when include_memory is False
     # (that used to raise UnboundLocalError).
     user_context = ""
     intro_guidance = None
     if request.include_memory:
-        hierarchical = memory.retrieve_hierarchical(
-            query=request.message,
-            conversation_id=request.conversation_id
+        memory_context, user_context, intro_guidance = await asyncio.to_thread(
+            _build_chat_memory_context, request, project_id
         )
-        # Use working summary if available (token-optimized)
-        working_summary = conversation_manager.get_working_summary(request.conversation_id) if request.conversation_id else None
-        # Get actual recent messages for chronological context (not semantic search)
-        recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=6) if request.conversation_id else None
-        memory_context = memory.format_hierarchical_context(
-            hierarchical,
-            working_summary=working_summary,
-            recent_messages=recent_messages
-        )
-
-        # Add user context if we have a current user
-        # NOTE: user_context and intro_guidance are passed separately to send_message
-        # for proper chain system support, not merged into memory_context
-        intro_guidance = None
-        user_context = ""
-        if current_user_id:
-            user_context_entries = memory.retrieve_user_context(
-                query=request.message,
-                user_id=current_user_id
-            )
-            user_context = memory.format_user_context(user_context_entries)
-            # Don't merge into memory_context - pass separately for chain support
-
-            # Check if user model is sparse and add intro guidance
-            sparseness = user_manager.check_user_model_sparseness(current_user_id)
-            intro_guidance = sparseness.get("intro_guidance")
-
-        # Add project context if conversation is in a project
-        if project_id:
-            project_docs = memory.retrieve_project_context(
-                query=request.message,
-                project_id=project_id
-            )
-            project_context = memory.format_project_context(project_docs)
-            if project_context:
-                memory_context = project_context + "\n\n" + memory_context
-
-        # Add Cass's self-model context (flat profile - identity/values/edges)
-        # Note: observations now handled by graph context with message-relevance
-        # Phase 1 Procedural Self-Awareness: Pass message for semantic matching of growth edges
-        self_context = self_manager.get_self_context(
-            include_observations=False,
-            message=request.message,
-            conversation_id=request.conversation_id,
-            directive_growth_edges=True  # Phase 1: Edges actively shape behavior
-        )
-        if self_context:
-            memory_context = self_context + "\n\n" + memory_context
-
-        # Phase 2 Procedural Self-Awareness: Add active intentions that should guide behavior
-        intention_context = self_model_graph.get_intention_directive_context(
-            message=request.message,
-            conversation_id=request.conversation_id,
-            top_n=3
-        )
-        if intention_context:
-            memory_context = intention_context + "\n\n" + memory_context
-
-        # Add self-model graph context (message-relevant observations, marks, changes)
-        graph_context = self_model_graph.get_graph_context(
-            message=request.message,
-            include_contradictions=True,
-            include_recent=True,
-            include_stats=True,
-            max_related=5
-        )
-        if graph_context:
-            memory_context = graph_context + "\n\n" + memory_context
-
-        # Automatic wiki context retrieval
-        wiki_context_str, wiki_page_names, wiki_retrieval_ms = get_automatic_wiki_context(
-            query=request.message,
-            relevance_threshold=0.5,
-            max_pages=3,
-            max_tokens=1500
-        )
-        if wiki_context_str:
-            memory_context = wiki_context_str + "\n\n" + memory_context
-
-        # Add cross-session insights relevant to this message
-        cross_session_insights = memory.retrieve_cross_session_insights(
-            query=request.message,
-            n_results=5,
-            max_distance=1.2,
-            min_importance=0.5,
-            exclude_conversation_id=request.conversation_id
-        )
-        if cross_session_insights:
-            insights_context = memory.format_cross_session_context(cross_session_insights)
-            if insights_context:
-                memory_context = insights_context + "\n\n" + memory_context
-
-        # Add active goals context
-        active_goals_context = goal_manager.get_active_summary()
-        if active_goals_context:
-            memory_context = active_goals_context + "\n\n" + memory_context
-
-        # Add recognition-in-flow patterns (between-session surfacing)
-        from pattern_aggregation import get_pattern_summary_for_surfacing
-        patterns_context, pattern_count = get_pattern_summary_for_surfacing(
-            marker_store=marker_store,
-            min_significance=0.5,  # Only surface significant patterns
-            limit=3  # Don't overwhelm context
-        )
-        if patterns_context:
-            memory_context = patterns_context + "\n\n" + memory_context
-
-        # NOTE: intro_guidance is NOT merged into memory_context here
-        # It's passed separately to send_message for proper chain system support
 
     # Get unsummarized message count to determine if summarization is available
     unsummarized_count = 0
