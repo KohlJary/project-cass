@@ -75,11 +75,15 @@ def _token_expiring(creds: dict, margin: timedelta = timedelta(minutes=5)) -> bo
 
 
 def _refresh_token(creds: dict) -> dict:
-    """Mint a fresh token for the Daedalus user, as `daedalus_auth.py token` does."""
+    """Mint a fresh token for the Daedalus user, as `daedalus_auth.py token` does.
+
+    Uses the server's one token issuer (auth.create_dashboard_token, #61), so
+    roles come from users.is_admin and the token verifies like any login's.
+    Expiry is naive UTC, as _token_expiring expects.
+    """
     import daedalus_auth
-    token, expires = daedalus_auth.create_token(
-        creds["user_id"], creds["display_name"], daedalus_auth.get_jwt_secret()
-    )
+    from auth import create_dashboard_token
+    token, expires = create_dashboard_token(creds["user_id"], creds["display_name"])
     creds["token"] = token
     creds["token_expires"] = expires.isoformat()
     daedalus_auth.save_credentials(creds)

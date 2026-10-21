@@ -126,15 +126,25 @@ def _admin_legacy_secret() -> str:
 
 
 def roles_for_user(user_id: str) -> list:
-    """Roles a token issued now should carry, from users.is_admin."""
+    """Roles a token issued now should carry, from users.is_admin.
+
+    A user with no row gets ["user"]. A database error is NOT treated as
+    "not an admin": it raises 503, so login/refresh fail visibly instead of
+    minting a token that silently lacks the admin role.
+    """
     try:
         from database import get_db
         with get_db() as conn:
             row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
-        if row and row[0]:
-            return [ROLE_USER, ROLE_ADMIN]
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("roles_for_user(%s): database error: %s", user_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not read account roles"
+        )
+    if row and row[0]:
+        return [ROLE_USER, ROLE_ADMIN]
     return [ROLE_USER]
 
 

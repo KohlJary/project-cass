@@ -293,3 +293,25 @@ def test_registration_writes_sqlite_not_auth_json(booted_app, test_db):
     dup = booted_app.post("/auth/register", json={
         "email": "new@example.com", "password": PW_NEW, "display_name": "Again"})
     assert dup.status_code == 400
+
+
+def test_role_lookup_db_error_fails_refresh_instead_of_demoting(booted_app, test_db, monkeypatch):
+    """A DB error while reading roles must not mint a silently non-admin token."""
+    from contextlib import contextmanager
+    import database
+    from auth import create_refresh_token
+
+    admin = create_user("Flaky DB Admin", is_admin=True)
+    refresh = create_refresh_token(admin)
+
+    @contextmanager
+    def broken_db():
+        raise RuntimeError("database is locked")
+        yield  # pragma: no cover
+
+    # auth.roles_for_user imports get_db at call time; users.py (profile
+    # lookup) holds its own reference, so only the role read breaks.
+    monkeypatch.setattr(database, "get_db", broken_db)
+    r = booted_app.post("/auth/refresh", json={"refresh_token": refresh})
+    assert r.status_code == 503, r.text
+    assert "access_token" not in r.text
