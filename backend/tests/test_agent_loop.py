@@ -257,6 +257,19 @@ def test_in_process_conversation_signal():
     interrupt.reset()
 
 
+def test_entry_point_signal_is_a_no_op_with_the_lever_off(levers):
+    from agent_loop import interrupt
+    interrupt.reset()
+    start = datetime.now() - timedelta(seconds=1)
+    with levers(agent_loop=False):
+        interrupt.entry_point_received_message(None, "websocket")
+    assert interrupt._last_arrival is None
+    with levers(agent_loop=True):
+        interrupt.entry_point_received_message(None, "websocket")
+    assert interrupt.conversation_since(start, None) == "someone wrote to me (via websocket)"
+    interrupt.reset()
+
+
 def _seed_user_message(display_name="Kohl"):
     """A user message in one of her conversations, stored now."""
     from database import get_daemon_id, get_db
@@ -312,54 +325,92 @@ def _reflect(managers, **extra):
                                           "max_turns": 4, **extra}))
 
 
-def _normalize(value):
-    """Request kwargs as plain data, minus per-call and per-row ids."""
+def _plain(value):
     if hasattr(value, "model_dump"):
         value = value.model_dump()
     if isinstance(value, dict):
-        return {k: _normalize(v) for k, v in value.items() if k not in ("id", "tool_use_id")}
+        return {k: _plain(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_normalize(v) for v in value]
-    if isinstance(value, str):  # observation ids are fresh uuids each run
-        return _UUID.sub("<uuid>", value)
+        return [_plain(v) for v in value]
     return value
 
 
-def _script_reflection(fake):
-    fake.queue_tool_use("add_observation", {"observation": "I notice I slow down at night."})
+# Ids the session path generates per run, and nothing else: tool-use ids
+# (the fake's counter) and the ids of rows a tool created, inside its result.
+_ROW_ID = re.compile(r'"(observation_id|insight_id)": "[^"]*"')
+
+
+def _normalize(kwargs):
+    data = _plain(kwargs)
+    for message in data.get("messages") or []:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use":
+                block["id"] = "<tool_use_id>"
+            elif block.get("type") == "tool_result":
+                block["tool_use_id"] = "<tool_use_id>"
+                if isinstance(block.get("content"), str):
+                    block["content"] = _ROW_ID.sub(r'"\1": "<row_id>"', block["content"])
+    return data
+
+
+def _script_session(fake, activity):
+    """One tool call the activity has today, then a closing reply."""
+    tools = _session_tool_names()[activity]
+    if "add_observation" in tools:
+        fake.queue_tool_use("add_observation", {"observation": "I notice I slow down at night."})
+    else:
+        fake.queue_tool_use("session_complete", {"summary": "Done for now."})
     fake.queue_text("That's enough for tonight.")
 
 
-def test_lever_off_requests_are_byte_identical_to_the_legacy_runner(session_env, levers, monkeypatch):
+def _run_action(activity, managers):
+    from scheduler.actions import session_handlers
+    handler = getattr(session_handlers, f"{activity}_action")
+    return asyncio.run(handler({"managers": managers, "duration_minutes": 5, "max_turns": 4}))
+
+
+@pytest.mark.parametrize("activity", sorted(ACTIVITY_PACKS))
+def test_lever_off_requests_are_byte_identical_to_the_legacy_runner(activity, session_env, levers,
+                                                                    monkeypatch):
     runner, managers, fake = session_env
     import agent_loop.session as turn_session
+    from scheduler.actions import session_handlers
 
     async def must_not_run(*a, **k):
         raise AssertionError("the Turn ran with the lever off")
     monkeypatch.setattr(turn_session, "run_session_turn", must_not_run)
 
+    # The action handler's prompt additions, so the legacy call matches it.
+    additions = {"reflection": None, "consolidation": "Consolidation period: daily",
+                 "research": "Research mode: explore"}.get(activity)
+
     # Today's path, called the way it always was.
     from session import get_session_prompt, get_session_tools, get_default_handlers
     runner.set_managers(managers)
     runner.register_tool_handlers(get_default_handlers())
-    _script_reflection(fake)
+    _script_session(fake, activity)
     legacy = asyncio.run(runner.run_session(
-        session_type="reflection", system_prompt=get_session_prompt("reflection"),
-        tools=get_session_tools("reflection"), duration_minutes=5, max_turns=4))
+        session_type=activity, system_prompt=get_session_prompt(activity, additions),
+        tools=get_session_tools(activity), duration_minutes=5, max_turns=4))
     legacy_calls = [_normalize(c.kwargs) for c in fake.calls]
 
     fake.calls.clear()
-    _script_reflection(fake)
+    _script_session(fake, activity)
     with levers(agent_loop=False):
-        action = _reflect(managers)
+        action = _run_action(activity, managers)
     lever_off_calls = [_normalize(c.kwargs) for c in fake.calls]
 
     assert lever_off_calls == legacy_calls
-    assert len(legacy_calls) == 2
+    assert len(legacy_calls) >= 2
     assert "## THIS MOMENT" not in fake.calls[0].system_text
     assert action.success and action.data["summary"] == legacy.summary
     assert action.data["status"] == legacy.status
-    assert action.message == "Reflection session completed"
+    assert action.message.endswith("session completed")
 
 
 def test_lever_on_runs_a_session_through_the_turn(session_env, levers):

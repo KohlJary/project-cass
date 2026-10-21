@@ -73,7 +73,6 @@ async def _run_generic_session(
                 duration_minutes=duration,
                 focus=focus,
                 max_turns=max_turns,
-                why=context.get("trigger_reason"),
             )
         else:
             result = await session_runner.run_session(

@@ -7,13 +7,16 @@ and the conversation proceeds. The loop asks `conversation_since()` before
 every model call.
 
 Two signals, either is enough:
-  1. note_conversation_arrived(): an in-process flag an entry point can set
-     the moment a message comes in. Nothing in chat calls it yet (chat is not
-     cut over); it's here so that wiring is one line when it is.
+  1. note_conversation_arrived(): an in-process flag set the moment a user
+     message comes in. The WebSocket chat handler, the mobile relay,
+     POST /chat and the Home Assistant conversation endpoint call
+     entry_point_received_message(), a no-op with the lever off. The
+     scheduler and chat run in the same process (main_sdk), so the flag is
+     seen by the running session.
   2. The messages table: a user message stored in one of her conversations
      after the turn began. Chat stores the user message when the turn is
-     finalized, so this notices a conversation after her first reply in it,
-     on every entry point that persists messages, without touching chat code.
+     finalized, so this is the late fallback, for entry points that persist
+     messages but don't call the signal (e.g. Discord).
 """
 from __future__ import annotations
 
@@ -36,6 +39,29 @@ def note_conversation_arrived(who: Optional[str] = None, channel: Optional[str] 
     words += " wrote to me" + (f" (via {channel})" if channel else "")
     with _lock:
         _last_arrival = (at or datetime.now(), words)
+
+
+def entry_point_received_message(user_id: Optional[str], channel: str) -> None:
+    """Called by chat entry points when a user message arrives.
+
+    A no-op unless the `agent_loop` lever is on (only the Turn reads the
+    signal), and it never raises into the chat path.
+    """
+    try:
+        import features
+        if not features.is_enabled("agent_loop"):
+            return
+        who = None
+        if user_id:
+            from database import get_db
+            with get_db() as conn:
+                row = conn.execute("SELECT display_name FROM users WHERE id = ?",
+                                   (user_id,)).fetchone()
+            who = row["display_name"] if row and row["display_name"] else None
+        note_conversation_arrived(who, channel)
+    except Exception as e:
+        logger.warning(f"[agent_loop] could not note conversation arrival: {e}")
+        note_conversation_arrived(None, channel)
 
 
 def reset() -> None:

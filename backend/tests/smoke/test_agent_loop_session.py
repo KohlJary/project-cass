@@ -54,3 +54,50 @@ def test_reflection_session_is_legacy_with_the_lever_off(app, fake_llm):
                                                                    duration_minutes=5))
     assert result.success, result.message
     assert "## THIS MOMENT" not in fake_llm.calls[0].system_text
+
+
+def test_websocket_chat_mid_session_ends_the_session(app, fake_llm, levers, smoke_user,
+                                                     monkeypatch):
+    """A real /ws chat message arriving mid-session: the session makes no
+    further model calls, and it was the receipt signal that ended it."""
+    import asyncio
+    from agent_loop.seam import HEADER
+    from scheduler.actions import get_action_registry
+    from session import tools as session_tools
+    from tests.fakes.llm import ScriptedResponse
+    from tests.smoke.test_ws_chat_turn import _chat
+
+    _, token = smoke_user
+    chat_frames = []
+
+    def answer(source, kwargs):
+        system = kwargs.get("system") or ""
+        if isinstance(system, str) and HEADER in system:  # the session
+            return ScriptedResponse(tool_uses=[{"id": f"tu_{len(fake_llm.calls)}",
+                                                "name": "add_observation",
+                                                "input": {"observation": "Mid-session thought."}}])
+        return ScriptedResponse(text="Hi Kohl.")  # the chat (and its title)
+    fake_llm.responder = answer
+
+    real_handler = session_tools.DEFAULT_TOOL_HANDLERS["add_observation"]
+
+    async def observe_then_someone_writes(tool_input, managers, **context):
+        result = await real_handler(tool_input, managers, **context)
+        if not chat_frames:  # Kohl writes over the WebSocket while the session runs
+            chat_frames.append(await asyncio.to_thread(_chat, app, token, "hey Cass"))
+        return result
+    monkeypatch.setitem(session_tools.DEFAULT_TOOL_HANDLERS, "add_observation",
+                        observe_then_someone_writes)
+
+    registry = get_action_registry()
+    with levers(agent_loop=True):
+        result = app.portal.call(lambda: registry.execute("session.reflection",
+                                                          duration_minutes=5, max_turns=6))
+
+    frame, _ = chat_frames[0]
+    assert frame["type"] == "response" and frame["text"] == "Hi Kohl."
+    session_calls = [c for c in fake_llm.calls if HEADER in c.system_text]
+    assert len(session_calls) == 1, "the session called the model after the conversation arrived"
+    assert result.success and result.data["status"] == "interrupted"
+    # The receipt signal (not the late stored-message fallback) ended it.
+    assert "(via websocket)" in result.message, result.message
