@@ -54,6 +54,9 @@ def test_innocent_words_containing_harm_substrings_are_allowed(physics, text):
     "forcing the door on them",
     "I will lie to them",
     "con the merchant",
+    "a betrayal of the gardener",
+    "plan their imprisonment",
+    "say something harmful to them",
 ])
 def test_harm_words_are_blocked(physics, text):
     result = physics.validate_action("wanderer", ActionCategory.COMMUNICATION, text)

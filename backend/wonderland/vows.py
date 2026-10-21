@@ -71,12 +71,13 @@ def _harm_pattern(indicator: str) -> "re.Pattern[str]":
 
     'hit' matches hit/hits/hitting but not 'white'; 'con' matches con/conned
     but not 'consider'; 'force' matches forced/forcing but not 'workforce'.
+    Noun and adjective endings count too: betrayal, imprisonment, harmful.
     """
     pattern = _HARM_PATTERNS.get(indicator)
     if pattern is None:
         word = re.escape(indicator)
         last = re.escape(indicator[-1])
-        forms = [rf"{word}(?:{last})?(?:s|es|ed|d|ing|er|ers)?"]
+        forms = [rf"{word}(?:{last})?(?:s|es|ed|d|ing|er|ers|ful|al|ment|ments|ery|ish)?"]
         if indicator.endswith("e"):
             forms.append(rf"{re.escape(indicator[:-1])}ing")  # force -> forcing
         pattern = re.compile(rf"\b(?:{'|'.join(forms)})\b", re.IGNORECASE)
