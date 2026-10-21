@@ -265,7 +265,7 @@ class PageResearcher:
         """Search web for information about the topic (research search interface, #60)."""
         try:
             from research_pipeline.search import context_snippets
-            return await context_snippets(topic, num_results=4)
+            return await context_snippets(topic, num_results=4, path="wiki")
         except Exception as e:
             print(f"Web search failed: {e}")
             return []

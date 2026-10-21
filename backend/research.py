@@ -163,9 +163,8 @@ class ResearchManager:
         exclude_domains: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Search the web through the research search interface (#60):
-        Tavily when TAVILY_API_KEY is set, then any other configured backend
-        (research_pipeline/search.py).
+        Search the web through the research search interface (#60), path
+        "session": Tavily, as before (research_pipeline/search.py).
 
         Args:
             query: Search query
@@ -185,10 +184,14 @@ class ResearchManager:
                 "results": []
             }
 
-        from research_pipeline.search import web_search as _web_search
+        from research_pipeline.search import configured_backends, web_search as _web_search
+        if not configured_backends(path="session"):
+            # Unchanged: no key, no search, and the rate limiter isn't charged.
+            return {"success": False, "error": "TAVILY_API_KEY not configured", "results": []}
         self.search_limiter.record_call()
         return await _web_search(
             query,
+            path="session",
             num_results=min(num_results, 20),
             search_depth=search_depth,
             include_domains=include_domains,

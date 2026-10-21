@@ -484,13 +484,64 @@ def test_daily_research_summary_leaves_sessions_out(llm, search_backend, wiki_sc
 # Search interface
 # ---------------------------------------------------------------------------
 
+ALL_KEYS = {"TAVILY_API_KEY": "t", "BRAVE_SEARCH_API_KEY": "b", "SERPER_API_KEY": "s"}
+
+
+def _names(env, path):
+    return [b.name for b in rsearch.configured_backends(env, path=path)]
+
+
 @pytest.mark.unit
-def test_configured_backends_follow_keys_and_order():
-    names = lambda env: [b.name for b in rsearch.configured_backends(env)]
-    assert names({}) == ["duckduckgo"]
-    assert names({"TAVILY_API_KEY": "k"}) == ["tavily", "duckduckgo"]
-    assert names({"TAVILY_API_KEY": "k", "SERPER_API_KEY": "s"}) == ["tavily", "serper", "duckduckgo"]
-    assert names({"TAVILY_API_KEY": "k", "RESEARCH_SEARCH_ORDER": "duckduckgo,tavily"}) == ["duckduckgo", "tavily"]
+def test_each_path_defaults_to_its_pre_60_backend():
+    """No behaviour change on deploy: each path searches what it searched on main."""
+    # chat / sessions / ResearchManager: Tavily, nothing else
+    assert _names({"TAVILY_API_KEY": "t"}, "session") == ["tavily"]
+    assert _names(ALL_KEYS, "session") == ["tavily"]
+    assert _names({}, "session") == []
+    # wiki queue / PageResearcher: DuckDuckGo even with Tavily configured
+    assert _names(ALL_KEYS, "wiki") == ["duckduckgo"]
+    assert _names({}, "wiki") == ["duckduckgo"]
+    # web.search: Brave, else Serper, else nothing (this box: nothing)
+    assert _names(ALL_KEYS, "web_action") == ["brave"]
+    assert _names({"SERPER_API_KEY": "s"}, "web_action") == ["serper"]
+    assert _names({"TAVILY_API_KEY": "t"}, "web_action") == []
+
+
+@pytest.mark.unit
+def test_search_order_overrides_are_opt_in():
+    env = {"TAVILY_API_KEY": "t", "RESEARCH_SEARCH_ORDER_WIKI": "tavily,duckduckgo"}
+    assert _names(env, "wiki") == ["tavily", "duckduckgo"]
+    assert _names(env, "session") == ["tavily"]  # other paths untouched
+    env = {"TAVILY_API_KEY": "t", "RESEARCH_SEARCH_ORDER": "duckduckgo,tavily"}
+    assert _names(env, "session") == ["duckduckgo", "tavily"]
+
+
+@pytest.mark.unit
+def test_paths_without_a_backend_keep_their_old_errors(monkeypatch):
+    for k in ALL_KEYS:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.delenv("RESEARCH_SEARCH_ORDER", raising=False)
+    from scheduler.actions.web_handlers import web_search_action
+    res = asyncio.run(web_search_action({"query": "otters"}))
+    assert not res.success
+    assert res.message == "No search API configured (BRAVE_SEARCH_API_KEY or SERPER_API_KEY)"
+    out = asyncio.run(rsearch.web_search("owls", path="session"))
+    assert out["error"] == "TAVILY_API_KEY not configured"
+
+
+@pytest.mark.unit
+def test_wiki_callers_use_the_wiki_path(monkeypatch, wiki_scheduler):
+    seen = []
+
+    async def fake_search(query, num_results=10, path="session", **opts):
+        seen.append(path)
+        return SearchResponse(True, "fake", [SearchHit("t", "u", "text")])
+
+    monkeypatch.setattr(rsearch, "search", fake_search)
+    from wiki.page_enricher import PageResearcher
+    asyncio.run(wiki_scheduler._search_web("x"))
+    asyncio.run(PageResearcher.__new__(PageResearcher)._search_web("y"))
+    assert seen == ["wiki", "wiki"]
 
 
 @pytest.mark.unit

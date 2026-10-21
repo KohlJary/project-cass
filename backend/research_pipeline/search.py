@@ -12,11 +12,21 @@ Before this, research searched the web three ways:
 * Brave (BRAVE_SEARCH_API_KEY), else Serper (SERPER_API_KEY): the
   `web.search` scheduler action.
 
-Now every one of those asks `web_search()` here. Backends are tried in the
-order RESEARCH_SEARCH_ORDER gives (default: tavily, brave, serper,
-duckduckgo), and a backend is only in the list when it is configured: the
-keyed ones need their key in the environment, DuckDuckGo needs nothing. The
-first backend that answers successfully wins; the others are fallbacks.
+Now every one of those asks `search()` here, naming its *path*. Each path's
+default is exactly the backend it used before #60, with no fallback:
+
+  session     Tavily only (chat, research sessions, ResearchManager);
+              "TAVILY_API_KEY not configured" when the key is unset
+  wiki        DuckDuckGo only (wiki queue, PageResearcher)
+  web_action  Brave if its key is set, else Serper; else "No search API
+              configured" (the web.search action; neither key is set here,
+              so it fails as it always has)
+
+Changing a path's backends is Kohl's decision (#60): set
+RESEARCH_SEARCH_ORDER_<PATH> (e.g. RESEARCH_SEARCH_ORDER_WIKI=tavily,duckduckgo)
+or RESEARCH_SEARCH_ORDER for every path. With an override, backends are tried
+in that order (a keyed one only when its key is set) and the first success
+wins, so later ones are fallbacks.
 
 Tests swap the backends with `use_backends([...])` so nothing reaches the
 network.
@@ -27,11 +37,10 @@ import logging
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Dict, Iterator, List, Optional, Protocol
+from typing import Dict, Iterator, List, Optional, Protocol, Tuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ORDER = ("tavily", "brave", "serper", "duckduckgo")
 ORDER_ENV = "RESEARCH_SEARCH_ORDER"
 
 
@@ -176,21 +185,44 @@ _KEYED = {"tavily": TavilyBackend, "brave": BraveBackend, "serper": SerperBacken
 _override: Optional[List[SearchBackend]] = None
 
 
-def search_order(env=None) -> List[str]:
-    env = os.environ if env is None else env
-    raw = env.get(ORDER_ENV)
-    if not raw:
-        return list(DEFAULT_ORDER)
+@dataclass(frozen=True)
+class SearchPath:
+    order: tuple
+    none_error: str
+    fallback: bool = False   # default orders: only the first configured backend runs
+
+
+# Each path's pre-#60 behaviour. Keep these unless Kohl decides otherwise.
+PATHS: Dict[str, SearchPath] = {
+    "session": SearchPath(("tavily",), "TAVILY_API_KEY not configured"),
+    "wiki": SearchPath(("duckduckgo",), "No search backend configured"),
+    "web_action": SearchPath(("brave", "serper"),
+                             "No search API configured (BRAVE_SEARCH_API_KEY or SERPER_API_KEY)"),
+}
+
+
+def _parse(raw: str) -> List[str]:
     return [n.strip().lower() for n in raw.split(",") if n.strip()]
 
 
-def configured_backends(env=None) -> List[SearchBackend]:
-    """The backends that can run, in order. Keyed ones need their key set."""
+def search_order(path: str = "session", env=None) -> Tuple[List[str], bool]:
+    """(backend names, whether to fall back) for a path."""
+    env = os.environ if env is None else env
+    raw = env.get(f"{ORDER_ENV}_{path.upper()}") or env.get(ORDER_ENV)
+    if raw:
+        return _parse(raw), True
+    p = PATHS[path]
+    return list(p.order), p.fallback
+
+
+def configured_backends(env=None, path: str = "session") -> List[SearchBackend]:
+    """The backends this path will try, in order. Keyed ones need their key set."""
     if _override is not None:
         return list(_override)
     env = os.environ if env is None else env
+    names, fallback = search_order(path, env)
     out: List[SearchBackend] = []
-    for name in search_order(env):
+    for name in names:
         if name == "duckduckgo":
             out.append(DuckDuckGoBackend())
         elif name in _KEYED:
@@ -200,12 +232,12 @@ def configured_backends(env=None) -> List[SearchBackend]:
                 out.append(cls(key))
         else:
             logger.warning(f"research search: unknown backend {name!r} in {ORDER_ENV}")
-    return out
+    return out if fallback else out[:1]
 
 
-def describe_backends(env=None) -> List[str]:
-    """Names of the configured backends, primary first (for status pages/logs)."""
-    return [b.name for b in configured_backends(env)]
+def describe_backends(env=None, path: str = "session") -> List[str]:
+    """Names of the configured backends for a path, primary first."""
+    return [b.name for b in configured_backends(env, path)]
 
 
 @contextmanager
@@ -220,11 +252,11 @@ def use_backends(backends: List[SearchBackend]) -> Iterator[None]:
         _override = previous
 
 
-async def search(query: str, num_results: int = 10, **opts) -> SearchResponse:
-    """Search with the primary backend, falling back down the configured list."""
-    backends = configured_backends()
+async def search(query: str, num_results: int = 10, path: str = "session", **opts) -> SearchResponse:
+    """Search with the path's primary backend (and its fallbacks, if any)."""
+    backends = configured_backends(path=path)
     if not backends:
-        return SearchResponse(False, "none", [], error="No search backend configured (set TAVILY_API_KEY)")
+        return SearchResponse(False, "none", [], error=PATHS[path].none_error)
     errors = []
     for backend in backends:
         try:
@@ -238,9 +270,9 @@ async def search(query: str, num_results: int = 10, **opts) -> SearchResponse:
     return SearchResponse(False, backends[-1].name, [], error="; ".join(errors))
 
 
-async def web_search(query: str, num_results: int = 10, **opts) -> Dict:
+async def web_search(query: str, num_results: int = 10, path: str = "session", **opts) -> Dict:
     """`search()` in the dict shape ResearchManager.web_search returned."""
-    resp = await search(query, num_results=num_results, **opts)
+    resp = await search(query, num_results=num_results, path=path, **opts)
     if not resp.success:
         return {"success": False, "error": resp.error, "results": [], "backend": resp.backend}
     return {
@@ -253,9 +285,9 @@ async def web_search(query: str, num_results: int = 10, **opts) -> Dict:
     }
 
 
-async def context_snippets(query: str, num_results: int = 5) -> List[Dict[str, str]]:
+async def context_snippets(query: str, num_results: int = 5, path: str = "wiki") -> List[Dict[str, str]]:
     """`search()` in the {source, url, text} shape the wiki research code reads."""
-    resp = await search(query, num_results=num_results)
+    resp = await search(query, num_results=num_results, path=path)
     if not resp.success:
         return []
     return [{"source": h.source or h.title or resp.backend, "url": h.url, "text": h.snippet}
@@ -265,6 +297,6 @@ async def context_snippets(query: str, num_results: int = 5) -> List[Dict[str, s
 __all__ = [
     "SearchHit", "SearchResponse", "SearchBackend",
     "TavilyBackend", "BraveBackend", "SerperBackend", "DuckDuckGoBackend",
-    "configured_backends", "describe_backends", "search_order", "use_backends",
+    "PATHS", "SearchPath", "configured_backends", "describe_backends", "search_order", "use_backends",
     "search", "web_search", "context_snippets",
 ]

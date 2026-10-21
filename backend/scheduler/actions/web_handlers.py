@@ -30,15 +30,15 @@ async def web_search_action(context: Dict[str, Any]) -> ActionResult:
             message="query parameter required"
         )
 
-    # The research search interface (#60): Tavily first when configured, then
-    # Brave / Serper if their keys are set, then DuckDuckGo.
+    # The research search interface (#60), path "web_action": Brave if its
+    # key is set, else Serper, else the old "No search API configured".
     try:
         from research_pipeline.search import search
-        resp = await search(query, num_results=limit)
+        resp = await search(query, num_results=limit, path="web_action")
         if not resp.success:
             return ActionResult(
                 success=False,
-                message=f"Web search failed: {resp.error}"
+                message=resp.error if resp.backend == "none" else f"Web search failed: {resp.error}"
             )
         results = [
             {"title": h.title, "url": h.url, "description": h.snippet}

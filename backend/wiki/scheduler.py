@@ -1703,7 +1703,7 @@ exploration: true
         """Search the web for information (the research search interface, #60)."""
         try:
             from research_pipeline.search import context_snippets
-            return await context_snippets(query, num_results=4)
+            return await context_snippets(query, num_results=4, path="wiki")
         except Exception as e:
             from strict import report_swallowed
             report_swallowed(e, "Wiki research web search")
