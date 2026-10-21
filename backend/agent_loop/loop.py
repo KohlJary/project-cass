@@ -57,7 +57,10 @@ class AnthropicModelClient:
                                       system=system, messages=messages)
         if tools:
             kwargs["tools"] = tools
-        response = await self._client.messages.create(**kwargs)
+        # Model routing (#64): llm_config's "session.generic" override, else
+        # `model`; llm_caller records the usage in the token ledger.
+        from llm_caller import create_message
+        response = await create_message("session.generic", client=self._client, **kwargs)
         text, calls = "", []
         for block in response.content:
             if block.type == "text":
@@ -76,7 +79,8 @@ class AnthropicModelClient:
 def resolve_model(spec: TurnSpec, current: str) -> str:
     """The model for a turn. Today: whatever the entry point already uses
     (sessions: DEFAULT_SESSION_MODEL via the runner), with retired IDs mapped.
-    Model routing by spec.model_site is #64's to plug in here."""
+    The call-site override from llm_config (#64) is applied by
+    AnthropicModelClient through llm_caller."""
     try:
         from llm_config import current_model_id
         return current_model_id(current)

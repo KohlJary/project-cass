@@ -101,6 +101,9 @@ def _scan():
         except SyntaxError:
             continue
         owner = _enclosing_functions(tree)
+        from_router = {a.asname or a.name for n in ast.walk(tree)
+                       if isinstance(n, ast.ImportFrom) and n.module in ("llm_caller", "llm_config")
+                       for a in n.names}
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -119,7 +122,9 @@ def _scan():
                     kind = "http"
             if kind:
                 direct.append((rel, fname, node.lineno, kind))
-            if last in ROUTER_FUNCS and rel != "llm_caller.py":
+            # Only names imported from llm_caller/llm_config count (agent_loop
+            # has its own resolve_model).
+            if last in ROUTER_FUNCS and rel != "llm_caller.py" and (last in from_router or "." in chain):
                 routed.append((rel, fname, node, fn))
             # agent_client.generate(_simple) callers pass call_site= by keyword
             for kw in node.keywords:
