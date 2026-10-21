@@ -595,3 +595,37 @@ def test_fresh_schema_has_params_json():
     with get_db() as conn:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(research_tasks)").fetchall()}
     assert "params_json" in cols
+
+
+# ---------------------------------------------------------------------------
+# Research journal: its own entry, never a copy of another journal
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_research_journal_stores_only_its_own_entry(monkeypatch):
+    """Before: create_research_journal re-stored whichever journal Chroma
+    returned for the date (possibly her daily journal) plus the research text
+    as a new research entry. Now it stores its own text and reads/copies no
+    other journal."""
+    import sys
+    stored = []
+    daily_text = "Her daily journal, in her words."
+
+    class FakeMemory:
+        def get_journal_entry(self, date):
+            return {"content": daily_text, "metadata": {"journal_type": "daily"}, "id": "j1"}
+
+        async def store_journal_entry(self, **kw):
+            stored.append(kw)
+            return f"j{len(stored) + 1}"
+
+    monkeypatch.setitem(sys.modules, "memory", SimpleNamespace(CassMemory=FakeMemory))
+    import research_journals
+    session = {"session_id": "rs_1", "focus": "Lichen", "summary": "Read about lichen",
+               "findings_summary": "- symbiosis", "note_count": 2}
+    entry_id = asyncio.run(research_journals.create_research_journal(session, daemon_id="d"))
+    assert entry_id == "j2" and len(stored) == 1
+    entry = stored[0]
+    assert entry["journal_type"] == "research"
+    assert daily_text not in entry["journal_text"]
+    assert "Lichen" in entry["journal_text"]
