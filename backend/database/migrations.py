@@ -54,6 +54,27 @@ def init_database():
             else:
                 print(f"Database schema is current (v{current_version})")
 
+        _ensure_token_call_site(conn)
+
+
+def _ensure_token_call_site(conn):
+    """token_usage_records.call_site and its index (v61), idempotently.
+
+    Runs on every start, not only below v61, so a database whose version was
+    bumped by another branch first still gets the column. The index can't
+    live in SCHEMA_SQL: that re-runs mid-upgrade, before the column exists.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(token_usage_records)").fetchall()}
+    if not columns:
+        return
+    if 'call_site' not in columns:
+        conn.execute("ALTER TABLE token_usage_records ADD COLUMN call_site TEXT")
+        print("Adding token_usage_records.call_site (v61)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_token_records_call_site "
+        "ON token_usage_records(daemon_id, call_site)"
+    )
+
 
 def _apply_schema_updates(conn, from_version: int):
     """Apply incremental schema updates."""
@@ -614,15 +635,7 @@ def _apply_schema_updates(conn, from_version: int):
     # v58 -> v61: token_usage_records.call_site, the llm_config call site that
     # made the call (per-subsystem spend, #64). Rows from before stay NULL.
     if from_version < 61:
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(token_usage_records)").fetchall()}
-        if columns and 'call_site' not in columns:
-            conn.execute("ALTER TABLE token_usage_records ADD COLUMN call_site TEXT")
-            print("Adding token_usage_records.call_site (v61)")
-        if columns:
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_token_records_call_site "
-                "ON token_usage_records(daemon_id, call_site)"
-            )
+        _ensure_token_call_site(conn)
 
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:

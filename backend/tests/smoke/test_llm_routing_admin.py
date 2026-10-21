@@ -24,7 +24,8 @@ def test_llm_config_routes_are_admin_only(booted_app, smoke_user):
         assert denied.status_code in (401, 403), (method, path)
 
 
-def test_admin_sets_a_subsystem_to_ollama_and_sees_its_spend(booted_app, smoke_admin, fake_llm):
+def test_admin_sets_a_subsystem_to_ollama_and_sees_its_spend(booted_app, smoke_admin, fake_llm, monkeypatch):
+    monkeypatch.setenv("OLLAMA_ENABLED", "true")
     _, token = smoke_admin
     body = booted_app.get("/admin/llm-config", headers=_auth(token)).json()
     sites = {s["call_site"]: s for s in body["call_sites"]}

@@ -678,7 +678,8 @@ CREATE TABLE IF NOT EXISTS token_usage_records (
 );
 
 CREATE INDEX IF NOT EXISTS idx_token_records_daemon ON token_usage_records(daemon_id);
-CREATE INDEX IF NOT EXISTS idx_token_records_call_site ON token_usage_records(daemon_id, call_site);
+-- idx_token_records_call_site is created by init_database() after migrations:
+-- SCHEMA_SQL re-runs during upgrades, before call_site exists on old tables.
 CREATE INDEX IF NOT EXISTS idx_token_records_date ON token_usage_records(daemon_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_token_records_category ON token_usage_records(daemon_id, category);
 

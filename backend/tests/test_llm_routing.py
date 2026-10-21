@@ -37,6 +37,12 @@ needs_sdk = pytest.mark.skipif(importlib.util.find_spec("anthropic") is None,
 HAIKU = "claude-haiku-4-5-20251001"
 SONNET = "claude-sonnet-4-6"
 
+@pytest.fixture(autouse=True)
+def _ollama_env(monkeypatch):
+    """A developer .env with OLLAMA_ENABLED=false must not change these tests."""
+    monkeypatch.setenv("OLLAMA_ENABLED", "true")
+
+
 ROUTER_FUNCS = {"call_llm", "call_llm_sync", "create_message", "create_message_sync",
                 "ollama_raw", "resolve_model", "plan_message"}
 
@@ -443,6 +449,17 @@ def test_fallback_runs_when_primary_fails(fake_llm, monkeypatch):
     resp = asyncio.run(llm_caller.call_llm("wiki.enrich_page", user_prompt="x"))
     assert resp.success and resp.provider == "anthropic"
     assert _ledger("wiki.enrich_page") == [("wiki.enrich_page", "anthropic", HAIKU, 10, 5)]
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_ollama_enabled_false_turns_ollama_assignments_into_their_fallback(fake_llm, monkeypatch):
+    """As the old llm_caller did for Grimoire's stored Ollama assignments."""
+    LLMConfigManager().set("grimoire.rate", ModelAssignment("ollama", "mistral:7b", "anthropic", HAIKU))
+    monkeypatch.setenv("OLLAMA_ENABLED", "false")
+    fake_llm.queue_text('{"rating": 0.5}')
+    resp = asyncio.run(llm_caller.call_llm("grimoire.rate", user_prompt="x"))
+    assert resp.provider == "anthropic" and fake_llm.calls[-1].source == "anthropic.async"
 
 
 @pytest.mark.unit

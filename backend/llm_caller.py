@@ -39,11 +39,16 @@ from llm_config import CALL_SITES, ModelAssignment, resolve_model, LLMConfigMana
 
 logger = logging.getLogger("cass-vessel")
 
-# Kept for back-compat; explicit assignments to Ollama are honoured regardless
-# (defaults that depend on OLLAMA_ENABLED live in llm_config policies).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_ENABLED = os.environ.get("OLLAMA_ENABLED", "true").lower() == "true"
 OPENAI_ENABLED = os.environ.get("OPENAI_ENABLED", "false").lower() == "true"
+
+
+def _ollama_allowed() -> bool:
+    """OLLAMA_ENABLED=false in the environment turns every routed Ollama call
+    into an error (so a fallback runs), as the old llm_caller did. Unset
+    counts as allowed: an admin's Ollama assignment runs. Defaults that depend
+    on OLLAMA_ENABLED (config's default is off) live in llm_config policies."""
+    return os.environ.get("OLLAMA_ENABLED", "true").lower() == "true"
 
 
 class LLMResponse:
@@ -345,6 +350,8 @@ async def _call_provider(provider: str, model_id: str, req: _Request) -> LLMResp
             msg = await client.messages.create(**req.anthropic(model_id))
             return _anthropic_to_response(msg, model_id)
         if provider == "ollama":
+            if not _ollama_allowed():
+                return LLMResponse("", provider, model_id, error="Ollama not enabled (OLLAMA_ENABLED=false)")
             endpoint, payload = req.ollama(model_id)
             data = await _ollama_request(_ollama_url(req.ollama_base_url), endpoint, payload, req.timeout)
             return _ollama_to_response(data, model_id)
@@ -363,6 +370,8 @@ def _call_provider_sync(provider: str, model_id: str, req: _Request) -> LLMRespo
             msg = client.messages.create(**req.anthropic(model_id))
             return _anthropic_to_response(msg, model_id)
         if provider == "ollama":
+            if not _ollama_allowed():
+                return LLMResponse("", provider, model_id, error="Ollama not enabled (OLLAMA_ENABLED=false)")
             endpoint, payload = req.ollama(model_id)
             data = _ollama_request_sync(_ollama_url(req.ollama_base_url), endpoint, payload, req.timeout)
             return _ollama_to_response(data, model_id)
