@@ -151,11 +151,10 @@ def get_user_or_ip(request: Request) -> str:
     # Try to get user from auth header (will be set by auth middleware)
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        from auth import decode_token
-        token = auth_header[7:]
-        token_data = decode_token(token)
-        if token_data:
-            return f"user:{token_data.user_id}"
+        from auth import user_id_from_any_token
+        user_id = user_id_from_any_token(auth_header[7:])
+        if user_id:
+            return f"user:{user_id}"
     return get_remote_address(request)
 
 # Initialize rate limiter

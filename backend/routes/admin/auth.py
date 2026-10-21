@@ -8,20 +8,23 @@ from typing import Optional, Dict
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 import os
-import jwt
 import secrets
 
 from config import DEMO_MODE
 
 router = APIRouter(tags=["admin-auth"])
 
-# JWT Configuration
-# Unset ADMIN_JWT_SECRET used to mean a fresh random secret per process, which
-# logged every admin out on restart. Persist the generated one in DATA_DIR.
+# Tokens: this module no longer has its own JWT system (issue #61). Logins
+# here get the one token format from auth.py (with a role claim), and every
+# token is verified by auth.verify_access_token.
+#
+# JWT_SECRET is the secret the OLD dashboard tokens were signed with. It is
+# kept (not rotated) only so tokens issued before the switch keep verifying
+# until they expire; auth.py reads it for that. Nothing signs with it now.
 from secret_store import get_or_create_secret
 JWT_SECRET = get_or_create_secret("admin_jwt_secret", "ADMIN_JWT_SECRET")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
+from auth import DASHBOARD_ACCESS_EXPIRE_HOURS as JWT_EXPIRATION_HOURS
 
 security = HTTPBearer(auto_error=False)
 
@@ -86,6 +89,7 @@ class LoginResponse(BaseModel):
     display_name: str
     is_admin: bool
     expires_at: str
+    roles: list = []
 
 
 class RegisterRequest(BaseModel):
@@ -114,28 +118,48 @@ class RejectRequest(BaseModel):
 # ============== Auth Helpers ==============
 
 def create_token(user_id: str, display_name: str, is_admin: bool = False) -> tuple[str, datetime]:
-    """Create a JWT token for an admin user"""
-    expires = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
-    payload = {
-        "user_id": user_id,
-        "display_name": display_name,
-        "is_admin": is_admin,
-        "exp": expires,
-        "iat": datetime.utcnow()
-    }
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    return token, expires
+    """Dashboard login token: the one token format, roles from `is_admin`."""
+    from auth import create_dashboard_token, ROLE_USER, ROLE_ADMIN
+    roles = [ROLE_USER, ROLE_ADMIN] if is_admin else [ROLE_USER]
+    return create_dashboard_token(user_id, display_name, roles=roles)
+
+
+def _sqlite_identity(user_id: str):
+    """(display_name, is_admin) from SQLite, or (None, False)."""
+    try:
+        from database import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT display_name, is_admin FROM users WHERE id = ?",
+                               (user_id,)).fetchone()
+        if row:
+            return row[0], bool(row[1])
+    except Exception:
+        pass
+    return None, False
 
 
 def verify_token(token: str) -> Optional[Dict]:
-    """Verify a JWT token and return payload if valid"""
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
-    except jwt.ExpiredSignatureError:
+    """Verify an access token (any accepted format) and return a payload dict.
+
+    The dict keeps the shape the old dashboard tokens had (user_id,
+    display_name, is_admin) because handlers read it. `is_admin` is never
+    taken from the token: it is users.is_admin in SQLite, and False if the
+    token's role claim leaves out "admin".
+    """
+    from auth import verify_access_token
+    principal = verify_access_token(token)
+    if principal is None:
         return None
-    except jwt.InvalidTokenError:
-        return None
+    db_name, db_admin = _sqlite_identity(principal.user_id)
+    return {
+        "user_id": principal.user_id,
+        "display_name": principal.claims.get("display_name") or db_name or principal.user_id,
+        "is_admin": bool(db_admin and principal.may_be_admin),
+        "roles": list(principal.roles) if principal.roles is not None else None,
+        "token_format": principal.format,
+        "exp": principal.claims.get("exp"),
+        "iat": principal.claims.get("iat"),
+    }
 
 
 async def require_admin(
@@ -174,14 +198,12 @@ async def require_admin(
             headers={"WWW-Authenticate": "Bearer"}
         )
 
-    # Verify user still has admin access
-    if _users:
-        profile = _users.load_profile(payload["user_id"])
-        if not profile or not profile.is_admin:
-            raise HTTPException(
-                status_code=403,
-                detail="Admin access revoked"
-            )
+    # Admin access is users.is_admin in SQLite, capped by the token's roles.
+    if not payload.get("is_admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access revoked"
+        )
 
     return payload
 
@@ -325,38 +347,25 @@ async def admin_login(request: LoginRequest):
     if not _users:
         raise HTTPException(status_code=503, detail="User manager not initialized")
 
-    # First check if user exists and verify password
-    profile = _users.get_user_by_name(request.username)
+    # One credential check for both login endpoints (auth.authenticate):
+    # SQLite users.password_hash (or a migrated legacy hash), matched by
+    # display name or email; pending/rejected accounts get 403.
+    from auth import authenticate
+    user_id = authenticate(request.username, request.password, _users)
+    profile = _users.load_profile(user_id)
     if not profile:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    if not profile.password_hash:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    if not _users.verify_password(request.password, profile.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # Check account status
-    if profile.status == 'pending':
-        raise HTTPException(
-            status_code=403,
-            detail="Account pending approval. Please wait for an administrator to approve your registration."
-        )
-    if profile.status == 'rejected':
-        reason = profile.rejection_reason or "No reason provided"
-        raise HTTPException(
-            status_code=403,
-            detail=f"Account rejected: {reason}"
-        )
-
     token, expires = create_token(profile.user_id, profile.display_name, profile.is_admin)
+    roles = ["user", "admin"] if profile.is_admin else ["user"]
 
     return LoginResponse(
         token=token,
         user_id=profile.user_id,
         display_name=profile.display_name,
         is_admin=profile.is_admin,
-        expires_at=expires.isoformat()
+        expires_at=expires.isoformat(),
+        roles=roles,
     )
 
 

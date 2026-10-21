@@ -353,7 +353,7 @@ class TestTokenExpiration:
 
     def test_expired_token_rejected(self):
         """Expired tokens should not decode."""
-        from jose import jwt
+        import jwt
 
         # Create a token that's already expired
         expire = datetime.utcnow() - timedelta(hours=1)
@@ -369,7 +369,7 @@ class TestTokenExpiration:
 
     def test_token_with_no_sub_rejected(self):
         """Tokens without 'sub' claim should be rejected."""
-        from jose import jwt
+        import jwt
 
         to_encode = {
             "type": "access",

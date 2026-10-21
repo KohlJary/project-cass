@@ -637,6 +637,21 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 61:
         _ensure_token_call_site(conn)
 
+    # v61 -> v62: one auth store (#61). The mobile app's auth.json credentials
+    # move into users (scripts/migrate_auth_json.py); where they disagree with
+    # the row, the auth.json values go in these columns so both keep working.
+    if from_version < 62:
+        ensure_users_legacy_credential_columns(conn)
+
+
+def ensure_users_legacy_credential_columns(conn):
+    """Idempotently add users.legacy_email / legacy_password_hash."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if 'legacy_email' not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN legacy_email TEXT")
+    if 'legacy_password_hash' not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN legacy_password_hash TEXT")
+
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:
     """

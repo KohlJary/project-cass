@@ -18,11 +18,12 @@ How it works:
     it is public or listed in ADMIN_AREA_USER_ROUTES, whatever auth dependency
     the handler declares. (Many admin handlers declare require_auth, which
     accepts any dashboard user, admin or not.)
-  - "Authenticated" means: a bearer token from EITHER auth system (mobile/TUI
-    tokens from auth.py or admin-dashboard tokens from routes/admin/auth.py),
-    or the localhost bypass (ALLOW_LOCALHOST_BYPASS + DEFAULT_LOCALHOST_USER_ID)
-    for genuinely-local, non-proxied, same-origin requests. Admin level then
-    checks users.is_admin in SQLite.
+  - "Authenticated" means: an access token accepted by
+    auth.verify_access_token (the one token format, plus the two pre-#61
+    formats until they expire), or the localhost bypass
+    (ALLOW_LOCALHOST_BYPASS + DEFAULT_LOCALHOST_USER_ID) for genuinely-local,
+    non-proxied, same-origin requests. Admin level then checks users.is_admin
+    in SQLite, capped by the token's role claim (principal_is_admin).
   - WebSockets cannot send headers from a browser, so for them a ?token= query
     parameter is accepted too.
   - DEMO_MODE: anonymous callers get read-only access (GET/HEAD) to admin and
@@ -258,19 +259,29 @@ def _token_from(conn: HTTPConnection) -> Optional[str]:
     return None
 
 
-def resolve_user(conn: HTTPConnection) -> Tuple[Optional[str], bool]:
-    """Return (user_id, via_localhost_bypass)."""
-    from auth import user_id_from_any_token, localhost_bypass_user
+def resolve_principal(conn: HTTPConnection):
+    """Return (principal_or_None, user_id, via_localhost_bypass).
+
+    Tokens are verified by auth.verify_access_token (one token format, plus
+    the two legacy formats until they expire).
+    """
+    from auth import verify_access_token, localhost_bypass_user
 
     token = _token_from(conn)
     if token:
-        user_id = user_id_from_any_token(token)
-        if user_id:
-            return user_id, False
+        principal = verify_access_token(token)
+        if principal is not None:
+            return principal, principal.user_id, False
     bypass = localhost_bypass_user(conn)
     if bypass:
-        return bypass, True
-    return None, False
+        return None, bypass, True
+    return None, None, False
+
+
+def resolve_user(conn: HTTPConnection) -> Tuple[Optional[str], bool]:
+    """Return (user_id, via_localhost_bypass)."""
+    _principal, user_id, via_bypass = resolve_principal(conn)
+    return user_id, via_bypass
 
 
 def user_is_admin(user_id: str) -> bool:
@@ -281,6 +292,18 @@ def user_is_admin(user_id: str) -> bool:
         return bool(row and row[0])
     except Exception:
         return False
+
+
+def principal_is_admin(principal, user_id: str) -> bool:
+    """Admin = users.is_admin in SQLite, capped by the token's role claim.
+
+    A token whose roles leave out "admin" never gets admin access, even if
+    the user was promoted after it was issued (log in again). Legacy tokens
+    have no role claim, so for them (and the localhost bypass) SQLite decides.
+    """
+    if principal is not None and not principal.may_be_admin:
+        return False
+    return user_is_admin(user_id)
 
 
 def _deny(conn: HTTPConnection, code: int, detail: str):
@@ -313,7 +336,7 @@ async def route_guard(conn: HTTPConnection):
             _deny(conn, status.HTTP_401_UNAUTHORIZED, "Authentication required")
         return None
 
-    user_id, _via_bypass = resolve_user(conn)
+    principal, user_id, _via_bypass = resolve_principal(conn)
 
     if user_id is None:
         if config.DEMO_MODE and not _is_dangerous(path):
@@ -328,7 +351,7 @@ async def route_guard(conn: HTTPConnection):
             _deny(conn, status.HTTP_403_FORBIDDEN, "Demo mode is read-only. Log in to make changes.")
         _deny(conn, status.HTTP_401_UNAUTHORIZED, "Authentication required")
 
-    if level == ADMIN and not user_is_admin(user_id):
+    if level == ADMIN and not principal_is_admin(principal, user_id):
         _deny(conn, status.HTTP_403_FORBIDDEN, "Admin access required")
 
     conn.scope["cass_user_id"] = user_id

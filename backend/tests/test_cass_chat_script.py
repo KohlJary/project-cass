@@ -29,6 +29,8 @@ def cass_chat(tmp_path, monkeypatch):
         monkeypatch.setattr(m, "CREDENTIALS_FILE", creds_file)
     monkeypatch.setattr(mod, "STATE_FILE", tmp_path / "state.json")
     monkeypatch.setattr(daedalus_auth, "get_jwt_secret", lambda: "test-secret")
+    import auth  # tokens come from auth.create_dashboard_token (#61); no users row here
+    monkeypatch.setattr(auth, "roles_for_user", lambda user_id: ["user"])
     mod._creds_file = creds_file
     return mod
 
