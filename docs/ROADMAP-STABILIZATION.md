@@ -1,25 +1,14 @@
 # Cass Stabilization Roadmap
 
-*As of 2026-10-15. Phone-friendly copy: https://claude.ai/code/artifact/792cf4df-8099-4049-8e95-c72fd8849cf3 (kept at parity with this file).*
+*Plan as of 2026-10-15; status updated 2026-10-21. Phone-friendly copy of the 2026-10-15 plan: https://claude.ai/code/artifact/792cf4df-8099-4049-8e95-c72fd8849cf3 (not updated with this status).*
 
 ## Where we are
 
-Stabilization is done and waiting on review. Five stacked PRs take the suite from 405 tests to about 2,500, and every tool Cass is offered now runs. Merge them in order, #11 first.
+*Updated 2026-10-21.* Steps 1–3 of the order of work are built (their epics stay open until the data migrations run), plus the first builds of steps 4–6. See `docs/status.md` for the PR list and what waits on Kohl.
 
-| PR | What it proves |
-| --- | --- |
-| [#11 Security lockdown](https://github.com/KohlJary/project-cass/pull/11) | Every route needs login by default; dangerous ones need admin |
-| [#12 Levers + test harness](https://github.com/KohlJary/project-cass/pull/12) | 32 per-subsystem switches, a fake LLM, smoke batteries |
-| [#13 Silent breakage](https://github.com/KohlJary/project-cass/pull/13) | Journals, spells, research, memory search and inline tags actually run |
-| [#14 Tools and endpoints](https://github.com/KohlJary/project-cass/pull/14) | All ~240 offered tools dispatch and execute; frontend drift down from 46 to 23 |
-| [#15 Runtime hazards](https://github.com/KohlJary/project-cass/pull/15) | Per-turn LLM state, capped tool loop, relay parity, safe rollback |
-
-Two things to do around these merges:
-
-- **Before deploying #11:** set `DEFAULT_LOCALHOST_USER_ID` to your admin user, or the TUI and Godot get 401s.
-- **After #13:** research spells really call Ollama. Run `CASS_PROFILE=quiet` until you want that spend.
-
-Every verified leftover is filed as an issue with file:line evidence and a one-line done-when check. They're rolled up in [tracking issue #53](https://github.com/KohlJary/project-cass/issues/53).
+- **Merged:** #11–#20; cheap cuts (#54 via #81); PeopleDex (#55 via #83); journals (#56 via #84); model routing (#64 via #86); auth (#61 via #88, transition mode); research (#60 via #90); the agent loop (#70 via #82, behind `agent_loop`, off); the Heartbeat core (#62 via #87, behind `heartbeat`, off); chat off the event loop (#85 via #89); 12 loose ends (#91).
+- **Not deployed:** nothing above is live until the service restarts. The data migrations are dry-run only.
+- **Next:** cut chat over to the agent loop (the rest of #70, which absorbs #57–#59); the Heartbeat cutover; benchmarks (#65); the self-context design (#63).
 
 ## Consolidation plan
 
