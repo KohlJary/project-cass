@@ -50,6 +50,8 @@ a network guard enforces this: any outbound connection or DNS lookup raises.
   commit the fixture when a frontend's API calls change.
 - `test_autonomous_cycles.py`: each Synkratos system job and Grimoire timer
   spell runs one cycle against the fake LLM and does its work.
+- `test_agent_loop_session.py`: one `session.reflection` through the agent loop
+  (lever `agent_loop`) against the fake LLM, and the legacy path with it off.
 - `test_lever_wiring.py`: the `/admin/features` endpoint and lever checks
   that need the runtime deps.
 

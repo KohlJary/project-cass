@@ -18,6 +18,7 @@ import logging
 from typing import Any, Dict
 
 from . import ActionResult
+from features import is_enabled
 from session import get_session_prompt, get_session_tools, get_default_handlers
 
 logger = logging.getLogger(__name__)
@@ -61,24 +62,43 @@ async def _run_generic_session(
     session_runner.register_tool_handlers(get_default_handlers())
 
     try:
-        result = await session_runner.run_session(
-            session_type=session_type,
-            system_prompt=system_prompt,
-            tools=tools,
-            duration_minutes=duration,
-            focus=focus,
-            max_turns=max_turns,
-        )
+        if is_enabled("agent_loop"):
+            # The Turn (epic #70): one assemble(), seam block, tool packs,
+            # voice-guarded writes; ends cleanly if a conversation arrives.
+            from agent_loop.session import run_session_turn
+            result = await run_session_turn(
+                session_runner,
+                session_type=session_type,
+                additions=custom_prompt_additions,
+                duration_minutes=duration,
+                focus=focus,
+                max_turns=max_turns,
+            )
+        else:
+            result = await session_runner.run_session(
+                session_type=session_type,
+                system_prompt=system_prompt,
+                tools=tools,
+                duration_minutes=duration,
+                focus=focus,
+                max_turns=max_turns,
+            )
 
-        if result.status in ("completed", "max_turns"):
+        if result.status in ("completed", "max_turns", "interrupted"):
             logger.info(
                 f"Session {session_type} completed: {result.total_turns} turns, "
                 f"${result.estimated_cost_usd:.4f}"
             )
+            label = session_type.replace('_', ' ').title()
+            if result.status == "interrupted":
+                # Only the Turn ends a session this way (a conversation arrived).
+                message = f"{label} session ended early: {getattr(result, 'end_reason', None)}"
+            else:
+                message = f"{label} session completed"
 
             return ActionResult(
                 success=True,
-                message=f"{session_type.replace('_', ' ').title()} session completed",
+                message=message,
                 cost_usd=result.estimated_cost_usd,
                 data={
                     "session_id": result.session_id,

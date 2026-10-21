@@ -862,6 +862,10 @@ async def ha_conversation(request: Request):
     if not text:
         return {"error": "No text provided", "response": "I didn't hear anything."}
 
+    # A running autonomous session (agent_loop lever) ends cleanly.
+    from agent_loop.interrupt import entry_point_received_message
+    entry_point_received_message(request.scope.get("cass_user_id"), "Home Assistant")
+
     # Get or create a conversation for this HA session. (This used to call
     # an undefined conversations_db; use the real ConversationManager.)
     # The route guard has authenticated the caller; attribute the voice
@@ -1222,6 +1226,10 @@ async def process_relay_chat_message(
 
     if not message_text:
         return {"type": "error", "message": "Empty message"}
+
+    # A running autonomous session (agent_loop lever) ends cleanly.
+    from agent_loop.interrupt import entry_point_received_message
+    entry_point_received_message(user_id, "relay")
 
     # Check if essential services are initialized
     if agent_client is None or memory is None:
@@ -2501,6 +2509,10 @@ async def chat(request: ChatRequest):
     Main chat endpoint.
     Uses Agent SDK if available, falls back to legacy client.
     """
+    # A running autonomous session (agent_loop lever) ends cleanly.
+    from agent_loop.interrupt import entry_point_received_message
+    entry_point_received_message(None, "POST /chat")
+
     # Check if conversation belongs to a project
     project_id = None
     if request.conversation_id:

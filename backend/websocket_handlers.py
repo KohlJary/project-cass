@@ -614,6 +614,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 # A person is talking: idle-only background jobs should wait.
                 mark_user_activity()
 
+                # A running autonomous session (agent_loop lever) ends cleanly.
+                from agent_loop.interrupt import entry_point_received_message
+                entry_point_received_message(manager.get_user_id(websocket), "websocket")
+
                 # Get connection-local user_id (may have been set via auth message)
                 ws_user_id = manager.get_user_id(websocket)
 
