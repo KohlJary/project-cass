@@ -85,3 +85,20 @@ def test_list_lets_the_server_scope_to_the_token_user(cass_chat, monkeypatch):
     assert url.endswith("/conversations")
     assert "user_id" not in params
     assert headers == {"Authorization": "Bearer good"}
+
+
+def test_ensure_user_set_sends_own_id_with_token(cass_chat, monkeypatch):
+    later = (datetime.utcnow() + timedelta(hours=10)).isoformat()
+    _write_creds(cass_chat._creds_file, token="good", token_expires=later)
+    posts = []
+    monkeypatch.setattr(cass_chat.requests, "get",
+                        lambda url, headers=None, timeout=None: _Resp({"user_id": "daedalus-id"}))
+    monkeypatch.setattr(cass_chat.requests, "post",
+                        lambda url, json=None, headers=None, timeout=None: posts.append((url, json, headers)) or _Resp({}))
+
+    cass_chat.ensure_user_set()
+
+    url, body, headers = posts[0]
+    assert url.endswith("/users/current")
+    assert body == {"user_id": "daedalus-id"}
+    assert headers == {"Authorization": "Bearer good"}

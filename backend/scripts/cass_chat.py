@@ -105,6 +105,24 @@ def get_auth_headers():
     return {}
 
 
+def ensure_user_set():
+    """Make Daedalus the server's current user (POST /users/current).
+
+    /chat reads that global for user context. The route accepts only the
+    caller's own id (#73), so send our token and the id it authenticates as.
+    """
+    try:
+        response = requests.post(
+            f"{API_BASE}/users/current",
+            json={"user_id": whoami()},
+            headers=get_auth_headers(),
+            timeout=5
+        )
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Warning: could not set current user: {e}", file=sys.stderr)
+
+
 def whoami() -> str:
     """The user id the server sees for our token (GET /auth/me)."""
     response = requests.get(f"{API_BASE}/auth/me", headers=get_auth_headers(), timeout=10)
@@ -161,6 +179,9 @@ def send_message(message: str, conversation_id: str = None, new: bool = False) -
     Returns:
         dict with 'success', 'response', 'conversation_id', 'animations'
     """
+    # Ensure Daedalus is the current user
+    ensure_user_set()
+
     state = load_state()
 
     # Determine conversation ID

@@ -90,8 +90,16 @@ async def create_conversation(
     body: ConversationCreateRequest,
     current_user: str = Depends(get_current_user)
 ):
-    """Create a new conversation"""
+    """Create a new conversation for the authenticated user.
+
+    A body user_id other than the caller's own is refused unless the caller
+    is an admin, as with POST /users/current (#73).
+    """
     user_id = body.user_id or current_user
+    if user_id != current_user:
+        from route_guard import user_is_admin
+        if not user_is_admin(current_user):
+            raise HTTPException(status_code=403, detail="Access denied: not your user")
     conversation = _conversation_manager.create_conversation(
         title=body.title,
         project_id=body.project_id,

@@ -190,3 +190,41 @@ def test_disagreements_admin_sees_any(booted_app, smoke_admin):
     r = booted_app.get(f"/cass/disagreements?user_id={bob}", headers=_bearer(token))
     assert r.status_code == 200, r.text
     assert [d["with_user_id"] for d in r.json()["disagreements"]] == [bob]
+
+
+# --- POST /conversations/new: created for the authenticated user -------------
+
+def _owner(conversation_id):
+    import main_sdk
+    return main_sdk.conversation_manager.load_conversation(conversation_id).user_id
+
+
+def test_create_conversation_defaults_to_caller(booted_app, smoke_user):
+    alice, alice_token = smoke_user
+    r = booted_app.post("/conversations/new", json={"title": "mine"}, headers=_bearer(alice_token))
+    assert r.status_code == 200, r.text
+    assert _owner(r.json()["id"]) == alice
+
+
+def test_create_conversation_accepts_own_id(booted_app, smoke_user):
+    alice, alice_token = smoke_user
+    r = booted_app.post("/conversations/new", json={"user_id": alice}, headers=_bearer(alice_token))
+    assert r.status_code == 200, r.text
+    assert _owner(r.json()["id"]) == alice
+
+
+def test_create_conversation_rejects_another_users_id(booted_app, smoke_user):
+    _alice, alice_token = smoke_user
+    bob = create_user("Bob")
+    r = booted_app.post("/conversations/new", json={"user_id": bob}, headers=_bearer(alice_token))
+    assert r.status_code == 403, r.text
+
+
+def test_create_conversation_admin_may_pick_any_user(booted_app, smoke_admin):
+    # The TUI's onboarding flow creates the first conversation for a user an
+    # admin just set up.
+    _admin, token = smoke_admin
+    bob = create_user("Bob")
+    r = booted_app.post("/conversations/new", json={"user_id": bob}, headers=_bearer(token))
+    assert r.status_code == 200, r.text
+    assert _owner(r.json()["id"]) == bob

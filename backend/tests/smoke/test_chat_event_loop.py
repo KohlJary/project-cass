@@ -99,3 +99,33 @@ def test_slow_retrieval_in_websocket_chat_does_not_block_other_requests(
     assert latency < HEALTH_DEADLINE, (
         f"/health took {latency:.2f}s while a websocket chat retrieval was in flight; "
         "context building is blocking the event loop")
+
+
+def test_slow_retrieval_in_relay_chat_does_not_block_other_requests(
+        booted_app, fake_llm, smoke_user, monkeypatch):
+    import continuous_context
+    import main_sdk
+    user_id, _token = smoke_user
+    fake_llm.queue_text("still here over relay")
+
+    started = threading.Event()
+    real_build = continuous_context.build_continuous_context
+
+    def slow_build(*args, **kwargs):
+        started.set()
+        time.sleep(RETRIEVAL_SECONDS)
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr(continuous_context, "build_continuous_context", slow_build)
+
+    def slow_relay_chat():
+        result = booted_app.portal.call(
+            main_sdk.process_relay_chat_message,
+            "smoke-relay-client", user_id, {"type": "chat", "message": "hello, slowly"},
+        )
+        assert result.get("type") != "error", result
+
+    latency = _health_latency_during(booted_app, started, slow_relay_chat)
+    assert latency < HEALTH_DEADLINE, (
+        f"/health took {latency:.2f}s while a relay chat retrieval was in flight; "
+        "context building is blocking the event loop")
