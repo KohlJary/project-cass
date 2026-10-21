@@ -147,7 +147,8 @@ class ThreadManager:
         title: Optional[str] = None,
         description: Optional[str] = None,
         importance: Optional[float] = None,
-        status: Optional[ThreadStatus] = None
+        status: Optional[ThreadStatus] = None,
+        thread_type: Optional[ThreadType] = None,
     ) -> Optional[Dict]:
         """
         Update thread properties.
@@ -158,6 +159,8 @@ class ThreadManager:
             description: New description (if provided)
             importance: New importance (if provided)
             status: New status (if provided)
+            thread_type: New type (if provided): topic, question, project,
+                or relational
 
         Returns:
             Updated thread or None if not found
@@ -174,6 +177,9 @@ class ThreadManager:
         if importance is not None:
             updates.append("importance = ?")
             params.append(importance)
+        if thread_type is not None:
+            updates.append("thread_type = ?")
+            params.append(thread_type)
         if status is not None:
             updates.append("status = ?")
             params.append(status)
