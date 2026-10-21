@@ -1962,7 +1962,6 @@ async def startup_event():
                 "growth_edge": get_growth_edge_runner(),
                 "knowledge_building": get_knowledge_building_runner(),
                 "writing": get_writing_runner(),
-                "curiosity": get_curiosity_runner(),
                 "world_state": get_world_state_runner(),
                 "creative": get_creative_runner(),
             }
@@ -2000,6 +1999,10 @@ async def startup_event():
                 "data_dir": DATA_DIR,
                 # For autonomous_research handler (the wiki scheduler)
                 "research_scheduler": wiki_research_scheduler,
+                # Approved session requests, started from the research queue
+                # when the research_session_requests lever is on (#60)
+                "research_session_requests": research_scheduler,
+                "research_session_runner_getter": get_research_runner,
             }, enabled=True)
 
             # Register approval providers for unified "what needs my attention?" queue
@@ -3375,7 +3378,6 @@ def get_activity_runners() -> Dict[str, Any]:
         "growth_edge": get_growth_edge_runner(),
         "writing": get_writing_runner(),
         "knowledge_building": get_knowledge_building_runner(),
-        "curiosity": get_curiosity_runner(),
         "world_state": get_world_state_runner(),
         "creative": get_creative_runner(),
         "user_model_synthesis": get_user_model_synthesis_runner(),
@@ -3520,27 +3522,6 @@ def get_knowledge_building_runner() -> KnowledgeBuildingRunner:
     return _knowledge_building_runner
 
 
-# Initialize the curiosity runner (lazy - created when needed)
-from curiosity_session_runner import CuriosityRunner
-_curiosity_runner: Optional[CuriosityRunner] = None
-
-def get_curiosity_runner() -> CuriosityRunner:
-    """Get or create the curiosity session runner."""
-    global _curiosity_runner
-    if _curiosity_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _curiosity_runner = CuriosityRunner(
-            data_dir=str(DATA_DIR),
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-        )
-    return _curiosity_runner
-
-
 # Initialize the world state runner (lazy - created when needed)
 from world_state_runner import WorldStateRunner
 _world_state_runner: Optional[WorldStateRunner] = None
@@ -3606,13 +3587,12 @@ def get_user_model_synthesis_runner() -> UserModelSynthesisRunner:
 
 
 # Initialize session runners for admin API (must be after getter functions are defined)
-from admin_api import init_session_runners, init_consolidation_runner, init_growth_edge_runner, init_writing_runner, init_knowledge_building_runner, init_curiosity_runner, init_world_state_runner, init_creative_runner, init_user_model_synthesis_runner
+from admin_api import init_session_runners, init_consolidation_runner, init_growth_edge_runner, init_writing_runner, init_knowledge_building_runner, init_world_state_runner, init_creative_runner, init_user_model_synthesis_runner
 init_session_runners(get_research_runner, get_reflection_runner, get_synthesis_runner, get_meta_reflection_runner)
 init_consolidation_runner(get_consolidation_runner)
 init_growth_edge_runner(get_growth_edge_runner)
 init_writing_runner(get_writing_runner)
 init_knowledge_building_runner(get_knowledge_building_runner)
-init_curiosity_runner(get_curiosity_runner)
 init_world_state_runner(get_world_state_runner)
 init_creative_runner(get_creative_runner)
 init_user_model_synthesis_runner(get_user_model_synthesis_runner)

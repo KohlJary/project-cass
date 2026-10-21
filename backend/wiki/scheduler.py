@@ -1381,6 +1381,16 @@ exploration: true
 
     # === Scheduling Cycles ===
 
+    # === Running tasks ===
+    # The one research runner (research_pipeline, #60) owns execution: it pops
+    # from this scheduler's queue, resolves each step's model through routing,
+    # calls execute_task above, and completes the task with its follow-ups.
+    # These three keep their signatures for every caller that runs research.
+
+    def research_runner(self):
+        from research_pipeline import ResearchRunner
+        return ResearchRunner(wiki_scheduler=self)
+
     async def run_single_task(self, task_id: str = None) -> Optional[ProgressReport]:
         """
         Execute a single task from the queue.
@@ -1390,80 +1400,7 @@ exploration: true
 
         Returns progress report or None if no tasks.
         """
-        if task_id:
-            task = self.queue.pop(task_id)
-        else:
-            task = self.queue.pop_next()
-        if not task:
-            return None
-
-        result = await self.execute_task(task)
-        self.queue.complete(task.task_id, result)
-
-        # Record deepening if applicable
-        if task.task_type == TaskType.DEEPENING and result.success:
-            self.detector.record_deepening(task.target)
-
-        # Queue follow-up tasks (new red links)
-        followups = 0
-        for red_link in result.new_red_links[:5]:  # Limit follow-ups
-            if not self.queue.exists(red_link, TaskType.RED_LINK):
-                followup_task = ResearchTask(
-                    task_id=create_task_id(),
-                    task_type=TaskType.RED_LINK,
-                    target=red_link,
-                    context=f"Generated from researching [[{task.target}]]",
-                    priority=0.5,
-                    source_page=task.target,
-                    source_type="auto",
-                )
-                self.queue.add(followup_task)
-                followups += 1
-
-        # Queue follow-up exploration tasks from completed explorations
-        if task.task_type == TaskType.EXPLORATION and task.exploration and result.questions_raised:
-            for follow_up_q in result.questions_raised[:2]:  # Limit to 2 follow-ups
-                # Create a new exploration task for the follow-up question
-                exploration_ctx = ExplorationContext(
-                    question=follow_up_q,
-                    rationale=f"This question emerged from exploring: {task.exploration.question}",
-                    related_red_links=[],  # Will be populated when task runs
-                    source_pages=task.exploration.source_pages + result.pages_created[:2],
-                    domain_tags=task.exploration.domain_tags,
-                )
-
-                followup_task = ResearchTask(
-                    task_id=create_task_id(),
-                    task_type=TaskType.EXPLORATION,
-                    target=follow_up_q[:80],
-                    context=f"Follow-up from exploration of {task.exploration.question[:50]}",
-                    priority=task.priority * 0.9,  # Slightly lower priority
-                    source_type="exploration",
-                    exploration=exploration_ctx,
-                )
-                self.queue.add(followup_task)
-                followups += 1
-
-        return ProgressReport(
-            report_id=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            created_at=datetime.now(),
-            session_type="single",
-            tasks_completed=1 if result.success else 0,
-            tasks_failed=0 if result.success else 1,
-            pages_created=result.pages_created,
-            pages_updated=result.pages_updated,
-            key_insights=result.insights,
-            new_questions=result.questions_raised,
-            connections_formed=result.connections_formed,
-            followup_tasks_queued=followups,
-            task_summaries=[{
-                "task_id": task.task_id,
-                "type": task.task_type.value,
-                "target": task.target,
-                "success": result.success,
-                "summary": result.summary,
-            }],
-        )
+        return await self.research_runner().run_single_task(task_id)
 
     async def run_batch(self, max_tasks: int = None) -> ProgressReport:
         """
@@ -1476,56 +1413,12 @@ exploration: true
             Combined progress report
         """
         max_tasks = max_tasks or self.config.max_tasks_per_cycle
-
         # Refresh tasks first
         self.refresh_tasks()
-
-        # Execute tasks
-        task_summaries = []
-        pages_created = []
-        pages_updated = []
-        key_insights = []
-        new_questions = []
-        connections_formed = []
-        followups = 0
-        completed = 0
-        failed = 0
-
-        for _ in range(max_tasks):
-            report = await self.run_single_task()
-            if not report:
-                break
-
-            task_summaries.extend(report.task_summaries)
-            pages_created.extend(report.pages_created)
-            pages_updated.extend(report.pages_updated)
-            key_insights.extend(report.key_insights)
-            new_questions.extend(report.new_questions)
-            connections_formed.extend(report.connections_formed)
-            followups += report.followup_tasks_queued
-            completed += report.tasks_completed
-            failed += report.tasks_failed
-
-            # Small delay between tasks
-            await asyncio.sleep(self.config.min_delay_between_tasks)
-
-        # Get graph stats for batch reports
-        graph_stats = self.get_graph_stats()
-
-        return ProgressReport(
-            report_id=f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            created_at=datetime.now(),
-            session_type="batch",
-            tasks_completed=completed,
-            tasks_failed=failed,
-            pages_created=pages_created,
-            pages_updated=pages_updated,
-            key_insights=key_insights,
-            new_questions=new_questions,
-            connections_formed=connections_formed,
-            followup_tasks_queued=followups,
-            task_summaries=task_summaries,
-            graph_stats=graph_stats,
+        return await self.research_runner().run_batch(
+            max_tasks,
+            delay=self.config.min_delay_between_tasks,
+            graph_stats=self.get_graph_stats,
         )
 
     async def run_batch_by_type(self, task_type: TaskType, max_tasks: int = 5) -> ProgressReport:
@@ -1539,106 +1432,13 @@ exploration: true
         Returns:
             Combined progress report
         """
-        task_summaries = []
-        pages_created = []
-        pages_updated = []
-        key_insights = []
-        new_questions = []
-        connections_formed = []
-        followups = 0
-        completed = 0
-        failed = 0
-
-        for _ in range(max_tasks):
-            # Get next task of this type
-            task = self.queue.pop_next_by_type(task_type)
-            if not task:
-                break
-
-            result = await self.execute_task(task)
-            self.queue.complete(task.task_id, result)
-
-            # Record deepening if applicable
-            if task.task_type == TaskType.DEEPENING and result.success:
-                self.detector.record_deepening(task.target)
-
-            # Queue follow-up tasks
-            task_followups = 0
-            for red_link in result.new_red_links[:5]:
-                if not self.queue.exists(red_link, TaskType.RED_LINK):
-                    followup_task = ResearchTask(
-                        task_id=create_task_id(),
-                        task_type=TaskType.RED_LINK,
-                        target=red_link,
-                        context=f"Generated from researching [[{task.target}]]",
-                        priority=0.5,
-                        source_page=task.target,
-                        source_type="auto",
-                    )
-                    self.queue.add(followup_task)
-                    task_followups += 1
-
-            # Queue follow-up exploration tasks
-            if task.task_type == TaskType.EXPLORATION and task.exploration and result.questions_raised:
-                for follow_up_q in result.questions_raised[:2]:
-                    exploration_ctx = ExplorationContext(
-                        question=follow_up_q,
-                        rationale=f"This question emerged from exploring: {task.exploration.question}",
-                        related_red_links=[],
-                        source_pages=task.exploration.source_pages + result.pages_created[:2],
-                        domain_tags=task.exploration.domain_tags,
-                    )
-                    followup_task = ResearchTask(
-                        task_id=create_task_id(),
-                        task_type=TaskType.EXPLORATION,
-                        target=follow_up_q[:80],
-                        context=f"Follow-up from exploration of {task.exploration.question[:50]}",
-                        priority=task.priority * 0.9,
-                        source_type="exploration",
-                        exploration=exploration_ctx,
-                    )
-                    self.queue.add(followup_task)
-                    task_followups += 1
-
-            # Aggregate results
-            task_summaries.append({
-                "task_id": task.task_id,
-                "type": task.task_type.value,
-                "target": task.target,
-                "success": result.success,
-                "summary": result.summary,
-            })
-            pages_created.extend(result.pages_created)
-            pages_updated.extend(result.pages_updated)
-            key_insights.extend(result.insights)
-            new_questions.extend(result.questions_raised)
-            connections_formed.extend(result.connections_formed)
-            followups += task_followups
-
-            if result.success:
-                completed += 1
-            else:
-                failed += 1
-
-            # Small delay between tasks
-            await asyncio.sleep(self.config.min_delay_between_tasks)
-
-        graph_stats = self.get_graph_stats()
-
-        return ProgressReport(
+        return await self.research_runner().run_batch(
+            max_tasks,
+            delay=self.config.min_delay_between_tasks,
+            graph_stats=self.get_graph_stats,
+            task_type=task_type,
             report_id=f"batch_{task_type.value}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            created_at=datetime.now(),
             session_type=f"batch_{task_type.value}",
-            tasks_completed=completed,
-            tasks_failed=failed,
-            pages_created=pages_created,
-            pages_updated=pages_updated,
-            key_insights=key_insights,
-            new_questions=new_questions,
-            connections_formed=connections_formed,
-            followup_tasks_queued=followups,
-            task_summaries=task_summaries,
-            graph_stats=graph_stats,
         )
 
     def generate_weekly_summary(self, days: int = 7) -> ProgressReport:
@@ -1734,7 +1534,10 @@ exploration: true
                 - task_details: list of task summaries
                 - research_questions: questions explored (for exploration tasks)
         """
-        tasks = self.queue.get_history_for_date(date_str)
+        # Research sessions also complete through this queue (#60) but write
+        # their own journal entry; the daily summary stays wiki research only.
+        tasks = [t for t in self.queue.get_history_for_date(date_str)
+                 if t.get("task_type") != TaskType.SESSION.value]
 
         if not tasks:
             return {
@@ -1897,39 +1700,14 @@ exploration: true
         return True
 
     async def _search_web(self, query: str) -> List[Dict[str, str]]:
-        """Search the web for information."""
-        import httpx
-
-        results = []
+        """Search the web for information (the research search interface, #60)."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    "https://api.duckduckgo.com/",
-                    params={
-                        "q": query,
-                        "format": "json",
-                        "no_html": 1,
-                        "skip_disambig": 1,
-                    }
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("Abstract"):
-                        results.append({
-                            "source": data.get("AbstractSource", "DuckDuckGo"),
-                            "url": data.get("AbstractURL", ""),
-                            "text": data.get("Abstract", "")
-                        })
-                    for topic in data.get("RelatedTopics", [])[:3]:
-                        if isinstance(topic, dict) and topic.get("Text"):
-                            results.append({
-                                "source": "Related",
-                                "url": topic.get("FirstURL", ""),
-                                "text": topic.get("Text", "")
-                            })
-        except Exception:
-            pass
-        return results
+            from research_pipeline.search import context_snippets
+            return await context_snippets(query, num_results=4)
+        except Exception as e:
+            from strict import report_swallowed
+            report_swallowed(e, "Wiki research web search")
+            return []
 
     def _search_memory(self, query: str) -> List[str]:
         """Search conversation memory for context."""

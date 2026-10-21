@@ -79,6 +79,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            BACKGROUND, where="scheduler/system_tasks.py"),
     _lever("job_autonomous_research", "Synkratos job: autonomous wiki research every 5 min",
            BACKGROUND, LLM, where="scheduler/system_tasks.py"),
+    _lever("research_session_requests",
+           "Approved research-session requests start from the research queue (checked by the autonomous_research job; #60)",
+           BACKGROUND, LLM, default=False, where="scheduler/handlers.py autonomous_research_handler"),
 
     # --- Thymos / Grimoire / goals ---
     _lever("thymos", "Thymos tick loop and state-bus event forwarding (drives Grimoire)",

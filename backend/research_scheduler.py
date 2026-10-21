@@ -489,7 +489,19 @@ class ResearchScheduler:
                 # New dispatch pattern: use runners dict
                 if runners:
                     runner = runners.get(schedule.session_type.value)
-                    if runner:
+                    if runner and schedule.session_type == SessionType.RESEARCH:
+                        # Research sessions go through the one research queue (#60).
+                        from research_pipeline import get_research_pipeline
+                        session = await get_research_pipeline().start_session(
+                            runner,
+                            duration_minutes=schedule.duration_minutes,
+                            focus=schedule.focus_description,
+                            focus_item_id=schedule.focus_item_id,
+                            mode=schedule.mode,
+                            trigger="scheduled",
+                        )
+                        session_id = getattr(session, 'session_id', None)
+                    elif runner:
                         session = await runner.start_session(
                             duration_minutes=schedule.duration_minutes,
                             focus=schedule.focus_description,

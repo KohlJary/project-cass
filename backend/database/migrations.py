@@ -665,6 +665,11 @@ def _apply_schema_updates(conn, from_version: int):
             "ON heartbeat_runs(work_name, started_at)"
         )
 
+    # v63 -> v64: research_tasks.params_json, the step parameters of a queued
+    # research session (one research queue, #60). Existing rows stay NULL.
+    if from_version < 64:
+        _ensure_research_task_params(conn)
+
 
 def ensure_users_legacy_credential_columns(conn):
     """Idempotently add users.legacy_email / legacy_password_hash."""
@@ -673,6 +678,14 @@ def ensure_users_legacy_credential_columns(conn):
         conn.execute("ALTER TABLE users ADD COLUMN legacy_email TEXT")
     if 'legacy_password_hash' not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN legacy_password_hash TEXT")
+
+
+def _ensure_research_task_params(conn):
+    """research_tasks.params_json (v64, #60). Idempotent."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(research_tasks)").fetchall()}
+    if "params_json" not in columns:
+        conn.execute("ALTER TABLE research_tasks ADD COLUMN params_json TEXT")
+        print("Adding research_tasks.params_json (v64)")
 
 
 def init_database_with_migrations(daemon_name: str = "cass") -> str:

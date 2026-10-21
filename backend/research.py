@@ -163,25 +163,20 @@ class ResearchManager:
         exclude_domains: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Search the web using Tavily API.
+        Search the web through the research search interface (#60):
+        Tavily when TAVILY_API_KEY is set, then any other configured backend
+        (research_pipeline/search.py).
 
         Args:
             query: Search query
             num_results: Number of results (max 20)
-            search_depth: "basic" or "advanced"
-            include_domains: Only search these domains
-            exclude_domains: Exclude these domains
+            search_depth: "basic" or "advanced" (Tavily)
+            include_domains: Only search these domains (Tavily)
+            exclude_domains: Exclude these domains (Tavily)
 
         Returns:
-            Dict with 'results' list and metadata
+            Dict with 'results' list and metadata ('backend' names who answered)
         """
-        if not self.tavily_api_key:
-            return {
-                "success": False,
-                "error": "TAVILY_API_KEY not configured",
-                "results": []
-            }
-
         if not self.search_limiter.can_call():
             wait = self.search_limiter.wait_time()
             return {
@@ -190,61 +185,15 @@ class ResearchManager:
                 "results": []
             }
 
-        try:
-            client = await self._get_client()
-
-            payload = {
-                "api_key": self.tavily_api_key,
-                "query": query,
-                "max_results": min(num_results, 20),
-                "search_depth": search_depth,
-                "include_answer": True,
-            }
-
-            if include_domains:
-                payload["include_domains"] = include_domains
-            if exclude_domains:
-                payload["exclude_domains"] = exclude_domains
-
-            response = await client.post(
-                "https://api.tavily.com/search",
-                json=payload
-            )
-
-            self.search_limiter.record_call()
-
-            if response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Search API error: {response.status_code}",
-                    "results": []
-                }
-
-            data = response.json()
-
-            results = []
-            for r in data.get("results", []):
-                results.append(SearchResult(
-                    title=r.get("title", ""),
-                    url=r.get("url", ""),
-                    snippet=r.get("content", ""),
-                    score=r.get("score")
-                ))
-
-            return {
-                "success": True,
-                "query": query,
-                "answer": data.get("answer"),  # Tavily's AI-generated answer
-                "results": [asdict(r) for r in results],
-                "result_count": len(results)
-            }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "results": []
-            }
+        from research_pipeline.search import web_search as _web_search
+        self.search_limiter.record_call()
+        return await _web_search(
+            query,
+            num_results=min(num_results, 20),
+            search_depth=search_depth,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+        )
 
     # === URL Fetching ===
 

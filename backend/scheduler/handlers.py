@@ -7,6 +7,8 @@ loop-based tasks in background_tasks.py but are atomic/idempotent.
 """
 
 import logging
+
+from features import is_enabled
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
@@ -239,6 +241,8 @@ async def autonomous_research_handler(
     scheduler=None,
     mode: Optional[str] = None,
     max_tasks: int = 5,
+    session_requests=None,
+    session_runner_getter=None,
 ) -> HandlerResult:
     """
     Run autonomous research based on mode.
@@ -266,6 +270,20 @@ async def autonomous_research_handler(
             message="Daemon is dormant, skipping research",
             data={"skipped": True, "reason": "dormant"}
         )
+
+    # Approved research-session requests (research_scheduler.py) start from
+    # the one research queue (#60). Off unless the lever is on; until #60
+    # nothing ran them at all. They are admin-approved, so the wiki mode
+    # (supervised etc.) does not gate them.
+    if session_requests is not None and is_enabled("research_session_requests"):
+        try:
+            from research_pipeline import get_research_pipeline
+            runner = session_runner_getter() if session_runner_getter else None
+            started = await get_research_pipeline(scheduler).run_due_session_requests(session_requests, runner)
+            if started:
+                logger.info(f"Started scheduled research sessions: {started}")
+        except Exception as e:
+            logger.error(f"Scheduled research sessions failed: {e}")
 
     if mode is None:
         # Read the live mode so an admin mode switch applies without a restart.

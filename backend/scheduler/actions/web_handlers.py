@@ -21,8 +21,6 @@ async def web_search_action(context: Dict[str, Any]) -> ActionResult:
     - query: str - Search query
     - limit: int (optional) - Number of results (default 5)
     """
-    import httpx
-
     query = context.get("query")
     limit = context.get("limit", 5)
 
@@ -32,61 +30,30 @@ async def web_search_action(context: Dict[str, Any]) -> ActionResult:
             message="query parameter required"
         )
 
-    # Try Brave Search API first, fall back to others
-    brave_api_key = os.getenv("BRAVE_SEARCH_API_KEY")
-    serper_api_key = os.getenv("SERPER_API_KEY")
-
+    # The research search interface (#60): Tavily first when configured, then
+    # Brave / Serper if their keys are set, then DuckDuckGo.
     try:
-        async with httpx.AsyncClient() as client:
-            if brave_api_key:
-                response = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    headers={"X-Subscription-Token": brave_api_key},
-                    params={"q": query, "count": limit},
-                    timeout=30
-                )
-                data = response.json()
-                results = [
-                    {
-                        "title": r.get("title"),
-                        "url": r.get("url"),
-                        "description": r.get("description")
-                    }
-                    for r in data.get("web", {}).get("results", [])[:limit]
-                ]
-
-            elif serper_api_key:
-                response = await client.post(
-                    "https://google.serper.dev/search",
-                    headers={"X-API-KEY": serper_api_key},
-                    json={"q": query, "num": limit},
-                    timeout=30
-                )
-                data = response.json()
-                results = [
-                    {
-                        "title": r.get("title"),
-                        "url": r.get("link"),
-                        "description": r.get("snippet")
-                    }
-                    for r in data.get("organic", [])[:limit]
-                ]
-
-            else:
-                return ActionResult(
-                    success=False,
-                    message="No search API configured (BRAVE_SEARCH_API_KEY or SERPER_API_KEY)"
-                )
-
+        from research_pipeline.search import search
+        resp = await search(query, num_results=limit)
+        if not resp.success:
             return ActionResult(
-                success=True,
-                message=f"Found {len(results)} results for '{query}'",
-                data={
-                    "query": query,
-                    "results": results,
-                    "count": len(results)
-                }
+                success=False,
+                message=f"Web search failed: {resp.error}"
             )
+        results = [
+            {"title": h.title, "url": h.url, "description": h.snippet}
+            for h in resp.results[:limit]
+        ]
+        return ActionResult(
+            success=True,
+            message=f"Found {len(results)} results for '{query}'",
+            data={
+                "query": query,
+                "results": results,
+                "count": len(results),
+                "backend": resp.backend,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Web search failed: {e}")

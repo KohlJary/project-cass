@@ -1,7 +1,7 @@
 """
 Admin API - Session Management Routes
 All session types: research, synthesis, meta-reflection, consolidation,
-growth edge, knowledge building, curiosity, world state, creative, writing,
+growth edge, knowledge building, world state, creative, writing,
 and reflection.
 
 Extracted from admin_api.py for better organization.
@@ -25,7 +25,6 @@ meta_reflection_runner_getter = None
 consolidation_runner_getter = None
 growth_edge_runner_getter = None
 knowledge_building_runner_getter = None
-curiosity_runner_getter = None
 world_state_runner_getter = None
 creative_runner_getter = None
 writing_runner_getter = None
@@ -67,9 +66,6 @@ def init_knowledge_building_runner(getter):
     knowledge_building_runner_getter = getter
 
 
-def init_curiosity_runner(getter):
-    global curiosity_runner_getter
-    curiosity_runner_getter = getter
 
 
 def init_world_state_runner(getter):
@@ -156,10 +152,6 @@ class StartGrowthEdgeRequest(BaseModel):
 class StartKnowledgeBuildingRequest(BaseModel):
     duration_minutes: int = 30
     focus_item: Optional[str] = None
-
-
-class StartCuriosityRequest(BaseModel):
-    duration_minutes: int = 20
 
 
 class StartWorldStateRequest(BaseModel):
@@ -1017,115 +1009,6 @@ async def list_reading_queue(
     items.sort(key=lambda i: (priority_order.get(i.get("priority", "medium"), 1), i.get("added_at", "")))
 
     return {"items": items, "count": len(items)}
-
-
-# ============== Curiosity Session Endpoints ==============
-
-@router.get("/curiosity/status")
-async def get_curiosity_status(user: Dict = Depends(require_auth)):
-    """Get the current curiosity session status"""
-    if not curiosity_runner_getter:
-        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
-
-    runner = curiosity_runner_getter()
-    if not runner:
-        raise HTTPException(status_code=503, detail="Curiosity runner not available")
-
-    state = runner._current_state
-    if state and runner.is_running:
-        elapsed = (datetime.now() - state.started_at).total_seconds()
-        return {
-            "running": True,
-            "session_id": state.session_id,
-            "started_at": state.started_at.isoformat(),
-            "duration_minutes": state.duration_minutes,
-            "elapsed_seconds": int(elapsed),
-            "remaining_seconds": max(0, int(state.duration_minutes * 60 - elapsed)),
-            "iteration_count": state.iteration_count,
-            "tool_calls": len(state.tool_calls),
-        }
-    else:
-        return {"running": False}
-
-
-@router.post("/curiosity/start")
-async def start_curiosity_session(request: StartCuriosityRequest):
-    """Start a new curiosity session"""
-    if not curiosity_runner_getter:
-        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
-
-    runner = curiosity_runner_getter()
-    if not runner:
-        raise HTTPException(status_code=503, detail="Curiosity runner not available")
-
-    if runner.is_running:
-        raise HTTPException(status_code=409, detail="A curiosity session is already running")
-
-    try:
-        session = await runner.start_session(duration_minutes=request.duration_minutes)
-
-        return {
-            "success": True,
-            "session_id": session.id,
-            "duration_minutes": request.duration_minutes,
-            "message": "Curiosity session started - no focus, pure exploration"
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
-
-
-@router.post("/curiosity/stop")
-async def stop_curiosity_session():
-    """Stop the current curiosity session"""
-    if not curiosity_runner_getter:
-        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
-
-    runner = curiosity_runner_getter()
-    if not runner:
-        raise HTTPException(status_code=503, detail="Curiosity runner not available")
-
-    if not runner.is_running:
-        return {"success": False, "message": "No curiosity session running"}
-
-    runner.stop()
-    return {"success": True, "message": "Curiosity session stop requested"}
-
-
-@router.get("/curiosity/sessions")
-async def list_curiosity_sessions(limit: int = Query(default=20, le=100), user: Dict = Depends(require_auth)):
-    """List past curiosity sessions"""
-    if not curiosity_runner_getter:
-        raise HTTPException(status_code=503, detail="Curiosity runner not initialized")
-
-    runner = curiosity_runner_getter()
-    if not runner:
-        return {"sessions": [], "count": 0}
-
-    sessions = list(runner._sessions.values())
-    sessions.sort(key=lambda s: s.started_at, reverse=True)
-
-    return {
-        "sessions": [
-            {
-                "id": s.id,
-                "started_at": s.started_at.isoformat(),
-                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
-                "duration_minutes": s.duration_minutes,
-                "directions_count": len(s.directions_chosen),
-                "discoveries_count": len(s.discoveries),
-                "questions_count": len(s.questions_captured),
-                "threads_followed": len(s.threads_followed),
-                "territories_explored": s.territories_explored,
-                "best_discoveries": s.best_discoveries[:3],
-                "satisfaction": s.satisfaction,
-                "energy": s.energy,
-                "summary": s.summary,
-            }
-            for s in sessions[:limit]
-        ],
-        "count": len(sessions)
-    }
 
 
 # ============== World State Session Endpoints ==============

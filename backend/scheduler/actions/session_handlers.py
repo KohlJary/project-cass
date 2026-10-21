@@ -168,10 +168,22 @@ async def world_state_action(context: Dict[str, Any]) -> ActionResult:
 
 
 async def research_action(context: Dict[str, Any]) -> ActionResult:
-    """Research session - systematic exploration and knowledge building."""
+    """Research session - systematic exploration and knowledge building.
+
+    Runs through the one research queue (#60): queued as a session task on the
+    generic engine and run now, with the same GenericSessionRunner call.
+    """
     mode = context.get("mode", "explore")
     additions = f"Research mode: {mode}"
-    return await _run_generic_session(context, "research", additions)
+    from research_pipeline import get_research_pipeline
+    return await get_research_pipeline().run_session(
+        lambda: _run_generic_session(context, "research", additions),
+        runner=context.get("managers", {}).get("session_runner"),
+        focus=context.get("focus"),
+        duration_minutes=context.get("duration_minutes", 30),
+        mode=mode,
+        trigger="action",
+    )
 
 
 async def knowledge_building_action(context: Dict[str, Any]) -> ActionResult:
