@@ -10,6 +10,10 @@ from uuid import uuid4
 from .core import MemoryCore
 
 
+class JournalLockedError(Exception):
+    """Raised when deleting a daily journal whose locked flag is set."""
+
+
 class JournalManager:
     """
     Manages journal generation and storage.
@@ -531,10 +535,16 @@ Observations (one per line, starting with "{display_name}"):"""
 
         Only the daily journal: a research or spell journal on the same date is
         never touched. Returns the deleted Chroma id, or None.
+
+        Raises JournalLockedError if the entry is locked (set_journal_locked);
+        unlock it first. Regenerating is delete-then-generate, so this also
+        keeps a locked journal from being regenerated.
         """
         journal = self.get_daily_journal_entry(date)
         if not journal:
             return None
+        if (journal.get("metadata") or {}).get("locked"):
+            raise JournalLockedError(f"Journal for {date} is locked")
         from database import get_db
         with get_db() as conn:
             conn.execute("DELETE FROM journals WHERE chroma_id = ?", (journal["id"],))
