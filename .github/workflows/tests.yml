@@ -49,4 +49,22 @@ jobs:
       - name: Check the frontend endpoint fixture is current
         run: python scripts/extract_frontend_endpoints.py --check
       - name: Run full suite (fast + security + smoke batteries)
-        run: pytest -m "not slow and not tts"
+        run: pytest -m "not slow and not tts" --junitxml=test-results/junit.xml
+      # Benchmark Tier 1 (#65): build docs/tier1-status.md from this run's
+      # results and the lever registry, show it in the job summary and upload
+      # it. Not a staleness check: the counts depend on the environment (which
+      # deps are installed, what skips), so a committed copy would need a CI
+      # commit to stay current. The map itself is checked by the fast suite
+      # (tests/test_tier1_map.py); this step also fails if it's out of step.
+      - name: Generate Tier 1 status page
+        if: ${{ !cancelled() }}
+        run: |
+          python scripts/tier1_status.py --junit test-results/junit.xml --output "$RUNNER_TEMP/tier1-status.md"
+          cat "$RUNNER_TEMP/tier1-status.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Tier 1 status page
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tier1-status
+          path: ${{ runner.temp }}/tier1-status.md
+          if-no-files-found: warn

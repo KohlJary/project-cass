@@ -55,6 +55,16 @@ a network guard enforces this: any outbound connection or DNS lookup raises.
 - `test_lever_wiring.py`: the `/admin/features` endpoint and lever checks
   that need the runtime deps.
 
+### Tier 1 status page
+
+`docs/tier1-status.md` (benchmark Tier 1, #65) is generated, not written:
+`python scripts/tier1_status.py` runs the smoke batteries and joins the
+results with the lever registry and `tests/smoke/tier1_map.py`, which says
+which smoke tests cover which lever. A new lever or a new smoke test must be
+added to that map; `tests/test_tier1_map.py` fails until it is. CI's `full`
+job regenerates the page from its own run and uploads it as the
+`tier1-status` artifact.
+
 ## Defaults set by `tests/conftest.py`
 
 - `CASS_PROFILE=test`: every feature lever is off (see `features.py`).
