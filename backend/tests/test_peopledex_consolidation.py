@@ -177,6 +177,43 @@ def test_general_observations_reach_the_prompt(manager):
     assert "Collects fountain pens" in context
 
 
+def test_relational_context_is_scoped_to_the_daemon(manager):
+    """Another daemon's knowledge about the same person stays out of this
+    daemon's prompt (all relational sections, not just observations)."""
+    from database import get_daemon_id, get_or_create_daemon
+    from peopledex import PeopleDexManager
+    user_id = _user()
+    cass, other = get_daemon_id(), get_or_create_daemon("solenne", name="Solenne")
+    cass_pdx, other_pdx = PeopleDexManager(cass), PeopleDexManager(other)
+
+    cass_pdx.add_observation_for_user(user_id, "general", "Cass noticed: likes rain")
+    other_pdx.add_observation_for_user(user_id, "general", "Solenne noticed: likes snow")
+    other_pdx.add_observation_for_user(user_id, "identity_statement", "Solenne thinks: a painter")
+    other_pdx.add_moment_for_user(user_id, "Solenne's moment", significance="high")
+    other_pdx.add_relationship_pattern_for_user(user_id, "pattern", "Solenne's pattern")
+    other_pdx.add_mutual_shaping_for_user(user_id, "they_shape_me", "Solenne's shaping")
+
+    cass_ctx = cass_pdx.get_user_relational_context(user_id)
+    other_ctx = other_pdx.get_user_relational_context(user_id)
+    assert "Cass noticed: likes rain" in cass_ctx
+    assert "Solenne" not in cass_ctx
+    assert "Solenne noticed: likes snow" in other_ctx and "Solenne's moment" in other_ctx
+    assert "Cass noticed" not in other_ctx
+    # No daemon to scope to: nothing relational is shown.
+    assert PeopleDexManager().get_user_relational_context(user_id) == ""
+
+
+def test_relational_context_clips_long_lines(manager):
+    from database import get_daemon_id
+    from peopledex import MAX_CONTEXT_LINE_CHARS, PeopleDexManager
+    user_id = _user()
+    manager.add_observation(user_id, "x" * 5000, category="interest")
+    context = PeopleDexManager(get_daemon_id()).get_user_relational_context(user_id)
+    longest = max(len(line) for line in context.splitlines())
+    assert longest <= MAX_CONTEXT_LINE_CHARS + 2  # "- " prefix
+    assert "x" * 100 in context and "…" in context
+
+
 def test_resolve_user_by_display_name(manager):
     """list_users() keys ids as user_id; name lookup read "id" and always missed."""
     pytest.importorskip("networkx")  # the handlers package needs runtime deps CI's fast job lacks
