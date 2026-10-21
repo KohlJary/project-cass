@@ -276,34 +276,15 @@ BaseSessionRunner
 ---
 
 ### Autonomous Curiosity
-**Status:** Production
-**File:** `curiosity_session_runner.py`
-**Purpose:** Zero-constraint self-directed exploration
+**Status:** Runs as a generic session type
+**Purpose:** Self-directed exploration with no focus provided
 
-**Tools:**
-| Tool | Description |
-|------|-------------|
-| `choose_exploration_direction` | Decide what to explore based on genuine interest |
-| `web_search` | Search the web for information |
-| `fetch_url` | Fetch and read web content |
-| `record_discovery` | Record something interesting found |
-| `follow_thread` | Follow a new thread of curiosity |
-| `note_interest_pattern` | Meta-observe curiosity patterns |
-| `flag_for_research_agenda` | Mark topic for deeper investigation |
-| `capture_question` | Record questions that arise |
-| `conclude_curiosity` | End session with reflections |
-
-**Exploration Types:** deep_dive, surface_scan, connection_seeking, question_following, random_walk
-
-**Key difference:** No focus provided - Cass chooses entirely based on genuine interest.
-
-**Endpoints:**
-- `GET /admin/curiosity/status`
-- `POST /admin/curiosity/start`
-- `POST /admin/curiosity/stop`
-- `GET /admin/curiosity/sessions`
-
-**Data:** Stored in `data/curiosity/`
+The dedicated curiosity runner (`curiosity_session_runner.py`, `CuriosityRunner`) and
+its `/admin/curiosity/*` routes were moved to the `attic/stabilization` branch in the
+research pipeline consolidation (#60): no frontend called them. Curiosity sessions
+now run through the `session.curiosity` scheduler action
+(`backend/scheduler/actions/session_handlers.py`), which uses `GenericSessionRunner`
+with the `curiosity` session type.
 
 ---
 
@@ -455,7 +436,6 @@ Supported activity types for rhythm phases:
 - `growth_edge` - Triggers GrowthEdgeRunner
 - `writing` - Triggers WritingRunner
 - `knowledge_building` - Triggers KnowledgeBuildingRunner
-- `curiosity` - Triggers CuriosityRunner
 - `world_state` - Triggers WorldStateRunner
 - `creative` - Triggers CreativeOutputRunner
 - `any` - Falls back to research

@@ -73,7 +73,7 @@ All 5 phases implemented:
 
 **Phase 2: Entity System** - 22 Keeper entities
 - Each backend subsystem has a Keeper with HOW/WHY/WATCH_OUT topics
-- `init_palace_keepers.py` creates MemoryKeeper, SchedulerKeeper, etc.
+- `init_palace_keepers.py` created MemoryKeeper, SchedulerKeeper, etc. (repo-root script, since removed: see below)
 - Queryable via `ask EntityName about topic` command
 
 **Phase 3: Anchor Sync** - Drift detection
@@ -97,7 +97,7 @@ All 5 phases implemented:
 - Regions are gitignored (regenerable), entities tracked
 
 **To use**:
-- Navigate: `python explore_palace.py` or labyrinth subagent
+- Navigate: `daedalus palace ...` or the labyrinth subagent (the repo-root `explore_palace.py`, `init_mind_palace.py`, `init_palace_keepers.py` and `test_palace_navigation.py` were removed in #50; they imported a `backend.mind_palace` that no longer exists. Preserved on `attic/stabilization`.)
 - Check drift: `python scripts/check_palace_drift.py`
 - Scan annotations: `python scripts/scan_palace_annotations.py`
 - Propose updates: `python scripts/propose_palace_updates.py`

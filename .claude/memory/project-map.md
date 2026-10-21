@@ -105,7 +105,6 @@ Autonomous research/reflection sessions:
 |--------|---------|
 | `solo_reflection_runner.py` | Private contemplation |
 | `research_session_runner.py` | Research exploration |
-| `curiosity_session_runner.py` | Curiosity-driven inquiry |
 | `consolidation_session_runner.py` | Memory consolidation |
 | `growth_edge_runner.py` | Growth edge exploration |
 | `meta_reflection_runner.py` | Meta-cognitive reflection |
