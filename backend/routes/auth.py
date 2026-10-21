@@ -11,7 +11,8 @@ from auth import (
     LoginRequest,
     RefreshRequest,
     Token,
-    get_current_user
+    get_current_user,
+    roles_for_user,
 )
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -102,12 +103,11 @@ async def get_current_user_info(user_id: str = Depends(get_current_user)):
     if not profile:
         return {"error": "User not found"}
 
-    auth = _auth_service.get_user_auth(user_id)
-
     return {
         "user_id": user_id,
         "display_name": profile.display_name,
-        "email": auth.email if auth else None,
+        "email": _auth_service.get_user_email(user_id),
+        "roles": roles_for_user(user_id),
         "relationship": profile.relationship,
         "created_at": profile.created_at
     }

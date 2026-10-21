@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 61  # v60 journals (#56); v61 token_usage_records.call_site (#64)
+SCHEMA_VERSION = 62  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT,
     registration_reason TEXT,
     discord_handle TEXT,  -- Discord username for linking Discord perception
+    -- From the old per-user auth.json store (#61), kept only where it disagreed
+    -- with the row: scripts/migrate_auth_json.py. Login accepts either.
+    legacy_email TEXT,
+    legacy_password_hash TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     -- Quiet hours (quiet_hours.py). Used to be added at runtime by QuietHoursManager.

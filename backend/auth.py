@@ -3,9 +3,8 @@ Cass Vessel - Authentication Module
 JWT-based authentication with password hashing.
 """
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from jose import JWTError, jwt
 import bcrypt
 from pydantic import BaseModel, EmailStr
 from fastapi import Depends, HTTPException, status, Request
@@ -30,6 +29,7 @@ class TokenData(BaseModel):
     """Data encoded in JWT"""
     user_id: str
     token_type: str = "access"  # "access" or "refresh"
+    roles: Optional[list] = None  # None for legacy tokens without a role claim
 
 
 class Token(BaseModel):
@@ -82,49 +82,182 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 
-# === JWT Utilities ===
+# === Tokens ===
+#
+# One token format (issue #61). Every token is an HS256 JWT signed with
+# SECRET_KEY and carries:
+#     sub, user_id  - the SQLite users.id (both names, so code that read either
+#                     of the two old formats keeps working)
+#     type          - "access" or "refresh"
+#     roles         - ["user"] or ["user", "admin"], from users.is_admin at issue
+#     display_name  - optional, informational
+#     ver           - TOKEN_VERSION
+#     iat, exp
+# Tokens are verified in one place: verify_token_claims() / verify_access_token().
+#
+# Transition: two older formats are still accepted until they expire.
+#   - "user-v1": the old mobile/TUI token (same secret; sub/type/exp, no roles).
+#   - "admin-v1": the old admin-dashboard token (signed with the admin secret,
+#     DATA_DIR/.secrets/admin_jwt_secret or ADMIN_JWT_SECRET; user_id,
+#     display_name, is_admin, exp, iat; lived 24 hours).
+# Nothing issues those formats any more. Legacy tokens carry no usable role
+# claim, so for them SQLite alone decides admin access (as before).
 
-def create_access_token(user_id: str) -> str:
-    """Create an access token for a user"""
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode = {
+import jwt as pyjwt
+from dataclasses import dataclass, field
+
+TOKEN_VERSION = 2
+ROLE_USER = "user"
+ROLE_ADMIN = "admin"
+# The admin dashboard has no refresh flow, so its logins get the lifetime its
+# old tokens had (24h) instead of the mobile app's 30 minutes.
+DASHBOARD_ACCESS_EXPIRE_HOURS = int(os.getenv("JWT_DASHBOARD_EXPIRE_HOURS", "24"))
+_LEEWAY_SECONDS = 30
+
+_legacy_admin_secret: Optional[str] = None
+
+
+def _admin_legacy_secret() -> str:
+    """Secret the old admin-dashboard tokens were signed with (verify only)."""
+    global _legacy_admin_secret
+    if _legacy_admin_secret is None:
+        _legacy_admin_secret = get_or_create_secret("admin_jwt_secret", "ADMIN_JWT_SECRET")
+    return _legacy_admin_secret
+
+
+def roles_for_user(user_id: str) -> list:
+    """Roles a token issued now should carry, from users.is_admin."""
+    try:
+        from database import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row and row[0]:
+            return [ROLE_USER, ROLE_ADMIN]
+    except Exception:
+        pass
+    return [ROLE_USER]
+
+
+def _issue(user_id: str, token_type: str, lifetime: timedelta,
+           roles: Optional[list] = None, display_name: Optional[str] = None) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
         "sub": user_id,
-        "type": "access",
-        "exp": expire
+        "user_id": user_id,
+        "type": token_type,
+        "roles": list(roles) if roles is not None else roles_for_user(user_id),
+        "ver": TOKEN_VERSION,
+        "iat": now,
+        "exp": now + lifetime,
     }
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    if display_name:
+        payload["display_name"] = display_name
+    return pyjwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_access_token(user_id: str, roles: Optional[list] = None,
+                        display_name: Optional[str] = None,
+                        expires_delta: Optional[timedelta] = None) -> str:
+    """Create an access token. Roles default to what SQLite says now."""
+    lifetime = expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    return _issue(user_id, "access", lifetime, roles, display_name)
+
+
+def create_refresh_token(user_id: str, roles: Optional[list] = None) -> str:
     """Create a refresh token for a user"""
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = {
-        "sub": user_id,
-        "type": "refresh",
-        "exp": expire
-    }
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return _issue(user_id, "refresh", timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS), roles)
 
 
-def create_tokens(user_id: str) -> Token:
+def create_tokens(user_id: str, roles: Optional[list] = None) -> Token:
     """Create both access and refresh tokens"""
+    if roles is None:
+        roles = roles_for_user(user_id)
     return Token(
-        access_token=create_access_token(user_id),
-        refresh_token=create_refresh_token(user_id)
+        access_token=create_access_token(user_id, roles=roles),
+        refresh_token=create_refresh_token(user_id, roles=roles)
     )
 
 
-def decode_token(token: str) -> Optional[TokenData]:
-    """Decode and validate a JWT token"""
+def create_dashboard_token(user_id: str, display_name: str,
+                           roles: Optional[list] = None) -> tuple:
+    """Access token for the admin dashboard login: (token, expires_at)."""
+    lifetime = timedelta(hours=DASHBOARD_ACCESS_EXPIRE_HOURS)
+    expires = datetime.now(timezone.utc) + lifetime
+    token = create_access_token(user_id, roles=roles, display_name=display_name,
+                                expires_delta=lifetime)
+    return token, expires.replace(tzinfo=None)
+
+
+@dataclass
+class Principal:
+    """Who a verified token says the caller is."""
+    user_id: str
+    token_type: str = "access"
+    # None for legacy tokens: they carry no role claim, so SQLite decides.
+    roles: Optional[tuple] = None
+    format: str = "v2"          # "v2", "user-v1" or "admin-v1"
+    claims: dict = field(default_factory=dict)
+
+    @property
+    def may_be_admin(self) -> bool:
+        """The token does not rule out admin access (SQLite must still agree)."""
+        return self.roles is None or ROLE_ADMIN in self.roles
+
+
+def _decode(token: str, secret: str) -> Optional[dict]:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        token_type: str = payload.get("type", "access")
-        if user_id is None:
-            return None
-        return TokenData(user_id=user_id, token_type=token_type)
-    except JWTError:
+        return pyjwt.decode(
+            token, secret, algorithms=[ALGORITHM],
+            options={"require": ["exp"]}, leeway=_LEEWAY_SECONDS,
+        )
+    except pyjwt.PyJWTError:
         return None
+    except Exception:
+        return None
+
+
+def verify_token_claims(token: str) -> Optional[Principal]:
+    """Verify a token of any accepted format. The one place tokens are checked."""
+    if not token or not isinstance(token, str):
+        return None
+    payload = _decode(token, SECRET_KEY)
+    if payload is not None:
+        user_id = payload.get("sub") or payload.get("user_id")
+        if not user_id or not isinstance(user_id, str):
+            return None
+        token_type = payload.get("type", "access")
+        if "ver" in payload or "roles" in payload:
+            roles = payload.get("roles")
+            if not isinstance(roles, list):
+                return None
+            return Principal(user_id, token_type, tuple(str(r) for r in roles), "v2", payload)
+        return Principal(user_id, token_type, None, "user-v1", payload)
+
+    # Legacy admin-dashboard token (accepted until it expires; 24h lifetime).
+    payload = _decode(token, _admin_legacy_secret())
+    if payload is not None and isinstance(payload.get("user_id"), str) and payload["user_id"]:
+        return Principal(payload["user_id"], "access", None, "admin-v1", payload)
+    return None
+
+
+def verify_access_token(token: str) -> Optional[Principal]:
+    """A verified ACCESS token (refresh tokens are refused)."""
+    principal = verify_token_claims(token)
+    if principal is None or principal.token_type != "access":
+        return None
+    return principal
+
+
+def decode_token(token: str) -> Optional[TokenData]:
+    """Decode and validate a JWT token (any accepted format)."""
+    principal = verify_token_claims(token)
+    if principal is None:
+        return None
+    return TokenData(
+        user_id=principal.user_id,
+        token_type=principal.token_type,
+        roles=list(principal.roles) if principal.roles is not None else None,
+    )
 
 
 # === Request Helpers ===
@@ -176,20 +309,13 @@ def localhost_bypass_user(request) -> Optional[str]:
 
 
 def user_id_from_any_token(token: str) -> Optional[str]:
-    """Resolve a user id from either token family.
+    """User id from a valid access token of any accepted format, else None.
 
-    There are two auth systems: this module (mobile/TUI, claim "sub") and the
-    admin dashboard (routes/admin/auth.py, claim "user_id"). Both identify the
-    same SQLite users, so either token proves who the caller is.
+    Kept for callers written when there were two token systems; it now goes
+    through verify_access_token like everything else.
     """
-    token_data = decode_token(token)
-    if token_data is not None:
-        return token_data.user_id if token_data.token_type == "access" else None
-    from routes.admin.auth import verify_token as verify_admin_token
-    payload = verify_admin_token(token)
-    if payload and payload.get("user_id"):
-        return payload["user_id"]
-    return None
+    principal = verify_access_token(token)
+    return principal.user_id if principal else None
 
 
 def get_token_from_request(
@@ -251,50 +377,175 @@ async def get_current_user(
     )
 
 
+# === Credential store ===
+#
+# One store: the SQLite users table (email, password_hash, status, is_admin).
+# The mobile app's per-user DATA_DIR/users/<id>/auth.json files were the second
+# store; scripts/migrate_auth_json.py copies them into SQLite. Until Kohl has
+# run it (and decided to drop the fallback), login still READS auth.json when
+# SQLite has no match. Nothing writes auth.json any more.
+#
+# Where the two stores disagreed, the migration keeps SQLite's value and puts
+# the auth.json one in users.legacy_email / users.legacy_password_hash, so
+# every password and email that worked before still works.
+
+def check_password(plain_password: str, password_hash: Optional[str]) -> bool:
+    """Check a password against either hash format the stores used."""
+    if not password_hash or plain_password is None:
+        return False
+    try:
+        if password_hash.startswith("$2"):
+            return verify_password(plain_password, password_hash)
+        from users import UserManager
+        return UserManager.verify_password(plain_password, password_hash)
+    except Exception:
+        return False
+
+
+def _users_query(sql_with_legacy: str, sql_without_legacy: str, params: tuple) -> list:
+    """Run a users query; if the v62 legacy_* columns are missing, run the plain one.
+
+    A database that has not been migrated yet must not lock anyone out.
+    """
+    from database import get_db
+    try:
+        with get_db() as conn:
+            try:
+                return [dict(r) for r in conn.execute(sql_with_legacy, params).fetchall()]
+            except Exception as e:
+                if "legacy_" not in str(e):
+                    raise
+                plain_params = params[:sql_without_legacy.count("?")]
+                return [dict(r) for r in conn.execute(sql_without_legacy, plain_params).fetchall()]
+    except Exception:
+        return []
+
+
+def _candidate_rows(identifier: str) -> list:
+    """users rows an identifier (email or display name) could mean."""
+    ident = (identifier or "").strip()
+    if not ident:
+        return []
+    cols = "id, display_name, password_hash, status, rejection_reason, is_admin"
+    return _users_query(
+        f"SELECT {cols}, legacy_password_hash FROM users "
+        "WHERE LOWER(display_name) = LOWER(?) OR LOWER(email) = LOWER(?) "
+        "OR LOWER(legacy_email) = LOWER(?) ORDER BY created_at",
+        f"SELECT {cols} FROM users "
+        "WHERE LOWER(display_name) = LOWER(?) OR LOWER(email) = LOWER(?) ORDER BY created_at",
+        (ident, ident, ident),
+    )
+
+
+def find_user_id_by_email(email: str) -> Optional[str]:
+    """users.id whose email (or migrated legacy email) matches."""
+    rows = _users_query(
+        "SELECT id FROM users WHERE LOWER(email) = LOWER(?) "
+        "OR LOWER(legacy_email) = LOWER(?) ORDER BY created_at LIMIT 1",
+        "SELECT id FROM users WHERE LOWER(email) = LOWER(?) ORDER BY created_at LIMIT 1",
+        (email, email),
+    )
+    return rows[0]["id"] if rows else None
+
+
+def require_approved_status(account_status: Optional[str], rejection_reason: Optional[str] = None):
+    """Refuse pending/rejected accounts (same messages on both login paths)."""
+    account_status = account_status or "approved"
+    if account_status == "pending":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account pending approval. Please wait for an administrator to approve your registration."
+        )
+    if account_status == "rejected":
+        reason = rejection_reason or "No reason provided"
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account rejected: {reason}"
+        )
+
+
+def authenticate(identifier: str, password: str, user_manager=None) -> str:
+    """The one credential check behind both login endpoints.
+
+    `identifier` is an email or a display name. Returns the user id, or raises
+    401 (bad credentials) / 403 (pending or rejected). Falls back to reading
+    the legacy auth.json store when SQLite has no matching credential.
+    """
+    for row in _candidate_rows(identifier):
+        if check_password(password, row.get("password_hash")) or \
+                check_password(password, row.get("legacy_password_hash")):
+            require_approved_status(row.get("status"), row.get("rejection_reason"))
+            return row["id"]
+
+    if user_manager is not None and "@" in (identifier or ""):
+        user_id = _legacy_auth_json_login(user_manager, identifier, password)
+        if user_id:
+            profile = user_manager.load_profile(user_id)
+            require_approved_status(getattr(profile, "status", None),
+                                    getattr(profile, "rejection_reason", None))
+            return user_id
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials"
+    )
+
+
+def _legacy_auth_files(user_manager):
+    """(user_id, path) for every auth.json, without creating directories."""
+    storage = getattr(user_manager, "storage_dir", None)
+    try:
+        from pathlib import Path
+        storage = Path(storage)
+        if not storage.is_dir():
+            return []
+        return [(p.parent.name, p) for p in sorted(storage.glob("*/auth.json"))]
+    except Exception:
+        return []
+
+
+def _load_legacy_auth(path) -> Optional[UserAuth]:
+    import json
+    try:
+        with open(path, "r") as f:
+            return UserAuth(**json.load(f))
+    except Exception:
+        return None
+
+
+def _legacy_auth_json_login(user_manager, email: str, password: str) -> Optional[str]:
+    """Read-only fallback to the old auth.json store (transition only)."""
+    for user_id, path in _legacy_auth_files(user_manager):
+        auth = _load_legacy_auth(path)
+        if auth and auth.email.lower() == email.lower() and check_password(password, auth.password_hash):
+            import logging
+            logging.getLogger(__name__).warning(
+                "Login for %s used the legacy auth.json store; run "
+                "scripts/migrate_auth_json.py to move it into SQLite.", user_id)
+            return user_id
+    return None
+
+
 # === Auth Service ===
 
 class AuthService:
     """
-    Authentication service that integrates with UserManager.
-    Handles registration, login, and token refresh.
+    Registration, login and token refresh for /auth/* (mobile app, TUI).
+    Credentials live in SQLite; see "Credential store" above.
     """
 
     def __init__(self, user_manager):
         self.user_manager = user_manager
-        self._auth_cache = {}  # user_id -> UserAuth (in-memory cache)
-
-    def _get_auth_path(self, user_id: str):
-        """Get path to user's auth.json file"""
-        return self.user_manager._get_user_dir(user_id) / "auth.json"
-
-    def _load_auth(self, user_id: str) -> Optional[UserAuth]:
-        """Load auth credentials for a user"""
-        import json
-        path = self._get_auth_path(user_id)
-        if not path.exists():
-            return None
-        try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-            return UserAuth(**data)
-        except Exception:
-            return None
-
-    def _save_auth(self, user_id: str, auth: UserAuth):
-        """Save auth credentials for a user"""
-        import json
-        path = self._get_auth_path(user_id)
-        with open(path, 'w') as f:
-            json.dump(auth.model_dump(), f, indent=2)
 
     def get_user_by_email(self, email: str) -> Optional[str]:
-        """Find user_id by email address"""
-        # Check all users for matching email
-        for user_info in self.user_manager.list_users():
-            user_id = user_info["user_id"]
-            auth = self._load_auth(user_id)
+        """Find user_id by email address (SQLite, then the legacy auth.json)."""
+        user_id = find_user_id_by_email(email)
+        if user_id:
+            return user_id
+        for legacy_id, path in _legacy_auth_files(self.user_manager):
+            auth = _load_legacy_auth(path)
             if auth and auth.email.lower() == email.lower():
-                return user_id
+                return legacy_id
         return None
 
     def register(
@@ -309,83 +560,47 @@ class AuthService:
         an admin approves them (POST /admin/users/{id}/approve).
         Returns the new user_id. Raises HTTPException on failure.
         """
-        # Check if email already exists
         if self.get_user_by_email(email):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already registered"
             )
 
-        # Create user profile
         profile = self.user_manager.create_user(
             display_name=display_name,
             relationship="user",
             status="pending",
         )
 
-        # Create auth record
-        now = datetime.now().isoformat()
-        auth = UserAuth(
-            email=email.lower(),
-            password_hash=hash_password(password),
-            created_at=now,
-            last_login=now
-        )
-        self._save_auth(profile.user_id, auth)
+        from database import get_db
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET email = ?, password_hash = ?, updated_at = ? WHERE id = ?",
+                (email.lower(), hash_password(password), datetime.now().isoformat(),
+                 profile.user_id),
+            )
 
         return profile.user_id
-
-    def _require_approved(self, user_id: str):
-        """Refuse pending/rejected accounts (mirrors /admin/auth/login)."""
-        profile = self.user_manager.load_profile(user_id)
-        account_status = getattr(profile, "status", None) or "approved"
-        if account_status == "pending":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account pending approval. Please wait for an administrator to approve your registration."
-            )
-        if account_status == "rejected":
-            reason = getattr(profile, "rejection_reason", None) or "No reason provided"
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Account rejected: {reason}"
-            )
 
     def login(self, email: str, password: str) -> tuple[str, Token]:
         """
         Authenticate a user and return tokens.
         Raises HTTPException on failure.
         """
-        # Find user by email
-        user_id = self.get_user_by_email(email)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
-            )
-
-        # Verify password
-        auth = self._load_auth(user_id)
-        if not auth or not verify_password(password, auth.password_hash):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password"
-            )
-
-        self._require_approved(user_id)
-
-        # Update last login
-        auth.last_login = datetime.now().isoformat()
-        self._save_auth(user_id, auth)
-
-        # Generate tokens
-        tokens = create_tokens(user_id)
-
-        return user_id, tokens
+        try:
+            user_id = authenticate(email, password, self.user_manager)
+        except HTTPException as e:
+            if e.status_code == status.HTTP_401_UNAUTHORIZED:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password"
+                )
+            raise
+        return user_id, create_tokens(user_id)
 
     def refresh(self, refresh_token: str) -> Token:
         """
-        Refresh access token using refresh token.
+        Refresh access token using refresh token (new or legacy format).
         Raises HTTPException on failure.
         """
         token_data = decode_token(refresh_token)
@@ -402,21 +617,44 @@ class AuthService:
                 detail="Invalid token type"
             )
 
-        # Verify user still exists
         profile = self.user_manager.load_profile(token_data.user_id)
         if not profile:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found"
             )
-        self._require_approved(token_data.user_id)
+        require_approved_status(getattr(profile, "status", None),
+                                getattr(profile, "rejection_reason", None))
 
-        # Generate new tokens
+        # Roles come from SQLite now, not from the old token.
         return create_tokens(token_data.user_id)
 
+    def get_user_email(self, user_id: str) -> Optional[str]:
+        """The user's login email (SQLite, then the legacy auth.json)."""
+        rows = _users_query(
+            "SELECT email, legacy_email FROM users WHERE id = ?",
+            "SELECT email FROM users WHERE id = ?",
+            (user_id,),
+        )
+        if rows:
+            email = rows[0].get("email") or rows[0].get("legacy_email")
+            if email:
+                return email
+        auth = self.get_user_auth(user_id)
+        return auth.email if auth else None
+
     def get_user_auth(self, user_id: str) -> Optional[UserAuth]:
-        """Get auth info for a user (without password hash)"""
-        return self._load_auth(user_id)
+        """Legacy auth.json record for a user, if one exists (read-only)."""
+        for legacy_id, path in _legacy_auth_files(self.user_manager):
+            if legacy_id == user_id:
+                return _load_legacy_auth(path)
+        return None
+
+    # Kept for older callers.
+    def _require_approved(self, user_id: str):
+        profile = self.user_manager.load_profile(user_id)
+        require_approved_status(getattr(profile, "status", None),
+                                getattr(profile, "rejection_reason", None))
 
 
 # === Authorization Helpers ===

@@ -211,10 +211,8 @@ def smoke_user(test_db):
 
 
 def admin_token(user_id, display_name="Smoke Admin"):
-    """An admin-dashboard token (the kind /admin/auth/login issues).
-
-    Routes that declare `require_admin` only accept this token family; the
-    app-wide route guard accepts either family and checks users.is_admin.
+    """A token like /admin/auth/login issues: the one format (#61), with
+    roles ["user", "admin"]. Admin access still needs users.is_admin in SQLite.
     """
     from routes.admin.auth import create_token
     token, _expires = create_token(user_id, display_name, is_admin=True)

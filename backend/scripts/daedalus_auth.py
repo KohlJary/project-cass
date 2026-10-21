@@ -27,9 +27,6 @@ from config import DATA_DIR
 DAEDALUS_USER_ID = "7fe31ade-e3d2-42b7-a128-e0e3a6b46fa1"
 CREDENTIALS_FILE = DATA_DIR / "daedalus_credentials.json"
 
-# JWT config (must match admin_api.py)
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
 
 
 def load_credentials():
@@ -47,27 +44,19 @@ def save_credentials(creds: dict):
 
 
 def get_jwt_secret():
-    """Get the JWT secret (must match what the server uses)"""
-    # Same lookup the server uses (routes/admin/auth.py): ADMIN_JWT_SECRET if
-    # set, otherwise the secret persisted in DATA_DIR/.secrets/. A separately
-    # generated secret here would mint tokens the server rejects.
-    from secret_store import get_or_create_secret
-    return get_or_create_secret("admin_jwt_secret", "ADMIN_JWT_SECRET")
+    """Unused since #61 (tokens come from auth.create_dashboard_token); kept for callers."""
+    return None
 
 
-def create_token(user_id: str, display_name: str, secret: str) -> tuple:
-    """Create a JWT token"""
-    import jwt
+def create_token(user_id: str, display_name: str, secret=None) -> tuple:
+    """Create a token in the one server format (roles from users.is_admin).
 
-    expires = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
-    payload = {
-        "user_id": user_id,
-        "display_name": display_name,
-        "exp": expires,
-        "iat": datetime.utcnow()
-    }
-    token = jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
-    return token, expires
+    `secret` is ignored: the server's own issuer signs it, so it always
+    verifies. Tokens minted by the old version of this script (admin-secret
+    format) keep working until they expire.
+    """
+    from auth import create_dashboard_token
+    return create_dashboard_token(user_id, display_name)
 
 
 def cmd_setup():

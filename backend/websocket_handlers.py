@@ -470,8 +470,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     - Localhost connections fall back to DEFAULT_LOCALHOST_USER_ID
     """
     import os
-    from auth import decode_token, is_localhost_request
-    from admin_api import verify_token as verify_admin_token
+    from auth import user_id_from_any_token, is_localhost_request
     from tts import synthesize
     from markers import parse_marks
     from symbols import parse_symbols, store_extracted_symbols
@@ -526,15 +525,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
 
     # Try token from query param
     if token:
-        # Try auth.py format first (uses "sub" field)
-        token_data = decode_token(token)
-        if token_data and token_data.token_type == "access":
-            connection_user_id = token_data.user_id
-        else:
-            # Try admin_api.py format (uses "user_id" field)
-            admin_payload = verify_admin_token(token)
-            if admin_payload and admin_payload.get("user_id"):
-                connection_user_id = admin_payload["user_id"]
+        # One verifier for every accepted token format (auth.py).
+        connection_user_id = user_id_from_any_token(token)
 
     # Localhost bypass if no token. Shared helper so relayed/proxied
     # connections (which also arrive from 127.0.0.1) don't get it.
@@ -566,17 +558,11 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
             if data.get("type") == "auth":
                 auth_token = data.get("token")
                 if auth_token:
-                    # Try auth.py format first
-                    token_data = decode_token(auth_token)
-                    if token_data and token_data.token_type == "access":
-                        connection_user_id = token_data.user_id
-                    else:
-                        # Try admin_api.py format
-                        admin_payload = verify_admin_token(auth_token)
-                        if admin_payload and admin_payload.get("user_id"):
-                            connection_user_id = admin_payload["user_id"]
+                    token_user_id = user_id_from_any_token(auth_token)
+                    if token_user_id:
+                        connection_user_id = token_user_id
 
-                    if connection_user_id:
+                    if token_user_id:
                         manager.set_user_id(websocket, connection_user_id)
                         await websocket.send_json({
                             "type": "auth_success",
