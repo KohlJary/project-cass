@@ -2,8 +2,10 @@
 PeopleDex - Biographical Entity Database
 
 A knowledge graph for storing factual/biographical information about entities
-(people, organizations, teams, daemons). Complements UserObservations which
-stores *relational* data (how Cass relates to someone).
+(people, organizations, teams, daemons), and the relational data about them
+(observations, shared moments, relationship patterns, mutual shaping). It is
+the one store for what Cass knows about users: the legacy user_observations
+table and the per-user YAML models are no longer written (epic #55).
 
 PeopleDex stores:
 - Entity info: names, birthdays, pronouns, contact details
@@ -18,6 +20,63 @@ from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
 from database import get_db, dict_from_row
+
+# Legacy user-observation categories (the old user_observations table and the
+# record_user_observation / <observe target="user:X"> tags) mapped to PeopleDex
+# observation types. "background" -> identity_statement matches the mapping the
+# record_user_observation tool already used. The original category is kept in
+# the observation's metadata as "category" so it can be shown again.
+LEGACY_CATEGORY_TO_OBSERVATION_TYPE = {
+    "interest": "general",
+    "preference": "general",
+    "background": "identity_statement",
+    "identity": "identity_statement",
+    "value": "value",
+    "communication_style": "communication_style",
+    "relationship_dynamic": "general",
+    "growth": "growth_observation",
+    "contradiction": "contradiction",
+    "general": "general",
+}
+
+OBSERVATION_TYPE_TO_LEGACY_CATEGORY = {
+    "identity_statement": "background",
+    "value": "value",
+    "communication_style": "communication_style",
+    "growth_observation": "growth",
+    "contradiction": "contradiction",
+    "open_question": "open_question",
+    "general": "general",
+}
+
+
+def observation_type_for_category(category: Optional[str]) -> str:
+    """PeopleDex observation_type for a legacy user-observation category."""
+    return LEGACY_CATEGORY_TO_OBSERVATION_TYPE.get(category or "background", "general")
+
+
+def legacy_category_for(observation_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    """The legacy category to show for a PeopleDex observation.
+
+    Prefers the category recorded in metadata; rows from the Dec 2025
+    migration carry it in the type itself ("general_<category>").
+    """
+    if metadata and metadata.get("category"):
+        return metadata["category"]
+    if observation_type.startswith("general_"):
+        return observation_type[len("general_"):]
+    return OBSERVATION_TYPE_TO_LEGACY_CATEGORY.get(observation_type, observation_type)
+
+
+# Longest single line the relational context puts in a prompt, so one huge
+# <observe> can't take over the context budget.
+MAX_CONTEXT_LINE_CHARS = 400
+
+
+def _clip_line(text: Optional[str], limit: int = MAX_CONTEXT_LINE_CHARS) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
 
 # Optional state bus import - allow PeopleDex to work without it
 try:
@@ -902,6 +961,7 @@ class PeopleDexManager:
         observation_type: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 100,
+        daemon_id: Optional[str] = None,
     ) -> List[Observation]:
         """
         Get observations for an entity.
@@ -915,6 +975,10 @@ class PeopleDexManager:
         with get_db() as conn:
             query = "SELECT * FROM peopledex_observations WHERE entity_id = ?"
             params: List[Any] = [entity_id]
+
+            if daemon_id:
+                query += " AND daemon_id = ?"
+                params.append(daemon_id)
 
             if observation_type:
                 query += " AND observation_type = ?"
@@ -935,6 +999,7 @@ class PeopleDexManager:
         entity_id: str,
         category: Optional[str] = None,
         limit: int = 50,
+        daemon_id: Optional[str] = None,
     ) -> List[Moment]:
         """
         Get shared moments with an entity.
@@ -947,6 +1012,10 @@ class PeopleDexManager:
         with get_db() as conn:
             query = "SELECT * FROM peopledex_moments WHERE entity_id = ?"
             params: List[Any] = [entity_id]
+
+            if daemon_id:
+                query += " AND daemon_id = ?"
+                params.append(daemon_id)
 
             if category:
                 query += " AND category = ?"
@@ -962,6 +1031,7 @@ class PeopleDexManager:
         self,
         entity_id: str,
         pattern_type: Optional[str] = None,
+        daemon_id: Optional[str] = None,
     ) -> List[RelationshipPattern]:
         """
         Get relationship patterns/shifts/rituals with an entity.
@@ -973,6 +1043,10 @@ class PeopleDexManager:
         with get_db() as conn:
             query = "SELECT * FROM peopledex_relationship_patterns WHERE entity_id = ?"
             params: List[Any] = [entity_id]
+
+            if daemon_id:
+                query += " AND daemon_id = ?"
+                params.append(daemon_id)
 
             if pattern_type:
                 query += " AND pattern_type = ?"
@@ -987,6 +1061,7 @@ class PeopleDexManager:
         self,
         entity_id: str,
         shaping_type: Optional[str] = None,
+        daemon_id: Optional[str] = None,
     ) -> List[MutualShaping]:
         """
         Get mutual shaping notes for an entity.
@@ -998,6 +1073,10 @@ class PeopleDexManager:
         with get_db() as conn:
             query = "SELECT * FROM peopledex_mutual_shaping WHERE entity_id = ?"
             params: List[Any] = [entity_id]
+
+            if daemon_id:
+                query += " AND daemon_id = ?"
+                params.append(daemon_id)
 
             if shaping_type:
                 query += " AND shaping_type = ?"
@@ -1066,6 +1145,18 @@ class PeopleDexManager:
         if not entity:
             return ""
 
+        # Only this daemon's knowledge goes into this daemon's prompt: another
+        # daemon's observations, moments, patterns or shaping notes about the
+        # same person stay out. Every relational table has daemon_id NOT NULL
+        # (schema.py), so there are no unowned rows to decide about; rows the
+        # Dec 2025 and #55 migrations wrote carry the daemon they came from
+        # (legacy table) or Cass's id (the YAML models). Without a daemon_id
+        # there is nothing to scope to, so nothing relational is shown.
+        daemon = self.daemon_id
+        if not daemon:
+            return ""
+        clip = _clip_line
+
         meta = self.get_relationship_meta(entity_id)
         sections = []
 
@@ -1089,7 +1180,7 @@ class PeopleDexManager:
 
         # Identity statements and values
         if include_observations:
-            observations = self.get_observations(entity_id, limit=max_observations)
+            observations = self.get_observations(entity_id, daemon_id=daemon, limit=max_observations)
 
             # Group by type
             identity_stmts = [o for o in observations if o.observation_type == "identity_statement"]
@@ -1097,22 +1188,27 @@ class PeopleDexManager:
             comm_style = [o for o in observations if o.observation_type == "communication_style"]
             growth_obs = [o for o in observations if o.observation_type == "growth_observation"]
             open_questions = [o for o in observations if o.observation_type == "open_question" and o.status == "active"]
+            # "general" covers interests, preferences and relationship dynamics
+            # from <observe target="user:X">; "general_<category>" rows come
+            # from the Dec 2025 migration of the legacy user_observations table.
+            general = [o for o in observations if o.status == "active" and (
+                       o.observation_type == "general" or o.observation_type.startswith("general_"))]
 
             if identity_stmts:
                 sections.append("\n### Who They Are")
                 for obs in identity_stmts[:10]:
                     conf = f" ({obs.confidence:.0%})" if obs.confidence < 0.9 else ""
-                    sections.append(f"- {obs.content}{conf}")
+                    sections.append(f"- {clip(obs.content)}{conf}")
 
             if values:
                 sections.append("\n### Values")
                 for obs in values[:5]:
-                    sections.append(f"- {obs.content}")
+                    sections.append(f"- {clip(obs.content)}")
 
             if comm_style:
                 sections.append("\n### Communication Style")
                 for obs in comm_style[:1]:  # Usually just one
-                    sections.append(obs.content)
+                    sections.append(clip(obs.content))
                     if obs.metadata:
                         prefs = obs.metadata.get("preferences", [])
                         if prefs:
@@ -1124,16 +1220,21 @@ class PeopleDexManager:
                     area = ""
                     if obs.metadata and obs.metadata.get("area"):
                         area = f"[{obs.metadata['area']}] "
-                    sections.append(f"- {area}{obs.content}")
+                    sections.append(f"- {area}{clip(obs.content)}")
 
             if open_questions:
                 sections.append("\n### Open Questions")
                 for obs in open_questions[:5]:
-                    sections.append(f"- {obs.content}")
+                    sections.append(f"- {clip(obs.content)}")
+
+            if general:
+                sections.append("\n### Other Things I've Noticed")
+                for obs in general[:5]:
+                    sections.append(f"- {clip(obs.content)}")
 
         # Shared moments
         if include_moments:
-            moments = self.get_moments(entity_id, limit=max_moments)
+            moments = self.get_moments(entity_id, daemon_id=daemon, limit=max_moments)
             if moments:
                 sections.append("\n### Shared History")
                 for moment in moments:
@@ -1142,13 +1243,13 @@ class PeopleDexManager:
                         cat_marker = "[Milestone] "
                     elif moment.category == "growth":
                         cat_marker = "[Growth] "
-                    sections.append(f"- {cat_marker}{moment.description}")
+                    sections.append(f"- {cat_marker}{clip(moment.description)}")
                     if moment.significance and moment.significance != "medium":
-                        sections.append(f"  *{moment.significance}*")
+                        sections.append(f"  *{clip(moment.significance)}*")
 
         # Relationship patterns
         if include_patterns:
-            patterns = self.get_relationship_patterns(entity_id)
+            patterns = self.get_relationship_patterns(entity_id, daemon_id=daemon)
             actual_patterns = [p for p in patterns if p.pattern_type == "pattern"]
             shifts = [p for p in patterns if p.pattern_type == "shift"]
             rituals = [p for p in patterns if p.pattern_type == "ritual"]
@@ -1158,24 +1259,24 @@ class PeopleDexManager:
                 for p in actual_patterns:
                     name = f"**{p.name}**: " if p.name else ""
                     freq = f" ({p.frequency})" if p.frequency else ""
-                    sections.append(f"- {name}{p.description}{freq}")
+                    sections.append(f"- {name}{clip(p.description)}{freq}")
 
             if shifts:
                 sections.append("\n### Significant Shifts")
                 for s in shifts:
                     if s.from_state and s.to_state:
-                        sections.append(f"- {s.from_state} → {s.to_state}: {s.description}")
+                        sections.append(f"- {s.from_state} → {s.to_state}: {clip(s.description)}")
                     else:
-                        sections.append(f"- {s.description}")
+                        sections.append(f"- {clip(s.description)}")
 
             if rituals:
                 sections.append("\n### Rituals")
                 for r in rituals:
-                    sections.append(f"- {r.description}")
+                    sections.append(f"- {clip(r.description)}")
 
         # Mutual shaping
         if include_shaping:
-            shaping = self.get_mutual_shaping(entity_id)
+            shaping = self.get_mutual_shaping(entity_id, daemon_id=daemon)
             they_shape = [s for s in shaping if s.shaping_type == "they_shape_me"]
             i_shape = [s for s in shaping if s.shaping_type == "i_shape_them"]
             inherited = [s for s in shaping if s.shaping_type == "inherited_value"]
@@ -1183,17 +1284,17 @@ class PeopleDexManager:
             if they_shape:
                 sections.append("\n### How They Shape Me")
                 for s in they_shape:
-                    sections.append(f"- {s.note}")
+                    sections.append(f"- {clip(s.note)}")
 
             if i_shape:
                 sections.append("\n### How I Shape Them")
                 for s in i_shape:
-                    sections.append(f"- {s.note}")
+                    sections.append(f"- {clip(s.note)}")
 
             if inherited:
                 sections.append("\n### Inherited Values")
                 for s in inherited:
-                    sections.append(f"- {s.note}")
+                    sections.append(f"- {clip(s.note)}")
 
         return "\n".join(sections)
 
@@ -1268,11 +1369,12 @@ class PeopleDexManager:
                 sections.append(f"- {fact.fact_type}: {fact.content}")
 
         # Get observations (Cass's previous observations about this person)
-        observations = self.get_observations(entity_id, limit=max_observations)
+        observations = self.get_observations(entity_id, limit=max_observations,
+                                             daemon_id=self.daemon_id)
         if observations:
             sections.append("\n**My Previous Observations:**")
             for obs in observations:
-                sections.append(f"- [{obs.observation_type}] {obs.content}")
+                sections.append(f"- [{obs.observation_type}] {_clip_line(obs.content)}")
 
         return "\n".join(sections) if len(sections) > 1 else ""
 
@@ -1746,6 +1848,41 @@ class PeopleDexManager:
 
         return True
 
+    def ensure_entity_for_user(self, user_id: str) -> Optional[Entity]:
+        """The PeopleDex entity linked to a user, created from the users row
+        if it doesn't exist yet. None if there is no such user."""
+        if not user_id:
+            return None
+        entity = self.get_entity_by_user(user_id)
+        if entity:
+            return entity
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT display_name FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        if not row:
+            return None
+        # create_entity returns the new id, not an Entity.
+        return self.get_entity(self.create_entity(
+            primary_name=row[0],
+            entity_type=EntityType.PERSON,
+            user_id=user_id,
+        ))
+
+    def delete_observation(self, observation_id: str, entity_id: Optional[str] = None) -> bool:
+        """Delete one observation (optionally only if it belongs to entity_id)."""
+        with get_db() as conn:
+            if entity_id:
+                result = conn.execute(
+                    "DELETE FROM peopledex_observations WHERE id = ? AND entity_id = ?",
+                    (observation_id, entity_id),
+                )
+            else:
+                result = conn.execute(
+                    "DELETE FROM peopledex_observations WHERE id = ?", (observation_id,)
+                )
+            return result.rowcount > 0
+
     def add_observation_for_user(
         self,
         user_id: str,
@@ -1758,19 +1895,7 @@ class PeopleDexManager:
 
         Creates the entity if it doesn't exist.
         """
-        entity = self.get_entity_by_user(user_id)
-        if not entity:
-            # Create entity for this user
-            from users import UserManager
-            um = UserManager()
-            profile = um.load_profile(user_id)
-            if profile:
-                # create_entity returns the new id, not an Entity.
-                entity = self.get_entity(self.create_entity(
-                    primary_name=profile.display_name,
-                    entity_type=EntityType.PERSON,
-                    user_id=user_id,
-                ))
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_observation(entity.id, observation_type, content, **kwargs)
@@ -1784,7 +1909,7 @@ class PeopleDexManager:
         """
         Add a shared moment for a user (by user_id rather than entity_id).
         """
-        entity = self.get_entity_by_user(user_id)
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_moment(entity.id, description, **kwargs)
@@ -1799,7 +1924,7 @@ class PeopleDexManager:
         """
         Add a relationship pattern for a user (by user_id rather than entity_id).
         """
-        entity = self.get_entity_by_user(user_id)
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_relationship_pattern(entity.id, pattern_type, description, **kwargs)
@@ -1813,7 +1938,7 @@ class PeopleDexManager:
         """
         Add a mutual shaping note for a user (by user_id rather than entity_id).
         """
-        entity = self.get_entity_by_user(user_id)
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_mutual_shaping(entity.id, shaping_type, note)
@@ -1830,19 +1955,7 @@ class PeopleDexManager:
 
         Creates the entity if it doesn't exist.
         """
-        entity = self.get_entity_by_user(user_id)
-        if not entity:
-            # Create entity for this user
-            from users import UserManager
-            um = UserManager()
-            profile = um.load_profile(user_id)
-            if profile:
-                # create_entity returns the new id, not an Entity.
-                entity = self.get_entity(self.create_entity(
-                    primary_name=profile.display_name,
-                    entity_type=EntityType.PERSON,
-                    user_id=user_id,
-                ))
+        entity = self.ensure_entity_for_user(user_id)
         if not entity:
             return None
         return self.add_fact(entity.id, fact_type, content, **kwargs)

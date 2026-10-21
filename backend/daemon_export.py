@@ -1262,28 +1262,46 @@ def regenerate_embeddings(daemon_id: str, tables_data: Dict[str, List[Dict]]) ->
     counts["conversation_summaries"] = embedded_convs
     logger.info(f"  Embedded {embedded_convs} conversation summaries")
 
-    # 6. Embed user observations
-    user_obs = tables_data.get("user_observations", [])
-    embedded_user_obs = 0
-    for obs in user_obs:
+    # 6. Embed user observations. PeopleDex holds them (epic #55); legacy
+    # user_observations rows are embedded only if PeopleDex has no row with
+    # the same id (the migration keeps legacy ids).
+    entity_users = {
+        e.get("id"): e.get("user_id")
+        for e in tables_data.get("peopledex_entities", []) if e.get("user_id")
+    }
+    to_embed = []
+    for obs in tables_data.get("peopledex_observations", []):
+        user_id = entity_users.get(obs.get("entity_id"))
+        if user_id and obs.get("content"):
+            to_embed.append((user_id, obs.get("id", ""), obs["content"],
+                             obs.get("observation_type", "general"),
+                             obs.get("confidence") or 0.7, obs.get("created_at", "")))
+    seen_ids = {item[1] for item in to_embed}
+    for obs in tables_data.get("user_observations", []):
+        if obs.get("id") in seen_ids:
+            continue
+        content_json = obs.get("content_json", "{}")
         try:
-            content_json = obs.get("content_json", "{}")
-            if isinstance(content_json, str):
-                content = json.loads(content_json) if content_json else {}
-            else:
-                content = content_json or {}
-
-            observation_text = content.get("observation", content.get("content", str(content)))
-            if observation_text:
-                memory.embed_user_observation(
-                    user_id=obs.get("user_id", ""),
-                    observation_id=obs.get("id", ""),
-                    observation_type=obs.get("observation_type", "identity"),
-                    content=observation_text,
-                    confidence=obs.get("confidence", 0.7),
-                    timestamp=obs.get("created_at", "")
-                )
-                embedded_user_obs += 1
+            content = json.loads(content_json) if isinstance(content_json, str) and content_json else (content_json or {})
+        except (TypeError, ValueError):
+            content = {}
+        text = content.get("observation", content.get("content", "")) if isinstance(content, dict) else ""
+        if text:
+            to_embed.append((obs.get("user_id", ""), obs.get("id", ""), text,
+                             obs.get("observation_type", "background"),
+                             obs.get("confidence") or 0.7, obs.get("created_at", "")))
+    embedded_user_obs = 0
+    for user_id, obs_id, text, category, confidence, timestamp in to_embed:
+        try:
+            memory.embed_user_observation(
+                user_id=user_id,
+                observation_id=obs_id,
+                observation_text=text,
+                category=category,
+                confidence=confidence,
+                timestamp=timestamp,
+            )
+            embedded_user_obs += 1
         except Exception as e:
             logger.warning(f"Failed to embed user observation: {e}")
     counts["user_observations"] = embedded_user_obs
@@ -1736,22 +1754,53 @@ def import_from_genesis_json(
                 ))
                 logger.info(f"Created new user: {target_user_id}")
 
-        # Import user_observations
-        for obs in relationship.get("user_observations", []):
-            obs_id = str(uuid.uuid4())
+        # Import user observations into PeopleDex (epic #55: the legacy
+        # user_observations table is no longer written). Same connection, so
+        # this stays inside the import's transaction.
+        seed_observations = relationship.get("user_observations", [])
+        if seed_observations:
+            from peopledex import observation_type_for_category
+            row = conn.execute(
+                "SELECT id FROM peopledex_entities WHERE user_id = ?", (target_user_id,)
+            ).fetchone()
+            if row:
+                entity_id = row[0]
+            else:
+                entity_id = str(uuid.uuid4())
+                now = datetime.now().isoformat()
+                name_row = conn.execute(
+                    "SELECT display_name FROM users WHERE id = ?", (target_user_id,)
+                ).fetchone()
+                display_name = name_row[0] if name_row else target_user_id
+                conn.execute("""
+                    INSERT INTO peopledex_entities
+                        (id, entity_type, primary_name, realm, created_at, updated_at, user_id)
+                    VALUES (?, 'person', ?, 'meatspace', ?, ?, ?)
+                """, (entity_id, display_name, now, now, target_user_id))
+                conn.execute("""
+                    INSERT INTO peopledex_attributes
+                        (id, entity_id, attribute_type, value, is_primary, created_at, updated_at)
+                    VALUES (?, ?, 'name', ?, 1, ?, ?)
+                """, (str(uuid.uuid4()), entity_id, display_name, now, now))
+        for obs in seed_observations:
+            category = obs.get("category", "background")
+            now = datetime.now().isoformat()
             conn.execute("""
-                INSERT INTO user_observations (
-                    id, daemon_id, user_id, observation_type,
-                    content_json, confidence, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO peopledex_observations (
+                    id, entity_id, daemon_id, observation_type, content,
+                    metadata_json, confidence, source_type, first_noticed,
+                    status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'genesis_import', ?, 'active', ?)
             """, (
-                obs_id,
+                str(uuid.uuid4()),
+                entity_id,
                 daemon_id,
-                target_user_id,
-                obs.get("category", "background"),
-                json.dumps({"observation": obs.get("observation", "")}),
+                observation_type_for_category(category),
+                obs.get("observation", ""),
+                json.dumps({"category": category}),
                 min(1.0, max(0.0, obs.get("confidence", 0.7))),
-                datetime.now().isoformat()
+                now,
+                now,
             ))
             stats["user_observations"] += 1
 

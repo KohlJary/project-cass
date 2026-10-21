@@ -217,6 +217,27 @@ def test_profile_routes_own_data_only(booted_app, plain_user, smoke_admin):
     assert [o["observation"] for o in r.json()["observations"]] == ["likes coffee"]
 
 
+def test_non_admin_cannot_read_another_users_relationship(booted_app, plain_user, smoke_admin):
+    """The relationship model is PeopleDex-backed now (#55); a non-admin is
+    refused another user's (the route guard, and the route's own
+    self-or-admin check behind it). Admins still can."""
+    me, token = plain_user
+    other = create_user("Someone Else")
+    r = booted_app.get(f"/admin/users/{other}/relationship", headers=_bearer(token))
+    assert r.status_code == 403, r.text
+    _admin, admin_tok = smoke_admin
+    r = booted_app.get(f"/admin/users/{other}/relationship", headers=_bearer(admin_tok))
+    assert r.status_code == 200, r.text
+
+    # The route's own check holds even without the guard in front of it.
+    import asyncio
+    from fastapi import HTTPException
+    from routes.admin import stats
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(stats.get_relationship_model(other, user={"user_id": me}))
+    assert refused.value.status_code == 403
+
+
 def test_profile_check_uses_database_not_token_claim(booted_app, test_db):
     """A token minted with is_admin=True for a user who is not (or no longer)
     an admin gets no more than their own profile."""

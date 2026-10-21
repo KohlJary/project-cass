@@ -71,6 +71,10 @@ async def get_my_daemons(user: Dict = Depends(require_auth)):
                    -- Daemons with user observations about this user
                    SELECT DISTINCT daemon_id FROM user_observations WHERE user_id = ?
                    UNION
+                   SELECT DISTINCT o.daemon_id FROM peopledex_observations o
+                   JOIN peopledex_entities e ON e.id = o.entity_id
+                   WHERE e.user_id = ?
+                   UNION
                    -- Daemons user has conversed with
                    SELECT DISTINCT daemon_id FROM conversations WHERE user_id = ?
                    UNION
@@ -80,7 +84,7 @@ async def get_my_daemons(user: Dict = Depends(require_auth)):
                    WHERE g.user_id = ?
                )
             ORDER BY CASE WHEN d.label = 'cass' THEN 0 ELSE 1 END, d.created_at DESC
-        """, (user_id, user_id, user_id))
+        """, (user_id, user_id, user_id, user_id))
 
         daemons = []
         for row in cursor.fetchall():

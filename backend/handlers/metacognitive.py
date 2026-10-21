@@ -67,7 +67,8 @@ async def execute_observation(obs: ParsedObservation, ctx: MetacognitiveContext)
     Route observation to appropriate handler based on target.
 
     - target="self" → SelfManager.add_observation
-    - target="user:X" → UserManager.add_observation (or identity/growth variants)
+    - target="user:X" → UserManager.add_observation (or identity/growth variants),
+      which write PeopleDex (epic #55)
     - target="context" → SelfModelGraph.log_situational_inference
     - target="growth" → SelfManager.add_growth_observation
     """
@@ -143,36 +144,30 @@ async def execute_observation(obs: ParsedObservation, ctx: MetacognitiveContext)
                 logger.warning(f"[metacognitive] Cannot resolve user: {target_user}")
                 return {"success": False, "error": f"User not found: {target_user}"}
 
-            # Handle special categories
+            # Handle special categories (all of these write PeopleDex)
             if category == "identity":
-                # User identity understanding
-                if hasattr(ctx.user_manager, 'record_identity_understanding'):
-                    result = ctx.user_manager.record_identity_understanding(
-                        user_id=resolved_user_id,
-                        identity_aspect=obs.content,
-                        confidence=confidence,
-                        source_conversation_id=ctx.conversation_id
-                    )
-                    logger.debug(f"[metacognitive] Recorded identity understanding for {target_user}: {obs.content[:50]}...")
-                    return {"success": True, "type": "user_identity", "user": target_user, "id": getattr(result, 'id', None)}
-                else:
-                    # Fallback to regular observation with identity category
-                    category = "background"
+                result = ctx.user_manager.add_identity_understanding(
+                    user_id=resolved_user_id,
+                    statement=obs.content,
+                    confidence=confidence,
+                    source="inline_tag",
+                )
+                if result is None:
+                    return {"success": False, "error": f"User not found: {target_user}"}
+                logger.debug(f"[metacognitive] Recorded identity understanding for {target_user}: {obs.content[:50]}...")
+                return {"success": True, "type": "user_identity", "user": target_user}
 
             elif category == "growth" and obs.direction:
-                # User growth observation
-                if hasattr(ctx.user_manager, 'record_user_growth'):
-                    result = ctx.user_manager.record_user_growth(
-                        user_id=resolved_user_id,
-                        observation=obs.content,
-                        direction=obs.direction,
-                        source_conversation_id=ctx.conversation_id
-                    )
-                    logger.debug(f"[metacognitive] Recorded user growth for {target_user} ({obs.direction}): {obs.content[:50]}...")
-                    return {"success": True, "type": "user_growth", "user": target_user, "direction": obs.direction, "id": getattr(result, 'id', None)}
-                else:
-                    # Fallback to regular observation
-                    pass
+                result = ctx.user_manager.add_user_growth_observation(
+                    user_id=resolved_user_id,
+                    area=obs.area or "general",
+                    observation=obs.content,
+                    direction=obs.direction,
+                )
+                if result is None:
+                    return {"success": False, "error": f"User not found: {target_user}"}
+                logger.debug(f"[metacognitive] Recorded user growth for {target_user} ({obs.direction}): {obs.content[:50]}...")
+                return {"success": True, "type": "user_growth", "user": target_user, "direction": obs.direction, "id": result.id}
 
             # Standard user observation
             result = ctx.user_manager.add_observation(
@@ -335,11 +330,13 @@ async def execute_note(note: ParsedNote, ctx: MetacognitiveContext) -> Dict:
     - type="moment" → UserManager.add_shared_moment
     - type="tension" → UserManager.add_user_contradiction
     - type="presence" → SelfModelGraph.log_presence
-    - type="pattern" → UserManager.add_relationship_pattern
-    - type="shift" → UserManager.record_relationship_shift
-    - type="shaping" → UserManager.note_mutual_shaping
+    - type="pattern" → UserManager.add_relational_pattern
+    - type="shift" → UserManager.add_relationship_shift
+    - type="shaping" → UserManager.add_mutual_shaping_note
     - type="resolve" → UserManager.resolve_user_contradiction
     - type="question" → UserManager.add_open_question_about_user
+
+    The user-facing ones write PeopleDex (epic #55).
     """
     try:
         if note.note_type == "moment":
@@ -436,27 +433,15 @@ async def execute_note(note: ParsedNote, ctx: MetacognitiveContext) -> Dict:
             frequency = note.frequency or "regular"
             valence = note.valence or "positive"
 
-            if hasattr(ctx.user_manager, 'add_relationship_pattern'):
-                result = ctx.user_manager.add_relationship_pattern(
-                    user_id=resolved_user_id,
-                    pattern_description=note.content,
-                    frequency=frequency,
-                    valence=valence,
-                    source_conversation_id=ctx.conversation_id
-                )
-                logger.debug(f"[metacognitive] Recorded relationship pattern with {target_user}: {note.content[:50]}...")
-                return {"success": True, "type": "relationship_pattern", "user": target_user, "id": getattr(result, 'id', None)}
-            else:
-                # Fallback: store as shared moment
-                moment = ctx.user_manager.add_shared_moment(
-                    user_id=resolved_user_id,
-                    description=f"[Pattern:{frequency}/{valence}] {note.content}",
-                    significance="medium",
-                    category="connection",
-                    conversation_id=ctx.conversation_id
-                )
-                logger.debug(f"[metacognitive] Recorded relationship pattern (fallback) with {target_user}")
-                return {"success": True, "type": "relationship_pattern", "user": target_user, "id": moment.id if moment else None}
+            result = ctx.user_manager.add_relational_pattern(
+                user_id=resolved_user_id,
+                name="",
+                description=note.content,
+                frequency=frequency,
+                valence=valence,
+            )
+            logger.debug(f"[metacognitive] Recorded relationship pattern with {target_user}: {note.content[:50]}...")
+            return {"success": result is not None, "type": "relationship_pattern", "user": target_user, "id": result.id if result else None}
 
         elif note.note_type == "shift":
             # Relationship shift
@@ -474,28 +459,15 @@ async def execute_note(note: ParsedNote, ctx: MetacognitiveContext) -> Dict:
             to_state = note.to_state or "unknown"
             catalyst = note.catalyst or ""
 
-            if hasattr(ctx.user_manager, 'record_relationship_shift'):
-                result = ctx.user_manager.record_relationship_shift(
-                    user_id=resolved_user_id,
-                    from_state=from_state,
-                    to_state=to_state,
-                    catalyst=catalyst,
-                    description=note.content,
-                    source_conversation_id=ctx.conversation_id
-                )
-                logger.debug(f"[metacognitive] Recorded relationship shift with {target_user}: {from_state} → {to_state}")
-                return {"success": True, "type": "relationship_shift", "user": target_user, "from": from_state, "to": to_state, "id": getattr(result, 'id', None)}
-            else:
-                # Fallback: store as high-significance moment
-                moment = ctx.user_manager.add_shared_moment(
-                    user_id=resolved_user_id,
-                    description=f"[Shift:{from_state}→{to_state}] {note.content}",
-                    significance="high",
-                    category="connection",
-                    conversation_id=ctx.conversation_id
-                )
-                logger.debug(f"[metacognitive] Recorded relationship shift (fallback) with {target_user}")
-                return {"success": True, "type": "relationship_shift", "user": target_user, "from": from_state, "to": to_state, "id": moment.id if moment else None}
+            result = ctx.user_manager.add_relationship_shift(
+                user_id=resolved_user_id,
+                description=note.content,
+                from_state=from_state,
+                to_state=to_state,
+                catalyst=catalyst,
+            )
+            logger.debug(f"[metacognitive] Recorded relationship shift with {target_user}: {from_state} → {to_state}")
+            return {"success": result is not None, "type": "relationship_shift", "user": target_user, "from": from_state, "to": to_state, "id": result.id if result else None}
 
         elif note.note_type == "shaping":
             # Mutual shaping
@@ -518,27 +490,13 @@ async def execute_note(note: ParsedNote, ctx: MetacognitiveContext) -> Dict:
                 their_influence = note.content
                 my_influence = ""
 
-            if hasattr(ctx.user_manager, 'note_mutual_shaping'):
-                result = ctx.user_manager.note_mutual_shaping(
-                    user_id=resolved_user_id,
-                    their_influence=their_influence,
-                    my_influence=my_influence,
-                    source_conversation_id=ctx.conversation_id
-                )
-                logger.debug(f"[metacognitive] Recorded mutual shaping with {target_user}")
-                return {"success": True, "type": "mutual_shaping", "user": target_user, "id": getattr(result, 'id', None)}
-            else:
-                # Fallback: store as observation
-                result = ctx.user_manager.add_observation(
-                    user_id=resolved_user_id,
-                    observation=f"[MutualShaping] They: {their_influence} | Me: {my_influence}",
-                    category="relationship_dynamic",
-                    confidence=0.8,
-                    source_conversation_id=ctx.conversation_id,
-                    source_type="inline_tag"
-                )
-                logger.debug(f"[metacognitive] Recorded mutual shaping (fallback) with {target_user}")
-                return {"success": True, "type": "mutual_shaping", "user": target_user, "id": result.id if result else None}
+            ok = ctx.user_manager.add_mutual_shaping_note(
+                user_id=resolved_user_id,
+                how_they_shape_me=their_influence or None,
+                how_i_shape_them=my_influence or None,
+            )
+            logger.debug(f"[metacognitive] Recorded mutual shaping with {target_user}")
+            return {"success": bool(ok), "type": "mutual_shaping", "user": target_user}
 
         elif note.note_type == "resolve":
             # Resolve contradiction
@@ -554,19 +512,15 @@ async def execute_note(note: ParsedNote, ctx: MetacognitiveContext) -> Dict:
 
             contradiction_id = note.contradiction_id
 
-            if hasattr(ctx.user_manager, 'resolve_user_contradiction'):
-                result = ctx.user_manager.resolve_user_contradiction(
-                    user_id=resolved_user_id,
-                    contradiction_id=contradiction_id,
-                    resolution=note.content,
-                    source_conversation_id=ctx.conversation_id
-                )
-                logger.debug(f"[metacognitive] Resolved contradiction for {target_user}: {note.content[:50]}...")
-                return {"success": True, "type": "resolve_contradiction", "user": target_user, "contradiction_id": contradiction_id}
-            else:
-                # Fallback: just log
-                logger.debug(f"[metacognitive] Resolve contradiction (no handler) for {target_user}")
-                return {"success": True, "type": "resolve_contradiction", "user": target_user, "note": "Handler not available"}
+            if not contradiction_id:
+                return {"success": False, "error": "Resolve requires a contradiction id"}
+            result = ctx.user_manager.resolve_user_contradiction(
+                user_id=resolved_user_id,
+                contradiction_id=contradiction_id,
+                resolution=note.content,
+            )
+            logger.debug(f"[metacognitive] Resolved contradiction for {target_user}: {note.content[:50]}...")
+            return {"success": result is not None, "type": "resolve_contradiction", "user": target_user, "contradiction_id": contradiction_id}
 
         elif note.note_type == "question":
             # Open question about user
@@ -580,26 +534,12 @@ async def execute_note(note: ParsedNote, ctx: MetacognitiveContext) -> Dict:
                 logger.warning(f"[metacognitive] Cannot resolve user for question: {target_user}")
                 return {"success": False, "error": f"User not found: {target_user}"}
 
-            if hasattr(ctx.user_manager, 'add_open_question_about_user'):
-                result = ctx.user_manager.add_open_question_about_user(
-                    user_id=resolved_user_id,
-                    question=note.content,
-                    source_conversation_id=ctx.conversation_id
-                )
-                logger.debug(f"[metacognitive] Recorded open question about {target_user}: {note.content[:50]}...")
-                return {"success": True, "type": "open_question", "user": target_user, "id": getattr(result, 'id', None)}
-            else:
-                # Fallback: store as observation
-                result = ctx.user_manager.add_observation(
-                    user_id=resolved_user_id,
-                    observation=f"[OpenQuestion] {note.content}",
-                    category="background",
-                    confidence=0.5,
-                    source_conversation_id=ctx.conversation_id,
-                    source_type="inline_tag"
-                )
-                logger.debug(f"[metacognitive] Recorded open question (fallback) about {target_user}")
-                return {"success": True, "type": "open_question", "user": target_user, "id": result.id if result else None}
+            ok = ctx.user_manager.add_open_question_about_user(
+                user_id=resolved_user_id,
+                question=note.content,
+            )
+            logger.debug(f"[metacognitive] Recorded open question about {target_user}: {note.content[:50]}...")
+            return {"success": bool(ok), "type": "open_question", "user": target_user}
 
         else:
             logger.warning(f"[metacognitive] Unknown note type: {note.note_type}")
@@ -627,8 +567,10 @@ def _resolve_user(user_manager, user_id_or_name: str) -> Optional[str]:
     search_name = user_id_or_name.lower().strip()
 
     for user_info in all_profiles:
-        if user_info.get("display_name", "").lower() == search_name:
-            return user_info.get("id")
+        if (user_info.get("display_name") or "").lower() == search_name:
+            # list_users() keys the id as "user_id"; reading "id" here made
+            # every name lookup miss and fall back to the current user.
+            return user_info.get("user_id")
 
     return None
 

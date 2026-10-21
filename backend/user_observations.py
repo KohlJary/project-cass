@@ -1,6 +1,10 @@
 """
-User observation management for Cass's understanding of users.
-Extracted from UserManager for modularity.
+Read-only access to the legacy user_observations table.
+
+Since epic #55 nothing writes this table: observations about users live in
+PeopleDex (see users.UserManager.add_observation and peopledex.py). The rows
+stay for Kohl to retire; scripts/migrate_legacy_users_to_peopledex.py copies
+them into PeopleDex. UserManager no longer uses this module.
 """
 import uuid
 from dataclasses import dataclass, asdict
@@ -109,74 +113,6 @@ class UserObservationManager:
                 ))
             return observations
 
-    def add_observation(
-        self,
-        user_id: str,
-        observation: str,
-        category: str = "background",
-        confidence: float = 0.7,
-        source_conversation_id: Optional[str] = None,
-        source_summary_id: Optional[str] = None,
-        source_message_id: Optional[str] = None,
-        source_journal_date: Optional[str] = None,
-        source_type: str = "conversation"
-    ) -> Optional[UserObservation]:
-        """Add an observation about a user."""
-        # Check user exists
-        profile = self._load_profile(user_id)
-        if not profile:
-            return None
-
-        # Validate category
-        if category not in USER_OBSERVATION_CATEGORIES:
-            category = "background"
-
-        now = datetime.now().isoformat()
-        obs_id = str(uuid.uuid4())
-
-        content = {
-            "observation": observation,
-            "source_conversation_id": source_conversation_id,
-            "source_summary_id": source_summary_id,
-            "source_message_id": source_message_id,
-            "source_journal_date": source_journal_date,
-            "source_type": source_type,
-            "validation_count": 1,
-            "last_validated": now
-        }
-
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO user_observations (
-                    id, daemon_id, user_id, observation_type,
-                    content_json, confidence, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                obs_id,
-                self.daemon_id,
-                user_id,
-                category,
-                json_serialize(content),
-                confidence,
-                now,
-                now
-            ))
-
-        return UserObservation(
-            id=obs_id,
-            timestamp=now,
-            observation=observation,
-            category=category,
-            confidence=confidence,
-            source_conversation_id=source_conversation_id,
-            source_summary_id=source_summary_id,
-            source_message_id=source_message_id,
-            source_journal_date=source_journal_date,
-            source_type=source_type,
-            validation_count=1,
-            last_validated=now
-        )
-
     def get_recent_observations(
         self,
         user_id: str,
@@ -255,50 +191,6 @@ class UserObservationManager:
                     last_validated=content.get("last_validated")
                 ))
             return observations
-
-    def validate_observation(
-        self,
-        user_id: str,
-        observation_id: str,
-        new_confidence: Optional[float] = None
-    ) -> bool:
-        """Validate an observation (increment validation count, update confidence)."""
-        now = datetime.now().isoformat()
-
-        with get_db() as conn:
-            # Get current observation
-            cursor = conn.execute("""
-                SELECT content_json, confidence
-                FROM user_observations
-                WHERE id = ? AND daemon_id = ? AND user_id = ?
-            """, (observation_id, self.daemon_id, user_id))
-
-            row = cursor.fetchone()
-            if not row:
-                return False
-
-            content = json_deserialize(row[0]) if row[0] else {}
-            current_confidence = row[1] or 0.7
-
-            # Update validation count
-            validation_count = content.get("validation_count", 1) + 1
-            content["validation_count"] = validation_count
-            content["last_validated"] = now
-
-            # Update confidence if provided, otherwise boost slightly
-            if new_confidence is not None:
-                final_confidence = new_confidence
-            else:
-                # Small boost for each validation, cap at 0.95
-                final_confidence = min(0.95, current_confidence + 0.05)
-
-            conn.execute("""
-                UPDATE user_observations
-                SET content_json = ?, confidence = ?, updated_at = ?
-                WHERE id = ?
-            """, (json_serialize(content), final_confidence, now, observation_id))
-
-            return True
 
     def check_user_model_sparseness(self, user_id: str) -> dict:
         """

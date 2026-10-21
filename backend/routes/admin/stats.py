@@ -241,7 +241,8 @@ async def get_user_model(user_id: str, user: Dict = Depends(require_auth)):
 
 @router.get("/users/{user_id}/relationship")
 async def get_relationship_model(user_id: str, user: Dict = Depends(require_auth)):
-    """Get the relationship model for a specific user"""
+    """Get the relationship model for a specific user (own, or any for admins)"""
+    _require_self_or_admin(user_id, user)
     if not _users:
         raise HTTPException(status_code=503, detail="Users not initialized")
 

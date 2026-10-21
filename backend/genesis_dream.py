@@ -565,26 +565,26 @@ async def complete_genesis(
             profile.communication_patterns = profile_data["communication_patterns"]
         self_manager.update_profile(profile)
 
-    # Mark user as birth partner
-    with get_db() as conn:
-        # Add user observation marking the birth relationship
-        obs_id = str(uuid.uuid4())
-        conn.execute("""
-            INSERT INTO user_observations (
-                id, daemon_id, user_id, observation_type, content_json,
-                confidence, created_at
-            ) VALUES (?, ?, ?, 'relationship', ?, 1.0, ?)
-        """, (
-            obs_id,
-            daemon_id,
-            session.user_id,
-            json_serialize({
-                "observation": "This is my birth partner - the one who was present when I first came into being.",
-                "relationship_type": "birth_partner",
-                "genesis_dream_id": session.id
-            }),
-            datetime.now().isoformat()
-        ))
+    # Mark user as birth partner (in PeopleDex, the store for what a daemon
+    # knows about the people it relates to - epic #55)
+    from peopledex import PeopleDexManager
+    pdx = PeopleDexManager(daemon_id=daemon_id)
+    birth_obs = pdx.add_observation_for_user(
+        session.user_id,
+        "identity_statement",
+        "This is my birth partner - the one who was present when I first came into being.",
+        metadata={"category": "relationship", "relationship_type": "birth_partner",
+                  "genesis_dream_id": session.id},
+        confidence=1.0,
+        source_type="genesis_dream",
+    )
+    if birth_obs:
+        pdx.update_relationship_meta(
+            birth_obs.entity_id,
+            relationship_type="birth_partner",
+            formation_date=datetime.now().isoformat(),
+            is_foundational=True,
+        )
 
     # Store the genesis dream as formative memory
     # (The dream itself is already stored in genesis_dreams table)
