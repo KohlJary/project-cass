@@ -2433,7 +2433,8 @@ class CassAgentClient:
         self,
         system: str,
         prompt: str,
-        max_tokens: int = 4000
+        max_tokens: int = 4000,
+        call_site: str = "agent.generate_simple",
     ) -> str:
         """
         Simple text generation without tools, memory, or gesture parsing.
@@ -2449,7 +2450,11 @@ class CassAgentClient:
         Returns:
             Raw text response from LLM
         """
-        response = await self.client.messages.create(
+        # Model: llm_config override for call_site, else this client's model.
+        from llm_caller import create_message
+        response = await create_message(
+            call_site,
+            client=self.client,
             model=self.model,
             max_tokens=max_tokens,
             system=system,
@@ -2469,7 +2474,8 @@ class CassAgentClient:
         messages: List[Dict],
         system: str,
         max_tokens: int = 4000,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        call_site: str = "agent.generate",
     ) -> Dict:
         """
         Generate a response from a conversation history.
@@ -2485,7 +2491,11 @@ class CassAgentClient:
         Returns:
             Dict with 'content' key containing the response text
         """
-        response = await self.client.messages.create(
+        # Model: llm_config override for call_site, else this client's model.
+        from llm_caller import create_message
+        response = await create_message(
+            call_site,
+            client=self.client,
             model=self.model,
             max_tokens=max_tokens,
             system=system,
@@ -2981,7 +2991,8 @@ class CassClient:
         messages: List[Dict],
         system: str,
         max_tokens: int = 4000,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        call_site: str = "agent.generate",
     ) -> Dict:
         """
         Generate a response from a conversation history.
@@ -2991,7 +3002,8 @@ class CassClient:
             messages=messages,
             system=system,
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            call_site=call_site,
         )
 
 

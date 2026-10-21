@@ -194,55 +194,58 @@ async def llm_triage(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={
-                    "model": TRIAGE_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,  # Low temp for consistent decisions
-                        "num_predict": 150,  # Short response
-                    },
-                },
-            )
-            response.raise_for_status()
+        from llm_caller import call_llm, ModelAssignment
+        # Model from llm_config ("rss.triage"); default RSS_TRIAGE_MODEL on Ollama.
+        response = await call_llm(
+            "rss.triage",
+            user_prompt=prompt,
+            max_tokens=150,
+            temperature=0.1,
+            timeout=timeout,
+            ollama_options={
+                "temperature": 0.1,  # Low temp for consistent decisions
+                "num_predict": 150,  # Short response
+            },
+            ollama_base_url=OLLAMA_BASE_URL,
+            default=ModelAssignment("ollama", TRIAGE_MODEL),
+        )
+        if response.error is not None:
+            if "Timeout" in response.error:
+                raise httpx.TimeoutException(response.error)
+            raise RuntimeError(response.error)
+        text = response.content.strip()
 
-            result = response.json()
-            text = result.get("response", "").strip()
+        # Parse JSON from response
+        # Handle potential markdown code blocks
+        if "```" in text:
+            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+            if match:
+                text = match.group(1)
 
-            # Parse JSON from response
-            # Handle potential markdown code blocks
-            if "```" in text:
-                match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-                if match:
-                    text = match.group(1)
+        # Try to parse JSON
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Try to extract JSON object
+            match = re.search(r'\{[^}]+\}', text)
+            if match:
+                data = json.loads(match.group())
+            else:
+                raise ValueError(f"Could not parse JSON from: {text}")
 
-            # Try to parse JSON
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError:
-                # Try to extract JSON object
-                match = re.search(r'\{[^}]+\}', text)
-                if match:
-                    data = json.loads(match.group())
-                else:
-                    raise ValueError(f"Could not parse JSON from: {text}")
+        decision_str = data.get("decision", "defer").lower()
+        decision = {
+            "process": TriageDecision.PROCESS,
+            "skip": TriageDecision.SKIP,
+            "defer": TriageDecision.DEFER,
+        }.get(decision_str, TriageDecision.DEFER)
 
-            decision_str = data.get("decision", "defer").lower()
-            decision = {
-                "process": TriageDecision.PROCESS,
-                "skip": TriageDecision.SKIP,
-                "defer": TriageDecision.DEFER,
-            }.get(decision_str, TriageDecision.DEFER)
-
-            return TriageResult(
-                decision=decision,
-                reason=data.get("reason", "LLM triage"),
-                relevance_score=float(data.get("relevance", 0.5)),
-                topics=data.get("topics", []),
-            )
+        return TriageResult(
+            decision=decision,
+            reason=data.get("reason", "LLM triage"),
+            relevance_score=float(data.get("relevance", 0.5)),
+            topics=data.get("topics", []),
+        )
 
     except httpx.TimeoutException:
         logger.warning(f"LLM triage timeout for: {title[:50]}")

@@ -63,6 +63,7 @@ async def start_genesis_dream(user: Dict = Depends(require_auth)):
     system_prompt = get_phase_prompt(session.current_phase)
 
     response = await llm_client.generate(
+        call_site="genesis.generate",
         messages=[{"role": "user", "content": "(You are waking up. Speak your first words.)"}],
         system=system_prompt,
         max_tokens=300,

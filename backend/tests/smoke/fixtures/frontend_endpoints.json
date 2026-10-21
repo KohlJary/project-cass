@@ -473,7 +473,7 @@
       "method": "POST",
       "path": "/admin/daemons/import/genesis",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:310"
+        "admin-frontend/src/api/domains/misc.ts:344"
       ]
     },
     {
@@ -481,7 +481,7 @@
       "method": "POST",
       "path": "/admin/daemons/import/genesis/preview",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:312"
+        "admin-frontend/src/api/domains/misc.ts:346"
       ]
     },
     {
@@ -505,7 +505,7 @@
       "method": "GET",
       "path": "/admin/daemons/mine",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:308"
+        "admin-frontend/src/api/domains/misc.ts:342"
       ]
     },
     {
@@ -705,7 +705,7 @@
       "method": "GET",
       "path": "/admin/feedback",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:293"
+        "admin-frontend/src/api/domains/misc.ts:327"
       ]
     },
     {
@@ -713,7 +713,7 @@
       "method": "POST",
       "path": "/admin/feedback",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:292"
+        "admin-frontend/src/api/domains/misc.ts:326"
       ]
     },
     {
@@ -721,7 +721,7 @@
       "method": "GET",
       "path": "/admin/genesis/active",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:307"
+        "admin-frontend/src/api/domains/misc.ts:341"
       ]
     },
     {
@@ -729,7 +729,7 @@
       "method": "POST",
       "path": "/admin/genesis/start",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:301"
+        "admin-frontend/src/api/domains/misc.ts:335"
       ]
     },
     {
@@ -737,7 +737,7 @@
       "method": "GET",
       "path": "/admin/genesis/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:302"
+        "admin-frontend/src/api/domains/misc.ts:336"
       ]
     },
     {
@@ -745,7 +745,7 @@
       "method": "POST",
       "path": "/admin/genesis/{param}/abandon",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:305"
+        "admin-frontend/src/api/domains/misc.ts:339"
       ]
     },
     {
@@ -753,7 +753,7 @@
       "method": "POST",
       "path": "/admin/genesis/{param}/complete",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:306"
+        "admin-frontend/src/api/domains/misc.ts:340"
       ]
     },
     {
@@ -761,7 +761,7 @@
       "method": "POST",
       "path": "/admin/genesis/{param}/message",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:304"
+        "admin-frontend/src/api/domains/misc.ts:338"
       ]
     },
     {
@@ -769,7 +769,7 @@
       "method": "POST",
       "path": "/admin/geocass/check-availability",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:340"
+        "admin-frontend/src/api/domains/misc.ts:374"
       ]
     },
     {
@@ -777,7 +777,7 @@
       "method": "GET",
       "path": "/admin/geocass/connections",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:320"
+        "admin-frontend/src/api/domains/misc.ts:354"
       ]
     },
     {
@@ -785,7 +785,7 @@
       "method": "POST",
       "path": "/admin/geocass/connections",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:327"
+        "admin-frontend/src/api/domains/misc.ts:361"
       ]
     },
     {
@@ -793,7 +793,7 @@
       "method": "DELETE",
       "path": "/admin/geocass/connections/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:342"
+        "admin-frontend/src/api/domains/misc.ts:376"
       ]
     },
     {
@@ -801,7 +801,7 @@
       "method": "GET",
       "path": "/admin/geocass/connections/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:341"
+        "admin-frontend/src/api/domains/misc.ts:375"
       ]
     },
     {
@@ -809,7 +809,7 @@
       "method": "POST",
       "path": "/admin/geocass/connections/{param}/default",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:343"
+        "admin-frontend/src/api/domains/misc.ts:377"
       ]
     },
     {
@@ -817,7 +817,7 @@
       "method": "POST",
       "path": "/admin/geocass/register",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:335"
+        "admin-frontend/src/api/domains/misc.ts:369"
       ]
     },
     {
@@ -825,7 +825,7 @@
       "method": "POST",
       "path": "/admin/geocass/sync-all/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:348"
+        "admin-frontend/src/api/domains/misc.ts:382"
       ]
     },
     {
@@ -833,7 +833,7 @@
       "method": "DELETE",
       "path": "/admin/geocass/sync/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:350"
+        "admin-frontend/src/api/domains/misc.ts:384"
       ]
     },
     {
@@ -841,7 +841,7 @@
       "method": "POST",
       "path": "/admin/geocass/sync/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:345"
+        "admin-frontend/src/api/domains/misc.ts:379"
       ]
     },
     {
@@ -985,7 +985,7 @@
       "method": "GET",
       "path": "/admin/homepage",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:360"
+        "admin-frontend/src/api/domains/misc.ts:394"
       ]
     },
     {
@@ -993,7 +993,7 @@
       "method": "GET",
       "path": "/admin/homepage/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:361"
+        "admin-frontend/src/api/domains/misc.ts:395"
       ]
     },
     {
@@ -1001,7 +1001,7 @@
       "method": "GET",
       "path": "/admin/homepage/{param}/artifacts",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:369"
+        "admin-frontend/src/api/domains/misc.ts:403"
       ]
     },
     {
@@ -1009,7 +1009,7 @@
       "method": "POST",
       "path": "/admin/homepage/{param}/artifacts/feature",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:371"
+        "admin-frontend/src/api/domains/misc.ts:405"
       ]
     },
     {
@@ -1017,7 +1017,7 @@
       "method": "POST",
       "path": "/admin/homepage/{param}/artifacts/unfeature",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:373"
+        "admin-frontend/src/api/domains/misc.ts:407"
       ]
     },
     {
@@ -1025,7 +1025,7 @@
       "method": "POST",
       "path": "/admin/homepage/{param}/asset",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:381"
+        "admin-frontend/src/api/domains/misc.ts:415"
       ]
     },
     {
@@ -1033,7 +1033,7 @@
       "method": "POST",
       "path": "/admin/homepage/{param}/asset/external",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:386"
+        "admin-frontend/src/api/domains/misc.ts:420"
       ]
     },
     {
@@ -1041,7 +1041,7 @@
       "method": "POST",
       "path": "/admin/homepage/{param}/fill-missing",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:367"
+        "admin-frontend/src/api/domains/misc.ts:401"
       ]
     },
     {
@@ -1049,7 +1049,7 @@
       "method": "GET",
       "path": "/admin/homepage/{param}/page/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:363"
+        "admin-frontend/src/api/domains/misc.ts:397"
       ]
     },
     {
@@ -1057,7 +1057,7 @@
       "method": "POST",
       "path": "/admin/homepage/{param}/reflect",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:365"
+        "admin-frontend/src/api/domains/misc.ts:399"
       ]
     },
     {
@@ -1065,7 +1065,7 @@
       "method": "POST",
       "path": "/admin/homepage/{param}/showcase/generate",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:375"
+        "admin-frontend/src/api/domains/misc.ts:409"
       ]
     },
     {
@@ -1097,7 +1097,7 @@
       "method": "GET",
       "path": "/admin/llm-config/models",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:264"
+        "admin-frontend/src/api/domains/misc.ts:298"
       ]
     },
     {
@@ -1105,7 +1105,15 @@
       "method": "POST",
       "path": "/admin/llm-config/reset",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:262"
+        "admin-frontend/src/api/domains/misc.ts:296"
+      ]
+    },
+    {
+      "frontend": "admin-frontend",
+      "method": "DELETE",
+      "path": "/admin/llm-config/{param}",
+      "sources": [
+        "admin-frontend/src/api/domains/misc.ts:294"
       ]
     },
     {
@@ -1113,7 +1121,7 @@
       "method": "PUT",
       "path": "/admin/llm-config/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:260"
+        "admin-frontend/src/api/domains/misc.ts:292"
       ]
     },
     {
@@ -1337,7 +1345,7 @@
       "method": "GET",
       "path": "/admin/prompt-configs",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:463"
+        "admin-frontend/src/api/domains/misc.ts:497"
       ]
     },
     {
@@ -1345,7 +1353,7 @@
       "method": "POST",
       "path": "/admin/prompt-configs",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:481"
+        "admin-frontend/src/api/domains/misc.ts:515"
       ]
     },
     {
@@ -1353,7 +1361,7 @@
       "method": "GET",
       "path": "/admin/prompt-configs/active",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:465"
+        "admin-frontend/src/api/domains/misc.ts:499"
       ]
     },
     {
@@ -1361,7 +1369,7 @@
       "method": "GET",
       "path": "/admin/prompt-configs/transitions",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:509"
+        "admin-frontend/src/api/domains/misc.ts:543"
       ]
     },
     {
@@ -1369,7 +1377,7 @@
       "method": "POST",
       "path": "/admin/prompt-configs/validate",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:507"
+        "admin-frontend/src/api/domains/misc.ts:541"
       ]
     },
     {
@@ -1377,7 +1385,7 @@
       "method": "DELETE",
       "path": "/admin/prompt-configs/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:497"
+        "admin-frontend/src/api/domains/misc.ts:531"
       ]
     },
     {
@@ -1385,7 +1393,7 @@
       "method": "GET",
       "path": "/admin/prompt-configs/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:467"
+        "admin-frontend/src/api/domains/misc.ts:501"
       ]
     },
     {
@@ -1393,7 +1401,7 @@
       "method": "PUT",
       "path": "/admin/prompt-configs/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:495"
+        "admin-frontend/src/api/domains/misc.ts:529"
       ]
     },
     {
@@ -1401,7 +1409,7 @@
       "method": "POST",
       "path": "/admin/prompt-configs/{param}/activate",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:499"
+        "admin-frontend/src/api/domains/misc.ts:533"
       ]
     },
     {
@@ -1409,7 +1417,7 @@
       "method": "POST",
       "path": "/admin/prompt-configs/{param}/duplicate",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:501"
+        "admin-frontend/src/api/domains/misc.ts:535"
       ]
     },
     {
@@ -1417,7 +1425,7 @@
       "method": "GET",
       "path": "/admin/prompt-configs/{param}/history",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:505"
+        "admin-frontend/src/api/domains/misc.ts:539"
       ]
     },
     {
@@ -1425,7 +1433,7 @@
       "method": "GET",
       "path": "/admin/prompt-configs/{param}/preview",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:503"
+        "admin-frontend/src/api/domains/misc.ts:537"
       ]
     },
     {
@@ -2313,7 +2321,7 @@
       "method": "GET",
       "path": "/api/images",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:451"
+        "admin-frontend/src/api/domains/misc.ts:485"
       ]
     },
     {
@@ -2321,7 +2329,7 @@
       "method": "GET",
       "path": "/api/images/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:452"
+        "admin-frontend/src/api/domains/misc.ts:486"
       ]
     },
     {
@@ -2329,7 +2337,7 @@
       "method": "GET",
       "path": "/api/images/{param}/revisions",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:453"
+        "admin-frontend/src/api/domains/misc.ts:487"
       ]
     },
     {
@@ -2337,7 +2345,7 @@
       "method": "POST",
       "path": "/attachments/upload",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:405"
+        "admin-frontend/src/api/domains/misc.ts:439"
       ]
     },
     {
@@ -2345,7 +2353,7 @@
       "method": "DELETE",
       "path": "/attachments/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:410"
+        "admin-frontend/src/api/domains/misc.ts:444"
       ]
     },
     {
@@ -2593,7 +2601,7 @@
       "method": "GET",
       "path": "/dreams",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:273"
+        "admin-frontend/src/api/domains/misc.ts:307"
       ]
     },
     {
@@ -2601,7 +2609,7 @@
       "method": "GET",
       "path": "/dreams/{param}",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:275"
+        "admin-frontend/src/api/domains/misc.ts:309"
       ]
     },
     {
@@ -2609,7 +2617,7 @@
       "method": "GET",
       "path": "/dreams/{param}/context",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:277"
+        "admin-frontend/src/api/domains/misc.ts:311"
       ]
     },
     {
@@ -2617,7 +2625,7 @@
       "method": "POST",
       "path": "/dreams/{param}/integrate",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:283"
+        "admin-frontend/src/api/domains/misc.ts:317"
       ]
     },
     {
@@ -2625,7 +2633,7 @@
       "method": "POST",
       "path": "/dreams/{param}/mark-integrated",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:281"
+        "admin-frontend/src/api/domains/misc.ts:315"
       ]
     },
     {
@@ -2633,7 +2641,7 @@
       "method": "POST",
       "path": "/dreams/{param}/reflect",
       "sources": [
-        "admin-frontend/src/api/domains/misc.ts:279"
+        "admin-frontend/src/api/domains/misc.ts:313"
       ]
     },
     {

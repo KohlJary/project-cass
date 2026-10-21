@@ -232,7 +232,10 @@ class GoalPlanner:
             capabilities_context=capabilities_context,
         )
 
-        response = await self._client.messages.create(
+        from llm_caller import create_message
+        response = await create_message(
+            "goal_planner.subgoals",
+            client=self._client,
             model=self._model,
             max_tokens=800,
             temperature=0.7,

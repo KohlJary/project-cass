@@ -215,7 +215,10 @@ class DreamSession:
         """Call The Dreaming LLM"""
         self.dreaming_history.append({"role": "user", "content": message})
 
-        response = self.client.messages.create(
+        from llm_caller import create_message_sync
+        response = create_message_sync(
+            "dreaming.the_dreaming",
+            client=self.client,
             model=self.model,
             max_tokens=1000,
             temperature=0.9,  # Higher for dreamlike quality
@@ -231,7 +234,10 @@ class DreamSession:
         """Call Cass as dream participant"""
         self.cass_history.append({"role": "user", "content": message})
 
-        response = self.client.messages.create(
+        from llm_caller import create_message_sync
+        response = create_message_sync(
+            "dreaming.cass_voice",
+            client=self.client,
             model=self.model,
             max_tokens=500,
             temperature=0.7,

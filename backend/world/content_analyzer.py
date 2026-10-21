@@ -318,7 +318,10 @@ class ContentAnalyzer:
 
     def _call_llm(self, system: str, user: str) -> str:
         """Make LLM call and track tokens."""
-        response = self.client.messages.create(
+        from llm_caller import create_message_sync
+        response = create_message_sync(
+            "world.content_analysis",
+            client=self.client,
             model=self.model,
             max_tokens=2000,
             temperature=0.4,

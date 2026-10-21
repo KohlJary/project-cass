@@ -8,8 +8,8 @@ reach a real model:
     dreams, GenericSessionRunner, goal planner, title generation, ...)
   * anthropic.Anthropic().messages.create / .stream        (journals, art study,
     janet, legacy runners, ...)
-  * llm_caller._call_model                                 (Grimoire ASK/RATE/
-    REFLECT/GENERATE and other per-call-site LLM calls; it uses raw httpx)
+  * llm_caller._ollama_request(_sync)                      (every Ollama call;
+    all routed LLM calls go through llm_caller, see tests/test_llm_routing.py)
   * openai chat.completions.create (sync + async)          (OpenAI provider)
 
 It patches the SDK *resource classes*, so every client instance is covered no
@@ -57,7 +57,7 @@ class ScriptedResponse:
 @dataclass
 class RecordedCall:
     """Everything a caller sent to the model, for assertions."""
-    source: str                 # "anthropic.async", "anthropic.sync", "llm_caller", "openai.async", ...
+    source: str                 # "anthropic.async", "anthropic.sync", "ollama", "openai.async", ...
     kwargs: Dict[str, Any]
     response: ScriptedResponse
 
@@ -274,23 +274,34 @@ def install(fake: FakeLLM, monkeypatch) -> FakeLLM:
     monkeypatch.setattr(AsyncMessages, "stream", async_stream)
     monkeypatch.setattr(Messages, "stream", sync_stream)
 
-    # llm_caller talks to Anthropic/Ollama/OpenAI with raw httpx, so patch its
-    # single dispatch point instead of the network layer.
+    # llm_caller reaches Anthropic and OpenAI through the SDKs (patched above
+    # and below) and Ollama through two small httpx helpers, patched here.
     try:
         import llm_caller
 
-        async def fake_call_model(provider, model_id, system_prompt, user_prompt,
-                                  max_tokens, temperature, timeout):
-            kwargs = {"provider": provider, "model": model_id, "system": system_prompt,
-                      "messages": [{"role": "user", "content": user_prompt}],
-                      "max_tokens": max_tokens, "temperature": temperature}
-            resp = fake._next("llm_caller", kwargs)
-            return llm_caller.LLMResponse(
-                content=resp.text, provider=provider, model_id=model_id,
-                input_tokens=resp.input_tokens, output_tokens=resp.output_tokens,
-            )
+        def _ollama_reply(base_url, endpoint, payload, timeout):
+            kwargs = dict(payload)
+            if endpoint == "generate":
+                kwargs["messages"] = [{"role": "user", "content": payload.get("prompt", "")}]
+            kwargs["endpoint"] = endpoint
+            kwargs["base_url"] = base_url
+            resp = fake._next("ollama", kwargs)
+            data = {"model": payload.get("model"), "done": True,
+                    "prompt_eval_count": resp.input_tokens, "eval_count": resp.output_tokens}
+            if endpoint == "chat":
+                data["message"] = {"role": "assistant", "content": resp.text}
+            else:
+                data["response"] = resp.text
+            return data
 
-        monkeypatch.setattr(llm_caller, "_call_model", fake_call_model)
+        async def fake_ollama_request(base_url, endpoint, payload, timeout):
+            return _ollama_reply(base_url, endpoint, payload, timeout)
+
+        def fake_ollama_request_sync(base_url, endpoint, payload, timeout):
+            return _ollama_reply(base_url, endpoint, payload, timeout)
+
+        monkeypatch.setattr(llm_caller, "_ollama_request", fake_ollama_request)
+        monkeypatch.setattr(llm_caller, "_ollama_request_sync", fake_ollama_request_sync)
     except ImportError:
         pass
 

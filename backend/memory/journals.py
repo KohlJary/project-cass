@@ -8,7 +8,6 @@ from datetime import datetime
 from uuid import uuid4
 
 from .core import MemoryCore
-from config import OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_INTERNAL_MODEL
 
 
 class JournalManager:
@@ -52,12 +51,7 @@ class JournalManager:
         Returns:
             A ~150-200 char summary, or None if generation fails
         """
-        if not OLLAMA_ENABLED:
-            return None
-
         try:
-            import httpx
-
             prompt = f"""Summarize this personal journal entry in 1-2 sentences (under 200 characters).
 Focus on the main topics, emotions, or events discussed.
 
@@ -66,27 +60,23 @@ Journal:
 
 Write ONLY the summary, no quotes or labels:"""
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "num_predict": 150,
-                            "temperature": 0.3,
-                        }
-                    }
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    summary = result.get("response", "").strip()
-                    # Ensure it's not too long
-                    if len(summary) > 250:
-                        summary = summary[:247] + "..."
-                    return summary if summary else None
+            from llm_caller import call_llm
+            # Model from llm_config ("memory.journal_summary"): Ollama when
+            # enabled, otherwise skipped.
+            response = await call_llm(
+                "memory.journal_summary",
+                user_prompt=prompt,
+                max_tokens=150,
+                temperature=0.3,
+                timeout=30.0,
+                ollama_options={"num_predict": 150, "temperature": 0.3},
+            )
+            if response.error is None:
+                summary = response.content.strip()
+                # Ensure it's not too long
+                if len(summary) > 250:
+                    summary = summary[:247] + "..."
+                return summary if summary else None
 
         except Exception as e:
             print(f"Journal summary generation failed: {e}")
@@ -112,7 +102,6 @@ Write ONLY the summary, no quotes or labels:"""
         Returns:
             Generated journal entry text or None if no summaries or failed
         """
-        import anthropic
 
         # Get all summaries from this date (requires summary_manager)
         if self._summaries is None:
@@ -183,60 +172,21 @@ Write naturally and personally - this is for your own memory and reflection, not
 Keep it to 2-4 paragraphs - meaningful but not exhaustive."""
 
         try:
-            if OLLAMA_ENABLED:
-                # Use local Ollama for journal generation
-                import httpx
-                response = httpx.post(
-                    f"{OLLAMA_BASE_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": prompt,
-                        "stream": False
-                    },
-                    timeout=120.0
-                )
-                if response.status_code == 200:
-                    result = response.json()
-                    journal_entry = result.get("response", "")
-                    # Track token usage
-                    if token_tracker:
-                        token_tracker.record(
-                            category="internal",
-                            operation="journal_generation",
-                            provider="ollama",
-                            model=OLLAMA_MODEL,
-                            input_tokens=result.get("prompt_eval_count", 0),
-                            output_tokens=result.get("eval_count", 0),
-                        )
-                    print(f"Generated journal entry using Ollama ({OLLAMA_MODEL})")
-                    return journal_entry
-                else:
-                    print(f"Ollama request failed: {response.status_code}, falling back to Claude")
-                    # Fall through to Claude
-
-            # Use Claude API (fallback or primary)
-            client = anthropic.Anthropic(api_key=anthropic_api_key)
-            response = client.messages.create(
-                model=CLAUDE_INTERNAL_MODEL,
+            # Model from llm_config ("memory.journal_entry"): Ollama when
+            # enabled (Claude Haiku if it answers non-200), Claude Haiku otherwise.
+            from llm_caller import call_llm
+            response = await call_llm(
+                "memory.journal_entry",
+                user_prompt=prompt,
                 max_tokens=1500,
-                messages=[{"role": "user", "content": prompt}]
+                timeout=120.0,
+                ollama_options={},
+                anthropic_api_key=anthropic_api_key,
+                operation="journal_generation",
             )
-
-            # Track token usage
-            if token_tracker and response.usage:
-                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                token_tracker.record(
-                    category="internal",
-                    operation="journal_generation",
-                    provider="anthropic",
-                    model=CLAUDE_INTERNAL_MODEL,
-                    input_tokens=response.usage.input_tokens + cache_read,
-                    output_tokens=response.usage.output_tokens,
-                    cache_read_tokens=cache_read,
-                )
-
-            journal_entry = response.content[0].text
-            return journal_entry
+            if response.error is not None:
+                raise RuntimeError(response.error)
+            return response.content
 
         except Exception as e:
             print(f"Failed to generate journal entry: {e}")
@@ -270,7 +220,6 @@ Keep it to 2-4 paragraphs - meaningful but not exhaustive."""
         Returns:
             List of dicts with 'observation', 'source_summary_id', 'source_conversation_id'
         """
-        import anthropic
 
         all_observations = []
 
@@ -309,52 +258,25 @@ Summaries:
 Observations (one per line, starting with "{display_name}"):"""
 
             try:
-                if OLLAMA_ENABLED:
-                    import httpx
-                    response = httpx.post(
-                        f"{OLLAMA_BASE_URL}/api/generate",
-                        json={
-                            "model": OLLAMA_MODEL,
-                            "prompt": prompt,
-                            "stream": False
-                        },
-                        timeout=60.0
-                    )
-                    if response.status_code == 200:
-                        ollama_result = response.json()
-                        result = ollama_result.get("response", "").strip()
-                        # Track token usage
-                        if token_tracker:
-                            token_tracker.record(
-                                category="internal",
-                                operation="observation_extraction",
-                                provider="ollama",
-                                model=OLLAMA_MODEL,
-                                input_tokens=ollama_result.get("prompt_eval_count", 0),
-                                output_tokens=ollama_result.get("eval_count", 0),
-                            )
-                    else:
-                        result = "NONE"
+                from llm_caller import call_llm
+                # "memory.observation_extraction": Ollama when enabled (a
+                # non-200 answer counts as NONE), Claude Haiku otherwise.
+                response = await call_llm(
+                    "memory.observation_extraction",
+                    user_prompt=prompt,
+                    max_tokens=500,
+                    timeout=60.0,
+                    ollama_options={},
+                    anthropic_api_key=anthropic_api_key,
+                    user_id=user_id,
+                    operation="observation_extraction",
+                )
+                if response.error is not None:
+                    if response.provider == "anthropic" or response.error_kind == "exception":
+                        raise RuntimeError(response.error)
+                    result = "NONE"
                 else:
-                    client = anthropic.Anthropic(api_key=anthropic_api_key)
-                    response = client.messages.create(
-                        model=CLAUDE_INTERNAL_MODEL,
-                        max_tokens=500,
-                        messages=[{"role": "user", "content": prompt}]
-                    )
-                    result = response.content[0].text.strip()
-                    # Track token usage
-                    if token_tracker and response.usage:
-                        cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                        token_tracker.record(
-                            category="internal",
-                            operation="observation_extraction",
-                            provider="anthropic",
-                            model=CLAUDE_INTERNAL_MODEL,
-                            input_tokens=response.usage.input_tokens + cache_read,
-                            output_tokens=response.usage.output_tokens,
-                            cache_read_tokens=cache_read,
-                        )
+                    result = response.content.strip()
 
                 # Parse observations
                 if result.upper() != "NONE" and "NONE" not in result.upper().split('\n')[0]:

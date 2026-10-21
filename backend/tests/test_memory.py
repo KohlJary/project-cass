@@ -97,14 +97,14 @@ class TestGistGeneration:
     @pytest.mark.asyncio
     async def test_generate_gist_disabled(self, memory_core):
         """Should return None when OLLAMA_ENABLED is False."""
-        with patch('memory.core.OLLAMA_ENABLED', False):
+        with patch('config.OLLAMA_ENABLED', False):
             gist = await memory_core.generate_gist("User msg", "Response")
             assert gist is None
 
     @pytest.mark.asyncio
     async def test_generate_gist_handles_errors(self, memory_core):
         """Should return None on error."""
-        with patch('memory.core.OLLAMA_ENABLED', True):
+        with patch('config.OLLAMA_ENABLED', True):
             with patch('httpx.AsyncClient') as mock_client_cls:
                 mock_client = AsyncMock()
                 mock_client.post.side_effect = Exception("Connection failed")

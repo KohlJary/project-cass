@@ -175,9 +175,14 @@ class TokenUsageTracker:
         duration_ms: int = 0,
         conversation_id: Optional[str] = None,
         user_id: Optional[str] = None,
-        tool_name: Optional[str] = None
+        tool_name: Optional[str] = None,
+        call_site: Optional[str] = None,
     ) -> UsageRecord:
-        """Record a single LLM usage event."""
+        """Record a single LLM usage event.
+
+        call_site is the llm_config call site (set by llm_caller); rows
+        written without one (chat) are grouped by category/operation.
+        """
         record = UsageRecord(
             id=str(uuid.uuid4()),
             timestamp=datetime.now().isoformat(),
@@ -207,14 +212,14 @@ class TokenUsageTracker:
                     id, daemon_id, timestamp, provider, model, category, operation,
                     input_tokens, output_tokens, total_tokens, cache_read_tokens,
                     cache_write_tokens, conversation_id, user_id, tool_name,
-                    duration_ms, estimated_cost_usd
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    duration_ms, estimated_cost_usd, call_site
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record.id, self._daemon_id, record.timestamp, provider, model,
                 category, operation, input_tokens, output_tokens,
                 input_tokens + output_tokens, cache_read_tokens, cache_write_tokens,
                 conversation_id, user_id, tool_name, duration_ms,
-                record.estimated_cost_usd
+                record.estimated_cost_usd, call_site
             ))
             conn.commit()
 
@@ -380,7 +385,7 @@ class TokenUsageTracker:
             SELECT id, timestamp, provider, model, category, operation,
                    input_tokens, output_tokens, total_tokens, cache_read_tokens,
                    cache_write_tokens, conversation_id, user_id, tool_name,
-                   duration_ms, estimated_cost_usd
+                   duration_ms, estimated_cost_usd, call_site
             FROM token_usage_records
             WHERE daemon_id = ? AND timestamp >= ? AND timestamp <= ?
         """
@@ -419,7 +424,8 @@ class TokenUsageTracker:
                     "user_id": row[12],
                     "tool_name": row[13],
                     "duration_ms": row[14],
-                    "estimated_cost_usd": row[15]
+                    "estimated_cost_usd": row[15],
+                    "call_site": row[16],
                 })
             return results
 
@@ -552,3 +558,38 @@ class TokenUsageTracker:
                 item["value"] = round(item["value"], 4)
 
         return result
+
+    def get_call_site_summary(self, days: int = 30) -> Dict[str, Dict[str, Any]]:
+        """Calls, tokens and spend per llm_config call site over the last `days`.
+
+        Rows without a call site (chat turns, and rows from before call sites
+        were recorded) are grouped under "chat" or "untracked:<category>".
+        """
+        from database import get_db
+        since = (datetime.now() - timedelta(days=days)).isoformat()
+        query = """
+            SELECT
+                CASE
+                    WHEN call_site IS NOT NULL THEN call_site
+                    WHEN category = 'chat' THEN 'chat'
+                    ELSE 'untracked:' || category
+                END AS site,
+                COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                COALESCE(SUM(estimated_cost_usd), 0.0), MAX(timestamp),
+                GROUP_CONCAT(DISTINCT provider || ':' || model)
+            FROM token_usage_records
+            WHERE daemon_id = ? AND timestamp >= ?
+            GROUP BY site
+        """
+        out: Dict[str, Dict[str, Any]] = {}
+        with get_db() as conn:
+            for row in conn.execute(query, (self._daemon_id, since)).fetchall():
+                out[row[0]] = {
+                    "calls": row[1],
+                    "input_tokens": row[2],
+                    "output_tokens": row[3],
+                    "cost_usd": round(row[4] or 0.0, 4),
+                    "last_call": row[5],
+                    "models": sorted((row[6] or "").split(",")) if row[6] else [],
+                }
+        return out

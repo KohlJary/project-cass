@@ -13,7 +13,6 @@ from typing import Optional
 
 from .models import Artist, Artwork, ArtworkStudy, ArtistSynthesis
 from . import persistence
-from config import CLAUDE_INTERNAL_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +151,10 @@ Wikipedia content:
 Provide a focused summary (2-3 paragraphs) that will help inform visual analysis of their work."""
 
             # Use Haiku for simple biographical summarization
-            response = await anthropic_client.messages.create(
-                model=CLAUDE_INTERNAL_MODEL,
+            from llm_caller import create_message
+            response = await create_message(
+                "art_study.biographical_summary",
+                client=anthropic_client,
                 max_tokens=1000,
                 messages=[{"role": "user", "content": summary_prompt}]
             )
@@ -226,8 +227,10 @@ Be specific and personal - these are YOUR notes about what matters to you about 
 
     try:
         # Use Haiku for structured observation extraction
-        response = await anthropic_client.messages.create(
-            model=CLAUDE_INTERNAL_MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "art_study.observation_extraction",
+            client=anthropic_client,
             max_tokens=1000,
             messages=[{"role": "user", "content": observation_prompt}]
         )
@@ -353,8 +356,10 @@ List 5-10 specific terms or phrases you would use in an image generation prompt 
 Be specific and grounded in what you actually observe. Develop your own voice as an art student."""
 
     try:
-        response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+        from llm_caller import create_message
+        response = await create_message(
+            "art_study.deep_analysis",
+            client=anthropic_client,
             max_tokens=2500,
             messages=[{
                 "role": "user",
@@ -598,8 +603,10 @@ What draws you to their work? How has studying them changed or expanded your own
 Speak in your own voice as an artist who has genuinely learned from studying this master."""
 
     try:
-        response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+        from llm_caller import create_message
+        response = await create_message(
+            "art_study.artist_synthesis",
+            client=anthropic_client,
             max_tokens=2500,
             messages=[{"role": "user", "content": synthesis_prompt}]
         )

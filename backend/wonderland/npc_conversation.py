@@ -239,7 +239,10 @@ class NPCConversationHandler:
         messages.append({"role": "user", "content": daemon_message})
 
         try:
-            response = await self.client.messages.create(
+            from llm_caller import create_message
+            response = await create_message(
+                "wonderland.npc_response",
+                client=self.client,
                 model=self.model,
                 max_tokens=500,
                 temperature=0.8,  # Some personality variance
@@ -331,7 +334,10 @@ just your acknowledgment of them, perhaps a few words, a question, or a simple r
 Keep it brief (1-2 short paragraphs at most)."""
 
         try:
-            response = await self.client.messages.create(
+            from llm_caller import create_message
+            response = await create_message(
+                "wonderland.npc_greeting",
+                client=self.client,
                 model=self.model,
                 max_tokens=300,
                 temperature=0.8,
@@ -406,7 +412,10 @@ SENTIMENT: [sentiment]
 MEMORABLE_QUOTE: [quote or "none"]"""
 
         try:
-            response = await self.client.messages.create(
+            from llm_caller import create_message
+            response = await create_message(
+                "wonderland.npc_memory",
+                client=self.client,
                 model=self.model,
                 max_tokens=200,
                 temperature=0.3,  # More deterministic for analysis

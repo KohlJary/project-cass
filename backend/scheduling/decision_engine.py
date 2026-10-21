@@ -341,7 +341,10 @@ class SchedulingDecisionEngine:
         )
 
         try:
-            response = await self._client.messages.create(
+            from llm_caller import create_message
+            response = await create_message(
+                "scheduling.plan_day",
+                client=self._client,
                 model=self._model,
                 max_tokens=600,
                 temperature=0.7,
@@ -708,7 +711,10 @@ class SchedulingDecisionEngine:
         )
 
         try:
-            response = await self._client.messages.create(
+            from llm_caller import create_message
+            response = await create_message(
+                "scheduling.decide_next_work",
+                client=self._client,
                 model=self._model,
                 max_tokens=400,
                 temperature=0.7,  # Some creativity in choice

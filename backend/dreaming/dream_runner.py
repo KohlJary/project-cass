@@ -162,7 +162,10 @@ class AsyncDreamSession:
         """Call The Dreaming LLM"""
         self.dreaming_history.append({"role": "user", "content": message})
 
-        response = await self.client.messages.create(
+        from llm_caller import create_message
+        response = await create_message(
+            "dreaming.the_dreaming",
+            client=self.client,
             model=self.model,
             max_tokens=1000,
             temperature=0.9,  # Higher for dreamlike quality
@@ -188,7 +191,10 @@ class AsyncDreamSession:
         except ImportError:
             pass  # Thymos not available
 
-        response = await self.client.messages.create(
+        from llm_caller import create_message
+        response = await create_message(
+            "dreaming.cass_voice",
+            client=self.client,
             model=self.model,
             max_tokens=500,
             temperature=0.7,

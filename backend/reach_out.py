@@ -558,8 +558,10 @@ async def _ask_her(user_prompt: str, max_tokens: int = 600) -> Optional[str]:
     from self_context import session_system_preamble
 
     client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    response = await client.messages.create(
-        model=HAIKU_MODEL,
+    from llm_caller import create_message
+    response = await create_message(
+        "reach_out.compose",
+        client=client,
         max_tokens=max_tokens,
         system=session_system_preamble(),
         messages=[{"role": "user", "content": user_prompt}],

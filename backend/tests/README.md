@@ -81,8 +81,10 @@ wrap the boot in `levers(...)` (see `module_app` in `tests/smoke/conftest.py`).
 ### `fake_llm`: script the model
 
 `fake_llm` patches every LLM client production uses: the Anthropic SDK
-(sync and async, `create` and `stream`), `llm_caller` (Grimoire
-ASK/RATE/REFLECT) and OpenAI chat completions.
+(sync and async, `create` and `stream`), Ollama calls made through
+`llm_caller` (source `"ollama"`) and OpenAI chat completions. Every LLM call
+site goes through `llm_caller`, which resolves the model in `llm_config` and
+records a `token_usage_records` row with the call site name.
 
 ```python
 def test_turn(booted_app, fake_llm):

@@ -546,22 +546,15 @@ Extract 3-8 threads and 3-8 questions that seem most significant. Focus on thing
 - Still active/unresolved
 - Important to Cass's growth or relationships"""
 
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        from llm_caller import create_message
+        response = await create_message(
+            "narrative.extraction",
+            client=client,
+            operation="narrative_extraction",
             max_tokens=2000,
             messages=[{"role": "user", "content": extraction_prompt}]
         )
 
-        # Track token usage
-        if _token_tracker and response.usage:
-            _token_tracker.record(
-                category="internal",
-                operation="narrative_extraction",
-                provider="anthropic",
-                model="claude-haiku-4-5-20251001",
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens
-            )
 
         # Parse response
         response_text = response.content[0].text.strip()

@@ -242,23 +242,16 @@ Requirements:
 Output ONLY the identity snippet, no preamble or explanation."""
 
         from memory.voice_guard import MEMORY_WRITER_SYSTEM, looks_like_refusal
-        response = await client.messages.create(
-            model=HAIKU_MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "identity_snippet",
+            client=client,
+            operation="identity_snippet_generation",
             max_tokens=500,
             system=MEMORY_WRITER_SYSTEM,
             messages=[{"role": "user", "content": prompt}]
         )
 
-        # Track token usage
-        if token_tracker and response.usage:
-            token_tracker.record(
-                category="internal",
-                operation="identity_snippet_generation",
-                provider="anthropic",
-                model=HAIKU_MODEL,
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens
-            )
 
         snippet_text = response.content[0].text.strip()
         refusal = looks_like_refusal(snippet_text)

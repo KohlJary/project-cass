@@ -233,8 +233,10 @@ Respond in this exact JSON format:
 }}"""
 
         try:
-            response = await self.anthropic_client.messages.create(
-                model="claude-sonnet-4-6",
+            from llm_caller import create_message
+            response = await create_message(
+                "art_study.evaluate_creation",
+                client=self.anthropic_client,
                 max_tokens=1000,
                 messages=[
                     {
@@ -323,8 +325,10 @@ The refinement will use the current image as a base, so focus on the modificatio
 Respond with ONLY the refined prompt text, no explanation."""
 
         try:
-            response = await self.anthropic_client.messages.create(
-                model="claude-sonnet-4-6",
+            from llm_caller import create_message
+            response = await create_message(
+                "art_study.plan_refinement",
+                client=self.anthropic_client,
                 max_tokens=500,
                 messages=[{"role": "user", "content": planning_prompt}],
             )

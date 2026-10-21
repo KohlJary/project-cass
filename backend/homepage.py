@@ -827,6 +827,7 @@ Your homepage is YOUR space for self-expression. Write in your authentic voice.
 Respond only with valid JSON."""
 
         response = await llm_client.generate_simple(
+            call_site="homepage.generate",
             system=system_prompt,
             prompt=prompt,
             max_tokens=4000
@@ -1035,6 +1036,7 @@ Your homepage is YOUR space for self-expression. Write in your authentic voice.
 Respond only with valid JSON."""
 
         response = await llm_client.generate_simple(
+            call_site="homepage.generate",
             system=system_prompt,
             prompt=full_prompt,
             max_tokens=8000  # More tokens for multiple pages
@@ -1172,6 +1174,7 @@ Respond only with valid JSON."""
         logger.info(f"Regenerating {page_slug} page for {daemon_label}")
 
         response = await llm_client.generate_simple(
+            call_site="homepage.generate",
             system=system_prompt,
             prompt=prompt,
             max_tokens=4000
@@ -1672,6 +1675,7 @@ Respond only with valid JSON."""
         logger.info(f"Generating showcase page for {daemon_label} with {len(featured)} artifacts")
 
         response = await llm_client.generate_simple(
+            call_site="homepage.generate",
             system=system_prompt,
             prompt=full_prompt,
             max_tokens=6000

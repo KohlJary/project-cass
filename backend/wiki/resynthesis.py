@@ -10,7 +10,6 @@ Implements the resynthesis process for deepening concepts:
 """
 
 import os
-import httpx
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -451,33 +450,21 @@ Respond in JSON format:
         )
 
         # Call Ollama
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.ollama_url}/api/generate",
-                json={
-                    "model": self.ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": 1000,
-                    }
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-            content = result.get("response", "").strip()
+        from llm_caller import call_llm, ModelAssignment
+        response = await call_llm(
+            "wiki.resynthesis",
+            user_prompt=prompt,
+            max_tokens=1000,
+            temperature=0.7,
+            timeout=120.0,
+            ollama_options={"temperature": 0.7, "num_predict": 1000},
+            ollama_base_url=self.ollama_url,
+            default=ModelAssignment("ollama", self.ollama_model),
+        )
+        if response.error is not None:
+            raise RuntimeError(response.error)
+        content = response.content.strip()
 
-            # Track token usage for wiki synthesis
-            if self.token_tracker:
-                self.token_tracker.record(
-                    category="internal",
-                    operation="wiki_synthesis",
-                    provider="ollama",
-                    model=self.ollama_model,
-                    input_tokens=result.get("prompt_eval_count", 0),
-                    output_tokens=result.get("eval_count", 0),
-                )
 
         # Post-process to clean any leaked context
         content = self._clean_synthesis_output(content, page.name)
@@ -543,33 +530,21 @@ Respond in JSON format:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.ollama_url}/api/generate",
-                    json={
-                        "model": self.ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.1,
-                            "num_predict": 200,
-                        }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-                response_text = result.get("response", "").strip()
+            from llm_caller import call_llm, ModelAssignment
+            response = await call_llm(
+                "wiki.resynthesis_validation",
+                user_prompt=prompt,
+                max_tokens=200,
+                temperature=0.1,
+                timeout=60.0,
+                ollama_options={"temperature": 0.1, "num_predict": 200},
+                ollama_base_url=self.ollama_url,
+                default=ModelAssignment("ollama", self.ollama_model),
+            )
+            if response.error is not None:
+                raise RuntimeError(response.error)
+            response_text = response.content.strip()
 
-                # Track token usage for wiki validation
-                if self.token_tracker:
-                    self.token_tracker.record(
-                        category="internal",
-                        operation="wiki_validation",
-                        provider="ollama",
-                        model=self.ollama_model,
-                        input_tokens=result.get("prompt_eval_count", 0),
-                        output_tokens=result.get("eval_count", 0),
-                    )
 
             # Try to parse JSON from response
             import json

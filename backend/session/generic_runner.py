@@ -229,7 +229,10 @@ class GenericSessionRunner:
                 turn_count += 1
 
                 # Call LLM
-                response = await self.client.messages.create(
+                from llm_caller import create_message
+                response = await create_message(
+                    "session.generic",
+                    client=self.client,
                     model=self.model,
                     max_tokens=4096,
                     system=full_system,

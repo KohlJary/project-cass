@@ -22,7 +22,6 @@ from datetime import datetime
 import asyncio
 import json
 import anthropic
-import httpx
 
 from agent_client import TEMPLE_CODEX_KERNEL, get_temple_codex_kernel
 from markers import parse_marks
@@ -866,15 +865,23 @@ class BaseSessionRunner(ABC):
     ) -> Any:
         """Make an API call to Anthropic."""
         try:
-            response = self.anthropic_client.messages.create(
+            # Model from llm_config ("session.legacy"); this runner's Haiku
+            # model by default. Tool calls keep it on Claude. llm_caller
+            # records the usage in the token ledger.
+            from llm_caller import create_message_sync
+            response = create_message_sync(
+                "session.legacy",
+                client=self.anthropic_client,
                 model=self.haiku_model,
                 max_tokens=2048,
                 system=system_prompt,
                 messages=messages,
                 tools=tools,
+                category="autonomous",
+                operation=self.get_activity_type().value,
             )
 
-            # Track tokens and cost
+            # Track session cost (budget cap)
             if response.usage:
                 cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
                 input_tokens = response.usage.input_tokens + cache_read
@@ -883,17 +890,6 @@ class BaseSessionRunner(ABC):
                 # Estimate cost (Haiku pricing: $0.25/M input, $1.25/M output)
                 cost = (input_tokens * 0.25 / 1_000_000) + (output_tokens * 1.25 / 1_000_000)
                 self._session_cost_usd += cost
-
-                if self.token_tracker:
-                    self.token_tracker.record(
-                        category="autonomous",
-                        operation=self.get_activity_type().value,
-                        provider="anthropic",
-                        model=self.haiku_model,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        cache_read_tokens=cache_read,
-                    )
 
             return response
 
@@ -917,18 +913,21 @@ class BaseSessionRunner(ABC):
                     "content": msg.get("content", ""),
                 })
 
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(
-                    f"{self.ollama_url}/api/chat",
-                    json={
-                        "model": self.ollama_model,
-                        "messages": ollama_messages,
-                        "tools": tools if tools else None,
-                        "stream": False,
-                    }
-                )
-                response.raise_for_status()
-                return response.json()
+            from llm_caller import ollama_raw
+            return await ollama_raw(
+                "session.legacy",
+                {
+                    "model": self.ollama_model,
+                    "messages": ollama_messages,
+                    "tools": tools if tools else None,
+                    "stream": False,
+                },
+                endpoint="chat",
+                base_url=self.ollama_url,
+                timeout=120.0,
+                category="autonomous",
+                operation=self.get_activity_type().value,
+            )
 
         except Exception as e:
             print(f"Ollama API error: {e}")

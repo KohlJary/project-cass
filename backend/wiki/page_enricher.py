@@ -152,28 +152,25 @@ If you don't have much context, write what you can infer and note what you'd lik
 
     async def enrich_page(self, page: Any) -> EnrichmentResult:
         """Enrich a single stub page."""
-        import httpx
 
         try:
             context_snippets = self._get_context_snippets(page.name)
             prompt = self._build_enrich_prompt(page, context_snippets)
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self._ollama_url}/api/generate",
-                    json={
-                        "model": self._ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.7,
-                            "num_predict": 500,
-                        }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-                generated_content = result.get("response", "").strip()
+            from llm_caller import call_llm, ModelAssignment
+            response = await call_llm(
+                "wiki.enrich_page",
+                user_prompt=prompt,
+                max_tokens=500,
+                temperature=0.7,
+                timeout=60.0,
+                ollama_options={"temperature": 0.7, "num_predict": 500},
+                ollama_base_url=self._ollama_url,
+                default=ModelAssignment("ollama", self._ollama_model),
+            )
+            if response.error is not None:
+                raise RuntimeError(response.error)
+            generated_content = response.content.strip()
 
             if not generated_content.startswith("#"):
                 generated_content = f"# {page.name}\n\n{generated_content}"
@@ -359,7 +356,6 @@ If the topic relates to something personal (a person we know, a project we're wo
         page_type: str = "concept"
     ) -> ResearchResult:
         """Research a topic and create a wiki page."""
-        import httpx
         from wiki.storage import PageType
 
         # Web search
@@ -372,22 +368,20 @@ If the topic relates to something personal (a person we know, a project we're wo
         prompt = self._build_research_prompt(name, search_results, memory_context)
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self._ollama_url}/api/generate",
-                    json={
-                        "model": self._ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.7,
-                            "num_predict": 600,
-                        }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
-                generated_content = result.get("response", "").strip()
+            from llm_caller import call_llm, ModelAssignment
+            response = await call_llm(
+                "wiki.research_and_create",
+                user_prompt=prompt,
+                max_tokens=600,
+                temperature=0.7,
+                timeout=60.0,
+                ollama_options={"temperature": 0.7, "num_predict": 600},
+                ollama_base_url=self._ollama_url,
+                default=ModelAssignment("ollama", self._ollama_model),
+            )
+            if response.error is not None:
+                raise RuntimeError(response.error)
+            generated_content = response.content.strip()
         except Exception as e:
             generated_content = f"# {name}\n\n*Research and content generation failed: {str(e)}*\n"
 

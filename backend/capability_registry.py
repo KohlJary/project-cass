@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-import httpx
 
 if TYPE_CHECKING:
     from chromadb import Collection
@@ -342,26 +341,22 @@ Unit: {metric.unit or 'none'}
 Summary:"""
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self._ollama_base_url}/api/generate",
-                    json={
-                        "model": self._ollama_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.3,
-                            "num_predict": 100,
-                        }
-                    }
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    summary = result.get("response", "").strip()
-                    if summary:
-                        logger.debug(f"[CapabilityRegistry] Generated summary for {source_id}:{metric.name}")
-                        return summary
+            from llm_caller import call_llm, ModelAssignment
+            response = await call_llm(
+                "capability.summary",
+                user_prompt=prompt,
+                max_tokens=100,
+                temperature=0.3,
+                timeout=30.0,
+                ollama_options={"temperature": 0.3, "num_predict": 100},
+                ollama_base_url=self._ollama_base_url,
+                default=ModelAssignment("ollama", self._ollama_model),
+            )
+            if response.error is None:
+                summary = response.content.strip()
+                if summary:
+                    logger.debug(f"[CapabilityRegistry] Generated summary for {source_id}:{metric.name}")
+                    return summary
 
         except Exception as e:
             logger.warning(f"[CapabilityRegistry] Failed to generate summary via Ollama: {e}")

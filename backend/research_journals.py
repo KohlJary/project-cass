@@ -198,8 +198,10 @@ Write a brief (2-3 paragraph) personal reflection in first person that:
 
 Be authentic and reflective, not just summarizing. This is your journal."""
 
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        from llm_caller import create_message
+        response = await create_message(
+            "research_session_reflection",
+            client=client,
             max_tokens=500,
             messages=[{"role": "user", "content": prompt}]
         )

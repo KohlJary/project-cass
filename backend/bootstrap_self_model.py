@@ -16,10 +16,9 @@ Usage:
     python bootstrap_self_model.py
 """
 import asyncio
-import httpx
 from memory import CassMemory
 from self_model import SelfManager, CassSelfObservation
-from config import ANTHROPIC_API_KEY, OLLAMA_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL, CLAUDE_INTERNAL_MODEL
+from config import ANTHROPIC_API_KEY
 
 
 async def analyze_journals_for_self_model(journals: list, api_key: str) -> dict:
@@ -69,31 +68,20 @@ OPEN_QUESTION | question text
 Only include insights that are genuinely visible in the journal content. Be specific, not generic.
 Aim for 3-5 items per category where the journals support it."""
 
-    # Use Claude API
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            },
-            json={
-                "model": CLAUDE_INTERNAL_MODEL,  # Use Haiku for one-time bootstrap
-                "max_tokens": 2000,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ]
-            }
-        )
-
-        if response.status_code != 200:
-            print(f"API error: {response.status_code}")
-            print(response.text)
-            return None
-
-        result = response.json()
-        return result["content"][0]["text"]
+    # Model from llm_config ("bootstrap.self_model", Haiku by default);
+    # llm_caller records the usage in the token ledger (#52).
+    from llm_caller import call_llm
+    response = await call_llm(
+        "bootstrap.self_model",
+        user_prompt=prompt,
+        max_tokens=2000,
+        timeout=60.0,
+        anthropic_api_key=api_key,
+    )
+    if not response.success:
+        print(f"API error: {response.error}")
+        return None
+    return response.content
 
 
 def parse_analysis_results(analysis_text: str) -> dict:

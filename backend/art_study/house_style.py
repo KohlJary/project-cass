@@ -25,7 +25,6 @@ from .persistence import (
     save_personal_style,
     get_house_style_stats,
 )
-from config import CLAUDE_INTERNAL_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +97,10 @@ If nothing from this artist particularly speaks to you, return an empty list - t
 
     try:
         # Use Haiku for straightforward element extraction from synthesis
-        response = await anthropic_client.messages.create(
-            model=CLAUDE_INTERNAL_MODEL,
+        from llm_caller import create_message
+        response = await create_message(
+            "art_study.house_style_extraction",
+            client=anthropic_client,
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -251,8 +252,10 @@ Be authentic. This is YOUR voice emerging from studying others - not a pastiche,
 """
 
     try:
-        response = await anthropic_client.messages.create(
-            model="claude-sonnet-4-6",
+        from llm_caller import create_message
+        response = await create_message(
+            "art_study.house_style_generation",
+            client=anthropic_client,
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}],
         )
