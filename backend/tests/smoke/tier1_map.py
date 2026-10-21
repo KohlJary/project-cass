@@ -13,9 +13,13 @@ Tier 1 map: which smoke tests cover which lever (benchmark epic #65).
 
 So a new lever, or a new smoke test, fails CI until it is classified here.
 
-Entries are pytest node-id prefixes relative to backend/: a file
-("tests/smoke/test_x.py") or a test in it ("tests/smoke/test_x.py::test_y",
-"tests/smoke/test_x.py::TestClass"). Parametrized cases match their base name.
+Entries are pytest node-id prefixes relative to backend/. Lever entries must
+name single tests ("tests/smoke/test_x.py::test_y" or
+"tests/smoke/test_x.py::TestClass::test_y"), so a test added to a file a lever
+uses is unclassified until someone lists it. SPINE entries may name a whole
+file ("tests/smoke/test_x.py"): a test added to such a file is counted as
+spine automatically, which is the one place the guard is loose.
+Parametrized cases match their base name.
 
 `depth` says how much of the subsystem the listed tests exercise:
 
@@ -24,8 +28,9 @@ Entries are pytest node-id prefixes relative to backend/: a file
              checks the result.
 - "partial": some of the subsystem runs, but the part the lever starts (a loop,
              a connection, a boot path) does not. The note says which.
-- "gate":    the tests only check that the lever gates the entry point; the
-             subsystem's work is faked.
+- "gate":    the tests reach the subsystem's entry point (or only check the
+             lever gates it), but its work doesn't run: it is faked, or it
+             returns early on the test setup. The note says which.
 - "none":    no smoke test. `tests` must be empty.
 
 Tests that only assert a subsystem stays OFF under CASS_PROFILE=test don't
@@ -36,20 +41,21 @@ batteries); notes mention them where they exist.
 CYCLES = "tests/smoke/test_autonomous_cycles.py"
 HEARTBEAT_BOOT = "tests/smoke/test_heartbeat_boot.py"
 LEVER_WIRING = "tests/smoke/test_lever_wiring.py::TestLeverWiring"
+FALLBACK = "tests/smoke/test_heartbeat_fallback.py"
+JOURNAL = "tests/smoke/test_journal_pipeline.py"
+AGENT_LOOP = "tests/smoke/test_agent_loop_session.py"
 
 LEVER_COVERAGE = {
     # --- Synkratos scheduler and its system jobs ---
     "scheduler": {
         "depth": "partial",
-        "tests": [f"{CYCLES}::test_scheduler_loop_not_started",
-                  f"{HEARTBEAT_BOOT}::test_migrated_jobs_run_on_heartbeat_not_synkratos"],
-        "note": "Jobs register on Synkratos at boot and run by hand; the scheduler loop itself is never started.",
+        "tests": [f"{HEARTBEAT_BOOT}::test_migrated_jobs_run_on_heartbeat_not_synkratos"],
+        "note": "Checks which jobs register on Synkratos at boot; the scheduler loop itself is never started (the jobs are run by hand, listed under their own levers).",
     },
     "job_github_metrics": {
         "depth": "runs",
-        "tests": [f"{CYCLES}::test_job_github_metrics",
-                  "tests/smoke/test_heartbeat_fallback.py"],
-        "note": "",
+        "tests": [f"{CYCLES}::test_job_github_metrics"],
+        "note": "GitHub API is faked.",
     },
     "job_idle_summarization": {
         "depth": "runs",
@@ -60,19 +66,20 @@ LEVER_COVERAGE = {
         "depth": "runs",
         "tests": [f"{CYCLES}::test_job_daily_journal_writes_dream",
                   f"{CYCLES}::test_job_daily_journal_writes_journal",
-                  "tests/smoke/test_journal_pipeline.py"],
+                  f"{JOURNAL}::test_nightly_journal_reaches_admin_page_and_search",
+                  f"{JOURNAL}::test_generate_route_uses_the_same_generator"],
         "note": "",
     },
     "job_goal_refinement": {
-        "depth": "runs",
+        "depth": "partial",
         "tests": [f"{CYCLES}::test_job_goal_refinement",
                   f"{HEARTBEAT_BOOT}::test_a_heartbeat_run_is_logged"],
-        "note": "",
+        "note": "Runs on empty input: no goals need refinement, so the job completes without refining anything.",
     },
     "job_autonomous_research": {
-        "depth": "runs",
+        "depth": "gate",
         "tests": [f"{CYCLES}::test_job_autonomous_research"],
-        "note": "",
+        "note": "The handler returns at the supervised-mode check (scheduler/handlers.py autonomous_research_handler); no research runs.",
     },
     "research_session_requests": {
         "depth": "none",
@@ -93,7 +100,7 @@ LEVER_COVERAGE = {
                   f"{CYCLES}::test_timer_spell_research_synthesis",
                   f"{CYCLES}::test_timer_spell_art_study",
                   f"{CYCLES}::test_timer_spell_goal_executor"],
-        "note": "Each spell is cast once by hand (what its timer would do); the on_tick trigger is not run.",
+        "note": "Each spell is cast once by hand (what its timer would do); the on_tick trigger is not run. The spells run, but most of the actions they call run on empty input (see rss, research, art_study).",
     },
     "grimoire_need_spells": {
         "depth": "partial",
@@ -102,16 +109,22 @@ LEVER_COVERAGE = {
         "note": "Two of the need spells (social_care, novelty_care) are cast by hand; the threshold trigger and the other need spells are not run.",
     },
     "goal_orchestrator": {
-        "depth": "partial",
-        "tests": [f"{CYCLES}::test_timer_spell_goal_executor"],
-        "note": "goal_executor runs against a bare orchestrator with the lever off; needs-to-goals and LLM goal planning are not run. Fast-suite: tests/test_goal_orchestrator.py.",
+        "depth": "none",
+        "tests": [],
+        "note": "Only the lever-off path is exercised: the goal_executor spell test sets up a bare orchestrator by hand; needs-to-goals and LLM goal planning never run. Fast-suite: tests/test_goal_orchestrator.py.",
     },
 
     # --- Day phases / autonomous scheduling ---
     "autonomous_scheduling": {
-        "depth": "runs",
-        "tests": [CYCLES, "tests/smoke/test_agent_loop_session.py"],
-        "note": "Booted on so the action registry is built; the spells and sessions dispatch through it.",
+        "depth": "partial",
+        "tests": [f"{CYCLES}::test_timer_spell_rss_monitor",
+                  f"{CYCLES}::test_timer_spell_research_synthesis",
+                  f"{CYCLES}::test_timer_spell_art_study",
+                  f"{CYCLES}::test_timer_spell_goal_executor",
+                  f"{CYCLES}::test_need_spell_social_care_outreach",
+                  f"{CYCLES}::test_need_spell_novelty_care_wonderland",
+                  f"{AGENT_LOOP}::test_reflection_session_runs_through_the_turn"],
+        "note": "Booted on as plumbing: the action registry is built and these tests dispatch through it; day-phase/phase-queue wiring is not run.",
     },
     "day_phases": {
         "depth": "none",
@@ -128,7 +141,7 @@ LEVER_COVERAGE = {
     "conversation_observation": {"depth": "none", "tests": [], "note": ""},
     "legacy_background_loops": {
         "depth": "partial",
-        "tests": ["tests/smoke/test_heartbeat_fallback.py"],
+        "tests": [f"{FALLBACK}::test_fallback_skips_the_job_heartbeat_owns"],
         "note": "Checks the fallback starts the legacy loops (their coroutines are replaced by recorders); the loops' work is not run.",
     },
     "identity_bootstrap": {"depth": "none", "tests": [], "note": "Fast-suite: tests/test_identity_snippet_refresh.py."},
@@ -142,20 +155,20 @@ LEVER_COVERAGE = {
 
     # --- Autonomous action domains ---
     "rss": {
-        "depth": "runs",
+        "depth": "partial",
         "tests": [f"{CYCLES}::test_timer_spell_rss_monitor"],
-        "note": "",
+        "note": "The rss.* actions run, but there are 0 active feeds: nothing is fetched or processed.",
     },
     "research": {
-        "depth": "runs",
+        "depth": "partial",
         "tests": [f"{CYCLES}::test_timer_spell_research_synthesis",
                   f"{CYCLES}::test_timer_spell_goal_executor"],
-        "note": "",
+        "note": "research.run_batch completes 0 tasks and research.run_single finds the queue empty; only the RATE / set_research_focus branch does work.",
     },
     "art_study": {
-        "depth": "runs",
+        "depth": "partial",
         "tests": [f"{CYCLES}::test_timer_spell_art_study"],
-        "note": "Met Museum and Wikipedia fetches are stubbed.",
+        "note": "artstudy.batch_study studies 0 artworks; the Met Museum and Wikipedia fetches are stubbed.",
     },
     "outreach": {
         "depth": "runs",
@@ -171,7 +184,8 @@ LEVER_COVERAGE = {
     # --- Integrations ---
     "discord": {
         "depth": "partial",
-        "tests": ["tests/smoke/test_discord_wake_tools.py"],
+        "tests": ["tests/smoke/test_discord_wake_tools.py::test_tool_use_then_text_posts_the_final_text",
+                  "tests/smoke/test_discord_wake_tools.py::test_plain_reply_posts_once"],
         "note": "The wake callback runs against a fake bot; the Discord connection is not started.",
     },
     "home_assistant": {
@@ -211,15 +225,19 @@ LEVER_COVERAGE = {
     # --- One agent loop ---
     "agent_loop": {
         "depth": "runs",
-        "tests": ["tests/smoke/test_agent_loop_session.py"],
+        "tests": [f"{AGENT_LOOP}::test_reflection_session_runs_through_the_turn",
+                  f"{AGENT_LOOP}::test_reflection_session_is_legacy_with_the_lever_off",
+                  f"{AGENT_LOOP}::test_websocket_chat_mid_session_ends_the_session"],
         "note": "",
     },
 
     # --- Heartbeat ---
     "heartbeat": {
         "depth": "runs",
-        "tests": [HEARTBEAT_BOOT, "tests/smoke/test_heartbeat_fallback.py"],
-        "note": "",
+        "tests": [f"{HEARTBEAT_BOOT}::test_migrated_jobs_run_on_heartbeat_not_synkratos",
+                  f"{HEARTBEAT_BOOT}::test_a_heartbeat_run_is_logged",
+                  f"{FALLBACK}::test_fallback_skips_the_job_heartbeat_owns"],
+        "note": "Run evidence is test_a_heartbeat_run_is_logged, which covers one job (goal_refinement); the others check registration and the fallback guard.",
     },
 
     "art_choice": {
@@ -234,7 +252,8 @@ LEVER_COVERAGE = {
 SPINE = {
     "boot": ["tests/smoke/test_app_boot.py",
              f"{LEVER_WIRING}::test_endpoint_lists_levers_and_requires_admin",
-             f"{CYCLES}::test_grimoire_attached_to_thymos_without_starting_it"],
+             f"{CYCLES}::test_grimoire_attached_to_thymos_without_starting_it",
+             f"{CYCLES}::test_scheduler_loop_not_started"],
     "chat turn": ["tests/smoke/test_ws_chat_turn.py",
                   "tests/smoke/test_http_chat_paths.py",
                   "tests/smoke/test_chat_turn_hazards.py",

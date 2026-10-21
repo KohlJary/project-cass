@@ -57,6 +57,15 @@ def _load():
     return features, tier1_map
 
 
+def _is_fixture(node) -> bool:
+    """`test_db` and friends are fixtures named like tests; pytest doesn't collect them."""
+    for dec in node.decorator_list:
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if "fixture" in ast.unparse(target):
+            return True
+    return False
+
+
 def smoke_test_units() -> dict:
     """{'tests/smoke/test_x.py': ['test_a', 'TestB', ...]} from the source, statically."""
     units = {}
@@ -64,7 +73,8 @@ def smoke_test_units() -> dict:
         tree = ast.parse(path.read_text(), filename=str(path))
         names = []
         for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+                    and not _is_fixture(node)):
                 names.append(node.name)
             elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
                 names.append(node.name)
@@ -94,8 +104,12 @@ def all_entries(tier1_map) -> list:
     return entries
 
 
-def validate_map() -> list:
-    """Every problem with the map, as strings. Empty means it's complete."""
+def validate_map(units: dict | None = None) -> list:
+    """Every problem with the map, as strings. Empty means it's complete.
+
+    `units` stands in for smoke_test_units() (tests use it to simulate a new
+    smoke test without writing a file).
+    """
     features, tier1_map = _load()
     errors = []
     coverage = tier1_map.LEVER_COVERAGE
@@ -121,8 +135,16 @@ def validate_map() -> list:
             errors.append(f"{name}: depth {cov['depth']!r} but no tests are listed")
         if cov["depth"] in ("partial", "gate") and not cov["note"]:
             errors.append(f"{name}: depth {cov['depth']!r} needs a note saying what isn't run")
+        for entry in cov["tests"]:
+            # Lever entries name single tests, so a test added to the file
+            # later is unclassified (and fails) until someone maps it.
+            _, _, rest = entry.partition("::")
+            head = rest.partition("::")[0]
+            if not rest or (head.startswith("Test") and "::" not in rest):
+                errors.append(f"{name}: {entry!r}: lever entries must name a single test, "
+                              "not a whole file or class")
 
-    units = smoke_test_units()
+    units = smoke_test_units() if units is None else units
     entries = all_entries(tier1_map)
     for entry in entries:
         rel, _, rest = entry.partition("::")
@@ -270,7 +292,7 @@ def render(results: dict, source: str) -> str:
         "",
         "- **runs**: the subsystem's own work runs against the fake LLM and the test checks the result.",
         "- **partial**: some of it runs, but not the part the lever starts (a loop, a connection). The note says which.",
-        "- **gate only**: the tests check the lever gates the entry point; the work itself is faked.",
+        "- **gate only**: the tests reach the entry point (or only check the lever gates it), but the work doesn't run: it is faked, or returns early on the test setup.",
         "- **UNCOVERED**: no smoke test. The rule is new subsystem = new lever + smoke test.",
         "",
         "## Levers",
