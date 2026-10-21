@@ -524,6 +524,24 @@ Observations (one per line, starting with "{display_name}"):"""
             "id": results["ids"][0]
         }
 
+    def get_daily_journal_entry(self, date: str) -> Optional[Dict]:
+        """The daily journal for a date, ignoring research/spell/world journals
+        that share the date. None if there isn't one."""
+        results = self.collection.get(
+            where={"$and": [{"type": "journal"}, {"journal_date": date}]},
+            include=["documents", "metadatas"]
+        )
+        daily = [
+            {"content": doc, "metadata": meta, "id": doc_id}
+            for doc_id, doc, meta in zip(results["ids"], results["documents"], results["metadatas"])
+            if is_daily_journal(meta or {})
+        ]
+        if not daily:
+            return None
+        # Newest first if there's more than one
+        daily.sort(key=lambda j: j["metadata"].get("timestamp", ""), reverse=True)
+        return daily[0]
+
     def set_journal_locked(self, date: str, locked: bool) -> bool:
         """
         Set the locked status of a journal entry.
@@ -535,7 +553,7 @@ Observations (one per line, starting with "{display_name}"):"""
         Returns:
             True if successful, False if journal not found
         """
-        journal = self.get_journal_entry(date)
+        journal = self.get_daily_journal_entry(date) or self.get_journal_entry(date)
         if not journal:
             return False
 
@@ -587,10 +605,12 @@ Observations (one per line, starting with "{display_name}"):"""
         return journals[:n]
 
     def delete_journal_entry(self, date: str) -> Optional[str]:
-        """Delete the journal for a date (the one get_journal_entry returns)
-        from Chroma and its SQLite row. Returns the deleted Chroma id, or None.
+        """Delete the daily journal for a date from Chroma and its SQLite row.
+
+        Only the daily journal: a research or spell journal on the same date is
+        never touched. Returns the deleted Chroma id, or None.
         """
-        journal = self.get_journal_entry(date)
+        journal = self.get_daily_journal_entry(date)
         if not journal:
             return None
         from database import get_db
@@ -624,6 +644,19 @@ Observations (one per line, starting with "{display_name}"):"""
             _set_search_indexed(chroma_id, True)
             done += 1
         return done
+
+
+def is_daily_journal(meta: dict) -> bool:
+    """Is this journal entry the nightly daily journal?
+
+    Research sessions and Grimoire REFLECT ... SAVE AS JOURNAL also store
+    type=journal entries dated today. New entries carry journal_type; for older
+    ones, a daily journal is the only kind built from summaries or conversations.
+    """
+    journal_type = meta.get("journal_type")
+    if journal_type:
+        return journal_type == "daily"
+    return bool(meta.get("summary_count") or meta.get("conversation_count"))
 
 
 def insert_journal_row(

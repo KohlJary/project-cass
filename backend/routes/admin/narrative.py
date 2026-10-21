@@ -457,7 +457,7 @@ async def _run_extraction(source_type: str = "journals"):
             with get_db() as conn:
                 cursor = conn.execute("""
                     SELECT date, content FROM journals
-                    WHERE daemon_id = ?
+                    WHERE daemon_id = ? AND COALESCE(journal_type, 'daily') = 'daily'
                     ORDER BY date DESC
                     LIMIT 20
                 """, (daemon_id,))

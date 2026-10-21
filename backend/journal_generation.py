@@ -25,18 +25,8 @@ def _get_dependencies():
             admin_state.self_manager, admin_state.users)
 
 
-def _is_daily_journal(meta: dict) -> bool:
-    """Is this journal entry the nightly daily journal?
-
-    Research sessions and Grimoire REFLECT ... SAVE AS JOURNAL also store
-    type=journal entries dated today, which made the nightly job skip the real
-    journal for that day. New entries carry journal_type; for older ones, a
-    daily journal is the only kind built from summaries or conversations.
-    """
-    journal_type = meta.get("journal_type")
-    if journal_type:
-        return journal_type == "daily"
-    return bool(meta.get("summary_count") or meta.get("conversation_count"))
+# The rule lives with the journal store; kept under the old name for callers.
+from memory.journals import is_daily_journal as _is_daily_journal  # noqa: E402
 
 
 def _get_daemon_activity_mode() -> str:

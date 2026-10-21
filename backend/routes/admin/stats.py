@@ -68,6 +68,7 @@ async def get_system_stats(
             # Get journal count
             journal_cursor = conn.execute("""
                 SELECT COUNT(*) FROM journals WHERE daemon_id = ?
+                  AND COALESCE(journal_type, 'daily') = 'daily'
             """, (effective_daemon_id,))
             journal_count = journal_cursor.fetchone()[0] or 0
 

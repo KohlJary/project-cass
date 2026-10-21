@@ -10,6 +10,10 @@ SQLite row for each one that has none. It never edits or deletes anything in
 Chroma, and never edits or deletes SQLite rows. Idempotent: a second run
 inserts nothing.
 
+Entries without a journal_type get one inferred (see infer_journal_type;
+"untyped" means a pre-journal_type side reflection that isn't a daily or
+research journal).
+
 A Chroma entry already counts as present when a row has its id in chroma_id,
 or, for the pre-v60 rows that have no chroma_id, when a row has the same date
 and identical content.
@@ -33,8 +37,23 @@ from config import CHROMA_PERSIST_DIR, COLLECTION_NAME, DATA_DIR  # noqa: E402
 from database import get_db  # noqa: E402
 
 
-def infer_journal_type(meta: dict) -> str:
-    """journal_type for an entry; older entries don't carry one."""
+def infer_journal_type(meta: dict, document: str = "") -> str:
+    """journal_type for an entry; entries written before journal_type existed
+    don't carry one, so it's inferred:
+
+    - "research" / "world": a -research / -world date suffix (the nightly
+      research and world-awareness reflections), or, conservatively, an
+      untyped side journal whose opening (first 200 characters) mentions
+      research. Those are reflections on research sessions ("The research
+      session surprised me...", "From my recent research...").
+    - "daily": built from summaries or conversations (same rule as
+      memory.journals.is_daily_journal); only the nightly journal ever was.
+    - "untyped": everything else. These are short side reflections from before
+      journal_type, mostly Grimoire REFLECT ... SAVE AS JOURNAL output
+      ("What surprised me was...", values-alignment reflections, spell-failure
+      notes, a few "[Error reflecting: ]" stubs). Not daily journals; the
+      admin Journals page and the daily counts leave them out.
+    """
     if meta.get("journal_type"):
         return meta["journal_type"]
     date = meta.get("journal_date") or ""
@@ -42,11 +61,10 @@ def infer_journal_type(meta: dict) -> str:
         return "research"
     if date.endswith("-world"):
         return "world"
-    # Only the daily journal was ever built from summaries or conversations
-    # (same rule as journal_generation._is_daily_journal).
     if meta.get("summary_count") or meta.get("conversation_count"):
         return "daily"
-    # Research-session and Grimoire reflections from before journal_type.
+    if "research" in (document or "")[:200].lower():
+        return "research"
     return "untyped"
 
 
@@ -117,7 +135,7 @@ def run(apply: bool, persist_dir=CHROMA_PERSIST_DIR, collection_name=COLLECTION_
     entries = chroma_journals(persist_dir, collection_name)
     before, chroma_ids, legacy = sqlite_state(daemon_id)
     missing, by_id, by_content, matched = plan(entries, chroma_ids, legacy)
-    missing_types = Counter(infer_journal_type(meta) for _, _, meta in missing)
+    missing_types = Counter(infer_journal_type(meta, doc) for _, doc, meta in missing)
 
     inserted = 0
     if apply:
@@ -127,7 +145,7 @@ def run(apply: bool, persist_dir=CHROMA_PERSIST_DIR, collection_name=COLLECTION_
                 date=meta["journal_date"],
                 content=doc,
                 created_at=meta.get("timestamp") or datetime.now().isoformat(),
-                journal_type=infer_journal_type(meta),
+                journal_type=infer_journal_type(meta, doc),
                 chroma_id=doc_id,
                 metadata=meta,
                 daemon_id=daemon_id,

@@ -200,6 +200,9 @@ class CassMemory:
     def get_journal_entry(self, date: str):
         return self._journals.get_journal_entry(date)
 
+    def get_daily_journal_entry(self, date: str):
+        return self._journals.get_daily_journal_entry(date)
+
     def delete_journal_entry(self, date: str):
         return self._journals.delete_journal_entry(date)
 

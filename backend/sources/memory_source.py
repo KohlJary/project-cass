@@ -241,6 +241,7 @@ class MemoryQueryableSource(QueryableSource):
                            COUNT(*) as value
                     FROM journals
                     WHERE daemon_id = ?
+                      AND COALESCE(journal_type, 'daily') = 'daily'
                       AND created_at >= ?
                       AND created_at <= ?
                     GROUP BY period
@@ -364,13 +365,14 @@ class MemoryQueryableSource(QueryableSource):
             if metric == "total_journals":
                 cursor = conn.execute("""
                     SELECT COUNT(*) as value FROM journals WHERE daemon_id = ?
+                      AND COALESCE(journal_type, 'daily') = 'daily'
                 """, (self._daemon_id,))
                 value = cursor.fetchone()["value"]
 
             elif metric == "journals_created":
                 cursor = conn.execute("""
                     SELECT COUNT(*) as value FROM journals
-                    WHERE daemon_id = ? AND created_at >= ? AND created_at <= ?
+                    WHERE daemon_id = ? AND COALESCE(journal_type, 'daily') = 'daily' AND created_at >= ? AND created_at <= ?
                 """, (self._daemon_id, start.isoformat(), end.isoformat()))
                 value = cursor.fetchone()["value"]
 
@@ -447,6 +449,7 @@ class MemoryQueryableSource(QueryableSource):
             # Journals
             cursor = conn.execute("""
                 SELECT COUNT(*) as count FROM journals WHERE daemon_id = ?
+                  AND COALESCE(journal_type, 'daily') = 'daily'
             """, (self._daemon_id,))
             journals_total = cursor.fetchone()["count"]
 
@@ -511,17 +514,18 @@ class MemoryQueryableSource(QueryableSource):
             # Journals
             cursor = conn.execute("""
                 SELECT COUNT(*) as count FROM journals WHERE daemon_id = ?
+                  AND COALESCE(journal_type, 'daily') = 'daily'
             """, (self._daemon_id,))
             self._rollups["journals_total"] = cursor.fetchone()["count"]
 
             cursor = conn.execute("""
                 SELECT COUNT(*) as count FROM journals
-                WHERE daemon_id = ? AND created_at >= ?
+                WHERE daemon_id = ? AND COALESCE(journal_type, 'daily') = 'daily' AND created_at >= ?
             """, (self._daemon_id, month_start.isoformat()))
             self._rollups["journals_this_month"] = cursor.fetchone()["count"]
 
             cursor = conn.execute("""
-                SELECT MAX(date) as last_date FROM journals WHERE daemon_id = ?
+                SELECT MAX(date) as last_date FROM journals WHERE daemon_id = ? AND COALESCE(journal_type, 'daily') = 'daily'
             """, (self._daemon_id,))
             row = cursor.fetchone()
             self._rollups["last_journal_date"] = row["last_date"] if row else None

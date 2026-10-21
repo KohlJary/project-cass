@@ -109,7 +109,8 @@ def test_backfill_copies_missing_and_is_idempotent(chroma):
     c = chroma.collection
     _chroma_journal(c, "j-daily", "2026-01-02", "daily text", summary_count=3)
     _chroma_journal(c, "j-spell", "2026-01-02", "spell text", journal_type="spell")
-    _chroma_journal(c, "j-old", "2026-01-03", "old side journal")
+    _chroma_journal(c, "j-old", "2026-01-03", "What surprised me was the old side journal")
+    _chroma_journal(c, "j-res", "2026-01-03", "The research session surprised me today")
     _chroma_journal(c, "j-seed", "2025-12-04", "seed text", summary_count=1)
     c.add(ids=["not-journal"], documents=["a summary"], metadatas=[{"type": "summary"}])
     # A pre-v60 seed row with the same date and text as a Chroma journal
@@ -118,21 +119,35 @@ def test_backfill_copies_missing_and_is_idempotent(chroma):
     before_chroma = c.get(include=["documents", "metadatas"])
 
     dry = backfill.run(apply=False, persist_dir=chroma.path, collection_name="cass_memory")
-    assert dry["missing"] == 3 and dry["inserted"] == 0
+    assert dry["missing"] == 4 and dry["inserted"] == 0
     assert dry["present_by_date_and_content"] == 1
     assert len(_rows()) == 1
 
     first = backfill.run(apply=True, persist_dir=chroma.path, collection_name="cass_memory")
-    assert first["inserted"] == 3
-    assert first["missing_by_type"] == {"daily": 1, "spell": 1, "untyped": 1}
-    assert first["sqlite_rows_after"] == 4
+    assert first["inserted"] == 4
+    assert first["missing_by_type"] == {"daily": 1, "spell": 1, "untyped": 1, "research": 1}
+    assert first["sqlite_rows_after"] == 5
 
     second = backfill.run(apply=True, persist_dir=chroma.path, collection_name="cass_memory")
     assert second["inserted"] == 0 and second["missing"] == 0
-    assert second["present_by_chroma_id"] == 3
+    assert second["present_by_chroma_id"] == 4
 
     after_chroma = c.get(include=["documents", "metadatas"])
     assert after_chroma == before_chroma  # Chroma untouched
 
     types = {r["chroma_id"]: r["journal_type"] for r in _rows() if r["chroma_id"]}
-    assert types == {"j-daily": "daily", "j-spell": "spell", "j-old": "untyped"}
+    assert types == {"j-daily": "daily", "j-spell": "spell", "j-old": "untyped", "j-res": "research"}
+
+
+def test_daily_paths_ignore_side_journals_on_the_same_date(manager, chroma):
+    research_id = _store(manager, text="research reflection", journal_type="research")
+    daily_id = _store(manager, text="the daily journal")
+
+    assert manager.get_daily_journal_entry("2026-10-19")["id"] == daily_id
+    assert manager.delete_journal_entry("2026-10-19") == daily_id
+
+    # The research journal on the same date is untouched, and is not a daily
+    assert chroma.collection.get(ids=[research_id])["ids"] == [research_id]
+    assert [r["chroma_id"] for r in _rows()] == [research_id]
+    assert manager.get_daily_journal_entry("2026-10-19") is None
+    assert manager.delete_journal_entry("2026-10-19") is None

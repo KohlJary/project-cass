@@ -63,7 +63,6 @@ async def generate_journal(request: JournalGenerateRequest):
     write_daily_journal), then extracts user and self observations from it.
     """
     from journal_generation import (
-        _is_daily_journal,
         _generate_user_observations_for_date,
         content_for_date,
         extract_self_observations,
@@ -78,8 +77,8 @@ async def generate_journal(request: JournalGenerateRequest):
 
     # Check if the daily journal already exists for this date (a research or
     # spell journal for the same date doesn't count)
-    existing = _memory.get_journal_entry(date)
-    if existing and _is_daily_journal(existing.get("metadata") or {}):
+    existing = _memory.get_daily_journal_entry(date)
+    if existing:
         return {
             "status": "exists",
             "message": f"Journal entry already exists for {date}",
@@ -134,7 +133,8 @@ async def get_journal(date: str):
     Args:
         date: Date in YYYY-MM-DD format
     """
-    journal = _memory.get_journal_entry(date)
+    # The daily journal if there is one, else whatever journal has this date
+    journal = _memory.get_daily_journal_entry(date) or _memory.get_journal_entry(date)
 
     if not journal:
         raise HTTPException(
@@ -201,11 +201,12 @@ async def delete_journal(date: str):
 
     This allows regenerating the journal if needed.
     """
-    # Deletes the Chroma entry and its SQLite row together
+    # Deletes the daily journal's Chroma entry and its SQLite row together;
+    # research/spell journals on the same date are left alone
     if not _memory.delete_journal_entry(date):
         raise HTTPException(
             status_code=404,
-            detail=f"No journal entry found for {date}"
+            detail=f"No daily journal entry found for {date}"
         )
 
     return {

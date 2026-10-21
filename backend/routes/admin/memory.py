@@ -202,6 +202,7 @@ async def get_memory_stats(
             # Get journal count from database
             journal_cursor = conn.execute("""
                 SELECT COUNT(*) FROM journals WHERE daemon_id = ?
+                  AND COALESCE(journal_type, 'daily') = 'daily'
             """, (effective_daemon_id,))
             journal_count = journal_cursor.fetchone()[0] or 0
 
@@ -236,7 +237,9 @@ async def get_memory_stats(
             type_counts["dream"] = dream_count
 
             return {
-                "total_memories": chromadb_total + self_obs_count + journal_count + dream_count,
+                # Journals are already in chromadb_total (every journal is
+                # indexed there), so they aren't added again.
+                "total_memories": chromadb_total + self_obs_count + dream_count,
                 "by_type": type_counts,
                 "journals": journal_count
             }
