@@ -1967,6 +1967,19 @@ async def startup_event():
                 "creative": get_creative_runner(),
             }
 
+            # Heartbeat (#62), lever `heartbeat`, off by default. Started before
+            # register_system_tasks: a job moves off Synkratos only once a started
+            # Heartbeat has it. A failure here must not abort Synkratos init.
+            try:
+                from heartbeat.wiring import start_heartbeat
+                await start_heartbeat(budget_manager, {
+                    "github_metrics_manager": github_metrics_manager,
+                    "daemon_id": _daemon_id,
+                }, idle_check=synkratos.is_idle)
+            except Exception as e:
+                logger.error(f"Heartbeat failed to start; old schedulers keep its jobs: {e}",
+                             exc_info=True)
+
             # Import dream generation and journal generation for nightly tasks
             from dreaming.dream_runner import generate_nightly_dream
             from journal_generation import generate_missing_journals
@@ -2426,7 +2439,9 @@ async def startup_event():
             logger.warning("Falling back to legacy background tasks")
             asyncio.create_task(daily_journal_task())
             asyncio.create_task(autonomous_research_task())
-            asyncio.create_task(github_metrics_task(github_metrics_manager))
+            from heartbeat.wiring import runs_job as heartbeat_runs_job
+            if not heartbeat_runs_job("github_metrics"):  # one trigger path per job
+                asyncio.create_task(github_metrics_task(github_metrics_manager))
             asyncio.create_task(idle_summarization_task(
                 conversation_manager=conversation_manager,
                 memory=memory,
