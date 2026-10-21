@@ -92,6 +92,19 @@ def test_delete_removes_row_and_index_entry(manager, chroma):
     assert chroma.collection.get(ids=[entry_id])["ids"] == []
 
 
+def test_delete_refuses_a_locked_journal(manager, chroma):
+    from memory.journals import JournalLockedError
+    entry_id = _store(manager)
+    assert manager.set_journal_locked("2026-10-19", True)
+    with pytest.raises(JournalLockedError):
+        manager.delete_journal_entry("2026-10-19")
+    assert [r["chroma_id"] for r in _rows()] == [entry_id]
+    assert chroma.collection.get(ids=[entry_id])["ids"] == [entry_id]
+
+    assert manager.set_journal_locked("2026-10-19", False)
+    assert manager.delete_journal_entry("2026-10-19") == entry_id
+
+
 # ---------------------------------------------------------------------------
 # Backfill script
 # ---------------------------------------------------------------------------

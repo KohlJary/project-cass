@@ -83,7 +83,8 @@ class ArticleConsumer:
 
         # Set up cache directory
         if cache_dir is None:
-            cache_dir = Path("data") / "articles" / "cache"
+            from config import DATA_DIR
+            cache_dir = Path(DATA_DIR) / "articles" / "cache"
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 

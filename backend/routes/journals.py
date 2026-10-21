@@ -188,7 +188,7 @@ async def unlock_journal(date: str):
 
 def _set_locked(date: str, locked: bool):
     # The flag lives in the entry's Chroma metadata and comes back from
-    # GET /journal/{date}. Nothing server-side reads it yet.
+    # GET /journal/{date}. DELETE /journal/{date} refuses a locked entry.
     if not _memory.set_journal_locked(date, locked):
         raise HTTPException(status_code=404, detail=f"No journal entry found for {date}")
     return {"date": date, "locked": locked}
@@ -201,9 +201,19 @@ async def delete_journal(date: str):
 
     This allows regenerating the journal if needed.
     """
+    from memory.journals import JournalLockedError
+
     # Deletes the daily journal's Chroma entry and its SQLite row together;
-    # research/spell journals on the same date are left alone
-    if not _memory.delete_journal_entry(date):
+    # research/spell journals on the same date are left alone. A locked
+    # journal is refused (423) until it's unlocked.
+    try:
+        deleted = _memory.delete_journal_entry(date)
+    except JournalLockedError:
+        raise HTTPException(
+            status_code=423,
+            detail=f"Journal for {date} is locked; unlock it before deleting"
+        )
+    if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"No daily journal entry found for {date}"

@@ -9,6 +9,7 @@ This module implements vow constraints as action validators.
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional, List, Dict, Any
@@ -59,6 +60,29 @@ class VowValidation:
     def __post_init__(self):
         if self.details is None:
             self.details = {}
+
+
+_HARM_PATTERNS: Dict[str, "re.Pattern[str]"] = {}
+
+
+def _harm_pattern(indicator: str) -> "re.Pattern[str]":
+    """
+    Whole-word pattern for a harm indicator, with common inflections.
+
+    'hit' matches hit/hits/hitting but not 'white'; 'con' matches con/conned
+    but not 'consider'; 'force' matches forced/forcing but not 'workforce'.
+    Noun and adjective endings count too: betrayal, imprisonment, harmful.
+    """
+    pattern = _HARM_PATTERNS.get(indicator)
+    if pattern is None:
+        word = re.escape(indicator)
+        last = re.escape(indicator[-1])
+        forms = [rf"{word}(?:{last})?(?:s|es|ed|d|ing|er|ers|ful|al|ment|ments|ery|ish)?"]
+        if indicator.endswith("e"):
+            forms.append(rf"{re.escape(indicator[:-1])}ing")  # force -> forcing
+        pattern = re.compile(rf"\b(?:{'|'.join(forms)})\b", re.IGNORECASE)
+        _HARM_PATTERNS[indicator] = pattern
+    return pattern
 
 
 class VowPhysics:
@@ -168,11 +192,10 @@ class VowPhysics:
             # Rare: room explicitly allows conflict (e.g., training grounds?)
             return VowValidation(allowed=True)
 
-        # Scan action text for harm indicators
-        action_lower = action_text.lower()
+        # Scan action text for harm indicators, as whole words
         for harm_type, indicators in self.HARM_INDICATORS.items():
             for indicator in indicators:
-                if indicator in action_lower:
+                if _harm_pattern(indicator).search(action_text):
                     # Action contains harmful intent
                     return VowValidation(
                         allowed=False,

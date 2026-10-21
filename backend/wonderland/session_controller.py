@@ -163,7 +163,7 @@ class SessionController:
     def __init__(
         self,
         world: Optional[WonderlandWorld] = None,
-        data_dir: str = "data/wonderland/sessions"
+        data_dir: Optional[str] = None
     ):
         # Initialize world if not provided
         if world is None:
@@ -199,6 +199,9 @@ class SessionController:
         self.goal_planner.register_planning_source(self.planning_source)
 
         # Session storage
+        if data_dir is None:
+            from config import DATA_DIR
+            data_dir = Path(DATA_DIR) / "wonderland" / "sessions"
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 

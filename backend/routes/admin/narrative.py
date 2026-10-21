@@ -3,7 +3,7 @@ Admin API - Narrative Coherence Routes (Threads & Open Questions)
 Provides visibility into the thread/question system for the admin frontend.
 """
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Literal
 from pydantic import BaseModel
 import anthropic
 import json
@@ -53,7 +53,7 @@ class UpdateThreadRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     importance: Optional[float] = None
-    thread_type: Optional[str] = None
+    thread_type: Optional[Literal["topic", "question", "project", "relational"]] = None
 
 
 class ResolveThreadRequest(BaseModel):

@@ -63,7 +63,10 @@ class HomeIntelligence:
     """
 
     def __init__(self, data_dir: Path = None):
-        self.data_dir = data_dir or Path("data/home_intelligence")
+        if data_dir is None:
+            from config import DATA_DIR
+            data_dir = Path(DATA_DIR) / "home_intelligence"
+        self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # State tracking

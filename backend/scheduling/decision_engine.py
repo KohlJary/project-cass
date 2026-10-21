@@ -16,8 +16,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-import anthropic
-
 from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
 if TYPE_CHECKING:
@@ -198,6 +196,10 @@ class SchedulingDecisionEngine:
         self._budget = budget_manager
         self._self_manager = self_manager
         self._questions = question_manager
+        # Imported here so importing the scheduling package doesn't need the
+        # SDK (the fast CI job runs without it).
+        import anthropic
+
         self._client = anthropic.AsyncAnthropic(api_key=api_key or ANTHROPIC_API_KEY)
         self._model = model
 

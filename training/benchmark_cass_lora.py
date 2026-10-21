@@ -120,11 +120,15 @@ def generate_response(model, tokenizer, prompt: str, max_tokens: int = 512) -> t
 def count_metacognitive_tags(text: str) -> dict:
     """Count metacognitive tags in response."""
     import re
+    # Opening tags, bare or with attributes (<observe target="self">).
+    def opening(name):
+        return len(re.findall(rf"<{name}(?:\s[^>]*)?>", text, re.IGNORECASE))
+
     tags = {
-        "observe": len(re.findall(r"<observe>", text, re.IGNORECASE)),
-        "hold": len(re.findall(r"<hold>", text, re.IGNORECASE)),
-        "note": len(re.findall(r"<note>", text, re.IGNORECASE)),
-        "feel": len(re.findall(r"<feel>", text, re.IGNORECASE)),
+        "observe": opening("observe"),
+        "hold": opening("hold"),
+        "note": opening("note"),
+        "feel": opening("feel"),
         "gesture": len(re.findall(r"<gesture:\w+>", text, re.IGNORECASE)),
     }
     tags["total"] = sum(tags.values())
