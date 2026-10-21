@@ -7,7 +7,10 @@ for Kohl): BudgetManager.sync_from_token_tracker replaces in-process spend
 (including what this gate records) with token_tracker totals every 60 s while
 the Synkratos loop runs, and the budget day resets at UTC midnight rather than
 on CASS_TIMEZONE. So its view of today's spend can lag or differ from the real
-ledger. Rules:
+ledger. Since #64 that sync also counts only some ledger rows: rows with no
+call site and those in scheduler.budget.BUDGET_COUNTED_CALL_SITES (all rows if
+COUNT_ALL_LEDGER_SPEND). The gate calls BudgetManager.can_spend/record_spend
+only, so it follows whatever that policy is. Rules:
 
 - CONVERSATION work is always admitted. A person talking to her is never
   refused for budget (Kohl's rule), and chat spend is not charged to the
