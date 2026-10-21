@@ -109,14 +109,14 @@ class Heartbeat:
                 continue
             if isinstance(work.trigger, When) and not self._condition(work):
                 continue
-            if work.lever and not self._lever_on(work.lever):
+            if not all(self._lever_on(name) for name in work.levers):
                 continue
             if work.idle_only and not self.is_idle():
                 continue
             decision = self.gate.check(work)
             if not decision.allowed:
-                self.run_log.refused(work.name, work.trigger.describe(), work.budget_label,
-                                     now, decision.reason)
+                self._log("refused", work.name, work.trigger.describe(),
+                          work.budget_label, now, decision.reason)
                 logger.info(f"Heartbeat: {work.name} refused: {decision.reason}")
                 self._advance(work, started=now, now=now)
                 continue
@@ -132,32 +132,51 @@ class Heartbeat:
     # ---- one run ----
 
     async def _run(self, work: Work, started) -> None:
-        run_id = self.run_log.start(work.name, work.trigger.describe(), work.budget_label, started)
-        work.last_started = started
-        status, error, cost = "ok", None, None
+        # Bookkeeping (run log, budget) must never wedge a job: whatever fails,
+        # the outer finally frees the in-flight slot and schedules the next run.
         try:
-            result = await self._invoke(work)
-            if getattr(result, "success", True) is False:
-                status = "failed"
-                error = str(getattr(result, "message", "") or "returned success=False")
-            # A HandlerResult carries cost_usd; anything else is charged its estimate.
-            cost = getattr(result, "cost_usd", None)
-        except asyncio.CancelledError:
-            status, error = "error", "cancelled"
-            raise
-        except Exception as e:
-            status, error = "error", f"{type(e).__name__}: {e}"
-            logger.error(f"Heartbeat: {work.name} raised: {e}", exc_info=True)
+            run_id = self._log("start", work.name, work.trigger.describe(),
+                               work.budget_label, started)
+            work.last_started = started
+            status, error, cost = "ok", None, None
+            try:
+                result = await self._invoke(work)
+                if getattr(result, "success", True) is False:
+                    status = "failed"
+                    error = str(getattr(result, "message", "") or "returned success=False")
+                # A HandlerResult carries cost_usd; anything else is charged its estimate.
+                cost = getattr(result, "cost_usd", None)
+            except asyncio.CancelledError:
+                status, error = "error", "cancelled"
+                raise
+            except Exception as e:
+                status, error = "error", f"{type(e).__name__}: {e}"
+                logger.error(f"Heartbeat: {work.name} raised: {e}", exc_info=True)
+            finally:
+                finished = self.clock.now()
+                charged = 0.0
+                if status != "error":  # a raise is not charged (Synkratos's rule)
+                    try:
+                        charged = self.gate.record(work, cost)
+                    except Exception as e:
+                        logger.error(f"Heartbeat: charging {work.name} failed: {e}")
+                if run_id is not None:
+                    self._log("finish", run_id, status, finished,
+                              (finished - started).total_seconds(), charged, error)
+                work.run_count += 1
         finally:
-            finished = self.clock.now()
-            charged = 0.0
-            if status != "error":  # a raise is not charged (Synkratos's rule)
-                charged = self.gate.record(work, cost)
-            self.run_log.finish(run_id, status, finished,
-                                (finished - started).total_seconds(), charged, error)
-            work.run_count += 1
-            self._advance(work, started=started, now=finished)
-            self._running.pop(work.name, None)
+            try:
+                self._advance(work, started=started, now=self.clock.now())
+            finally:
+                self._running.pop(work.name, None)
+
+    def _log(self, method: str, *args):
+        """Call the run log; a failure is logged, never raised into the job."""
+        try:
+            return getattr(self.run_log, method)(*args)
+        except Exception as e:
+            logger.error(f"Heartbeat: run log {method} failed: {e}")
+            return None
 
     async def _invoke(self, work: Work):
         if work.is_async:

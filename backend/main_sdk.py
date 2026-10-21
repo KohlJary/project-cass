@@ -1967,6 +1967,19 @@ async def startup_event():
                 "creative": get_creative_runner(),
             }
 
+            # Heartbeat (#62), lever `heartbeat`, off by default. Started before
+            # register_system_tasks: a job moves off Synkratos only once a started
+            # Heartbeat has it. A failure here must not abort Synkratos init.
+            try:
+                from heartbeat.wiring import start_heartbeat
+                await start_heartbeat(budget_manager, {
+                    "github_metrics_manager": github_metrics_manager,
+                    "daemon_id": _daemon_id,
+                }, idle_check=synkratos.is_idle)
+            except Exception as e:
+                logger.error(f"Heartbeat failed to start; old schedulers keep its jobs: {e}",
+                             exc_info=True)
+
             # Import dream generation and journal generation for nightly tasks
             from dreaming.dream_runner import generate_nightly_dream
             from journal_generation import generate_missing_journals
@@ -1988,14 +2001,6 @@ async def startup_event():
                 # For autonomous_research handler (the wiki scheduler)
                 "research_scheduler": wiki_research_scheduler,
             }, enabled=True)
-
-            # Heartbeat (#62), lever `heartbeat`, off by default. When on, it
-            # runs the jobs it owns and register_system_tasks skipped them.
-            from heartbeat.wiring import start_heartbeat
-            await start_heartbeat(budget_manager, {
-                "github_metrics_manager": github_metrics_manager,
-                "daemon_id": _daemon_id,
-            }, idle_check=synkratos.is_idle)
 
             # Register approval providers for unified "what needs my attention?" queue
             # Note: Use UnifiedGoalManager for goals (not old GoalManager)

@@ -60,7 +60,7 @@ def test_a_heartbeat_run_is_logged(app, levers):
         await hb.tick()
         await hb.drain()
 
-    with levers(**LEVERS_ON):
+    with levers(scheduler=True, **LEVERS_ON):
         app.portal.call(run_due)
     rows = RunLog().recent(work_name="goal_refinement")
     assert rows and rows[0]["status"] == "ok", rows

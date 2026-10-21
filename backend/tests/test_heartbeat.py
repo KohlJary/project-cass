@@ -160,10 +160,14 @@ class TestRegistryAndCadence:
     async def test_lever_off_skips_work(self, levers):
         hb = make_hb()
         job = Counter()
-        hb.register(Work("gh", job, Every(1, first_after=0), lever="job_github_metrics"))
+        hb.register(Work("gh", job, Every(1, first_after=0),
+                         lever=("scheduler", "job_github_metrics")))
         await hb.tick()                         # CASS_PROFILE=test: lever off
         assert job.calls == 0
-        with levers(job_github_metrics=True):
+        with levers(job_github_metrics=True):               # one of two levers on
+            await hb.tick()
+        assert job.calls == 0
+        with levers(job_github_metrics=True, scheduler=True):
             await hb.tick()
             await hb.drain()
         assert job.calls == 1
@@ -285,6 +289,45 @@ class TestRunLog:
         assert [r["status"] for r in runs("flaky")] == ["error", "error"]
 
 
+class TestRunLogFailure:
+    async def test_run_log_errors_do_not_wedge_a_job(self):
+        class BrokenLog(RunLog):
+            def start(self, *a, **k):
+                raise RuntimeError("database is locked")
+
+            def finish(self, *a, **k):
+                raise RuntimeError("database is locked")
+
+            def refused(self, *a, **k):
+                raise RuntimeError("database is locked")
+
+        clock = FakeClock()
+        hb = Heartbeat(clock=clock, run_log=BrokenLog())
+        job = Counter()
+        work = hb.register(Work("job", job, Every(60, first_after=0)))
+        await hb.tick()
+        await hb.drain()
+        assert job.calls == 1
+        assert "job" not in hb._running                      # slot freed
+        assert work.next_run == clock.now() + timedelta(seconds=60)
+        clock.advance(60)
+        assert await hb.tick() == ["job"]                    # and it runs again
+        await hb.drain()
+        assert job.calls == 2
+
+    async def test_budget_refusal_survives_a_broken_run_log(self):
+        class BrokenLog(RunLog):
+            def refused(self, *a, **k):
+                raise RuntimeError("disk full")
+
+        clock = FakeClock()
+        hb = Heartbeat(budget_manager=exhausted_budget(), clock=clock, run_log=BrokenLog())
+        hb.register(Work("r", Counter(), Every(60, first_after=0),
+                         budget_class=TaskCategory.RESEARCH, estimated_cost_usd=0.1))
+        assert await hb.tick() == []
+        assert hb.registry.get("r").next_run == clock.now() + timedelta(seconds=60)
+
+
 class TestOffLoop:
     async def test_sync_work_runs_in_a_thread_and_does_not_block_the_loop(self):
         hb = make_hb()
@@ -366,30 +409,68 @@ JOB_LEVERS = dict(job_github_metrics=True, job_idle_summarization=True,
                   job_autonomous_research=True)
 
 
+@pytest.fixture
+def clean_wiring():
+    from heartbeat import wiring
+    wiring._heartbeat = None
+    yield wiring
+    wiring._heartbeat = None
+
+
 class TestMigration:
-    def test_lever_off_leaves_synkratos_registrations_untouched(self, levers):
+    def test_lever_off_leaves_synkratos_registrations_untouched(self, levers, clean_wiring):
         with levers(**JOB_LEVERS):
             names = _register(True)
         assert names == ["github_metrics", "idle_summarization", "daily_journal",
                          "autonomous_research", "goal_refinement"]
 
-    async def test_lever_on_moves_migrated_jobs_without_double_registration(self, levers):
-        from heartbeat import wiring
+    async def test_started_heartbeat_takes_migrated_jobs_without_double_registration(
+            self, levers, clean_wiring):
+        wiring = clean_wiring
         with levers(heartbeat=True, **JOB_LEVERS):
-            names = _register(True)
-            hb = make_hb()
-            wiring.register_migrated_jobs(hb, {"github_metrics_manager": object()})
+            hb = await wiring.start_heartbeat(None, {"github_metrics_manager": object()})
+            try:
+                names = _register(True)
+            finally:
+                await hb.stop()
         heartbeat_names = {w.name for w in hb.registry.all()}
         assert heartbeat_names == set(wiring.HEARTBEAT_JOBS)
         assert not heartbeat_names & set(names)                 # never both
         assert names == ["idle_summarization", "daily_journal", "autonomous_research"]
 
-    async def test_start_heartbeat_does_nothing_when_lever_off(self, levers):
-        from heartbeat import wiring
+    async def test_heartbeat_failing_to_start_leaves_jobs_on_synkratos(
+            self, levers, clean_wiring, monkeypatch):
+        wiring = clean_wiring
+
+        async def boom(self):
+            raise RuntimeError("heartbeat start failed")
+
+        monkeypatch.setattr(Heartbeat, "start", boom)
+        with levers(heartbeat=True, **JOB_LEVERS):
+            with pytest.raises(RuntimeError):
+                await wiring.start_heartbeat(None, {"github_metrics_manager": object()})
+            names = _register(True)
+        assert wiring.get_heartbeat() is None
+        assert not wiring.owns("github_metrics") and not wiring.runs_job("github_metrics")
+        assert names == ["github_metrics", "idle_summarization", "daily_journal",
+                         "autonomous_research", "goal_refinement"]
+
+    async def test_start_heartbeat_does_nothing_when_lever_off(self, levers, clean_wiring):
+        wiring = clean_wiring
         assert await wiring.start_heartbeat(None, {}) is None
         assert wiring.get_heartbeat() is None
         assert wiring.owns("github_metrics") is False
         assert wiring.runs_job("github_metrics") is False
+
+    async def test_migrated_jobs_respect_the_scheduler_lever(self, levers):
+        from heartbeat import wiring
+        clock = FakeClock(datetime(2026, 10, 20, 8, 59, 30, tzinfo=timezone.utc))
+        hb = make_hb(clock=clock)
+        wiring.register_migrated_jobs(hb, {})
+        clock.advance(30)
+        with levers(heartbeat=True, job_goal_refinement=True, scheduler=False):
+            assert await hb.tick() == []
+        assert runs("goal_refinement") == []
 
     async def test_migrated_goal_refinement_runs_and_logs(self, levers):
         from heartbeat import wiring
@@ -397,7 +478,7 @@ class TestMigration:
         hb = make_hb(budget=BudgetManager(BudgetConfig()), clock=clock)
         wiring.register_migrated_jobs(hb, {})
         clock.advance(30)
-        with levers(job_goal_refinement=True):
+        with levers(scheduler=True, job_goal_refinement=True):
             assert await hb.tick() == ["goal_refinement"]
             await hb.drain()
         row = runs("goal_refinement")[0]

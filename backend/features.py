@@ -167,7 +167,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("heartbeat", "Heartbeat: one clock, work registry, budget gate and run log "
            "(heartbeat_runs table). On: the jobs in heartbeat/wiring.HEARTBEAT_JOBS "
            "(github_metrics, goal_refinement) run here and the old Synkratos/legacy path "
-           "skips them. Off: the old schedulers run everything, as before. Read at boot.",
+           "skips them; they still obey the `scheduler` lever and their own job_* lever. "
+           "If Heartbeat fails to start, the old path keeps them. Off: the old schedulers "
+           "run everything, as before. Read at boot.",
            BACKGROUND, default=False,
            where="main_sdk.start_deferred_tasks: heartbeat.wiring.start_heartbeat"),
 

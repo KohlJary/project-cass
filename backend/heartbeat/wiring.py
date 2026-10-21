@@ -1,13 +1,17 @@
 """
 Which jobs Heartbeat owns, and the registration hook main_sdk calls.
 
-Migration rule: a job has exactly one trigger path. When the `heartbeat`
-lever is on, the jobs in HEARTBEAT_JOBS register here and the old path
-(Synkratos system task, legacy asyncio loop) skips them. When it is off,
-nothing here runs and the old path is unchanged.
+Migration rule: a job has exactly one trigger path. main_sdk starts Heartbeat
+*before* register_system_tasks; the old path (Synkratos system task, legacy
+asyncio loop) skips a job only when a started Heartbeat has it registered
+(`owns`). So if the `heartbeat` lever is off, or Heartbeat fails to start, the
+old path runs everything exactly as before.
 
-The lever is read once at boot: both sides of the decision are made in the
-same startup pass, so flipping it needs a restart.
+Migrated jobs keep their old levers: the `scheduler` lever (which gated the
+Synkratos loop they ran on) and their own `job_*` lever, both checked at
+dispatch time.
+
+The `heartbeat` lever is read once at boot, so flipping it needs a restart.
 """
 from __future__ import annotations
 
@@ -29,13 +33,11 @@ _heartbeat: Optional[Heartbeat] = None
 
 
 def owns(job_name: str) -> bool:
-    """True when Heartbeat, not the old scheduler, runs this job."""
-    return job_name in HEARTBEAT_JOBS and is_enabled("heartbeat")
-
-
-def runs_job(job_name: str) -> bool:
-    """True when a started Heartbeat has this job registered (legacy-loop guard)."""
+    """True when a started Heartbeat runs this job, so the old path must skip it."""
     return _heartbeat is not None and job_name in _heartbeat.registry
+
+
+runs_job = owns  # alias used by the legacy-fallback guard in main_sdk
 
 
 def get_heartbeat() -> Optional[Heartbeat]:
@@ -52,7 +54,7 @@ def register_migrated_jobs(hb: Heartbeat, managers: Dict[str, Any]) -> None:
             name="github_metrics",
             run=partial(github_metrics_handler, github_metrics_manager=gm),
             trigger=Every(6 * 60 * 60),
-            lever="job_github_metrics",
+            lever=("scheduler", "job_github_metrics"),
             budget_class=TaskCategory.SYSTEM,
             estimated_cost_usd=0.01,
         ))
@@ -63,7 +65,7 @@ def register_migrated_jobs(hb: Heartbeat, managers: Dict[str, Any]) -> None:
         run=partial(goal_refinement_handler, daemon_id=managers.get("daemon_id")),
         offload=True,
         trigger=Cron("0 9 * * *"),
-        lever="job_goal_refinement",
+        lever=("scheduler", "job_goal_refinement"),
         budget_class=TaskCategory.SYSTEM,
         estimated_cost_usd=0.0,
     ))
@@ -83,5 +85,5 @@ async def start_heartbeat(
     hb = Heartbeat(budget_manager=budget_manager, idle_check=idle_check)
     register_migrated_jobs(hb, managers)
     await hb.start()
-    _heartbeat = hb
+    _heartbeat = hb  # only after a confirmed start: owns() depends on it
     return hb

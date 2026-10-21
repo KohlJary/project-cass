@@ -93,8 +93,9 @@ class Work:
     name: str
     run: Callable[..., Any]
     trigger: Trigger
-    # Lever (features.py) checked at dispatch time; None = no lever of its own.
-    lever: Optional[str] = None
+    # Lever(s) (features.py) checked at dispatch time; all must be on.
+    # A name, a tuple of names, or None (no lever of its own).
+    lever: Any = None
     # A scheduler.budget.TaskCategory, CONVERSATION, or None (spends nothing).
     budget_class: Any = None
     estimated_cost_usd: float = 0.0
@@ -116,6 +117,12 @@ class Work:
             fn = fn.func
         return (inspect.iscoroutinefunction(fn)
                 or inspect.iscoroutinefunction(getattr(fn, "__call__", None)))
+
+    @property
+    def levers(self) -> tuple:
+        if not self.lever:
+            return ()
+        return (self.lever,) if isinstance(self.lever, str) else tuple(self.lever)
 
     @property
     def budget_label(self) -> Optional[str]:

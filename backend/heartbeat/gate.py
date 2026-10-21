@@ -1,8 +1,13 @@
 """
 The one budget gate.
 
-Wraps the existing scheduler.budget.BudgetManager (the same instance Synkratos
-uses, so spend is counted in one place). Rules:
+Wraps the existing scheduler.budget.BudgetManager, the same instance Synkratos
+uses. The gate is ADVISORY until the ledger is settled (#62 cutover, a decision
+for Kohl): BudgetManager.sync_from_token_tracker replaces in-process spend
+(including what this gate records) with token_tracker totals every 60 s while
+the Synkratos loop runs, and the budget day resets at UTC midnight rather than
+on CASS_TIMEZONE. So its view of today's spend can lag or differ from the real
+ledger. Rules:
 
 - CONVERSATION work is always admitted. A person talking to her is never
   refused for budget (Kohl's rule), and chat spend is not charged to the
