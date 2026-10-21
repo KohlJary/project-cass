@@ -1,10 +1,10 @@
 # Cass Stabilization Roadmap
 
-*Plan as of 2026-10-15; status updated 2026-10-21. Phone-friendly copy: https://claude.ai/code/artifact/792cf4df-8099-4049-8e95-c72fd8849cf3 (kept at parity with this file).*
+*Plan as of 2026-10-15; status updated 2026-10-21. Phone-friendly copy of the 2026-10-15 plan: https://claude.ai/code/artifact/792cf4df-8099-4049-8e95-c72fd8849cf3 (not updated with this status).*
 
 ## Where we are
 
-*Updated 2026-10-21.* Steps 1–3 of the order of work are merged, plus the first builds of steps 4–6. See `docs/status.md` for the PR list and what waits on Kohl.
+*Updated 2026-10-21.* Steps 1–3 of the order of work are built (their epics stay open until the data migrations run), plus the first builds of steps 4–6. See `docs/status.md` for the PR list and what waits on Kohl.
 
 - **Merged:** #11–#20; cheap cuts (#54 via #81); PeopleDex (#55 via #83); journals (#56 via #84); model routing (#64 via #86); auth (#61 via #88, transition mode); research (#60 via #90); the agent loop (#70 via #82, behind `agent_loop`, off); the Heartbeat core (#62 via #87, behind `heartbeat`, off); chat off the event loop (#85 via #89); 12 loose ends (#91).
 - **Not deployed:** nothing above is live until the service restarts. The data migrations are dry-run only.
