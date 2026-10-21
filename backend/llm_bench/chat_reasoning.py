@@ -27,6 +27,8 @@ import httpx
 from agent_client import get_temple_codex_kernel
 from gestures import GestureParser
 
+from .models import default_results_dir
+
 
 @dataclass
 class ChatReasoningPrompt:
@@ -272,10 +274,12 @@ class ChatReasoningBenchmark:
         self,
         ollama_base_url: str = "http://localhost:11434",
         anthropic_api_key: Optional[str] = None,
-        results_dir: str = "data/llm_bench/results",
+        results_dir: Optional[str] = None,
     ):
         self.ollama_base_url = ollama_base_url
         self.anthropic_api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if results_dir is None:
+            results_dir = default_results_dir()
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(parents=True, exist_ok=True)
         self._http_client: Optional[httpx.AsyncClient] = None

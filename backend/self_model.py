@@ -709,10 +709,11 @@ class SelfManager:
         """Get the daemon ID"""
         return self._daemon_id
 
-    # Fallback file paths for features not yet in SQLite
+    # Fallback file paths for features not yet in SQLite (under DATA_DIR, issue #92)
     @property
     def _storage_dir(self) -> Path:
-        return Path("./data/cass")
+        from config import DATA_DIR
+        return DATA_DIR / "cass"
 
     @property
     def differentiation_file(self) -> Path:

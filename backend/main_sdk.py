@@ -1610,6 +1610,18 @@ async def startup_event():
     # (features.py). Log what's on/off once so a boot log shows it.
     log_lever_table(logger)
 
+    # Research session tasks left in_progress by the previous process never
+    # finish on their own (PR #90 review): fail them, archived like other
+    # failures. Wiki task rows are left as they are.
+    try:
+        from research_pipeline import fail_interrupted_sessions
+        interrupted = fail_interrupted_sessions()
+        if interrupted:
+            n = sum(len(ids) for ids in interrupted.values())
+            logger.info(f"Marked {n} interrupted research session task(s) failed")
+    except Exception as e:
+        logger.warning(f"Could not recover interrupted research session tasks (non-fatal): {e}")
+
     if is_enabled("source_refresh"):
         # Start scheduled refresh loops for queryable sources
         # (Sources were registered during module load, but async tasks need event loop)

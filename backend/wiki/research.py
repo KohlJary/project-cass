@@ -609,6 +609,24 @@ class ResearchQueue:
 
         return task
 
+    def fail_interrupted_sessions(self, live_task_ids=frozenset(),
+                                  error: str = "interrupted by restart") -> List[str]:
+        """Fail session tasks left in_progress by a process that is gone.
+
+        A research session task is in_progress while its session runs; if the
+        process restarts mid-session nothing completes it. Marks each such
+        row failed (archived to history like any failure), except those whose
+        id is in live_task_ids (sessions running in this process). Only
+        task_type 'session': wiki task rows are not touched.
+        """
+        failed = []
+        for task in self.get_by_status(TaskStatus.IN_PROGRESS):
+            if task.task_type != TaskType.SESSION or task.task_id in live_task_ids:
+                continue
+            self.complete(task.task_id, TaskResult(success=False, error=error))
+            failed.append(task.task_id)
+        return failed
+
     def _record_interest_engagement(self, task: ResearchTask) -> None:
         """Record engagement with any interests related to this research topic."""
         try:

@@ -8,6 +8,7 @@ from .runner import (  # noqa: F401
     STEPS,
     ResearchRunner,
     Step,
+    fail_interrupted_sessions,
     get_research_pipeline,
     resolve_step_models,
     step_for,

@@ -120,6 +120,27 @@ def _session_default(engine: str, runner: Any):
     return None
 
 
+# Session task ids taken by a runner in this process and not yet completed.
+# fail_interrupted_sessions() leaves these alone.
+_LIVE_SESSION_TASKS: set = set()
+
+
+def fail_interrupted_sessions(error: str = "interrupted by restart") -> Dict[str, list]:
+    """For every daemon, fail session tasks left in_progress that no session
+    in this process owns (called at startup: a restart mid-session leaves them
+    in_progress forever). Returns daemon_id -> failed task ids."""
+    from database import get_db
+    with get_db() as conn:
+        daemon_ids = [row[0] for row in conn.execute("SELECT id FROM daemons").fetchall()]
+    out = {}
+    for daemon_id in daemon_ids:
+        failed = ResearchQueue(daemon_id=daemon_id).fail_interrupted_sessions(
+            frozenset(_LIVE_SESSION_TASKS), error=error)
+        if failed:
+            out[daemon_id] = failed
+    return out
+
+
 class ResearchRunner:
     """Runs research tasks from the one queue. See the module docstring."""
 
@@ -294,7 +315,9 @@ class ResearchRunner:
         try:
             if task is None:
                 task = self.enqueue_session(**enqueue_kwargs)
-            return self._take(task)
+            taken = self._take(task)
+            _LIVE_SESSION_TASKS.add(taken.task_id)
+            return taken
         except ValueError:
             raise
         except Exception as e:
@@ -308,6 +331,8 @@ class ResearchRunner:
             self.queue.complete(task.task_id, result)
         except Exception as e:
             logger.error(f"research runner: could not complete research task {task.task_id}: {e}")
+        finally:
+            _LIVE_SESSION_TASKS.discard(task.task_id)
 
     async def start_session(self, runner: Any, *, focus: Optional[str], duration_minutes: int,
                             mode: str = "explore", trigger: str = "manual",
@@ -450,5 +475,5 @@ def get_research_pipeline(wiki_scheduler=None) -> ResearchRunner:
 
 __all__ = [
     "Step", "STEPS", "SESSION_ENGINES", "step_for", "resolve_step_models",
-    "ResearchRunner", "get_research_pipeline", "TaskStatus",
+    "ResearchRunner", "get_research_pipeline", "TaskStatus", "fail_interrupted_sessions",
 ]

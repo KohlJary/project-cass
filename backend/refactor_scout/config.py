@@ -253,7 +253,7 @@ def load_config(config_path: Optional[str] = None) -> ScoutConfig:
     1. Explicit config_path if provided
     2. scout.yaml in current directory
     3. .scout.yaml in current directory
-    4. data/scout/config.yaml
+    4. DATA_DIR/scout/config.yaml
     5. Default configuration
     """
     search_paths = []
@@ -266,8 +266,9 @@ def load_config(config_path: Optional[str] = None) -> ScoutConfig:
     search_paths.extend([
         cwd / "scout.yaml",
         cwd / ".scout.yaml",
-        cwd / "data" / "scout" / "config.yaml",
     ])
+    from config import DATA_DIR
+    search_paths.append(DATA_DIR / "scout" / "config.yaml")
 
     for path in search_paths:
         if path.exists():

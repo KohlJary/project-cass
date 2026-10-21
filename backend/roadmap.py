@@ -280,10 +280,17 @@ class RoadmapManager:
             return [{"target_id": row['target_id'], "link_type": row['link_type']}
                     for row in cursor.fetchall()]
 
-    # Fallback file path for milestones (not yet in SQLite schema)
+    # Fallback file path for milestones (not yet in SQLite schema).
+    # Under DATA_DIR (issue #92); tests may point _milestones_dir elsewhere.
+    _milestones_dir: Optional[Path] = None
+
     @property
     def _milestones_file(self) -> Path:
-        path = Path("./data/roadmap")
+        if self._milestones_dir is not None:
+            path = Path(self._milestones_dir)
+        else:
+            from config import DATA_DIR
+            path = DATA_DIR / "roadmap"
         path.mkdir(parents=True, exist_ok=True)
         return path / "milestones.json"
 

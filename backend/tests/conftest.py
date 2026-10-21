@@ -424,11 +424,12 @@ def roadmap_dir(test_data_dir):
 @pytest.fixture
 def roadmap_manager(daemon_id, tmp_path, monkeypatch):
     """RoadmapManager backed by the per-test SQLite database."""
-    # Milestones still live in a JSON file at the CWD-relative ./data/roadmap,
-    # so run from tmp_path to keep them out of the repo and isolated per test.
-    monkeypatch.chdir(tmp_path)
+    # Milestones still live in a JSON file (DATA_DIR/roadmap, issue #92); the
+    # session shares one DATA_DIR, so give each test its own milestones dir.
     from roadmap import RoadmapManager
-    return RoadmapManager(daemon_id=daemon_id)
+    manager = RoadmapManager(daemon_id=daemon_id)
+    manager._milestones_dir = tmp_path / "roadmap"
+    return manager
 
 
 # ---------------------------------------------------------------------------
