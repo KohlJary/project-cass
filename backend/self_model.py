@@ -8,6 +8,7 @@ Storage: SQLite database (data/cass.db)
 import json
 import logging
 import os
+import threading
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -219,6 +220,25 @@ class CassSelfObservation:
 
 # NOTE: IdentityStatement, Opinion, GrowthEdge, and CassSelfProfile are imported
 # from self_model_profile (see imports above)
+
+
+_shared_embed_fn = None
+_shared_embed_lock = threading.Lock()
+
+
+def _default_embedding_fn():
+    """One process-wide Chroma DefaultEmbeddingFunction.
+
+    Each new DefaultEmbeddingFunction loads its own ONNX session from disk on
+    first use, and the growth-edge paths built one per chat turn (issue #85).
+    """
+    global _shared_embed_fn
+    if _shared_embed_fn is None:
+        with _shared_embed_lock:
+            if _shared_embed_fn is None:
+                from chromadb.utils import embedding_functions
+                _shared_embed_fn = embedding_functions.DefaultEmbeddingFunction()
+    return _shared_embed_fn
 
 
 def get_weighted_growth_edges(
@@ -1790,10 +1810,9 @@ class SelfManager:
 
         # Semantic search using embeddings for opinions and questions
         try:
-            from chromadb.utils import embedding_functions
             import numpy as np
 
-            embed_fn = embedding_functions.DefaultEmbeddingFunction()
+            embed_fn = _default_embedding_fn()
             query_embedding = embed_fn([query])[0]
 
             def cosine_sim(a, b):
@@ -1891,8 +1910,7 @@ class SelfManager:
         embedder = None
         if message:
             try:
-                from chromadb.utils import embedding_functions
-                embed_fn = embedding_functions.DefaultEmbeddingFunction()
+                embed_fn = _default_embedding_fn()
                 embedder = lambda text: embed_fn([text])[0]
             except Exception:
                 pass  # Semantic matching unavailable
