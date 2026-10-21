@@ -171,7 +171,9 @@ class DuckDuckGoBackend:
             hits.append(SearchHit(title=data.get("Heading", "") or query, url=data.get("AbstractURL", ""),
                                   snippet=data.get("Abstract", ""),
                                   source=data.get("AbstractSource", "DuckDuckGo")))
-        for topic in data.get("RelatedTopics", []):
+        # As the wiki code did before #60: the first three related entries, then
+        # keep those with text (grouped entries have none).
+        for topic in data.get("RelatedTopics", [])[:3]:
             if len(hits) >= num_results:
                 break
             if isinstance(topic, dict) and topic.get("Text"):

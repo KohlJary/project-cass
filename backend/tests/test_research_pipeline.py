@@ -629,3 +629,37 @@ def test_research_journal_stores_only_its_own_entry(monkeypatch):
     assert entry["journal_type"] == "research"
     assert daily_text not in entry["journal_text"]
     assert "Lichen" in entry["journal_text"]
+
+
+def test_duckduckgo_keeps_the_wiki_snippet_shape(monkeypatch):
+    """Abstract plus the first three related entries that have text, as before #60."""
+    data = {
+        "Abstract": "A", "AbstractURL": "u", "AbstractSource": "Wiki", "Heading": "h",
+        "RelatedTopics": [
+            {"Text": "one", "FirstURL": "1"},
+            {"Name": "group", "Topics": []},  # grouped entry: no text
+            {"Text": "three", "FirstURL": "3"},
+            {"Text": "four", "FirstURL": "4"},
+            {"Text": "five", "FirstURL": "5"},
+        ],
+    }
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return data
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, *a, **k):
+            return _Resp()
+
+    monkeypatch.setattr(rsearch, "_http_client", lambda timeout: _Client())
+    resp = asyncio.run(rsearch.DuckDuckGoBackend().search("q", num_results=4))
+    assert [h.snippet for h in resp.results] == ["A", "one", "three"]
