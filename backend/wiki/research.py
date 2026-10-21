@@ -722,6 +722,10 @@ class ResearchQueue:
                 "by_status": by_status,
                 "by_type": by_type,
                 "queued_count": by_status.get("queued", 0),
+                # Callers (research.run_single, the autonomous_research job's
+                # continuous mode, system status) read "queued"; without it they
+                # saw an empty queue and never ran a task.
+                "queued": by_status.get("queued", 0),
                 "in_progress_count": by_status.get("in_progress", 0),
             }
 
