@@ -50,7 +50,10 @@ async def start_autonomous_research(request: AutonomousResearchStartRequest, bac
         )
 
     try:
-        session = await runner.start_session(
+        # One research queue (#60): queued, then started at once.
+        from research_pipeline import get_research_pipeline
+        session = await get_research_pipeline().start_session(
+            runner,
             duration_minutes=min(request.duration_minutes, 60),
             focus=request.focus,
             mode=request.mode,
@@ -65,7 +68,7 @@ async def start_autonomous_research(request: AutonomousResearchStartRequest, bac
             "mode": session.mode.value if hasattr(session.mode, 'value') else str(session.mode),
             "message": f"Autonomous research session started. Running for {session.duration_limit_minutes} minutes."
         }
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         raise HTTPException(status_code=409, detail=str(e))
 
 

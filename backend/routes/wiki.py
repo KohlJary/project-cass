@@ -2357,7 +2357,8 @@ async def execute_proposal(proposal_id: str) -> Dict:
             continue
 
         try:
-            result = await scheduler.execute_task(task)
+            # Through the one research runner (#60): model per step via routing.
+            result = await scheduler.research_runner().execute(task)
 
             # Determine success based on result OR by checking if work was actually done
             # (pages created, synthesis generated, etc.)

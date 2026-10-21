@@ -262,40 +262,13 @@ class PageResearcher:
         self._ollama_model = ollama_model or os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q8_0")
 
     async def _search_web(self, topic: str) -> List[Dict]:
-        """Search web for information about the topic."""
-        import httpx
-
-        search_results = []
+        """Search web for information about the topic (research search interface, #60)."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    "https://api.duckduckgo.com/",
-                    params={
-                        "q": topic,
-                        "format": "json",
-                        "no_html": 1,
-                        "skip_disambig": 1,
-                    }
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("Abstract"):
-                        search_results.append({
-                            "source": data.get("AbstractSource", "DuckDuckGo"),
-                            "url": data.get("AbstractURL", ""),
-                            "text": data.get("Abstract", "")
-                        })
-                    for topic_result in data.get("RelatedTopics", [])[:3]:
-                        if isinstance(topic_result, dict) and topic_result.get("Text"):
-                            search_results.append({
-                                "source": "Related",
-                                "url": topic_result.get("FirstURL", ""),
-                                "text": topic_result.get("Text", "")
-                            })
+            from research_pipeline.search import context_snippets
+            return await context_snippets(topic, num_results=4, path="wiki")
         except Exception as e:
-            print(f"DuckDuckGo search failed: {e}")
-
-        return search_results
+            print(f"Web search failed: {e}")
+            return []
 
     def _search_memory(self, topic: str) -> List[str]:
         """Search conversation memory for personal context."""

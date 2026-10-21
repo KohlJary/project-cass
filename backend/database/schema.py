@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 63  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62)
+SCHEMA_VERSION = 64  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -604,7 +604,8 @@ CREATE TABLE IF NOT EXISTS research_tasks (
     completed_at TEXT,
     result_json TEXT,
     exploration_json TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    params_json TEXT                    -- step parameters (session tasks, #60)
 );
 
 CREATE INDEX IF NOT EXISTS idx_research_tasks_status ON research_tasks(daemon_id, status);

@@ -25,6 +25,12 @@ class TaskType(Enum):
     DEEPENING = "deepening"         # Deepen existing page through resynthesis
     EXPLORATION = "exploration"     # Explore conceptual gaps or adjacent topics
     QUESTION = "question"           # Research a question Cass has asked herself
+    SESSION = "session"             # A research session (research_pipeline, #60)
+
+
+# Task types the wiki batch runs pick from the queue. Session tasks run when
+# their trigger asks (research_pipeline.ResearchRunner), never from a wiki batch.
+WIKI_TASK_TYPES = (TaskType.RED_LINK, TaskType.DEEPENING, TaskType.EXPLORATION, TaskType.QUESTION)
 
 
 class TaskStatus(Enum):
@@ -141,9 +147,12 @@ class TaskResult:
     questions_raised: List[str] = field(default_factory=list)
     connections_formed: List[Tuple[str, str]] = field(default_factory=list)
     error: Optional[str] = None
+    # call site -> "provider:model" routing resolved for the step (#60)
+    # None: not run through the runner (older rows); {} : a step with no LLM call
+    models: Optional[Dict[str, str]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data = {
             "success": self.success,
             "summary": self.summary,
             "pages_created": self.pages_created,
@@ -154,6 +163,9 @@ class TaskResult:
             "connections_formed": [list(c) for c in self.connections_formed],
             "error": self.error,
         }
+        if self.models is not None:
+            data["models"] = dict(self.models)
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TaskResult":
@@ -167,6 +179,7 @@ class TaskResult:
             questions_raised=data.get("questions_raised", []),
             connections_formed=[tuple(c) for c in data.get("connections_formed", [])],
             error=data.get("error"),
+            models=dict(data["models"]) if data.get("models") is not None else None,
         )
 
 
@@ -198,6 +211,9 @@ class ResearchTask:
     # Exploration-specific context (only for exploration tasks)
     exploration: Optional[ExplorationContext] = None
 
+    # Step parameters for non-wiki steps (session: engine, duration, mode, ...)
+    params: Dict[str, Any] = field(default_factory=dict)
+
     def __lt__(self, other: "ResearchTask") -> bool:
         """For priority queue ordering (higher priority first)."""
         return self.priority > other.priority
@@ -226,6 +242,8 @@ class ResearchTask:
             data["result"] = self.result.to_dict()
         if self.exploration:
             data["exploration"] = self.exploration.to_dict()
+        if self.params:
+            data["params"] = dict(self.params)
         return data
 
     @classmethod
@@ -253,6 +271,8 @@ class ResearchTask:
             task.result = TaskResult.from_dict(data["result"])
         if data.get("exploration"):
             task.exploration = ExplorationContext.from_dict(data["exploration"])
+        if data.get("params"):
+            task.params = dict(data["params"])
         return task
 
 
@@ -393,7 +413,8 @@ class ResearchQueue:
             task.completed_at.isoformat() if task.completed_at else None,
             json_serialize(task.result.to_dict()) if task.result else None,
             json_serialize(task.exploration.to_dict()) if task.exploration else None,
-            task.created_at.isoformat()
+            task.created_at.isoformat(),
+            json_serialize(task.params) if task.params else None,
         )
 
     def _row_to_task(self, row) -> ResearchTask:
@@ -422,6 +443,8 @@ class ResearchQueue:
             task.result = TaskResult.from_dict(json_deserialize(row[14]))
         if row[15]:  # exploration_json
             task.exploration = ExplorationContext.from_dict(json_deserialize(row[15]))
+        if len(row) > 17 and row[17]:  # params_json (v64)
+            task.params = json_deserialize(row[17]) or {}
         return task
 
     def add(self, task: ResearchTask) -> None:
@@ -441,8 +464,8 @@ class ResearchQueue:
                     id, daemon_id, task_type, target, context, priority, status,
                     rationale_json, source_page, source_type, estimated_duration,
                     scheduled_for, started_at, completed_at, result_json,
-                    exploration_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    exploration_json, created_at, params_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, row)
             conn.commit()
 
@@ -454,7 +477,7 @@ class ResearchQueue:
                 SELECT id, daemon_id, task_type, target, context, priority, status,
                        rationale_json, source_page, source_type, estimated_duration,
                        scheduled_for, started_at, completed_at, result_json,
-                       exploration_json, created_at
+                       exploration_json, created_at, params_json
                 FROM research_tasks
                 WHERE daemon_id = ? AND id = ?
             """, (self._daemon_id, task_id))
@@ -486,7 +509,7 @@ class ResearchQueue:
                 SELECT id, daemon_id, task_type, target, context, priority, status,
                        rationale_json, source_page, source_type, estimated_duration,
                        scheduled_for, started_at, completed_at, result_json,
-                       exploration_json, created_at
+                       exploration_json, created_at, params_json
                 FROM research_tasks
                 WHERE daemon_id = ? AND status = 'queued'
                 ORDER BY priority DESC
@@ -501,7 +524,7 @@ class ResearchQueue:
                 SELECT id, daemon_id, task_type, target, context, priority, status,
                        rationale_json, source_page, source_type, estimated_duration,
                        scheduled_for, started_at, completed_at, result_json,
-                       exploration_json, created_at
+                       exploration_json, created_at, params_json
                 FROM research_tasks
                 WHERE daemon_id = ? AND status = ?
             """, (self._daemon_id, status.value))
@@ -515,15 +538,20 @@ class ResearchQueue:
                 SELECT id, daemon_id, task_type, target, context, priority, status,
                        rationale_json, source_page, source_type, estimated_duration,
                        scheduled_for, started_at, completed_at, result_json,
-                       exploration_json, created_at
+                       exploration_json, created_at, params_json
                 FROM research_tasks
                 WHERE daemon_id = ? AND task_type = ?
             """, (self._daemon_id, task_type.value))
             return [self._row_to_task(row) for row in cursor.fetchall()]
 
-    def pop_next(self) -> Optional[ResearchTask]:
-        """Get and start the highest priority queued task."""
-        queued = self.get_queued()
+    def pop_next(self, include_sessions: bool = False) -> Optional[ResearchTask]:
+        """Get and start the highest priority queued task.
+
+        Session tasks are skipped unless include_sessions: they run when their
+        trigger asks, not from a wiki batch (#60).
+        """
+        queued = [t for t in self.get_queued()
+                  if include_sessions or t.task_type != TaskType.SESSION]
         if not queued:
             return None
         task = queued[0]
@@ -550,7 +578,7 @@ class ResearchQueue:
                 SELECT id, daemon_id, task_type, target, context, priority, status,
                        rationale_json, source_page, source_type, estimated_duration,
                        scheduled_for, started_at, completed_at, result_json,
-                       exploration_json, created_at
+                       exploration_json, created_at, params_json
                 FROM research_tasks
                 WHERE daemon_id = ? AND status = 'queued' AND task_type = ?
                 ORDER BY priority DESC

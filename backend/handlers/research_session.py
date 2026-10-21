@@ -245,7 +245,10 @@ async def execute_research_session_tool(
             mode = tool_input.get("mode", "explore")
 
             try:
-                session = await research_runner.start_session(
+                # One research queue (#60): queued, then started at once.
+                from research_pipeline import get_research_pipeline
+                session = await get_research_pipeline().start_session(
+                    research_runner,
                     duration_minutes=duration,
                     focus=topic,
                     mode=mode,
@@ -261,7 +264,7 @@ async def execute_research_session_tool(
                     "message": f"Autonomous research started on '{topic}'. Running for {duration} minutes. Your findings will be saved automatically."
                 }
 
-            except ValueError as e:
+            except (ValueError, RuntimeError) as e:
                 result = {"error": str(e)}
 
         elif tool_name == "start_research_session":

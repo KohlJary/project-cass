@@ -58,33 +58,24 @@ async def create_research_journal(
             completed_at=completed_at,
         )
 
-        # Store in memory system
+        # Store in memory system, as its own research journal for the day.
+        # This used to look up "the" journal for the date and re-store
+        # existing + new text as a new research entry: whichever journal
+        # Chroma returned first (a spell journal, an earlier research
+        # journal, or her daily journal if one existed) was copied into it,
+        # and each further session that day copied the copies. The other
+        # entries were never changed; they were duplicated. Now each session
+        # stores only its own entry and never touches other journals.
         memory = CassMemory()
         date = datetime.now().strftime("%Y-%m-%d")
-
-        # Check if a journal already exists for today
-        existing = memory.get_journal_entry(date)
-        if existing:
-            # Append to existing journal
-            combined_text = existing.get("content", "") + "\n\n---\n\n" + journal_text
-            entry_id = await memory.store_journal_entry(
-                date=date,
-                journal_text=combined_text,
-                summary_count=0,
-                conversation_count=0,
-                journal_type="research",
-            )
-            logger.info(f"Appended research journal to existing entry for {date}")
-        else:
-            # Create new journal
-            entry_id = await memory.store_journal_entry(
-                date=date,
-                journal_text=journal_text,
-                summary_count=0,
-                conversation_count=0,
-                journal_type="research",
-            )
-            logger.info(f"Created research journal entry for {date}: {entry_id}")
+        entry_id = await memory.store_journal_entry(
+            date=date,
+            journal_text=journal_text,
+            summary_count=0,
+            conversation_count=0,
+            journal_type="research",
+        )
+        logger.info(f"Created research journal entry for {date}: {entry_id}")
 
         return entry_id
 

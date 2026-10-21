@@ -125,6 +125,9 @@ def register_system_tasks(
                 scheduler=managers["research_scheduler"],
                 mode=None,  # read live from scheduler.config.mode
                 max_tasks=5,
+                # approved research-session requests (lever research_session_requests)
+                session_requests=managers.get("research_session_requests"),
+                session_runner_getter=managers.get("research_session_runner_getter"),
             ),
             interval_seconds=5 * 60,  # 5 minutes
             estimated_cost_usd=0.10,
