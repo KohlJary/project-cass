@@ -17,8 +17,16 @@ from .providers import get_provider, PROVIDERS, DEFAULT_PROVIDER
 
 logger = logging.getLogger(__name__)
 
-# Where to store downloaded artwork images
-ARTWORK_IMAGE_DIR = Path("data/art_study/images")
+# Where to store downloaded artwork images: DATA_DIR/art_study/images (issue #92).
+# Resolved lazily so importing this module doesn't import config.
+ARTWORK_IMAGE_DIR: Optional[Path] = None
+
+
+def _artwork_image_dir() -> Path:
+    if ARTWORK_IMAGE_DIR is not None:
+        return Path(ARTWORK_IMAGE_DIR)
+    from config import DATA_DIR
+    return DATA_DIR / "art_study" / "images"
 
 
 async def import_artist_from_provider(
@@ -69,7 +77,8 @@ async def import_artist_from_provider(
     failed = 0
 
     # Ensure image directory exists
-    ARTWORK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    image_dir = _artwork_image_dir()
+    image_dir.mkdir(parents=True, exist_ok=True)
 
     for artwork_data in artworks_data:
         # Check if we already have this artwork
@@ -97,7 +106,7 @@ async def import_artist_from_provider(
             ext = ".jpg"
             if ".png" in artwork_data.image_url.lower():
                 ext = ".png"
-            local_path = ARTWORK_IMAGE_DIR / f"{artwork_id}{ext}"
+            local_path = image_dir / f"{artwork_id}{ext}"
 
             success = await provider.download_image(artwork_data.image_url, str(local_path))
             if success:

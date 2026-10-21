@@ -10,6 +10,12 @@ from enum import Enum
 from typing import Optional
 
 
+def default_results_dir():
+    """Where benchmark results go by default: DATA_DIR/llm_bench/results (issue #92)."""
+    from config import DATA_DIR
+    return DATA_DIR / "llm_bench" / "results"
+
+
 class Provider(Enum):
     ANTHROPIC = "anthropic"
     OLLAMA = "ollama"

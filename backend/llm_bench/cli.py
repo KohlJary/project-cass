@@ -23,6 +23,7 @@ from .models import (
     Provider,
     check_ollama_models,
     get_models_to_pull,
+    default_results_dir,
 )
 from .capture import CaptureStore, enable_capture
 from .runner import BenchmarkRunner, run_benchmark
@@ -154,7 +155,7 @@ def cmd_run(args):
     print("")
 
     # Run benchmark
-    output_dir = Path(args.output) if args.output else Path("data/llm_bench/results")
+    output_dir = Path(args.output) if args.output else default_results_dir()
 
     async def _run():
         return await run_benchmark(
@@ -178,7 +179,7 @@ def cmd_run(args):
 
 def cmd_report(args):
     """Generate report from existing results."""
-    results_dir = Path(args.results_dir)
+    results_dir = Path(args.results_dir) if args.results_dir else default_results_dir()
 
     if args.call_site:
         # Single call site report
@@ -615,7 +616,7 @@ def cmd_batch(args):
     # Step 2: Run benchmarks
     print("## Step 2: Running benchmarks\n")
 
-    output_dir = Path(args.output)
+    output_dir = Path(args.output) if args.output else default_results_dir()
     all_results = {}
 
     for site in call_sites:
@@ -798,8 +799,8 @@ Examples:
     report_parser.add_argument("--call-site", help="Specific call site (or all for matrix)")
     report_parser.add_argument(
         "--results-dir",
-        default="data/llm_bench/results",
-        help="Results directory",
+        default=None,
+        help="Results directory (default: DATA_DIR/llm_bench/results)",
     )
 
     # synthetic
@@ -813,7 +814,7 @@ Examples:
     batch_parser.add_argument("--count", type=int, default=10, help="Captures per call site")
     batch_parser.add_argument("--limit", type=int, default=10, help="Max captures to test per site")
     batch_parser.add_argument("--skip-generate", action="store_true", help="Skip synthetic data generation")
-    batch_parser.add_argument("--output", default="data/llm_bench/results", help="Output directory")
+    batch_parser.add_argument("--output", default=None, help="Output directory (default: DATA_DIR/llm_bench/results)")
 
     # chat-reasoning
     chat_parser = subparsers.add_parser("chat-reasoning", help="Chat reasoning benchmark with full context")

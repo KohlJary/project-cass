@@ -135,7 +135,10 @@ class ScoutDatabase:
     - config.json - Runtime configuration overrides
     """
 
-    def __init__(self, data_dir: str = "data/scout"):
+    def __init__(self, data_dir: Optional[str] = None):
+        if data_dir is None:
+            from config import DATA_DIR
+            data_dir = DATA_DIR / "scout"
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 

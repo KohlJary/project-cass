@@ -173,8 +173,11 @@ class SelfModelGraph:
     # ChromaDB returns L2 distance, so lower is more similar
     SIMILARITY_THRESHOLD = 1.2  # Fairly permissive to build connections
 
-    def __init__(self, storage_path: str = "./data/cass/self_model_graph.json",
+    def __init__(self, storage_path: Optional[str] = None,
                  chroma_persist_dir: Optional[str] = None):
+        if storage_path is None:
+            from config import DATA_DIR
+            storage_path = DATA_DIR / "cass" / "self_model_graph.json"
         self.storage_path = Path(storage_path)
         self.graph = nx.DiGraph()
         self._nodes: Dict[str, GraphNode] = {}
