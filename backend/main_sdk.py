@@ -2529,6 +2529,9 @@ def _build_chat_memory_context(request: "ChatRequest", project_id: Optional[str]
 
     Returns (memory_context, user_context, intro_guidance).
     """
+    # One read: this runs in a worker thread, and POST /users/current can
+    # change the global between reads.
+    uid = current_user_id
     memory_context = ""
     user_context = ""
     intro_guidance = None
@@ -2551,16 +2554,16 @@ def _build_chat_memory_context(request: "ChatRequest", project_id: Optional[str]
     # for proper chain system support, not merged into memory_context
     intro_guidance = None
     user_context = ""
-    if current_user_id:
+    if uid:
         user_context_entries = memory.retrieve_user_context(
             query=request.message,
-            user_id=current_user_id
+            user_id=uid
         )
         user_context = memory.format_user_context(user_context_entries)
         # Don't merge into memory_context - pass separately for chain support
 
         # Check if user model is sparse and add intro guidance
-        sparseness = user_manager.check_user_model_sparseness(current_user_id)
+        sparseness = user_manager.check_user_model_sparseness(uid)
         intro_guidance = sparseness.get("intro_guidance")
 
     # Add project context if conversation is in a project
