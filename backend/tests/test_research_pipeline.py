@@ -663,3 +663,57 @@ def test_duckduckgo_keeps_the_wiki_snippet_shape(monkeypatch):
     monkeypatch.setattr(rsearch, "_http_client", lambda timeout: _Client())
     resp = asyncio.run(rsearch.DuckDuckGoBackend().search("q", num_results=4))
     assert [h.snippet for h in resp.results] == ["A", "one", "three"]
+
+
+# ---------------------------------------------------------------------------
+# Session tasks interrupted by a restart (PR #90 review)
+# ---------------------------------------------------------------------------
+
+def test_startup_fails_session_tasks_left_in_progress():
+    from database import get_db
+    from research_pipeline import fail_interrupted_sessions
+    from research_pipeline import runner as runner_mod
+
+    pipeline = get_research_pipeline()
+    queue = pipeline.queue
+
+    def _session(focus):
+        return pipeline.enqueue_session(engine="legacy", focus=focus, duration_minutes=5, trigger="admin")
+
+    orphan = queue.pop(_session("orphaned by a restart").task_id)    # in_progress, no owner
+    live = queue.pop(_session("still running here").task_id)        # in_progress, owned
+    waiting = _session("not started")                                # queued
+    wiki_task = queue.pop(_red_link(queue, target="Interrupted Wiki").task_id)  # in_progress wiki row
+    runner_mod._LIVE_SESSION_TASKS.add(live.task_id)
+    try:
+        failed = fail_interrupted_sessions()
+        again = fail_interrupted_sessions()   # idempotent: nothing left to fail
+    finally:
+        runner_mod._LIVE_SESSION_TASKS.discard(live.task_id)
+
+    assert list(failed.values()) == [[orphan.task_id]]
+    assert again == {}
+    status, result, params, _t = _row(orphan.task_id)
+    assert status == "failed" and result["error"] == "interrupted by restart"
+    assert params["engine"] == "legacy"
+    with get_db() as conn:
+        archived = conn.execute("SELECT status FROM research_task_history WHERE id = ?",
+                                (orphan.task_id,)).fetchone()
+    assert archived and archived[0] == "failed"
+
+    assert _row(live.task_id)[0] == "in_progress"
+    assert _row(waiting.task_id)[0] == "queued"
+    assert _row(wiki_task.task_id)[0] == "in_progress"   # wiki rows are left alone
+
+
+def test_completed_session_is_no_longer_live():
+    from research_pipeline import runner as runner_mod
+
+    class Busy(FakeLegacyRunner):
+        async def start_session(self, **kw):
+            raise ValueError("A session is already active")
+
+    with pytest.raises(ValueError):
+        asyncio.run(get_research_pipeline().start_session(Busy(), focus="x", duration_minutes=5,
+                                                          trigger="admin"))
+    assert not runner_mod._LIVE_SESSION_TASKS
