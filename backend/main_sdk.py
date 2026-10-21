@@ -1989,6 +1989,14 @@ async def startup_event():
                 "research_scheduler": wiki_research_scheduler,
             }, enabled=True)
 
+            # Heartbeat (#62), lever `heartbeat`, off by default. When on, it
+            # runs the jobs it owns and register_system_tasks skipped them.
+            from heartbeat.wiring import start_heartbeat
+            await start_heartbeat(budget_manager, {
+                "github_metrics_manager": github_metrics_manager,
+                "daemon_id": _daemon_id,
+            }, idle_check=synkratos.is_idle)
+
             # Register approval providers for unified "what needs my attention?" queue
             # Note: Use UnifiedGoalManager for goals (not old GoalManager)
             from unified_goals import UnifiedGoalManager
@@ -2426,7 +2434,9 @@ async def startup_event():
             logger.warning("Falling back to legacy background tasks")
             asyncio.create_task(daily_journal_task())
             asyncio.create_task(autonomous_research_task())
-            asyncio.create_task(github_metrics_task(github_metrics_manager))
+            from heartbeat.wiring import runs_job as heartbeat_runs_job
+            if not heartbeat_runs_job("github_metrics"):  # one trigger path per job
+                asyncio.create_task(github_metrics_task(github_metrics_manager))
             asyncio.create_task(idle_summarization_task(
                 conversation_manager=conversation_manager,
                 memory=memory,

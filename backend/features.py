@@ -163,6 +163,14 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "Off: the legacy GenericSessionRunner.run_session path.",
            default=False, where="scheduler/actions/session_handlers._run_generic_session"),
 
+    # --- Heartbeat (epic #62) ---
+    _lever("heartbeat", "Heartbeat: one clock, work registry, budget gate and run log "
+           "(heartbeat_runs table). On: the jobs in heartbeat/wiring.HEARTBEAT_JOBS "
+           "(github_metrics, goal_refinement) run here and the old Synkratos/legacy path "
+           "skips them. Off: the old schedulers run everything, as before. Read at boot.",
+           BACKGROUND, default=False,
+           where="main_sdk.start_deferred_tasks: heartbeat.wiring.start_heartbeat"),
+
     _lever("art_choice", "Before an autonomous painting, ask her what she wants to paint and why; "
            "after it, show her the result for an artist's note (two Haiku calls per painting)",
            LLM, where="scheduler/actions/creative_handlers.generate_image_action"),

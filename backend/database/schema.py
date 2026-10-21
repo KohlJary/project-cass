@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 62  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61)
+SCHEMA_VERSION = 63  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -2363,4 +2363,26 @@ CREATE INDEX IF NOT EXISTS idx_user_calendar_config_user ON user_calendar_config
 -- TIMERS (v53): the timers table was created here until #54. Its only writer
 -- (timer_manager) went to the attic in #74, so fresh databases no longer get
 -- it. Existing databases keep the table and its rows; nothing reads them.
+
+-- =============================================================================
+-- HEARTBEAT RUN LOG (v63, #62)
+-- =============================================================================
+
+-- One row per Heartbeat run (heartbeat/runlog.py). status: running, ok, failed,
+-- error, refused_budget.
+CREATE TABLE IF NOT EXISTS heartbeat_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    daemon_id TEXT,
+    work_name TEXT NOT NULL,
+    trigger TEXT,
+    budget_class TEXT,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    duration_seconds REAL,
+    cost_usd REAL DEFAULT 0,
+    error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_work ON heartbeat_runs(work_name, started_at);
 """

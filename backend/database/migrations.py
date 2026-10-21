@@ -643,6 +643,28 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 62:
         ensure_users_legacy_credential_columns(conn)
 
+    # v63: Heartbeat run log (#62). Idempotent.
+    if from_version < 63:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS heartbeat_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                daemon_id TEXT,
+                work_name TEXT NOT NULL,
+                trigger TEXT,
+                budget_class TEXT,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_seconds REAL,
+                cost_usd REAL DEFAULT 0,
+                error TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_work "
+            "ON heartbeat_runs(work_name, started_at)"
+        )
+
 
 def ensure_users_legacy_credential_columns(conn):
     """Idempotently add users.legacy_email / legacy_password_hash."""
