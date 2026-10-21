@@ -41,10 +41,13 @@ class WorldStateSource(QueryableSource):
     def __init__(
         self,
         daemon_id: str,
-        data_dir: str = "data",
+        data_dir: Optional[str] = None,
         home_location: str = ""
     ):
         super().__init__(daemon_id)
+        if data_dir is None:
+            from config import DATA_DIR
+            data_dir = DATA_DIR
         self._data_dir = Path(data_dir) / "world_state"
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._home_location = home_location

@@ -99,7 +99,10 @@ class WorldClock:
     # Phase order for cycling
     PHASE_ORDER = [CyclePhase.DAWN, CyclePhase.DAY, CyclePhase.DUSK, CyclePhase.NIGHT]
 
-    def __init__(self, data_dir: str = "data/wonderland"):
+    def __init__(self, data_dir: Optional[str] = None):
+        if data_dir is None:
+            from config import DATA_DIR
+            data_dir = Path(DATA_DIR) / "wonderland"
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.state_file = self.data_dir / "world_clock.json"

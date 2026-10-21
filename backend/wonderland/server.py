@@ -65,7 +65,8 @@ async def startup():
     """Initialize the world on startup."""
     global world, command_processor
 
-    data_dir = os.getenv("WONDERLAND_DATA_DIR", "data/wonderland")
+    from config import DATA_DIR
+    data_dir = os.getenv("WONDERLAND_DATA_DIR", str(DATA_DIR / "wonderland"))
     world = WonderlandWorld(data_dir=data_dir)
     command_processor = CommandProcessor(world, world.get_mythology_registry())
 
