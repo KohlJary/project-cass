@@ -258,15 +258,16 @@ async def capture_session_output(
 @router.get("/capture/{session_name}/search", response_model=SearchResponse)
 async def search_session_output(
     session_name: str,
-    pattern: str = Query(..., description="Search pattern (regex supported)"),
+    pattern: str = Query(..., description="Text to search for (matched literally)"),
     lines: int = Query(default=500, ge=1, le=10000, description="Number of lines to search"),
     case_sensitive: bool = Query(default=False, description="Case-sensitive search")
 ):
     """
     Search captured output from a tmux session.
-    """
-    import re
 
+    The pattern is matched as literal text, not compiled as a regex: a
+    backtracking pattern over thousands of lines would block the event loop.
+    """
     # Ensure it's a daedalus session
     if not session_name.startswith("daedalus-"):
         session_name = f"daedalus-{session_name}"
@@ -279,18 +280,13 @@ async def search_session_output(
 
     output = capture_tmux_pane(session_name, lines)
 
-    # Compile regex
-    flags = 0 if case_sensitive else re.IGNORECASE
-    try:
-        regex = re.compile(pattern, flags)
-    except re.error:
-        regex = re.compile(re.escape(pattern), flags)
+    needle = pattern if case_sensitive else pattern.casefold()
 
     # Search lines
     from datetime import datetime
     results = []
     for i, line in enumerate(output.split('\n')):
-        if regex.search(line):
+        if needle in (line if case_sensitive else line.casefold()):
             results.append(SearchResult(
                 line=line,
                 index=i,
