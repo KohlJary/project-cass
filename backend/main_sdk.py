@@ -888,44 +888,34 @@ async def ha_conversation(request: Request):
     except Exception as e:
         logger.warning(f"Failed to get home context: {e}")
 
-    # Generate response using the agent
+    # The shared chat turn (chat_turn.py): continuous context, the tool loop,
+    # tag processing and the same persistence as every other entry point.
+    # The home state goes in the model's view of the message; the stored
+    # message is what was said. The HA integration waits 60s for an answer
+    # (home-assistant/custom_components/cass/conversation.py), so the tool
+    # loop is capped lower here (HA_MAX_TOOL_ITERATIONS) rather than off:
+    # voice requests like "turn off the lights" need a tool call.
     try:
-        # Add home context to the message
         enhanced_message = text
         if home_context:
             enhanced_message = f"[Current home state for context:\n{home_context}]\n\nUser said: {text}"
 
-        # Use the active provider's client. (This used to call an undefined
-        # claude_client.generate_response and compared against "claude", which
-        # is not a provider value.) No tool loop here: voice gets the text.
-        if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-            client = ollama_client
-        elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
-            client = openai_client
-        elif current_llm_provider == LLM_PROVIDER_ANTHROPIC and agent_client:
-            client = agent_client
-        else:
-            return {"error": "No LLM provider available", "response": "I'm not available right now."}
-
-        response = await client.send_message(
-            message=enhanced_message,
-            conversation_id=conversation_id,
-        )
-        response_text = response.text
-
-        # Store the conversation (keyword is assistant_response, not assistant_message)
-        conversation_manager.add_message(conversation_id, "user", text, user_id=ha_user_id)
-        conversation_manager.add_message(conversation_id, "assistant", response_text)
-        if memory:
-            await memory.store_conversation(
+        from chat_turn import run_chat_turn, NoLLMClient
+        from config import HA_MAX_TOOL_ITERATIONS
+        try:
+            result = await run_chat_turn(
                 user_message=text,
-                assistant_response=response_text,
+                model_message=enhanced_message,
                 conversation_id=conversation_id,
                 user_id=ha_user_id,
+                tool_cap=HA_MAX_TOOL_ITERATIONS,
+                generate_title=False,  # no background LLM title call, as before
             )
+        except NoLLMClient:
+            return {"error": "No LLM provider available", "response": "I'm not available right now."}
 
         return {
-            "response": response_text,
+            "response": result.clean_text,
             "conversation_id": conversation_id,
             "language": language,
         }
@@ -1243,180 +1233,35 @@ async def process_relay_chat_message(
         else:
             logger.info(f"[Relay] Using provided conversation_id: {conversation_id} for user {user_id}")
 
-        # Build continuous context for semantic memory retrieval
-        from continuous_context import build_continuous_context, get_recent_messages_for_continuous
-        from memory import ThreadManager, OpenQuestionManager
-        from database import get_daemon_id
+        async def relay_progress(frame):
+            # The mobile app shows status lines; debug frames stay server-side.
+            if send_status and frame.get("type") == "thinking":
+                await send_status({k: v for k, v in frame.items() if k != "memories"})
 
-        daemon_id = get_daemon_id()
-        thread_manager = ThreadManager(daemon_id) if daemon_id else None
-        question_manager = OpenQuestionManager(daemon_id) if daemon_id else None
-
-        # Worker thread: semantic retrieval is synchronous Chroma/embedding
-        # work and blocked the event loop (issue #85).
-        continuous_ctx = await asyncio.to_thread(
-            build_continuous_context,
-            user_id=user_id,
-            conversation_id=conversation_id,
-            user_manager=user_manager,
-            thread_manager=thread_manager,
-            question_manager=question_manager,
-            conversation_manager=conversation_manager,
-            daemon_name="Cass",
-            daemon_id=daemon_id,
-            memory=memory,
-            query=message_text,
-        )
-
-        # Get recent messages for conversation continuity (BEFORE storing new message)
-        continuous_messages = get_recent_messages_for_continuous(
-            conversation_manager=conversation_manager,
-            conversation_id=conversation_id,
-            limit=12  # Last 12 messages (6 exchanges)
-        )
-
-        logger.info(f"[Relay] Built continuous context, messages={len(continuous_messages)}")
-
-        # Send thinking status: retrieving context
-        if send_status:
-            await send_status({
-                "type": "thinking",
-                "status": "Retrieving memories...",
-                "timestamp": datetime.now().isoformat(),
-            })
-
-        # A person is talking: idle-only background jobs should wait.
-        from websocket_handlers import (
-            mark_user_activity, execute_tools_safely, extract_generated_images,
-            max_tool_iterations, finalize_chat_turn,
-        )
-        mark_user_activity()
-
-        # Send thinking status: generating response
-        if send_status:
-            await send_status({
-                "type": "thinking",
-                "status": "Generating response (Claude)...",
-                "timestamp": datetime.now().isoformat(),
-            })
-
-        # Call agent with continuous chat mode
-        response = await agent_client.send_message(
-            message=message_text,
-            memory_context="",  # Context is in continuous_system_prompt
-            project_id=None,
-            unsummarized_count=0,
-            conversation_id=conversation_id,
-            continuous_system_prompt=continuous_ctx.system_prompt,
-            continuous_messages=continuous_messages,
-        )
-
-        raw_response = response.raw
-        response_text = response.text
-        animations = response.gestures
-        total_input_tokens = response.input_tokens
-        total_output_tokens = response.output_tokens
-        # This turn's own history/prompt/tools: agent_client is shared with
-        # the websocket and Discord, so never rely on its "last" turn.
-        turn_chain = response.chain
-
-        # Handle tool execution with full loop support
-        tool_iteration = 0
-        tool_cap = max_tool_iterations()  # Prevent infinite loops
-        generated_images = []  # Track images generated during this request
-        while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < tool_cap:
-            tool_iteration += 1
-            tool_names = [t['tool'] for t in response.tool_uses]
-            logger.info(f"[Relay] Tool calls (iteration {tool_iteration}): {tool_names}")
-
-            # Send thinking status for tool execution
-            if send_status:
-                await send_status({
-                    "type": "thinking",
-                    "status": f"Executing: {', '.join(tool_names)}...",
-                    "timestamp": datetime.now().isoformat(),
-                })
-
-            # Get user info for tool context
-            user_name = None
-            if user_id:
-                user_profile = user_manager.load_profile(user_id)
-                user_name = user_profile.display_name if user_profile else None
-
-            # Execute tools (a tool that raises becomes an error result)
-            tool_ctx = create_tool_context(
-                user_id=user_id,
-                user_name=user_name,
-                conversation_id=conversation_id,
-                project_id=None
-            )
-            all_tool_results = await execute_tools_safely(
-                execute_tool_batch, response.tool_uses, tool_ctx, TOOL_EXECUTORS
-            )
-
-            # Extract any generated images from tool results
-            generated_images.extend(extract_generated_images(response.tool_uses, all_tool_results))
-
-            # Send thinking status for continuation
-            if send_status:
-                await send_status({
-                    "type": "thinking",
-                    "status": "Generating response (Claude)...",
-                    "timestamp": datetime.now().isoformat(),
-                })
-
-            # Continue with tool results
-            response = await agent_client.continue_with_tool_results(all_tool_results, chain=turn_chain)
-            turn_chain = response.chain or turn_chain
-            # Same accumulation as the websocket loop
-            raw_response += "\n" + response.raw
-            if response.text:
-                response_text = response.text
-            animations.extend(response.gestures)
-            total_input_tokens += response.input_tokens
-            total_output_tokens += response.output_tokens
-
-        model_name = agent_client.model if hasattr(agent_client, 'model') else DEFAULT_SESSION_MODEL
-
-        # Same post-turn pipeline as the websocket: strip/store tags and marks,
-        # store in ChromaDB + SQLite (user and assistant message), record
-        # tokens, title and summaries. The relay used to skip all but storage.
-        turn = await finalize_chat_turn(
+        # The shared turn (chat_turn.py): context, capped tool loop, tags,
+        # persistence. Pinned to Anthropic as the relay always was.
+        from chat_turn import run_chat_turn
+        result = await run_chat_turn(
             user_message=message_text,
-            raw_response=raw_response,
-            clean_text=response_text,
-            animations=animations,
             conversation_id=conversation_id,
             user_id=user_id,
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
-            provider="anthropic",
-            model=model_name,
-            tool_iterations=tool_iteration,
-            summarize_requested="<memory:summarize>" in raw_response,
+            provider=LLM_PROVIDER_ANTHROPIC,
+            progress=relay_progress,
         )
-        response_text = turn["clean_text"]
-
-        token_info = {
-            "input_tokens": total_input_tokens,
-            "output_tokens": total_output_tokens,
-            "provider": "anthropic",
-            "model": model_name,
-        }
 
         response_data = {
             "type": "response",
-            "text": response_text,
+            "text": result.clean_text,
             "conversation_id": conversation_id,
-            "inputTokens": total_input_tokens,
-            "outputTokens": total_output_tokens,
-            "provider": token_info["provider"],
-            "model": token_info["model"],
+            "inputTokens": result.input_tokens,
+            "outputTokens": result.output_tokens,
+            "provider": result.provider,
+            "model": result.model,
             "timestamp": datetime.now().isoformat(),
         }
         # Include generated images if any
-        if generated_images:
-            response_data["generated_images"] = generated_images
+        if result.generated_images:
+            response_data["generated_images"] = result.generated_images
         return response_data
 
     except Exception as e:
@@ -1434,6 +1279,29 @@ def get_tts_state():
     return (tts_enabled, tts_voice)
 
 
+DISCORD_GUIDANCE = (
+    "## DISCORD\n\nYou are responding to a Discord message. Keep your response "
+    "conversational and appropriate for Discord (not too long). You can use "
+    "Discord markdown formatting."
+)
+
+
+def _discord_conversation_id(user_id: str, title: str) -> str:
+    """The conversation a linked Discord sender's turns go to: one per
+    (user, channel title), found again by title, created on first use.
+    Renaming it in the UI starts a new one on the next message."""
+    from database import get_db
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM conversations WHERE daemon_id = ? AND user_id = ? "
+            "AND title = ? AND is_continuous = 0 ORDER BY updated_at DESC LIMIT 1",
+            (conversation_manager.daemon_id, user_id, title),
+        ).fetchone()
+    if row:
+        return row["id"]
+    return conversation_manager.create_conversation(title=title, user_id=user_id).id
+
+
 def make_discord_wake_callback(discord_bot):
     """The WAKE_CASS callback for the Discord bot: when Cass is @mentioned or
     DMed, run her turn (tools included) and post the reply to the channel."""
@@ -1445,7 +1313,6 @@ def make_discord_wake_callback(discord_bot):
             return
 
         from discord_bot.context import get_user_context_for_discord_entity
-        from websocket_handlers import execute_tools_safely, max_tool_iterations
 
         try:
             # Build prompt with Discord context
@@ -1476,32 +1343,43 @@ def make_discord_wake_callback(discord_bot):
 
             logger.info(f"[Discord] Invoking Cass for message from {entity_name}")
 
-            # Call Cass with Discord-specific guidance
-            response = await agent_client.send_message(
-                prompt,
-                intro_guidance="You are responding to a Discord message. Keep your response conversational and appropriate for Discord (not too long). You can use Discord markdown formatting.",
-            )
-            response_text = response.text or ""
-            turn_chain = response.chain
+            # What is stored: the line without the user-context block.
+            if is_dm:
+                memory_user_msg = f"[Discord DM from {entity_name}]: {message_content}"
+            else:
+                memory_user_msg = f"[Discord #{channel_name} - {entity_name}]: {message_content}"
 
-            # Run the tools Cass asks for and continue until she answers,
-            # the same loop the chat relay runs; keep the final text.
-            tool_iteration = 0
-            tool_cap = max_tool_iterations()
-            while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < tool_cap:
-                tool_iteration += 1
-                logger.info(f"[Discord] Tool calls (iteration {tool_iteration}): "
-                            f"{[t['tool'] for t in response.tool_uses]}")
-                tool_ctx = create_tool_context(user_id=linked_user_id, user_name=entity_name)
-                tool_results = await execute_tools_safely(
-                    execute_tool_batch, response.tool_uses, tool_ctx, TOOL_EXECUTORS
-                )
-                response = await agent_client.continue_with_tool_results(tool_results, chain=turn_chain)
-                turn_chain = response.chain or turn_chain
-                if response.text:
-                    response_text = response.text
-            # Unformatted text, for memory
-            raw_response_text = response_text
+            # A sender linked to a Cass user gets a conversation per channel,
+            # so the turn is stored like any other chat turn and the next one
+            # sees the channel's recent history. An unlinked sender has no
+            # user to own a conversation (one with no user_id would be listed
+            # for every user), so for them only memory (as before) and token
+            # usage are stored.
+            conversation_id = None
+            conversation_title = f"Discord DM: {entity_name}" if is_dm else f"Discord #{channel_name}"
+            if linked_user_id:
+                conversation_id = _discord_conversation_id(linked_user_id, conversation_title)
+
+            # The shared chat turn (chat_turn.py): continuous context, the
+            # capped tool loop, tags and persistence. Pinned to Anthropic, as
+            # the Discord callback always was.
+            from chat_turn import run_chat_turn
+            result = await run_chat_turn(
+                user_message=memory_user_msg,
+                model_message=prompt,
+                conversation_id=conversation_id,
+                user_id=linked_user_id,
+                system_addendum=DISCORD_GUIDANCE,
+                provider=LLM_PROVIDER_ANTHROPIC,
+                memory_metadata={"source": "discord", "channel": channel_name},
+                generate_title=False,
+            )
+            if conversation_id:
+                # The first user message renames a conversation
+                # (ConversationManager.add_message); keep the channel title
+                # so the next message finds this conversation again.
+                conversation_manager.update_title(conversation_id, conversation_title)
+            response_text = result.clean_text or ""
 
             logger.info(f"[Discord] Got response: {len(response_text)} chars")
 
@@ -1563,33 +1441,14 @@ def make_discord_wake_callback(discord_bot):
 
             if response_text and channel_id:
                 # Send response back to Discord
-                result = await discord_bot.send_message(
+                sent = await discord_bot.send_message(
                     channel_id=channel_id,
                     content=response_text,
                 )
-                if result.get("success"):
+                if sent.get("success"):
                     logger.info(f"[Discord] Responded to {entity_name} in #{channel_name}")
-
-                    # Store in memory so Cass can learn from Discord interactions
-                    try:
-                        # Format the message for memory storage
-                        if is_dm:
-                            memory_user_msg = f"[Discord DM from {entity_name}]: {message_content}"
-                        else:
-                            memory_user_msg = f"[Discord #{channel_name} - {entity_name}]: {message_content}"
-
-                        if memory and raw_response_text:
-                            await memory.store_conversation(  # async: was never awaited
-                                user_message=memory_user_msg,
-                                assistant_response=raw_response_text,
-                                user_id=linked_user_id,
-                                metadata={"source": "discord", "channel": channel_name}
-                            )
-                            logger.info(f"[Discord] Stored interaction in memory")
-                    except Exception as mem_err:
-                        logger.warning(f"[Discord] Failed to store in memory: {mem_err}")
                 else:
-                    logger.error(f"[Discord] Failed to send response: {result.get('error')}")
+                    logger.error(f"[Discord] Failed to send response: {sent.get('error')}")
 
         except Exception as e:
             logger.error(f"[Discord] Wake callback error: {e}")
@@ -2475,143 +2334,17 @@ async def status():
         "kernel": "Temple-Codex"
     }
 
-def _build_chat_memory_context(request: "ChatRequest", project_id: Optional[str]):
-    """Gather POST /chat's memory context. Synchronous and slow.
-
-    Chroma queries, embeddings and SQLite reads all happen here, so chat()
-    runs this in a worker thread (asyncio.to_thread). On the event loop it
-    stalled every other task in the process for minutes (issue #85).
-
-    Returns (memory_context, user_context, intro_guidance).
-    """
-    # One read: this runs in a worker thread, and POST /users/current can
-    # change the global between reads.
-    uid = current_user_id
-    memory_context = ""
-    user_context = ""
-    intro_guidance = None
-    hierarchical = memory.retrieve_hierarchical(
-        query=request.message,
-        conversation_id=request.conversation_id
-    )
-    # Use working summary if available (token-optimized)
-    working_summary = conversation_manager.get_working_summary(request.conversation_id) if request.conversation_id else None
-    # Get actual recent messages for chronological context (not semantic search)
-    recent_messages = conversation_manager.get_recent_messages(request.conversation_id, count=6) if request.conversation_id else None
-    memory_context = memory.format_hierarchical_context(
-        hierarchical,
-        working_summary=working_summary,
-        recent_messages=recent_messages
-    )
-
-    # Add user context if we have a current user
-    # NOTE: user_context and intro_guidance are passed separately to send_message
-    # for proper chain system support, not merged into memory_context
-    intro_guidance = None
-    user_context = ""
-    if uid:
-        user_context_entries = memory.retrieve_user_context(
-            query=request.message,
-            user_id=uid
-        )
-        user_context = memory.format_user_context(user_context_entries)
-        # Don't merge into memory_context - pass separately for chain support
-
-        # Check if user model is sparse and add intro guidance
-        sparseness = user_manager.check_user_model_sparseness(uid)
-        intro_guidance = sparseness.get("intro_guidance")
-
-    # Add project context if conversation is in a project
-    if project_id:
-        project_docs = memory.retrieve_project_context(
-            query=request.message,
-            project_id=project_id
-        )
-        project_context = memory.format_project_context(project_docs)
-        if project_context:
-            memory_context = project_context + "\n\n" + memory_context
-
-    # Add Cass's self-model context (flat profile - identity/values/edges)
-    # Note: observations now handled by graph context with message-relevance
-    # Phase 1 Procedural Self-Awareness: Pass message for semantic matching of growth edges
-    self_context = self_manager.get_self_context(
-        include_observations=False,
-        message=request.message,
-        conversation_id=request.conversation_id,
-        directive_growth_edges=True  # Phase 1: Edges actively shape behavior
-    )
-    if self_context:
-        memory_context = self_context + "\n\n" + memory_context
-
-    # Phase 2 Procedural Self-Awareness: Add active intentions that should guide behavior
-    intention_context = self_model_graph.get_intention_directive_context(
-        message=request.message,
-        conversation_id=request.conversation_id,
-        top_n=3
-    )
-    if intention_context:
-        memory_context = intention_context + "\n\n" + memory_context
-
-    # Add self-model graph context (message-relevant observations, marks, changes)
-    graph_context = self_model_graph.get_graph_context(
-        message=request.message,
-        include_contradictions=True,
-        include_recent=True,
-        include_stats=True,
-        max_related=5
-    )
-    if graph_context:
-        memory_context = graph_context + "\n\n" + memory_context
-
-    # Automatic wiki context retrieval
-    wiki_context_str, wiki_page_names, wiki_retrieval_ms = get_automatic_wiki_context(
-        query=request.message,
-        relevance_threshold=0.5,
-        max_pages=3,
-        max_tokens=1500
-    )
-    if wiki_context_str:
-        memory_context = wiki_context_str + "\n\n" + memory_context
-
-    # Add cross-session insights relevant to this message
-    cross_session_insights = memory.retrieve_cross_session_insights(
-        query=request.message,
-        n_results=5,
-        max_distance=1.2,
-        min_importance=0.5,
-        exclude_conversation_id=request.conversation_id
-    )
-    if cross_session_insights:
-        insights_context = memory.format_cross_session_context(cross_session_insights)
-        if insights_context:
-            memory_context = insights_context + "\n\n" + memory_context
-
-    # Add active goals context
-    active_goals_context = goal_manager.get_active_summary()
-    if active_goals_context:
-        memory_context = active_goals_context + "\n\n" + memory_context
-
-    # Add recognition-in-flow patterns (between-session surfacing)
-    from pattern_aggregation import get_pattern_summary_for_surfacing
-    patterns_context, pattern_count = get_pattern_summary_for_surfacing(
-        marker_store=marker_store,
-        min_significance=0.5,  # Only surface significant patterns
-        limit=3  # Don't overwhelm context
-    )
-    if patterns_context:
-        memory_context = patterns_context + "\n\n" + memory_context
-
-    # NOTE: intro_guidance is NOT merged into memory_context here
-    # It's passed separately to send_message for proper chain system support
-
-    return memory_context, user_context, intro_guidance
-
-
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """
-    Main chat endpoint.
-    Uses Agent SDK if available, falls back to legacy client.
+    """One chat turn over HTTP (scripts/cass_chat.py, the Daedalus cass-chat
+    subagent).
+
+    A thin wrapper over the shared chat turn (chat_turn.py), the same one the
+    WebSocket, relay, Home Assistant and Discord run: continuous context,
+    the shared tool dispatcher with the capped loop, inline tag processing
+    and finalize_chat_turn persistence. It used to build its own prompt and
+    run its own tool dispatcher, and stored tags unprocessed. The response
+    shape is unchanged.
     """
     # A running autonomous session (agent_loop lever) ends cleanly.
     from agent_loop.interrupt import entry_point_received_message
@@ -2624,410 +2357,31 @@ async def chat(request: ChatRequest):
         if conversation:
             project_id = conversation.project_id
 
-    # Retrieve relevant memories (hierarchical: summaries first, then details).
-    # In a worker thread: retrieval is synchronous Chroma/embedding/SQLite work
-    # and blocked the event loop (issue #85).
-    memory_context = ""
-    # Set here too: send_message reads them even when include_memory is False
-    # (that used to raise UnboundLocalError).
-    user_context = ""
-    intro_guidance = None
-    if request.include_memory:
-        memory_context, user_context, intro_guidance = await asyncio.to_thread(
-            _build_chat_memory_context, request, project_id
-        )
-
-    # Get unsummarized message count to determine if summarization is available
-    unsummarized_count = 0
-    if request.conversation_id:
-        unsummarized_messages = conversation_manager.get_unsummarized_messages(request.conversation_id)
-        unsummarized_count = len(unsummarized_messages)
-
-    tool_uses = []
-
-    # Track token usage across tool continuations
-    total_input_tokens = 0
-    total_output_tokens = 0
-    total_cache_read_tokens = 0
-    tool_iterations = 0
-
-    if USE_AGENT_SDK and agent_client:
-        # Use Agent SDK with Temple-Codex kernel
-        response = await agent_client.send_message(
-            message=request.message,
-            memory_context=memory_context,
+    from chat_turn import run_chat_turn, NoLLMClient
+    try:
+        result = await run_chat_turn(
+            user_message=request.message,
+            conversation_id=request.conversation_id,
+            # The user set with POST /users/current, as before (cass_chat.py
+            # sets it to the Daedalus user first).
+            user_id=current_user_id,
             project_id=project_id,
-            unsummarized_count=unsummarized_count,
             image=request.image,
             image_media_type=request.image_media_type,
-            conversation_id=request.conversation_id,
-            user_context=user_context if user_context else None,
-            intro_guidance=intro_guidance,
+            include_memory=request.include_memory,
+            provider=LLM_PROVIDER_ANTHROPIC,  # POST /chat has always been Anthropic-only
         )
-
-        raw_response = response.raw
-        clean_text = response.text
-        animations = response.gestures
-        tool_uses = response.tool_uses
-        turn_chain = response.chain  # this turn's state (agent_client is shared)
-
-        # Track initial tokens (including cache)
-        total_input_tokens += response.input_tokens
-        total_output_tokens += response.output_tokens
-        total_cache_read_tokens += response.cache_read_tokens
-
-        # Handle tool calls (execute all tools, then continue with all results)
-        while response.stop_reason == "tool_use" and tool_uses:
-            # Collect all tool results before continuing
-            collected_results = []
-            
-            # Execute each tool and collect results
-            for tool_use in tool_uses:
-                tool_name = tool_use["tool"]
-
-                # Route to appropriate tool executor
-                if tool_name in ["recall_journal", "list_journals", "search_journals"]:
-                    tool_result = await execute_journal_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        memory=memory
-                    )
-                elif tool_name in ["regenerate_summary", "view_memory_chunks"]:
-                    tool_result = await execute_memory_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        memory=memory,
-                        conversation_id=request.conversation_id,
-                        conversation_manager=conversation_manager,
-                        token_tracker=token_tracker
-                    )
-                elif tool_name in ["show_patterns", "explore_pattern", "pattern_summary"]:
-                    tool_result = await execute_marker_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        marker_store=marker_store
-                    )
-                elif tool_name in ["create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events", "search_events", "complete_reminder", "delete_event", "update_event", "delete_events_by_query", "clear_all_events", "reschedule_event_by_query"]:
-                    tool_result = await execute_calendar_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        user_id=current_user_id,
-                        calendar_manager=calendar_manager,
-                        conversation_id=request.conversation_id
-                    )
-                elif tool_name in ["add_task", "list_tasks", "complete_task", "modify_task", "delete_task", "get_task"]:
-                    tool_result = await execute_task_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        user_id=current_user_id,
-                        task_manager=task_manager
-                    )
-                elif tool_name in ["create_roadmap_item", "list_roadmap_items", "update_roadmap_item", "get_roadmap_item", "complete_roadmap_item", "advance_roadmap_item"]:
-                    tool_result = await execute_roadmap_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        roadmap_manager=roadmap_manager,
-                        conversation_id=request.conversation_id
-                    )
-                elif tool_name in ["reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement", "review_self_model", "add_growth_observation", "trace_observation_evolution", "recall_development_stage", "compare_self_over_time", "list_developmental_milestones", "get_cognitive_metrics", "get_cognitive_snapshot", "compare_cognitive_snapshots", "get_cognitive_trend", "list_cognitive_snapshots", "check_milestones", "list_milestones", "get_milestone_details", "acknowledge_milestone", "get_milestone_summary", "get_unacknowledged_milestones", "get_graph_stats", "find_self_contradictions", "trace_belief_sources", "register_intention", "log_intention_outcome", "get_active_intentions", "review_friction", "update_intention_status", "log_situational_inference", "get_situational_inferences", "analyze_inference_patterns", "log_presence", "get_presence_logs", "analyze_presence_patterns", "document_stake", "get_stakes", "review_stakes", "record_preference_test", "get_preference_tests", "analyze_preference_consistency", "log_narration_context", "get_narration_contexts", "analyze_narration_context_patterns", "request_architectural_change", "get_architectural_requests"]:
-                    # Get user name for differentiation tracking
-                    user_name = None
-                    if current_user_id:
-                        user_profile = user_manager.load_profile(current_user_id)
-                        user_name = user_profile.display_name if user_profile else None
-
-                    tool_result = await execute_self_model_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        self_manager=self_manager,
-                        user_id=current_user_id,
-                        user_name=user_name,
-                        conversation_id=request.conversation_id,
-                        memory=memory,
-                        graph=self_model_graph
-                    )
-                elif tool_name in ["reflect_on_user", "record_user_observation", "update_user_profile", "review_user_observations"]:
-                    tool_result = await execute_user_model_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        user_manager=user_manager,
-                        target_user_id=current_user_id,
-                        conversation_id=request.conversation_id,
-                        memory=memory
-                    )
-                elif tool_name in ["update_wiki_page", "add_wiki_link", "search_wiki", "get_wiki_context", "get_wiki_page", "list_wiki_pages"]:
-                    tool_result = await execute_wiki_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        wiki_storage=wiki_storage,
-                        memory=memory
-                    )
-                elif tool_name in ["check_consciousness_health", "compare_to_baseline", "check_drift", "get_recent_alerts", "report_concern", "self_authenticity_check", "view_test_history", "run_test_battery", "list_test_batteries", "get_test_trajectory", "compare_test_runs", "add_test_interpretation"]:
-                    tool_result = await execute_testing_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        test_runner=consciousness_test_runner,
-                        fingerprint_analyzer=fingerprint_analyzer,
-                        drift_detector=drift_detector,
-                        authenticity_scorer=authenticity_scorer,
-                        conversation_manager=conversation_manager,
-                        storage_dir=DATA_DIR / "testing",
-                        longitudinal_manager=longitudinal_test_manager
-                    )
-                elif tool_name in ["identify_research_questions", "draft_research_proposal", "submit_proposal_for_review", "list_my_proposals", "refine_proposal", "get_proposal_details", "view_research_dashboard"]:
-                    tool_result = await execute_research_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        research_queue=research_queue,
-                        proposal_queue=proposal_queue,
-                        self_manager=self_manager,
-                        wiki_storage=wiki_storage,
-                        conversation_id=request.conversation_id
-                    )
-                elif tool_name in ["request_solo_reflection", "review_reflection_session", "list_reflection_sessions", "get_reflection_insights"]:
-                    tool_result = await execute_solo_reflection_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        reflection_manager=reflection_manager,
-                        reflection_runner=get_reflection_runner(),
-                    )
-                elif tool_name in ["mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats", "remove_cross_session_insight"]:
-                    tool_result = await execute_insight_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        memory=memory,
-                        conversation_id=request.conversation_id
-                    )
-                elif tool_name in ["create_working_question", "update_working_question", "list_working_questions", "add_research_agenda_item", "update_research_agenda_item", "list_research_agenda", "create_synthesis_artifact", "update_synthesis_artifact", "get_synthesis_artifact", "list_synthesis_artifacts", "log_progress", "review_goals", "get_next_actions", "propose_initiative"]:
-                    tool_result = await execute_goal_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        goal_manager=goal_manager
-                    )
-                elif tool_name in ["web_search", "fetch_url", "create_research_note", "update_research_note", "get_research_note", "list_research_notes", "search_research_notes"]:
-                    tool_result_str = await execute_web_research_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        research_manager=research_manager,
-                        session_manager=research_session_manager
-                    )
-                    import json as json_module
-                    tool_result = json_module.loads(tool_result_str)
-                    if "error" in tool_result:
-                        tool_result = {"success": False, "error": tool_result["error"]}
-                    else:
-                        tool_result = {"success": True, "result": tool_result_str}
-                elif tool_name in ["initiate_autonomous_research", "start_research_session", "get_session_status", "pause_research_session", "resume_research_session", "conclude_research_session", "list_research_sessions", "get_research_session_stats"]:
-                    tool_result_str = await execute_research_session_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        session_manager=research_session_manager,
-                        conversation_id=request.conversation_id,
-                        research_runner=get_research_runner()
-                    )
-                    import json as json_module
-                    tool_result = json_module.loads(tool_result_str)
-                    if "error" in tool_result:
-                        tool_result = {"success": False, "error": tool_result["error"]}
-                    else:
-                        tool_result = {"success": True, "result": tool_result_str}
-                elif tool_name in ["request_scheduled_session", "request_scheduled_research", "list_my_schedule_requests", "cancel_schedule_request", "get_scheduler_stats"]:
-                    tool_result_str = await execute_research_scheduler_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        scheduler=research_scheduler
-                    )
-                    import json as json_module
-                    tool_result = json_module.loads(tool_result_str)
-                    if "error" in tool_result:
-                        tool_result = {"success": False, "error": tool_result["error"]}
-                    else:
-                        tool_result = {"success": True, "result": tool_result_str}
-                elif tool_name in ["recall_dream", "list_dreams", "add_dream_reflection"]:
-                    tool_result = await execute_dream_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"]
-                    )
-                elif tool_name == "query_state":
-                    from handlers.state_query import execute_state_query
-                    tool_result = await execute_state_query(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        state_bus=global_state_bus
-                    )
-                elif tool_name == "discover_capabilities":
-                    from handlers.state_query import execute_discover_capabilities
-                    tool_result = await execute_discover_capabilities(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        state_bus=global_state_bus
-                    )
-                elif tool_name in ["summon_janet", "janet_feedback", "janet_stats"]:
-                    tool_result = await execute_janet_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        daemon_id=_daemon_id,
-                        state_bus=global_state_bus
-                    )
-                elif tool_name in ["create_outreach_draft", "submit_outreach_draft", "edit_outreach_draft", "get_outreach_draft", "list_outreach_drafts", "get_outreach_track_record", "get_outreach_stats"]:
-                    tool_result = await execute_outreach_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        daemon_id=_daemon_id
-                    )
-                elif tool_name in ["describe_my_home", "get_wonderland_status"]:
-                    logger.info(f"[WONDERLAND DEBUG] Calling execute_wonderland_tool with daemon_id={_daemon_id}")
-                    tool_result = await execute_wonderland_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        daemon_id=_daemon_id,
-                        memory=memory
-                    )
-                elif project_id:
-                    tool_result = await execute_document_tool(
-                        tool_name=tool_name,
-                        tool_input=tool_use["input"],
-                        project_id=project_id,
-                        project_manager=project_manager,
-                        memory=memory
-                    )
-                else:
-                    tool_result = {"success": False, "error": f"Tool '{tool_name}' requires a project context"}
-
-                # Collect this tool result
-                # Use 'or' chaining to handle None/empty values - dict.get() returns the value
-                # even if it's None/empty when the key exists, breaking fallback logic
-                result_content = tool_result.get("result") or tool_result.get("error") or "Unknown error"
-                collected_results.append({
-                    "tool_use_id": tool_use["id"],
-                    "result": result_content,
-                    "is_error": not tool_result.get("success", False)
-                })
-
-            # Now continue conversation with ALL tool results at once
-            response = await agent_client.continue_with_tool_results(
-                tool_results=collected_results, chain=turn_chain
-            )
-            turn_chain = response.chain or turn_chain
-
-            # Track tokens from continuation (including cache)
-            total_input_tokens += response.input_tokens
-            total_output_tokens += response.output_tokens
-            total_cache_read_tokens += response.cache_read_tokens
-            tool_iterations += 1
-
-            # Update response data
-            raw_response += "\n" + response.raw
-            # Only keep final text response - intermediate "let me check..." text wastes tokens
-            if response.text:
-                clean_text = response.text
-            animations.extend(response.gestures)
-            tool_uses = response.tool_uses
-
-    else:
-        # No Anthropic client. The old raw-API fallback (claude_client.py,
-        # now on attic/stabilization) needed the same package, so it never
-        # worked here either; say so instead of crashing on None.
-        raise HTTPException(
-            status_code=503,
-            detail="No Anthropic client available (is the anthropic package installed?)",
-        )
-    
-    # Store in memory (with conversation_id and user_id if provided).
-    # store_conversation is async; without await nothing was stored.
-    await memory.store_conversation(
-        user_message=request.message,
-        assistant_response=raw_response,
-        conversation_id=request.conversation_id,
-        user_id=current_user_id
-    )
-
-    # Store in conversation if conversation_id provided
-    if request.conversation_id:
-        conversation_manager.add_message(
-            conversation_id=request.conversation_id,
-            role="user",
-            content=request.message,
-            user_id=current_user_id
-        )
-        narration_metrics = get_narration_metrics(clean_text)
-        conversation_manager.add_message(
-            conversation_id=request.conversation_id,
-            role="assistant",
-            content=clean_text,
-            animations=animations,
-            narration_metrics=narration_metrics
-        )
-
-        # Record cross-context behavioral sample for pattern analysis
-        try:
-            classification = cross_context_analyzer.classify_context(
-                text=clean_text,
-                user_message=request.message,
-            )
-            markers = cross_context_analyzer.extract_behavioral_markers(
-                response=clean_text,
-                tool_usage=[t["tool"] for t in tool_uses] if tool_uses else None,
-            )
-            cross_context_analyzer.record_sample(
-                context=classification.primary_context,
-                markers=markers,
-                conversation_id=request.conversation_id,
-            )
-        except Exception as e:
-            # Don't fail the response if cross-context analysis fails
-            logger.warning(f"Cross-context sample recording failed: {e}")
-
-        # Check if summarization is needed
-        should_summarize = False
-
-        # Check for <memory:summarize> tag
-        if USE_AGENT_SDK and agent_client:
-            # In Agent SDK mode, check raw_response directly
-            if "<memory:summarize>" in raw_response:
-                should_summarize = True
-        else:
-            # In legacy mode, check processed memory_tags
-            if "memory_tags" in processed and processed["memory_tags"].get("summarize"):
-                should_summarize = True
-
-        # Check for auto-summary threshold
-        if conversation_manager.needs_auto_summary(request.conversation_id, AUTO_SUMMARY_INTERVAL):
-            should_summarize = True
-
-        # Trigger summarization if needed
-        if should_summarize:
-            # Run summarization in background
-            asyncio.create_task(generate_and_store_summary(
-                request.conversation_id,
-                memory=memory,
-                conversation_manager=conversation_manager,
-                token_tracker=token_tracker
-            ))
-
-    # Track token usage for REST endpoint
-    if USE_AGENT_SDK and total_input_tokens > 0:
-        operation = "tool_continuation" if tool_iterations > 0 else "initial_message"
-        token_tracker.record(
-            category="chat",
-            operation=operation,
-            provider="anthropic",  # Agent SDK uses Anthropic
-            model=agent_client.model if agent_client else "unknown",
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
-            cache_read_tokens=total_cache_read_tokens,
-            conversation_id=request.conversation_id,
-            user_id=current_user_id
-        )
+    except NoLLMClient as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
     return ChatResponse(
-        text=clean_text,
-        animations=animations,
-        raw=raw_response,
-        memory_used=bool(memory_context),
-        tool_uses=tool_uses if tool_uses else None,
+        text=result.clean_text,
+        animations=result.animations,
+        raw=result.raw_response,
+        memory_used=result.memory_used,
+        tool_uses=result.tool_uses or None,
         sdk_mode=USE_AGENT_SDK,
-        conversation_id=request.conversation_id
+        conversation_id=request.conversation_id,
     )
 
 

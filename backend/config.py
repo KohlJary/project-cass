@@ -97,6 +97,9 @@ AUTO_SUMMARY_INTERVAL = 20  # Generate summary after N messages without one
 # Max model->tool->model round trips in one chat turn (websocket and relay).
 # A model that keeps calling tools would otherwise loop (and spend) forever.
 CHAT_MAX_TOOL_ITERATIONS = int(os.getenv("CHAT_MAX_TOOL_ITERATIONS", "10"))
+# Home Assistant voice turns: the HA integration gives up after 60s, so its
+# tool loop is capped lower than chat's (the lower of the two applies).
+HA_MAX_TOOL_ITERATIONS = int(os.getenv("HA_MAX_TOOL_ITERATIONS", "2"))
 
 # One clock for everything time-of-day based: Synkratos cron jobs and the
 # day phases (morning/afternoon/evening/night). An IANA name, e.g.
