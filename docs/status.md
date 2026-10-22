@@ -13,7 +13,7 @@ Kohl asked for everything to go live. With the service stopped, in this order:
 - **Research queue cleared** at Kohl's request: 453 queued tasks (383 red-link, 43 deepening, 27 exploration), exported first to `~/cass/backups/research-queue-cleared-2026-10-22.json`. Her history (144 completed, 16 failed) is untouched.
 - **Tavily:** `RESEARCH_SEARCH_ORDER_WIKI=tavily,duckduckgo` in `backend/.env`.
 
-Each data script was dry-run against live data before `--apply`, and each apply matched its dry run. Per the scripts' printed output, every count above is from the scripts themselves.
+Each data script was dry-run against live data before `--apply`, and each apply matched its dry run. The counts above are from the scripts' own printed output.
 
 After restart:
 - No migration or schema errors; the log reads "Database schema is current (v64)". The recurring Home Assistant "Failed to get areas" error was already in the log before the restart.
