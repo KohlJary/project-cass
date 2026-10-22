@@ -42,3 +42,31 @@ def test_news_action_sends_key_as_header(monkeypatch, ctx):
     for url, params, headers in _Client.calls:
         assert "k-123" not in url and "k-123" not in params.values()
         assert headers.get("X-Api-Key") == "k-123"
+
+
+@pytest.mark.unit
+def test_world_state_source_sends_news_key_as_header(monkeypatch):
+    pytest.importorskip("networkx")  # sources/ pulls it in; CI's fast job lacks it
+    from sources.world_state_source import WorldStateSource
+    monkeypatch.setenv("NEWS_API_KEY", "k-456")
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    _Client.calls.clear()
+    source = WorldStateSource.__new__(WorldStateSource)  # no daemon or DB needed for the fetch
+    asyncio.run(source._fetch_headlines(["science"]))
+    asyncio.run(source.search_headlines("tides"))
+    urls = {url for url, _p, _h in _Client.calls}
+    assert any("top-headlines" in u for u in urls) and any("everything" in u for u in urls), urls
+    for url, params, headers in _Client.calls:
+        assert "k-456" not in url and "k-456" not in params.values()
+        assert headers.get("X-Api-Key") == "k-456"
+
+
+@pytest.mark.unit
+def test_httpx_request_logging_is_quiet_in_the_service():
+    """OpenWeather and WikiArt keys can only go in the URL, so the service keeps
+    httpx/httpcore request logs (which print URLs) below INFO."""
+    pytest.importorskip("multipart")
+    import logging
+    import main_sdk  # noqa: F401  (sets the levels at import)
+    for name in ("httpx", "httpcore"):
+        assert logging.getLogger(name).getEffectiveLevel() >= logging.WARNING
