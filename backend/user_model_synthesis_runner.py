@@ -716,20 +716,14 @@ Then synthesize patterns into identity understandings, record relationship dynam
 
             elif tool_name == "update_communication_style":
                 user_id = tool_input["user_id"]
-                model = self.user_manager.get_or_create_user_model(user_id)
-                if not model:
+                success = self.user_manager.update_communication_style(
+                    user_id,
+                    style=tool_input.get("style"),
+                    add_preference=tool_input.get("add_preference"),
+                    add_effective_approach=tool_input.get("add_effective_approach"),
+                )
+                if not success:
                     return json.dumps({"error": "User not found"})
-
-                if tool_input.get("style"):
-                    model.communication_style.style = tool_input["style"]
-                if tool_input.get("add_preference"):
-                    if tool_input["add_preference"] not in model.communication_style.preferences:
-                        model.communication_style.preferences.append(tool_input["add_preference"])
-                if tool_input.get("add_effective_approach"):
-                    if tool_input["add_effective_approach"] not in model.communication_style.effective_approaches:
-                        model.communication_style.effective_approaches.append(tool_input["add_effective_approach"])
-
-                self.user_manager.save_user_model(model)
                 return json.dumps({"success": True})
 
             # Conversation history tools
