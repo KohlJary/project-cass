@@ -4,10 +4,10 @@
 
 ## Where we are
 
-*Updated 2026-10-21.* Steps 1–3 of the order of work are built (their epics stay open until the data migrations run), plus the first builds of steps 4–6. See `docs/status.md` for the PR list and what waits on Kohl.
+*Updated 2026-10-22.* Steps 1–3 of the order of work are built and deployed, plus the first builds of steps 4–6. See `docs/status.md` for the PR list and what waits on Kohl.
 
 - **Merged:** #11–#20; cheap cuts (#54 via #81); PeopleDex (#55 via #83); journals (#56 via #84); model routing (#64 via #86); auth (#61 via #88, transition mode); research (#60 via #90); the agent loop (#70 via #82, behind `agent_loop`, off); the Heartbeat core (#62 via #87, behind `heartbeat`, off); chat off the event loop (#85 via #89); 12 loose ends (#91).
-- **Not deployed:** nothing above is live until the service restarts. The data migrations are dry-run only.
+- **Deployed 2026-10-22:** schema v64 and the PeopleDex, auth and journal data migrations are live (see `docs/status.md`).
 - **Next:** cut chat over to the agent loop (the rest of #70, which absorbs #57–#59); the Heartbeat cutover; benchmarks (#65); the self-context design (#63).
 
 ## Consolidation plan
