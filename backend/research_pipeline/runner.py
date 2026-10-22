@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
@@ -141,6 +142,11 @@ def fail_interrupted_sessions(error: str = "interrupted by restart") -> Dict[str
     return out
 
 
+# Automatic wiki research tasks per local day (RESEARCH_MAX_TASKS_PER_DAY overrides).
+# 15 matches what the research budget share already allowed at the flat $0.10 a task.
+DEFAULT_MAX_TASKS_PER_DAY = 15
+
+
 class ResearchRunner:
     """Runs research tasks from the one queue. See the module docstring."""
 
@@ -237,7 +243,32 @@ class ResearchRunner:
 
     # --- the wiki batch entry points (ResearchScheduler delegates here) --------
 
+    def daily_cap_reached(self) -> bool:
+        """True once today's automatic wiki tasks reach RESEARCH_MAX_TASKS_PER_DAY.
+
+        The budget gate counts a flat estimate per task and nothing meters
+        search-API credits (Tavily), so continuous mode needs a hard ceiling.
+        0 or a negative value turns the cap off. Not capped: a task picked by
+        id, session tasks, and approved proposals executed through the wiki
+        routes (`execute`, which takes nothing off the queue).
+        """
+        try:
+            cap = int(os.getenv("RESEARCH_MAX_TASKS_PER_DAY", str(DEFAULT_MAX_TASKS_PER_DAY)))
+        except ValueError:
+            cap = DEFAULT_MAX_TASKS_PER_DAY
+        if cap <= 0:
+            return False
+        midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        started = self.queue.count_started_since(midnight)
+        if started >= cap:
+            logger.info(f"research runner: daily cap reached ({started}/{cap}); not starting another task")
+            return True
+        return False
+
     async def run_single_task(self, task_id: Optional[str] = None) -> Optional[ProgressReport]:
+        # A task picked by id is someone's explicit choice; only automatic picks are capped.
+        if not task_id and self.daily_cap_reached():
+            return None
         task = self.queue.pop(task_id) if task_id else self.queue.pop_next()
         if not task:
             return None
@@ -249,6 +280,8 @@ class ResearchRunner:
         reports = []
         for _ in range(max_tasks):
             if task_type is not None:
+                if self.daily_cap_reached():
+                    break
                 task = self.queue.pop_next_by_type(task_type)
                 report = await self.run_task(task) if task else None
             else:
