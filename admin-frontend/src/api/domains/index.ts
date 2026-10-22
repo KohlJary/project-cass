@@ -209,7 +209,6 @@ export {
   homepageApi,
   attachmentsApi,
   galleryApi,
-  promptConfigApi,
   llmConfigApi,
   type GeneratedImage,
   type ImageRevisionsResponse,

@@ -50,7 +50,6 @@ FORMERLY_OPEN = [
     ("GET", "/admin/journals/calendar"),
     ("GET", "/admin/daemons"),
     ("GET", "/admin/research/sessions"),
-    ("GET", "/admin/world-state/observations"),
     ("GET", "/admin/genesis/eligible"),
     ("GET", "/admin/genesis/x"),
     ("GET", "/admin/feedback"),

@@ -689,10 +689,6 @@ configure_janet(
 
 app.include_router(admin_router)
 
-# Register prompt composer routes
-from prompt_composer import router as prompt_composer_router, seed_default_presets
-app.include_router(prompt_composer_router)
-
 # Register chain API routes (node-based prompt composition)
 from chain_api import router as chain_router
 app.include_router(chain_router)
@@ -1941,14 +1937,6 @@ async def startup_event():
                 await global_state_bus.start_capability_indexing()
                 logger.info("Background: Indexed source capabilities")
 
-            # Seed default prompt configurations
-            try:
-                created_count = seed_default_presets(_daemon_id)
-                if created_count > 0:
-                    logger.info(f"Background: Seeded {created_count} default prompt configurations")
-            except Exception as e:
-                logger.warning(f"Background: Prompt config seeding failed: {e}")
-
             # Now initialize attractor basins if needed
             if memory and memory.count() == 0:
                 logger.info("Background: Initializing attractor basins...")
@@ -2073,14 +2061,6 @@ async def startup_event():
             runners_dict = {
                 "research": get_research_runner(),
                 "reflection": get_reflection_runner(),
-                "synthesis": get_synthesis_runner(),
-                "meta_reflection": get_meta_reflection_runner(),
-                "consolidation": get_consolidation_runner(),
-                "growth_edge": get_growth_edge_runner(),
-                "knowledge_building": get_knowledge_building_runner(),
-                "writing": get_writing_runner(),
-                "world_state": get_world_state_runner(),
-                "creative": get_creative_runner(),
             }
 
             # Heartbeat (#62), lever `heartbeat`, off by default. Started before
@@ -3325,235 +3305,12 @@ def get_research_runner() -> ResearchSessionRunner:
     return _research_runner
 
 
-def get_activity_runners() -> Dict[str, Any]:
-    """Get runners dict for scheduler dispatch by session type."""
-    return {
-        "reflection": get_reflection_runner(),
-        "research": get_research_runner(),
-        "synthesis": get_synthesis_runner(),
-        "meta_reflection": get_meta_reflection_runner(),
-        "consolidation": get_consolidation_runner(),
-        "growth_edge": get_growth_edge_runner(),
-        "writing": get_writing_runner(),
-        "knowledge_building": get_knowledge_building_runner(),
-        "world_state": get_world_state_runner(),
-        "creative": get_creative_runner(),
-        "user_model_synthesis": get_user_model_synthesis_runner(),
-    }
-
-
-# Initialize the synthesis runner (lazy - created when needed)
-from synthesis_session_runner import SynthesisSessionRunner
-_synthesis_runner: Optional[SynthesisSessionRunner] = None
-
-def get_synthesis_runner() -> SynthesisSessionRunner:
-    """Get or create the synthesis session runner."""
-    global _synthesis_runner
-    if _synthesis_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _synthesis_runner = SynthesisSessionRunner(
-            goal_manager=goal_manager,
-            research_manager=research_manager,
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            self_manager=self_manager,
-            self_model_graph=self_model_graph,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-            state_bus=global_state_bus,
-        )
-    return _synthesis_runner
-
-
-# Initialize the meta-reflection runner (lazy - created when needed)
-from meta_reflection_runner import MetaReflectionRunner
-_meta_reflection_runner: Optional[MetaReflectionRunner] = None
-
-def get_meta_reflection_runner() -> MetaReflectionRunner:
-    """Get or create the meta-reflection session runner."""
-    global _meta_reflection_runner
-    if _meta_reflection_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _meta_reflection_runner = MetaReflectionRunner(
-            self_manager=self_manager,
-            self_model_graph=self_model_graph,
-            marker_store=marker_store,
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            state_bus=global_state_bus,
-        )
-    return _meta_reflection_runner
-
-
-# Initialize the consolidation runner (lazy - created when needed)
-from consolidation_session_runner import ConsolidationRunner
-_consolidation_runner: Optional[ConsolidationRunner] = None
-
-def get_consolidation_runner() -> ConsolidationRunner:
-    """Get or create the consolidation session runner."""
-    global _consolidation_runner
-    if _consolidation_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _consolidation_runner = ConsolidationRunner(
-            research_manager=research_manager,
-            memory=memory,
-            goal_manager=goal_manager,
-            self_manager=self_manager,
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            data_dir=DATA_DIR,
-            marker_store=marker_store,
-            state_bus=global_state_bus,
-        )
-    return _consolidation_runner
-
-
-# Initialize the growth edge runner (lazy - created when needed)
-from growth_edge_runner import GrowthEdgeRunner
-_growth_edge_runner: Optional[GrowthEdgeRunner] = None
-
-def get_growth_edge_runner() -> GrowthEdgeRunner:
-    """Get or create the growth edge work session runner."""
-    global _growth_edge_runner
-    if _growth_edge_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _growth_edge_runner = GrowthEdgeRunner(
-            self_manager=self_manager,
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-            state_bus=global_state_bus,
-        )
-    return _growth_edge_runner
-
-
-# Initialize the writing runner (lazy - created when needed)
-from writing_session_runner import WritingRunner
-_writing_runner: Optional[WritingRunner] = None
-
-def get_writing_runner() -> WritingRunner:
-    """Get or create the writing session runner."""
-    global _writing_runner
-    if _writing_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _writing_runner = WritingRunner(
-            data_dir=str(DATA_DIR),
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-        )
-    return _writing_runner
-
-
-# Initialize the knowledge building runner (lazy - created when needed)
-from knowledge_building_runner import KnowledgeBuildingRunner
-_knowledge_building_runner: Optional[KnowledgeBuildingRunner] = None
-
-def get_knowledge_building_runner() -> KnowledgeBuildingRunner:
-    """Get or create the knowledge building session runner."""
-    global _knowledge_building_runner
-    if _knowledge_building_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _knowledge_building_runner = KnowledgeBuildingRunner(
-            data_dir=str(DATA_DIR),
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-        )
-    return _knowledge_building_runner
-
-
-# Initialize the world state runner (lazy - created when needed)
-from world_state_runner import WorldStateRunner
-_world_state_runner: Optional[WorldStateRunner] = None
-
-def get_world_state_runner() -> WorldStateRunner:
-    """Get or create the world state session runner."""
-    global _world_state_runner
-    if _world_state_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _world_state_runner = WorldStateRunner(
-            data_dir=str(DATA_DIR),
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-        )
-    return _world_state_runner
-
-
-# Initialize the creative runner (lazy - created when needed)
-from creative_output_runner import CreativeOutputRunner
-_creative_runner: Optional[CreativeOutputRunner] = None
-
-def get_creative_runner() -> CreativeOutputRunner:
-    """Get or create the creative output session runner."""
-    global _creative_runner
-    if _creative_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _creative_runner = CreativeOutputRunner(
-            data_dir=str(DATA_DIR),
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-        )
-    return _creative_runner
-
-
-# Initialize user model synthesis runner
-from user_model_synthesis_runner import UserModelSynthesisRunner
-_user_model_synthesis_runner: Optional[UserModelSynthesisRunner] = None
-
-def get_user_model_synthesis_runner() -> UserModelSynthesisRunner:
-    """Get or create the user model synthesis session runner."""
-    global _user_model_synthesis_runner
-    if _user_model_synthesis_runner is None:
-        from config import OLLAMA_BASE_URL, OLLAMA_CHAT_MODEL, ANTHROPIC_API_KEY
-        _user_model_synthesis_runner = UserModelSynthesisRunner(
-            user_manager=user_manager,
-            conversation_manager=conversation_manager,
-            anthropic_api_key=ANTHROPIC_API_KEY,
-            use_haiku=True,
-            ollama_base_url=OLLAMA_BASE_URL,
-            ollama_model=OLLAMA_CHAT_MODEL,
-            token_tracker=token_tracker,
-            marker_store=marker_store,
-        )
-    return _user_model_synthesis_runner
-
-
-# Initialize session runners for admin API (must be after getter functions are defined)
-from admin_api import init_session_runners, init_consolidation_runner, init_growth_edge_runner, init_writing_runner, init_knowledge_building_runner, init_world_state_runner, init_creative_runner, init_user_model_synthesis_runner
-init_session_runners(get_research_runner, get_reflection_runner, get_synthesis_runner, get_meta_reflection_runner)
-init_consolidation_runner(get_consolidation_runner)
-init_growth_edge_runner(get_growth_edge_runner)
-init_writing_runner(get_writing_runner)
-init_knowledge_building_runner(get_knowledge_building_runner)
-init_world_state_runner(get_world_state_runner)
-init_creative_runner(get_creative_runner)
-init_user_model_synthesis_runner(get_user_model_synthesis_runner)
+# Initialize session runners for admin API (must be after getter functions are defined).
+# The other legacy runners (synthesis, meta-reflection, consolidation, growth
+# edge, writing, knowledge building, world state, creative, user-model
+# synthesis) had no caller and went to attic/stabilization (#70).
+from admin_api import init_session_runners
+init_session_runners(get_research_runner, get_reflection_runner)
 
 
 # Note: Solo Reflection Endpoints moved to routes/solo_reflection.py
