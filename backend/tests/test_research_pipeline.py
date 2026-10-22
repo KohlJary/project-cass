@@ -712,3 +712,75 @@ def test_completed_session_is_no_longer_live():
         asyncio.run(get_research_pipeline().start_session(Busy(), focus="x", duration_minutes=5,
                                                           trigger="admin"))
     assert not runner_mod._LIVE_SESSION_TASKS
+
+
+# ---------------------------------------------------------------------------
+# Daily cap: automatic wiki tasks stop at RESEARCH_MAX_TASKS_PER_DAY
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_daily_cap_stops_automatic_picks(llm, search_backend, wiki_scheduler, monkeypatch):
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "2")
+    tasks = [_red_link(wiki_scheduler.queue, t) for t in ("Cap One", "Cap Two", "Cap Three")]
+    for _ in range(3):
+        asyncio.run(wiki_scheduler.run_single_task())
+    statuses = sorted(_row(t.task_id)[0] for t in tasks)
+    assert statuses.count("queued") == 1, statuses
+    batch = asyncio.run(wiki_scheduler.run_batch(max_tasks=5))
+    assert batch.tasks_completed + batch.tasks_failed == 0
+
+
+@pytest.mark.unit
+def test_daily_cap_counts_failed_tasks_too(llm, search_backend, wiki_scheduler, monkeypatch):
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "1")
+    search_backend.fail = True
+    first, second = _red_link(wiki_scheduler.queue, "Fail One"), _red_link(wiki_scheduler.queue, "Fail Two")
+    asyncio.run(wiki_scheduler.run_single_task())
+    asyncio.run(wiki_scheduler.run_single_task())
+    assert sorted([_row(first.task_id)[0], _row(second.task_id)[0]]).count("queued") == 1
+
+
+@pytest.mark.unit
+def test_daily_cap_lets_an_explicit_task_through(llm, search_backend, wiki_scheduler, monkeypatch):
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "1")
+    _red_link(wiki_scheduler.queue, "Auto")
+    asyncio.run(wiki_scheduler.run_single_task())
+    chosen = _red_link(wiki_scheduler.queue, "Chosen")
+    asyncio.run(wiki_scheduler.run_single_task(chosen.task_id))
+    assert _row(chosen.task_id)[0] != "queued"
+
+
+@pytest.mark.unit
+def test_daily_cap_zero_turns_it_off(llm, search_backend, wiki_scheduler, monkeypatch):
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "0")
+    tasks = [_red_link(wiki_scheduler.queue, f"Open {i}") for i in range(3)]
+    for _ in range(3):
+        asyncio.run(wiki_scheduler.run_single_task())
+    assert all(_row(t.task_id)[0] != "queued" for t in tasks)
+
+
+@pytest.mark.unit
+def test_continuous_mode_ticks_stop_at_the_cap(llm, search_backend, wiki_scheduler, monkeypatch):
+    """Momus's check on #97: continuous mode over many ticks with a queue that
+    keeps refilling runs at most the cap."""
+    from scheduler.handlers import autonomous_research_handler
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "3")
+    n = [0]
+
+    def refill(*a, **kw):
+        n[0] += 1
+        _red_link(wiki_scheduler.queue, f"Refill {n[0]}")
+        return {"red_link": 1}
+    monkeypatch.setattr(wiki_scheduler, "refresh_tasks", refill)
+    refill()
+    ran = 0
+    for _ in range(20):
+        res = asyncio.run(autonomous_research_handler(scheduler=wiki_scheduler, mode="continuous"))
+        ran += (res.data or {}).get("tasks_completed", 0)
+        if not wiki_scheduler.queue.get_stats()["queued"]:
+            refill()
+    from database import get_db
+    with get_db() as conn:
+        started = conn.execute("SELECT COUNT(*) FROM research_tasks WHERE started_at IS NOT NULL "
+                               "AND task_type != 'session'").fetchone()[0]
+    assert started == 3

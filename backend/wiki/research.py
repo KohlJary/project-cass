@@ -841,6 +841,18 @@ class ResearchQueue:
                 })
             return results
 
+    def count_started_since(self, since: datetime, exclude_types=("session",)) -> int:
+        """Tasks taken off the queue at or after `since` (local time, as stored)."""
+        from database import get_db
+        marks = ",".join("?" for _ in exclude_types) or "''"
+        with get_db() as conn:
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) FROM research_tasks
+                WHERE daemon_id = ? AND started_at >= ?
+                AND task_type NOT IN ({marks})
+            """, (self._daemon_id, since.isoformat(), *exclude_types))
+            return cursor.fetchone()[0]
+
     def exists(self, target: str, task_type: TaskType) -> bool:
         """Check if a task already exists for this target."""
         from database import get_db
