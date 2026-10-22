@@ -382,9 +382,9 @@ class WorldStateSource(QueryableSource):
                     try:
                         response = await client.get(
                             "https://newsapi.org/v2/top-headlines",
+                            headers={"X-Api-Key": api_key},
                             params={
                                 "category": category,
-                                "apiKey": api_key,
                                 "pageSize": 5,
                                 "country": "us"
                             }
@@ -443,9 +443,9 @@ class WorldStateSource(QueryableSource):
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
                     "https://newsapi.org/v2/everything",
+                    headers={"X-Api-Key": api_key},
                     params={
                         "q": query,
-                        "apiKey": api_key,
                         "pageSize": page_size,
                         "sortBy": "relevancy",
                         "language": "en",

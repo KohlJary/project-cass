@@ -28,6 +28,10 @@ logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+# httpx logs every request URL at INFO, and some APIs (OpenWeather) only take
+# their key as a query parameter, so URLs would put keys in the journal.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("cass-vessel")
 from typing import Optional, List, Dict, Any
 import json

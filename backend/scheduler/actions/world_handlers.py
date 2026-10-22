@@ -42,7 +42,6 @@ async def fetch_news_action(context: Dict[str, Any]) -> ActionResult:
                 url = "https://newsapi.org/v2/everything"
                 params = {
                     "q": topic,
-                    "apiKey": news_api_key,
                     "pageSize": limit,
                     "sortBy": "publishedAt"
                 }
@@ -50,12 +49,11 @@ async def fetch_news_action(context: Dict[str, Any]) -> ActionResult:
                 url = "https://newsapi.org/v2/top-headlines"
                 params = {
                     "category": category,
-                    "apiKey": news_api_key,
                     "pageSize": limit,
                     "country": "us"
                 }
 
-            response = await client.get(url, params=params, timeout=30)
+            response = await client.get(url, params=params, headers={"X-Api-Key": news_api_key}, timeout=30)
             data = response.json()
 
             if data.get("status") != "ok":
