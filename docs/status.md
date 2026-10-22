@@ -1,10 +1,31 @@
 # Status
 
-*Updated 2026-10-21 overnight by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-10-22 evening by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## Deployed 2026-10-22, 19:15
+
+Kohl asked for everything to go live. With the service stopped, in this order:
+- **Backup:** `~/cass/backups/cass-2026-10-22-1907.zip`, taken first. It's the rollback point.
+- **Schema:** v57 → v64, then a SQLite integrity check, which passed.
+- **PeopleDex:** +22 observations and +8 shared moments (199 → 221 and 55 → 63). Everything else was already present.
+- **Auth:** email set on 2 accounts. The account whose two old stores had different passwords keeps both working; the second is stored as the legacy password.
+- **Journals:** 1,561 Chroma journals backfilled into SQLite (21 daily, 895 research, 32 spell, 613 untyped). That's 1,571 rows with the 10 Dec 2025 seed rows, which are kept.
+- **Research queue cleared** at Kohl's request: 453 queued tasks (383 red-link, 43 deepening, 27 exploration), exported first to `~/cass/backups/research-queue-cleared-2026-10-22.json`. Her history (144 completed, 16 failed) is untouched.
+- **Tavily:** `RESEARCH_SEARCH_ORDER_WIKI=tavily,duckduckgo` in `backend/.env`.
+
+Each data script was dry-run against live data before `--apply`, and each apply matched its dry run. After restart:
+- Startup was clean, schema v64.
+- `/health` returned 200.
+- The localhost bypass resolves to Kohl's account, and proxied or cross-origin requests get 401.
+- The research queue reads 0 queued.
+
+Not verified: a password login through the dashboard or the tunnel. Only Kohl can do that.
+
+Research still boots in `supervised` mode (the mode isn't persisted), so nothing runs or spends Tavily credits until the mode is changed on the admin page. #97 fixes the `queued`/`queued_count` bug that kept continuous mode from ever running a task. The first run re-harvests red links from the wiki as it is now.
 
 ## Overnight 2026-10-20 → 21: the stabilization plan, built
 
-Kohl asked for the stabilization plan to be implemented by morning. Every piece was its own PR, reviewed by Momus, green on CI, then merged. None of it is deployed: the service has been running since Oct 17, so **nothing below is live until a restart**. No epic is fully closed: each PR is "Part of" its epic.
+Kohl asked for the stabilization plan to be implemented by morning. Every piece was its own PR, reviewed by Momus, green on CI, then merged. It was deployed on 2026-10-22 (above). No epic is fully closed: each PR is "Part of" its epic.
 
 **On restart, schema migrations v57 → v64 run automatically** (`init_database_with_migrations` at boot). They are additive: journals columns, `token_usage_records.call_site`, `users.legacy_email`/`legacy_password_hash`, a `heartbeat_runs` table and `research_tasks.params_json`. The full v57 → v64 path was dry-run on a copy of the 2026-10-20 snapshot and is idempotent. The rollback point is `~/cass/backups/cass-2026-10-20-1936.zip`. The data scripts below stay manual.
 
@@ -27,7 +48,7 @@ Also tonight: the daily backup timer is enabled. It's a user unit (`systemctl --
 
 ## Waiting on Kohl
 
-Data (each has a dry-run script; nothing has run against live data):
+Data (all four were settled on 2026-10-22: items 1–3 were applied with the defaults described above, and item 4 was left alone, since those entries are her data):
 1. **PeopleDex migration:** `scripts/migrate_legacy_users_to_peopledex.py --apply`. On the snapshot it adds 19 observations and 8 shared moments; a second run adds 0.
 2. **Journal backfill:** `scripts/backfill_journals_sqlite.py --apply`, run with the service stopped (even the dry run opens Chroma). Counts are from the snapshot and will differ a little on live data. Journals written after the restart are already in both stores and get skipped. It copies 1,547 Chroma journals into SQLite: 20 daily, 894 research, 20 spell, 613 untyped. The 10 seed rows from Dec 2025 each have a second, different daily for the same date: keep both, or retire the seeds?
 3. **Auth migration:** `scripts/migrate_auth_json.py --apply` (safe to deploy first). One account has different passwords in the two old stores, and both work: collapse to one?
@@ -36,7 +57,7 @@ Data (each has a dry-run script; nothing has run against live data):
 Decisions:
 5. **Budget:** spend that wasn't recorded before (dreams, art, Wonderland, sessions) is now in the ledger but outside the gate. `COUNT_ALL_LEDGER_SPEND` in `scheduler/budget.py` opts in. The budget day is UTC while the ledger is local time, so from 20:00 to 24:00 EDT nothing counts. Fixing that changes gating; it's pinned as an xfail.
 6. **Levers:** turning on `agent_loop` gives every session the core and memory tools, and `session_complete` ends a session. Turning on `heartbeat` moves two jobs (github_metrics, goal_refinement) onto it. Per #87's review, its budget gate is advisory until the ledger question in 5 is settled: the token-tracker sync overwrites in-process spend every 60 s.
-7. **Research:** Tavily for the wiki queue (it costs credits; hundreds of tasks are queued: 380 red-link, 43 deepening and 26 exploration in the snapshot) via `RESEARCH_SEARCH_ORDER_WIKI`. Which session engine survives (legacy or generic)? Turn on `research_session_requests`, or cut them? There's an existing bug where `queued` should be `queued_count`, so the research job never runs a task. It's pinned as an xfail, and fixing it starts research that hasn't been running.
+7. **Research:** Tavily for the wiki queue is decided: it's on as of 2026-10-22 and the queue was cleared. Which session engine survives (legacy or generic)? Turn on `research_session_requests`, or cut them? There's an existing bug where `queued` should be `queued_count`, so the research job never runs a task. It's pinned as an xfail, and fixing it starts research that hasn't been running.
 8. **Wiki LLM fallback (#25):** now a per-step setting on the Model Routing page.
 9. **Recognition patterns re-cluster every chat turn:** up to 500 marks, one embedding and one query each. It's the likely main cost behind #85's four-minute retrieval. A cache is easy, but the significance score includes recency.
 10. **Fold `development_requests` into the roadmap?** It needs a migration, because her `list_my_requests` tool reads that table.
