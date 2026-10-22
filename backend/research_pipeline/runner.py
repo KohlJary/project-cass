@@ -248,7 +248,9 @@ class ResearchRunner:
 
         The budget gate counts a flat estimate per task and nothing meters
         search-API credits (Tavily), so continuous mode needs a hard ceiling.
-        0 or a negative value turns the cap off.
+        0 or a negative value turns the cap off. Not capped: a task picked by
+        id, session tasks, and approved proposals executed through the wiki
+        routes (`execute`, which takes nothing off the queue).
         """
         try:
             cap = int(os.getenv("RESEARCH_MAX_TASKS_PER_DAY", str(DEFAULT_MAX_TASKS_PER_DAY)))

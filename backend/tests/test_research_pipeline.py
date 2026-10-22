@@ -784,3 +784,47 @@ def test_continuous_mode_ticks_stop_at_the_cap(llm, search_backend, wiki_schedul
         started = conn.execute("SELECT COUNT(*) FROM research_tasks WHERE started_at IS NOT NULL "
                                "AND task_type != 'session'").fetchone()[0]
     assert started == 3
+
+
+@pytest.mark.unit
+def test_daily_cap_applies_to_batches_by_type(llm, search_backend, wiki_scheduler, monkeypatch):
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "1")
+    for t in ("Type One", "Type Two"):
+        _red_link(wiki_scheduler.queue, t)
+    report = asyncio.run(wiki_scheduler.run_batch_by_type(TaskType.RED_LINK, max_tasks=5))
+    assert report.tasks_completed + report.tasks_failed == 1
+    assert wiki_scheduler.queue.get_stats()["queued"] == 1
+
+
+@pytest.mark.unit
+def test_daily_cap_ignores_yesterday_and_sessions(llm, search_backend, wiki_scheduler, monkeypatch):
+    from datetime import datetime, timedelta
+    from database import get_db
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "1")
+    old = _red_link(wiki_scheduler.queue, "Yesterday")
+    asyncio.run(wiki_scheduler.run_single_task())
+    runner = get_research_pipeline()
+    runner.enqueue_session(engine="legacy", focus="Mycelium", duration_minutes=10,
+                           trigger="scheduled", priority=1.0)
+    yesterday = (datetime.now() - timedelta(days=1)).isoformat()
+    with get_db() as conn:
+        conn.execute("UPDATE research_tasks SET started_at = ? WHERE id = ?", (yesterday, old.task_id))
+        conn.execute("UPDATE research_tasks SET started_at = ? WHERE task_type = 'session'",
+                     (datetime.now().isoformat(),))
+    today = _red_link(wiki_scheduler.queue, "Today")
+    asyncio.run(wiki_scheduler.run_single_task())
+    assert _row(today.task_id)[0] != "queued"
+
+
+@pytest.mark.unit
+def test_daily_cap_defaults_to_15(wiki_scheduler, monkeypatch):
+    from research_pipeline import runner as runner_mod
+    monkeypatch.delenv("RESEARCH_MAX_TASKS_PER_DAY", raising=False)
+    assert runner_mod.DEFAULT_MAX_TASKS_PER_DAY == 15
+    r = get_research_pipeline()
+    monkeypatch.setattr(r.queue, "count_started_since", lambda since: 14)
+    assert r.daily_cap_reached() is False
+    monkeypatch.setattr(r.queue, "count_started_since", lambda since: 15)
+    assert r.daily_cap_reached() is True
+    monkeypatch.setenv("RESEARCH_MAX_TASKS_PER_DAY", "lots")
+    assert r.daily_cap_reached() is True  # unparseable falls back to the default

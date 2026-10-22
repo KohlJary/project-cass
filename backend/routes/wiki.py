@@ -1662,9 +1662,12 @@ async def run_single_research_task() -> Dict:
     report = await scheduler.run_single_task()
 
     if not report:
+        capped = scheduler.research_runner().daily_cap_reached()
         return {
             "executed": False,
-            "message": "No tasks in queue",
+            "message": ("Daily research cap reached (RESEARCH_MAX_TASKS_PER_DAY)"
+                        if capped else "No tasks in queue"),
+            "capped": capped,
             "stats": scheduler.queue.get_stats(),
         }
 
