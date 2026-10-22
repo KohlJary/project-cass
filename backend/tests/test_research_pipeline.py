@@ -296,11 +296,6 @@ def test_research_run_batch_action_runs_through_runner(llm, search_backend, wiki
     _assert_ran_through_runner(task.task_id)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Pre-existing on main: research.run_single and the autonomous_research job's "
-    "continuous mode read queue.get_stats()['queued'], but get_stats() returns "
-    "'queued_count', so they always see an empty queue and never run a task. "
-    "Left as is (fixing it starts research that has not been running); a decision for Kohl."))
 @pytest.mark.unit
 def test_research_run_single_action_runs_a_task(llm, search_backend, wiki_scheduler):
     from scheduler.actions import research_handlers
