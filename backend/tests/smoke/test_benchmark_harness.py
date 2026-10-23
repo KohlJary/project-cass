@@ -100,6 +100,37 @@ def test_tool_scenario_runs_and_checks_the_calendar(booted_app, fake_llm):
         "claude-haiku-4-5-20251001"
 
 
+def test_websocket_turns_write_the_ledger_the_meter_reads(booted_app, fake_llm):
+    """The in-cell budget check reads real spend from the token ledger; a /ws turn must land there."""
+    fake_llm.responder = lambda source, kwargs: (
+        ScriptedResponse(text="Noted.", input_tokens=40_000, output_tokens=1_000)
+        if kwargs.get("tools") else None)
+    _, driver, result = _run(booted_app, "recall_three_sessions")
+    assert result["status"] == "completed", result
+    rows = {(p, m): (i, o) for p, m, i, o in driver.spent()}
+    chat_in, chat_out = rows[("anthropic", "claude-haiku-4-5-20251001")]
+    assert chat_in >= 4 * 40_000 and chat_out >= 4 * 1_000  # four turns' chat calls, all recorded
+    # And the cell's spend comes from those rows: 160k in + 4k out on Haiku >= $0.18.
+    assert result["spent_usd"] >= 0.18
+
+
+def test_the_ledger_stops_a_cell_that_overspends(booted_app, fake_llm):
+    """Real spend (from the ledger, not the estimate) stops the cell before the next turn."""
+    from benchmarks.cell import run_cell
+    from benchmarks.drivers import AppDriver
+    from benchmarks.spec import Target, load_scenarios
+    fake_llm.responder = lambda source, kwargs: (
+        ScriptedResponse(text="Noted.", input_tokens=500_000, output_tokens=0)
+        if kwargs.get("tools") else None)
+    scenario = load_scenarios(2, ["recall_three_sessions"])[0]
+    # One turn's allowance is ~$0.07, so turn 1 starts; it spends $0.50, so turn 2 can't.
+    spec = dict(_spec(scenario), budget_usd=0.55)
+    with AppDriver(booted_app, Target.parse(HAIKU)) as driver:
+        result = run_cell(scenario, driver, spec)
+    assert result["status"] == "budget_stop", result
+    assert len(result["turns"]) == 1
+
+
 def test_a_wrong_tool_call_fails_the_checks(booted_app, fake_llm):
     """The checks catch 'a thing' that isn't 'the right thing': asked to move the
     reminder, the model creates a second one instead."""
@@ -150,7 +181,8 @@ def test_run_plan_judges_and_writes_the_page(booted_app, fake_llm, tmp_path):
 
     fake_llm.responder = _responder
     scenarios = load_scenarios(2, ["tool_reminder"])
-    plan = build_plan(2, scenarios, [Target.parse(HAIKU)], [tier2_config()], DEFAULT_JUDGE)
+    plan = build_plan(2, scenarios, [Target.parse(HAIKU)], [tier2_config()], DEFAULT_JUDGE,
+                      allow_same_judge=True)
 
     def executor(cell, spec, extra):
         spec["target_obj"] = cell.target

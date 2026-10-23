@@ -40,10 +40,10 @@ class Cell:
     repeat: int
     estimate: Estimate
 
-    def spec(self, budget_usd: float, route_all: bool, extra_prices=None) -> dict:
+    def spec(self, budget_usd: float, route_all: bool, extra_prices=None, local_only: bool = False) -> dict:
         return {"cell_id": self.cell_id, "scenario": self.scenario.to_dict(), "target": self.target.label,
                 "config": self.config.name, "repeat": self.repeat, "budget_usd": budget_usd,
-                "route_all": route_all, "extra_prices": extra_prices or {}}
+                "route_all": route_all, "extra_prices": extra_prices or {}, "local_only": local_only}
 
 
 @dataclass
@@ -55,17 +55,23 @@ class Plan:
     route_all: bool = True
     extra_prices: Dict = field(default_factory=dict)
     skipped: List[str] = field(default_factory=list)
+    local_only: bool = False
+    judge_is_target: bool = False
 
 
 def build_plan(tier: int, scenarios: List[Scenario], targets: List[Target], configs: List[Config],
                judge: Optional[Target], repeats: int = 1, route_all: bool = True,
-               extra_prices=None) -> Plan:
+               extra_prices=None, local_only: bool = False, allow_same_judge: bool = False) -> Plan:
     if not scenarios:
         raise ValueError("no scenarios selected")
     if not targets:
         raise ValueError("no target model given")
     if tier == 3 and len(targets) != 1:
         raise ValueError("Tier 3 compares configurations on one model; give exactly one --model")
+    judge_is_target = judge is not None and judge in targets
+    if judge_is_target and not allow_same_judge:
+        raise ValueError(f"the judge {judge.label} is also a model under test (criteria draft G4); "
+                         "pick another --judge, or pass --allow-same-judge and the page will say so")
     cells, skipped = [], []
     total = Estimate()
     for scenario in scenarios:
@@ -76,7 +82,7 @@ def build_plan(tier: int, scenarios: List[Scenario], targets: List[Target], conf
                                    f"{'/'.join(scenario.drivers)}")
                     continue
                 for r in range(1, repeats + 1):
-                    est = estimate_cell(scenario, target, config, judge, extra_prices)
+                    est = estimate_cell(scenario, target, config, judge, extra_prices, local_only)
                     cid = f"{scenario.id}--{target.label.replace(':', '_').replace('/', '_')}--{config.name}--r{r}"
                     cells.append(Cell(cid, scenario, target, config, r, est))
                     total.input_tokens += est.input_tokens
@@ -85,7 +91,8 @@ def build_plan(tier: int, scenarios: List[Scenario], targets: List[Target], conf
                     total.calls += est.calls
                     for k, v in est.breakdown.items():
                         total.breakdown[k] = total.breakdown.get(k, 0.0) + v
-    return Plan(tier, cells, judge, total, route_all, dict(extra_prices or {}), skipped)
+    return Plan(tier, cells, judge, total, route_all, dict(extra_prices or {}), skipped, local_only,
+                judge_is_target)
 
 
 def check_budget(plan: Plan, cap_usd: Optional[float]) -> None:
@@ -115,9 +122,21 @@ def render_plan(plan: Plan, cap_usd: Optional[float] = None) -> str:
                  f"({', '.join(f'{k} ${v:.2f}' for k, v in e.breakdown.items())})")
     lines.append("Allowances per step (generous guesses until calibrated): "
                  + ", ".join(f"{k} {i:,}/{o:,}" for k, (i, o) in ALLOWANCE.items()))
-    if any(c.target.provider != "anthropic" for c in plan.cells) and plan.route_all:
-        lines.append("Note: call sites that need tools can't run off Claude; llm_caller falls back to "
-                     "their Claude default. That spend is not in this estimate, but the run meters it.")
+    if plan.judge_is_target:
+        lines.append(f"WARNING: the judge {plan.judge.label} is also a model under test (criteria draft G4); "
+                     "the results and page say so.")
+    if any(c.target.provider == "ollama" and c.config.driver == "app" for c in plan.cells):
+        from .pricing import fallback_call_sites
+        sites = ", ".join(fallback_call_sites())
+        if plan.local_only:
+            lines.append(f"Local only: cells get blank cloud API keys, so these Claude-only call sites "
+                         f"fail instead of spending: {sites}.")
+        else:
+            lines.append(f"Local targets can still spend on Claude: these call sites need tools or images "
+                         f"and fall back to their Claude default: {sites}. With --chat-only, every other "
+                         f"call site also keeps its default. So each local app step is estimated at the "
+                         f"highest known cloud price. Pass --local-only to strip cloud keys from the cells "
+                         f"instead.")
     if cap_usd is not None:
         verdict = "within" if e.usd <= cap_usd else "OVER"
         lines.append(f"Cap: ${cap_usd:.2f} ({verdict} the cap)")
@@ -151,8 +170,12 @@ class SubprocessExecutor:
         self.timeout = timeout
         self.python = python
 
-    def env_for(self, data_dir: Path) -> dict:
+    def env_for(self, data_dir: Path, local_only: bool = False) -> dict:
         env = dict(os.environ)
+        if local_only:
+            # Blank, not removed: config.py's load_dotenv() would refill a removed key from backend/.env.
+            env["ANTHROPIC_API_KEY"] = ""
+            env["OPENAI_API_KEY"] = ""
         env["DATA_DIR"] = str(data_dir)
         env["CASS_PROFILE"] = "test"   # every lever off; the config's levers are set in-process
         env.pop("LLM_CONFIG_PATH", None)  # the cell's llm_config lives in its own DATA_DIR
@@ -169,7 +192,7 @@ class SubprocessExecutor:
         spec_path.write_text(json.dumps(spec, indent=1))
         cmd = [self.python, "-m", "benchmarks", "cell", "--spec", str(spec_path), "--out", str(out_path)]
         try:
-            proc = subprocess.run(cmd, cwd=str(BACKEND_DIR), env=self.env_for(data_dir),
+            proc = subprocess.run(cmd, cwd=str(BACKEND_DIR), env=self.env_for(data_dir, spec.get("local_only", False)),
                                   capture_output=True, text=True, timeout=self.timeout)
             (cell_dir / "stdout.log").write_text(proc.stdout or "")
             (cell_dir / "stderr.log").write_text(proc.stderr or "")
@@ -253,6 +276,8 @@ def run_plan(plan: Plan, executor: Callable, judge: Judge, cap_usd: float,
         "estimate": plan.estimate.to_dict(),
         "judge": plan.judge.label if plan.judge else None,
         "route_all": plan.route_all,
+        "local_only": plan.local_only,
+        "judge_is_target": plan.judge_is_target,
         "targets": sorted({c.target.label for c in plan.cells}),
         "configs": [{"name": c.name, "driver": c.driver, "levers": c.levers, "meaningful": c.meaningful,
                      "caveat": c.caveat} for c in {c.config.name: c.config for c in plan.cells}.values()],
@@ -274,15 +299,25 @@ def run_plan(plan: Plan, executor: Callable, judge: Judge, cap_usd: float,
                                  "target": cell.target.label, "config": cell.config.name,
                                  "repeat": cell.repeat, "status": "budget_stop",
                                  "error": "not started: remaining budget below the cell's estimate",
-                                 "turns": [], "checks": [], "rubric": [], "spent_usd": 0.0})
+                                 "turns": [], "rubric": score_cell(metered_judge, cell.scenario,
+                                                                   {"status": "budget_stop"}),
+                                 "checks": [{"id": c["id"], "type": c["type"], "status": "not_run",
+                                             "detail": "cell not started (budget)"}
+                                            for c in cell.scenario.checks],
+                                 "spent_usd": 0.0})
             continue
         log(f"running {cell.cell_id}")
         started = time.monotonic()
-        spec = cell.spec(round(cell_budget, 6), plan.route_all, plan.extra_prices)
+        spec = cell.spec(round(cell_budget, 6), plan.route_all, plan.extra_prices, plan.local_only)
         result = executor(cell, spec, plan.extra_prices)
         meter.charge(result.get("spent_usd") or 0.0)
         result["seconds"] = round(time.monotonic() - started, 1)
         result["meaningful"] = cell.config.meaningful
+        if result.get("status") != "completed" and not result.get("checks"):
+            # Checks that never ran stay visible: errored cells fail them (G2), budget stops don't.
+            status = "error" if result.get("status") == "error" else "not_run"
+            result["checks"] = [{"id": c["id"], "type": c["type"], "status": status,
+                                 "detail": f"cell {result.get('status')}"} for c in cell.scenario.checks]
         result["rubric"] = score_cell(metered_judge, cell.scenario, result)
         run["cells"].append(result)
     run["spent_usd"] = round(meter.spent_usd, 6)

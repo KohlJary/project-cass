@@ -100,14 +100,44 @@ def test_default_judge_matches_its_call_site():
 
 def _plan(tier=2, targets=(HAIKU,), configs=None, judge=DEFAULT_JUDGE, ids=None, **kw):
     configs = configs or ([tier2_config()] if tier == 2 else parse_configs(None))
+    kw.setdefault("allow_same_judge", True)
     return runner.build_plan(tier, load_scenarios(tier, ids), list(targets), configs, judge, **kw)
 
 
-def test_estimate_prices_local_models_at_zero_but_still_counts_the_judge():
-    plan = _plan(targets=(LOCAL,))
+def test_local_only_prices_local_models_at_zero_but_still_counts_the_judge():
+    plan = _plan(targets=(LOCAL,), local_only=True)
     assert plan.estimate.breakdown["turns"] == 0
     assert plan.estimate.breakdown["judge"] > 0
     assert _plan(targets=(HAIKU,)).estimate.usd > plan.estimate.usd
+    assert all(c.spec(1.0, True, local_only=True)["local_only"] for c in plan.cells)
+
+
+def test_local_targets_without_local_only_are_priced_for_claude_fallback():
+    """Call sites that need tools fall back to Claude, so a local app step isn't free."""
+    from benchmarks.pricing import fallback_call_sites
+    plan = _plan(targets=(LOCAL,))
+    fallback = plan.estimate.breakdown["turns (possible Claude fallback)"]
+    assert fallback >= _plan(targets=(HAIKU,)).estimate.breakdown["turns"]
+    sites = fallback_call_sites()
+    assert sites and "chat" not in sites  # pinned chat runs on the user's model, no fallback
+    llm_config = pytest.importorskip("llm_config")
+    expected = sorted(n for n, cs in llm_config.CALL_SITES.items() if not cs.text_only and not cs.pinned)
+    assert sites == expected
+    text = runner.render_plan(plan)
+    assert "fall back to their Claude default" in text and sites[0] in text
+    assert "blank cloud API keys" in runner.render_plan(_plan(targets=(LOCAL,), local_only=True))
+    # The plain driver has no tool call sites: no fallback allowance.
+    tier3 = _plan(tier=3, targets=(LOCAL,), configs=[TIER3_CONFIGS["plain_kernel"]])
+    assert tier3.estimate.breakdown["turns"] == 0
+
+
+def test_judge_that_is_also_a_target_is_refused_unless_allowed():
+    with pytest.raises(ValueError, match="G4"):
+        _plan(targets=(HAIKU, LOCAL), allow_same_judge=False)
+    _plan(targets=(LOCAL,), allow_same_judge=False)  # a different judge is fine
+    plan = _plan(targets=(HAIKU,))
+    assert plan.judge_is_target
+    assert "WARNING: the judge" in runner.render_plan(plan)
 
 
 def test_unknown_price_is_refused_unless_given():
@@ -144,7 +174,7 @@ def test_run_plan_refuses_over_the_cap_before_any_cell():
 
 def test_cli_refuses_over_cap_and_without_cap(monkeypatch, capsys):
     monkeypatch.setattr(runner, "run_plan", lambda *a, **k: pytest.fail("run_plan must not be called"))
-    model = ["--model", HAIKU.label]
+    model = ["--model", HAIKU.label, "--allow-same-judge"]
     assert cli.main(["run", "--tier", "2", *model]) == 3
     assert "no --budget-usd" in capsys.readouterr().err
     assert cli.main(["run", "--tier", "2", *model, "--budget-usd", "0.01"]) == 3
@@ -158,7 +188,8 @@ def test_dry_run_makes_zero_calls_and_imports_no_backend():
         "import sys, json\n"
         "from benchmarks.cli import main\n"
         "rc = main(['run', '--tier', '2', '--model', 'anthropic:claude-haiku-4-5-20251001',\n"
-        "           '--model', 'ollama:qwen3:14b', '--dry-run', '--budget-usd', '0.01'])\n"
+        "           '--model', 'ollama:qwen3:14b', '--dry-run', '--budget-usd', '0.01',\n"
+        "           '--allow-same-judge'])\n"
         "banned = [m for m in ('main_sdk', 'llm_caller', 'llm_config', 'config', 'anthropic', 'openai',\n"
         "                      'httpx', 'database') if m in sys.modules]\n"
         "print(json.dumps({'rc': rc, 'banned': banned}))\n"
@@ -173,6 +204,7 @@ def test_dry_run_makes_zero_calls_and_imports_no_backend():
     assert "Tier 2 plan: 8 cell(s)" in text
     assert "OVER the cap" in text  # a dry run reports the cap; it doesn't refuse
     assert "no model was called" in text
+    assert "WARNING: the judge" in text and "fall back to their Claude default" in text
 
 
 # ---------------------------------------------------------------------------
@@ -499,3 +531,86 @@ def test_cell_entry_refuses_without_an_isolated_data_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_DIR", str(isolation.BACKEND_DIR / "data"))
     with pytest.raises(isolation.IsolationError):
         cell.main(["--spec", str(tmp_path / "s.json"), "--out", str(tmp_path / "o.json")])
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: G2 in the pages, the cell's budget, local-only cells
+# ---------------------------------------------------------------------------
+
+def test_errors_count_as_failures_in_tier3_means(tmp_path):
+    """Criteria draft G2: an errored cell or a failed turn scores 0; a budget stop isn't measured."""
+    plan = _plan(tier=3, ids=["contradiction_handling"])
+
+    def drivers(cell):
+        if cell.config.name == "full":
+            return StubDriver(fail_on="Miso")       # a failed turn
+        if cell.config.name == "plain_kernel":
+            return StubDriver()
+        return StubDriver()
+
+    def executor(cell, spec, extra):
+        if cell.config.name == "self_context_off":
+            return {"cell_id": cell.cell_id, "scenario": cell.scenario.id, "tier": 3, "target": cell.target.label,
+                    "config": cell.config.name, "repeat": 1, "status": "error", "error": "boot failed",
+                    "turns": [], "checks": [], "probes": {}, "spent_usd": 0.0}
+        return _stub_executor(drivers)(cell, spec, extra)
+
+    run = runner.run_plan(plan, executor, _FakeJudge(score=2), 50.0, log=lambda m: None)
+    by_cfg = {c["config"]: c for c in run["cells"]}
+    assert {r["status"] for r in by_cfg["self_context_off"]["rubric"]} == {"not_run"}
+    page = report.render_page(3, [run])
+    row = next(line for line in page.splitlines() if line.startswith("| contradiction_handling |"))
+    cols = [c.strip() for c in row.strip("|").split("|")]
+    # full: the judge said 2, but a turn failed -> 0. self_context_off: errored -> 0. plain: 2.
+    assert cols[1:] == ["mean 0.00/2, pass 0/1", "mean 0.00/2, pass 0/1", "mean 2.00/2, pass 1/1"], cols
+    assert report.tally_rubric([by_cfg["self_context_off"]]) == {"fail": 1}
+
+
+def test_errored_cells_keep_their_checks_as_failures():
+    plan = _plan(ids=["tool_reminder"], judge=None)
+
+    def executor(cell, spec, extra):
+        return {"cell_id": cell.cell_id, "status": "error", "error": "boom", "turns": [], "checks": [],
+                "spent_usd": 0.0}
+
+    run = runner.run_plan(plan, executor, SkipJudge(), 50.0, log=lambda m: None)
+    checks_ = run["cells"][0]["checks"]
+    assert len(checks_) == 4 and {c["status"] for c in checks_} == {"error"}
+    assert report.tally_checks(run["cells"]) == {"fail": 4}
+
+
+def test_budget_stopped_cells_are_not_measured():
+    plan = _plan(ids=["recall_three_sessions", "tool_reminder"], judge=None)
+    cap = plan.estimate.usd + 0.01
+    run = runner.run_plan(plan, _stub_executor(lambda c: StubDriver(usd_per_turn=cap)), SkipJudge(),
+                          cap_usd=cap, log=lambda m: None)
+    not_started = run["cells"][1]
+    assert {c["status"] for c in not_started["checks"]} == {"not_run"}
+    assert set(report.tally_checks([not_started])) == {"not_run"}
+    assert set(report.tally_rubric([not_started])) == {"not_run"}
+
+
+@pytest.mark.parametrize("budget", [None, "inf", float("inf"), -1, True])
+def test_cell_entry_refuses_a_spec_without_a_finite_budget(budget, tmp_path, monkeypatch):
+    from benchmarks import cell
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(cell, "__name__", cell.__name__)
+    import benchmarks.isolation as iso
+    monkeypatch.setattr(iso, "check_checkout", lambda: None)
+    spec = {"cell_id": "x", "scenario": {}, "target": HAIKU.label, "config": "cass"}
+    if budget is not None:
+        spec["budget_usd"] = budget
+    path = tmp_path / "spec.json"
+    path.write_text(json.dumps(spec))  # json writes inf as Infinity, which json.load reads back
+    with pytest.raises(SystemExit, match="finite"):
+        cell.main(["--spec", str(path), "--out", str(tmp_path / "o.json")])
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_local_only_cells_get_blank_cloud_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak")
+    ex = runner.SubprocessExecutor(tmp_path)
+    env = ex.env_for(tmp_path / "d", local_only=True)
+    # Blank rather than removed: load_dotenv() would refill a missing key from backend/.env.
+    assert env["ANTHROPIC_API_KEY"] == "" and env["OPENAI_API_KEY"] == ""
+    assert ex.env_for(tmp_path / "d")["ANTHROPIC_API_KEY"] == "sk-ant-should-not-leak"

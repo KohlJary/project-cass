@@ -11,8 +11,9 @@ run's scratch root. These guards refuse to go on when that isn't true:
   location instead of DATA_DIR (interviews, music, the wiki route, a legacy
   journal loop). Importing main_sdk creates directories there. So the app is
   only booted from a checkout whose backend/data is not her data: no symlink,
-  and no cass.db in backend/data or <repo>/data. In practice: run from a git
-  worktree or a clone, not from the live checkout.
+  and no cass.db in backend/data or <repo>/data. That is all it detects (a
+  bind mount or a copy without cass.db would pass), so run from a git
+  worktree or a clone, never from the live checkout.
 """
 from __future__ import annotations
 

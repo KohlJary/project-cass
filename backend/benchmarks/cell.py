@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import traceback
 from typing import Any, Dict
 
 from .checks import evaluate_all
-from .pricing import Meter, cost, ledger_cost, step_allowance
+from .pricing import Meter, ledger_cost, step_cost
 
 
 def _turn_record(step: dict, turn: dict) -> dict:
@@ -50,12 +51,12 @@ def run_cell(scenario, driver, spec: Dict[str, Any], extra_prices=None) -> dict:
             result["seeded"] += 1
         for i, step in enumerate(scenario.steps):
             if target is not None:
-                i_tok, o_tok = step_allowance(driver.name, step)
-                step_cost = cost(target.provider, target.model, i_tok, o_tok, extra_prices, conservative=True)
+                allowance = step_cost(target, driver.name, step, extra_prices, spec.get("local_only", False),
+                                      conservative=True)
                 meter.spent_usd = spent()
-                if not meter.can_afford(step_cost):
+                if not meter.can_afford(allowance):
                     result["status"] = "budget_stop"
-                    result["error"] = (f"stopped before step {i}: allowance ${step_cost:.4f}, "
+                    result["error"] = (f"stopped before step {i}: allowance ${allowance:.4f}, "
                                        f"spent ${meter.spent_usd:.4f} of ${meter.cap_usd:.4f}")
                     break
             if "chat" in step:
@@ -111,6 +112,10 @@ def main(argv=None) -> int:
 
     with open(args.spec) as f:
         spec = json.load(f)
+    budget = spec.get("budget_usd")
+    if isinstance(budget, bool) or not isinstance(budget, (int, float)) or not math.isfinite(budget) \
+            or budget < 0:
+        raise SystemExit(f"refused: cell spec needs a finite, non-negative budget_usd (got {budget!r})")
     from .spec import TIER3_CONFIGS, Scenario, Target, tier2_config
     scenario = Scenario.from_dict(spec["scenario"])
     target = Target.parse(spec["target"]) if spec.get("target") else None

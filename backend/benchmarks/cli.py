@@ -13,8 +13,13 @@ Command line for benchmark Tiers 2 and 3.
     python -m benchmarks page --tier 2
 
 Not scheduled and not wired into CI: when and how often to run is Kohl's
-call. Real runs must be started from a git worktree or clone (see
-isolation.py); each cell gets a fresh scratch DATA_DIR.
+call. Each cell gets a fresh scratch DATA_DIR.
+
+Run from a git worktree or a clone, never the live checkout. Some modules
+write under backend/data whatever DATA_DIR says, and the checkout guard
+(isolation.check_checkout) only detects a symlinked backend/data or a cass.db
+in backend/data or <repo>/data. Any other way of reaching her data is not
+detected.
 """
 from __future__ import annotations
 
@@ -58,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--repeats", type=int, default=1)
     run.add_argument("--chat-only", action="store_true",
                      help="route only chat to the model under test (default: every non-pinned call site too)")
+    run.add_argument("--local-only", action="store_true",
+                     help="blank cloud API keys in the cells, so Claude-only call sites fail instead of "
+                          "spending (local targets are otherwise estimated at cloud prices)")
+    run.add_argument("--allow-same-judge", action="store_true",
+                     help="allow the judge to be a model under test (criteria draft G4; the page says so)")
     run.add_argument("--price", action="append", default=[], metavar="MODEL=IN/OUT",
                      help="price for a model the table doesn't know, USD per million tokens")
     run.add_argument("--dry-run", action="store_true", help="print the plan and estimate; make no calls")
@@ -80,7 +90,8 @@ def plan_from_args(args):
     configs = [tier2_config()] if args.tier == 2 else parse_configs(args.config or None)
     judge = None if args.no_judge else (Target.parse(args.judge) if args.judge else DEFAULT_JUDGE)
     return build_plan(args.tier, scenarios, targets, configs, judge, repeats=args.repeats,
-                      route_all=not args.chat_only, extra_prices=_prices(args.price))
+                      route_all=not args.chat_only, extra_prices=_prices(args.price),
+                      local_only=args.local_only, allow_same_judge=args.allow_same_judge)
 
 
 def cmd_run(args) -> int:

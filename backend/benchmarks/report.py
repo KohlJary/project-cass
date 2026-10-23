@@ -53,11 +53,37 @@ def load_runs(tier: int, results_dir: Path = RESULTS_DIR) -> List[dict]:
 # Tallies
 # ---------------------------------------------------------------------------
 
+# Criteria draft G2: a cell that errors, a turn that fails, or a check marked
+# `error` counts as a fail; a budget stop or not_run counts as "not measured".
+# A judge that fails to answer is the judge's problem, not the model's, so an
+# unscored item in a cell that otherwise ran is "not measured" too.
+
+def check_outcome(chk: dict) -> str:
+    """'pass' | 'fail' | other (not measured: n/a, not_run)."""
+    status = chk.get("status")
+    if status == "error":
+        return "fail"
+    return status or "unknown"
+
+
+def _cell_failed(cell: dict) -> bool:
+    return cell.get("status") == "error" or any(t.get("error") for t in cell.get("turns") or [])
+
+
+def rubric_outcome(item: dict, cell: dict):
+    """(outcome, score on a 0-2 scale or None). Outcome is 'pass', 'fail' or a not-measured status."""
+    if _cell_failed(cell):
+        return "fail", 0.0
+    if item.get("status") == "scored":
+        return ("pass" if item.get("passed") else "fail"), 2 * item["score"] / (item.get("max") or 1)
+    return item.get("status") or "unknown", None
+
+
 def tally_checks(cells: List[dict]) -> Dict[str, int]:
     t = defaultdict(int)
     for c in cells:
         for chk in c.get("checks") or []:
-            t[chk["status"]] += 1
+            t[check_outcome(chk)] += 1
     return t
 
 
@@ -65,10 +91,7 @@ def tally_rubric(cells: List[dict]) -> Dict[str, int]:
     t = defaultdict(int)
     for c in cells:
         for r in c.get("rubric") or []:
-            if r.get("status") == "scored":
-                t["pass" if r.get("passed") else "fail"] += 1
-            else:
-                t[r.get("status") or "unknown"] += 1
+            t[rubric_outcome(r, c)[0]] += 1
     return t
 
 
@@ -134,8 +157,11 @@ def _grid(run: dict, rows_key: str, cols_key: str, row_label: str) -> List[str]:
 
 
 def _measures(run: dict) -> List[str]:
-    """Tier 3: rubric measures x configurations, mean score (0-2) and passes."""
-    scores = defaultdict(list)
+    """Tier 3: rubric measures x configurations, mean score (0-2) and passes.
+
+    Errored cells and failed turns score 0 (G2); budget stops, skipped and
+    judge-error items are left out of the mean and counted as not measured."""
+    outcomes = defaultdict(list)
     measures, configs = [], []
     for c in run.get("cells") or []:
         cfg = c.get("config")
@@ -145,7 +171,7 @@ def _measures(run: dict) -> List[str]:
             m = r.get("measure") or r.get("id")
             if m not in measures:
                 measures.append(m)
-            scores[(m, cfg)].append(r)
+            outcomes[(m, cfg)].append(rubric_outcome(r, c))
     meaningful = {c["name"]: c.get("meaningful", True) for c in run.get("configs") or []}
     lines = ["| Measure | " + " | ".join(f"`{_esc(c)}`" + ("" if meaningful.get(c, True) else " (placeholder)")
                                        for c in configs) + " |",
@@ -153,17 +179,16 @@ def _measures(run: dict) -> List[str]:
     for m in measures:
         row = []
         for cfg in configs:
-            items = scores[(m, cfg)]
-            scored = [i for i in items if i.get("status") == "scored"]
-            if not scored:
-                row.append(f"not scored ({len(items)} item(s))" if items else "-")
+            items = outcomes[(m, cfg)]
+            decided = [(o, sc) for o, sc in items if sc is not None]
+            if not decided:
+                row.append(f"not measured ({len(items)} item(s))" if items else "-")
                 continue
-            # Every item on a 0-2 scale (a pass/fail item counts 0 or 2), as the criteria define.
-            mean = sum(2 * i["score"] / (i.get("max") or 1) for i in scored) / len(scored)
-            passed = sum(1 for i in scored if i.get("passed"))
-            unscored = len(items) - len(scored)
-            row.append(f"mean {mean:.2f}/2, pass {passed}/{len(scored)}"
-                       + (f", {unscored} unscored" if unscored else ""))
+            mean = sum(sc for _, sc in decided) / len(decided)
+            passed = sum(1 for o, _ in decided if o == "pass")
+            unmeasured = len(items) - len(decided)
+            row.append(f"mean {mean:.2f}/2, pass {passed}/{len(decided)}"
+                       + (f", {unmeasured} not measured" if unmeasured else ""))
         lines.append(f"| {_esc(m)} | " + " | ".join(_esc(x) for x in row) + " |")
     return lines
 
@@ -204,7 +229,10 @@ def render_page(tier: int, runs: List[dict]) -> str:
             "criteria. A run made against draft criteria is marked DRAFT below, and its pass/fail lines are "
             "provisional." if CRITERIA_DRAFT.exists() else
             "Criteria: see `docs/benchmarks/`. Each run records the SHA-256 of the criteria file it ran under."),
-           ""]
+           "Errors count as failures (criteria draft G2): an errored cell or a failed turn scores 0 on its "
+           "rubric items and its checks count as failed. Budget stops and judge errors are \"not measured\".", "",
+           "Runs belong in a git worktree or a clone, never the live checkout: the harness's checkout guard "
+           "only detects a symlinked `backend/data` or a `cass.db` in `backend/data` or `data/`.", ""]
     if tier == 3:
         out += ["The `self_context_off` configuration is a **placeholder** until the self-context design "
                 "(#63) exists; differences against it don't measure the designed section.", ""]
@@ -214,7 +242,8 @@ def render_page(tier: int, runs: List[dict]) -> str:
     out += ["## History", "", *_history(runs), ""]
     latest = runs[0]
     out += [f"## Latest run: `{latest.get('run_id')}`", "",
-            f"- Status: {latest.get('status')}; commit `{latest.get('commit')}`; judge {latest.get('judge') or 'none'}",
+            f"- Status: {latest.get('status')}; commit `{latest.get('commit')}`; judge {latest.get('judge') or 'none'}"
+            + (" (**also a model under test**, criteria draft G4)" if latest.get("judge_is_target") else ""),
             f"- Spent ${latest.get('spent_usd') or 0:.4f} of a ${latest.get('budget_usd') or 0:.2f} cap "
             f"(estimate ${(latest.get('estimate') or {}).get('usd', 0):.4f})",
             f"- Routing: {'chat and every non-pinned call site' if latest.get('route_all', True) else 'chat only'} "

@@ -109,18 +109,66 @@ def step_allowance(driver: str, step: dict) -> Tuple[int, int]:
     return ALLOWANCE["action"]
 
 
-def estimate_cell(scenario, target, config, judge, extra=None) -> Estimate:
+def fallback_applies(target, driver: str, local_only: bool) -> bool:
+    """A local target on the app can still spend on Claude: call sites that need tools
+    or images fall back to their Claude default (llm_caller.plan_message), unless the
+    cell runs without cloud keys (--local-only) or only chat is routed (then those
+    call sites run their usual Claude default anyway, which this allowance also covers)."""
+    return target.provider == "ollama" and driver == "app" and not local_only
+
+
+def step_cost(target, driver: str, step: dict, extra=None, local_only: bool = False,
+              conservative: bool = False) -> float:
+    """Allowance for one step in dollars. A local app step that may fall back to
+    Claude is priced at the highest known cloud price, so the cap still bites."""
+    i, o = step_allowance(driver, step)
+    if fallback_applies(target, driver, local_only):
+        table = dict(PRICES)
+        table.update(extra or {})
+        return i / 1e6 * max(v[0] for v in table.values()) + o / 1e6 * max(v[1] for v in table.values())
+    return cost(target.provider, target.model, i, o, extra, conservative=conservative)
+
+
+def estimate_cell(scenario, target, config, judge, extra=None, local_only: bool = False) -> Estimate:
     """Estimate one cell. `judge` is a Target (or None when rubric items are skipped)."""
     est = Estimate()
+    fallback = fallback_applies(target, config.driver, local_only)
     for step in scenario.steps:
         if config.driver == "plain" and "action" in step:
             continue  # the plain driver has no app actions
         kind = "turns" if "chat" in step else "actions"
-        est.add(kind, target.provider, target.model, step_allowance(config.driver, step), extra=extra)
+        if fallback:
+            kind += " (possible Claude fallback)"
+        i, o = step_allowance(config.driver, step)
+        usd = step_cost(target, config.driver, step, extra, local_only)
+        est.input_tokens += i
+        est.output_tokens += o
+        est.usd += usd
+        est.calls += 1
+        est.breakdown[kind] = est.breakdown.get(kind, 0.0) + usd
     if judge is not None and scenario.rubric:
         est.add("judge", judge.provider, judge.model, ALLOWANCE["judge_item"], n=len(scenario.rubric),
                 extra=extra)
     return est
+
+
+def fallback_call_sites(path=None) -> list:
+    """Non-pinned call sites that can only run on Claude (text_only=False), read from
+    llm_config.py's source so a dry run needn't import it (importing reads DATA_DIR)."""
+    import ast
+    from pathlib import Path
+    path = path or Path(__file__).resolve().parents[1] / "llm_config.py"
+    names = []
+    for node in ast.walk(ast.parse(Path(path).read_text())):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "CallSite" and node.args:
+            kw = {k.arg: k.value for k in node.keywords}
+            text_only = kw.get("text_only")
+            pinned = kw.get("pinned")
+            if isinstance(text_only, ast.Constant) and text_only.value is False \
+                    and not (isinstance(pinned, ast.Constant) and pinned.value is True) \
+                    and isinstance(node.args[0], ast.Constant):
+                names.append(node.args[0].value)
+    return sorted(names)
 
 
 class Meter:

@@ -1,7 +1,9 @@
 # Benchmark criteria for Tiers 2 and 3: DRAFT
 
 > **Draft. Not adopted. Kohl decides.**
-> The roadmap's process (`docs/ROADMAP-STABILIZATION.md`, #65) is that criteria are written before any run: Claude drafts them, Momus attacks them, and Kohl makes the final cut. This file is the first step only. Momus hasn't reviewed it and Kohl hasn't accepted it. No Tier 2 or Tier 3 run has happened, so nothing here was tuned to results.
+> The roadmap's process (`docs/ROADMAP-STABILIZATION.md`, #65) is that criteria are written before any run: Claude drafts them, Momus attacks them, and Kohl makes the final cut. This file is the first step. Momus has reviewed it (linked below); Kohl hasn't accepted it. No Tier 2 or Tier 3 run has happened, so nothing here was tuned to results.
+>
+> Momus's review of this draft: [`criteria-DRAFT-momus.md`](criteria-DRAFT-momus.md) (a critique, not a decision; the criteria below are unchanged by it).
 >
 > The harness records the SHA-256 of this file in every run's results, and the pages mark such runs **DRAFT**. Adopted criteria should live in a file without "DRAFT" in its name. Once a run has started, any change to a criterion counts as a new version, and earlier runs are not rescored against it.
 
