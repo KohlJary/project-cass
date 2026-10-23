@@ -2,6 +2,8 @@
 
 Index of autonomous activities Cass can perform. Each activity type defines tools, prompts, and session behavior for a specific kind of autonomous work.
 
+> **Status (2026-10-22):** of the legacy runner modules below, only `solo_reflection_runner.py` and `research_session_runner.py` remain on main. The synthesis, meta-reflection, consolidation, growth-edge, knowledge-building, writing, world-state, creative-output and user-model-synthesis runners had no caller (no frontend, scheduler, tool or spell started them) and were moved to the `attic/stabilization` branch (#70). Scheduled sessions of those types run through `session/generic_runner.py` (`scheduler/actions/session_handlers.py`). Their `/admin/<type>/...` routes were removed with them; the per-type route lists below describe the attic versions.
+
 ## Architecture
 
 ```

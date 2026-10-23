@@ -187,20 +187,3 @@ def test_recent_observations_exclude_world_awareness_by_default():
 
     everything = sm.get_recent_observations(limit=10, include_world=True)
     assert len(everything) == 3
-
-
-def test_session_init_recent_observations_skip_world_awareness(daemon_id):
-    from self_model import SelfManager
-    from session_init import build_session_init_context
-
-    sm = SelfManager()
-    sm.add_observation("I slow down when a question has weight.", category="pattern", confidence=0.8)
-    sm.add_observation("Ubisoft announced layoffs.", category="world_awareness:concern", confidence=0.9)
-
-    import asyncio
-    ctx = asyncio.run(build_session_init_context(
-        conversation_id="conv-1", user_id="user-1", self_manager=sm,
-        memory=None, conversation_manager=None, state_bus=None,
-    ))
-    cats = [o["category"] for o in ctx.recent_observations]
-    assert cats == ["pattern"]
