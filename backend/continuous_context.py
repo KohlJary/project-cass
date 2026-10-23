@@ -45,6 +45,20 @@ class SpeakerRecognition:
     confidence_level: str  # "high", "medium", "low", "none"
 
 
+# Context scopes. "private" is a person talking with Cass one to one (web,
+# mobile, POST /chat, voice): every section. "public" is a reply that will be
+# posted where others can read it (Discord channels and DMs from anyone): only
+# who she is, the time, what she perceives on Discord, and - for a sender
+# linked to a Cass user - that sender's relational context and the channel's
+# own conversation summary. No semantic memories (Kohl's conversations and
+# journals), no home state or insights, no world state (location), no
+# self-context, Thymos, threads or open questions.
+CONTEXT_SCOPES = ("private", "public")
+PUBLIC_SECTIONS = frozenset({
+    "kernel", "temporal", "discord_perception", "relational_context", "working_summary",
+})
+
+
 def build_continuous_context(
     user_id: str,
     conversation_id: str,
@@ -58,6 +72,7 @@ def build_continuous_context(
     memory: Optional["MemoryCore"] = None,
     query: Optional[str] = None,
     speaker_recognition: Optional[SpeakerRecognition] = None,
+    scope: str = "private",
 ) -> ContinuousContext:
     """
     Build simplified context for continuous chat mode.
@@ -75,12 +90,19 @@ def build_continuous_context(
         memory: Optional MemoryCore for semantic memory retrieval
         query: Optional query string (e.g., user message) for semantic search
         speaker_recognition: Optional voice identification result from STT
+        scope: "private" (every section) or "public" (PUBLIC_SECTIONS only;
+            see CONTEXT_SCOPES)
 
     Returns:
         ContinuousContext with assembled system prompt and sections
     """
+    if scope not in CONTEXT_SCOPES:
+        raise ValueError(f"unknown context scope {scope!r}")
     if daemon_id is None:
         daemon_id = get_daemon_id()
+
+    def wanted(section: str) -> bool:
+        return scope == "private" or section in PUBLIC_SECTIONS
 
     context_sections: Dict[str, str] = {}
 
@@ -103,7 +125,7 @@ def build_continuous_context(
     # 2.5. GLOBAL STATE (World awareness from Locus of Self)
     # ==========================================================================
     # Ambient awareness: location, weather, world state
-    if daemon_id:
+    if daemon_id and wanted("global_state"):
         from state_bus import get_state_bus
         state_bus = get_state_bus(daemon_id)
         state_context = state_bus.get_context_snapshot()
@@ -116,6 +138,8 @@ def build_continuous_context(
     # Current home state: lights, climate, locks, presence
     # Uses cached summary to avoid async issues in sync context
     try:
+        if not wanted("home_state"):
+            raise ImportError  # skipped for this scope
         from home_assistant import get_cached_home_summary_sync
         home_context = get_cached_home_summary_sync()
         if home_context:
@@ -137,6 +161,8 @@ def build_continuous_context(
     # ==========================================================================
     # Current felt state from Thymos homeostatic system
     try:
+        if not wanted("thymos"):
+            raise ImportError  # skipped for this scope
         from thymos import get_thymos_context
         thymos_context = get_thymos_context()
         if thymos_context:
@@ -178,7 +204,7 @@ def build_continuous_context(
     # Time since last contact, what she did meanwhile, latest dream and
     # reflection, her own threads. Lever: self_context.
     import features
-    if daemon_id and features.is_enabled("self_context"):
+    if daemon_id and wanted("self_context") and features.is_enabled("self_context"):
         try:
             from self_context import build_self_context
             self_ctx = build_self_context(daemon_id, user_id)
@@ -205,7 +231,7 @@ def build_continuous_context(
     # ==========================================================================
     # Structural memory - explicit bookmarks of ongoing work
     threads_context = ""
-    if thread_manager:
+    if thread_manager and wanted("threads"):
         threads_context = thread_manager.format_threads_context(
             user_id=user_id,
             limit=7  # More threads in continuous mode
@@ -219,7 +245,7 @@ def build_continuous_context(
     # ==========================================================================
     # Unresolved curiosities and decisions
     questions_context = ""
-    if question_manager:
+    if question_manager and wanted("questions"):
         questions_context = question_manager.format_questions_context(
             user_id=user_id,
             limit=5
@@ -243,7 +269,7 @@ def build_continuous_context(
     # 7. SEMANTIC MEMORIES (Relevant past context from ChromaDB)
     # ==========================================================================
     # Query ChromaDB for semantically relevant memories based on current message
-    if memory and query:
+    if memory and query and wanted("semantic_memories"):
         semantic_memories = _retrieve_semantic_memories(memory, query, user_id)
         if semantic_memories:
             context_sections["semantic_memories"] = semantic_memories
@@ -251,6 +277,8 @@ def build_continuous_context(
     # ==========================================================================
     # ASSEMBLE SYSTEM PROMPT
     # ==========================================================================
+    # Belt and braces: nothing outside the scope reaches the prompt.
+    context_sections = {k: v for k, v in context_sections.items() if wanted(k)}
     system_prompt = _assemble_continuous_prompt(context_sections)
 
     # Estimate tokens (rough: 4 chars per token)

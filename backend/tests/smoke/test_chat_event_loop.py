@@ -41,18 +41,21 @@ def _health_latency_during(client, started: threading.Event, run_slow_request):
 
 def test_slow_retrieval_in_http_chat_does_not_block_other_requests(
         booted_app, fake_llm, smoke_user, monkeypatch):
-    import main_sdk
+    # POST /chat now runs the shared chat turn (chat_turn.py), whose context
+    # step is build_continuous_context, the same as the websocket's.
+    import continuous_context
     _, token = smoke_user
     fake_llm.queue_text("still here")
 
     started = threading.Event()
+    real_build = continuous_context.build_continuous_context
 
-    def slow_retrieve_hierarchical(*args, **kwargs):
+    def slow_build(*args, **kwargs):
         started.set()
         time.sleep(RETRIEVAL_SECONDS)
-        return {"summaries": [], "details": []}
+        return real_build(*args, **kwargs)
 
-    monkeypatch.setattr(main_sdk.memory, "retrieve_hierarchical", slow_retrieve_hierarchical)
+    monkeypatch.setattr(continuous_context, "build_continuous_context", slow_build)
 
     def slow_chat():
         resp = booted_app.post(
