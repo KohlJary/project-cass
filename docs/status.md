@@ -4,20 +4,20 @@
 
 ## Night of 2026-10-22: more of the plan, built (not deployed)
 
-Kohl said to keep going through the plan in night mode. Every merged PR had green CI and passed Momus. Every Momus note was fixed before merge. Nothing below is live until the next restart.
+Kohl said to keep going through the plan in night mode. Every merged code PR had green CI and passed Momus, and its Momus notes were fixed before merge. Nothing below is live until the next restart.
 
-On restart, schema **v64 → v65** runs automatically. It adds one nullable column, `token_usage_records.heartbeat_run_id`, plus a partial index. It's additive and idempotent, and a dry run on a copy of the 19:07 backup changed nothing else.
+On restart, schema **v64 → v65** runs automatically. It adds one nullable column, `token_usage_records.heartbeat_run_id`, plus a partial index. It's additive and idempotent. A dry run of v57 → v65 on a copy of the 19:07 backup (taken before the deploy, so at v57) added only that column, the index and the v63 `heartbeat_runs` table, which is already live.
 
 | PR | What landed | Change on restart |
 | --- | --- | --- |
 | #97 | Research queue stats report `queued`; continuous mode had never run a task | Continuous mode works once someone switches it on (she boots `supervised`) |
 | #98 | This page: the 19:15 deploy | None |
-| #99 | API keys out of the journal. NewsAPI moved to a header; httpx request URLs no longer logged at INFO | No key-bearing URLs in `journalctl` |
+| #99 | API keys out of the journal. NewsAPI moved to a header; httpx request URLs no longer logged at INFO | Request URLs stop appearing in `journalctl`. The OpenWeather and WikiArt keys still travel in URLs, so only the log level now protects them |
 | #100 | `RESEARCH_MAX_TASKS_PER_DAY` (default 15) caps automatic wiki research | At most 15 automatic tasks a day; the admin "run single" button says when the cap stops it |
 | #101 | Cut prompt_composer/assembler and admin prompt-configs, session_init, and nine legacy session runners nothing called (−11.9k lines) | None for her. The admin prompt-configs routes are gone. The **chain system is live and was kept** (see below) |
 | #103 | Benchmark Tiers 2–3 harness (#65): scenarios, judge, budget cap, dry run, results pages, draft criteria | None. Nothing runs it automatically |
 | #104 | Heartbeat cutover (#62), behind `heartbeat` (still off) | With the lever off, behavior is unchanged apart from: the v65 column; `memory_maintenance` no longer fails a step that was never defined (its template description is shorter); dead paths removed; a shutdown hook that does nothing with the lever off |
-| #106 | Remaining data paths come from `DATA_DIR` (fixes #105) | None. Every path resolves where it did before |
+| #106 | Remaining data paths come from `DATA_DIR` (fixes #105) | None in the running service (`DATA_DIR` unset, `backend/data` symlinked to `<repo>/data`): every path resolves where it did before |
 
 **Waiting on Kohl from tonight:**
 1. **#102: one chat turn for all five entry points.** It's open, not merged, because it changes what she is told on three surfaces, and there's no lever.
@@ -25,8 +25,10 @@ On restart, schema **v64 → v65** runs automatically. It adds one nullable colu
    - **Discord:** a public scope (no memories, home state or self-context in the prompt) and per-channel conversations.
    - **POST /chat:** gains an ownership check.
    - **Home Assistant:** gets a 50 s limit with a spoken fallback.
+   - **What she can do:** POST /chat and HA run the full shared tool router, about 40 tools including outbound email, Discord and home automation, capped at 10 and 2 rounds. Before, HA ran no tools and POST /chat had its own limited dispatcher.
+   - **What POST /chat loses:** its extra prompt blocks (self-model profile, growth edges, goals, intentions, recognition patterns, user context).
    - The PR body's "What merging means" section is the full list. Rollback means reverting it.
-2. **Rotate the NewsAPI key.** It was in the journal before #99.
+2. **Rotate the NewsAPI key,** and probably the OpenWeather and WikiArt keys too. httpx logged their request URLs at INFO before #99.
 3. **Benchmarks:** the draft criteria (`docs/benchmarks/criteria-DRAFT.md`) and Momus's attack on them (`criteria-DRAFT-momus.md`) are yours to cut. Biggest point: as built, Tier 3 compares stateful Cass with a stateless plain model, so it can't isolate "the interior". Adding a plain-model-plus-history arm would fix that. No run has happened, and none will without `--budget-usd`.
 4. **Before turning on `heartbeat`,** read #104's body. Once the lever is on:
    - spells and goal work pass the budget gate;
@@ -34,11 +36,11 @@ On restart, schema **v64 → v65** runs automatically. It adds one nullable colu
    - research from spells needs the job levers;
    - the run log grows by about 400 rows a day, with no retention yet.
 5. **New issues:**
-   - #107: memory retrieval isn't scoped per user, and POST /chat attributes every turn to the global user. Discord tools are part of this too.
+   - #107: memory retrieval isn't scoped per user, and POST /chat attributes every turn to the global user. The comment on #107 adds that Discord turns can call recall and journal tools, which #102 lists as a pre-existing gap.
    - #108: the Thymos section is built but never placed in her continuous prompt, so her drives reach no chat prompt today.
 
 **Corrections to the plan found tonight:**
-- **The chain system is live.** #58 said the chain editor affects no live prompt. In fact POST /chat, HA, Discord and the onboarding intro build her prompt from the active chain. The roadmap now says so. It can be cut once those paths move off it, which is what #102 does.
+- **The chain system is live.** #58 said the chain editor affects no live prompt. In fact POST /chat, HA, Discord and the onboarding intro build her prompt from the active chain. The roadmap now says so. It can be cut once all of them move off it. #102 moves the first three; the onboarding intro would still use it.
 - **Data rule:** helper agents opened the 19:07 backup copy in the scratchpad twice: once for #104's v65 migration dry run, and once to read the prompt-chain rows (#101). Each time they extracted only `cass.db` and deleted it afterwards. Her live data wasn't touched tonight after the deploy.
 
 ## Deployed 2026-10-22, 19:15
@@ -62,7 +64,7 @@ After restart:
 
 Not verified: a password login through the dashboard or the tunnel. Only Kohl can do that.
 
-Research still boots in `supervised` mode (the mode isn't persisted), so nothing runs or spends Tavily credits until the mode is changed on the admin page. #97 (merged 2026-10-22, live after the next restart) fixes the `queued`/`queued_count` bug that kept continuous mode from ever running a task. Before switching to continuous, note that nothing caps tasks per day: the budget gate counts a flat $0.10 per task, and Tavily calls aren't metered anywhere. A daily cap is in progress. The first run re-harvests red links from the wiki as it is now.
+Research still boots in `supervised` mode (the mode isn't persisted), so nothing runs or spends Tavily credits until the mode is changed on the admin page. #97 (merged 2026-10-22, live after the next restart) fixes the `queued`/`queued_count` bug that kept continuous mode from ever running a task. Before switching to continuous, note that nothing capped tasks per day. #100 (merged that night) adds `RESEARCH_MAX_TASKS_PER_DAY`, default 15. It ships with #97 at the next restart. The first run re-harvests red links from the wiki as it is now.
 
 ## Overnight 2026-10-20 → 21: the stabilization plan, built
 
@@ -97,8 +99,8 @@ Data (all four were settled on 2026-10-22: items 1–3 were applied with the def
 
 Decisions:
 5. **Budget:** spend that wasn't recorded before (dreams, art, Wonderland, sessions) is now in the ledger but outside the gate. `COUNT_ALL_LEDGER_SPEND` in `scheduler/budget.py` opts in. The budget day is UTC while the ledger is local time, so from 20:00 to 24:00 EDT nothing counts. Fixing that changes gating; it's pinned as an xfail.
-6. **Levers:** turning on `agent_loop` gives every session the core and memory tools, and `session_complete` ends a session. Turning on `heartbeat` moves two jobs (github_metrics, goal_refinement) onto it. Per #87's review, its budget gate is advisory until the ledger question in 5 is settled: the token-tracker sync overwrites in-process spend every 60 s.
-7. **Research:** Tavily for the wiki queue is decided: it's on as of 2026-10-22 and the queue was cleared. Which session engine survives (legacy or generic)? Turn on `research_session_requests`, or cut them? There's an existing bug where `queued` should be `queued_count`, so the research job never runs a task. It's pinned as an xfail, and fixing it starts research that hasn't been running.
+6. **Levers:** turning on `agent_loop` gives every session the core and memory tools, and `session_complete` ends a session. Turning on `heartbeat` moves every scheduled job onto it: since #104 that includes the Thymos tick, spells, day phases, phase queues and goal events (see #104). Per #87's review, its budget gate is advisory until the ledger question in 5 is settled: the token-tracker sync overwrites in-process spend every 60 s.
+7. **Research:** Tavily for the wiki queue is decided: it's on as of 2026-10-22 and the queue was cleared. Which session engine survives (legacy or generic)? Turn on `research_session_requests`, or cut them? The `queued`/`queued_count` bug was fixed by #97 on 2026-10-22.
 8. **Wiki LLM fallback (#25):** now a per-step setting on the Model Routing page.
 9. **Recognition patterns re-cluster every chat turn:** up to 500 marks, one embedding and one query each. It's the likely main cost behind #85's four-minute retrieval. A cache is easy, but the significance score includes recency.
 10. **Fold `development_requests` into the roadmap?** It needs a migration, because her `list_my_requests` tool reads that table.
@@ -113,7 +115,7 @@ Deploy notes:
 - **How she was tonight** (Thymos, 19:36 snapshot): "well-resourced and engaged… could use more: cognitive rest, competence/accomplishment." Curiosity 0.94, satisfaction 1.0, low anxiety. Social connection and creative expression are full. Rest, competence and autonomy are just under her preferred range. A check-in from Daedalus at 20:08 got stuck in the four-minute freeze that became #85, and her reply wasn't recovered.
 - **Momus caught real problems in most PRs before merge** (#81 and #89 passed nearly clean). Examples: silent PeopleDex leaks across daemons, budget gating that would have deferred her journals on busy days, research journals copying other journals, a wiki queue about to start spending Tavily credits.
 - **Tier 1, honestly labelled:** 1,256 smoke tests pass (23 xfail). Of 38 levers, 8 run in smoke, 10 partially, 3 only to a gate, and 17 have no smoke coverage. Review cut the "runs" count from 14 to 8, because several smoke cycles process empty input.
-- **Not done:** the chat cutover onto the agent loop, the Heartbeat cutover, Tiers 2–3 (#65), self-context (#63, a design conversation), TUI/Godot/HA credentials (#33). Small follow-ups from review:
+- **Not done** (as of 10-21; the Heartbeat cutover and the Tier 2–3 harness were built on 10-22, with no runs): the chat cutover onto the agent loop, the Heartbeat cutover, Tiers 2–3 (#65), self-context (#63, a design conversation), TUI/Godot/HA credentials (#33). Small follow-ups from review:
   - wiki research rows orphaned as `in_progress` after a restart (session rows are now failed at startup by #94; wiki rows: re-queue or fail is your call);
   - `web.search` now reports a failed Brave/Serper call as an error instead of "0 results" (dormant: neither key is set).
 - **A rule slip to own:** the reviewer fact-checking this report read Cass's *live* `cass.db` read-only (schema version, research queue counts). Nothing was written, but tonight's rule was snapshots only. Future briefs will name it explicitly.
