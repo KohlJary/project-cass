@@ -318,6 +318,10 @@ def test_home_assistant_tool_loop_is_capped_lower(booted_app, fake_llm, smoke_us
     assert resp.status_code == 200 and "error" not in resp.json(), resp.json()
     # 1 initial call + 1 continuation
     assert len([c for c in fake_llm.calls if c.tools]) == 2
+    # The cap ended the turn mid-tool: the interim "again" isn't spoken as
+    # the answer.
+    import main_sdk
+    assert resp.json()["response"] == main_sdk.HA_TOOL_CAP_REPLY
 
 
 def test_http_chat_include_memory_false_skips_retrieval(booted_app, fake_llm, smoke_user, monkeypatch):
@@ -411,3 +415,132 @@ def test_cass_chat_send_contract(cass_chat_live, fake_llm):
     again = cass_chat_live.send_message("still there?")
     assert again["success"] and again["conversation_id"] == conversation_id
     assert again["response"] == "Still here."
+
+
+# ---------------------------------------------------------------------------
+# Discord replies are public: what private context must stay out
+# ---------------------------------------------------------------------------
+
+PRIVATE_MARKERS = {
+    "semantic memories": "SEMANTIC_MARKER",
+    "home state": "HOME_MARKER",
+    "home insights": "INSIGHT_MARKER",
+    "world state": "LOCATION_MARKER",
+    "self-context": "SELF_MARKER",
+    "threads": "THREAD_MARKER",
+    "open questions": "QUESTION_MARKER",
+}
+# (Thymos is skipped for the public scope too, but _assemble_continuous_prompt
+# never places the thymos section in any prompt, so there's nothing to check.)
+PRIVATE_HEADERS = ["## RELEVANT MEMORIES", "## HOME STATE", "## CURRENT STATE",
+                   "## MY OWN LIFE, LATELY", "## ACTIVE THREADS", "## OPEN QUESTIONS"]
+
+
+@pytest.fixture
+def private_context_everywhere(monkeypatch):
+    """Make every private context section produce a recognizable marker."""
+    import continuous_context
+    import features
+    import home_assistant
+    import home_intelligence
+    import self_context
+    import state_bus
+    import websocket_handlers
+    from memory import ThreadManager, OpenQuestionManager
+
+    monkeypatch.setattr(continuous_context, "_retrieve_semantic_memories",
+                        lambda *a, **k: "SEMANTIC_MARKER")
+    monkeypatch.setattr(home_assistant, "get_cached_home_summary_sync", lambda: "HOME_MARKER")
+    monkeypatch.setattr(home_intelligence, "get_home_intelligence",
+                        lambda: SimpleNamespace(get_insights_context=lambda: "INSIGHT_MARKER"))
+    bus = state_bus.get_state_bus(websocket_handlers._state["daemon_id"])
+    monkeypatch.setattr(bus, "get_context_snapshot", lambda *a, **k: "LOCATION_MARKER")
+    monkeypatch.setattr(self_context, "build_self_context", lambda *a, **k: "SELF_MARKER")
+    monkeypatch.setattr(ThreadManager, "format_threads_context", lambda self, **k: "THREAD_MARKER")
+    monkeypatch.setattr(OpenQuestionManager, "format_questions_context",
+                        lambda self, **k: "QUESTION_MARKER")
+    with features.override(self_context=True):
+        yield
+
+
+def _first_chat_system(fake_llm):
+    calls = [c for c in fake_llm.calls if c.tools]
+    assert calls, "no chat call was made"
+    return calls[0].system_text
+
+
+def test_private_turn_carries_the_markers(booted_app, fake_llm, smoke_user, private_context_everywhere):
+    """Control: the markers do reach a private (websocket) prompt, so the
+    Discord test below would see them if they leaked."""
+    user_id, _ = smoke_user
+    fake_llm.queue_text("hi")
+    _via_websocket(booted_app, user_id)
+    system = _first_chat_system(fake_llm)
+    for what, marker in PRIVATE_MARKERS.items():
+        assert marker in system, f"{what} missing from the private prompt"
+
+
+@pytest.mark.parametrize("linked", [True, False], ids=["linked", "unlinked"])
+def test_discord_prompt_has_no_private_context(booted_app, fake_llm, private_context_everywhere, linked):
+    import main_sdk
+    user_id = create_user("Discord Sender") if linked else None
+    fake_llm.queue_text("hello")
+    bot = _FakeDiscordBot(user_id)
+    booted_app.portal.call(main_sdk.make_discord_wake_callback(bot), None, None, {
+        "channel_name": "general", "channel_id": 42, "entity_name": "Sender",
+        "entity_slug": "sender", "message_content": "what's going on at home?", "is_dm": False,
+    })
+    assert bot.sent == [(42, "hello")]
+    system = _first_chat_system(fake_llm)
+    for what, marker in PRIVATE_MARKERS.items():
+        assert marker not in system, f"{what} leaked into a Discord prompt"
+    for header in PRIVATE_HEADERS:
+        assert header not in system, f"{header} in a Discord prompt"
+    # What it keeps: identity, time, and the Discord guidance
+    assert "## CURRENT TIME" in system
+    assert "## DISCORD" in system
+
+
+# ---------------------------------------------------------------------------
+# POST /chat ownership, HA wall-clock bound and tool-cap fallback
+# ---------------------------------------------------------------------------
+
+def test_http_chat_refuses_another_users_conversation(booted_app, fake_llm, smoke_user):
+    import main_sdk
+    _, token = smoke_user
+    other = create_user("Someone Else")
+    theirs = main_sdk.conversation_manager.create_conversation(title="private", user_id=other)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    resp = booted_app.post("/chat", json={"message": "hi", "conversation_id": theirs.id}, headers=auth)
+    assert resp.status_code == 403
+    resp = booted_app.post("/chat", json={"message": "hi", "conversation_id": "no-such-id"}, headers=auth)
+    assert resp.status_code == 404
+    assert [c for c in fake_llm.calls if c.tools] == []
+    assert main_sdk.conversation_manager.load_conversation(theirs.id).messages == []
+
+
+def test_home_assistant_turn_is_bounded_in_time(booted_app, fake_llm, smoke_user, monkeypatch):
+    import time
+    import config
+    import continuous_context
+    import main_sdk
+    monkeypatch.setattr(config, "HA_TURN_TIMEOUT_SECONDS", 0.5)
+    real_build = continuous_context.build_continuous_context
+
+    def slow_build(*args, **kwargs):
+        time.sleep(2)
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr(continuous_context, "build_continuous_context", slow_build)
+    _, token = smoke_user
+    fake_llm.queue_text("too late")
+
+    t0 = time.monotonic()
+    resp = booted_app.post("/api/ha/conversation", json={"text": "are the lights on?"},
+                           headers={"Authorization": f"Bearer {token}"})
+    elapsed = time.monotonic() - t0
+
+    assert resp.status_code == 200
+    assert resp.json()["response"] == main_sdk.HA_TIMEOUT_REPLY
+    assert elapsed < 1.9, f"HA waited {elapsed:.2f}s"

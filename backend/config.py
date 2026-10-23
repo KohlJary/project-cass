@@ -100,6 +100,8 @@ CHAT_MAX_TOOL_ITERATIONS = int(os.getenv("CHAT_MAX_TOOL_ITERATIONS", "10"))
 # Home Assistant voice turns: the HA integration gives up after 60s, so its
 # tool loop is capped lower than chat's (the lower of the two applies).
 HA_MAX_TOOL_ITERATIONS = int(os.getenv("HA_MAX_TOOL_ITERATIONS", "2"))
+# Wall-clock bound on one HA voice turn, under the integration's 60s timeout.
+HA_TURN_TIMEOUT_SECONDS = float(os.getenv("HA_TURN_TIMEOUT_SECONDS", "50"))
 
 # One clock for everything time-of-day based: Synkratos cron jobs and the
 # day phases (morning/afternoon/evening/night). An IANA name, e.g.

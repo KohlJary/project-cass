@@ -53,6 +53,10 @@ class ChatTurnResult:
     tool_iterations: int
     generated_images: List[Dict]
     memory_used: bool
+    # True when the tool cap ended the turn while the model still wanted a
+    # tool: clean_text is then whatever came with that tool call ("Let me
+    # check..."), not an answer.
+    hit_tool_cap: bool = False
     marks: List[Any] = field(default_factory=list)
     extracted: Dict[str, Any] = field(default_factory=dict)
 
@@ -123,6 +127,7 @@ async def run_chat_turn(
     image_media_type: Optional[str] = None,
     speaker_recognition=None,
     include_memory: bool = True,
+    context_scope: str = "private",
     system_addendum: Optional[str] = None,
     provider: Optional[str] = None,
     tool_cap: Optional[int] = None,
@@ -139,6 +144,8 @@ async def run_chat_turn(
         adds context of its own (HA home state, the Discord channel line).
         Defaults to user_message.
     include_memory: False skips semantic retrieval (POST /chat's flag).
+    context_scope: "private" or "public" (continuous_context.CONTEXT_SCOPES).
+        Discord uses "public": its replies are posted where others read them.
     system_addendum: appended to the continuous system prompt (Discord's
         "you are on Discord" guidance).
     provider: None follows the active provider; "anthropic" pins it.
@@ -188,6 +195,7 @@ async def run_chat_turn(
         memory=memory if include_memory else None,
         query=user_message if include_memory else None,
         speaker_recognition=speaker_recognition,
+        scope=context_scope,
     )
     system_prompt = continuous_ctx.system_prompt
     if system_addendum:
@@ -253,8 +261,10 @@ async def run_chat_turn(
     tool_iterations = 0
     tool_names_used: List[str] = []
     generated_images: List[Dict] = []
+    hit_tool_cap = False
     while response.stop_reason == "tool_use" and tool_uses:
         if tool_iterations >= cap:
+            hit_tool_cap = True
             print(f"[ChatTurn] Tool loop hit the cap ({cap}); ending turn")
             await emit({"type": "debug",
                         "message": f"[{loop_label}] stopped after {cap} iterations (CHAT_MAX_TOOL_ITERATIONS)"})
@@ -346,6 +356,7 @@ async def run_chat_turn(
         tool_iterations=tool_iterations,
         generated_images=generated_images,
         memory_used=memory_used,
+        hit_tool_cap=hit_tool_cap,
         marks=turn["marks"],
         extracted=extracted,
     )

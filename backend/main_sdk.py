@@ -842,6 +842,9 @@ async def health_check():
 
 
 # === Home Assistant Conversation Endpoint ===
+HA_TIMEOUT_REPLY = "Sorry, that's taking me too long. Please try again in a moment."
+HA_TOOL_CAP_REPLY = "I couldn't finish that in the steps I have for voice. Try asking me in chat."
+
 @app.post("/api/ha/conversation")
 async def ha_conversation(request: Request):
     """
@@ -901,21 +904,41 @@ async def ha_conversation(request: Request):
             enhanced_message = f"[Current home state for context:\n{home_context}]\n\nUser said: {text}"
 
         from chat_turn import run_chat_turn, NoLLMClient
-        from config import HA_MAX_TOOL_ITERATIONS
+        import config as _config
         try:
-            result = await run_chat_turn(
-                user_message=text,
-                model_message=enhanced_message,
-                conversation_id=conversation_id,
-                user_id=ha_user_id,
-                tool_cap=HA_MAX_TOOL_ITERATIONS,
-                generate_title=False,  # no background LLM title call, as before
+            # Bounded below the integration's 60s timeout, so HA hears a
+            # short answer instead of a timeout. A turn cut off here is
+            # cancelled: nothing more is stored for it (a tool that already
+            # ran stays done).
+            result = await asyncio.wait_for(
+                run_chat_turn(
+                    user_message=text,
+                    model_message=enhanced_message,
+                    conversation_id=conversation_id,
+                    user_id=ha_user_id,
+                    tool_cap=_config.HA_MAX_TOOL_ITERATIONS,
+                    generate_title=False,  # no background LLM title call, as before
+                ),
+                timeout=_config.HA_TURN_TIMEOUT_SECONDS,
             )
         except NoLLMClient:
             return {"error": "No LLM provider available", "response": "I'm not available right now."}
+        except asyncio.TimeoutError:
+            logger.warning(f"[HA] Turn exceeded {_config.HA_TURN_TIMEOUT_SECONDS}s; answered with the fallback")
+            return {
+                "response": HA_TIMEOUT_REPLY,
+                "conversation_id": conversation_id,
+                "language": language,
+            }
+
+        response_text = result.clean_text
+        if result.hit_tool_cap:
+            # The text that came with an unfinished tool call ("Let me
+            # check...") isn't an answer; don't speak it as one.
+            response_text = HA_TOOL_CAP_REPLY
 
         return {
-            "response": result.clean_text,
+            "response": response_text,
             "conversation_id": conversation_id,
             "language": language,
         }
@@ -1370,6 +1393,9 @@ def make_discord_wake_callback(discord_bot):
                 conversation_id=conversation_id,
                 user_id=linked_user_id,
                 system_addendum=DISCORD_GUIDANCE,
+                # Replies are public: no semantic memories, home or world
+                # state, self-context, Thymos, threads or questions.
+                context_scope="public",
                 provider=LLM_PROVIDER_ANTHROPIC,
                 memory_metadata={"source": "discord", "channel": channel_name},
                 generate_title=False,
@@ -2335,7 +2361,7 @@ async def status():
     }
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, http_request: Request):
     """One chat turn over HTTP (scripts/cass_chat.py, the Daedalus cass-chat
     subagent).
 
@@ -2350,12 +2376,18 @@ async def chat(request: ChatRequest):
     from agent_loop.interrupt import entry_point_received_message
     entry_point_received_message(None, "POST /chat")
 
-    # Check if conversation belongs to a project
+    # The conversation must exist and be the caller's (the authenticated
+    # user, as in routes/conversations.py _verify_conversation_access).
+    # The turn reads its history into the prompt and writes to it.
     project_id = None
     if request.conversation_id:
         conversation = conversation_manager.load_conversation(request.conversation_id)
-        if conversation:
-            project_id = conversation.project_id
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        caller = http_request.scope.get("cass_user_id")
+        if conversation.user_id and conversation.user_id != caller:
+            raise HTTPException(status_code=403, detail="Not authorized to access this conversation")
+        project_id = conversation.project_id
 
     from chat_turn import run_chat_turn, NoLLMClient
     try:
