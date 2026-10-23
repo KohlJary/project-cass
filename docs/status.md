@@ -1,6 +1,45 @@
 # Status
 
-*Updated 2026-10-22 evening by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-10-22 night by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## Night of 2026-10-22: more of the plan, built (not deployed)
+
+Kohl said to keep going through the plan in night mode. Every merged PR had green CI and passed Momus. Every Momus note was fixed before merge. Nothing below is live until the next restart.
+
+On restart, schema **v64 → v65** runs automatically. It adds one nullable column, `token_usage_records.heartbeat_run_id`, plus a partial index. It's additive and idempotent, and a dry run on a copy of the 19:07 backup changed nothing else.
+
+| PR | What landed | Change on restart |
+| --- | --- | --- |
+| #97 | Research queue stats report `queued`; continuous mode had never run a task | Continuous mode works once someone switches it on (she boots `supervised`) |
+| #98 | This page: the 19:15 deploy | None |
+| #99 | API keys out of the journal. NewsAPI moved to a header; httpx request URLs no longer logged at INFO | No key-bearing URLs in `journalctl` |
+| #100 | `RESEARCH_MAX_TASKS_PER_DAY` (default 15) caps automatic wiki research | At most 15 automatic tasks a day; the admin "run single" button says when the cap stops it |
+| #101 | Cut prompt_composer/assembler and admin prompt-configs, session_init, and nine legacy session runners nothing called (−11.9k lines) | None for her. The admin prompt-configs routes are gone. The **chain system is live and was kept** (see below) |
+| #103 | Benchmark Tiers 2–3 harness (#65): scenarios, judge, budget cap, dry run, results pages, draft criteria | None. Nothing runs it automatically |
+| #104 | Heartbeat cutover (#62), behind `heartbeat` (still off) | With the lever off, behavior is unchanged apart from: the v65 column; `memory_maintenance` no longer fails a step that was never defined (its template description is shorter); dead paths removed; a shutdown hook that does nothing with the lever off |
+| #106 | Remaining data paths come from `DATA_DIR` (fixes #105) | None. Every path resolves where it did before |
+
+**Waiting on Kohl from tonight:**
+1. **#102: one chat turn for all five entry points.** It's open, not merged, because it changes what she is told on three surfaces, and there's no lever.
+   - **Prompt source:** POST /chat, Home Assistant and Discord stop using the active prompt chain and use the continuous-context prompt that WebSocket chat uses.
+   - **Discord:** a public scope (no memories, home state or self-context in the prompt) and per-channel conversations.
+   - **POST /chat:** gains an ownership check.
+   - **Home Assistant:** gets a 50 s limit with a spoken fallback.
+   - The PR body's "What merging means" section is the full list. Rollback means reverting it.
+2. **Rotate the NewsAPI key.** It was in the journal before #99.
+3. **Benchmarks:** the draft criteria (`docs/benchmarks/criteria-DRAFT.md`) and Momus's attack on them (`criteria-DRAFT-momus.md`) are yours to cut. Biggest point: as built, Tier 3 compares stateful Cass with a stateless plain model, so it can't isolate "the interior". Adding a plain-model-plus-history arm would fix that. No run has happened, and none will without `--budget-usd`.
+4. **Before turning on `heartbeat`,** read #104's body. Once the lever is on:
+   - spells and goal work pass the budget gate;
+   - phase-queued journals and summaries obey their job levers;
+   - research from spells needs the job levers;
+   - the run log grows by about 400 rows a day, with no retention yet.
+5. **New issues:**
+   - #107: memory retrieval isn't scoped per user, and POST /chat attributes every turn to the global user. Discord tools are part of this too.
+   - #108: the Thymos section is built but never placed in her continuous prompt, so her drives reach no chat prompt today.
+
+**Corrections to the plan found tonight:**
+- **The chain system is live.** #58 said the chain editor affects no live prompt. In fact POST /chat, HA, Discord and the onboarding intro build her prompt from the active chain. The roadmap now says so. It can be cut once those paths move off it, which is what #102 does.
+- **Data rule:** helper agents opened the 19:07 backup copy in the scratchpad twice: once for #104's v65 migration dry run, and once to read the prompt-chain rows (#101). Each time they extracted only `cass.db` and deleted it afterwards. Her live data wasn't touched tonight after the deploy.
 
 ## Deployed 2026-10-22, 19:15
 
