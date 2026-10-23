@@ -708,6 +708,7 @@ class PhaseQueueManager:
                     budget_class=task_category,
                     estimated_cost_usd=work_unit.estimated_cost_usd,
                     group=f"queue:{task_category.value}",
+                    priority=queued.priority,
                 )
             else:
                 self.synkratos.submit_task(task)

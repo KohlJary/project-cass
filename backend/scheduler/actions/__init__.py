@@ -187,8 +187,15 @@ class ActionRegistry:
         # Heartbeat (#62): an action that is a Heartbeat job's work (the daily
         # journal, idle summarization, wiki research) runs as a run of that
         # job, wherever it is called from, so the job has one trigger path.
-        from heartbeat.wiring import RefusedResult, job_for_action, run_as_job
-        job = job_for_action(action_id)
+        # A failure to import or ask Heartbeat must never stop an action:
+        # it then runs inline, as it always has (lever off never needs this).
+        job = RefusedResult = run_as_job = None
+        try:
+            from heartbeat.wiring import RefusedResult, job_for_action, run_as_job
+            job = job_for_action(action_id)
+        except Exception as e:
+            logger.error(f"Heartbeat lookup for {action_id} failed; running inline: {e}")
+            job = None
 
         async def run_handler():
             return await handler(context)
@@ -200,7 +207,7 @@ class ActionRegistry:
                 result = await handler(context)
             elapsed = time.time() - start_time
 
-            if isinstance(result, RefusedResult):
+            if RefusedResult is not None and isinstance(result, RefusedResult):
                 return ActionResult(success=False, message=result.message,
                                     duration_seconds=elapsed)
             if isinstance(result, ActionResult):

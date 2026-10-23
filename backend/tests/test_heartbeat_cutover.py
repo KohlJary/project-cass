@@ -278,6 +278,186 @@ class TestCoreAdditions:
         assert statuses == ["refused_budget", "refused_budget"]   # at 0 and 15 min
 
 
+class TestReviewFixes:
+    """Momus's review of #104."""
+
+    async def test_stop_releases_a_waiter_whose_work_never_started(self, levers):
+        hb = Heartbeat(clock=FakeClock())
+        await hb.start()
+        waiter = asyncio.create_task(hb.submit_and_wait(
+            Work("journal", partial(asyncio.sleep, 0), Once(delay_seconds=3600))))
+        await asyncio.sleep(0)
+        await hb.stop()
+        result = await asyncio.wait_for(waiter, 1)
+        assert result.success is False and "stopped" in result.message
+        assert len(hb.registry) == 0
+        # After stop, nothing new is accepted to wait on.
+        late = await hb.submit_and_wait(Work("x", partial(asyncio.sleep, 0), Once()))
+        assert late.success is False
+
+    async def test_loop_death_releases_waiters(self):
+        hb = Heartbeat(clock=FakeClock())
+
+        async def broken_sleep(seconds):
+            raise RuntimeError("clock broke")
+
+        hb.clock.sleep = broken_sleep
+        waiter = asyncio.create_task(hb.submit_and_wait(
+            Work("journal", partial(asyncio.sleep, 0), Once(delay_seconds=3600))))
+        await asyncio.sleep(0)
+        await hb.start()
+        result = await asyncio.wait_for(waiter, 1)
+        assert result.success is False and "loop ended" in result.message
+
+    async def test_a_waiter_gives_up_if_its_work_has_not_started(self):
+        hb = Heartbeat(clock=FakeClock())
+        result = await hb.submit_and_wait(
+            Work("journal", partial(asyncio.sleep, 0), Once()), start_timeout=0.01)
+        assert result.success is False and "not started" in result.message
+        assert len(hb.registry) == 0
+
+    async def test_a_refused_timer_spell_retries_soon_instead_of_losing_its_cycle(self):
+        spent = BudgetManager(BudgetConfig(daily_budget_usd=1.0))
+        spent.record_spend(TaskCategory.CURIOSITY, 1.0)
+        clock = FakeClock()
+        hb = Heartbeat(budget_manager=spent, clock=clock)
+        work = hb.register(Work("spell.art_study", partial(asyncio.sleep, 0),
+                                Every(6 * 3600, first_after=0),
+                                budget_class=TaskCategory.CURIOSITY, estimated_cost_usd=0.05))
+        await hb.tick()
+        assert run_log()[-1]["status"] == "refused_budget"
+        assert work.next_run == clock.now() + timedelta(seconds=Heartbeat.REFUSED_BACKOFF_SECONDS)
+        spent._spend_by_category[TaskCategory.CURIOSITY] = 0.0   # budget frees up
+        clock.advance(Heartbeat.REFUSED_BACKOFF_SECONDS)
+        await hb.tick()
+        await hb.drain()
+        assert run_log()[-1]["status"] == "ok"                     # 15 min later, not 6 h
+        assert work.next_run == clock.now() + timedelta(hours=6)
+
+    async def test_a_refused_cron_job_retries_after_the_backoff(self):
+        from heartbeat import Cron
+        spent = BudgetManager(BudgetConfig(daily_budget_usd=1.0))
+        spent.record_spend(TaskCategory.SYSTEM, 1.0)
+        clock = FakeClock(datetime(2026, 10, 21, 0, 4, tzinfo=timezone.utc))
+        hb = Heartbeat(budget_manager=spent, clock=clock)
+        work = hb.register(Work("daily_journal", partial(asyncio.sleep, 0), Cron("5 0 * * *"),
+                                budget_class=TaskCategory.SYSTEM, estimated_cost_usd=0.2))
+        clock.advance(60)
+        await hb.tick()
+        assert work.next_run == clock.now() + timedelta(minutes=15)   # not tomorrow
+
+    async def test_phase_items_in_one_queue_run_in_priority_order(self, levers, clean_wiring):
+        from scheduling.day_phase import DayPhase
+        from scheduling.phase_queue import PhaseQueueManager, QueuedWorkUnit
+        from scheduling.templates import WORK_TEMPLATES
+        from scheduler.actions import ActionRegistry
+
+        hb = Heartbeat(budget_manager=BudgetManager(BudgetConfig()), clock=FakeClock())
+        install(hb)
+        wiring.adopt("phase_queue")
+        registry = ActionRegistry()
+        registry.load_definitions()
+        order = []
+
+        async def action(context):
+            order.append(context["focus"])
+            return {"success": True}
+
+        registry.register_handler("session.reflection", action)
+        pq = PhaseQueueManager(synkratos=None, action_registry=registry)
+        # Submitted lowest priority first; all in the reflection queue.
+        for priority in (3, 1, 2):
+            unit = WORK_TEMPLATES["reflection_block"].instantiate(focus=f"p{priority}")
+            assert await pq._dispatch_work(QueuedWorkUnit(
+                work_unit=unit, target_phase=DayPhase.EVENING, priority=priority))
+        with levers(scheduler=True):
+            await settle(hb)
+        assert order == ["p1", "p2", "p3"]
+
+    async def test_adopt_thymos_leaves_the_old_loop_if_registering_fails(
+            self, levers, clean_wiring, monkeypatch):
+        from thymos.shadow_runner import ThymosRunner
+
+        hb = Heartbeat(clock=FakeClock())
+        install(hb)
+        runner = ThymosRunner(daemon_id="cass")
+        with levers(thymos=True):
+            await runner.start()
+        try:
+            def boom(work):
+                raise RuntimeError("registry broke")
+            monkeypatch.setattr(hb, "register", boom)
+            with pytest.raises(RuntimeError):
+                wiring.adopt_thymos(runner)
+            assert runner._tick_task is not None and not wiring.owns("thymos_tick")
+        finally:
+            await runner.stop()
+
+    async def test_adopt_grimoire_is_all_or_nothing(self, levers, clean_wiring, monkeypatch):
+        from pathlib import Path
+        from grimoire import GrimoireManager
+        from thymos.shadow_runner import ThymosRunner
+
+        hb = Heartbeat(clock=FakeClock())
+        install(hb)
+        runner = ThymosRunner(daemon_id="cass")
+        with levers(thymos=True):
+            await runner.start()
+        try:
+            assert wiring.adopt_thymos(runner)
+            manager = GrimoireManager(spells_directory=Path(__file__).parents[1] / "spells")
+            manager._caster = object()
+            real_register, calls = hb.register, []
+
+            def flaky(work):
+                calls.append(work.name)
+                if len(calls) == 3:
+                    raise RuntimeError("registry broke mid-way")
+                return real_register(work)
+
+            monkeypatch.setattr(hb, "register", flaky)
+            assert not wiring.adopt_grimoire(manager, runner)
+            assert not runner.spells_on_heartbeat           # spells stay on the tick
+            assert not any(n.startswith("spell.") for n in hb.registry.names())
+            assert not wiring.owns("grimoire_spells")
+        finally:
+            await runner.stop()
+
+    async def test_actions_run_inline_if_heartbeat_cannot_be_asked(self, monkeypatch, clean_wiring):
+        from scheduler.actions import ActionRegistry
+
+        def broken(action_id):
+            raise RuntimeError("heartbeat import broke")
+
+        monkeypatch.setattr(wiring, "job_for_action", broken)
+        registry = ActionRegistry()
+        registry.load_definitions()
+        ran = []
+
+        async def handler(context):
+            ran.append(1)
+            return {"success": True}
+
+        registry.register_handler("journal.generate_daily", handler)
+        assert (await registry.execute("journal.generate_daily")).success
+        assert ran == [1]
+
+    def test_ledger_writes_survive_a_broken_heartbeat(self, monkeypatch):
+        from heartbeat import spend as spend_mod
+        from token_tracker import TokenUsageTracker
+
+        def broken(*a, **k):
+            raise RuntimeError("heartbeat broke")
+
+        monkeypatch.setattr(spend_mod, "current_run_id", broken)
+        monkeypatch.setattr(spend_mod, "note_ledger_row", broken)
+        TokenUsageTracker().record(category="journal", operation="t", provider="anthropic",
+                                   model="claude-haiku-4-5-20251001", input_tokens=10,
+                                   output_tokens=5, call_site="memory.journal_entry")
+        rows = ledger()
+        assert len(rows) == 1 and rows[0]["heartbeat_run_id"] is None
+
+
 # ---------------------------------------------------------------------------
 # Done-when: a simulated day
 # ---------------------------------------------------------------------------
@@ -619,6 +799,9 @@ class TestOneTriggerPath:
         try:
             assert wiring.adopt_thymos(runner)
             assert runner._tick_task is None      # own loop stopped
+            assert not wiring.adopt_grimoire(manager, runner)   # not attached yet
+            assert not runner.spells_on_heartbeat
+            manager._caster = object()            # attach_grimoire would set this
             assert wiring.adopt_grimoire(manager, runner)
             names = hb.registry.names()
             assert "thymos_tick" in names

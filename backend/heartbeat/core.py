@@ -39,7 +39,7 @@ from typing import Any, Callable, Dict, List, Optional
 from . import spend as spend_mod
 from .clock import SystemClock
 from .gate import BudgetGate
-from .registry import Once, Registry, When, Work
+from .registry import Every, Once, Registry, When, Work
 from .runlog import RunLog
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 class Heartbeat:
     TICK_SECONDS = 1.0
-    REFUSED_BACKOFF_SECONDS = 15 * 60  # When work refused by the gate
+    REFUSED_BACKOFF_SECONDS = 15 * 60  # retry delay for refused recurring work
 
     def __init__(
         self,
@@ -89,16 +89,31 @@ class Heartbeat:
             raise ValueError("submit() takes Once() work; use register() for recurring work")
         return self.register(work)
 
-    async def submit_and_wait(self, work: Work) -> Any:
+    async def submit_and_wait(self, work: Work, start_timeout: Optional[float] = None) -> Any:
         """Submit Once work and wait for its result.
 
         Returns what the work returned, or a RefusedResult when the gate (or
-        a lever) turned it away. A raise inside the work is re-raised here.
+        a lever) turned it away, when Heartbeat stopped (or its loop died)
+        before the work started, or when it hadn't started within
+        `start_timeout` seconds (it is then withdrawn). A raise inside the
+        work is re-raised here. Once started, the run is awaited to the end.
         """
+        if self._stopping:
+            return RefusedResult("heartbeat is stopped")
         self.submit(work)
         fut = asyncio.get_running_loop().create_future()
         self._waiters[work.key] = fut
-        return await fut
+        if start_timeout is None:
+            return await fut
+        try:
+            return await asyncio.wait_for(asyncio.shield(fut), start_timeout)
+        except asyncio.TimeoutError:
+            if work.key in self._running:
+                return await fut
+            self.registry.remove(work.key)
+            self._resolve(work.key, result=RefusedResult(
+                f"not started within {start_timeout:g}s"))
+            return await fut
 
     def is_idle(self) -> bool:
         return True if self._idle_check is None else bool(self._idle_check())
@@ -110,6 +125,7 @@ class Heartbeat:
             return
         self._stopping = False
         self._loop_task = asyncio.create_task(self._loop())
+        self._loop_task.add_done_callback(self._loop_ended)
         logger.info(f"Heartbeat started with {len(self.registry)} registered work")
 
     async def stop(self) -> None:
@@ -121,6 +137,23 @@ class Heartbeat:
             except asyncio.CancelledError:
                 pass
             self._loop_task = None
+        self._release_waiters("heartbeat stopped")
+
+    def _loop_ended(self, task: asyncio.Task) -> None:
+        """The clock loop ended (stop, or it died): nothing queued will run,
+        so nobody may keep waiting for it."""
+        if not task.cancelled() and task.exception() is not None:
+            logger.error(f"Heartbeat clock loop died: {task.exception()}")
+        self._release_waiters("heartbeat stopped" if self._stopping
+                              else "heartbeat clock loop ended")
+
+    def _release_waiters(self, reason: str) -> None:
+        """Resolve every waiter whose work hasn't started (runs in flight
+        finish and resolve their own)."""
+        for key in list(self._waiters):
+            if key not in self._running:
+                self.registry.remove(key)
+                self._resolve(key, result=RefusedResult(reason))
 
     async def _loop(self) -> None:
         while not self._stopping:
@@ -136,7 +169,8 @@ class Heartbeat:
         """Dispatch everything due now. Returns the names dispatched."""
         now = self.clock.now()
         dispatched = []
-        for work in self.registry.all():
+        # sorted() is stable: equal priorities keep registration order.
+        for work in sorted(self.registry.all(), key=lambda w: w.priority):
             if work.key in self._running:
                 continue
             if work.group and work.group in self._groups:
@@ -159,12 +193,7 @@ class Heartbeat:
                 self._log("refused", work.name, work.trigger.describe(),
                           work.budget_label, now, decision.reason)
                 logger.info(f"Heartbeat: {work.name} refused: {decision.reason}")
-                self._advance(work, started=now, now=now)
-                if isinstance(work.trigger, When) and work.next_run is not None:
-                    # A threshold stays crossed while the budget stays spent:
-                    # back off instead of logging a refusal every minute.
-                    work.next_run = max(work.next_run,
-                                        now + timedelta(seconds=self.REFUSED_BACKOFF_SECONDS))
+                self._retry_after_refusal(work, now)
                 self._resolve(work.key, result=RefusedResult(decision.reason))
                 continue
             if work.group:
@@ -242,6 +271,28 @@ class Heartbeat:
                 if work.group and self._groups.get(work.group) == work.key:
                     self._groups.pop(work.group, None)
                 self._resolve(work.key, **outcome)
+
+    def _retry_after_refusal(self, work: Work, now) -> None:
+        """When refused work tries again.
+
+        Once work is dropped (its waiter is told). Recurring work retries
+        after a short backoff instead of losing its cycle (a refused 6-hourly
+        spell would otherwise wait 6 hours): Every work after its own
+        interval or the backoff, whichever is shorter; Cron work after the
+        backoff; When work no sooner than the backoff, since a threshold
+        stays crossed while the budget stays spent.
+        """
+        backoff = timedelta(seconds=self.REFUSED_BACKOFF_SECONDS)
+        trigger = work.trigger
+        if isinstance(trigger, Once):
+            self._advance(work, started=now, now=now)
+        elif isinstance(trigger, Every):
+            work.next_run = now + min(backoff, timedelta(seconds=trigger.interval))
+        elif isinstance(trigger, When):
+            work.next_run = now + max(backoff,
+                                      timedelta(seconds=trigger.min_interval_seconds))
+        else:
+            work.next_run = now + backoff
 
     def _charge(self, work: Work, category, usd: float) -> None:
         try:
@@ -321,12 +372,13 @@ class Heartbeat:
 
 
 class RefusedResult:
-    """What submit_and_wait returns when the gate refuses the work."""
+    """What submit_and_wait returns when work doesn't run: the gate refused
+    it, its lever is off, Heartbeat stopped, or it never got its turn."""
     success = False
     cost_usd = 0.0
 
     def __init__(self, reason: str):
-        self.message = f"refused by the Heartbeat budget gate: {reason}"
+        self.message = f"not run by Heartbeat: {reason}"
         self.reason = reason
 
 

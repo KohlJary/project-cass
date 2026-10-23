@@ -206,8 +206,13 @@ class TokenUsageTracker:
 
         # The Heartbeat run this call was made in, if any (#62; NULL otherwise,
         # which with the `heartbeat` lever off is always).
-        from heartbeat import spend as heartbeat_spend
-        heartbeat_run_id = heartbeat_spend.current_run_id()
+        # A Heartbeat failure must never break a ledger write.
+        try:
+            from heartbeat import spend as heartbeat_spend
+            heartbeat_run_id = heartbeat_spend.current_run_id()
+        except Exception as e:
+            logger.error(f"Heartbeat run lookup failed; recording without it: {e}")
+            heartbeat_spend, heartbeat_run_id = None, None
 
         # Save to database
         from database import get_db
@@ -229,7 +234,11 @@ class TokenUsageTracker:
             conn.commit()
 
         # Charge the run in progress (no-op outside a Heartbeat run).
-        heartbeat_spend.note_ledger_row(record.estimated_cost_usd, call_site, category)
+        if heartbeat_spend is not None:
+            try:
+                heartbeat_spend.note_ledger_row(record.estimated_cost_usd, call_site, category)
+            except Exception as e:
+                logger.error(f"Heartbeat spend attribution failed: {e}")
 
         logger.debug(
             f"Token usage: {category}/{operation} - "

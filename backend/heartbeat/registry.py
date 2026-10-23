@@ -117,6 +117,10 @@ class Work:
     # At most one run in flight per group (Synkratos ran one task at a time
     # per category queue; phase-queue work keeps that with group="queue:<cat>").
     group: Optional[str] = None
+    # Lower runs first when several due works compete for one group slot
+    # (phase-queue items keep their queue priority, as Synkratos's queues
+    # ordered by priority, then submission). Ties keep submission order.
+    priority: int = 0
     # False for housekeeping that runs every minute and spends nothing (the
     # Thymos tick, the day-phase check, the budget sync): no run-log row, and
     # no spend attribution, so an LLM call made inside one shows up unattributed.

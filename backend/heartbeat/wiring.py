@@ -73,6 +73,10 @@ JOB_ACTIONS = {
     "research.run_single": "autonomous_research",
 }
 
+# How long a job's action (a spell's TASK, a phase item) waits for its turn
+# before giving up: the job's own run can be long (a nightly journal + dream).
+JOB_ACTION_START_TIMEOUT = 60 * 60
+
 _heartbeat: Optional[Heartbeat] = None
 # Subsystems Heartbeat drives that aren't (only) registry entries.
 _adopted: set = set()
@@ -237,7 +241,7 @@ async def start_heartbeat(
 
 def submit(name: str, run: Callable, *, lever=None, budget_class=None,
            estimated_cost_usd: float = 0.0, group: Optional[str] = None,
-           delay_seconds: float = 0.0, offload: bool = False) -> bool:
+           delay_seconds: float = 0.0, offload: bool = False, priority: int = 0) -> bool:
     """Submit one-off work to the started Heartbeat. False when there is none
     (the caller then runs it the old way)."""
     hb = _heartbeat
@@ -245,7 +249,7 @@ def submit(name: str, run: Callable, *, lever=None, budget_class=None,
         return False
     hb.submit(Work(name=name, run=run, trigger=Once(delay_seconds), lever=lever,
                    budget_class=budget_class, estimated_cost_usd=estimated_cost_usd,
-                   group=group, offload=offload))
+                   group=group, offload=offload, priority=priority))
     return True
 
 
@@ -268,7 +272,7 @@ async def run_as_job(job: str, run: Callable) -> Any:
         name=job, run=run, trigger=Once(), lever=work.lever,
         budget_class=work.budget_class, estimated_cost_usd=work.estimated_cost_usd,
         group=work.group or f"job:{job}",
-    ))
+    ), start_timeout=JOB_ACTION_START_TIMEOUT)
 
 
 # ---------------------------------------------------------------------------
@@ -280,14 +284,21 @@ def adopt_thymos(runner) -> bool:
     hb = _heartbeat
     if hb is None or runner is None or not getattr(runner, "running", False):
         return False
-    runner.use_external_clock()
-    hb.register(Work(
+    if owns("thymos_tick"):
+        return True
+    # Register first: if that fails, Thymos's own loop is still running.
+    work = hb.register(Work(
         name="thymos_tick",
         run=runner.heartbeat_tick,
         trigger=Every(lambda: runner.tick_interval),
         lever="thymos",
         log_runs=False,
     ))
+    try:
+        runner.use_external_clock()
+    except Exception:
+        hb.registry.remove(work.key)
+        raise
     _adopted.add("thymos_tick")
     return True
 
@@ -324,15 +335,28 @@ def adopt_grimoire(manager, runner) -> bool:
     and event spells Once work per matching event (create_grimoire_hooks).
     Each spell keeps its cooldown, and the levers it had: `thymos` (spells ran
     inside its tick) plus grimoire_timer_spells / grimoire_need_spells.
+
+    All or nothing: every spell is registered first, and only then does the
+    tick stop running them (spells_on_heartbeat). If any registration fails,
+    the ones made are removed and the spells stay on the tick, so no spell
+    can run from both. Needs Grimoire's services attached (attach_grimoire,
+    in heavy init); until then it returns False, and main_sdk calls it again
+    right after attaching.
     """
     import time
 
     hb = _heartbeat
     if hb is None or manager is None or runner is None:
         return False
+    if owns("grimoire_spells"):
+        return True
     if not owns("thymos_tick"):
         return False  # spells ride the Thymos tick; without it, leave them there
+    if getattr(manager, "_caster", None) is None:
+        logger.info("Heartbeat: Grimoire not attached yet; spells stay on the Thymos tick for now")
+        return False
 
+    works = []
     for spell, trigger in manager.registry.get_timer_spells():
         name = spell.metadata.name
         if trigger.interval_minutes is not None:
@@ -347,7 +371,7 @@ def adopt_grimoire(manager, runner) -> bool:
         else:
             continue
         budget_class, estimate = spell_budget(spell)
-        hb.register(Work(
+        works.append(Work(
             name=f"spell.{name}",
             run=_while_ticking(runner, partial(manager.run_timer_spell, name)),
             trigger=when,
@@ -358,7 +382,7 @@ def adopt_grimoire(manager, runner) -> bool:
     for spell in manager.threshold_spells():
         name = spell.metadata.name
         budget_class, estimate = spell_budget(spell)
-        hb.register(Work(
+        works.append(Work(
             name=f"spell.{name}",
             run=_while_ticking(runner, partial(manager.run_threshold_spell, name,
                                                runner.current_affects, runner.current_needs)),
@@ -369,6 +393,16 @@ def adopt_grimoire(manager, runner) -> bool:
             lever=("thymos", "grimoire_need_spells"),
             budget_class=budget_class, estimated_cost_usd=estimate,
         ))
+
+    registered = []
+    try:
+        for work in works:
+            registered.append(hb.register(work))
+    except Exception as e:
+        for work in registered:
+            hb.registry.remove(work.key)
+        logger.error(f"Heartbeat: adopting Grimoire failed; spells stay on the Thymos tick: {e}")
+        return False
 
     runner.spells_on_heartbeat = True
     _adopted.add("grimoire_spells")

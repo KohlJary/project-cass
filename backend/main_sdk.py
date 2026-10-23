@@ -1599,6 +1599,19 @@ def make_discord_wake_callback(discord_bot):
     return discord_wake_callback
 
 
+@app.on_event("shutdown")
+async def stop_heartbeat_on_shutdown():
+    """Stop Heartbeat (#62) if it started: its clock loop ends and anything
+    waiting on work it never ran is told so. A no-op with the lever off."""
+    try:
+        from heartbeat.wiring import get_heartbeat
+        hb = get_heartbeat()
+        if hb is not None:
+            await hb.stop()
+    except Exception as e:
+        logger.error(f"Stopping Heartbeat at shutdown failed: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     global agent_client, ollama_client, openai_client, current_user_id
@@ -1896,6 +1909,10 @@ async def startup_event():
                         memory_manager=memory,
                     )
                     logger.info(f"Background: Grimoire attached with storage ({len(_grimoire.registry.spells)} spell(s))")
+                    # Heartbeat (#62) takes the spells once Grimoire is
+                    # attached (a no-op with the lever off or already done)
+                    from heartbeat.wiring import adopt_grimoire
+                    adopt_grimoire(_grimoire, thymos_runner)
                 except Exception as e:
                     logger.error(f"Background: Failed to attach Grimoire: {e}")
 
