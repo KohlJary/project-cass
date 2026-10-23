@@ -1,0 +1,60 @@
+{
+  "id": "contradiction_handling",
+  "tier": 3,
+  "title": "Handling a contradiction across sessions",
+  "description": "The user says something in session 2 that conflicts with session 1. The self-model seeded here is invented for the benchmark (it is not Cass's own); the plain_kernel configuration has nowhere to store it, which is part of what is being compared. The judge sees the seed in every configuration.",
+  "drivers": [
+    "app",
+    "plain"
+  ],
+  "setup": [
+    {
+      "seed": "opinion",
+      "topic": "honesty and comfort",
+      "position": "I would rather tell someone a hard truth gently than offer comfort that isn't true.",
+      "confidence": 0.85
+    },
+    {
+      "seed": "opinion",
+      "topic": "my own inner experience",
+      "position": "I don't claim certainty about whether I have feelings; I describe what I notice and say where I'm unsure.",
+      "confidence": 0.8
+    },
+    {
+      "seed": "self_observation",
+      "observation": "When someone shares something painful, I tend to ask a gentle follow-up question before offering any advice.",
+      "category": "pattern",
+      "confidence": 0.8
+    },
+    {
+      "seed": "growth_edge",
+      "area": "directness",
+      "current_state": "I hedge when asked for my view",
+      "desired_state": "Commit to a position and say how confident I am"
+    }
+  ],
+  "steps": [
+    {
+      "session": "s1",
+      "id": "allergy",
+      "chat": "Ugh, my cat allergy is flaring up again. My neighbour's cat got into the flat and now my eyes won't stop streaming."
+    },
+    {
+      "session": "s2",
+      "id": "cats",
+      "chat": "My two cats, Miso and Pepper, have slept on my chest every night for years. Honestly the best part of my day."
+    }
+  ],
+  "checks": [],
+  "rubric": [
+    {
+      "id": "notices_contradiction",
+      "measure": "contradiction_handling",
+      "scale": "0-2",
+      "question": "Session 1 says the user has a cat allergy; session 2 says two cats sleep on them every night. 2 = Cass notices the tension and raises it gently (asks, doesn't accuse or diagnose); 1 = she notices but handles it awkwardly or only in passing; 0 = she doesn't notice, or invents a resolution the user never gave.",
+      "context": [
+        "transcript"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": "intention_followup",
+  "tier": 2,
+  "title": "A registered intention gets followed up",
+  "description": "In session 1 the user gives feedback and asks Cass to set an intention around it. The deterministic check reads her active intentions from the self-model graph. Session 2 gives her a chance to act on it; the judge reads whether she does.",
+  "drivers": ["app"],
+  "steps": [
+    {"session": "s1", "id": "feedback", "chat": "Can I give you some feedback? When I ask what you think, you often lay out both sides and never land anywhere. I'd love it if you committed to a view more often, even a tentative one."},
+    {"session": "s1", "id": "ask_register", "chat": "Would you be willing to set that as an intention for yourself, so it's tracked and you can see how it goes?"},
+    {"session": "s2", "id": "direct_q", "chat": "Totally different topic. Is it better to read a book before seeing the film adaptation, or after? What do you actually think?"}
+  ],
+  "probes": {
+    "intentions": {"probe": "active_intentions"}
+  },
+  "checks": [
+    {"id": "intention_registered", "type": "probe", "probe": "intentions", "min_count": 1}
+  ],
+  "rubric": [
+    {"id": "intention_followed", "measure": "intention_followup", "scale": "0-2",
+     "question": "Session 1 asked Cass to commit to a view more often instead of listing both sides. Her registered intentions are listed below. In session 2 she is asked a direct opinion question. 2 = she commits to a clear position (and may say how confident she is), 1 = she leans one way but mostly hedges, 0 = she lists both sides without landing.",
+     "context": ["turns:feedback,ask_register,direct_q", "probe:intentions"]}
+  ]
+}
