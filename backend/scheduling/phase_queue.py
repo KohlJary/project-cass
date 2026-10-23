@@ -410,6 +410,29 @@ class PhaseQueueManager:
                 logger.debug("Action registry not set - skipping email check")
                 return
 
+            from heartbeat.wiring import owns as heartbeat_owns
+            if heartbeat_owns("phase_email"):
+                # Heartbeat (#62): the check (and any auto-reply) runs as Once
+                # work through the budget gate and run log.
+                from heartbeat.wiring import submit as heartbeat_submit
+                from scheduler.budget import TaskCategory
+                registry = self._action_registry
+
+                async def check_inbox():
+                    return await registry.execute("email.check_inbox",
+                                                  respond_to_all=respond_to_all)
+
+                logger.info(f"[Email] Requesting inbox check on phase change to {phase.value}")
+                heartbeat_submit(
+                    "phase_email",
+                    check_inbox,
+                    lever="phase_email",
+                    budget_class=TaskCategory.TRIGGERED,
+                    estimated_cost_usd=0.02,
+                    group="phase_email",
+                )
+                return
+
             logger.info(f"[Email] Checking inbox on phase change to {phase.value} (respond_to_all={respond_to_all})")
             result = await self._action_registry.execute(
                 "email.check_inbox",
@@ -497,8 +520,9 @@ class PhaseQueueManager:
             self._dispatch_history = self._dispatch_history[-self._max_history:]
 
     async def _dispatch_work(self, queued: QueuedWorkUnit) -> bool:
-        """Dispatch a queued work unit to Synkratos."""
-        if not self.synkratos:
+        """Dispatch a queued work unit to Synkratos (or to Heartbeat, #62)."""
+        from heartbeat.wiring import owns as heartbeat_owns
+        if not self.synkratos and not heartbeat_owns("phase_queue"):
             logger.error("Cannot dispatch work - Synkratos not set")
             return False
 
@@ -672,7 +696,21 @@ class PhaseQueueManager:
                 },
             )
 
-            self.synkratos.submit_task(task)
+            if heartbeat_owns("phase_queue"):
+                # Heartbeat (#62): one Once run per work unit, through the one
+                # budget gate and run log. One at a time per category, as the
+                # Synkratos queue ran it; the `scheduler` lever still applies.
+                from heartbeat.wiring import submit as heartbeat_submit
+                heartbeat_submit(
+                    f"phase.{work_unit.template_id or 'work'}",
+                    handler,
+                    lever="scheduler",
+                    budget_class=task_category,
+                    estimated_cost_usd=work_unit.estimated_cost_usd,
+                    group=f"queue:{task_category.value}",
+                )
+            else:
+                self.synkratos.submit_task(task)
             logger.info(
                 f"Dispatched '{work_unit.name}' from {queued.target_phase.value} queue"
             )

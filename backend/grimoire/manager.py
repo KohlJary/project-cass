@@ -780,6 +780,86 @@ class GrimoireManager:
 
         return results
 
+    # ---- Heartbeat (#62): one spell per piece of work ----------------------
+
+    async def run_timer_spell(self, spell_name: str):
+        """Run one TIMER spell now (Heartbeat decides when it is due).
+
+        Same as one spell's turn in check_and_execute_timer_triggers: the
+        cooldown still applies, and the timer's last run is recorded and
+        persisted so a restart picks up the cadence.
+        """
+        if not self._caster:
+            return {"success": False, "message": "Grimoire not configured"}
+        spell = self.registry.get_spell(spell_name)
+        if spell is None:
+            return {"success": False, "message": f"no spell {spell_name}"}
+        if not self._check_cooldown(spell):
+            return {"success": True, "message": "on cooldown"}
+        current_time = time.time()
+        result = await self._execute_spell(
+            spell, {"trigger_type": "timer", "timestamp": current_time}, "timer")
+        self._timer_last_run[spell_name] = current_time
+        cooldown_time = None
+        if spell.metadata.cooldown_minutes > 0:
+            self._spell_cooldowns[spell_name] = current_time
+            cooldown_time = current_time
+        self._persist_spell_execution(spell_name, "timer", cooldown_time=cooldown_time,
+                                      timer_time=current_time)
+        return self._as_result(result)
+
+    def threshold_spells(self) -> list:
+        """Spells with a need or affect threshold trigger, each once."""
+        seen, out = set(), []
+        for spell, _ in list(self.registry._need_triggers) + list(self.registry._affect_triggers):
+            if spell.metadata.name not in seen:
+                seen.add(spell.metadata.name)
+                out.append(spell)
+        return out
+
+    def _threshold_match(self, spell_name: str, affects: dict, needs: dict):
+        for match in (self.registry.check_need_triggers(needs)
+                      + self.registry.check_affect_triggers(affects)):
+            if match.spell.metadata.name == spell_name:
+                return match
+        return None
+
+    def threshold_due(self, spell_name: str, affects_fn, needs_fn) -> bool:
+        """Heartbeat's When predicate: the threshold is crossed and the
+        spell is off cooldown."""
+        if not self._caster:
+            return False
+        match = self._threshold_match(spell_name, affects_fn(), needs_fn())
+        return match is not None and self._check_cooldown(match.spell)
+
+    async def run_threshold_spell(self, spell_name: str, affects_fn, needs_fn):
+        """Run one need/affect threshold spell if it still matches."""
+        if not self._caster:
+            return {"success": False, "message": "Grimoire not configured"}
+        match = self._threshold_match(spell_name, affects_fn(), needs_fn())
+        if match is None:
+            return {"success": True, "message": "threshold no longer crossed"}
+        trigger_type = "need" if "need_name" in match.trigger_data else "affect"
+        results = await self._execute_matches([match], trigger_type)
+        if not results:
+            return {"success": True, "message": "on cooldown"}
+        return self._as_result(results[0])
+
+    async def execute_matches(self, matches, trigger_type: str):
+        """Public form of _execute_matches (Heartbeat's event-spell work)."""
+        results = await self._execute_matches(matches, trigger_type)
+        if len(results) == 1:
+            return self._as_result(results[0])
+        return results
+
+    @staticmethod
+    def _as_result(result: "SpellExecutionResult") -> dict:
+        return {
+            "success": result.status != "error",
+            "message": f"{result.spell_name}: {result.status}"
+                       + (f" ({result.reason})" if result.reason else ""),
+        }
+
     def _is_timer_due(
         self,
         spell_name: str,
@@ -1097,6 +1177,13 @@ def create_grimoire_hooks(manager: GrimoireManager):
 
     async def on_event(event_type: str, event_data: dict) -> list[SpellExecutionResult]:
         """Called when a Thymos event is processed."""
+        from heartbeat.wiring import owns, submit_event_spell
+        if owns("grimoire_spells") and manager._caster:
+            # Heartbeat (#62): each matching spell runs as its own Once work,
+            # through the budget gate and the run log.
+            for match in manager.registry.check_event_triggers(event_type, event_data):
+                submit_event_spell(manager, match)
+            return []
         return await manager.check_and_execute_event_triggers(event_type, event_data)
 
     return on_tick, on_event

@@ -49,6 +49,13 @@ class RunLog:
                  (error or None) and error[:2000], run_id),
             )
 
+    def add_cost(self, run_id: int, cost_usd: float) -> None:
+        """Top up a finished run's cost (a ledger row that arrived late)."""
+        from database import get_db
+        with get_db() as conn:
+            conn.execute("UPDATE heartbeat_runs SET cost_usd = COALESCE(cost_usd, 0) + ? "
+                         "WHERE id = ?", (cost_usd, run_id))
+
     def refused(self, name: str, trigger: str, budget_class: Optional[str],
                 at: datetime, reason: str) -> int:
         from database import get_db

@@ -225,11 +225,12 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
     "memory_maintenance": WorkUnitTemplate(
         id="memory_maintenance",
         name="Memory Maintenance",
-        description="Summarize idle conversations, consolidate memory, generate daily narrative.",
+        description="Summarize idle conversations.",
         runner_key=None,  # Composite - not a single runner
+        # rhythm.generate_daily_narrative was cut (#62): no such action was
+        # ever defined, so this step only failed with "Unknown action".
         action_sequence=[
             "memory.summarize_idle_conversations",
-            "rhythm.generate_daily_narrative",
         ],
         default_duration_minutes=10,
         estimated_cost_usd=0.05,

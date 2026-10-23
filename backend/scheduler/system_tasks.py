@@ -74,7 +74,8 @@ def register_system_tasks(
         logger.info("Registered: github_metrics (every 6 hours)")
 
     # Idle summarization - every hour
-    if managers.get("conversation_manager") and managers.get("memory") and is_enabled("job_idle_summarization"):
+    if (managers.get("conversation_manager") and managers.get("memory")
+            and is_enabled("job_idle_summarization") and not heartbeat_owns("idle_summarization")):
         scheduler.register_system_task(create_task(
             name="idle_summarization",
             category=TaskCategory.SYSTEM,
@@ -92,7 +93,8 @@ def register_system_tasks(
         logger.info("Registered: idle_summarization (every hour, idle-only)")
 
     # Daily journal - 00:05 daily (5 minutes after midnight)
-    if managers.get("generate_missing_journals") and is_enabled("job_daily_journal"):
+    if (managers.get("generate_missing_journals") and is_enabled("job_daily_journal")
+            and not heartbeat_owns("daily_journal")):
         scheduler.register_system_task(create_task(
             name="daily_journal",
             category=TaskCategory.SYSTEM,
@@ -115,7 +117,8 @@ def register_system_tasks(
     # switching mode from the admin UI takes effect without a restart.
     # (It used to read the mode once here, from the wrong scheduler class,
     # so it was never registered at all.)
-    if managers.get("research_scheduler") and is_enabled("job_autonomous_research"):
+    if (managers.get("research_scheduler") and is_enabled("job_autonomous_research")
+            and not heartbeat_owns("autonomous_research")):
         scheduler.register_system_task(create_task(
             name="autonomous_research",
             category=TaskCategory.RESEARCH,

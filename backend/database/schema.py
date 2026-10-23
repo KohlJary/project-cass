@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 64  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60)
+SCHEMA_VERSION = 65  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62)
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -679,12 +679,14 @@ CREATE TABLE IF NOT EXISTS token_usage_records (
     tool_name TEXT,
     duration_ms INTEGER DEFAULT 0,
     estimated_cost_usd REAL,
-    call_site TEXT
+    call_site TEXT,
+    heartbeat_run_id INTEGER  -- heartbeat_runs.id of the run that made the call (#62)
 );
 
 CREATE INDEX IF NOT EXISTS idx_token_records_daemon ON token_usage_records(daemon_id);
--- idx_token_records_call_site is created by init_database() after migrations:
--- SCHEMA_SQL re-runs during upgrades, before call_site exists on old tables.
+-- idx_token_records_call_site and idx_token_records_heartbeat_run are created
+-- by init_database() after migrations: SCHEMA_SQL re-runs during upgrades,
+-- before call_site / heartbeat_run_id exist on old tables.
 CREATE INDEX IF NOT EXISTS idx_token_records_date ON token_usage_records(daemon_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_token_records_category ON token_usage_records(daemon_id, category);
 

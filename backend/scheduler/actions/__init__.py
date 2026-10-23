@@ -184,10 +184,25 @@ class ActionRegistry:
 
         start_time = time.time()
 
+        # Heartbeat (#62): an action that is a Heartbeat job's work (the daily
+        # journal, idle summarization, wiki research) runs as a run of that
+        # job, wherever it is called from, so the job has one trigger path.
+        from heartbeat.wiring import RefusedResult, job_for_action, run_as_job
+        job = job_for_action(action_id)
+
+        async def run_handler():
+            return await handler(context)
+
         try:
-            result = await handler(context)
+            if job is not None:
+                result = await run_as_job(job, run_handler)
+            else:
+                result = await handler(context)
             elapsed = time.time() - start_time
 
+            if isinstance(result, RefusedResult):
+                return ActionResult(success=False, message=result.message,
+                                    duration_seconds=elapsed)
             if isinstance(result, ActionResult):
                 result.duration_seconds = elapsed
                 return result

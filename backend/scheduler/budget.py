@@ -265,35 +265,14 @@ class BudgetManager:
                 entry = by_category.setdefault(cat, {"cost": 0.0})
                 entry["cost"] += record.get("estimated_cost_usd") or 0
 
-            # Map token_tracker categories to TaskCategory
-            # NOTE: "chat" is explicitly excluded - it's user-driven, not autonomous
-            category_mapping = {
-                "research": TaskCategory.RESEARCH,
-                "reflection": TaskCategory.REFLECTION,
-                "summarization": TaskCategory.SYSTEM,
-                "internal": TaskCategory.SYSTEM,
-                "synthesis": TaskCategory.REFLECTION,
-                "growth_edge": TaskCategory.GROWTH,
-                "curiosity": TaskCategory.CURIOSITY,
-                "dream": TaskCategory.SYSTEM,
-                "journal": TaskCategory.SYSTEM,
-            }
-
-            # Reset and repopulate from token tracker
+            # Reset and repopulate from token tracker (ledger category ->
+            # TaskCategory by budget_category_for; chat is left out)
             new_spend = {cat: 0.0 for cat in TaskCategory}
 
             for tracker_cat, data in by_category.items():
-                # Skip chat - that's user activity, not autonomous budget
-                if tracker_cat == "chat":
-                    continue
-
-                task_cat = category_mapping.get(tracker_cat)
+                task_cat = budget_category_for(tracker_cat)
                 if task_cat:
                     new_spend[task_cat] += data.get("cost", 0.0)
-                else:
-                    # Unknown category goes to SYSTEM
-                    if tracker_cat not in ("unknown",):
-                        new_spend[TaskCategory.SYSTEM] += data.get("cost", 0.0)
 
             self._spend_by_category = new_spend
 
@@ -303,3 +282,33 @@ class BudgetManager:
 
         except Exception as e:
             logger.warning(f"Failed to sync from token_tracker: {e}")
+
+
+# Ledger (token_tracker) categories -> TaskCategory, for the budget. Used by
+# BudgetManager.sync_from_token_tracker and by Heartbeat's measured charging
+# (#62), so both put a ledger row's spend in the same bucket.
+LEDGER_CATEGORY_MAP = {
+    "research": TaskCategory.RESEARCH,
+    "reflection": TaskCategory.REFLECTION,
+    "summarization": TaskCategory.SYSTEM,
+    "internal": TaskCategory.SYSTEM,
+    "synthesis": TaskCategory.REFLECTION,
+    "growth_edge": TaskCategory.GROWTH,
+    "curiosity": TaskCategory.CURIOSITY,
+    "dream": TaskCategory.SYSTEM,
+    "journal": TaskCategory.SYSTEM,
+}
+
+
+def budget_category_for(ledger_category: Optional[str]) -> Optional[TaskCategory]:
+    """The budget bucket a ledger row's spend goes in, or None if it isn't
+    autonomous spend. "chat" is user-driven, so it is left out; an unknown
+    category goes to SYSTEM; rows recorded as "unknown" are left out."""
+    if ledger_category == "chat":
+        return None
+    task_cat = LEDGER_CATEGORY_MAP.get(ledger_category)
+    if task_cat:
+        return task_cat
+    if ledger_category not in ("unknown",):
+        return TaskCategory.SYSTEM
+    return None

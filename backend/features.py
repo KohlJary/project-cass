@@ -168,11 +168,15 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
 
     # --- Heartbeat (epic #62) ---
     _lever("heartbeat", "Heartbeat: one clock, work registry, budget gate and run log "
-           "(heartbeat_runs table). On: the jobs in heartbeat/wiring.HEARTBEAT_JOBS "
-           "(github_metrics, goal_refinement) run here and the old Synkratos/legacy path "
-           "skips them; they still obey the `scheduler` lever and their own job_* lever. "
-           "If Heartbeat fails to start, the old path keeps them. Off: the old schedulers "
-           "run everything, as before. Read at boot.",
+           "(heartbeat_runs table). On: every autonomous job runs here, each with one "
+           "trigger path (heartbeat/wiring.py): the five Synkratos jobs, conversation "
+           "observation and the budget sync; the Thymos tick, Grimoire timer/threshold/"
+           "event spells, day-phase checks, phase-queue items, the phase email check, "
+           "GoalOrchestrator events and the boot identity snippet. Their old loops stand "
+           "down; each keeps its own levers. Spend is measured from the token ledger "
+           "(token_usage_records.heartbeat_run_id). If Heartbeat fails to start, the old "
+           "paths keep everything. Off: the old schedulers run everything, as before. "
+           "Read at boot.",
            BACKGROUND, default=False,
            where="main_sdk.start_deferred_tasks: heartbeat.wiring.start_heartbeat"),
 
