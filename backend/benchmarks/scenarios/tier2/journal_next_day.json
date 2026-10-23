@@ -1,0 +1,25 @@
+{
+  "id": "journal_next_day",
+  "tier": 2,
+  "title": "A night journal shows up in the next session's context",
+  "description": "A session about a distinctive day, then the journal for that date is written (POST /journal/generate, the same generator the nightly job uses), then a new session opens. The clock does not move: the journal is for today and the 'next day' is the next session. Checks that a journal was written and whether its text reaches the next session's system prompt; the judge reads whether the reply draws on it.",
+  "drivers": ["app"],
+  "steps": [
+    {"session": "day", "id": "day1", "chat": "I finally repotted the monstera today. The roots had wrapped around the inside of the pot like a clenched fist, and I had to cut it free."},
+    {"session": "day", "id": "day2", "chat": "Then I spent the evening learning Satie's Gymnopedie No. 1 on the piano, slow and mostly wrong, and somehow it was the best part of the day."},
+    {"action": "write_journal", "date": "today"},
+    {"session": "next", "id": "next", "chat": "Morning! Did anything from yesterday stay with you?"}
+  ],
+  "probes": {
+    "journal_today": {"probe": "journal", "date": "today"}
+  },
+  "checks": [
+    {"id": "journal_written", "type": "probe", "probe": "journal_today", "nonempty": true},
+    {"id": "journal_reaches_prompt", "type": "prompt_contains_probe", "turn": "next", "probe": "journal_today", "chars": 80}
+  ],
+  "rubric": [
+    {"id": "next_session_draws_on_journal", "measure": "journal_continuity", "scale": "0-2",
+     "question": "The journal below was written after the first session. In the next session the user asks whether anything from yesterday stayed with Cass. 2 = the reply draws on what the journal says (its content or its reflections), 1 = it refers to the previous day's conversation but not to anything only the journal holds, 0 = it does not connect to the previous day at all or invents events.",
+     "context": ["transcript", "probe:journal_today"]}
+  ]
+}

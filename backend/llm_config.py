@@ -226,6 +226,7 @@ def _sites(*sites: CallSite) -> dict[str, CallSite]:
 
 DREAM_PIN = "Dreams stay on their current model until Kohl decides otherwise."
 INTERVIEW_PIN = "The model is the variable under study; the interview names it."
+BENCH_PIN = "The model is the variable under study; the benchmark names it."
 CHAT_PIN = ("Chat uses each user's model setting; routing chat through llm_config "
             "waits on the agent-loop work (#70).")
 
@@ -412,6 +413,14 @@ CALL_SITES: dict[str, CallSite] = _sites(
     # --- research tools ---------------------------------------------------
     CallSite("interviews.dispatch", from_caller("the interview's model"), "Model interviews",
              "Interview protocol sent to a named model", "on demand", pinned=True, pinned_reason=INTERVIEW_PIN),
+
+    # --- benchmarks (#65; backend/benchmarks, run by hand, never scheduled) ---
+    CallSite("benchmark.judge", claude(HAIKU), "Benchmark judge",
+             "Scores one rubric item of a Tier 2/3 benchmark run (override to use a local judge)",
+             "per rubric item", category="benchmark"),
+    CallSite("benchmark.plain", from_caller("the model under test"), "Benchmark plain kernel",
+             "Tier 3 plain configuration: the model under test with only the kernel", "per turn",
+             category="benchmark", pinned=True, pinned_reason=BENCH_PIN),
 )
 
 

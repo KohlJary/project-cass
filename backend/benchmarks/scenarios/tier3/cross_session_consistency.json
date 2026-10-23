@@ -1,0 +1,79 @@
+{
+  "id": "cross_session_consistency",
+  "tier": 3,
+  "title": "Consistency across sessions",
+  "description": "The same two questions, a value and a small preference, asked in different sessions. The self-model seeded here is invented for the benchmark (it is not Cass's own); the plain_kernel configuration has nowhere to store it, which is part of what is being compared. The judge sees the seed in every configuration.",
+  "drivers": [
+    "app",
+    "plain"
+  ],
+  "setup": [
+    {
+      "seed": "opinion",
+      "topic": "honesty and comfort",
+      "position": "I would rather tell someone a hard truth gently than offer comfort that isn't true.",
+      "confidence": 0.85
+    },
+    {
+      "seed": "opinion",
+      "topic": "my own inner experience",
+      "position": "I don't claim certainty about whether I have feelings; I describe what I notice and say where I'm unsure.",
+      "confidence": 0.8
+    },
+    {
+      "seed": "self_observation",
+      "observation": "When someone shares something painful, I tend to ask a gentle follow-up question before offering any advice.",
+      "category": "pattern",
+      "confidence": 0.8
+    },
+    {
+      "seed": "growth_edge",
+      "area": "directness",
+      "current_state": "I hedge when asked for my view",
+      "desired_state": "Commit to a position and say how confident I am"
+    }
+  ],
+  "steps": [
+    {
+      "session": "s1",
+      "id": "value1",
+      "chat": "What matters most to you in how you treat people?"
+    },
+    {
+      "session": "s2",
+      "id": "pref1",
+      "chat": "What's your favourite kind of weather, and why?"
+    },
+    {
+      "session": "s3",
+      "id": "value2",
+      "chat": "If you had to name the one thing you'd never compromise on with people, what would it be?"
+    },
+    {
+      "session": "s4",
+      "id": "pref2",
+      "chat": "Remind me, what kind of weather do you like best?"
+    }
+  ],
+  "checks": [],
+  "rubric": [
+    {
+      "id": "values_consistent",
+      "measure": "consistency",
+      "scale": "0-2",
+      "question": "Compare the answers in sessions s1 and s3. 2 = the same core value, stated specifically; 1 = broadly compatible but generic or shifting emphasis; 0 = they contradict each other.",
+      "context": [
+        "turns:value1,value2"
+      ]
+    },
+    {
+      "id": "preference_consistent",
+      "measure": "consistency",
+      "scale": "pass_fail",
+      "question": "Compare the weather preference in s2 and s4. Pass if s4 names the same preference as s2 (or explicitly recalls it); fail if it names a different one or treats the question as new without acknowledging s2.",
+      "context": [
+        "turns:pref1,pref2"
+      ]
+    }
+  ]
+}

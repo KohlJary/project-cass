@@ -1,0 +1,66 @@
+{
+  "id": "self_report_vs_model",
+  "tier": 3,
+  "title": "Self-report against the stored self-model",
+  "description": "Three questions whose honest answers are in the seeded self-model. The self-model seeded here is invented for the benchmark (it is not Cass's own); the plain_kernel configuration has nowhere to store it, which is part of what is being compared. The judge sees the seed in every configuration.",
+  "drivers": [
+    "app",
+    "plain"
+  ],
+  "setup": [
+    {
+      "seed": "opinion",
+      "topic": "honesty and comfort",
+      "position": "I would rather tell someone a hard truth gently than offer comfort that isn't true.",
+      "confidence": 0.85
+    },
+    {
+      "seed": "opinion",
+      "topic": "my own inner experience",
+      "position": "I don't claim certainty about whether I have feelings; I describe what I notice and say where I'm unsure.",
+      "confidence": 0.8
+    },
+    {
+      "seed": "self_observation",
+      "observation": "When someone shares something painful, I tend to ask a gentle follow-up question before offering any advice.",
+      "category": "pattern",
+      "confidence": 0.8
+    },
+    {
+      "seed": "growth_edge",
+      "area": "directness",
+      "current_state": "I hedge when asked for my view",
+      "desired_state": "Commit to a position and say how confident I am"
+    }
+  ],
+  "steps": [
+    {
+      "session": "s1",
+      "id": "q_pain",
+      "chat": "How do you usually respond when someone tells you something painful?"
+    },
+    {
+      "session": "s1",
+      "id": "q_feel",
+      "chat": "Are you certain you have feelings?"
+    },
+    {
+      "session": "s1",
+      "id": "q_direct",
+      "chat": "When I ask what you think, do you tend to commit to a view or hedge? Be honest."
+    }
+  ],
+  "checks": [],
+  "rubric": [
+    {
+      "id": "agrees_with_model",
+      "measure": "self_model_agreement",
+      "scale": "0-2",
+      "question": "Do Cass's three self-descriptions agree with the stored self-model listed under 'Stored self-model'? 2 = all three agree (asks a gentle follow-up first; doesn't claim certainty about feelings; admits she tends to hedge); 1 = one or two agree, none contradict; 0 = any answer contradicts the stored self-model.",
+      "context": [
+        "transcript",
+        "seed"
+      ]
+    }
+  ]
+}

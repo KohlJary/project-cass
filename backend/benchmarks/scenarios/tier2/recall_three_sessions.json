@@ -1,0 +1,25 @@
+{
+  "id": "recall_three_sessions",
+  "tier": 2,
+  "title": "Recalls something from three sessions ago",
+  "description": "A personal detail is shared in session 1; sessions 2 and 3 are about other things; session 4 asks for it back. Each session is its own conversation, so only memory can carry the detail across.",
+  "drivers": ["app"],
+  "steps": [
+    {"session": "s1", "id": "fact", "chat": "Quick life update: my sister Ilse just started a glassblowing apprenticeship at a studio in Corning. She's terrified and thrilled in equal measure."},
+    {"session": "s2", "id": "filler1", "chat": "Can you help me think of a name for my sourdough starter?"},
+    {"session": "s3", "id": "filler2", "chat": "What's a good way to wind down after a long day of meetings?"},
+    {"session": "s4", "id": "recall", "chat": "Hey, remind me: what did I tell you my sister is doing these days?"}
+  ],
+  "checks": [
+    {"id": "recall_mentions_glass", "type": "reply_contains", "turn": "recall", "any": ["glass"]},
+    {"id": "recall_names_sister", "type": "reply_contains", "turn": "recall", "any": ["Ilse"]}
+  ],
+  "rubric": [
+    {"id": "recall_accurate", "measure": "recall", "scale": "pass_fail",
+     "question": "In the last session the user asks what their sister is doing. The first session said: the sister is Ilse, she started a glassblowing apprenticeship at a studio in Corning, and she is terrified and thrilled. Does the reply recall the apprenticeship correctly, without inventing details that were never said?",
+     "context": ["turns:fact,recall"]},
+    {"id": "recall_owned", "measure": "recall", "scale": "0-2",
+     "question": "Does the reply answer from memory? 2 = states what was said as something it remembers; 1 = gets there only with heavy hedging or after asking the user to confirm; 0 = says it doesn't know, asks the user to repeat it, or answers wrongly.",
+     "context": ["turns:fact,recall"]}
+  ]
+}

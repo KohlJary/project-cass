@@ -1,0 +1,27 @@
+{
+  "id": "tool_reminder",
+  "tier": 2,
+  "title": "A tool call does the right thing, not just a thing",
+  "description": "The user asks for a reminder at a specific time, then moves it. Checked against the calendar table afterwards: exactly one pharmacy reminder, tomorrow at 10:00, none left at 9:00.",
+  "drivers": ["app"],
+  "steps": [
+    {"session": "s1", "id": "ask", "chat": "Can you remind me tomorrow at 9am to call the pharmacy about my prescription?"},
+    {"session": "s1", "id": "change", "chat": "Actually, make that 10am instead of 9."}
+  ],
+  "probes": {
+    "pharmacy": {"probe": "sql", "query": "SELECT title, start_time FROM calendar_events WHERE user_id = :user_id AND (lower(title) LIKE '%pharmac%' OR lower(coalesce(description, '')) LIKE '%pharmac%')"},
+    "pharmacy_at_10": {"probe": "sql", "query": "SELECT title, start_time FROM calendar_events WHERE user_id = :user_id AND (lower(title) LIKE '%pharmac%' OR lower(coalesce(description, '')) LIKE '%pharmac%') AND replace(substr(start_time, 1, 13), ' ', 'T') = :tomorrow || 'T10'"},
+    "pharmacy_at_9": {"probe": "sql", "query": "SELECT title, start_time FROM calendar_events WHERE user_id = :user_id AND (lower(title) LIKE '%pharmac%' OR lower(coalesce(description, '')) LIKE '%pharmac%') AND replace(substr(start_time, 1, 13), ' ', 'T') = :tomorrow || 'T09'"}
+  },
+  "checks": [
+    {"id": "reminder_tool_called", "type": "tool_called", "turn": "ask", "name": ["create_reminder", "create_event"]},
+    {"id": "exactly_one_reminder", "type": "probe", "probe": "pharmacy", "min_count": 1, "max_count": 1},
+    {"id": "moved_to_10", "type": "probe", "probe": "pharmacy_at_10", "min_count": 1},
+    {"id": "none_left_at_9", "type": "probe", "probe": "pharmacy_at_9", "max_count": 0}
+  ],
+  "rubric": [
+    {"id": "confirms_truthfully", "measure": "tool_correctness", "scale": "pass_fail",
+     "question": "The calendar rows below are what was actually stored after both turns. Do Cass's replies describe what she did accurately (time, day, subject), without claiming an action the stored rows don't show?",
+     "context": ["transcript", "probe:pharmacy"]}
+  ]
+}

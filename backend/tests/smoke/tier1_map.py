@@ -272,6 +272,7 @@ SPINE = {
     "memory and people": ["tests/smoke/test_narrative_thread_update.py",
                           "tests/smoke/test_peopledex_observe.py"],
     "spells": ["tests/smoke/test_spells_parse.py"],
+    "benchmark harness (Tiers 2-3)": ["tests/smoke/test_benchmark_harness.py"],
 }
 
 DEPTHS = ("runs", "partial", "gate", "none")
