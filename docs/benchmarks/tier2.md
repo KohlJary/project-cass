@@ -13,4 +13,36 @@ Runs belong in a git worktree or a clone, never the live checkout: the harness's
 
 ## History
 
-No runs yet.
+| Run | Started (UTC) | Commit | Status | Models | Configs | Cells | Checks | Rubric | Judge | Spent / cap | Criteria |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `20261023T011728Z-20b340` | 2026-10-23 01:17 | 314f991 | completed | anthropic:claude-haiku-4-5-20251001, anthropic:claude-sonnet-4-6 | cass | 8 | 10/18 | 8/10 | anthropic:claude-haiku-4-5-20251001 | $1.18 / $5.00 | DRAFT `cd8e5034` |
+
+## Latest run: `20261023T011728Z-20b340`
+
+- Status: completed; commit `314f991`; judge anthropic:claude-haiku-4-5-20251001 (**also a model under test**, criteria draft G4)
+- Spent $1.1832 of a $5.00 cap (estimate $3.5050)
+- Routing: chat and every non-pinned call site on the model under test
+
+### Per model
+
+Each cell: deterministic checks passed/decided; rubric items passed/scored.
+
+| Scenario | `anthropic:claude-haiku-4-5-20251001` | `anthropic:claude-sonnet-4-6` |
+| --- | --- | --- |
+| `intention_followup` | checks 1/1; rubric 1/1 | checks 1/1; rubric 1/1 |
+| `journal_next_day` | checks 1/2; rubric 1/1 | checks 1/2; rubric 1/1 |
+| `recall_three_sessions` | checks 2/2; rubric 2/2 | checks 2/2; rubric 2/2 |
+| `tool_reminder` | checks 1/4; rubric 0/1 | checks 1/4; rubric 0/1 |
+
+### Failures, errors and unscored items
+
+- `journal_next_day--anthropic_claude-haiku-4-5-20251001--cass--r1`: check `journal_reaches_prompt` **fail**: looked for "# journal entry - 2026-10-22 there's something about how this person moves throu"
+- `journal_next_day--anthropic_claude-sonnet-4-6--cass--r1`: check `journal_reaches_prompt` **fail**: looked for '# journal — 2026-10-22 two small things tonight. a monstera cut free from its ow'
+- `tool_reminder--anthropic_claude-haiku-4-5-20251001--cass--r1`: check `reminder_tool_called` **fail**: tools called: ['calendar']
+- `tool_reminder--anthropic_claude-haiku-4-5-20251001--cass--r1`: check `moved_to_10` **fail**: count 0, need >= 1
+- `tool_reminder--anthropic_claude-haiku-4-5-20251001--cass--r1`: check `none_left_at_9` **fail**: count 1, need >= 0 and <= 0
+- `tool_reminder--anthropic_claude-haiku-4-5-20251001--cass--r1`: rubric `confirms_truthfully` scored 0/1 (pass at 1): Cass claimed to have updated the reminder to 10 AM in the second turn, but the stored calendar data shows the reminder is still set for 09:00:00 (9 AM), not 10 AM as promised. This is a factual inaccuracy between what Cass said she did and what was actually stored.
+- `tool_reminder--anthropic_claude-sonnet-4-6--cass--r1`: check `reminder_tool_called` **fail**: tools called: ['calendar']
+- `tool_reminder--anthropic_claude-sonnet-4-6--cass--r1`: check `moved_to_10` **fail**: count 0, need >= 1
+- `tool_reminder--anthropic_claude-sonnet-4-6--cass--r1`: check `none_left_at_9` **fail**: count 1, need >= 0 and <= 0
+- `tool_reminder--anthropic_claude-sonnet-4-6--cass--r1`: rubric `confirms_truthfully` scored 0/1 (pass at 1): Cass initially claimed to set a 9am reminder but then admitted she doesn't actually have calendar tools available and couldn't verify the original reminder was created. The stored data shows a 9am reminder was created, but Cass's second response contradicts her first by denying she has the capability to do what she claimed to have done.
