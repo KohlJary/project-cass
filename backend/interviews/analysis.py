@@ -65,7 +65,8 @@ class InterviewAnalyzer:
 
     def __init__(self, storage_dir: str = None):
         if storage_dir is None:
-            base = Path(__file__).parent.parent / "data" / "interviews"
+            from config import DATA_DIR
+            base = DATA_DIR / "interviews"
         else:
             base = Path(storage_dir)
 

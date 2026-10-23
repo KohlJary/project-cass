@@ -224,7 +224,8 @@ class MusicClient:
 
     def __init__(self, base_url: str = ACESTEP_API_URL):
         self.base_url = base_url
-        self.output_dir = Path(__file__).parent.parent / "data" / "music"
+        from config import DATA_DIR
+        self.output_dir = DATA_DIR / "music"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.library = MusicLibrary(self.output_dir)
 

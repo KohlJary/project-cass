@@ -40,7 +40,8 @@ class ProtocolManager:
     def __init__(self, storage_dir: str = None):
         if storage_dir is None:
             # Default to backend/data/interviews/protocols
-            base = Path(__file__).parent.parent / "data" / "interviews" / "protocols"
+            from config import DATA_DIR
+            base = DATA_DIR / "interviews" / "protocols"
         else:
             base = Path(storage_dir)
 
