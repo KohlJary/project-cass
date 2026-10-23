@@ -279,18 +279,34 @@ class GoalOrchestrator:
     # EVENT HANDLERS (sync wrappers for state bus)
     # =========================================================================
 
+    def _spawn(self, name: str, make_coro) -> None:
+        """Run an event handler: as Heartbeat Once work when Heartbeat has
+        adopted the orchestrator (#62: through the budget gate and run log),
+        else as a plain task, as before."""
+        from heartbeat.wiring import owns, submit
+        if owns("goal_orchestrator"):
+            from scheduler.budget import TaskCategory
+
+            async def run():
+                await make_coro()
+
+            submit(f"goal_orchestrator.{name}", run, lever="goal_orchestrator",
+                   budget_class=TaskCategory.GROWTH, estimated_cost_usd=0.02)
+            return
+        asyncio.create_task(make_coro())
+
     def _handle_need_depleted_sync(self, event_type: str, data: dict) -> None:
         """Sync wrapper for async handler."""
-        asyncio.create_task(self._handle_need_depleted(event_type, data))
+        self._spawn("need", lambda: self._handle_need_depleted(event_type, data))
 
     def _handle_need_urgent_sync(self, event_type: str, data: dict) -> None:
         """Sync wrapper - treat urgent same as depleted but with higher priority."""
         data["urgent"] = True
-        asyncio.create_task(self._handle_need_depleted(event_type, data))
+        self._spawn("need", lambda: self._handle_need_depleted(event_type, data))
 
     def _handle_affect_high_sync(self, event_type: str, data: dict) -> None:
         """Sync wrapper for async handler."""
-        asyncio.create_task(self._handle_affect_threshold(event_type, data))
+        self._spawn("affect", lambda: self._handle_affect_threshold(event_type, data))
 
     def _handle_goal_created_sync(self, event_type: str, data: dict) -> None:
         """Track goal creation statistics."""
@@ -298,13 +314,13 @@ class GoalOrchestrator:
 
     def _handle_goal_approved_sync(self, event_type: str, data: dict) -> None:
         """Sync wrapper for goal approval handler - triggers decomposition."""
-        asyncio.create_task(self._handle_goal_approved(event_type, data))
+        self._spawn("goal_approved", lambda: self._handle_goal_approved(event_type, data))
 
     def _handle_goal_completed_sync(self, event_type: str, data: dict) -> None:
         """Track goal completion statistics and check for parent completion."""
         self._goals_completed += 1
         # Check if this completion triggers parent goal completion
-        asyncio.create_task(self._check_parent_completion(data))
+        self._spawn("goal_completed", lambda: self._check_parent_completion(data))
 
     # =========================================================================
     # ASYNC EVENT HANDLERS

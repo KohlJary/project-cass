@@ -204,6 +204,16 @@ class TokenUsageTracker:
             )
         )
 
+        # The Heartbeat run this call was made in, if any (#62; NULL otherwise,
+        # which with the `heartbeat` lever off is always).
+        # A Heartbeat failure must never break a ledger write.
+        try:
+            from heartbeat import spend as heartbeat_spend
+            heartbeat_run_id = heartbeat_spend.current_run_id()
+        except Exception as e:
+            logger.error(f"Heartbeat run lookup failed; recording without it: {e}")
+            heartbeat_spend, heartbeat_run_id = None, None
+
         # Save to database
         from database import get_db
         with get_db() as conn:
@@ -212,16 +222,23 @@ class TokenUsageTracker:
                     id, daemon_id, timestamp, provider, model, category, operation,
                     input_tokens, output_tokens, total_tokens, cache_read_tokens,
                     cache_write_tokens, conversation_id, user_id, tool_name,
-                    duration_ms, estimated_cost_usd, call_site
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    duration_ms, estimated_cost_usd, call_site, heartbeat_run_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record.id, self._daemon_id, record.timestamp, provider, model,
                 category, operation, input_tokens, output_tokens,
                 input_tokens + output_tokens, cache_read_tokens, cache_write_tokens,
                 conversation_id, user_id, tool_name, duration_ms,
-                record.estimated_cost_usd, call_site
+                record.estimated_cost_usd, call_site, heartbeat_run_id
             ))
             conn.commit()
+
+        # Charge the run in progress (no-op outside a Heartbeat run).
+        if heartbeat_spend is not None:
+            try:
+                heartbeat_spend.note_ledger_row(record.estimated_cost_usd, call_site, category)
+            except Exception as e:
+                logger.error(f"Heartbeat spend attribution failed: {e}")
 
         logger.debug(
             f"Token usage: {category}/{operation} - "

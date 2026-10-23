@@ -55,6 +55,27 @@ def init_database():
                 print(f"Database schema is current (v{current_version})")
 
         _ensure_token_call_site(conn)
+        _ensure_token_heartbeat_run(conn)
+
+
+def _ensure_token_heartbeat_run(conn):
+    """token_usage_records.heartbeat_run_id and its index (v65), idempotently.
+
+    The Heartbeat run (heartbeat_runs.id) an LLM call was made in, so the run
+    log and the ledger join row by row (#62). NULL outside Heartbeat runs,
+    which with the `heartbeat` lever off is every row. Runs on every start for
+    the same reason as _ensure_token_call_site.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(token_usage_records)").fetchall()}
+    if not columns:
+        return
+    if 'heartbeat_run_id' not in columns:
+        conn.execute("ALTER TABLE token_usage_records ADD COLUMN heartbeat_run_id INTEGER")
+        print("Adding token_usage_records.heartbeat_run_id (v65)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_token_records_heartbeat_run "
+        "ON token_usage_records(heartbeat_run_id) WHERE heartbeat_run_id IS NOT NULL"
+    )
 
 
 def _ensure_token_call_site(conn):
@@ -669,6 +690,11 @@ def _apply_schema_updates(conn, from_version: int):
     # research session (one research queue, #60). Existing rows stay NULL.
     if from_version < 64:
         _ensure_research_task_params(conn)
+
+    # v64 -> v65: token_usage_records.heartbeat_run_id, the Heartbeat run an
+    # LLM call was made in (#62). Existing rows stay NULL.
+    if from_version < 65:
+        _ensure_token_heartbeat_run(conn)
 
 
 def ensure_users_legacy_credential_columns(conn):

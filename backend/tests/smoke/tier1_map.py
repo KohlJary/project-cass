@@ -42,6 +42,7 @@ CYCLES = "tests/smoke/test_autonomous_cycles.py"
 HEARTBEAT_BOOT = "tests/smoke/test_heartbeat_boot.py"
 LEVER_WIRING = "tests/smoke/test_lever_wiring.py::TestLeverWiring"
 FALLBACK = "tests/smoke/test_heartbeat_fallback.py"
+CUTOVER_BOOT = "tests/smoke/test_heartbeat_cutover_boot.py"
 JOURNAL = "tests/smoke/test_journal_pipeline.py"
 AGENT_LOOP = "tests/smoke/test_agent_loop_session.py"
 
@@ -89,9 +90,9 @@ LEVER_COVERAGE = {
 
     # --- Thymos / Grimoire / goals ---
     "thymos": {
-        "depth": "none",
-        "tests": [],
-        "note": "Smoke checks Grimoire is attached to Thymos without starting it; the tick loop never runs.",
+        "depth": "partial",
+        "tests": [f"{CUTOVER_BOOT}::test_thymos_tick_and_day_phase_check_run_on_heartbeat"],
+        "note": "One tick runs, driven by Heartbeat (heartbeat lever on), and moves the needs; Thymos's own tick loop (lever off) never runs in smoke.",
     },
     "grimoire_timer_spells": {
         "depth": "runs",
@@ -127,9 +128,9 @@ LEVER_COVERAGE = {
         "note": "Booted on as plumbing: the action registry is built and these tests dispatch through it; day-phase/phase-queue wiring is not run.",
     },
     "day_phases": {
-        "depth": "none",
-        "tests": [],
-        "note": "DayPhaseTracker / AutonomousScheduler are never started in smoke.",
+        "depth": "partial",
+        "tests": [f"{CUTOVER_BOOT}::test_thymos_tick_and_day_phase_check_run_on_heartbeat"],
+        "note": "With heartbeat on, the tracker starts and one phase check runs through Heartbeat; no phase changes, so the phase queue is not dispatched. The tracker's own loop (heartbeat off) never runs in smoke.",
     },
     "phase_email": {
         "depth": "gate",
@@ -236,8 +237,10 @@ LEVER_COVERAGE = {
         "depth": "runs",
         "tests": [f"{HEARTBEAT_BOOT}::test_migrated_jobs_run_on_heartbeat_not_synkratos",
                   f"{HEARTBEAT_BOOT}::test_a_heartbeat_run_is_logged",
-                  f"{FALLBACK}::test_fallback_skips_the_job_heartbeat_owns"],
-        "note": "Run evidence is test_a_heartbeat_run_is_logged, which covers one job (goal_refinement); the others check registration and the fallback guard.",
+                  f"{FALLBACK}::test_fallback_skips_the_job_heartbeat_owns",
+                  f"{CUTOVER_BOOT}::test_old_loops_stand_down_for_heartbeat",
+                  f"{CUTOVER_BOOT}::test_thymos_tick_and_day_phase_check_run_on_heartbeat"],
+        "note": "Run evidence: one goal_refinement run, one Thymos tick and one day-phase check through Heartbeat. The rest check registration, that the old loops stand down, and the fallback guard. The simulated-day test (run log = ledger) is outside smoke: tests/test_heartbeat_cutover.py (full job; it needs the anthropic SDK for the fake LLM).",
     },
 
     "art_choice": {

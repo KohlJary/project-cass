@@ -6,6 +6,7 @@ the budget class it spends from, and whether it waits for an idle moment.
 
 Triggers say *when*; they never run anything themselves:
   Every(seconds)       fixed cadence, measured from the start of the last run
+                       (seconds may be a callable, for an admin-adjustable cadence)
   Cron("5 0 * * *")    cron expression on the one clock (CASS_TIMEZONE or UTC)
   When(predicate)      a condition checked each tick (a need threshold, say),
                        with a minimum gap between runs
@@ -26,19 +27,25 @@ CONVERSATION = "conversation"
 
 @dataclass(frozen=True)
 class Every:
-    seconds: float
+    # Seconds, or a callable returning them (read each time, so a cadence an
+    # admin can change at runtime, like the Thymos tick, takes effect).
+    seconds: Union[float, Callable[[], float]]
     # Delay before the first run; None = one full interval (Synkratos's rule).
     first_after: Optional[float] = None
 
+    @property
+    def interval(self) -> float:
+        return float(self.seconds() if callable(self.seconds) else self.seconds)
+
     def first(self, now: datetime) -> datetime:
-        delay = self.seconds if self.first_after is None else self.first_after
+        delay = self.interval if self.first_after is None else self.first_after
         return now + timedelta(seconds=delay)
 
     def next_after(self, started: datetime, now: datetime) -> datetime:
-        return started + timedelta(seconds=self.seconds)
+        return started + timedelta(seconds=self.interval)
 
     def describe(self) -> str:
-        return f"every {self.seconds:g}s"
+        return f"every {self.interval:g}s"
 
 
 @dataclass(frozen=True)
@@ -75,8 +82,11 @@ class When:
 
 @dataclass(frozen=True)
 class Once:
+    # Run no earlier than this many seconds after submission.
+    delay_seconds: float = 0.0
+
     def first(self, now: datetime) -> datetime:
-        return now
+        return now + timedelta(seconds=self.delay_seconds)
 
     def next_after(self, started: datetime, now: datetime) -> None:
         return None
@@ -104,8 +114,22 @@ class Work:
     # own event loop. Plain (sync) callables always run in a worker thread.
     offload: bool = False
     kwargs: Dict[str, Any] = field(default_factory=dict)
+    # At most one run in flight per group (Synkratos ran one task at a time
+    # per category queue; phase-queue work keeps that with group="queue:<cat>").
+    group: Optional[str] = None
+    # Lower runs first when several due works compete for one group slot
+    # (phase-queue items keep their queue priority, as Synkratos's queues
+    # ordered by priority, then submission). Ties keep submission order.
+    priority: int = 0
+    # False for housekeeping that runs every minute and spends nothing (the
+    # Thymos tick, the day-phase check, the budget sync): no run-log row, and
+    # no spend attribution, so an LLM call made inside one shows up unattributed.
+    log_runs: bool = True
 
     # Scheduling state (owned by Heartbeat)
+    # Registry key: the name for recurring work, name#n for submitted Once work
+    # (several requests with one name can be pending at once).
+    key: Optional[str] = None
     next_run: Optional[datetime] = None
     last_started: Optional[datetime] = None
     run_count: int = 0
@@ -135,22 +159,28 @@ class Registry:
         self._work: Dict[str, Work] = {}
 
     def add(self, work: Work) -> Work:
-        if work.name in self._work:
-            raise ValueError(f"Heartbeat work already registered: {work.name}")
-        self._work[work.name] = work
+        key = work.key or work.name
+        if key in self._work:
+            raise ValueError(f"Heartbeat work already registered: {key}")
+        work.key = key
+        self._work[key] = work
         return work
 
-    def remove(self, name: str) -> Optional[Work]:
-        return self._work.pop(name, None)
+    def remove(self, key: str) -> Optional[Work]:
+        return self._work.pop(key, None)
 
-    def get(self, name: str) -> Optional[Work]:
-        return self._work.get(name)
+    def get(self, key: str) -> Optional[Work]:
+        return self._work.get(key)
 
     def all(self):
         return list(self._work.values())
 
-    def __contains__(self, name: str) -> bool:
-        return name in self._work
+    def names(self) -> set:
+        """Names of registered recurring work (submitted Once work excluded)."""
+        return {w.name for w in self._work.values() if not isinstance(w.trigger, Once)}
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._work
 
     def __len__(self) -> int:
         return len(self._work)

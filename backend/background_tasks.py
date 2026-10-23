@@ -356,6 +356,28 @@ async def observe_recent_conversations(
     return analyzed_conversations
 
 
+class ConversationObservationJob:
+    """One pass of periodic_conversation_observation_task's loop, for Heartbeat
+    (#62): the same dormancy check and the same set of already-analyzed
+    conversations, carried between runs. The cadence (120 s after boot, then
+    every 30 min) is the Heartbeat trigger's."""
+
+    def __init__(self, conversation_manager, memory, self_manager):
+        self.conversation_manager = conversation_manager
+        self.memory = memory
+        self.self_manager = self_manager
+        self.analyzed_conversations = set()
+
+    async def __call__(self):
+        if get_active_daemon_activity_mode() == "dormant":
+            return {"success": True, "message": "Daemon is dormant, skipping"}
+        self.analyzed_conversations = await observe_recent_conversations(
+            self.conversation_manager, self.memory, self.self_manager,
+            self.analyzed_conversations,
+        )
+        return {"success": True, "message": "Observed recent conversations"}
+
+
 async def periodic_conversation_observation_task(
     conversation_manager,
     memory,

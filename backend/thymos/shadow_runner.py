@@ -140,10 +140,8 @@ class ThymosRunner:
         # Safety controls
         self._paused = False
 
-        # Scheduler integration: suggestion buffering
-        # Pending suggestions for scheduler to poll
-        self._pending_suggestions: List[SuggestedGoal] = []
-        # Cooldown tracking to prevent suggestion spam per need
+        # Scheduler integration: the suggestion pipe to Synkratos was cut in #62
+        # (nothing ever filled it). Cooldown tracking to prevent suggestion spam per need
         self._suggestion_cooldowns: Dict[str, datetime] = {}
         # Default cooldown between suggestions for the same need
         self._suggestion_cooldown_minutes: int = 30
@@ -152,6 +150,12 @@ class ThymosRunner:
         self._grimoire: Optional["GrimoireManager"] = None
         self._grimoire_on_tick = None
         self._grimoire_on_event = None
+
+        # Heartbeat (#62, lever `heartbeat`): when it drives the tick, this
+        # runner's own loop stays off; when it runs the timer/threshold spells,
+        # the tick no longer checks them.
+        self._external_clock = False
+        self.spells_on_heartbeat = False
 
         # State bus integration for event emission (set via attach_state_bus)
         self._state_bus = None
@@ -392,8 +396,40 @@ class ThymosRunner:
             return
 
         self.running = True
-        self._tick_task = asyncio.create_task(self._tick_loop())
+        if not self._external_clock:
+            self._tick_task = asyncio.create_task(self._tick_loop())
         logger.info(f"Thymos shadow runner started for daemon {self.daemon_id}")
+
+    def use_external_clock(self) -> None:
+        """Hand the tick to Heartbeat (#62): stop this runner's own loop.
+        Heartbeat then calls heartbeat_tick() every tick_interval seconds."""
+        self._external_clock = True
+        if self._tick_task is not None:
+            self._tick_task.cancel()
+            self._tick_task = None
+
+    def is_ticking(self) -> bool:
+        """Whether a tick would run now (not killed, paused or stopped)."""
+        return bool(THYMOS_ENABLED and not self._paused and self.running)
+
+    async def heartbeat_tick(self) -> None:
+        """One pass of _tick_loop's body, for Heartbeat."""
+        if not self.is_ticking():
+            return
+        await self.tick()
+
+    def current_needs(self) -> dict:
+        """Need values, as the tick hands them to Grimoire."""
+        return {
+            name: getattr(self.needs.state, name).current
+            for name in [
+                "cognitive_rest", "social_connection", "novelty_intake",
+                "creative_expression", "value_coherence", "competence_signal", "autonomy"
+            ]
+        }
+
+    def current_affects(self) -> dict:
+        return self.affect.to_dict()
 
     async def stop(self) -> None:
         """Stop the shadow runner."""
@@ -463,17 +499,12 @@ class ThymosRunner:
         self._check_and_emit_need_events()
         self._check_and_emit_affect_events()
 
-        # Grimoire: check spell triggers based on current state
-        if self._grimoire_on_tick:
+        # Grimoire: check spell triggers based on current state (Heartbeat
+        # runs them as its own work when it has adopted them, #62)
+        if self._grimoire_on_tick and not self.spells_on_heartbeat:
             try:
-                affects = self.affect.to_dict()
-                needs = {
-                    name: getattr(self.needs.state, name).current
-                    for name in [
-                        "cognitive_rest", "social_connection", "novelty_intake",
-                        "creative_expression", "value_coherence", "competence_signal", "autonomy"
-                    ]
-                }
+                affects = self.current_affects()
+                needs = self.current_needs()
                 await self._grimoire_on_tick(affects, needs)
             except Exception as e:
                 # Logged in production; re-raised under CASS_STRICT=1 (tests/CI)
@@ -708,29 +739,6 @@ class ThymosRunner:
             self._suggestion_cooldowns[suggestion.need_name] = now
 
         return filtered
-
-    def get_pending_suggestions(self, clear: bool = True) -> List[SuggestedGoal]:
-        """
-        Get pending suggestions for scheduler to poll.
-
-        Called by the scheduler to retrieve suggestions that Thymos has
-        generated since the last poll. In shadow mode, the scheduler logs
-        these but doesn't execute them.
-
-        Args:
-            clear: If True, clears the pending list after retrieval
-
-        Returns:
-            List of pending suggestions
-        """
-        suggestions = list(self._pending_suggestions)
-        if clear:
-            self._pending_suggestions.clear()
-        return suggestions
-
-    def has_pending_suggestions(self) -> bool:
-        """Check if there are pending suggestions without clearing."""
-        return len(self._pending_suggestions) > 0
 
     # =========================================================================
     # QUERY METHODS (for admin visibility)

@@ -187,8 +187,13 @@ class DayPhaseTracker:
             "minutes_remaining": hours_remaining * 60 - now.minute,
         }
 
-    async def start(self) -> None:
-        """Start the phase tracking loop."""
+    async def start(self, own_loop: bool = True) -> None:
+        """Start the phase tracking loop.
+
+        own_loop=False: initialize and emit the starting phase, but let
+        Heartbeat call check_phase() on its clock instead of this tracker's
+        own minute loop (#62).
+        """
         if self._running:
             logger.warning("DayPhaseTracker already running")
             return
@@ -213,7 +218,16 @@ class DayPhaseTracker:
             self.state_bus.write_delta(delta)
 
         self._running = True
-        self._loop_task = asyncio.create_task(self._tracking_loop())
+        if own_loop:
+            self._loop_task = asyncio.create_task(self._tracking_loop())
+
+    async def check_phase(self) -> None:
+        """One check of the tracking loop: handle a phase change if there is one."""
+        if not self._running:
+            return
+        new_phase = self.get_phase_for_time()
+        if new_phase != self._current_phase:
+            await self._handle_phase_transition(new_phase)
 
     async def stop(self) -> None:
         """Stop the phase tracking loop."""
@@ -239,11 +253,7 @@ class DayPhaseTracker:
         while self._running:
             try:
                 await asyncio.sleep(self.CHECK_INTERVAL_SECONDS)
-
-                new_phase = self.get_phase_for_time()
-
-                if new_phase != self._current_phase:
-                    await self._handle_phase_transition(new_phase)
+                await self.check_phase()
 
             except asyncio.CancelledError:
                 break

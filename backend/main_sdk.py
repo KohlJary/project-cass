@@ -1599,6 +1599,19 @@ def make_discord_wake_callback(discord_bot):
     return discord_wake_callback
 
 
+@app.on_event("shutdown")
+async def stop_heartbeat_on_shutdown():
+    """Stop Heartbeat (#62) if it started: its clock loop ends and anything
+    waiting on work it never ran is told so. A no-op with the lever off."""
+    try:
+        from heartbeat.wiring import get_heartbeat
+        hb = get_heartbeat()
+        if hb is not None:
+            await hb.stop()
+    except Exception as e:
+        logger.error(f"Stopping Heartbeat at shutdown failed: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     global agent_client, ollama_client, openai_client, current_user_id
@@ -1896,6 +1909,10 @@ async def startup_event():
                         memory_manager=memory,
                     )
                     logger.info(f"Background: Grimoire attached with storage ({len(_grimoire.registry.spells)} spell(s))")
+                    # Heartbeat (#62) takes the spells once Grimoire is
+                    # attached (a no-op with the lever off or already done)
+                    from heartbeat.wiring import adopt_grimoire
+                    adopt_grimoire(_grimoire, thymos_runner)
                 except Exception as e:
                     logger.error(f"Background: Failed to attach Grimoire: {e}")
 
@@ -1987,8 +2004,19 @@ async def startup_event():
             await generate_initial_identity_snippet(_daemon_id)
         except Exception as e:
             logger.error(f"Background identity snippet generation failed: {e}")
+    # With Heartbeat on (#62) it runs as Heartbeat work once Heartbeat starts
+    # (start_deferred_tasks); if Heartbeat doesn't start, it runs as before.
+    _identity_bootstrap = {"pending": False}
     if is_enabled("identity_bootstrap"):
-        asyncio.create_task(generate_identity_background())
+        if is_enabled("heartbeat"):
+            _identity_bootstrap["pending"] = True
+        else:
+            asyncio.create_task(generate_identity_background())
+
+    def _start_identity_bootstrap_now():
+        if _identity_bootstrap["pending"]:
+            _identity_bootstrap["pending"] = False
+            asyncio.create_task(generate_identity_background())
 
     # Start Home Assistant state cache refresh loop and intelligence subscription
     async def refresh_home_state_loop():
@@ -2063,26 +2091,11 @@ async def startup_event():
                 "reflection": get_reflection_runner(),
             }
 
-            # Heartbeat (#62), lever `heartbeat`, off by default. Started before
-            # register_system_tasks: a job moves off Synkratos only once a started
-            # Heartbeat has it. A failure here must not abort Synkratos init.
-            try:
-                from heartbeat.wiring import start_heartbeat
-                await start_heartbeat(budget_manager, {
-                    "github_metrics_manager": github_metrics_manager,
-                    "daemon_id": _daemon_id,
-                }, idle_check=synkratos.is_idle)
-            except Exception as e:
-                logger.error(f"Heartbeat failed to start; old schedulers keep its jobs: {e}",
-                             exc_info=True)
-
             # Import dream generation and journal generation for nightly tasks
             from dreaming.dream_runner import generate_nightly_dream
             from journal_generation import generate_missing_journals
 
-            # Register all system tasks (each job also has its own lever,
-            # checked inside register_system_tasks)
-            register_system_tasks(synkratos, {
+            system_managers = {
                 "github_metrics_manager": github_metrics_manager,
                 "conversation_manager": conversation_manager,
                 "memory": memory,
@@ -2100,7 +2113,42 @@ async def startup_event():
                 # when the research_session_requests lever is on (#60)
                 "research_session_requests": research_scheduler,
                 "research_session_runner_getter": get_research_runner,
-            }, enabled=True)
+            }
+
+            # Heartbeat (#62), lever `heartbeat`, off by default. Started before
+            # register_system_tasks: a job moves off Synkratos (and every other
+            # old path) only once a started Heartbeat has it. A failure here
+            # must not abort Synkratos init: the old paths then keep everything.
+            try:
+                from heartbeat import wiring as heartbeat_wiring
+                # (daemon_id goes to Heartbeat's goal_refinement only, as in
+                # #87; Synkratos's copy has always run with daemon_id=None)
+                if await heartbeat_wiring.start_heartbeat(
+                        budget_manager, {**system_managers, "daemon_id": _daemon_id},
+                        idle_check=synkratos.is_idle):
+                    heartbeat_wiring.adopt_thymos(thymos_runner)
+                    heartbeat_wiring.adopt_grimoire(_grimoire, thymos_runner)
+                    for subsystem in ("phase_queue", "phase_email", "goal_orchestrator"):
+                        heartbeat_wiring.adopt(subsystem)
+                    if _identity_bootstrap["pending"]:
+                        from functools import partial
+                        from migrations import generate_initial_identity_snippet
+                        from scheduler.budget import TaskCategory
+                        _identity_bootstrap["pending"] = False
+                        heartbeat_wiring.adopt("identity_bootstrap")
+                        heartbeat_wiring.submit(
+                            "identity_bootstrap",
+                            partial(generate_initial_identity_snippet, _daemon_id),
+                            lever="identity_bootstrap", budget_class=TaskCategory.SYSTEM,
+                            estimated_cost_usd=0.01)
+            except Exception as e:
+                logger.error(f"Heartbeat failed to start; old schedulers keep its jobs: {e}",
+                             exc_info=True)
+            _start_identity_bootstrap_now()  # Heartbeat didn't take it
+
+            # Register all system tasks (each job also has its own lever,
+            # checked inside register_system_tasks)
+            register_system_tasks(synkratos, system_managers, enabled=True)
 
             # Register approval providers for unified "what needs my attention?" queue
             # Note: Use UnifiedGoalManager for goals (not old GoalManager)
@@ -2282,7 +2330,10 @@ async def startup_event():
 
                     # Start day phase tracking and autonomous scheduling
                     if is_enabled("day_phases"):
-                        asyncio.create_task(day_phase_tracker.start())
+                        # Heartbeat (#62) checks the phase on its clock when on
+                        from heartbeat.wiring import adopt_day_phases
+                        own_loop = not adopt_day_phases(day_phase_tracker)
+                        asyncio.create_task(day_phase_tracker.start(own_loop=own_loop))
                         asyncio.create_task(autonomous_scheduler.start())
                         logger.info("Autonomous scheduling enabled - Cass decides her own work")
                         logger.info(f"Day phase tracker started - current phase: {day_phase_tracker.current_phase}")
@@ -2302,7 +2353,21 @@ async def startup_event():
                         except Exception as e:
                             logger.warning(f"[Email] Startup inbox check failed: {e}")
                     if is_enabled("phase_email"):
-                        asyncio.create_task(check_email_on_startup())
+                        from heartbeat.wiring import owns as heartbeat_owns
+                        from heartbeat.wiring import submit as heartbeat_submit
+                        if heartbeat_owns("phase_email"):
+                            from scheduler.budget import TaskCategory
+
+                            async def startup_inbox_check():
+                                return await action_registry.execute(action_id="email.check_inbox")
+
+                            heartbeat_submit("phase_email", startup_inbox_check,
+                                             lever="phase_email",
+                                             budget_class=TaskCategory.TRIGGERED,
+                                             estimated_cost_usd=0.02, group="phase_email",
+                                             delay_seconds=5)
+                        else:
+                            asyncio.create_task(check_email_on_startup())
 
                 except Exception as e:
                     logger.error(f"Failed to initialize autonomous scheduling: {e}")
@@ -2311,16 +2376,8 @@ async def startup_event():
             else:
                 logger.info("Autonomous scheduling disabled by config")
 
-            # Wire Thymos to Synkratos for suggestion integration
-            # Thymos generates suggestions based on needs which can inform scheduling
-            synkratos.register_thymos_provider(thymos_runner)
-            try:
-                if action_registry is not None:
-                    synkratos.set_action_registry(action_registry)
-            except NameError:
-                # action_registry not initialized (autonomous scheduling disabled)
-                pass
-            logger.info("Thymos registered with Synkratos for suggestion integration")
+            # (The Thymos -> Synkratos suggestion pipe was cut in #62: Thymos
+            # never filled it. GoalOrchestrator handles need events.)
 
             # Start Synkratos (constructed above either way so admin routes work)
             if is_enabled("scheduler"):
@@ -2330,7 +2387,8 @@ async def startup_event():
                 logger.info("Synkratos loop disabled by lever")
 
             # Start periodic conversation observation task (proactive self-awareness)
-            if is_enabled("conversation_observation"):
+            from heartbeat.wiring import owns as heartbeat_owns
+            if is_enabled("conversation_observation") and not heartbeat_owns("conversation_observation"):
                 from background_tasks import periodic_conversation_observation_task
                 asyncio.create_task(periodic_conversation_observation_task(
                     conversation_manager=conversation_manager,
@@ -2376,20 +2434,27 @@ async def startup_event():
             # Fallback: start old background tasks
             if not is_enabled("legacy_background_loops"):
                 logger.warning("Legacy background loops disabled by lever - no fallback")
+                _start_identity_bootstrap_now()
                 return
             logger.warning("Falling back to legacy background tasks")
-            asyncio.create_task(daily_journal_task())
-            asyncio.create_task(autonomous_research_task())
+            _start_identity_bootstrap_now()
+            # One trigger path per job: skip any loop whose job a started
+            # Heartbeat already runs (#62).
             from heartbeat.wiring import runs_job as heartbeat_runs_job
-            if not heartbeat_runs_job("github_metrics"):  # one trigger path per job
+            if not heartbeat_runs_job("daily_journal"):
+                asyncio.create_task(daily_journal_task())
+            if not heartbeat_runs_job("autonomous_research"):
+                asyncio.create_task(autonomous_research_task())
+            if not heartbeat_runs_job("github_metrics"):
                 asyncio.create_task(github_metrics_task(github_metrics_manager))
-            asyncio.create_task(idle_summarization_task(
-                conversation_manager=conversation_manager,
-                memory=memory,
-                token_tracker=token_tracker
-            ))
+            if not heartbeat_runs_job("idle_summarization"):
+                asyncio.create_task(idle_summarization_task(
+                    conversation_manager=conversation_manager,
+                    memory=memory,
+                    token_tracker=token_tracker
+                ))
             # Start periodic conversation observation in fallback mode too
-            if is_enabled("conversation_observation"):
+            if is_enabled("conversation_observation") and not heartbeat_runs_job("conversation_observation"):
                 from background_tasks import periodic_conversation_observation_task
                 asyncio.create_task(periodic_conversation_observation_task(
                     conversation_manager=conversation_manager,

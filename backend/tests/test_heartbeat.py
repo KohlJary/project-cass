@@ -20,8 +20,9 @@ def runs(name=None):
     return list(reversed(RunLog().recent(limit=500, work_name=name)))
 
 
-def make_hb(budget=None, idle=None, clock=None):
-    return Heartbeat(budget_manager=budget, clock=clock or FakeClock(), idle_check=idle)
+def make_hb(budget=None, idle=None, clock=None, measure_spend=True):
+    return Heartbeat(budget_manager=budget, clock=clock or FakeClock(), idle_check=idle,
+                     measure_spend=measure_spend)
 
 
 class Counter:
@@ -218,9 +219,11 @@ class TestBudgetGate:
         await hb.drain()
         assert turn.calls == 1
 
-    async def test_spend_is_charged_to_the_shared_budget(self):
+    async def test_unmeasured_spend_is_charged_to_the_shared_budget(self):
+        # measure_spend=False keeps Synkratos's rule: the reported cost, else
+        # the estimate. (Measured spend: tests/test_heartbeat_cutover.py.)
         budget = BudgetManager(BudgetConfig(daily_budget_usd=10.0))
-        hb = make_hb(budget=budget)
+        hb = make_hb(budget=budget, measure_spend=False)
         reported = Counter(HandlerResult(success=True, message="", cost_usd=0.25))
         estimated = Counter(None)
         hb.submit(Work("a", reported, Once(), budget_class=TaskCategory.RESEARCH,
@@ -235,7 +238,7 @@ class TestBudgetGate:
 
     async def test_conversation_spend_is_not_charged(self):
         budget = BudgetManager(BudgetConfig(daily_budget_usd=10.0))
-        hb = make_hb(budget=budget)
+        hb = make_hb(budget=budget, measure_spend=False)
         hb.submit(Work("turn", Counter(HandlerResult(True, "", cost_usd=0.5)), Once(),
                        budget_class=CONVERSATION))
         await hb.tick()
@@ -391,16 +394,21 @@ class FakeSynkratos:
         self.names.append(task.name)
 
 
+SYSTEM_MANAGERS = {
+    "github_metrics_manager": object(),
+    "conversation_manager": object(),
+    "memory": object(),
+    "generate_missing_journals": object(),
+    "research_scheduler": object(),
+}
+SYNKRATOS_JOBS = ["github_metrics", "idle_summarization", "daily_journal",
+                  "autonomous_research", "goal_refinement"]
+
+
 def _register(levers_on):
     from scheduler.system_tasks import register_system_tasks
     synk = FakeSynkratos()
-    register_system_tasks(synk, {
-        "github_metrics_manager": object(),
-        "conversation_manager": object(),
-        "memory": object(),
-        "generate_missing_journals": object(),
-        "research_scheduler": object(),
-    }, enabled=True)
+    register_system_tasks(synk, SYSTEM_MANAGERS, enabled=True)
     return synk.names
 
 
@@ -412,9 +420,9 @@ JOB_LEVERS = dict(job_github_metrics=True, job_idle_summarization=True,
 @pytest.fixture
 def clean_wiring():
     from heartbeat import wiring
-    wiring._heartbeat = None
+    wiring.reset()
     yield wiring
-    wiring._heartbeat = None
+    wiring.reset()
 
 
 class TestMigration:
@@ -428,15 +436,15 @@ class TestMigration:
             self, levers, clean_wiring):
         wiring = clean_wiring
         with levers(heartbeat=True, **JOB_LEVERS):
-            hb = await wiring.start_heartbeat(None, {"github_metrics_manager": object()})
+            hb = await wiring.start_heartbeat(None, SYSTEM_MANAGERS)
             try:
                 names = _register(True)
             finally:
                 await hb.stop()
         heartbeat_names = {w.name for w in hb.registry.all()}
-        assert heartbeat_names == set(wiring.HEARTBEAT_JOBS)
-        assert not heartbeat_names & set(names)                 # never both
-        assert names == ["idle_summarization", "daily_journal", "autonomous_research"]
+        assert heartbeat_names <= set(wiring.HEARTBEAT_JOBS)
+        assert set(SYNKRATOS_JOBS) <= heartbeat_names          # all five moved
+        assert names == []                                     # never both
 
     async def test_heartbeat_failing_to_start_leaves_jobs_on_synkratos(
             self, levers, clean_wiring, monkeypatch):
@@ -452,8 +460,7 @@ class TestMigration:
             names = _register(True)
         assert wiring.get_heartbeat() is None
         assert not wiring.owns("github_metrics") and not wiring.runs_job("github_metrics")
-        assert names == ["github_metrics", "idle_summarization", "daily_journal",
-                         "autonomous_research", "goal_refinement"]
+        assert names == SYNKRATOS_JOBS
 
     async def test_start_heartbeat_does_nothing_when_lever_off(self, levers, clean_wiring):
         wiring = clean_wiring
