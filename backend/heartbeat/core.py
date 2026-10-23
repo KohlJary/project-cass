@@ -100,6 +100,10 @@ class Heartbeat:
         """
         if self._stopping:
             return RefusedResult("heartbeat is stopped")
+        if self._loop_task is not None and self._loop_task.done():
+            # The loop started and died; nothing would ever run this or tell
+            # the waiter. (Before start() is fine: the loop will pick it up.)
+            return RefusedResult("heartbeat loop ended")
         self.submit(work)
         fut = asyncio.get_running_loop().create_future()
         self._waiters[work.key] = fut

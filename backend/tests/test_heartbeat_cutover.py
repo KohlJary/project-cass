@@ -292,7 +292,7 @@ class TestReviewFixes:
         assert result.success is False and "stopped" in result.message
         assert len(hb.registry) == 0
         # After stop, nothing new is accepted to wait on.
-        late = await hb.submit_and_wait(Work("x", partial(asyncio.sleep, 0), Once()))
+        late = await asyncio.wait_for(hb.submit_and_wait(Work("x", partial(asyncio.sleep, 0), Once())), 1)
         assert late.success is False
 
     async def test_loop_death_releases_waiters(self):
@@ -308,11 +308,14 @@ class TestReviewFixes:
         await hb.start()
         result = await asyncio.wait_for(waiter, 1)
         assert result.success is False and "loop ended" in result.message
+        # A waiter that arrives after the loop died is turned away, not parked.
+        late = await asyncio.wait_for(hb.submit_and_wait(Work("y", partial(asyncio.sleep, 0), Once())), 1)
+        assert late.success is False and "loop ended" in late.message
 
     async def test_a_waiter_gives_up_if_its_work_has_not_started(self):
         hb = Heartbeat(clock=FakeClock())
-        result = await hb.submit_and_wait(
-            Work("journal", partial(asyncio.sleep, 0), Once()), start_timeout=0.01)
+        result = await asyncio.wait_for(hb.submit_and_wait(
+            Work("journal", partial(asyncio.sleep, 0), Once()), start_timeout=0.01), 2)
         assert result.success is False and "not started" in result.message
         assert len(hb.registry) == 0
 
