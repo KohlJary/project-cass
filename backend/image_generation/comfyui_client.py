@@ -37,7 +37,6 @@ ASPECT_RATIOS = {
 }
 
 
-
 def _data_dir() -> Path:
     from config import DATA_DIR
     return DATA_DIR
