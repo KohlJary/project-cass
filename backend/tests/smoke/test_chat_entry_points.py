@@ -172,7 +172,8 @@ def _artifacts(conversation_id, stored_user_text, chroma_writes, marks, chat_cal
 
 @pytest.fixture
 def spies(monkeypatch):
-    """Record ChromaDB writes and stored marks for one turn."""
+    """Record ChromaDB writes, stored marks and built system prompts."""
+    import continuous_context
     import websocket_handlers
     memory = websocket_handlers._state["memory"]
     chroma, marks = [], []
@@ -187,19 +188,43 @@ def spies(monkeypatch):
     original_marks = marker_store.store_marks
     monkeypatch.setattr(marker_store, "store_marks",
                         lambda m: marks.append([x.category for x in m]) or original_marks(m))
-    return chroma, marks
+    prompts = []
+    real_build = continuous_context.build_continuous_context
+
+    def build_spy(*args, **kwargs):
+        ctx = real_build(*args, **kwargs)
+        prompts.append(ctx.system_prompt)
+        return ctx
+
+    monkeypatch.setattr(continuous_context, "build_continuous_context", build_spy)
+    return chroma, marks, prompts
+
+
+def _system_prompt_source(chat_calls, prompts):
+    """Where every model call's system prompt came from. Before this change
+    POST /chat, HA and Discord sent no continuous prompt, so the clients
+    built one from the daemon's active prompt chain (or the kernel)."""
+    assert len(prompts) == 1, "continuous context was not built exactly once"
+    sources = set()
+    for call in chat_calls:
+        sources.add("continuous_context" if call.system_text.startswith(prompts[0])
+                    else "other")
+    return sorted(sources)
 
 
 def _run(booted_app, fake_llm, spies, name):
-    chroma, marks = spies
+    chroma, marks, prompts = spies
     chroma.clear()
     marks.clear()
+    prompts.clear()
     fake_llm.calls.clear()
     user_id = create_user(f"{name} user")
     _script_turn(fake_llm, name)
     reply, conversation_id, stored_user_text = ENTRY_POINTS[name](booted_app, user_id)
     chat_calls = [c for c in fake_llm.calls if c.tools]
-    return reply, _artifacts(conversation_id, stored_user_text, list(chroma), list(marks), chat_calls)
+    artifacts = _artifacts(conversation_id, stored_user_text, list(chroma), list(marks), chat_calls)
+    artifacts["system_prompt_source"] = _system_prompt_source(chat_calls, prompts)
+    return reply, artifacts
 
 
 @pytest.mark.parametrize("entry_point", [n for n in ENTRY_POINTS if n != "websocket"])
@@ -217,6 +242,9 @@ def test_entry_point_persists_the_same_artifacts_as_websocket(
     assert ws_artifacts["marks"] == [["insight"]]
     assert ws_artifacts["self_observation_texts"], "the observe tag was not stored"
     assert ws_artifacts["model_calls"] == 2
+    # Every model call of the turn, on every entry point, used the
+    # continuous-context system prompt (not the prompt chain).
+    assert ws_artifacts["system_prompt_source"] == ["continuous_context"]
     assert ws_artifacts["tool_result_type"] == "tool_result"
     assert ws_artifacts["token_rows"] == [{
         "category": "chat", "operation": "tool_continuation", "provider": "anthropic",
@@ -226,7 +254,7 @@ def test_entry_point_persists_the_same_artifacts_as_websocket(
 
 
 def test_discord_memory_write_is_tagged_as_discord(booted_app, fake_llm, spies):
-    chroma, _ = spies
+    chroma, _, _ = spies
     _run(booted_app, fake_llm, spies, "discord")
     assert chroma[0]["metadata"] == {"source": "discord", "channel": "general"}
 
@@ -254,7 +282,7 @@ def test_discord_linked_sender_continues_the_channel_conversation(booted_app, fa
 
 def test_discord_unlinked_sender_stores_memory_and_tokens_only(booted_app, fake_llm, spies):
     import main_sdk
-    chroma, _ = spies
+    chroma, _, _ = spies
     fake_llm.queue_text("Hello there.", input_tokens=11, output_tokens=3)
     bot = _FakeDiscordBot(linked_user_id=None)
     booted_app.portal.call(main_sdk.make_discord_wake_callback(bot), None, None, {
