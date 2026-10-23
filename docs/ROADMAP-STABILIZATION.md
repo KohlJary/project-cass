@@ -24,7 +24,7 @@ Each duplicate cluster gets one verdict:
 | Knowledge about users (4 stores) | Consolidate | Move everything onto PeopleDex, which is what the prompt reads; migrate the legacy rows and the YAML | #55 |
 | Journals (3 generators, split storage) | Consolidate | One generator; SQLite is the source of truth and Chroma the search index | #56 |
 | Chat entry points (WebSocket, relay, POST /chat, HA, Discord) | Consolidate | All five become thin wrappers over the shared turn pipeline from #15 | #57 |
-| System-prompt builders (6–7) | Consolidate | Everything goes through `continuous_context`; cut the chain editor and prompt-configs, which affect no live prompt | #58 |
+| System-prompt builders (6–7) | Consolidate | Everything goes through `continuous_context`. Prompt-configs were cut (#101). The chain system is **live**: POST /chat, HA, Discord and the onboarding intro build their prompt from the active chain, so it's cut only after those move onto `continuous_context` (#70) | #58 |
 | Session runners (12 legacy + generic) | Consolidate | Port solo reflection and research sessions to GenericSessionRunner; attic the other 10 | #59 |
 | Research (5+ systems, 3 search backends) | Consolidate | One queue, one runner, a model chosen per step through routing | #60 |
 | Auth (2 stores, 2 JWT systems) | Consolidate | One SQLite store, one token type with roles | #61 |
