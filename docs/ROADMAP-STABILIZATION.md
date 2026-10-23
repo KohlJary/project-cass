@@ -4,11 +4,18 @@
 
 ## Where we are
 
-*Updated 2026-10-22.* Steps 1–3 of the order of work are built and deployed, plus the first builds of steps 4–6. See `docs/status.md` for the PR list and what waits on Kohl.
+*Updated 2026-10-22 night.* Steps 1–3 of the order of work are built and deployed. Steps 4–6 are partly built. The Heartbeat cutover is merged (lever off). The chat pipeline (#102) is open. The session-runner port and self-context haven't started. See `docs/status.md` for the PR list and what waits on Kohl.
 
 - **Merged:** #11–#20; cheap cuts (#54 via #81); PeopleDex (#55 via #83); journals (#56 via #84); model routing (#64 via #86); auth (#61 via #88, transition mode); research (#60 via #90); the agent loop (#70 via #82, behind `agent_loop`, off); the Heartbeat core (#62 via #87, behind `heartbeat`, off); chat off the event loop (#85 via #89); 12 loose ends (#91).
 - **Deployed 2026-10-22:** schema v64 and the PeopleDex, auth and journal data migrations are live (see `docs/status.md`).
-- **Next:** cut chat over to the agent loop (the rest of #70, which absorbs #57–#59); the Heartbeat cutover; benchmarks (#65); the self-context design (#63).
+- **Built 2026-10-22 night (not deployed):** the Heartbeat cutover (#104, behind `heartbeat`, off); dead prompt builders and runners cut (#101); benchmark Tier 2–3 harness (#103, no runs); the research daily cap (#100). The one-turn pipeline for every chat entry point (#102) is open for Kohl.
+- **Next:**
+  - Kohl's decision on #102.
+  - Tier 3's design question (a plain-model-plus-history arm) and the criteria cut.
+  - A first budgeted benchmark run.
+  - Turning on the levers.
+  - The self-context design (#63).
+  - The agent-loop cutover of chat. Once #102 lands, every entry point goes through one function, so the cutover should be a single change there; that's an estimate.
 
 ## Consolidation plan
 
@@ -24,7 +31,7 @@ Each duplicate cluster gets one verdict:
 | Knowledge about users (4 stores) | Consolidate | Move everything onto PeopleDex, which is what the prompt reads; migrate the legacy rows and the YAML | #55 |
 | Journals (3 generators, split storage) | Consolidate | One generator; SQLite is the source of truth and Chroma the search index | #56 |
 | Chat entry points (WebSocket, relay, POST /chat, HA, Discord) | Consolidate | All five become thin wrappers over the shared turn pipeline from #15 | #57 |
-| System-prompt builders (6–7) | Consolidate | Everything goes through `continuous_context`. Prompt-configs were cut (#101). The chain system is **live**: POST /chat, HA, Discord and the onboarding intro build their prompt from the active chain, so it's cut only after those move onto `continuous_context` (#70) | #58 |
+| System-prompt builders (6–7) | Consolidate | Everything goes through `continuous_context`. Prompt-configs were cut (#101). The chain system is **live**: POST /chat, HA, Discord and the onboarding intro build their prompt from the active chain, so it's cut only after all of those move onto `continuous_context`. #102 moves the first three (#70) | #58 |
 | Session runners (12 legacy + generic) | Consolidate | Port solo reflection and research sessions to GenericSessionRunner; attic the other 10 | #59 |
 | Research (5+ systems, 3 search backends) | Consolidate | One queue, one runner, a model chosen per step through routing | #60 |
 | Auth (2 stores, 2 JWT systems) | Consolidate | One SQLite store, one token type with roles | #61 |
