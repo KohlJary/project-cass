@@ -37,6 +37,11 @@ ASPECT_RATIOS = {
 }
 
 
+
+def _data_dir() -> Path:
+    from config import DATA_DIR
+    return DATA_DIR
+
 class ComfyUIClient:
     """
     Client for interacting with ComfyUI's API.
@@ -62,7 +67,7 @@ class ComfyUIClient:
         self.model = model or os.getenv("COMFYUI_MODEL", DEFAULT_MODEL)
         self.output_dir = output_dir or os.getenv(
             "IMAGE_OUTPUT_DIR",
-            str(Path(__file__).parent.parent.parent / "data" / "images")
+            str(_data_dir() / "images")
         )
 
         # Ensure output directory exists

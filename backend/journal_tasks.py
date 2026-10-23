@@ -31,7 +31,8 @@ def _get_dependencies():
 
 def _get_data_dir() -> Path:
     """Get the data directory path"""
-    return Path(__file__).parent / "data"
+    from config import DATA_DIR
+    return DATA_DIR
 
 
 async def _create_development_log_entry(journal_text: str, date_str: str, conversation_count: int):

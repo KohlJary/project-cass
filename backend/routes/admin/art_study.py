@@ -348,7 +348,8 @@ async def upload_artwork_image(
         raise HTTPException(status_code=404, detail="Artist not found")
 
     # Create directory structure
-    base_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "art_study", "artists")
+    from config import DATA_DIR
+    base_dir = os.path.join(str(DATA_DIR), "art_study", "artists")
     artist_dir = os.path.join(base_dir, artist.name.lower().replace(" ", "_"))
     artworks_dir = os.path.join(artist_dir, "artworks")
     os.makedirs(artworks_dir, exist_ok=True)

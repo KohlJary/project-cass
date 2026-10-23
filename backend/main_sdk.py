@@ -3524,7 +3524,7 @@ async def decline_architectural_request(request_id: str):
 # === Generated Images Serving ===
 # Serve Cass's generated images from the data directory
 
-IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "images")
+IMAGES_DIR = os.path.join(str(DATA_DIR), "images")
 if os.path.exists(IMAGES_DIR):
     app.mount("/generated-images", StaticFiles(directory=IMAGES_DIR), name="generated-images")
     logger.info(f"Serving generated images from {IMAGES_DIR}")
@@ -3887,7 +3887,7 @@ async def get_music_audio(filename: str):
     from fastapi.responses import FileResponse
 
     # Music files are stored in backend/data/music/
-    music_dir = Path(__file__).parent / "data" / "music"
+    music_dir = DATA_DIR / "music"
     audio_path = (music_dir / filename).resolve()
 
     # This route is public (loaded by <audio>), so keep it inside music_dir.

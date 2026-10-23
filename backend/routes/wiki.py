@@ -2055,7 +2055,8 @@ def _get_proposal_queue():
     global _proposal_queue
     if _proposal_queue is None:
         from wiki.research import ProposalQueue
-        data_dir = Path(__file__).parent.parent / "data" / "wiki"
+        from config import DATA_DIR
+        data_dir = DATA_DIR / "wiki"
         _proposal_queue = ProposalQueue(str(data_dir))
     return _proposal_queue
 
