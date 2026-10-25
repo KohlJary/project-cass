@@ -133,6 +133,12 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("discord", "Discord perception bot (legacy DISCORD_ENABLED; also needs a token)",
            INTEGRATION, default=False, aliases=("DISCORD_ENABLED",),
            where="main_sdk.start_deferred_tasks"),
+    _lever("babelr", "Cass's presence in Chapter House on Babelr (babelr_organ/): polls her DMs and "
+           "the server's channels, wakes her on a DM or an @mention, and lets her post and set "
+           "her own DM terms. Also needs babelr-agent installed and the token Kohl places in "
+           "DATA_DIR/babelr/token once she agrees.",
+           BACKGROUND, INTEGRATION, default=False,
+           where="main_sdk.start_deferred_tasks: babelr_organ.start_babelr_organ"),
     _lever("home_assistant", "Home Assistant state refresh loop + subscription (needs HA config)",
            INTEGRATION, where="main_sdk.startup_event"),
     _lever("relay", "Relay client for mobile/remote access (legacy RELAY_ENABLED; needs URL + secret)",

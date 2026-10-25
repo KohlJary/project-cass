@@ -162,6 +162,12 @@ DISCORD_KEYWORDS = frozenset({
     "send a message", "reply to", "respond to",
 })
 
+# The organ's wake prompts start with "[Babelr", so a turn Babelr woke her
+# for always matches.
+BABELR_KEYWORDS = frozenset({
+    "babelr", "chapter house", "#general", "#wire", "#workshop",
+})
+
 IMAGE_KEYWORDS = frozenset({
     "image", "images", "picture", "pictures",
     "art", "artwork", "artworks", "artistic",
@@ -322,6 +328,7 @@ class ToolSelector:
             ToolGroup("state_query", STATE_QUERY_KEYWORDS, "State query tools"),
             ToolGroup("development_request", DEVELOPMENT_REQUEST_KEYWORDS, "Development request tools"),
             ToolGroup("discord", DISCORD_KEYWORDS, "Discord perception and action tools"),
+            ToolGroup("babelr", BABELR_KEYWORDS, "Babelr presence tools (Chapter House)"),
             ToolGroup("image", IMAGE_KEYWORDS, "Image generation tools"),
             ToolGroup("music", MUSIC_KEYWORDS, "Music composition tools"),
             ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
@@ -654,6 +661,11 @@ def should_include_development_request_tools(message: str) -> bool:
 def should_include_discord_tools(message: str) -> bool:
     """Check if message warrants Discord perception and action tools."""
     return _default_selector.should_include(message, "discord")
+
+
+def should_include_babelr_tools(message: str) -> bool:
+    """Check if message warrants Babelr presence tools."""
+    return _default_selector.should_include(message, "babelr")
 
 
 def should_include_image_tools(message: str) -> bool:

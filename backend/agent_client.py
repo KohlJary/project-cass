@@ -41,6 +41,7 @@ from tool_selector import (
     should_include_state_query_tools,
     should_include_development_request_tools,
     should_include_discord_tools,
+    should_include_babelr_tools,
     should_include_image_tools,
     should_include_music_tools,
     should_include_activity_tools,
@@ -1889,6 +1890,13 @@ class CassAgentClient:
                 from discord_bot.config import DISCORD_ENABLED
                 if DISCORD_ENABLED:
                     tools.extend(DISCORD_TOOLS)
+
+            # Babelr tools - her presence in Chapter House (babelr_organ/)
+            if should_include_babelr_tools(message):
+                from babelr_organ.config import babelr_enabled
+                if babelr_enabled():
+                    from handlers.babelr import BABELR_TOOLS
+                    tools.extend(BABELR_TOOLS)
 
             # Image generation tools - create visual art via local Stable Diffusion
             if should_include_image_tools(message):
