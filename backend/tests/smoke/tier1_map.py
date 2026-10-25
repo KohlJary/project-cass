@@ -189,6 +189,12 @@ LEVER_COVERAGE = {
                   "tests/smoke/test_discord_wake_tools.py::test_plain_reply_posts_once"],
         "note": "The wake callback runs against a fake bot; the Discord connection is not started.",
     },
+    "babelr": {
+        "depth": "partial",
+        "tests": ["tests/smoke/test_babelr_wake.py::test_dm_wakes_her_and_her_reply_is_posted",
+                  "tests/smoke/test_babelr_wake.py::test_tool_use_then_text"],
+        "note": "One poll cycle and the wake callback run against a fake Babelr server; the poll loop and the real babelr-agent client are not started. Fast-suite: tests/test_babelr_organ.py.",
+    },
     "home_assistant": {
         "depth": "none",
         "tests": [],

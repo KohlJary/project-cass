@@ -385,6 +385,12 @@ TOOL_REGISTRY = {
     "discord_history": "discord",
     "discord_snapshot": "discord",
 
+    # Babelr: her presence in Chapter House (babelr_organ/)
+    "babelr_post": "babelr",
+    "babelr_dm": "babelr",
+    "babelr_read": "babelr",
+    "babelr_boundaries": "babelr",
+
     # Image generation tools (local Stable Diffusion)
     "generate_image": "image_generation",
     "get_my_images": "image_generation",
@@ -897,6 +903,13 @@ async def route_tool(
             tool_name=tool_name,
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
+        )
+
+    elif executor_type == "babelr":
+        # Babelr tools act on her own account through the organ
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
         )
 
     elif executor_type == "music":

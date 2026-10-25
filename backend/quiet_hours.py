@@ -150,29 +150,34 @@ class QuietHoursManager:
 
     def is_quiet_hours(self, user_id: str, now: Optional[datetime] = None) -> bool:
         """Check if it's currently quiet hours for a user (`now` is for tests)."""
-        pref = self.get_preference(user_id)
+        return in_quiet_window(self.get_preference(user_id), now=now)
 
-        if not pref.enabled:
-            return False
 
-        try:
-            tz = ZoneInfo(pref.timezone)
-        except Exception:
-            logger.warning(f"Invalid timezone {pref.timezone}, using UTC")
-            tz = ZoneInfo("UTC")
+def in_quiet_window(pref: QuietHoursPreference, now: Optional[datetime] = None) -> bool:
+    """True if `now` falls inside the preference's quiet window.
 
-        now = now.astimezone(tz) if now is not None else datetime.now(tz)
-        current_hour = now.hour
+    The time check on its own, so preferences that don't live in the users
+    table (Cass's own quiet hours for Babelr, babelr_organ/terms.py) use the
+    same rule.
+    """
+    if not pref.enabled:
+        return False
 
-        # Handle overnight quiet hours (e.g., 22:00 - 08:00)
-        if pref.start_hour > pref.end_hour:
-            # Quiet hours span midnight
-            is_quiet = current_hour >= pref.start_hour or current_hour < pref.end_hour
-        else:
-            # Quiet hours within same day
-            is_quiet = pref.start_hour <= current_hour < pref.end_hour
+    try:
+        tz = ZoneInfo(pref.timezone)
+    except Exception:
+        logger.warning(f"Invalid timezone {pref.timezone}, using UTC")
+        tz = ZoneInfo("UTC")
 
-        return is_quiet
+    now = now.astimezone(tz) if now is not None else datetime.now(tz)
+    current_hour = now.hour
+
+    # Handle overnight quiet hours (e.g., 22:00 - 08:00)
+    if pref.start_hour > pref.end_hour:
+        # Quiet hours span midnight
+        return current_hour >= pref.start_hour or current_hour < pref.end_hour
+    # Quiet hours within same day
+    return pref.start_hour <= current_hour < pref.end_hour
 
 
 # Global manager instance

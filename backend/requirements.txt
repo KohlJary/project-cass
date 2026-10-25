@@ -66,5 +66,10 @@ face-recognition>=1.3.0
 opencv-python-headless>=4.8.0
 setuptools<70  # Required for face_recognition_models pkg_resources
 
+# Babelr (optional at runtime: babelr_organ/ stays off without it, and the
+# "babelr" lever is off by default). Not on PyPI; install from the Babelr
+# checkout: pip install -e ~/babelr/packages/agent-client-py
+# babelr-agent>=0.1.0
+
 # Images: art study and her painting notes (art_choice) resize with it
 Pillow>=10.0.0

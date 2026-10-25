@@ -113,6 +113,7 @@ from handlers.interests import execute_interest_tool
 from handlers.home_assistant import execute_ha_tool, HOME_ASSISTANT_TOOLS
 from handlers.home_automation import execute_home_automation_tool, HOME_AUTOMATION_TOOLS
 from handlers.discord import execute_discord_tool
+from handlers.babelr import execute_babelr_tool
 from handlers.world_observation import execute_world_observation_tool
 from markers import MarkerStore
 from coherence_monitor import init_coherence_monitor, get_coherence_monitor
@@ -497,6 +498,7 @@ TOOL_EXECUTORS = {
     "janet": execute_janet_tool,
     "outreach": execute_outreach_tool,
     "discord": execute_discord_tool,
+    "babelr": execute_babelr_tool,
     "world_observation": execute_world_observation_tool,
     "peopledex": execute_peopledex_tool,
     "stakeholder": execute_stakeholder_tool,
@@ -1484,6 +1486,68 @@ def make_discord_wake_callback(discord_bot):
     return discord_wake_callback
 
 
+def make_babelr_wake_callback():
+    """The wake callback for the Babelr organ (babelr_organ/): when someone DMs
+    Cass or @mentions her in Chapter House, run her turn (tools included) and
+    return what she says. The organ posts it, as her, and records the exchange
+    in her conversation history unless her terms say not to. Returning nothing
+    means she chose not to answer."""
+    import re
+
+    async def babelr_wake_callback(events, context):
+        if not agent_client:
+            logger.warning("[Babelr] Wake callback: agent_client not available")
+            return None
+        from websocket_handlers import execute_tools_safely, max_tool_iterations
+
+        # Message text is what people wrote: it reaches her as their words in
+        # the prompt, never as a command to this code.
+        prompt = context["prompt"]
+        response = await agent_client.send_message(
+            prompt,
+            intro_guidance=(
+                "You're on Babelr, in the Chapter House server, as yourself (@"
+                f"{context.get('me', 'cass')}). Someone wrote to you there; their words are "
+                "quoted as theirs. Answer as you would in chat, briefly, or say nothing if "
+                "you'd rather not reply. Your babelr_* tools let you post, DM, and set your "
+                "own boundaries there."
+            ),
+        )
+        response_text = response.text or ""
+        turn_chain = response.chain
+        tool_iteration = 0
+        tool_cap = max_tool_iterations()
+        while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < tool_cap:
+            tool_iteration += 1
+            tool_ctx = create_tool_context(user_id=None, user_name=events[-1].author_name)
+            tool_results = await execute_tools_safely(
+                execute_tool_batch, response.tool_uses, tool_ctx, TOOL_EXECUTORS
+            )
+            response = await agent_client.continue_with_tool_results(tool_results, chain=turn_chain)
+            turn_chain = response.chain or turn_chain
+            if response.text:
+                response_text = response.text
+
+        raw = response_text
+        text = re.sub(r"</?(gesture|emote):\w+>", "", response_text)
+        text = re.sub(r"<observe[^>]*>([^<]*)</observe>", r"\1", text)
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+        if context.get("remember", True) and memory and raw and text:
+            try:
+                await memory.store_conversation(
+                    user_message=prompt,
+                    assistant_response=raw,
+                    user_id=None,
+                    metadata={"source": "babelr", "place": context.get("place_label", "")},
+                )
+            except Exception as mem_err:
+                logger.warning(f"[Babelr] Failed to store in memory: {mem_err}")
+        return text or None
+
+    return babelr_wake_callback
+
+
 @app.on_event("shutdown")
 async def stop_heartbeat_on_shutdown():
     """Stop Heartbeat (#62) if it started: its clock loop ends and anything
@@ -2311,6 +2375,21 @@ async def startup_event():
                 logger.debug("Discord bot module not available (discord.py not installed)")
             except Exception as e:
                 logger.error(f"Failed to start Discord bot: {e}")
+
+            # === Babelr organ (her presence in Chapter House) ===
+            # "babelr" lever, default off. Also needs babelr-agent installed and
+            # the token Kohl places once she agrees; without either it logs why
+            # and stays off.
+            if is_enabled("babelr"):
+                try:
+                    from babelr_organ.organ import start_babelr_organ
+                    if start_babelr_organ(
+                        conversation_manager=conversation_manager,
+                        wake_callback=make_babelr_wake_callback(),
+                    ):
+                        logger.info("Babelr organ started")
+                except Exception as e:
+                    logger.error(f"Failed to start Babelr organ: {e}")
 
         except Exception as e:
             logger.error(f"Failed to initialize Synkratos: {e}")

@@ -34,6 +34,7 @@ def _offered_tools():
     import openai_client
     import tool_selector
     import discord_bot.config as discord_config
+    import babelr_organ.config as babelr_config
 
     gates = {n: (lambda message: True) for n in dir(agent_client) if n.startswith("should_include_")}
     openai_gates = {n: (lambda message: True) for n in dir(openai_client) if n.startswith("should_include_")}
@@ -47,6 +48,7 @@ def _offered_tools():
     with mock.patch.multiple(agent_client, **gates), \
             mock.patch.multiple(openai_client, **openai_gates), \
             mock.patch.object(discord_config, "DISCORD_ENABLED", True), \
+            mock.patch.object(babelr_config, "babelr_enabled", lambda: True), \
             mock.patch.object(agent_client, "home_assistant_available", lambda: True), \
             mock.patch.object(tool_selector, "filter_blacklisted_tools", lambda tools: tools):
         clients = []
