@@ -275,13 +275,21 @@ async def finalize_chat_turn(
     tool_iterations: int,
     summarize_requested: bool,
     websocket=None,
+    cache_read_tokens: int = 0,
+    memory_metadata: Optional[Dict[str, Any]] = None,
+    generate_title: bool = True,
 ) -> Dict[str, Any]:
     """Post-turn pipeline shared by every chat entry point.
 
     Strips and stores marks, symbols, interests and inline tags; stores the
     exchange in ChromaDB and SQLite; records tokens; updates the state bus;
     and kicks off title generation and summarization. The websocket loop
-    always did all of this; the mobile relay skipped most of it.
+    always did all of this; the mobile relay skipped most of it. Every chat
+    entry point reaches it through chat_turn.run_chat_turn.
+
+    Token usage is recorded even without a conversation (an unlinked Discord
+    sender has none). generate_title=False skips the background LLM title
+    call (Home Assistant and Discord never made one).
 
     Returns the cleaned text plus everything extracted, for the response frame.
     """
@@ -358,8 +366,23 @@ async def finalize_chat_turn(
             user_message=user_message,
             assistant_response=raw_response,
             conversation_id=conversation_id,
-            user_id=user_id
+            user_id=user_id,
+            metadata=memory_metadata,
         )
+
+    # Track token usage
+    operation = "tool_continuation" if tool_iterations > 0 else "initial_message"
+    token_tracker.record(
+        category="chat",
+        operation=operation,
+        provider=provider,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        conversation_id=conversation_id,
+        user_id=user_id
+    )
 
     # Store in conversation if conversation_id provided
     if conversation_id:
@@ -400,19 +423,6 @@ async def finalize_chat_turn(
             milestones=extracted["milestones"] or None
         )
 
-        # Track token usage
-        operation = "tool_continuation" if tool_iterations > 0 else "initial_message"
-        token_tracker.record(
-            category="chat",
-            operation=operation,
-            provider=provider,
-            model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            conversation_id=conversation_id,
-            user_id=user_id
-        )
-
         # Update global state bus with emotional state from emotes
         state_bus = _state.get("state_bus")
         if state_bus and animations:
@@ -434,7 +444,7 @@ async def finalize_chat_turn(
 
         # Auto-generate title on first exchange
         message_count = conversation_manager.get_message_count(conversation_id)
-        if message_count == 2:  # First user + first assistant message
+        if generate_title and message_count == 2:  # First user + first assistant message
             asyncio.create_task(generate_conversation_title(
                 conversation_id, user_message, clean_text,
                 conversation_manager=conversation_manager,
@@ -597,8 +607,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 tts_voice = _state["tts_voice"]
                 tts_provider = _state["tts_provider"]
 
-                # A person is talking: idle-only background jobs should wait.
-                mark_user_activity()
+                # (run_chat_turn marks the user as active.)
 
                 # A running autonomous session (agent_loop lever) ends cleanly.
                 from agent_loop.interrupt import entry_point_received_message
@@ -684,320 +693,58 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                     current_activity = state.activity.current_activity.value if state.activity else None
                     print(f"[StateBus] Context: {global_state_context}")
 
-                # === Unified Context Building ===
-                # Always use continuous context system - cleaner, unified, with semantic retrieval
-                # Legacy hierarchical context building is now deprecated
-                continuous_system_prompt = None
-                continuous_messages = None
-                if True:  # Always use continuous context (was: if is_continuous_chat)
-                    from continuous_context import build_continuous_context, get_recent_messages_for_continuous, SpeakerRecognition
-                    print(f"[Continuous] Building context with semantic memory retrieval")
+                # === The shared chat turn (chat_turn.run_chat_turn) ===
+                # Context, the capped tool loop, tags and persistence are the
+                # same for every entry point; the socket only relays progress.
+                from continuous_context import SpeakerRecognition
+                from chat_turn import run_chat_turn
 
-                    # Convert speaker recognition data to SpeakerRecognition object
-                    speaker_recognition = None
-                    if speaker_recognition_data:
-                        speaker_recognition = SpeakerRecognition(
-                            user_id=speaker_recognition_data.get("user_id"),
-                            display_name=speaker_recognition_data.get("display_name"),
-                            confidence=speaker_recognition_data.get("confidence", 0.0),
-                            confidence_level=speaker_recognition_data.get("confidence_level", "none"),
-                        )
-                        print(f"[Voice] Speaker recognition: {speaker_recognition.display_name} ({speaker_recognition.confidence_level})")
-
-                    # Worker thread: semantic retrieval is synchronous Chroma/
-                    # embedding work and blocked the event loop (issue #85).
-                    continuous_ctx = await asyncio.to_thread(
-                        build_continuous_context,
-                        user_id=ws_user_id,
-                        conversation_id=conversation_id,
-                        user_manager=user_manager,
-                        thread_manager=thread_manager,
-                        question_manager=question_manager,
-                        conversation_manager=conversation_manager,
-                        daemon_name="Cass",
-                        daemon_id=daemon_id,
-                        memory=memory,
-                        query=user_message,
-                        speaker_recognition=speaker_recognition,
+                speaker_recognition = None
+                if speaker_recognition_data:
+                    speaker_recognition = SpeakerRecognition(
+                        user_id=speaker_recognition_data.get("user_id"),
+                        display_name=speaker_recognition_data.get("display_name"),
+                        confidence=speaker_recognition_data.get("confidence", 0.0),
+                        confidence_level=speaker_recognition_data.get("confidence_level", "none"),
                     )
-                    continuous_system_prompt = continuous_ctx.system_prompt
-                    has_semantic = "semantic_memories" in continuous_ctx.context_sections
+                    print(f"[Voice] Speaker recognition: {speaker_recognition.display_name} ({speaker_recognition.confidence_level})")
 
-                    # Get recent message history for conversation continuity
-                    continuous_messages = get_recent_messages_for_continuous(
-                        conversation_manager=conversation_manager,
-                        conversation_id=conversation_id,
-                        limit=12  # Last 12 messages (6 exchanges)
-                    )
-                    print(f"[Continuous] Built system prompt: {continuous_ctx.token_estimate} tokens (estimated), semantic={has_semantic}, messages={len(continuous_messages)}")
-
-                # Initialize context tracking variables for the memory_summary display
-                # Actual context is built by continuous_context.build_continuous_context() above
-                hierarchical = {}
-                context_sizes = {}
-                memory_context = ""
-                user_context = ""
-                user_context_count = 0
-                intro_guidance = None
-                user_model_context = None
-                relationship_context = None
-                project_docs_count = 0
-                wiki_pages_count = 0
-                cross_session_insights_count = 0
-                pattern_count = 0
-                threads_context = ""
-                questions_context = ""
-                thread_count = 0
-                question_count = 0
-                tool_count = 0
-                unsummarized_count = 0
-
-                # Send "thinking" status with memory info
-                # Context is built by continuous_context.build_continuous_context() above
-                context_sizes = {"continuous": len(continuous_system_prompt) if continuous_system_prompt else 0}
-                memory_summary = {
-                    "summaries_count": len(hierarchical.get("summaries", [])),
-                    "details_count": len(hierarchical.get("details", [])),
-                    "project_docs_count": project_docs_count,
-                    "user_context_count": user_context_count,
-                    "wiki_pages_count": wiki_pages_count,
-                    "cross_session_insights_count": cross_session_insights_count,
-                    "pattern_count": pattern_count,
-                    "thread_count": thread_count,  # Active conversation threads
-                    "question_count": question_count,  # Open questions
-                    "tool_count": tool_count,  # Number of tools available (adds ~20k tokens)
-                    "has_context": bool(memory_context),
-                    "context_sizes": context_sizes  # Character counts per source
-                }
-                await websocket.send_json({
-                    "type": "thinking",
-                    "status": "Retrieving memories..." if memory_context else "Processing...",
-                    "memories": memory_summary,
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                tool_uses = []
-
-                # Update status before calling LLM
-                # Determine provider label for status messages
-                if current_llm_provider == LLM_PROVIDER_LOCAL:
-                    provider_label = "local model"
-                elif current_llm_provider == LLM_PROVIDER_OPENAI:
-                    provider_label = "OpenAI"
-                else:
-                    provider_label = "Claude"
-                await websocket.send_json({
-                    "type": "thinking",
-                    "status": f"Generating response ({provider_label})...",
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                tool_iterations_count = 0
-                total_cache_read_tokens = 0  # Track Anthropic prompt cache hits
-
-                # One shape for all three providers: send, then loop over tool
-                # calls. Every provider gets the continuous-context prompt and
-                # recent history (OpenAI/Ollama used to get neither), each turn
-                # carries its own ToolChain (the clients are shared singletons),
-                # tool exceptions become error results, and the loop is capped.
-                if current_llm_provider == LLM_PROVIDER_LOCAL and ollama_client:
-                    turn_client = ollama_client
-                    loop_label = "Ollama Tool Loop"
-                elif current_llm_provider == LLM_PROVIDER_OPENAI and openai_client:
-                    turn_client = openai_client
-                    loop_label = "OpenAI Tool Loop"
-                elif USE_AGENT_SDK and agent_client:
-                    turn_client = agent_client
-                    loop_label = "Tool Loop"
-                else:
-                    turn_client = None
-
-                processed = None
-                generated_images = []  # Track images generated during this request
-                if turn_client is not None:
-                    send_kwargs = dict(
-                        message=user_message,
-                        memory_context=memory_context,
-                        project_id=project_id,
-                        unsummarized_count=unsummarized_count,
-                        conversation_id=conversation_id,
-                        user_context=user_context if user_context else None,
-                        intro_guidance=intro_guidance,
-                        user_model_context=user_model_context,
-                        relationship_context=relationship_context,
-                        global_state_context=global_state_context,
-                        current_activity=current_activity,
-                        continuous_system_prompt=continuous_system_prompt,
-                        continuous_messages=continuous_messages,
-                    )
-                    if turn_client is agent_client:
-                        send_kwargs.update(
-                            image=image_data,
-                            image_media_type=image_media_type,
-                            memory=memory,
-                            threads_context=threads_context if threads_context else None,
-                            questions_context=questions_context if questions_context else None,
-                        )
-                    response = await turn_client.send_message(**send_kwargs)
-                    raw_response = response.raw
-                    clean_text = response.text
-                    animations = response.gestures
-                    tool_uses = response.tool_uses
-
-                    # Track token usage (accumulates across tool calls)
-                    total_input_tokens = response.input_tokens
-                    total_output_tokens = response.output_tokens
-                    total_cache_read_tokens = getattr(response, 'cache_read_tokens', 0) or 0
-                    turn_chain = response.chain
-
-                    # Handle tool calls
-                    tool_iteration = 0
-                    tool_cap = max_tool_iterations()
-                    while response.stop_reason == "tool_use" and tool_uses:
-                        if tool_iteration >= tool_cap:
-                            print(f"[WebSocket] Tool loop hit the cap ({tool_cap}); ending turn")
-                            await websocket.send_json({
-                                "type": "debug",
-                                "message": f"[{loop_label}] stopped after {tool_cap} iterations (CHAT_MAX_TOOL_ITERATIONS)",
-                                "timestamp": datetime.now().isoformat()
-                            })
-                            break
-                        tool_iteration += 1
-                        tool_iterations_count += 1
-                        # Send status update with debug info
-                        tool_names = [t['tool'] for t in tool_uses]
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[{loop_label} #{tool_iteration}] stop_reason={response.stop_reason}, tools={tool_names}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "thinking",
-                            "status": f"Executing: {', '.join(tool_names)}...",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        # Get user name for self-model tools
-                        user_name = None
-                        if ws_user_id:
-                            user_profile = user_manager.load_profile(ws_user_id)
-                            user_name = user_profile.display_name if user_profile else None
-
-                        # Execute all tools via unified router
-                        tool_ctx = create_tool_context(
-                            user_id=ws_user_id,
-                            user_name=user_name,
-                            conversation_id=conversation_id,
-                            project_id=project_id
-                        )
-                        all_tool_results = await execute_tools_safely(
-                            execute_tool_batch, tool_uses, tool_ctx, TOOL_EXECUTORS
-                        )
-
-                        # Extract any generated images from tool results
-                        generated_images.extend(extract_generated_images(tool_uses, all_tool_results))
-
-                        # Submit ALL results at once
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Submitting {len(all_tool_results)} tool results to the model...]",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        response = await turn_client.continue_with_tool_results(
-                            all_tool_results, chain=turn_chain
-                        )
-                        turn_chain = response.chain or turn_chain
-
-                        # Debug: log continuation response
-                        text_preview = response.text[:200] if response.text else "(empty)"
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Continuation] stop_reason={response.stop_reason}, has_text={bool(response.text)}, new_tools={len(response.tool_uses)}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                        await websocket.send_json({
-                            "type": "debug",
-                            "message": f"[Continuation text] {text_preview}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-
-                        if turn_client is agent_client:
-                            # Anthropic: keep every step's raw text (tags can
-                            # appear before a tool call), but only the final
-                            # clean text - intermediate "let me check..." text
-                            # wastes tokens when stored and loaded as context.
-                            raw_response += "\n" + response.raw
-                            if response.text:
-                                clean_text = response.text
-                            animations.extend(response.gestures)
-                        else:
-                            # OpenAI/Ollama: the last step replaces (unchanged behavior)
-                            raw_response = response.raw
-                            clean_text = response.text
-                            animations = response.gestures
-                        tool_uses = response.tool_uses
-
-                        # Accumulate token usage
-                        total_input_tokens += response.input_tokens
-                        total_output_tokens += response.output_tokens
-                        total_cache_read_tokens += getattr(response, 'cache_read_tokens', 0) or 0
-                else:
-                    # No client for the selected provider. The old raw-API
-                    # fallback (claude_client.py, now on attic/stabilization)
-                    # needed the same anthropic package, so it never ran.
-                    raise RuntimeError(
-                        f"No LLM client available for provider {current_llm_provider!r}"
-                    )
-
-                # Determine provider and model for this response (needed for conversation storage)
-                if turn_client is ollama_client and ollama_client:
-                    response_provider = "local"
-                    response_model = ollama_client.model
-                elif turn_client is openai_client and openai_client:
-                    response_provider = "openai"
-                    response_model = openai_client.model if hasattr(openai_client, 'model') else "gpt-4o"
-                elif turn_client is agent_client and agent_client:
-                    response_provider = "anthropic"
-                    response_model = agent_client.model if hasattr(agent_client, 'model') else DEFAULT_SESSION_MODEL
-                else:
-                    response_provider = "anthropic"
-                    response_model = DEFAULT_SESSION_MODEL
-
-                # Check for a <memory:summarize> request (legacy mode reports it via memory_tags)
-                if processed is not None:
-                    summarize_requested = bool(processed.get("memory_tags", {}).get("summarize"))
-                else:
-                    summarize_requested = "<memory:summarize>" in raw_response
-
-                # Tags, marks, Chroma + SQLite storage, tokens, title, summary.
-                # Shared with the mobile relay (finalize_chat_turn).
-                turn = await finalize_chat_turn(
+                result = await run_chat_turn(
                     user_message=user_message,
-                    raw_response=raw_response,
-                    clean_text=clean_text,
-                    animations=animations,
                     conversation_id=conversation_id,
                     user_id=ws_user_id,
-                    input_tokens=total_input_tokens,
-                    output_tokens=total_output_tokens,
-                    provider=response_provider,
-                    model=response_model,
-                    tool_iterations=tool_iterations_count,
-                    summarize_requested=summarize_requested,
+                    project_id=project_id,
+                    image=image_data,
+                    image_media_type=image_media_type,
+                    speaker_recognition=speaker_recognition,
+                    progress=websocket.send_json,
+                    extra_send_kwargs=dict(
+                        global_state_context=global_state_context,
+                        current_activity=current_activity,
+                    ),
                     websocket=websocket,
                 )
-                clean_text = turn["clean_text"]
-                marks = turn["marks"]
-                extracted_self_obs = turn["self_observations"]
-                extracted_user_obs = turn["user_observations"]
-                extracted_holds = turn["holds"]
-                extracted_notes = turn["notes"]
-                extracted_intentions = turn["intentions"]
-                extracted_stakes = turn["stakes"]
-                extracted_tests = turn["tests"]
-                extracted_narrations = turn["narrations"]
-                extracted_milestones = turn["milestones"]
-                extracted_feels = turn["feels"]
+                raw_response = result.raw_response
+                animations = result.animations
+                tool_uses = result.tool_uses
+                generated_images = result.generated_images
+                total_input_tokens = result.input_tokens
+                total_output_tokens = result.output_tokens
+                total_cache_read_tokens = result.cache_read_tokens
+                response_provider = result.provider
+                response_model = result.model
+                clean_text = result.clean_text
+                marks = result.marks
+                extracted_self_obs = result.extracted["self_observations"]
+                extracted_user_obs = result.extracted["user_observations"]
+                extracted_holds = result.extracted["holds"]
+                extracted_notes = result.extracted["notes"]
+                extracted_intentions = result.extracted["intentions"]
+                extracted_stakes = result.extracted["stakes"]
+                extracted_tests = result.extracted["tests"]
+                extracted_narrations = result.extracted["narrations"]
+                extracted_milestones = result.extracted["milestones"]
+                extracted_feels = result.extracted["feels"]
 
                 # Generate TTS audio if enabled
                 # Pass raw_response so emote tags can be extracted for tone adjustment

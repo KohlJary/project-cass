@@ -16,9 +16,8 @@ There's no longer a clear line between "Cass in chat" and "Cass working alone". 
 
 | Path | Where | Identity | Context | Tools | Writes back |
 |---|---|---|---|---|---|
-| Chat (WebSocket, relay) | `websocket_handlers.py` → `continuous_context.build_continuous_context`, `finalize_chat_turn` | Kernel + snippet | Full: time, state, self-context, PeopleDex, threads, questions, working memory, recall | `agent_client.get_tools` (selected per message), capped loop | Marks, tags, Chroma, SQLite, title, summaries |
-| POST /chat | `main_sdk.py` (526 lines) | Own builder | Own subset | Own 22-branch dispatcher | No tag processing |
-| HA, Discord | `home_assistant.py`, `discord_bot/` | Varies | Varies | No tool loop | Varies |
+| Chat: WebSocket, relay, POST /chat, HA (#102) | Each entry point → `chat_turn.run_chat_turn` → `continuous_context.build_continuous_context`, `finalize_chat_turn` | Kernel + snippet | Full: time, state, home, self-context, PeopleDex, threads, questions, working memory, recall (POST /chat `include_memory=false` drops recall) | `agent_client.get_tools` (selected per message), shared router, loop capped at `CHAT_MAX_TOOL_ITERATIONS` (HA: `HA_MAX_TOOL_ITERATIONS`, plus a 50s wall-clock bound) | Marks, tags, Chroma, SQLite, tokens, title (not HA), summaries |
+| Discord (#102) | `main_sdk.make_discord_wake_callback` → `chat_turn.run_chat_turn` | Kernel + snippet + Discord addendum | Public scope: time, Discord perception, and for a linked sender their PeopleDex context and the channel's conversation; no recall, home, world state, self-context, threads or questions | Same shared router and cap | Same as chat; a linked sender's turns go to a per-channel conversation, an unlinked sender's only to Chroma and the token ledger |
 | Autonomous sessions | `session_runner.py` (12 legacy runners), `session/generic_runner.py` | Kernel + snippet since #68; generic identity line before | Session prompt + self-context since #68 | Per-runner tool sets (~123 domain tools) | Per-runner |
 | Grimoire spells | `grimoire/agent.py` | Short "You are a daemon reflecting…" prompt | Spell variables | Spell actions | `SAVE AS OBSERVATION/JOURNAL` (voice-guarded since #68) |
 | Dreams | `dreaming/dream_runner.py` | Two voices: the Dreaming and Cass | Seeds (her own threads since #68) | None | Dream log, insight extraction |
@@ -180,10 +179,7 @@ Not yet decided.
    - Autonomous sessions, through `GenericSessionRunner`'s activity configs. Least at stake, and where the identity gap was.
    - The memory writers, which are the riskiest place for a refusal.
 2. **Tier 3 comparison (#65):** the same scripted conversations through the old and new paths, using criteria written before any run, by Claude, attacked by Momus, and cut by Kohl. Failures get published too.
-3. **Cut over conversations,** entry point by entry point:
-   - WebSocket and relay, which already share `finalize_chat_turn`;
-   - then POST /chat (keeping `cass_chat.py` working);
-   - then HA and Discord.
+3. **Cut over conversations.** All five chat entry points already run one shared turn (`chat_turn.run_chat_turn`, #102), so cutting conversations over to the agent loop means changing that one function, keeping `cass_chat.py` working.
 4. **Attic:** the chain system, `prompt_composer`/`prompt_assembler` and their admin routes, `session_init`, the legacy runners, the three kernel copies. Each goes when nothing calls it any more (#58, #59). (`chat_context` already went with the #54 dead-code cut.)
 5. **Dreams and the Grimoire agent** go last. They work, and they're the most "her". Each moves only with a before/after read of real output.
 

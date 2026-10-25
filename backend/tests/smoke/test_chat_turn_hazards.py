@@ -114,7 +114,10 @@ def test_overlapping_turns_do_not_cross_users(booted_app, fake_llm, monkeypatch)
         return [{"tool_use_id": t["id"], "result": f"result-for-{ctx.user_id}", "is_error": False}
                 for t in tool_uses]
 
-    monkeypatch.setattr(main_sdk, "execute_tool_batch", interleaving_batch)
+    # Every chat entry point runs tools through the shared turn
+    # (chat_turn.py), which takes the dispatcher from websocket_handlers._state.
+    import websocket_handlers
+    monkeypatch.setitem(websocket_handlers._state, "execute_tool_batch", interleaving_batch)
 
     async def both_turns():
         return await asyncio.gather(*[
