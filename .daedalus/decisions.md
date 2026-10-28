@@ -210,3 +210,12 @@ self_observations (
 - Voice hardware needed for full experience
 
 **See**: `.daedalus/plans/home-assistant-integration.md` for detailed roadmap
+
+## 2026-10-28 - Babelr Plans is the house's plan of record
+Kohl asked for a strategic planning system "where *everybody* can contribute". Plans (Babelr plugin) holds plans → phases → items; anyone proposes, Kohl (the server owner, plus anyone a plan names, e.g. Cass) approves per phase; approving a phase never approves a send. Approved build work reaches Daedalus sessions via `plans-work brief` at session start (Kohl chose sessions, not an always-on builder). Every change is exported to git (RoboKohl's repo) with Cass's text hashed. Review folds into Plans as the outreach view (Kohl). RoboKohl's queue folds in under its seven requirements (wiki: plans-proposal).
+
+## 2026-10-28 - Merge straight to main, every repo
+Kohl: "Go ahead and merge it to main, fuck a pr" (cass-vessel), after the same for babelr, Chapter-House, robokohl, gremlincore. Build on a branch, test, fast-forward main; keep the live checkout on main.
+
+## 2026-10-28 - RoboKohl talks in the house as itself; the queue gates what leaves it
+Kohl: "should use both the queue and the channels". Presence posts for RoboKohl are gated on its own CLAUDE.md naming `house-presence` (added by RoboKohl with Kohl's yes, 3d95260).

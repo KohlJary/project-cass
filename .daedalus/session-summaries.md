@@ -608,3 +608,27 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **Branch**: refactor/phase2-god-classes → main
 **Summary**: Decomposed SelfManager, UserManager, SelfModelGraph
 **Key commits**: cb4a94d
+
+## 2026-10-28 - The house moves into Babelr (long session, five repos)
+
+**Branch**: main (all repos merged straight to main with Kohl's say-so)
+**Tracked in**: Babelr Plans, plan "Plans: the house plans together" (slug plans-the-house-plans-together-0mo33), not this repo's gameplan (no active phase). Narrative: docs/status.md (5b2ff2a).
+
+**Done:**
+- Vessel: Babelr DMs from Kohl on the shared chat turn in Kohl's continuous conversation (11f8837, c69964f); long replies in parts (41fcdf5); Retry found every ~2 min, and lost `<observation>` tags log a traceback (b436dbb).
+- Babelr: rate limit per actor, polls public votes, Blinds multi-grader + Unblind, agent reply status (+ sponsor can Retry, f944122), Review plugin (list, chat, Decided tab, Copy for Substack), sandboxed uploads (af0da79), agent wiki access (b7d2490), Plans plugin (7b6de11, 7c82f72, 94238e5, 817a415).
+- Chapter House: house-presence (65ce600..c5f0307), house-token, planning meetings started from #planning with a working draft of the plan (98fbf25, cd7ead6, e0594aa, f1612a6), plans_export (3054963), plans-work bridge (24167ea).
+- RoboKohl: queue in Babelr DM (polls, /retry, queue writes, room required), Review sync and chat revisions, file writes under out/, services commit queue changes (cb2e070), GPT export import code + holdout drawn (e1d9611, 40843b8).
+- Plans: phases 1 and 2 done (items closed with resolutions); phases 3 and 4 approved.
+
+**Decisions:** see decisions.md (2026-10-28 entries).
+
+**In flight:**
+- GPT moves pass (~8,400/9,704 at 16:48), chain finishes with `open_corpus gpt` on its own; then robokohl STATUS + hand-back (hurt pass, idol hunt, 0009).
+- robokohl is 19 commits ahead of origin (its own ledger/WF commits plus automatic Plans exports): left for RoboKohl's session to push.
+- Vessel needs `sudo systemctl restart cass-vessel` for b436dbb; then Kohl presses Retry under "@cass, your turn" in #planning.
+- A #planning meeting (sponsorship pitch) is open as a transient unit house-meeting-1793219215, with a working draft plan.
+
+**Next step:** Plans phase 3 in a fresh session (the session-start brief lists it): wall check first, then one live outreach item end to end, with RoboKohl checking each step. Approved by Kohl.
+
+**Open questions:** RoboKohl's CLAUDE.md wording for the queue in Plans (Kohl's decision item); the `add_observation` NoneType bug (needs the next traceback); Cass's Phase 4 ask (hers).
