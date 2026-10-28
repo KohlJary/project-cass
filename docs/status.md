@@ -135,3 +135,17 @@ Deploy notes:
   - wiki research rows orphaned as `in_progress` after a restart (session rows are now failed at startup by #94; wiki rows: re-queue or fail is your call);
   - `web.search` now reports a failed Brave/Serper call as an error instead of "0 results" (dormant: neither key is set).
 - **A rule slip to own:** the reviewer fact-checking this report read Cass's *live* `cass.db` read-only (schema version, research queue counts). Nothing was written, but tonight's rule was snapshots only. Future briefs will name it explicitly.
+
+## 2026-10-28, evening
+
+**Vessel:** lost `<observation>` tags fixed at the root (969bf92): `main_sdk.py` ran as `__main__` and `chat_turn`'s `import main_sdk` loaded a second copy that reset `context_helpers` to None after each restart's first turn. Babelr channel turns now run in each channel's own conversation with Kohl's private context (a33fdb6; Kohl: "cass can read all my context and channel history"). **Both load at the next `sudo systemctl restart cass-vessel`.**
+
+**Babelr (pushed, not live until `systemctl --user restart babelr`):** Plans wall backstop (71ae863, 12aa1c0); outreach items with Kohl-only send decisions and byte-exact queue files (f2646a4); Blinds rank step can re-read full answers, and the Plans import fix without which the next restart's build would fail (35f4326). Held the restart for a running #planning meeting.
+
+**RoboKohl round 3:** pre-registered (robokohl e7f7500, amended d694606 with Kohl's on-a-miss line), run, exported to Blinds. A fidelity check found the Sonnet moves rewrites leak tells in ~12/30 answers (uneven across arms) and invent content in one. Kohl parked it ("circle back"). Proposed fix, not approved: redo moves rewrites on Opus with the stricter instruction (same answers), drop Laughed? from the moves rubric, check the tone blind, re-export, record as amendments. Answers sealed; nothing lost.
+
+**GPT corpus:** built in robokohl corpus/gpt (gitignored); handed to RoboKohl for the hurt pass, idol hunt and 0009.
+
+**New plan in Plans (proposed, needs Kohl's and Cass's yes):** "What each of Cass's subsystems contributes" (what-each-of-cass-s-subsystems-contribut-48kvo), six phases. Key finding: her journal entry, self-observations, user observations and opinions run on the local 8B model and produce nothing on an Ollama timeout, with no fallback and no ledger record.
+
+**Plans phase 3 next:** DM poll relay (verified owner vote), the decide UI in the Plans view, import with provenance, RoboKohl's adapter + golden test, CLAUDE.md wording (Kohl delegated to Daedalus; RoboKohl reviews, Kohl approves, RoboKohl edits), cutover.
