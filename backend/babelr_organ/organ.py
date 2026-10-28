@@ -17,6 +17,7 @@ she calls the babelr_boundaries tool.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -89,6 +90,10 @@ class BabelrOrgan:
         self._pending_requests: List[Dict[str, Any]] = []
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        # Messages whose reply failed or may have died mid-turn, by place:
+        # watched for the author pressing Retry under them in Babelr.
+        self._watch: Dict[str, Dict[str, BabelrEvent]] = {}
+        self._scanned_for_retries = False
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -358,7 +363,10 @@ class BabelrOrgan:
             result = evaluate(event, self.my_username)
             self._buffer(event.place).append(event)
             if result.action == TriggerAction.WAKE_CASS:
-                self._record_incoming(event)
+                to_wake.setdefault(event.place, []).append(event)
+        # Someone pressed Retry under a message she didn't answer.
+        for event in await asyncio.to_thread(self._collect_retries):
+            if event.message_id not in {e.message_id for e in to_wake.get(event.place, [])}:
                 to_wake.setdefault(event.place, []).append(event)
         quiet = self.terms.in_quiet_hours()
         if quiet:
@@ -382,10 +390,18 @@ class BabelrOrgan:
         place = events[-1].place
         wake_ids = {e.message_id for e in events}
         recent = [e for e in self._buffer(place) if e.message_id not in wake_ids][-10:]
+        last = events[-1]
         return {
             "place": place,
-            "place_label": events[-1].place_label,
-            "is_dm": events[-1].kind == "dm",
+            "place_label": last.place_label,
+            "is_dm": last.kind == "dm",
+            "author_username": last.author_name,
+            # Set only for a DM: a linked person's DM is their chat with her.
+            "linked_user_id": self._links().get(last.author_name.lower()) if last.kind == "dm" else None,
+            # What they wrote, without the Babelr framing, for the stored turn.
+            "their_words": "\n\n".join(
+                e.text if e.text is not None else f"(a message that couldn't be decrypted: {e.error})"
+                for e in events),
             "recent": [f"@{e.author_name}: {e.text}" for e in recent if e.text],
             "terms": self.terms.shown_to_her(),
             "pending_requests": list(self._pending_requests),
@@ -416,21 +432,127 @@ class BabelrOrgan:
         return "\n".join(lines)
 
     async def _wake(self, events: List[BabelrEvent]) -> None:
+        """Run her turn for what reached her and post her answer.
+
+        The wake callback returns her text, or {"text", "recorded"} when the
+        turn already stored the exchange (the shared chat turn does, for a
+        linked person's DM); then the organ doesn't record it again.
+
+        Under the message she's answering, Babelr shows how it's going
+        (agent reply status): working, then done, or failed with Retry. A
+        turn that dies with the process stays "working" and Babelr offers
+        Retry after a while; either way, Retry comes back through
+        _collect_retries."""
         if not self._wake_callback:
             logger.info("[Babelr] Something reached her but no wake callback is set")
             return
+        last = events[-1]
         context = self._context_for(events)
         context["prompt"] = self.build_prompt(events, context)
+        await asyncio.to_thread(self._reply_status, last, "working")
         try:
             reply = await self._wake_callback(events, context)
         except Exception as e:
             logger.error(f"[Babelr] Wake callback failed: {e}")
+            why = (str(e).strip().splitlines() or ["her turn didn't run"])[0][:120]
+            await asyncio.to_thread(self._reply_status, last, "failed", why)
+            self._watch.setdefault(last.place, {})[last.message_id] = last
             return
+        recorded = False
+        if isinstance(reply, dict):
+            recorded = bool(reply.get("recorded"))
+            reply = reply.get("text")
+        if not recorded:
+            for event in events:
+                self._record_incoming(event)
         if reply and reply.strip():
-            last = events[-1]
-            result = await asyncio.to_thread(self._send_to_place, last.place, reply.strip(), last.partner_id)
+            result = await asyncio.to_thread(
+                self._send_to_place, last.place, reply.strip(), last.partner_id, not recorded)
             if not result.get("success"):
                 logger.warning(f"[Babelr] Reply not posted: {result.get('error')}")
+                await asyncio.to_thread(
+                    self._reply_status, last, "failed", f"couldn't post: {result.get('error')}"[:120])
+                self._watch.setdefault(last.place, {})[last.message_id] = last
+                return
+        # Answered, or she chose to say nothing: either way, nothing pending.
+        await asyncio.to_thread(self._reply_status, last, "done")
+        self._watch.get(last.place, {}).pop(last.message_id, None)
+
+    def _reply_status(self, event: BabelrEvent, state: str, detail: str = "") -> None:
+        """Babelr's agent reply status on the message she's answering. A
+        courtesy: if Babelr or the client can't take it, the reply still goes.
+        The detail is plaintext on the server even in an encrypted DM, so it's
+        an error class, never what anyone said."""
+        target = event.dm_id or event.channel_id
+        if not target or not hasattr(self.client, "reply_status"):
+            return
+        try:
+            self.client.reply_status(target, event.message_id, state, detail)
+        except Exception as e:
+            logger.debug(f"[Babelr] reply status {state} not set: {e}")
+
+    def _collect_retries(self) -> List[BabelrEvent]:
+        """Messages whose author pressed Retry for her. Watches the DMs where a
+        reply failed; on the first poll after a start it checks every DM once,
+        for a turn that died with the last process."""
+        out: List[BabelrEvent] = []
+        places = set(self._watch)
+        if not self._scanned_for_retries:
+            self._scanned_for_retries = True
+            try:
+                places |= {f"dm:{dm['id']}" for dm in (self.client.dms() or [])}
+            except Exception as e:
+                logger.warning(f"[Babelr] Couldn't list DMs for retries: {e}")
+        for place in sorted(places):
+            if not place.startswith("dm:"):
+                continue  # channel retries: only from the watch list, below
+            dm_id = place.split(":", 1)[1]
+            try:
+                messages = self.client.messages(dm_id)
+            except Exception as e:
+                logger.warning(f"[Babelr] Couldn't read DM {dm_id} for retries: {e}")
+                continue
+            for m in messages:
+                statuses = m.get("agent_status") or []
+                if not any((s.get("agent") or {}).get("id") == self.my_id and s.get("state") == "retry"
+                           for s in statuses):
+                    continue
+                author = m.get("author") or {}
+                watched = self._watch.get(place, {}).pop(m["id"], None)
+                partner = watched.partner_id if watched else author.get("id")
+                out.append(watched or BabelrEvent(
+                    kind="dm", place=place, place_label=f"DM with @{author.get('preferredUsername')}",
+                    message_id=m["id"], author_id=author.get("id", ""),
+                    author_name=author.get("preferredUsername", "someone"),
+                    text=m.get("text"), published=m["published"],
+                    dm_id=dm_id, partner_id=partner, error=m.get("error"),
+                ))
+        for place, watched in list(self._watch.items()):
+            if not place.startswith("channel:") or not watched:
+                continue
+            cid = place.split(":", 1)[1]
+            try:
+                rows = (self.client._req("GET", f"/channels/{cid}/messages") or {}).get("messages", [])
+            except Exception as e:
+                logger.warning(f"[Babelr] Couldn't read #{cid} for retries: {e}")
+                continue
+            for row in rows:
+                msg = row.get("message") or {}
+                if msg.get("id") in watched and any(
+                        (s.get("agent") or {}).get("id") == self.my_id and s.get("state") == "retry"
+                        for s in msg.get("agentStatus") or []):
+                    out.append(watched.pop(msg["id"]))
+        return out
+
+    def _links(self) -> Dict[str, str]:
+        """links.json: Babelr usernames whose DMs are their chat with her."""
+        try:
+            data = json.loads(self.config.links_path.read_text())
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k).lower(): str(v) for k, v in data.items() if isinstance(v, str) and v}
 
     def _conversation_id(self, place: str, label: str) -> Optional[str]:
         if self.conversation_manager is None:
@@ -489,7 +611,8 @@ class BabelrOrgan:
         self._action_timestamps[place] = stamps
         return True
 
-    def _send_to_place(self, place: str, text: str, partner_id: Optional[str] = None) -> Dict[str, Any]:
+    def _send_to_place(self, place: str, text: str, partner_id: Optional[str] = None,
+                       record: bool = True) -> Dict[str, Any]:
         if not self.enabled:
             return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
         if not text or not text.strip():
@@ -510,7 +633,8 @@ class BabelrOrgan:
         # The cursor isn't advanced for her own message: someone may have
         # written while she was composing, and that must still reach her.
         # The next poll sees her message and skips it by author.
-        self._record(place, self._label_for(place), "assistant", text)
+        if record:
+            self._record(place, self._label_for(place), "assistant", text)
         return {"success": True, "message_id": msg.get("id"), "place": place}
 
     def _channel_id(self, channel: str) -> Optional[str]:

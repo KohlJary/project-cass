@@ -468,3 +468,88 @@ class TestNoLoss:
         babelr.channel_messages["chan-general"].append({"message": {"id": "broken"}, "author": KOHL})
         events = await organ.poll_once()
         assert [e.text for e in events] == ["hi"]
+
+
+
+class TestChatTurnAndReplyStatus:
+    """A linked person's DM is their chat with her; Babelr shows how her reply is going."""
+
+    async def test_a_linked_dm_carries_who_it_is_and_isnt_recorded_twice(self, make_organ, babelr):
+        recorder = _Recorder()
+        organ = make_organ(reply={"text": "Hey you.", "recorded": True}, recorder=recorder)
+        organ.start()
+        (organ.config.dir / "links.json").write_text('{"Kohl": "user-kohl"}')
+        await organ.poll_once()
+        dm_id = babelr.dm_from(KOHL, "it's me")
+        await organ.poll_once()
+
+        _, context = organ.wakes[0]
+        assert context["linked_user_id"] == "user-kohl" and context["their_words"] == "it's me"
+        assert babelr.agents[-1].sent == [("dm", dm_id, "Hey you.")]
+        assert recorder.messages == []  # the chat turn stored it
+
+    async def test_unlinked_dms_and_mentions_carry_no_user(self, make_organ, babelr):
+        organ = make_organ(reply="hi")
+        organ.start()
+        (organ.config.dir / "links.json").write_text('{"kohl": "user-kohl"}')
+        await organ.poll_once()
+        babelr.dm_from(ROBOKOHL, "yo")
+        babelr.say("general", KOHL, "@cass hi")  # a mention is never a private chat
+        await organ.poll_once()
+        assert {c["place_label"]: c["linked_user_id"] for _, c in organ.wakes} == {
+            "DM with @robokohl": None, "#general": None}
+
+    async def test_reply_status_working_then_done(self, make_organ, babelr):
+        seen = []
+        organ = make_organ(reply=lambda e, c: seen.append(dict(babelr.statuses)) or "ok")
+        organ.start()
+        await organ.poll_once()
+        babelr.dm_from(KOHL, "hello")
+        await organ.poll_once()
+        msg_id = babelr.dm_messages[next(iter(babelr.dm_messages))][0]["id"]
+        assert seen[0][msg_id]["state"] == "working"  # while she composes
+        assert babelr.statuses[msg_id]["state"] == "done"
+
+    async def test_a_failed_turn_shows_failed_and_retry_wakes_her_again(self, make_organ, babelr):
+        calls = []
+
+        def reply(events, context):
+            calls.append(events[-1].text)
+            if len(calls) == 1:
+                raise RuntimeError("usage limit reached\nmore")
+            return "Here now."
+
+        organ = make_organ(reply=reply)
+        organ.start()
+        await organ.poll_once()
+        dm_id = babelr.dm_from(KOHL, "you there?")
+        await organ.poll_once()
+        msg_id = babelr.dm_messages[dm_id][0]["id"]
+        assert babelr.statuses[msg_id] == {"state": "failed", "detail": "usage limit reached"}
+        assert babelr.agents[-1].sent == []
+
+        await organ.poll_once()  # nobody pressed Retry: nothing happens
+        assert calls == ["you there?"]
+        babelr.press_retry(msg_id)
+        await organ.poll_once()
+        assert calls == ["you there?", "you there?"]
+        assert babelr.agents[-1].sent == [("dm", dm_id, "Here now.")]
+        assert babelr.statuses[msg_id]["state"] == "done"
+
+    async def test_a_retry_left_from_before_a_restart_is_picked_up(self, make_organ, babelr):
+        first = make_organ(reply=None)
+        first.start()
+        await first.poll_once()
+        dm_id = babelr.dm_from(KOHL, "hi")
+        await first.poll_once()
+        msg_id = babelr.dm_messages[dm_id][0]["id"]
+        # The process died mid-turn: the status was left at working, and Kohl
+        # pressed Retry before the vessel came back.
+        babelr.statuses[msg_id] = {"state": "working", "detail": ""}
+        babelr.press_retry(msg_id)
+
+        second = make_organ(reply="back")  # the restart: same state dir
+        second.start()
+        await second.poll_once()
+        assert babelr.agents[-1].sent == [("dm", dm_id, "back")]
+        assert babelr.statuses[msg_id]["state"] == "done"

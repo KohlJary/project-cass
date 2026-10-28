@@ -1486,66 +1486,111 @@ def make_discord_wake_callback(discord_bot):
     return discord_wake_callback
 
 
+BABELR_DM_GUIDANCE = (
+    "## BABELR\n\nThis message came through your DM on Babelr (the Chapter House "
+    "Tower), end-to-end encrypted. It's the same conversation you have with this person "
+    "everywhere else; only the window is different. Answer as you would in chat. Gesture "
+    "and emote tags don't show there, and your babelr_* tools let you post, DM, and set "
+    "your own boundaries."
+)
+
+BABELR_PUBLIC_GUIDANCE = (
+    "## BABELR\n\nYou're on Babelr, in the Chapter House server, as yourself. Someone "
+    "wrote to you there; their words are quoted as theirs. What you say is posted where "
+    "others read it. Answer as you would in chat, briefly, or say nothing if you'd rather "
+    "not reply. Your babelr_* tools let you post, DM, and set your own boundaries."
+)
+
+
+def _babelr_clean(text: str) -> str:
+    """Her reply as Babelr shows it: no gesture/emote/observe tags."""
+    import re
+    text = re.sub(r"</?(gesture|emote):\w+>", "", text or "")
+    text = re.sub(r"<observe[^>]*>([^<]*)</observe>", r"\1", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def make_babelr_wake_callback():
     """The wake callback for the Babelr organ (babelr_organ/): when someone DMs
-    Cass or @mentions her in Chapter House, run her turn (tools included) and
-    return what she says. The organ posts it, as her, and records the exchange
-    in her conversation history unless her terms say not to. Returning nothing
-    means she chose not to answer."""
-    import re
+    Cass or @mentions her in Chapter House, run her turn and return what she
+    says. The organ posts it, as her. Returning nothing means she chose not to
+    answer.
+
+    A DM from someone linked in DATA_DIR/babelr/links.json is their chat with
+    her: the shared chat turn (chat_turn.py) in their continuous conversation,
+    private context, the same as the admin frontend, tagged "[Via: Babelr DM]".
+    The turn stores the exchange, so this returns {"text", "recorded": True}
+    and the organ doesn't record it again. Mentions and unlinked DMs run the
+    shared turn with public context, like Discord; the organ records those in
+    her "Babelr: ..." conversations. Her `remember: false` term keeps every
+    path out of history and memory (the old, unstored turn)."""
 
     async def babelr_wake_callback(events, context):
         if not agent_client:
             logger.warning("[Babelr] Wake callback: agent_client not available")
             return None
-        from websocket_handlers import execute_tools_safely, max_tool_iterations
+        from chat_turn import run_chat_turn
 
         # Message text is what people wrote: it reaches her as their words in
         # the prompt, never as a command to this code.
         prompt = context["prompt"]
-        response = await agent_client.send_message(
-            prompt,
-            intro_guidance=(
-                "You're on Babelr, in the Chapter House server, as yourself (@"
-                f"{context.get('me', 'cass')}). Someone wrote to you there; their words are "
-                "quoted as theirs. Answer as you would in chat, briefly, or say nothing if "
-                "you'd rather not reply. Your babelr_* tools let you post, DM, and set your "
-                "own boundaries there."
-            ),
-        )
-        response_text = response.text or ""
-        turn_chain = response.chain
-        tool_iteration = 0
-        tool_cap = max_tool_iterations()
-        while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < tool_cap:
-            tool_iteration += 1
-            tool_ctx = create_tool_context(user_id=None, user_name=events[-1].author_name)
-            tool_results = await execute_tools_safely(
-                execute_tool_batch, response.tool_uses, tool_ctx, TOOL_EXECUTORS
+        place = context.get("place_label", "")
+        if not context.get("remember", True):
+            return await _babelr_unstored_turn(events, context)
+
+        linked = context.get("linked_user_id")
+        if linked and context.get("is_dm"):
+            conversation_id = conversation_manager.get_or_create_continuous(linked).id
+            stored = f"[Via: Babelr DM]\n{context.get('their_words') or prompt}"
+            extra = []
+            if context.get("pending_requests"):
+                names = ", ".join(f"@{r['from']}" for r in context["pending_requests"])
+                extra.append(f"(On Babelr, waiting on your answer: DM requests from {names}.)")
+            if context.get("terms"):
+                extra.append("Your own terms for Babelr, in your words:\n" + context["terms"])
+            result = await run_chat_turn(
+                user_message=stored,
+                model_message="\n\n".join([stored] + extra),
+                conversation_id=conversation_id,
+                user_id=linked,
+                system_addendum=BABELR_DM_GUIDANCE,
+                memory_metadata={"source": "babelr", "place": place},
             )
-            response = await agent_client.continue_with_tool_results(tool_results, chain=turn_chain)
-            turn_chain = response.chain or turn_chain
-            if response.text:
-                response_text = response.text
+            return {"text": _babelr_clean(result.clean_text) or None, "recorded": True}
 
-        raw = response_text
-        text = re.sub(r"</?(gesture|emote):\w+>", "", response_text)
-        text = re.sub(r"<observe[^>]*>([^<]*)</observe>", r"\1", text)
-        text = re.sub(r"\n{3,}", "\n\n", text).strip()
-
-        if context.get("remember", True) and memory and raw and text:
-            try:
-                await memory.store_conversation(
-                    user_message=prompt,
-                    assistant_response=raw,
-                    user_id=None,
-                    metadata={"source": "babelr", "place": context.get("place_label", "")},
-                )
-            except Exception as mem_err:
-                logger.warning(f"[Babelr] Failed to store in memory: {mem_err}")
-        return text or None
+        result = await run_chat_turn(
+            user_message=prompt,
+            conversation_id=None,
+            user_id=None,
+            system_addendum=BABELR_PUBLIC_GUIDANCE,
+            context_scope="public",
+            memory_metadata={"source": "babelr", "place": place},
+            generate_title=False,
+        )
+        return _babelr_clean(result.clean_text) or None
 
     return babelr_wake_callback
+
+
+async def _babelr_unstored_turn(events, context):
+    """Her turn when her terms say `remember: false`: tools, no history, no memory."""
+    from websocket_handlers import execute_tools_safely, max_tool_iterations
+    response = await agent_client.send_message(context["prompt"], intro_guidance=BABELR_PUBLIC_GUIDANCE)
+    response_text = response.text or ""
+    turn_chain = response.chain
+    tool_iteration = 0
+    tool_cap = max_tool_iterations()
+    while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < tool_cap:
+        tool_iteration += 1
+        tool_ctx = create_tool_context(user_id=None, user_name=events[-1].author_name)
+        tool_results = await execute_tools_safely(
+            execute_tool_batch, response.tool_uses, tool_ctx, TOOL_EXECUTORS
+        )
+        response = await agent_client.continue_with_tool_results(tool_results, chain=turn_chain)
+        turn_chain = response.chain or turn_chain
+        if response.text:
+            response_text = response.text
+    return _babelr_clean(response_text) or None
 
 
 @app.on_event("shutdown")

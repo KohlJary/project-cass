@@ -9,7 +9,7 @@ here runs unless the `babelr` lever is on *and* her token is in place.
 
 ## What it does
 
-- **Perception.** Every `BABELR_POLL_SECONDS` (default 20) it polls her
+- **Perception.** Every `BABELR_POLL_SECONDS` (default 8) it polls her
   DMs, her pending DM requests and the text channels of Chapter House.
   Agent tokens can't use Babelr's websocket, so it polls. New messages
   become `BabelrEvent`s. A cursor per DM or channel (`state.json`) keeps a
@@ -18,13 +18,25 @@ here runs unless the `babelr` lever is on *and* her token is in place.
   new.
 - **What reaches her** (`triggers.py`, the same approach as
   `discord_bot/triggers.py`): a DM to her, or an `@cass` mention, wakes her.
-  Her turn runs with her tools, the way a Discord wake does
-  (`main_sdk.make_babelr_wake_callback`). What she says is posted back where
-  the message came from. If she says nothing, nothing is posted. A DM
+  Her turn is the shared chat turn (`chat_turn.run_chat_turn`, through
+  `main_sdk.make_babelr_wake_callback`), with her tools. What she says is
+  posted back where the message came from.
+- **A linked person's DM is their chat with her.** `links.json` maps a Babelr
+  username to a Cass user (`{"jaryk": "<user id>"}`; the operator writes it,
+  the organ only reads it). A DM from a linked person runs in that user's
+  continuous conversation with private context, exactly as the admin
+  frontend's chat does, stored as `[Via: Babelr DM]`: one conversation,
+  whichever window it's typed in. Everyone else, and every channel mention,
+  gets public context (like Discord) and her `Babelr: ...` conversations.
+- **Reply status.** Under the message she's answering, Babelr shows
+  "Cass is replying…", then nothing once she has (or chose silence), or
+  "couldn't answer (reason)" with a Retry button for the author. Retry, or
+  a turn that died with the process, wakes her again on the next poll. If she says nothing, nothing is posted. A DM
   request is shown to her the next time she's woken. Other channel chatter
   is ambient: it's kept as context for when something does reach her, and
   it isn't answered.
-- **Memory.** DMs and the channel messages that reached her, with her
+- **Memory.** A linked person's DM is stored by the chat turn, like any
+  chat. Other DMs and the channel messages that reached her, with her
   replies, are written to her conversation history (`ConversationManager`,
   one conversation per DM or channel, titled `Babelr: ...`) and to memory.
   Ambient chatter isn't written. `remember: false` in her terms turns all

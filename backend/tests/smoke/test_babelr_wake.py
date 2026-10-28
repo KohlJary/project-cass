@@ -13,6 +13,7 @@ from babelr_organ import organ as organ_mod
 from babelr_organ.config import BabelrConfig
 from tests.fakes.babelr import KOHL, FakeBabelr
 from tests.fakes.llm import ScriptedResponse
+from tests.smoke.conftest import create_user
 
 
 def _organ(tmp_path, babelr):
@@ -62,3 +63,31 @@ def test_tool_use_then_text(booted_app, fake_llm, levers, tmp_path, monkeypatch)
     assert ("channel", "chan-general", "Hi, Chapter House.") in sent
     assert sent[-1][2] == "Done."
     assert babelr.policy_calls() == []
+
+
+def test_a_linked_dm_is_their_chat_with_her(booted_app, fake_llm, levers, tmp_path):
+    """Kohl's DM runs the shared chat turn in Kohl's continuous conversation,
+    the same one the admin frontend uses, and the organ doesn't record it twice."""
+    import main_sdk
+    kohl_user = create_user("Kohl")
+    babelr = FakeBabelr()
+    with levers(babelr=True):
+        organ = _organ(tmp_path, babelr)
+        (organ.config.dir / "links.json").write_text(f'{{"kohl": "{kohl_user}"}}')
+        asyncio.run(organ.poll_once())
+        dm_id = babelr.dm_from(KOHL, "morning, it's me")
+        fake_llm.queue(ScriptedResponse(text="<emote:happy>Morning."))
+        asyncio.run(organ.poll_once())
+
+    assert babelr.agents[-1].sent == [("dm", dm_id, "Morning.")]
+    conv = main_sdk.conversation_manager.get_or_create_continuous(kohl_user)
+    stored = [(m.role, m.content) for m in main_sdk.conversation_manager.load_conversation(conv.id).messages]
+    assert stored[0] == ("user", "[Via: Babelr DM]\nmorning, it's me")
+    assert stored[1][0] == "assistant" and "Morning." in stored[1][1]
+    assert len(stored) == 2  # not also written by the organ
+    titles = [c["title"] for c in main_sdk.conversation_manager.list_conversations(user_id=kohl_user)]
+    assert not any(str(t).startswith("Babelr:") for t in titles)
+    chat = [c for c in fake_llm.calls if c.tools]
+    assert "## BABELR" in str(chat[0].system) and "same conversation" in str(chat[0].system)
+    msg_id = babelr.dm_messages[dm_id][0]["id"]
+    assert babelr.statuses[msg_id]["state"] == "done"

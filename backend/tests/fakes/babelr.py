@@ -34,6 +34,9 @@ class FakeBabelr:
         self.dm_messages: Dict[str, List[dict]] = {}
         self.requests: List[dict] = []
         self.calls: List[tuple] = []
+        # Agent reply status per message id: {"state", "detail"}; history in status_log.
+        self.statuses: Dict[str, dict] = {}
+        self.status_log: List[tuple] = []
         self.agents: List["FakeAgent"] = []
 
     def _stamp(self) -> str:
@@ -70,6 +73,11 @@ class FakeBabelr:
         self.requests.append({"id": dm_id, "participants": [CASS, author],
                               "request": {"state": "pending", "incoming": True}})
         return dm_id
+
+    def press_retry(self, message_id: str) -> None:
+        """The message's author presses Retry under it in Babelr."""
+        assert self.statuses[message_id]["state"] in ("failed", "working", "retry")
+        self.statuses[message_id] = {"state": "retry", "detail": ""}
 
     def policy_calls(self) -> List[tuple]:
         return [c for c in self.calls if c[0] != "GET" and any(r in c[1] for r in POLICY_ROUTES)]
@@ -118,7 +126,19 @@ class FakeAgent:
 
     def messages(self, dm_id: str, partner_id: Optional[str] = None) -> List[dict]:
         self.server.calls.append(("GET", f"/dms/{dm_id}/messages", None))
-        return list(reversed(self.server.dm_messages[dm_id]))  # newest first, like the server
+        out = []
+        for m in reversed(self.server.dm_messages[dm_id]):  # newest first, like the server
+            st = self.server.statuses.get(m["id"])
+            out.append({**m, "agent_status": [{"agent": {"id": CASS["id"]}, **st}] if st else []})
+        return out
+
+    def reply_status(self, channel_id: str, message_id: str, state: str, detail: str = "") -> dict:
+        self.server.calls.append(("PUT", f"/channels/{channel_id}/messages/{message_id}/agent-status",
+                                  {"state": state, "detail": detail}))
+        assert state in ("working", "failed", "done")
+        self.server.statuses[message_id] = {"state": state, "detail": detail}
+        self.server.status_log.append((message_id, state))
+        return {"state": state}
 
     def _req(self, method: str, path: str, body: Any = None) -> Any:
         self.server.calls.append((method, path, body))

@@ -58,6 +58,13 @@ class BabelrConfig:
     def terms_path(self) -> Path:
         return self.dir / "terms.json"
 
+    @property
+    def links_path(self) -> Path:
+        """{"<babelr username>": "<cass user id>"}: whose DMs are their chat
+        with her (the shared chat turn, their continuous conversation). Written
+        by the operator; the organ only reads it."""
+        return self.dir / "links.json"
+
 
 def load_config(data_dir: Path | None = None) -> BabelrConfig:
     """Read the config from the environment. `data_dir` defaults to config.DATA_DIR."""
@@ -71,7 +78,7 @@ def load_config(data_dir: Path | None = None) -> BabelrConfig:
         server_name=os.getenv("BABELR_SERVER", "Chapter House"),
         dir=base,
         token_file=token_file,
-        poll_seconds=max(5, _int_env("BABELR_POLL_SECONDS", 20)),
+        poll_seconds=max(5, _int_env("BABELR_POLL_SECONDS", 8)),
         rate_limit_messages=max(1, _int_env("BABELR_RATE_LIMIT_MESSAGES", 5)),
         rate_limit_window=max(1, _int_env("BABELR_RATE_LIMIT_WINDOW", 60)),
     )
