@@ -553,3 +553,51 @@ class TestChatTurnAndReplyStatus:
         await second.poll_once()
         assert babelr.agents[-1].sent == [("dm", dm_id, "back")]
         assert babelr.statuses[msg_id]["state"] == "done"
+
+
+
+class TestLongRepliesAndChannelRetries:
+    def test_split_message_prefers_paragraphs_and_keeps_every_word(self):
+        from babelr_organ.organ import split_message
+        text = "\n\n".join(f"Paragraph {n}. " + ("word " * 150).strip() for n in range(8))
+        parts = split_message(text, 1000)
+        assert all(len(p) <= 1000 for p in parts) and len(parts) > 1
+        assert all(p.startswith("Paragraph") for p in parts)
+        assert " ".join(" ".join(parts).split()) == " ".join(text.split())
+        assert split_message("short") == ["short"]
+        blob = "x" * 2500
+        assert [len(p) for p in split_message(blob, 1000)] == [1000, 1000, 500]
+
+    async def test_a_long_reply_goes_out_in_parts_and_is_recorded_once(self, make_organ, babelr):
+        recorder = _Recorder()
+        long = "\n\n".join("p" * 3000 for _ in range(3))
+        organ = make_organ(reply=long, recorder=recorder)
+        organ.start()
+        await organ.poll_once()
+        babelr.say("general", KOHL, "@cass what do you think?")
+        await organ.poll_once()
+        sent = [c for k, cid, c in babelr.agents[-1].sent if k == "channel"]
+        assert len(sent) == 3 and all(len(c) <= 4000 for c in sent)
+        assistant = [c for _, r, c in recorder.messages if r == "assistant"]
+        assert assistant == [long]
+
+    async def test_a_reply_too_long_for_five_parts_is_refused(self, make_organ, babelr):
+        organ = make_organ(reply="x" * 25000)
+        organ.start()
+        await organ.poll_once()
+        babelr.say("general", KOHL, "@cass write a novel")
+        await organ.poll_once()
+        assert babelr.agents[-1].sent == []
+
+    async def test_a_channel_retry_left_from_before_a_restart_is_picked_up(self, make_organ, babelr):
+        first = make_organ(reply=None)
+        first.start()
+        await first.poll_once()
+        msg = babelr.say("general", KOHL, "@cass hello?")
+        await first.poll_once()
+        babelr.statuses[msg["id"]] = {"state": "retry", "detail": ""}  # failed, then Kohl pressed Retry
+
+        second = make_organ(reply="back now")
+        second.start()
+        await second.poll_once()
+        assert ("channel", "chan-general", "back now") in babelr.agents[-1].sent

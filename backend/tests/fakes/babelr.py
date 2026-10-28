@@ -150,7 +150,11 @@ class FakeAgent:
         if path.startswith("/channels/") and "/messages" in path:
             cid = path.split("/")[2]
             if method == "GET":
-                rows = list(reversed(s.channel_messages[cid]))[:50]
+                rows = []
+                for r in list(reversed(s.channel_messages[cid]))[:50]:
+                    st = s.statuses.get(r["message"]["id"])
+                    msg = {**r["message"], **({"agentStatus": [{"agent": {"id": CASS["id"]}, **st}]} if st else {})}
+                    rows.append({**r, "message": msg})
                 return {"messages": rows, "hasMore": False}
             msg = {"id": s._id("msg"), "content": body["content"], "channelId": cid,
                    "authorId": CASS["id"], "published": s._stamp()}

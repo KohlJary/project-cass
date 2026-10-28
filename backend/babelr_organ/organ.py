@@ -48,6 +48,35 @@ logger = logging.getLogger("babelr_organ")
 BUFFER_PER_PLACE = 50
 CHANNEL_FETCH_LIMIT = 50
 MAX_MESSAGE_CHARS = 4000
+# A reply longer than one message goes out in parts, at paragraph boundaries
+# (a 4.2k answer in #planning was refused outright on 2026-10-28). Past this
+# many parts it's refused: that's not a chat reply any more.
+MAX_PARTS = 5
+
+
+def split_message(text: str, limit: int = MAX_MESSAGE_CHARS) -> List[str]:
+    """Split text into parts no longer than `limit`: at paragraph breaks where it
+    can, then line breaks, then sentence ends, then wherever it has to."""
+    text = text.strip()
+    if len(text) <= limit:
+        return [text]
+    parts: List[str] = []
+    rest = text
+    while len(rest) > limit:
+        window = rest[:limit]
+        cut = -1
+        for sep in ("\n\n", "\n", ". ", " "):
+            i = window.rfind(sep)
+            if i > limit // 3:
+                cut = i + (1 if sep == ". " else 0)
+                break
+        if cut <= 0:
+            cut = limit
+        parts.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        parts.append(rest)
+    return parts
 CHANNEL_REFRESH_POLLS = 15  # re-list the server's channels every N polls
 
 DM_POLICIES = ("anyone", "friends", "members_of_shared_servers", "nobody")
@@ -497,15 +526,19 @@ class BabelrOrgan:
         for a turn that died with the last process."""
         out: List[BabelrEvent] = []
         places = set(self._watch)
-        if not self._scanned_for_retries:
+        first_scan = not self._scanned_for_retries
+        if first_scan:
             self._scanned_for_retries = True
             try:
                 places |= {f"dm:{dm['id']}" for dm in (self.client.dms() or [])}
             except Exception as e:
                 logger.warning(f"[Babelr] Couldn't list DMs for retries: {e}")
+        if first_scan:  # a channel message left failed or stuck by the last process
+            for cid in self._channels:
+                self._watch.setdefault(f"channel:{cid}", {})
         for place in sorted(places):
             if not place.startswith("dm:"):
-                continue  # channel retries: only from the watch list, below
+                continue  # channels: below
             dm_id = place.split(":", 1)[1]
             try:
                 messages = self.client.messages(dm_id)
@@ -528,7 +561,7 @@ class BabelrOrgan:
                     dm_id=dm_id, partner_id=partner, error=m.get("error"),
                 ))
         for place, watched in list(self._watch.items()):
-            if not place.startswith("channel:") or not watched:
+            if not place.startswith("channel:") or not (watched or first_scan):
                 continue
             cid = place.split(":", 1)[1]
             try:
@@ -538,10 +571,19 @@ class BabelrOrgan:
                 continue
             for row in rows:
                 msg = row.get("message") or {}
-                if msg.get("id") in watched and any(
-                        (s.get("agent") or {}).get("id") == self.my_id and s.get("state") == "retry"
-                        for s in msg.get("agentStatus") or []):
+                if not any((s.get("agent") or {}).get("id") == self.my_id and s.get("state") == "retry"
+                           for s in msg.get("agentStatus") or []):
+                    continue
+                if msg.get("id") in watched:
                     out.append(watched.pop(msg["id"]))
+                elif first_scan:
+                    author = row.get("author") or {}
+                    out.append(BabelrEvent(
+                        kind="channel", place=place, place_label=f"#{self._channels.get(cid, {}).get('name', cid)}",
+                        message_id=msg["id"], author_id=author.get("id", ""),
+                        author_name=author.get("preferredUsername", "someone"),
+                        text=msg.get("content"), published=msg.get("published", ""), channel_id=cid,
+                    ))
         return out
 
     def _links(self) -> Dict[str, str]:
@@ -617,19 +659,26 @@ class BabelrOrgan:
             return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
         if not text or not text.strip():
             return {"success": False, "error": "nothing to send"}
-        if len(text) > MAX_MESSAGE_CHARS:
-            return {"success": False, "error": f"message over {MAX_MESSAGE_CHARS} characters"}
+        parts = split_message(text, MAX_MESSAGE_CHARS)
+        if len(parts) > MAX_PARTS:
+            return {"success": False, "error": f"message over {MAX_PARTS * MAX_MESSAGE_CHARS} characters"}
+        # One reply is one post for the rate limit, however many parts it takes.
         if not self._check_rate_limit(place):
             return {"success": False, "error": "Rate limited"}
         kind, pid = place.split(":", 1)
-        try:
-            if kind == "dm":
-                sent = self.client.send(pid, text, partner_id=partner_id)
-            else:
-                sent = self.client._req("POST", f"/channels/{pid}/messages", {"content": text})
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-        msg = (sent or {}).get("message", sent or {})
+        msg: Dict[str, Any] = {}
+        for n, part in enumerate(parts):
+            try:
+                if kind == "dm":
+                    sent = self.client.send(pid, part, partner_id=partner_id)
+                else:
+                    sent = self.client._req("POST", f"/channels/{pid}/messages", {"content": part})
+            except Exception as e:
+                if n == 0:
+                    return {"success": False, "error": str(e)}
+                # Part of it went out: say what did, rather than pretend none did.
+                return {"success": False, "error": f"posted {n} of {len(parts)} parts: {e}"}
+            msg = msg or (sent or {}).get("message", sent or {})
         # The cursor isn't advanced for her own message: someone may have
         # written while she was composing, and that must still reach her.
         # The next poll sees her message and skips it by author.
