@@ -1564,16 +1564,29 @@ def make_babelr_wake_callback():
             )
             return {"text": _babelr_clean(result.clean_text) or None, "recorded": True}
 
+        # A channel turn runs in the channel's own conversation (its history),
+        # with the linked person's private context when the organ names one
+        # (Chapter House: Kohl's say-so, 2026-10-28); otherwise public context.
+        conversation_id = None if context.get("is_dm") else context.get("conversation_id")
+        channel_user = None if context.get("is_dm") else context.get("channel_user_id")
+        stored = prompt
+        if conversation_id:
+            stored = "\n\n".join(
+                f"[Babelr {place}] @{e.author_name}: "
+                + (e.text if e.text is not None else f"(a message that couldn't be decrypted: {e.error})")
+                for e in events)
         result = await run_chat_turn(
-            user_message=prompt,
-            conversation_id=None,
-            user_id=None,
+            user_message=stored,
+            model_message=prompt,
+            conversation_id=conversation_id,
+            user_id=channel_user,
             system_addendum=BABELR_PUBLIC_GUIDANCE,
-            context_scope="public",
+            context_scope="private" if channel_user else "public",
             memory_metadata={"source": "babelr", "place": place},
             generate_title=False,
         )
-        return _babelr_clean(result.clean_text) or None
+        text = _babelr_clean(result.clean_text) or None
+        return {"text": text, "recorded": True} if conversation_id else text
 
     return babelr_wake_callback
 

@@ -26,8 +26,14 @@ here runs unless the `babelr` lever is on *and* her token is in place.
   the organ only reads it). A DM from a linked person runs in that user's
   continuous conversation with private context, exactly as the admin
   frontend's chat does, stored as `[Via: Babelr DM]`: one conversation,
-  whichever window it's typed in. Everyone else, and every channel mention,
-  gets public context (like Discord) and her `Babelr: ...` conversations.
+  whichever window it's typed in. Other DMs get public context (like
+  Discord) and her `Babelr: ...` conversations.
+- **A channel turn runs in that channel's conversation** (`Babelr: #name`),
+  so she has her history there, stored once by the chat turn. It carries the
+  private context of the linked person who woke her, or, in a private server
+  with one linked person (Chapter House), that person's, since meetings relay
+  turns to her from agents' accounts. Kohl, 2026-10-28: "cass can read all my
+  context and channel history". A public server gets public context.
 - **Reply status.** Under the message she's answering, Babelr shows
   "Cass is replying…", then nothing once she has (or chose silence), or
   "couldn't answer (reason)" with a Retry button for the author. Retry, or

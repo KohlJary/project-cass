@@ -499,6 +499,41 @@ class TestChatTurnAndReplyStatus:
         assert {c["place_label"]: c["linked_user_id"] for _, c in organ.wakes} == {
             "DM with @robokohl": None, "#general": None}
 
+    async def test_a_channel_turn_carries_its_conversation_and_the_linked_persons_context(self, make_organ, babelr):
+        recorder = _Recorder()
+        organ = make_organ(reply={"text": "On it.", "recorded": True}, recorder=recorder)
+        organ.start()
+        (organ.config.dir / "links.json").write_text('{"kohl": "user-kohl"}')
+        await organ.poll_once()
+        babelr.say("general", KOHL, "@cass what do you think?")
+        await organ.poll_once()
+        _, context = organ.wakes[0]
+        assert context["channel_user_id"] == "user-kohl"
+        assert context["conversation_id"] == "conv-1" and recorder.created == [("conv-1", "Babelr: #general")]
+        assert recorder.messages == []  # the chat turn stored it
+
+    async def test_in_a_private_server_an_agents_mention_carries_the_one_linked_person(self, make_organ, babelr):
+        # Kohl, 2026-10-28: "cass can read all my context and channel history".
+        # Meetings relay turns to her from agents' accounts, so the author isn't Kohl.
+        organ = make_organ(reply="ok")
+        babelr.server["isPublic"] = False
+        organ.start()
+        (organ.config.dir / "links.json").write_text('{"kohl": "user-kohl"}')
+        await organ.poll_once()
+        babelr.say("general", ROBOKOHL, "@cass your turn")
+        await organ.poll_once()
+        assert organ.wakes[0][1]["channel_user_id"] == "user-kohl"
+
+    async def test_a_public_server_gives_an_unlinked_mention_public_context(self, make_organ, babelr):
+        organ = make_organ(reply="ok")
+        babelr.server["isPublic"] = True
+        organ.start()
+        (organ.config.dir / "links.json").write_text('{"kohl": "user-kohl"}')
+        await organ.poll_once()
+        babelr.say("general", ROBOKOHL, "@cass your turn")
+        await organ.poll_once()
+        assert organ.wakes[0][1]["channel_user_id"] is None
+
     async def test_reply_status_working_then_done(self, make_organ, babelr):
         seen = []
         organ = make_organ(reply=lambda e, c: seen.append(dict(babelr.statuses)) or "ok")

@@ -425,13 +425,19 @@ class BabelrOrgan:
         wake_ids = {e.message_id for e in events}
         recent = [e for e in self._buffer(place) if e.message_id not in wake_ids][-10:]
         last = events[-1]
+        links = self._links()
         return {
             "place": place,
             "place_label": last.place_label,
             "is_dm": last.kind == "dm",
             "author_username": last.author_name,
             # Set only for a DM: a linked person's DM is their chat with her.
-            "linked_user_id": self._links().get(last.author_name.lower()) if last.kind == "dm" else None,
+            "linked_user_id": links.get(last.author_name.lower()) if last.kind == "dm" else None,
+            # Channels: whose private context her turn carries, and the
+            # channel's own conversation for its history (None = public turn).
+            "channel_user_id": self._channel_user(last, links) if last.kind != "dm" else None,
+            "conversation_id": (self._conversation_id(place, last.place_label)
+                                if last.kind != "dm" and self.terms.remember else None),
             # What they wrote, without the Babelr framing, for the stored turn.
             "their_words": "\n\n".join(
                 e.text if e.text is not None else f"(a message that couldn't be decrypted: {e.error})"
@@ -442,6 +448,18 @@ class BabelrOrgan:
             "remember": self.terms.remember,
             "me": self.my_username,
         }
+
+    def _channel_user(self, event: BabelrEvent, links: Dict[str, str]) -> Optional[str]:
+        """Whose private context a channel turn carries. The linked person who
+        woke her; or, in a private server (Chapter House) with one linked
+        person, that person, since agents relay turns there too. Kohl
+        (2026-10-28): "cass can read all my context and channel history".
+        A public server, or several linked people, gets public context."""
+        if event.author_name.lower() in links:
+            return links[event.author_name.lower()]
+        if self._server and self._server.get("isPublic") is False and len(set(links.values())) == 1:
+            return next(iter(links.values()))
+        return None
 
     def build_prompt(self, events: List[BabelrEvent], context: Dict[str, Any]) -> str:
         """Her turn's message: who said what, where. Their words are quoted as theirs."""

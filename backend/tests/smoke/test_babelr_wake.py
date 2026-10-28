@@ -91,3 +91,29 @@ def test_a_linked_dm_is_their_chat_with_her(booted_app, fake_llm, levers, tmp_pa
     assert "## BABELR" in str(chat[0].system) and "same conversation" in str(chat[0].system)
     msg_id = babelr.dm_messages[dm_id][0]["id"]
     assert babelr.statuses[msg_id]["state"] == "done"
+
+
+def test_a_channel_mention_runs_in_the_channels_conversation(booted_app, fake_llm, levers, tmp_path):
+    """A channel turn carries the channel's own history and, for a linked
+    person, their private context; the exchange is stored once, by the turn."""
+    import main_sdk
+    kohl_user = create_user("Kohl")
+    babelr = FakeBabelr()
+    with levers(babelr=True):
+        organ = _organ(tmp_path, babelr)
+        (organ.config.dir / "links.json").write_text(f'{{"kohl": "{kohl_user}"}}')
+        asyncio.run(organ.poll_once())
+        babelr.say("general", KOHL, "@cass first thing")
+        fake_llm.queue(ScriptedResponse(text="First answer."))
+        asyncio.run(organ.poll_once())
+        babelr.say("general", KOHL, "@cass second thing")
+        fake_llm.queue(ScriptedResponse(text="Second answer."))
+        asyncio.run(organ.poll_once())
+
+    conv_id = organ.state.conversation_for("channel:chan-general")
+    stored = [(m.role, m.content) for m in main_sdk.conversation_manager.load_conversation(conv_id).messages]
+    assert stored[0] == ("user", "[Babelr #general] @kohl: @cass first thing")
+    assert [r for r, _ in stored] == ["user", "assistant", "user", "assistant"]  # not twice
+    chat = [c for c in fake_llm.calls if c.tools]
+    second = chat[-1]
+    assert "First answer." in str(second.messages)  # her history in the channel
