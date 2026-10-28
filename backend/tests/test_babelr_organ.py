@@ -601,3 +601,16 @@ class TestLongRepliesAndChannelRetries:
         second.start()
         await second.poll_once()
         assert ("channel", "chan-general", "back now") in babelr.agents[-1].sent
+
+    async def test_a_retry_pressed_after_startup_is_found_by_the_periodic_scan(self, make_organ, babelr, monkeypatch):
+        from babelr_organ import organ as organ_mod
+        monkeypatch.setattr(organ_mod, "RETRY_SCAN_POLLS", 2)
+        organ = make_organ(reply="here")
+        organ.start()
+        await organ.poll_once()  # the startup scan: nothing to retry yet
+        msg = babelr.say("general", ROBOKOHL, "@cass, your turn")  # a meeting runner's prompt
+        babelr.statuses[msg["id"]] = {"state": "retry", "detail": ""}  # Kohl pressed Retry, later
+        organ.state.mark_seen(f"channel:chan-general", msg["id"], msg["published"])  # already seen
+        for _ in range(3):
+            await organ.poll_once()
+        assert ("channel", "chan-general", "here") in babelr.agents[-1].sent

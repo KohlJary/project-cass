@@ -52,6 +52,11 @@ MAX_MESSAGE_CHARS = 4000
 # (a 4.2k answer in #planning was refused outright on 2026-10-28). Past this
 # many parts it's refused: that's not a chat reply any more.
 MAX_PARTS = 5
+# Retries are looked for in every DM and channel this often (in polls; about
+# two minutes at the default poll), besides the places with a failed reply on
+# the watch list, which are checked every poll. A Retry pressed when nothing
+# was watching it (a restart, a reply that died with the process) still lands.
+RETRY_SCAN_POLLS = 15
 
 
 def split_message(text: str, limit: int = MAX_MESSAGE_CHARS) -> List[str]:
@@ -526,7 +531,7 @@ class BabelrOrgan:
         for a turn that died with the last process."""
         out: List[BabelrEvent] = []
         places = set(self._watch)
-        first_scan = not self._scanned_for_retries
+        first_scan = not self._scanned_for_retries or self._polls % RETRY_SCAN_POLLS == 0
         if first_scan:
             self._scanned_for_retries = True
             try:

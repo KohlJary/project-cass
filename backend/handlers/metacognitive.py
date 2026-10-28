@@ -227,7 +227,9 @@ async def execute_observation(obs: ParsedObservation, ctx: MetacognitiveContext)
             return {"success": False, "error": f"Unknown target: {obs.target}"}
 
     except Exception as e:
-        logger.error(f"[metacognitive] Error executing observation: {e}")
+        # With the traceback: a lost observation is her data quietly dropped, and
+        # "'NoneType' object has no attribute 'add_observation'" alone doesn't say where.
+        logger.exception(f"[metacognitive] Error executing observation: {e}")
         from strict import report_swallowed
         report_swallowed(e, "Inline <observation> tag", logger)
         return {"success": False, "error": str(e)}
