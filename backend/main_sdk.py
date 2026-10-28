@@ -8,6 +8,12 @@ This version leverages Anthropic's official Agent SDK for:
 - The "initializer agent" pattern with our cognitive architecture
 """
 import sys
+if __name__ == "__main__":
+    # Run as `python main_sdk.py`, this file is `__main__`. Without the alias,
+    # a later `import main_sdk` (chat_turn, benchmarks) loads a second copy,
+    # whose module-level init_context_helpers() resets self_manager to None:
+    # every inline <observation> after the first chat turn was lost that way.
+    sys.modules.setdefault("main_sdk", sys.modules[__name__])
 sys.stdout.reconfigure(line_buffering=True)
 print("=== MAIN_SDK.PY LOADING ===", flush=True)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request, BackgroundTasks, Query

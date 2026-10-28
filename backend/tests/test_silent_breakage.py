@@ -559,3 +559,19 @@ def test_two_dreams_in_the_same_second_both_store(test_db):
     assert ids[0] != ids[1]
     with get_db() as conn:
         assert conn.execute("SELECT COUNT(*) FROM dreams WHERE id IN (?, ?)", ids).fetchone()[0] == 2
+
+
+# ---------------------------------------------------------------------------
+# Inline <observation> tags after the first chat turn
+# ---------------------------------------------------------------------------
+
+def test_main_sdk_run_as_script_is_importable_as_itself():
+    """`python main_sdk.py` runs as __main__; chat_turn's `import main_sdk`
+    loaded a second copy whose module-level init_context_helpers() reset
+    self_manager to None ('NoneType' has no attribute 'add_observation').
+    The alias must be set before any other import can reach main_sdk."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "main_sdk.py").read_text()
+    alias = src.index('sys.modules.setdefault("main_sdk", sys.modules[__name__])')
+    first_other_import = min(src.index(s) for s in ("\nfrom ", "\nimport os"))
+    assert alias < first_other_import
