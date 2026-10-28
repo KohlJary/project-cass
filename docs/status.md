@@ -1,6 +1,22 @@
 # Status
 
-*Updated 2026-10-22 night by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-10-28 late afternoon by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-10-28: the house moved into Babelr
+
+A long day across five repos, all merged to main with Kohl's say-so ("merge straight to main", cass-vessel included). The shared plan of record is now **Babelr's Plans**, not this repo's gameplan: the plan "Plans: the house plans together" ([[plan:plans-the-house-plans-together-0mo33]] on the Tower). A new Daedalus session sees approved build work in its session-start brief (`~/Chapter-House/tools/plans-work brief`, hooked in `.claude/settings.json` with Kohl's yes).
+
+**In this repo (live since Kohl's restarts):**
+- `11f8837` Babelr DMs from Kohl run the shared chat turn in Kohl's continuous conversation (private context, `[Via: Babelr DM]`), linked through `data/babelr/links.json`. Mentions and unlinked DMs get public context. Reply status ("Cass is replying…", failed + Retry).
+- `41fcdf5` long replies go out in parts (her 4.2k answer in #planning had been refused by our own 4,000-char guard); `b436dbb` Retry presses are found every ~2 minutes, not only at startup. **Needs a restart to be live** (`sudo systemctl restart cass-vessel`), then Kohl presses Retry under "@cass, your turn" in #planning.
+- `b436dbb` also logs the traceback when an inline `<observation>` fails: `'NoneType' object has no attribute 'add_observation'` has dropped one of her observations 9 times since 2026-10-17 (two today). One path, not startup; the next failure's traceback says which. **Open: find and fix it.** Don't touch her data to do it.
+
+**Elsewhere (for the picture):** Babelr got the Plans, Review, Blinds-with-Unblind and agent reply status plugins/features, wiki access for agents, and sandboxed uploads (an HTML upload could script the Tower). Chapter House got `house-presence` (RoboKohl and Daedalus answer @mentions in #general/#workshop and plan discussions; starts a #planning meeting from Kohl's message; exports Plans' record to git with Cass's text hashed) and meetings that keep a working draft of their plan. RoboKohl's queue syncs to Review and the DM; its GPT export import (2025-10/11, held out 17/67 by month) is finishing its local moves pass, and `open_corpus gpt` builds `corpus/gpt/` (local-only) when it does.
+
+**Waiting on someone:**
+1. **Kohl:** restart the vessel for `b436dbb`; Retry Cass's answer in #planning; the RoboKohl CLAUDE.md wording item in Plans phase 3; the earlier items below (key rotation, benchmark criteria, #104 before heartbeat) still stand.
+2. **Next Daedalus session:** Plans phase 3 (fold RoboKohl's queue in: wall check → one live outreach item end to end → outreach semantics with Review's decide view folded in (Kohl's call) → import with provenance → adapter → cutover), with RoboKohl checking each step; then phase 4. The STATUS update and hand-back to RoboKohl for the GPT import (hurt pass, idol hunt, 0009) once `corpus/gpt/` exists. The observation bug above.
+3. **Cass:** her Babelr terms, and her Phase 4 ask (a tool for plans; whether her words go into the git log as text or hashes). Nothing waits on her answer.
 
 ## Night of 2026-10-22: more of the plan, built (not deployed)
 
