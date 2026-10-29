@@ -792,3 +792,43 @@ def test_usage_view_carries_failures(monkeypatch):
     site = usage["memory.journal_entry"]
     assert site["failures"]["lost"] == 1
     assert site["failure_rate"] == 0.4  # 2 failed of 5 attempts
+
+
+# ---------------------------------------------------------------------------
+# Recording real inputs for model comparison (llm_recording, off by default)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+@needs_sdk
+def test_recording_is_off_by_default(fake_llm, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    fake_llm.queue_text("A title")
+    asyncio.run(llm_caller.call_llm("title_generation", user_prompt="hello there"))
+    assert not (tmp_path / "llm_recordings").exists()
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_recording_writes_the_exact_input_and_output(fake_llm, tmp_path, monkeypatch, levers):
+    import json as _json
+    import config
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setenv("CASS_LLM_RECORD_SITES", "title_generation")
+    fake_llm.queue_text("A title")
+    fake_llm.queue_text("journal")
+    with levers(llm_recording=True):
+        asyncio.run(llm_caller.call_llm("title_generation", system_prompt="Title it.", user_prompt="hello there"))
+        asyncio.run(llm_caller.call_llm("wiki.enrich_page", user_prompt="not this one"))
+    rows = [_json.loads(line) for line in (tmp_path / "llm_recordings" / "title_generation.jsonl").read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]["system_prompt"] == "Title it."
+    assert rows[0]["messages"] == [{"role": "user", "content": "hello there"}] and rows[0]["output"] == "A title"
+    assert not (tmp_path / "llm_recordings" / "wiki.enrich_page.jsonl").exists()
+
+
+@pytest.mark.unit
+def test_pinned_sites_are_never_recorded(monkeypatch, levers):
+    monkeypatch.delenv("CASS_LLM_RECORD_SITES", raising=False)
+    with levers(llm_recording=True):
+        sites = llm_caller._recording_sites()
+    assert "chat" not in sites and "dreaming.cass_voice" not in sites and "title_generation" in sites

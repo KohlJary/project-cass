@@ -88,6 +88,16 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("results")
     analyze.add_argument("--baseline", default="full")
 
+    replay = sub.add_parser("replay", help="replay recorded inputs of one call site on several models (phase 6)")
+    replay.add_argument("--recordings", required=True, help="a llm_recordings directory")
+    replay.add_argument("--site", required=True)
+    replay.add_argument("--model", action="append", required=True, metavar="PROVIDER:MODEL",
+                        help="first one is the reference")
+    replay.add_argument("--judge", metavar="PROVIDER:MODEL")
+    replay.add_argument("--n", type=int, default=30)
+    replay.add_argument("--budget-usd", type=float, required=True)
+    replay.add_argument("--out", required=True, help="results JSON (holds her prompts: keep it out of the repo)")
+
     destroy = sub.add_parser("destroy", help="delete a sealed store")
     destroy.add_argument("sealed")
 
@@ -203,6 +213,25 @@ def cmd_seal(args) -> int:
     return 0
 
 
+def cmd_replay(args) -> int:
+    import json
+    from . import replay as rp
+    from .isolation import REPO_DIR
+    out = Path(args.out).resolve()
+    if REPO_DIR.resolve() in out.parents:
+        print("refused: --out must be outside the repository (it holds her prompts)", file=sys.stderr)
+        return 4
+    rows = rp.sample(rp.load(Path(args.recordings), args.site), args.n)
+    targets = [Target.parse(m) for m in args.model]
+    judge = Target.parse(args.judge) if args.judge else None
+    report = rp.run(rows, targets, judge, args.budget_usd)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"site": args.site, **report}, indent=1))
+    print(rp.render(report, args.site))
+    print(f"Results: {out}; spent ${report['spent_usd']:.4f}")
+    return 0
+
+
 def cmd_destroy(args) -> int:
     from . import store as store_mod
     try:
@@ -234,6 +263,8 @@ def main(argv=None) -> int:
         return cmd_seal(args)
     if args.cmd == "destroy":
         return cmd_destroy(args)
+    if args.cmd == "replay":
+        return cmd_replay(args)
     if args.cmd == "analyze":
         import json
         from .analysis import render

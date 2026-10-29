@@ -177,6 +177,11 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "recent observations) where her own sessions and journal read it: solo reflection, "
            "research and generic session runners, and the nightly journal entry",
            PROMPT, where="session_runner._build_self_context, journal_generation.write_daily_journal"),
+    _lever("llm_recording", "Record each answered text LLM call (prompt and output) to "
+           "DATA_DIR/llm_recordings/<call site>.jsonl, for comparing models on real inputs "
+           "(benchmark plan phase 6). CASS_LLM_RECORD_SITES narrows it to a list. Never chat or "
+           "dreams. Local files only; they hold her prompts", default=False,
+           where="llm_caller._record_io"),
     _lever("metacog_tags", "Inline metacognitive tags: the kernel's instructions for them, and writing "
            "what she tags (observations, holds, threads, questions, PeopleDex...) to her stores. Off: "
            "no instructions, and any tags are stripped from replies without being stored",

@@ -151,6 +151,8 @@ def test_executor_discards_the_copy_even_when_the_cell_fails(source, tmp_path, m
     seen = {}
 
     def boom(cell, spec, cell_dir, data_dir, extra_prices=None):
+        (data_dir / "llm_recordings").mkdir()
+        (data_dir / "llm_recordings" / "title_generation.jsonl").write_text("{}\n")
         seen["had_db"] = (data_dir / "cass.db").exists()
         seen["dir"] = data_dir
         raise RuntimeError("cell crashed")
@@ -160,6 +162,7 @@ def test_executor_discards_the_copy_even_when_the_cell_fails(source, tmp_path, m
     with pytest.raises(RuntimeError):
         ex(cell, {})
     assert seen["had_db"] and not seen["dir"].exists()
+    assert (seen["dir"].parent / "llm_recordings" / "title_generation.jsonl").exists()
 
 
 @pytest.mark.unit

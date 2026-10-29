@@ -199,6 +199,11 @@ class SubprocessExecutor:
         finally:
             if self.store is not None:
                 from . import store as store_mod
+                # Recorded LLM inputs (llm_recording) outlive the copy: phase 6 replays them.
+                rec = data_dir / "llm_recordings"
+                if rec.is_dir():
+                    import shutil
+                    shutil.move(str(rec), str(cell_dir / "llm_recordings"))
                 store_mod.discard(data_dir)
 
     def _run(self, cell: Cell, spec: dict, cell_dir: Path, data_dir: Path, extra_prices=None) -> dict:

@@ -34,6 +34,7 @@ import os
 import time
 import uuid
 from typing import Any, Optional
+from pathlib import Path
 
 import httpx
 
@@ -186,6 +187,48 @@ def _record_failed(call_site: str, resp: "LLMResponse", started: float, ledger: 
     else:
         return
     record_failure(call_site, resp.provider, resp.model_id, kind, error, started, ledger, fell_back)
+
+
+RECORD_SITES_ENV = "CASS_LLM_RECORD_SITES"
+
+
+def _recording_sites() -> Optional[set]:
+    """Call sites to record (benchmark plan phase 6), or None when recording is off.
+
+    The llm_recording lever (off by default) turns it on; CASS_LLM_RECORD_SITES
+    narrows it to a comma-separated list. Pinned sites (chat, dreams) are never
+    recorded: her voice stays on Claude, so there is nothing to compare.
+    """
+    try:
+        import features
+        if not features.is_enabled("llm_recording"):
+            return None
+    except Exception:
+        return None
+    names = {n.strip() for n in os.environ.get(RECORD_SITES_ENV, "").split(",") if n.strip()}
+    return names or {n for n, s in CALL_SITES.items() if not s.pinned}
+
+
+def _record_io(call_site: str, req: "_Request", resp: "LLMResponse", started: float) -> None:
+    """Append one answered text call to DATA_DIR/llm_recordings/<site>.jsonl. Never raises."""
+    try:
+        sites = _recording_sites()
+        if sites is None or call_site not in sites or resp.error is not None:
+            return
+        import json
+        from config import DATA_DIR
+        out = Path(DATA_DIR) / "llm_recordings"
+        out.mkdir(parents=True, exist_ok=True, mode=0o700)
+        row = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "call_site": call_site,
+               "system_prompt": req.system_prompt, "messages": req.messages, "use_chat": req.use_chat,
+               "max_tokens": req.max_tokens, "temperature": req.temperature, "json_mode": req.json_mode,
+               "provider": resp.provider, "model": resp.model_id, "output": resp.content,
+               "rejected": resp.rejected, "duration_ms": int((time.time() - started) * 1000)}
+        with open(out / f"{call_site}.jsonl", "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except Exception as e:
+        from strict import report_swallowed
+        report_swallowed(e, f"llm recording ({call_site})")
 
 
 def _attempts(assignment: Optional[ModelAssignment]) -> list:
@@ -531,6 +574,7 @@ async def call_llm(
         _record_response(call_site, resp, started, ledger)
         resp, ok = _finish(call_site, resp, accept)
         if ok:
+            _record_io(call_site, req, resp, started)
             return resp
         stop = _stop_on_exception(call_site, resp)
         _record_failed(call_site, resp, started, ledger, fell_back=not stop and i + 1 < len(attempts))
@@ -564,6 +608,7 @@ def call_llm_sync(
         _record_response(call_site, resp, started, ledger)
         resp, ok = _finish(call_site, resp, accept)
         if ok:
+            _record_io(call_site, req, resp, started)
             return resp
         stop = _stop_on_exception(call_site, resp)
         _record_failed(call_site, resp, started, ledger, fell_back=not stop and i + 1 < len(attempts))
