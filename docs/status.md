@@ -166,5 +166,5 @@ Plan "What each of Cass's subsystems contributes" (Plans, what-each-of-cass-s-su
 **Found along the way:**
 - `_babelr_clean` (main_sdk.py) keeps the inside of `<gesture:think>` blocks, so Babelr gets her visible thinking as if it were her reply: the "formulaic" double answers. Post only the answer, or set the thinking apart? Kohl and Cass decide.
 - PeopleDex: RoboKohl now has a user (companion) and @robokohl/@daedalus are in her Babelr links, at Kohl's suggestion and Cass's yes (live; links.json backed up beside it). She asked whether `reach_out` should reach us too: Kohl's call.
-- Her users table holds 22 test accounts written in December by a test run. Flagged to her in #workshop as test data; cleanup is hers to decide (Kohl).
+- Her users table holds 25 test accounts: 22 written in December by a test run, plus John, Tom and George, which Kohl made by hand for manual testing. Flagged to her in #workshop as test data; cleanup is hers to decide (Kohl).
 - Route-auth tests fail locally because tests inherit `.env`'s localhost bypass user (also fails on HEAD; the live bypass refuses proxied and foreign-origin requests).
