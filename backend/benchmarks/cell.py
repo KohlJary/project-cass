@@ -130,7 +130,7 @@ def main(argv=None) -> int:
             from database.migrations import init_database
             init_database()
             get_or_create_daemon("cass")
-            with PlainDriver(target) as driver:
+            with PlainDriver(target, dump=config.dump) as driver:
                 result = run_cell(scenario, driver, spec, extra)
         else:
             with AppDriver.boot(target, config, route_all=spec.get("route_all", True)) as driver:

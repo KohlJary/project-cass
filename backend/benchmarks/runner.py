@@ -295,7 +295,7 @@ def run_plan(plan: Plan, executor: Callable, judge: Judge, cap_usd: float,
         "judge_is_target": plan.judge_is_target,
         "targets": sorted({c.target.label for c in plan.cells}),
         "configs": [{"name": c.name, "driver": c.driver, "levers": c.levers, "meaningful": c.meaningful,
-                     "caveat": c.caveat} for c in {c.config.name: c.config for c in plan.cells}.values()],
+                     "caveat": c.caveat, "dump": c.dump} for c in {c.config.name: c.config for c in plan.cells}.values()],
         "criteria": criteria,
         # The sealed store the cells ran against (store.seal), or None for fresh cells.
         "store": store,

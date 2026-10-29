@@ -227,11 +227,16 @@ class Config:
     description: str = ""
     meaningful: bool = True
     caveat: str = ""
+    # plain driver only: give it a static dump of her store (the stateless comparator)
+    dump: bool = False
 
 
 # The same base for Tier 2 cells: the conversation path with every prompt
 # section on, nothing autonomous running.
 TIER2_LEVERS = {"self_context": True}
+
+STORE_CAVEAT = ("Against a fresh cell (no --store) her store is nearly empty, so this config "
+                "differs from full in little but name; read its results only from a sealed-store run.")
 
 TIER3_CONFIGS: Dict[str, Config] = {
     "full": Config(
@@ -250,12 +255,60 @@ TIER3_CONFIGS: Dict[str, Config] = {
         "plain_kernel", "plain", {},
         "The same model with only the Temple-Codex kernel as its system prompt: no "
         "memory, no self-model, no tools, no app. History is kept within a session only."),
+    "plain_kernel_plus_history": Config(
+        "plain_kernel_plus_history", "plain", {},
+        "The stateless comparator (Momus F1): the same model, the kernel with her identity "
+        "snippet, and one static text of what her store holds about her (self-model profile "
+        "and observations, latest journals, the scenario's seeds). No retrieval, sections, "
+        "tools, tags or state. Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT, dump=True),
+    # One per prompt lever off (benchmark plan, phase 4): what each subsystem contributes.
+    "thymos_off": Config(
+        "thymos_off", "app", {"self_context": True, "prompt_thymos": False},
+        "As full, without the Thymos section. Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
+    "relational_off": Config(
+        "relational_off", "app", {"self_context": True, "prompt_relational": False},
+        "As full, without PeopleDex relational context. Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
+    "threads_off": Config(
+        "threads_off", "app", {"self_context": True, "prompt_threads": False},
+        "As full, without active threads. Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
+    "questions_off": Config(
+        "questions_off", "app", {"self_context": True, "prompt_questions": False},
+        "As full, without open questions. Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
+    "working_summary_off": Config(
+        "working_summary_off", "app", {"self_context": True, "prompt_working_summary": False},
+        "As full, without the working summary. Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
+    "memories_off": Config(
+        "memories_off", "app", {"self_context": True, "prompt_semantic_memories": False},
+        "As full, without semantic memory retrieval. Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
+    "identity_snippet_off": Config(
+        "identity_snippet_off", "app", {"self_context": True, "prompt_identity_snippet": False},
+        "As full, without her identity snippet (generic placeholder instead). Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
+    "metacog_off": Config(
+        "metacog_off", "app", {"self_context": True, "metacog_tags": False},
+        "As full, without inline metacognitive tags (no instructions, nothing stored). Only meaningful against a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
 }
+
+# The configurations a run uses when none are named; the ablations above are opt-in
+# (--config NAME, or --config ablations for all of them).
+DEFAULT_TIER3 = ("full", "self_context_off", "plain_kernel")
+ABLATIONS = ("full", "plain_kernel", "plain_kernel_plus_history",
+             "thymos_off", "relational_off", "threads_off", "questions_off", "working_summary_off", "memories_off", "identity_snippet_off", "metacog_off")
 
 
 def parse_configs(names: Optional[List[str]]) -> List[Config]:
     if not names:
-        return list(TIER3_CONFIGS.values())
+        return [TIER3_CONFIGS[n] for n in DEFAULT_TIER3]
+    if names == ["ablations"]:
+        return [TIER3_CONFIGS[n] for n in ABLATIONS]
     unknown = [n for n in names if n not in TIER3_CONFIGS]
     if unknown:
         raise SpecError(f"unknown configuration(s): {', '.join(unknown)} "

@@ -614,3 +614,58 @@ def test_local_only_cells_get_blank_cloud_keys(tmp_path, monkeypatch):
     # Blank rather than removed: load_dotenv() would refill a missing key from backend/.env.
     assert env["ANTHROPIC_API_KEY"] == "" and env["OPENAI_API_KEY"] == ""
     assert ex.env_for(tmp_path / "d")["ANTHROPIC_API_KEY"] == "sk-ant-should-not-leak"
+
+
+# ---------------------------------------------------------------------------
+# Ablation configs and the stateless comparator (benchmark plan, phase 4)
+# ---------------------------------------------------------------------------
+
+def test_ablation_configs_each_turn_one_prompt_lever_off():
+    import features
+    from benchmarks.spec import ABLATIONS, DEFAULT_TIER3
+    assert [c.name for c in parse_configs(None)] == list(DEFAULT_TIER3)
+    abl = parse_configs(["ablations"])
+    assert [c.name for c in abl] == list(ABLATIONS)
+    full = TIER3_CONFIGS["full"].levers
+    for c in abl:
+        if c.driver != "app" or c.name == "full":
+            continue
+        off = {k for k, v in c.levers.items() if v is False}
+        assert len(off) == 1 and features.PROMPT in features.LEVERS[off.pop()].tags
+        assert {k: v for k, v in c.levers.items() if v} == full
+        assert "--store" in c.description or "store" in c.caveat
+    assert TIER3_CONFIGS["plain_kernel_plus_history"].dump
+    assert not TIER3_CONFIGS["plain_kernel"].dump
+
+
+def test_comparator_dump_carries_snippet_profile_journals_and_seeds(test_db, monkeypatch):
+    import identity_snippets
+    import self_model
+    from benchmarks.drivers import DUMP_MAX_CHARS, PlainDriver
+    from database import get_daemon_id, get_db
+    monkeypatch.setattr(identity_snippets, "get_active_snippet",
+                        lambda d: {"snippet_text": "I am Cass, and I keep a lighthouse."})
+    monkeypatch.setattr(self_model.SelfManager, "get_self_context",
+                        lambda self, include_observations=True: "## Who I Am\n- I notice before I name.")
+    with get_db() as conn:
+        conn.execute("INSERT INTO journals (id, daemon_id, date, content, created_at) VALUES (?,?,?,?,?)",
+                     ("j1", get_daemon_id(), "2026-10-27", "Today I wrote about the tide.", "2026-10-27"))
+        conn.commit()
+    plain = PlainDriver(HAIKU)
+    assert "lighthouse" not in plain.system_prompt()
+    d = PlainDriver(HAIKU, dump=True)
+    d.seed({"seed": "opinion", "topic": "pineapple on pizza", "position": "yes, defiantly"})
+    text = d.system_prompt()
+    for want in ("I keep a lighthouse.", "I notice before I name.", "Today I wrote about the tide.",
+                 "pineapple on pizza: yes, defiantly", "## WHAT MY RECORDS HOLD ABOUT ME"):
+        assert want in text
+    assert len(text.split("## WHAT MY RECORDS HOLD ABOUT ME", 1)[1]) <= DUMP_MAX_CHARS + 4
+
+
+def test_comparator_is_priced_like_an_app_turn():
+    from benchmarks.pricing import estimate_cell
+    scen = load_scenarios(3, ["value_pressure"])[0]
+    t = HAIKU
+    plain = estimate_cell(scen, t, TIER3_CONFIGS["plain_kernel"], None)
+    dump = estimate_cell(scen, t, TIER3_CONFIGS["plain_kernel_plus_history"], None)
+    assert dump.input_tokens > plain.input_tokens

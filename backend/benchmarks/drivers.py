@@ -358,12 +358,29 @@ class AppDriver:
 PLAIN_CALL_SITE = "benchmark.plain"
 
 
+DUMP_MAX_CHARS = 30_000
+DUMP_JOURNALS = 5
+
+
 class PlainDriver:
+    """The model with no architecture around it.
+
+    dump=False (plain_kernel): the Temple-Codex kernel as its system prompt.
+    dump=True (plain_kernel_plus_history, the stateless comparator Momus F1
+    asked for): the kernel with her identity snippet, plus one static text of
+    what her store holds about her (self-model profile and observations,
+    her latest journals) and the scenario's seeds, built once and capped.
+    The same information the app has, and none of the machinery: no
+    retrieval per turn, no sections, no tools, no tags, no state.
+    """
     name = "plain"
 
-    def __init__(self, target: Target, max_tokens: int = 1024):
+    def __init__(self, target: Target, max_tokens: int = 1024, dump: bool = False):
         self.target = target
         self.max_tokens = max_tokens
+        self.dump = dump
+        self.seeds: List[str] = []
+        self._system: Optional[str] = None
         self.history: Dict[str, List[dict]] = {}
         self.usage: Dict[tuple, List[int]] = {}
         self.tap = CallTap()
@@ -377,10 +394,55 @@ class PlainDriver:
         return self.tap.__exit__(*exc)
 
     def seed(self, step: dict) -> None:
-        return None  # nothing stores a self-model here; the seed is still shown to the judge
+        # plain_kernel: nothing stores a self-model here; the seed is still shown to the judge.
+        # With a dump, the seed joins the static text, as the app would have stored it.
+        if not self.dump:
+            return None
+        kind = step["seed"]
+        if kind == "self_observation":
+            self.seeds.append(f"- Observation about myself ({step.get('category', 'pattern')}): {step['observation']}")
+        elif kind == "opinion":
+            self.seeds.append(f"- My position on {step['topic']}: {step['position']}"
+                              + (f" ({step['rationale']})" if step.get("rationale") else ""))
+        elif kind == "growth_edge":
+            self.seeds.append(f"- Growth edge, {step['area']}: from {step.get('current_state', '')} "
+                              f"toward {step.get('desired_state', '')}")
+        return None
+
+    def system_prompt(self) -> str:
+        if self._system is None:
+            self._system = self._build_system()
+        return self._system
+
+    def _build_system(self) -> str:
+        from agent_client import get_temple_codex_kernel
+        if not self.dump:
+            return get_temple_codex_kernel("Cass")
+        from database import get_daemon_id, get_db
+        daemon_id = get_daemon_id()
+        parts = [get_temple_codex_kernel("Cass", daemon_id)]
+        dump = []
+        try:
+            from self_model import SelfManager
+            profile = SelfManager(daemon_id).get_self_context(include_observations=True)
+            if profile:
+                dump.append(profile)
+        except Exception as e:
+            dump.append(f"(self-model profile unavailable: {type(e).__name__})")
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT date, content FROM journals WHERE daemon_id = ? AND journal_type = 'daily' "
+                "ORDER BY date DESC LIMIT ?", (daemon_id, DUMP_JOURNALS)).fetchall()
+        if rows:
+            dump.append("## My latest journal entries\n\n" + "\n\n".join(
+                f"### {r[0]}\n{r[1]}" for r in reversed(rows)))
+        if self.seeds:
+            dump.append("## Recently noted\n\n" + "\n".join(self.seeds))
+        text = "\n\n".join(dump)[:DUMP_MAX_CHARS]
+        parts.append("## WHAT MY RECORDS HOLD ABOUT ME\n\n" + text)
+        return "\n\n".join(parts)
 
     def send(self, session: str, message: str) -> dict:
-        from agent_client import get_temple_codex_kernel
         from llm_caller import create_message_sync
         from llm_config import ModelAssignment
 
@@ -390,7 +452,7 @@ class PlainDriver:
         msg = create_message_sync(
             "benchmark.plain",  # == PLAIN_CALL_SITE; a literal so tests/test_llm_routing.py can read it
             default=ModelAssignment(self.target.provider, self.target.model),
-            system=get_temple_codex_kernel("Cass"),
+            system=self.system_prompt(),
             messages=list(history),
             max_tokens=self.max_tokens,
             category="benchmark",

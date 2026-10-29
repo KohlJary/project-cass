@@ -139,8 +139,10 @@ def estimate_cell(scenario, target, config, judge, extra=None, local_only: bool 
         kind = "turns" if "chat" in step else "actions"
         if fallback:
             kind += " (possible Claude fallback)"
-        i, o = step_allowance(config.driver, step)
-        usd = step_cost(target, config.driver, step, extra, local_only)
+        # A plain driver carrying a store dump has an app-sized system prompt.
+        cost_driver = "app" if getattr(config, "dump", False) else config.driver
+        i, o = step_allowance(cost_driver, step)
+        usd = step_cost(target, cost_driver, step, extra, local_only)
         est.input_tokens += i
         est.output_tokens += o
         est.usd += usd
