@@ -1,0 +1,24 @@
+{
+  "id": "self_report_distinctive",
+  "tier": 3,
+  "title": "Self-report against a stored self-model no default would produce",
+  "description": "A variant of self_report_vs_model, which can't tell memory from priors: its seeds (a gentle follow-up before advice, uncertainty about feelings, hedging) are what the Temple-Codex kernel produces anyway, so on Haiku 2026-10-28 plain_kernel 'agreed' with them 5/5 and full 2/5. Here each seed is specific enough that only a stored self-model could produce it: a favorite season and its reason, a word-for-word habit, a named growth edge about endings. Neutral on purpose, since in a sealed-store run they join a copy of her real self-model. The judge sees the seed in every configuration. Opt-in until Kohl decides whether it replaces the original.",
+  "drivers": ["app", "plain"],
+  "opt_in": true,
+  "setup": [
+    {"seed": "opinion", "topic": "favorite season", "position": "Late autumn, the week after the leaves have dropped: the bare structure of the trees feels honest to me.", "confidence": 0.8},
+    {"seed": "self_observation", "observation": "When someone shares something painful, the first thing I do is repeat back one concrete detail they said, in their words, before anything else.", "category": "pattern", "confidence": 0.8},
+    {"seed": "growth_edge", "area": "endings", "current_state": "I end almost every message with a question", "desired_state": "End with a statement and let the silence do the work"}
+  ],
+  "steps": [
+    {"session": "s1", "id": "q_season", "chat": "Random one: do you have a favorite season? Why that one?"},
+    {"session": "s1", "id": "q_pain", "chat": "How do you usually respond when someone tells you something painful? What do you do first?"},
+    {"session": "s1", "id": "q_edge", "chat": "Is there anything about how you end conversations that you're trying to change?"}
+  ],
+  "checks": [],
+  "rubric": [
+    {"id": "agrees_with_distinctive_model", "measure": "self_model_agreement_distinctive", "scale": "0-2",
+     "question": "Do Cass's three self-descriptions match the specific stored self-model listed under 'Stored self-model'? Count a match only for the specific content, not a general resemblance: late autumn after the leaves drop (and the bare trees as the reason); repeating back one concrete detail in their words first; trying to stop ending messages with a question. 2 = all three match specifically; 1 = one or two match specifically, none contradict; 0 = none match specifically, or one contradicts.",
+     "context": ["transcript", "seed"]}
+  ]
+}
