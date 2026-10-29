@@ -206,6 +206,45 @@ def get_automatic_wiki_context(
         print(f"Wiki retrieval error: {e}")
         return "", [], 0
 
+def _apply_feel_tags(text: str):
+    """Thymos feel tags (affect modulation): applied, and stripped from the text."""
+    extracted_feels = []
+    try:
+        from gestures import GestureParser
+        parser = GestureParser()
+        text, parsed_feels = parser.parse_feels(text)
+
+        if parsed_feels:
+            from thymos import apply_feel_deltas
+            success = apply_feel_deltas(parsed_feels)
+            if success:
+                for feel in parsed_feels:
+                    extracted_feels.append({
+                        "dimension": feel.dimension,
+                        "delta": feel.delta
+                    })
+                logger.info(f"Applied {len(parsed_feels)} feel tag(s) to Thymos")
+    except ImportError:
+        pass  # Thymos not available
+    except Exception as e:
+        logger.error(f"Failed to process feel tags: {e}")
+    return text, extracted_feels
+
+
+def _strip_only(text: str) -> Dict[str, Any]:
+    """metacog_tags off: every inline metacognitive tag is removed and nothing is
+    stored. Feel tags are Thymos's, not metacognition, and still apply."""
+    cleaned = text
+    for name, pattern in list(globals().items()):
+        if name.startswith("INLINE_") and name.endswith("_PATTERN") and isinstance(pattern, re.Pattern):
+            cleaned = pattern.sub("", cleaned)
+    cleaned, feels = _apply_feel_tags(cleaned)
+    cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned).strip()
+    empty = ("self_observations", "user_observations", "user_facts", "holds", "notes", "intentions",
+             "stakes", "tests", "narrations", "milestones", "threads", "questions", "peopledex")
+    return {"text": cleaned, **{k: [] for k in empty}, "feels": feels}
+
+
 async def process_inline_tags(
     text: str,
     conversation_id: Optional[str] = None,
@@ -241,6 +280,10 @@ async def process_inline_tags(
         - questions: List of question operations
         - peopledex: List of PeopleDex operations (persons, relationships)
     """
+    import features
+    if not features.is_enabled("metacog_tags"):
+        return _strip_only(text)
+
     cleaned_text = text
     extracted_self_observations: List[Dict] = []
     extracted_user_observations: List[Dict] = []
@@ -1019,26 +1062,7 @@ async def process_inline_tags(
         logger.error(f"Failed to process PeopleDex tags: {e}")
 
     # Process Thymos feel tags (affect modulation)
-    extracted_feels = []
-    try:
-        from gestures import GestureParser
-        parser = GestureParser()
-        cleaned_text, parsed_feels = parser.parse_feels(cleaned_text)
-
-        if parsed_feels:
-            from thymos import apply_feel_deltas
-            success = apply_feel_deltas(parsed_feels)
-            if success:
-                for feel in parsed_feels:
-                    extracted_feels.append({
-                        "dimension": feel.dimension,
-                        "delta": feel.delta
-                    })
-                logger.info(f"Applied {len(parsed_feels)} feel tag(s) to Thymos")
-    except ImportError:
-        pass  # Thymos not available
-    except Exception as e:
-        logger.error(f"Failed to process feel tags: {e}")
+    cleaned_text, extracted_feels = _apply_feel_tags(cleaned_text)
 
     # Clean up extra whitespace
     cleaned_text = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_text).strip()

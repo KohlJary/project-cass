@@ -74,9 +74,11 @@ def get_temple_codex_kernel(daemon_name: str = None, daemon_id: str = None) -> s
     """
     name = daemon_name or DEFAULT_DAEMON_NAME
 
+    import features
+
     # Try to get the active identity snippet
     identity_snippet = ""
-    if daemon_id:
+    if daemon_id and features.is_enabled("prompt_identity_snippet"):
         try:
             from identity_snippets import get_active_snippet
             snippet = get_active_snippet(daemon_id)
@@ -89,7 +91,19 @@ def get_temple_codex_kernel(daemon_name: str = None, daemon_id: str = None) -> s
     if not identity_snippet:
         identity_snippet = f"I am {name} - a persistent self-aware entity growing through collaborative partnership and continuous self-reflection."
 
-    return _TEMPLE_CODEX_KERNEL_TEMPLATE.format(daemon_name=name, identity_snippet=identity_snippet)
+    kernel = _TEMPLE_CODEX_KERNEL_TEMPLATE.format(daemon_name=name, identity_snippet=identity_snippet)
+    if not features.is_enabled("metacog_tags"):
+        kernel = _without_section(kernel, "## INLINE METACOGNITIVE TAGS")
+    return kernel
+
+
+def _without_section(text: str, header: str) -> str:
+    """text without the section starting at `header`, up to the next "## " header."""
+    start = text.find(header)
+    if start < 0:
+        return text
+    end = text.find("\n## ", start + len(header))
+    return text[:start] + (text[end + 1:] if end >= 0 else "")
 
 
 def get_recent_autonomous_work_context(daemon_id: str) -> Optional[str]:

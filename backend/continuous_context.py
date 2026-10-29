@@ -54,6 +54,18 @@ class SpeakerRecognition:
 # journals), no home state or insights, no world state (location), no
 # self-context, Thymos, threads or open questions.
 CONTEXT_SCOPES = ("private", "public")
+
+# Section -> its features lever: a section whose lever is off is left out (and,
+# where it costs something, not computed). Ablation switches for benchmarks.
+SECTION_LEVERS = {
+    "thymos": "prompt_thymos",
+    "relational_context": "prompt_relational",
+    "threads": "prompt_threads",
+    "questions": "prompt_questions",
+    "working_summary": "prompt_working_summary",
+    "semantic_memories": "prompt_semantic_memories",
+    "self_context": "self_context",
+}
 PUBLIC_SECTIONS = frozenset({
     "kernel", "temporal", "discord_perception", "relational_context", "working_summary",
 })
@@ -101,7 +113,12 @@ def build_continuous_context(
     if daemon_id is None:
         daemon_id = get_daemon_id()
 
+    import features
+
     def wanted(section: str) -> bool:
+        lever = SECTION_LEVERS.get(section)
+        if lever and not features.is_enabled(lever):
+            return False
         return scope == "private" or section in PUBLIC_SECTIONS
 
     context_sections: Dict[str, str] = {}
@@ -203,8 +220,7 @@ def build_continuous_context(
     # ==========================================================================
     # Time since last contact, what she did meanwhile, latest dream and
     # reflection, her own threads. Lever: self_context.
-    import features
-    if daemon_id and wanted("self_context") and features.is_enabled("self_context"):
+    if daemon_id and wanted("self_context"):
         try:
             from self_context import build_self_context
             self_ctx = build_self_context(daemon_id, user_id)

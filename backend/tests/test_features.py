@@ -38,8 +38,12 @@ class TestResolution:
         assert features.resolve("thymos") == (False, "env:CASS_FEATURE_THYMOS")
 
     def test_test_profile_turns_everything_off(self, clean_env):
+        """Everything that starts on its own; prompt switches are left as they are."""
         clean_env.setenv("CASS_PROFILE", "test")
-        assert not any(features.is_enabled(name) for name in features.LEVERS)
+        assert not any(features.is_enabled(name) for name, lv in features.LEVERS.items()
+                       if features.PROMPT not in lv.tags)
+        assert all(features.resolve(name) == (True, "default") for name, lv in features.LEVERS.items()
+                   if features.PROMPT in lv.tags)
 
     def test_quiet_profile_only_turns_off_llm_and_integrations(self, clean_env):
         clean_env.setenv("CASS_PROFILE", "quiet")

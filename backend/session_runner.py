@@ -477,7 +477,8 @@ class BaseSessionRunner(ABC):
                 - Negative: stale edges score higher (need attention)
                 - Default 0.1: slight preference for recently active edges
         """
-        if not self.self_manager:
+        import features
+        if not self.self_manager or not features.is_enabled("prompt_self_model"):
             return ""
 
         try:

@@ -42,6 +42,7 @@ LLM = "llm"                  # spends LLM tokens without a user asking
 INTEGRATION = "integration"  # talks to an outside service/network
 BACKGROUND = "background"    # runs on its own (loop, timer, event)
 LOCAL = "local"              # local hardware/models (audio, camera)
+PROMPT = "prompt"            # what reaches her prompt or her self-model; profiles leave these alone
 
 
 @dataclass(frozen=True)
@@ -156,6 +157,30 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("self_context", "Self-context section in her chat prompt: time since last contact, "
            "what she did meanwhile, latest dream/reflection, her own threads (epic #63)",
            where="continuous_context.build_continuous_context"),
+    # Each section below is on by default (today's behavior) and off only where a
+    # benchmark configuration or an env var says so (benchmark plan, phase 2).
+    _lever("prompt_thymos", "Thymos section (needs, affect) in her chat prompt",
+           PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("prompt_relational", "PeopleDex relational context for the person she's talking with",
+           PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("prompt_threads", "Active threads section in her chat prompt",
+           PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("prompt_questions", "Open questions section in her chat prompt",
+           PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("prompt_working_summary", "Working summary (compressed conversation history) in her chat prompt",
+           PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("prompt_semantic_memories", "Semantic memory retrieval (past conversations, journals) in her chat prompt",
+           PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("prompt_identity_snippet", "Her own identity snippet in the kernel (off: the generic placeholder "
+           "a new daemon gets)", PROMPT, where="agent_client.get_temple_codex_kernel"),
+    _lever("prompt_self_model", "Her self-model profile (identity statements, values, growth edges, "
+           "recent observations) where her own sessions and journal read it: solo reflection, "
+           "research and generic session runners, and the nightly journal entry",
+           PROMPT, where="session_runner._build_self_context, journal_generation.write_daily_journal"),
+    _lever("metacog_tags", "Inline metacognitive tags: the kernel's instructions for them, and writing "
+           "what she tags (observations, holds, threads, questions, PeopleDex...) to her stores. Off: "
+           "no instructions, and any tags are stripped from replies without being stored",
+           PROMPT, where="agent_client.get_temple_codex_kernel, context_helpers.process_inline_tags"),
 
     # --- Her reaching out (reach_out.py) ---
     _lever("reach_out", "Cass reaches her primary partner on her own: a note after a long "
@@ -236,6 +261,11 @@ def active_profile() -> Optional[str]:
 
 
 def _profile_value(lever: Lever, profile: str) -> Optional[bool]:
+    # Prompt switches aren't things that start on their own, so profiles have no
+    # opinion on them: a test or benchmark cell keeps every section unless it
+    # turns one off by name.
+    if PROMPT in lever.tags:
+        return None
     if profile == "test":
         return False
     if profile == "quiet" and lever.tags & {LLM, INTEGRATION}:

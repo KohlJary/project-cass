@@ -193,7 +193,8 @@ LEVER_COVERAGE = {
         "depth": "partial",
         "tests": ["tests/smoke/test_babelr_wake.py::test_dm_wakes_her_and_her_reply_is_posted",
                   "tests/smoke/test_babelr_wake.py::test_tool_use_then_text",
-                  "tests/smoke/test_babelr_wake.py::test_a_linked_dm_is_their_chat_with_her"],
+                  "tests/smoke/test_babelr_wake.py::test_a_linked_dm_is_their_chat_with_her",
+                  "tests/smoke/test_babelr_wake.py::test_a_channel_mention_runs_in_the_channels_conversation"],
         "note": "One poll cycle and the wake callback run against a fake Babelr server; the poll loop and the real babelr-agent client are not started. Fast-suite: tests/test_babelr_organ.py.",
     },
     "home_assistant": {
@@ -225,6 +226,51 @@ LEVER_COVERAGE = {
         "depth": "none",
         "tests": [],
         "note": "Chat turns in smoke build the prompt with this lever off. Fast-suite: tests/test_self_context.py.",
+    },
+    "prompt_thymos": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "prompt_relational": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "prompt_threads": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "prompt_questions": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "prompt_working_summary": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "prompt_semantic_memories": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "prompt_identity_snippet": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "prompt_self_model": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
+    },
+    "metacog_tags": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
     },
 
     # --- Her reaching out ---

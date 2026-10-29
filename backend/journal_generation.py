@@ -106,8 +106,9 @@ async def write_daily_journal(
     self_manager = self_manager or dep_self
     token_tracker = token_tracker or dep_tracker
 
+    import features
     self_context = None
-    if self_manager:
+    if self_manager and features.is_enabled("prompt_self_model"):
         self_context = self_manager.get_self_context(include_observations=True)
 
     journal_text = await memory.generate_journal_entry(
