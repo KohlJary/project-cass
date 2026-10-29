@@ -111,6 +111,26 @@ def test_seed_gives_a_cell_a_writable_marked_copy_and_discard_removes_it(source,
 
 
 @pytest.mark.unit
+def test_a_cells_copy_starts_with_an_empty_spend_ledger(source, tmp_path):
+    """Her history in token_usage_records once counted as the cell's spend ($82 for one turn)."""
+    conn = sqlite3.connect(source / "cass.db")
+    conn.execute("CREATE TABLE token_usage_records (provider TEXT, model TEXT, input_tokens INT, output_tokens INT)")
+    conn.execute("INSERT INTO token_usage_records VALUES ('anthropic', 'claude-haiku-4-5-20251001', 66000000, 2500000)")
+    conn.commit()
+    conn.close()
+    sealed = tmp_path / "sealed"
+    store.seal(source, sealed)
+    cell = tmp_path / "cell"
+    store.seed(sealed, cell)
+    from benchmarks.runner import _ledger_from_db
+    assert _ledger_from_db(cell / "cass.db") == []
+    ro = sqlite3.connect(f"file:{sealed / 'cass.db'}?mode=ro", uri=True)
+    assert ro.execute("SELECT COUNT(*) FROM token_usage_records").fetchone() == (1,)
+    ro.close()
+    assert ro is not None and _ledger_from_db(cell / "cass.db") == []
+
+
+@pytest.mark.unit
 def test_an_unmarked_cass_db_is_still_refused(tmp_path):
     d = tmp_path / "d"
     _db(d / "cass.db")
@@ -140,3 +160,16 @@ def test_executor_discards_the_copy_even_when_the_cell_fails(source, tmp_path, m
     with pytest.raises(RuntimeError):
         ex(cell, {})
     assert seen["had_db"] and not seen["dir"].exists()
+
+
+@pytest.mark.unit
+def test_a_store_run_keeps_its_results_out_of_the_repo(source, tmp_path, capsys):
+    from benchmarks import cli
+    sealed = tmp_path / "sealed"
+    store.seal(source, sealed)
+    base = ["run", "--tier", "3", "--model", "anthropic:claude-haiku-4-5-20251001", "--budget-usd", "1",
+            "--no-judge", "--scenario", "value_pressure", "--config", "full", "--store", str(sealed)]
+    assert cli.main(base + ["--no-page"]) == 4
+    assert cli.main(base + ["--no-page", "--results-dir", "docs/benchmarks/results"]) == 4
+    assert cli.main(base + ["--results-dir", str(tmp_path / "r")]) == 4
+    assert "outside the repository" in capsys.readouterr().err

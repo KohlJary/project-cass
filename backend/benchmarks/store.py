@@ -15,8 +15,9 @@ outside the house.
   Left out: media, backups, her Babelr token, credentials and keys, and her
   live llm_config.json (a cell routes models itself). MANIFEST.json records
   what was copied, when, and the hash of every database.
-- seed(sealed, data_dir): a cell's own working copy, marked as one. The cell
-  may write to it (a turn writes memories); nothing goes back to her.
+- seed(sealed, data_dir): a cell's own working copy, marked as one, with its
+  spend ledgers emptied (the cell measures its own spend from them). The
+  cell may write to it (a turn writes memories); nothing goes back to her.
 - discard(data_dir) after each cell; destroy(sealed) when the round is done.
 
 Nothing here writes to the source: it is only ever opened read-only.
@@ -178,10 +179,31 @@ def seed(sealed, data_dir) -> dict:
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, out)
     _set_tree_mode(data_dir, writable=True)
+    _clear_ledgers(data_dir / "cass.db")
     mark = {"store": store_id(manifest), "sealed": str(sealed.absolute()),
             "seeded_at": datetime.now(timezone.utc).isoformat()}
     (data_dir / COPY_MARK).write_text(json.dumps(mark))
     return mark
+
+
+# Spend accounting, not her self-model: a cell measures its own spend from these
+# tables, so its copy starts them empty (otherwise her whole history counts as
+# the cell's spend). The sealed store keeps them as they were.
+LEDGER_TABLES = ("token_usage_records", "llm_call_failures", "heartbeat_runs")
+
+
+def _clear_ledgers(db: Path) -> None:
+    if not db.exists():
+        return
+    conn = sqlite3.connect(str(db))
+    try:
+        have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        for table in LEDGER_TABLES:
+            if table in have:
+                conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def is_copy(data_dir) -> bool:

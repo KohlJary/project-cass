@@ -134,6 +134,17 @@ def cmd_run(args) -> int:
         store_meta = {"id": store_mod.store_id(m), "sealed_at": m["sealed_at"], "files": m["files"],
                       "bytes": m["bytes"], "databases": m["databases"]}
         print(store_mod.describe(args.store))
+        # Results against her store carry her own prompts (memories, journals, threads):
+        # they stay out of the repo, and Cass reads them before anything is reported.
+        from .isolation import REPO_DIR
+        results = Path(args.results_dir).resolve() if args.results_dir else None
+        if results is None or results == REPO_DIR.resolve() or REPO_DIR.resolve() in results.parents:
+            print("refused: a --store run needs --results-dir outside the repository "
+                  "(its results hold her own prompts)", file=sys.stderr)
+            return 4
+        if not args.no_page:
+            print("refused: a --store run takes --no-page (the page is committed)", file=sys.stderr)
+            return 4
 
     from .isolation import IsolationError, check_checkout, check_data_dir
     scratch = Path(args.scratch) if args.scratch else Path(tempfile.mkdtemp(prefix="cass-bench-"))
