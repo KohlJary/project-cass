@@ -235,11 +235,13 @@ def build_continuous_context(
     # ==========================================================================
     # The same text the stateless comparator gets, so the two can be compared.
     # Lever prompt_self_model_chat, off by default. No conversation_id: nothing
-    # is recorded as surfaced.
+    # is recorded as surfaced. No message either: with one, growth-edge ranking
+    # embeds every edge on every turn (minutes per turn on her real store), and
+    # the text would differ from the comparator's.
     if daemon_id and wanted("self_model"):
         try:
             from self_model import SelfManager
-            profile = SelfManager(daemon_id).get_self_context(include_observations=True, message=query)
+            profile = SelfManager(daemon_id).get_self_context(include_observations=True)
             if profile and profile.strip() != "## YOUR SELF-MODEL":
                 context_sections["self_model"] = profile
         except Exception as e:

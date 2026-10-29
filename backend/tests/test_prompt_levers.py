@@ -190,3 +190,19 @@ def test_self_model_reaches_chat_only_with_its_lever(daemon_id, monkeypatch):
         on = _build(daemon_id)
     assert "I keep my promises" in on.context_sections["self_model"]
     assert "I keep my promises" in on.system_prompt
+
+
+@pytest.mark.unit
+def test_self_model_section_is_the_comparators_text(daemon_id, monkeypatch):
+    """No message reaches it: per-message ranking embeds every growth edge each turn."""
+    import self_model
+    calls = []
+    monkeypatch.setattr(self_model.SelfManager, "get_self_context",
+                        lambda self, **k: calls.append(k) or "## YOUR SELF-MODEL\n\n- x")
+    from continuous_context import build_continuous_context
+    with features.override(prompt_self_model_chat=True):
+        build_continuous_context(user_id=None, conversation_id=None, user_manager=None,
+                                 thread_manager=None, question_manager=None,
+                                 conversation_manager=None, daemon_id=daemon_id,
+                                 query="what's your favorite season?")
+    assert calls == [{"include_observations": True}]
