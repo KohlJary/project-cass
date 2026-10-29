@@ -142,8 +142,8 @@ def test_judge_that_is_also_a_target_is_refused_unless_allowed():
 
 def test_unknown_price_is_refused_unless_given():
     with pytest.raises(UnknownPrice):
-        _plan(targets=(Target("openai", "gpt-4o"),))
-    plan = _plan(targets=(Target("openai", "gpt-4o"),), extra_prices={"gpt-4o": (2.5, 10.0)})
+        _plan(targets=(Target("openai", "gpt-unpriced"),))
+    plan = _plan(targets=(Target("openai", "gpt-unpriced"),), extra_prices={"gpt-unpriced": (2.5, 10.0)})
     assert plan.estimate.usd > 0
 
 

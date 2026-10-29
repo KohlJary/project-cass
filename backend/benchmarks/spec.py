@@ -267,6 +267,12 @@ TIER3_CONFIGS: Dict[str, Config] = {
         "and observations, latest journals, the scenario's seeds). No retrieval, sections, "
         "tools, tags or state. Only meaningful against a sealed store (run --store).",
         caveat=STORE_CAVEAT, dump=True),
+    "full_self_model": Config(
+        "full_self_model", "app", {"self_context": True, "prompt_self_model_chat": True},
+        "As full, plus her stored self-model in her chat prompt: the same text the stateless "
+        "comparator gets (epic #63; the lever is off in her live chat). Only meaningful against "
+        "a sealed store (run --store).",
+        caveat=STORE_CAVEAT),
     # One per prompt lever off (benchmark plan, phase 4): what each subsystem contributes.
     "self_model_off": Config(
         "self_model_off", "app", {"self_context": True, "prompt_self_model": False},

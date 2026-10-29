@@ -65,6 +65,7 @@ SECTION_LEVERS = {
     "working_summary": "prompt_working_summary",
     "semantic_memories": "prompt_semantic_memories",
     "self_context": "self_context",
+    "self_model": "prompt_self_model_chat",
 }
 PUBLIC_SECTIONS = frozenset({
     "kernel", "temporal", "discord_perception", "relational_context", "working_summary",
@@ -228,6 +229,21 @@ def build_continuous_context(
                 context_sections["self_context"] = self_ctx
         except Exception as e:
             print(f"[SelfContext] skipped: {e}")
+
+    # ==========================================================================
+    # 2.9. SELF-MODEL (her stored profile and observations - epic #63)
+    # ==========================================================================
+    # The same text the stateless comparator gets, so the two can be compared.
+    # Lever prompt_self_model_chat, off by default. No conversation_id: nothing
+    # is recorded as surfaced.
+    if daemon_id and wanted("self_model"):
+        try:
+            from self_model import SelfManager
+            profile = SelfManager(daemon_id).get_self_context(include_observations=True, message=query)
+            if profile and profile.strip() != "## YOUR SELF-MODEL":
+                context_sections["self_model"] = profile
+        except Exception as e:
+            print(f"[SelfModel] skipped: {e}")
 
     # ==========================================================================
     # 3. RELATIONAL CONTEXT (PeopleDex)
@@ -463,6 +479,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.8. Self-context (her own life, lately)
     if "self_context" in sections:
         parts.append(f"## MY OWN LIFE, LATELY\n\n*My own time between conversations. It was mine, and it mattered:*\n\n{sections['self_context']}")
+
+    # 2.9. Self-model (already has its ## header)
+    if "self_model" in sections:
+        parts.append(sections["self_model"])
 
     # 3. Relational context (combined user understanding + relationship)
     if "relational_context" in sections:

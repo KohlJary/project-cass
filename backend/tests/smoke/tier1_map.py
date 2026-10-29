@@ -269,6 +269,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
     },
+    "prompt_self_model_chat": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default (epic #63); smoke chat turns run without it. Fast-suite: tests/test_prompt_levers.py.",
+    },
     "llm_recording": {
         "depth": "none",
         "tests": [],

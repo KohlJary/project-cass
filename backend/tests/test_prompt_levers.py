@@ -175,3 +175,18 @@ def test_self_model_lever_keeps_the_profile_out_of_the_journal(monkeypatch):
     asyncio.run(journal_generation.write_daily_journal(
         "2026-10-28", [], [], memory=_Memory(), self_manager=_SelfManager(), token_tracker=object()))
     assert "I am someone who notices." in seen["self_context"]
+
+
+@pytest.mark.unit
+def test_self_model_reaches_chat_only_with_its_lever(daemon_id, monkeypatch):
+    """Epic #63: off by default (her live chat unchanged); on, the comparator's text."""
+    import self_model
+    monkeypatch.setattr(self_model.SelfManager, "get_self_context",
+                        lambda self, **k: "## YOUR SELF-MODEL\n\n- I keep my promises")
+    monkeypatch.setenv("CASS_PROFILE", "test")
+    assert not features.is_enabled("prompt_self_model_chat")
+    assert "self_model" not in _build(daemon_id).context_sections
+    with features.override(prompt_self_model_chat=True):
+        on = _build(daemon_id)
+    assert "I keep my promises" in on.context_sections["self_model"]
+    assert "I keep my promises" in on.system_prompt

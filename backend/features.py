@@ -177,6 +177,12 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "recent observations) where her own sessions and journal read it: solo reflection, "
            "research and generic session runners, and the nightly journal entry",
            PROMPT, where="session_runner._build_self_context, journal_generation.write_daily_journal"),
+    # Off by default: chat never read her stored self-model (epic #63). Benchmark cells turn
+    # it on to measure it; it reaches her live chat only when she and Kohl agree.
+    _lever("prompt_self_model_chat", "Her stored self-model (the text the stateless comparator "
+           "gets: identity statements, values, positions, growth edges, recent self-observations, "
+           "open questions) as a section of her chat prompt (epic #63)", default=False,
+           where="continuous_context.build_continuous_context"),
     _lever("llm_recording", "Record each answered text LLM call (prompt and output) to "
            "DATA_DIR/llm_recordings/<call site>.jsonl, for comparing models on real inputs "
            "(benchmark plan phase 6). CASS_LLM_RECORD_SITES narrows it to a list. Never chat or "
