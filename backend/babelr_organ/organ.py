@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import stat
+import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional
@@ -52,6 +53,8 @@ MAX_MESSAGE_CHARS = 4000
 # (a 4.2k answer in #planning was refused outright on 2026-10-28). Past this
 # many parts it's refused: that's not a chat reply any more.
 MAX_PARTS = 5
+DUPLICATE_WINDOW_SECONDS = 120
+PART_MARK_ROOM = 12  # room for the "\n\n(1/5)" marker on a part
 # Retries are looked for in every DM and channel this often (in polls; about
 # two minutes at the default poll), besides the places with a failed reply on
 # the watch list, which are checked every poll. A Retry pressed when nothing
@@ -151,6 +154,8 @@ class BabelrOrgan:
         self.disabled_reason: Optional[str] = "not started"
         self._wake_callback: Optional[WakeCallback] = None
         self._buffers: Dict[str, Deque[BabelrEvent]] = {}
+        # place -> (text, monotonic time, message id) of the last post there
+        self._last_sent: Dict[str, tuple] = {}
         self._action_timestamps: Dict[str, List[float]] = {}
         self._server: Optional[Dict[str, Any]] = None
         self._channels: Dict[str, Dict[str, Any]] = {}  # id -> channel view
@@ -716,7 +721,16 @@ class BabelrOrgan:
             return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
         if not text or not text.strip():
             return {"success": False, "error": "nothing to send"}
-        parts = split_message(text, MAX_MESSAGE_CHARS)
+        # The same text to the same place moments apart is one message, not two: a
+        # turn that posts with babelr_post and then ends with that same text as its
+        # reply posted it twice (#general, 2026-10-28).
+        last = self._last_sent.get(place)
+        if last and last[0] == text.strip() and time.monotonic() - last[1] < DUPLICATE_WINDOW_SECONDS:
+            return {"success": True, "message_id": last[2], "place": place, "duplicate": True}
+        parts = split_message(text, MAX_MESSAGE_CHARS - PART_MARK_ROOM)
+        if len(parts) > 1:
+            # Say a reply goes on, so its first part doesn't read as cut off.
+            parts = [f"{p}\n\n({n + 1}/{len(parts)})" for n, p in enumerate(parts)]
         if len(parts) > MAX_PARTS:
             return {"success": False, "error": f"message over {MAX_PARTS * MAX_MESSAGE_CHARS} characters"}
         # One reply is one post for the rate limit, however many parts it takes.
@@ -739,6 +753,7 @@ class BabelrOrgan:
         # The cursor isn't advanced for her own message: someone may have
         # written while she was composing, and that must still reach her.
         # The next poll sees her message and skips it by author.
+        self._last_sent[place] = (text.strip(), time.monotonic(), msg.get("id"))
         if record:
             self._record(place, self._label_for(place), "assistant", text)
         return {"success": True, "message_id": msg.get("id"), "place": place}

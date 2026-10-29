@@ -682,6 +682,7 @@ class TestLongRepliesAndChannelRetries:
         await organ.poll_once()
         sent = [c for k, cid, c in babelr.agents[-1].sent if k == "channel"]
         assert len(sent) == 3 and all(len(c) <= 4000 for c in sent)
+        assert [c.rsplit("\n\n", 1)[1] for c in sent] == ["(1/3)", "(2/3)", "(3/3)"]
         assistant = [c for _, r, c in recorder.messages if r == "assistant"]
         assert assistant == [long]
 
@@ -718,3 +719,17 @@ class TestLongRepliesAndChannelRetries:
         for _ in range(3):
             await organ.poll_once()
         assert ("channel", "chan-general", "here") in babelr.agents[-1].sent
+
+
+class TestNoDoublePost:
+    def test_the_same_text_to_the_same_place_is_posted_once(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        assert organ.post("#general", "Hello, house.")["success"]
+        again = organ.post("#general", "Hello, house.")
+        assert again["success"] and again.get("duplicate")
+        assert organ.post("#general", "Something else.")["success"]
+        assert organ.post("#workshop", "Hello, house.")["success"]  # another place is another post
+        sent = [(k, c, t) for k, c, t in babelr.agents[-1].sent]
+        assert sent == [("channel", "chan-general", "Hello, house."), ("channel", "chan-general", "Something else."),
+                        ("channel", "chan-workshop", "Hello, house.")]

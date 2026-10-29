@@ -194,7 +194,9 @@ LEVER_COVERAGE = {
         "tests": ["tests/smoke/test_babelr_wake.py::test_dm_wakes_her_and_her_reply_is_posted",
                   "tests/smoke/test_babelr_wake.py::test_tool_use_then_text",
                   "tests/smoke/test_babelr_wake.py::test_a_linked_dm_is_their_chat_with_her",
-                  "tests/smoke/test_babelr_wake.py::test_a_channel_mention_runs_in_the_channels_conversation"],
+                  "tests/smoke/test_babelr_wake.py::test_a_channel_mention_runs_in_the_channels_conversation",
+                  "tests/smoke/test_babelr_wake.py::test_her_thinking_never_reaches_babelr_and_a_thinking_only_reply_is_retried",
+                  "tests/smoke/test_babelr_wake.py::test_babelr_final"],
         "note": "One poll cycle and the wake callback run against a fake Babelr server; the poll loop and the real babelr-agent client are not started. Fast-suite: tests/test_babelr_organ.py.",
     },
     "home_assistant": {

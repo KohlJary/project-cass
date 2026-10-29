@@ -117,3 +117,45 @@ def test_a_channel_mention_runs_in_the_channels_conversation(booted_app, fake_ll
     chat = [c for c in fake_llm.calls if c.tools]
     second = chat[-1]
     assert "First answer." in str(second.messages)  # her history in the channel
+
+
+def test_her_thinking_never_reaches_babelr_and_a_thinking_only_reply_is_retried(
+        booted_app, fake_llm, levers, tmp_path):
+    """Her <gesture:think> blocks stay hers. A reply that is only thinking (or an
+    unclosed block) gets one retry, visible in her own history; the channel gets
+    only the final reply (Kohl, via RoboKohl, 2026-10-28)."""
+    import main_sdk
+    kohl_user = create_user("Kohl")
+    babelr = FakeBabelr()
+    replies = []  # her chat turns only (they carry tools); background calls get the default
+    fake_llm.responder = lambda source, kw: ScriptedResponse(text=replies.pop(0)) if kw.get("tools") and replies else None
+    with levers(babelr=True):
+        organ = _organ(tmp_path, babelr)
+        (organ.config.dir / "links.json").write_text(f'{{"kohl": "{kohl_user}"}}')
+        asyncio.run(organ.poll_once())
+        babelr.say("general", KOHL, "@cass one")
+        replies[:] = ["<gesture:think>private weighing</gesture:think>\n\nThe answer."]
+        asyncio.run(organ.poll_once())
+        babelr.say("general", KOHL, "@cass two")
+        replies[:] = ["<gesture:think>only weighing, never closed", "Second answer, on the retry."]
+        asyncio.run(organ.poll_once())
+        babelr.say("general", KOHL, "@cass three")
+        replies[:] = ["<gesture:think>still only weighing", "<think>and again</think>"]
+        asyncio.run(organ.poll_once())
+
+    sent = [text for kind, _, text in babelr.agents[-1].sent if kind == "channel"]
+    assert sent == ["The answer.", "Second answer, on the retry."]  # three: nothing posted
+    assert not any("weighing" in t for t in sent)
+    conv_id = organ.state.conversation_for("channel:chan-general")
+    stored = [m.content for m in main_sdk.conversation_manager.load_conversation(conv_id).messages]
+    assert main_sdk.BABELR_RETRY_NUDGE in stored  # the retry is in her history
+
+
+def test_babelr_final():
+    import main_sdk
+    f = main_sdk._babelr_final
+    assert f("<gesture:think:0.5>hm</gesture:think>Hi.") == "Hi."
+    assert f("weighing it all </think>\n\nHi.") == "Hi."  # a stray close: before it was thinking
+    assert f("<gesture:think>open") is None
+    assert f("PASS") is None and f("") is None
+    assert f("<emote:happy>Plain reply.") == "Plain reply."

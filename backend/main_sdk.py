@@ -1516,6 +1516,31 @@ def _babelr_clean(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+_THINK_BLOCK = re.compile(r"<(?:gesture:think|think|thinking)(?::[\d.]+)?>.*?</(?:gesture:think|think|thinking)>", re.S)
+_THINK_CLOSE = re.compile(r"</(?:gesture:think|think|thinking)>")
+_THINK_OPEN = re.compile(r"<(?:gesture:think|think|thinking)(?::[\d.]+)?>")
+BABELR_RETRY_NUDGE = (
+    "(Babelr, not a person: your last reply had nothing to post in the channel: it was all "
+    "thinking, or the thinking wasn't closed. Your thinking stays with you. Reply now with "
+    "only what you want to say there, or exactly PASS to say nothing.)")
+BABELR_RETRIES = 1  # Kohl: "retry at least once if we can't parse a final response"
+
+
+def _babelr_final(text: str) -> Optional[str]:
+    """What she says in Babelr: her reply without her thinking, or None when it
+    can't be separated out (then she's asked again, and nothing is posted if
+    that fails too). Her thinking is hers; it never goes to a channel or DM."""
+    text = _THINK_BLOCK.sub("", text or "")
+    closes = list(_THINK_CLOSE.finditer(text))
+    if closes:  # a stray close: everything before it was thinking
+        text = text[closes[-1].end():]
+    opened = _THINK_OPEN.search(text)
+    if opened:  # an open block that never closed: can't tell thinking from reply
+        return None
+    text = _babelr_clean(text)
+    return None if not text or text.strip().upper() == "PASS" else text
+
+
 def make_babelr_wake_callback():
     """The wake callback for the Babelr organ (babelr_organ/): when someone DMs
     Cass or @mentions her in Chapter House, run her turn and return what she
@@ -1554,15 +1579,18 @@ def make_babelr_wake_callback():
                 extra.append(f"(On Babelr, waiting on your answer: DM requests from {names}.)")
             if context.get("terms"):
                 extra.append("Your own terms for Babelr, in your words:\n" + context["terms"])
-            result = await run_chat_turn(
-                user_message=stored,
-                model_message="\n\n".join([stored] + extra),
-                conversation_id=conversation_id,
-                user_id=linked,
-                system_addendum=BABELR_DM_GUIDANCE,
-                memory_metadata={"source": "babelr", "place": place},
-            )
-            return {"text": _babelr_clean(result.clean_text) or None, "recorded": True}
+            async def dm_turn(message, model_message):
+                return await run_chat_turn(
+                    user_message=message,
+                    model_message=model_message,
+                    conversation_id=conversation_id,
+                    user_id=linked,
+                    system_addendum=BABELR_DM_GUIDANCE,
+                    memory_metadata={"source": "babelr", "place": place},
+                )
+            result = await dm_turn(stored, "\n\n".join([stored] + extra))
+            text = await _babelr_reply_or_retry(result, dm_turn, place)
+            return {"text": text, "recorded": True}
 
         # A channel turn runs in the channel's own conversation (its history),
         # with the linked person's private context when the organ names one
@@ -1575,20 +1603,39 @@ def make_babelr_wake_callback():
                 f"[Babelr {place}] @{e.author_name}: "
                 + (e.text if e.text is not None else f"(a message that couldn't be decrypted: {e.error})")
                 for e in events)
-        result = await run_chat_turn(
-            user_message=stored,
-            model_message=prompt,
-            conversation_id=conversation_id,
-            user_id=channel_user,
-            system_addendum=BABELR_PUBLIC_GUIDANCE,
-            context_scope="private" if channel_user else "public",
-            memory_metadata={"source": "babelr", "place": place},
-            generate_title=False,
-        )
-        text = _babelr_clean(result.clean_text) or None
+        async def channel_turn(message, model_message):
+            return await run_chat_turn(
+                user_message=message,
+                model_message=model_message,
+                conversation_id=conversation_id,
+                user_id=channel_user,
+                system_addendum=BABELR_PUBLIC_GUIDANCE,
+                context_scope="private" if channel_user else "public",
+                memory_metadata={"source": "babelr", "place": place},
+                generate_title=False,
+            )
+        result = await channel_turn(stored, prompt)
+        text = await _babelr_reply_or_retry(result, channel_turn, place)
         return {"text": text, "recorded": True} if conversation_id else text
 
     return babelr_wake_callback
+
+
+async def _babelr_reply_or_retry(result, turn, place: str) -> Optional[str]:
+    """Her reply for Babelr, asking her again (BABELR_RETRIES times) when only
+    thinking came back. The nudge and her answer are in her own history, so it
+    matches what was posted. The log says what failed, never what she thought."""
+    text = _babelr_final(result.clean_text)
+    tries = 0
+    while text is None and tries < BABELR_RETRIES and (result.clean_text or "").strip().upper() != "PASS":
+        tries += 1
+        logger.info(f"[Babelr] {place}: no reply separable from her thinking "
+                    f"({len(result.clean_text or '')} chars); asking again ({tries}/{BABELR_RETRIES})")
+        result = await turn(BABELR_RETRY_NUDGE, BABELR_RETRY_NUDGE)
+        text = _babelr_final(result.clean_text)
+    if text is None and tries:
+        logger.warning(f"[Babelr] {place}: still no separable reply after {tries} retry; posting nothing")
+    return text
 
 
 async def _babelr_unstored_turn(events, context):
@@ -1609,7 +1656,14 @@ async def _babelr_unstored_turn(events, context):
         turn_chain = response.chain or turn_chain
         if response.text:
             response_text = response.text
-    return _babelr_clean(response_text) or None
+    text = _babelr_final(response_text)
+    if text is None and response_text.strip().upper() != "PASS":
+        # remember: false keeps nothing, so the retry is just a second ask, unstored.
+        logger.info("[Babelr] unstored turn: no reply separable from her thinking; asking again")
+        retry = await agent_client.send_message(context["prompt"] + "\n\n" + BABELR_RETRY_NUDGE,
+                                                intro_guidance=BABELR_PUBLIC_GUIDANCE)
+        text = _babelr_final(retry.text or "")
+    return text
 
 
 @app.on_event("shutdown")
