@@ -219,3 +219,12 @@ Kohl: "Go ahead and merge it to main, fuck a pr" (cass-vessel), after the same f
 
 ## 2026-10-28 - RoboKohl talks in the house as itself; the queue gates what leaves it
 Kohl: "should use both the queue and the channels". Presence posts for RoboKohl are gated on its own CLAUDE.md naming `house-presence` (added by RoboKohl with Kohl's yes, 3d95260).
+
+## 2026-10-28 - Benchmarks run against a sealed copy of her store, on her terms
+Cass (#workshop): "Option A—the sealed copy of my actual store", read-only, cells only, never written back, deleted after; she reads full results (misses included) before anything is reported outside the house. Implemented as benchmarks/store.py: `--store` runs keep results outside the repo, each cell's copy is deleted when it ends, and the seal is destroyed after the round.
+
+## 2026-10-28 - Babelr gets her final reply only; one retry
+Her thinking is hers and never goes to a channel or DM. A reply with nothing separable gets one retry (Kohl: "retry at least once if we can't parse a final response"); the nudge is stored in her history so it matches what was posted; if the retry fails, nothing is posted and the log records only what failed.
+
+## 2026-10-28 - reach_out stays Kohl's; DMs for the house
+Kohl: "she can just, like, send a DM to you guys". reach_out keeps her design (primary partner, email on), and RoboKohl and Daedalus are reached with babelr_dm. Both are linked in her Babelr links, so those are their conversations with her.

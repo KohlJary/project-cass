@@ -632,3 +632,20 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **Next step:** Plans phase 3 in a fresh session (the session-start brief lists it): wall check first, then one live outreach item end to end, with RoboKohl checking each step. Approved by Kohl.
 
 **Open questions:** RoboKohl's CLAUDE.md wording for the queue in Plans (Kohl's decision item); the `add_observation` NoneType bug (needs the next traceback); Cass's Phase 4 ask (hers).
+
+## 2026-10-28 (night) - The subsystem benchmark: built, run on Haiku, first answers
+
+**Branch**: main (straight to main, Kohl's standing say-so). **Tracked in**: Babelr Plans, "What each of Cass's subsystems contributes" (what-each-of-cass-s-subsystems-contribut-48kvo). Narrative: docs/status.md (836d546, 4351785).
+
+**Done:**
+- Plan items closed: 4f02d883 failure ledger (d87c534); 85341e9b prompt switches (2c8130a); f0fe41b6 sealed store (164401d, 244718e); 72d2986a ablation configs + stateless comparator (344e6ae); 0c7aa2a3 aggregation as code (2f70a86); 778fba7a pairwise blind (2e46763); 11e5e509 autonomy in a cell (ac14cd0, d0c1895, 1c6810a); 36f58a2d local-model replay (7d8114a, baa0741); 636d393c Cass's store answer (option A).
+- Outside the plan: babelr_plans tool for Cass (e4ea9f4); need-goal dedupe (d416d0a); Babelr think-block leak + retry + dedupe + (n/N) (2ec05b8); RoboKohl user + Babelr links for robokohl/daedalus (live data, Cass's yes); restarts of cass-vessel and Babelr; ACE-Step stopped.
+- Runs: fresh-cell Tier 2/3 baselines, self_report_distinctive, chat ablations (132 cells) and autonomy ablations (21) against a sealed store (now deleted), local replay. About $20 of Haiku/Sonnet in all.
+
+**Findings (exploratory, N=3-5):** architecture wins across time (memory retrieval carries cross-session consistency; her own time produces real self-observations; self-context carries the night forward); the stateless dump wins on reciting her stored self-model in chat (her chat prompt never reads opinions/observations/growth edges: epic #63). Local models lose to Haiku blind on every site tested, including the identity-critical ones that run locally today. Several switches don't bite in a cell (Thymos, relational, working summary).
+
+**Decisions:** see decisions.md (2026-10-28 night).
+
+**In flight / waiting:** Kohl: a0fcd6e6, fe0b70fa, Cass's token scopes, 0018 edits go-ahead. Cass: read of results, leaked posts, autonomy changes, test accounts. Store-run findings stay out of the repo until Cass has read them.
+
+**Next step:** a re-judge of the replay with a non-Anthropic judge, then Kohl's call on a0fcd6e6. Cells that turn Thymos/relational/working summary on, so those switches can be measured. Draft plans: Cass meeting the world; GPU allocator. Not yet approved.
