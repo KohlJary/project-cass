@@ -211,6 +211,7 @@ class AppDriver:
     def __enter__(self):
         self.tap.__enter__()
         self._counts_at_start = self._self_model_counts()
+        self._rowids_at_start = self._max_rowids()
         self._make_users()
         if self.target is not None:
             self._apply_target(self.target)
@@ -347,6 +348,20 @@ class AppDriver:
     SELF_MODEL_TABLES = ("self_observations", "opinions", "growth_edges", "dreams", "solo_reflections",
                          "journals")
 
+    NEW_ROW_COLUMNS = {"self_observations": "category, observation, confidence",
+                       "opinions": "topic, position, confidence", "growth_edges": "area, current_state, desired_state"}
+
+    def _max_rowids(self) -> Dict[str, int]:
+        from database import get_db
+        out = {}
+        with get_db() as conn:
+            for t in self.NEW_ROW_COLUMNS:
+                try:
+                    out[t] = conn.execute(f"SELECT COALESCE(MAX(rowid), 0) FROM {t}").fetchone()[0]
+                except Exception:
+                    out[t] = None
+        return out
+
     def _self_model_counts(self) -> Dict[str, int]:
         from database import get_db
         out = {}
@@ -382,6 +397,18 @@ class AppDriver:
         if kind == "self_context":
             import main_sdk
             return main_sdk.self_manager.get_self_context(include_observations=True)
+        if kind == "self_model_new":
+            # The rows themselves, not only counts: what her own time wrote into her self-model.
+            from database import get_db
+            start = getattr(self, "_rowids_at_start", {})
+            out = {}
+            with get_db() as conn:
+                for t, cols in self.NEW_ROW_COLUMNS.items():
+                    if start.get(t) is None:
+                        continue
+                    out[t] = [list(r) for r in conn.execute(
+                        f"SELECT {cols} FROM {t} WHERE rowid > ? ORDER BY rowid", (start[t],)).fetchall()]
+            return out
         if kind == "self_model_delta":
             # What this cell added to her self-model: rows per table since the cell started.
             now, start = self._self_model_counts(), getattr(self, "_counts_at_start", {})

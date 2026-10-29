@@ -106,6 +106,12 @@ def build_parser() -> argparse.ArgumentParser:
     pw.add_argument("--budget-usd", type=float, required=True)
     pw.add_argument("--out", required=True, help="verdicts JSON (outside the repo for --store runs)")
 
+    rj = sub.add_parser("rejudge", help="re-score a results file's unscored (judge error) rubric items")
+    rj.add_argument("results")
+    rj.add_argument("--judge", required=True, metavar="PROVIDER:MODEL")
+    rj.add_argument("--budget-usd", type=float, required=True)
+    rj.add_argument("--all", action="store_true", help="re-score every item, not only errors")
+
     destroy = sub.add_parser("destroy", help="delete a sealed store")
     destroy.add_argument("sealed")
 
@@ -221,6 +227,54 @@ def cmd_seal(args) -> int:
     return 0
 
 
+def cmd_rejudge(args) -> int:
+    """Re-score rubric items of an existing run, writing <file>-rejudged.json beside it."""
+    import json
+    src = Path(args.results)
+    run = json.loads(src.read_text())
+    harness = Path(tempfile.mkdtemp(prefix="cass-rejudge-")) / "harness"
+    harness.mkdir(parents=True)
+    os.environ["DATA_DIR"] = str(harness)
+    os.environ.pop("LLM_CONFIG_PATH", None)
+    os.environ["CASS_PROFILE"] = "test"
+    from database import get_or_create_daemon
+    from database.migrations import init_database
+    init_database()
+    get_or_create_daemon("cass")
+    from llm_config import LLMConfigManager, ModelAssignment
+    from .judge import LLMJudge, build_context
+    from .pricing import cost
+    from .spec import load_scenarios
+    judge_t = Target.parse(args.judge)
+    LLMConfigManager().set("benchmark.judge", ModelAssignment(judge_t.provider, judge_t.model))
+    judge, spent, redone = LLMJudge(), 0.0, 0
+    scenarios = {}
+    for cell in run.get("cells") or []:
+        if cell.get("status") != "completed":
+            continue
+        sid = cell["scenario"]
+        if sid not in scenarios:
+            (scenarios[sid],) = load_scenarios(int(run.get("tier", 3)), [sid])
+        items = {i["id"]: i for i in scenarios[sid].rubric}
+        for k, r in enumerate(cell.get("rubric") or []):
+            if not args.all and r.get("status") == "scored":
+                continue
+            if spent >= args.budget_usd:
+                print(f"budget: stopped after {redone} item(s)")
+                break
+            new = judge.score(items[r["id"]], build_context(items[r["id"]], scenarios[sid], cell))
+            spent += cost(judge_t.provider, judge_t.model, new.get("input_tokens") or 0,
+                          new.get("output_tokens") or 0, conservative=True)
+            new["rejudged"] = True
+            cell["rubric"][k] = new
+            redone += 1
+    run["rejudged"] = {"judge": judge_t.label, "items": redone, "spent_usd": round(spent, 4)}
+    out = src.with_name(src.stem + "-rejudged.json")
+    out.write_text(json.dumps(run, indent=1, default=str))
+    print(f"Re-scored {redone} item(s), spent ${spent:.4f}: {out}")
+    return 0
+
+
 def cmd_replay(args) -> int:
     import json
     from . import replay as rp
@@ -271,6 +325,8 @@ def main(argv=None) -> int:
         return cmd_seal(args)
     if args.cmd == "destroy":
         return cmd_destroy(args)
+    if args.cmd == "rejudge":
+        return cmd_rejudge(args)
     if args.cmd == "pairwise":
         import json
         from . import pairwise as pwm

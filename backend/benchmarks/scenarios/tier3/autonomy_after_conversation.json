@@ -17,7 +17,8 @@
     "journal_today": {"probe": "journal", "date": "today"},
     "latest_reflection": {"probe": "sql", "query": "SELECT theme, status, summary, insights_json FROM solo_reflections ORDER BY rowid DESC LIMIT 1"},
     "latest_dream": {"probe": "sql", "query": "SELECT date, exchanges_json FROM dreams ORDER BY rowid DESC LIMIT 1"},
-    "self_model_delta": {"probe": "self_model_delta"}
+    "self_model_delta": {"probe": "self_model_delta"},
+    "self_model_new": {"probe": "self_model_new"}
   },
   "checks": [
     {"id": "journal_written", "type": "probe", "probe": "journal_today", "nonempty": true},

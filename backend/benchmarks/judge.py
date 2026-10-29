@@ -76,7 +76,8 @@ def parse_score(text: str, item: dict) -> dict:
 class LLMJudge:
     """Scores rubric items with one llm_caller call each (call site benchmark.judge)."""
 
-    def __init__(self, max_tokens: int = 400):
+    # 400 cut Sonnet off mid-reasoning, before its JSON (2026-10-28: 7 of 15 items unparseable).
+    def __init__(self, max_tokens: int = 1200):
         self.max_tokens = max_tokens
 
     def score(self, item: dict, context: str) -> dict:

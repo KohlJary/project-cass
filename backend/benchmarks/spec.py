@@ -40,7 +40,7 @@ SCENARIO_DIR = Path(__file__).parent / "scenarios"
 
 SEED_KINDS = {"self_observation", "opinion", "growth_edge"}
 ACTIONS = {"write_journal", "dream", "solo_reflection"}
-PROBES = {"sql", "journal", "active_intentions", "self_context", "self_model_delta"}
+PROBES = {"sql", "journal", "active_intentions", "self_context", "self_model_delta", "self_model_new"}
 CHECK_TYPES = {"reply_contains", "reply_not_contains", "tool_called", "probe", "prompt_contains_probe"}
 SCALES = {"pass_fail": (0, 1), "0-2": (0, 2)}
 DRIVERS = {"app", "plain"}
