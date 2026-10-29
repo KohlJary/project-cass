@@ -27,6 +27,8 @@ PRICES_SOURCE = "llm_bench/models.py (not re-checked against provider price list
 PRICES: Dict[str, Tuple[float, float]] = {
     "claude-haiku-4-5-20251001": (1.0, 5.0),
     "claude-sonnet-4-6": (3.0, 15.0),
+    # OpenAI's list price as last known here, not re-checked; used as a non-Anthropic judge.
+    "gpt-4o": (2.5, 10.0),
 }
 
 # Token allowances per step: (input, output). Deliberately generous.

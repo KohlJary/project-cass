@@ -91,8 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
     replay = sub.add_parser("replay", help="replay recorded inputs of one call site on several models (phase 6)")
     replay.add_argument("--recordings", required=True, help="a llm_recordings directory")
     replay.add_argument("--site", required=True)
-    replay.add_argument("--model", action="append", required=True, metavar="PROVIDER:MODEL",
+    replay.add_argument("--model", action="append", metavar="PROVIDER:MODEL",
                         help="first one is the reference")
+    replay.add_argument("--rejudge", metavar="FILE",
+                        help="an earlier replay results file: judge its saved outputs again with --judge, no model runs")
     replay.add_argument("--judge", metavar="PROVIDER:MODEL")
     replay.add_argument("--n", type=int, default=30)
     replay.add_argument("--budget-usd", type=float, required=True)
@@ -292,11 +294,20 @@ def cmd_replay(args) -> int:
     if REPO_DIR.resolve() in out.parents:
         print("refused: --out must be outside the repository (it holds her prompts)", file=sys.stderr)
         return 4
-    rows = rp.sample(rp.load(Path(args.recordings), args.site), args.n)
+    if args.rejudge and not args.judge:
+        print("refused: --rejudge needs --judge", file=sys.stderr)
+        return 2
+    if not args.rejudge and not args.model:
+        print("refused: --model is required (or --rejudge FILE)", file=sys.stderr)
+        return 2
     _scratch_harness("cass-replay-")
-    targets = [Target.parse(m) for m in args.model]
     judge = Target.parse(args.judge) if args.judge else None
-    report = rp.run(rows, targets, judge, args.budget_usd)
+    if args.rejudge:
+        rows = rp.load(Path(args.recordings), args.site)
+        report = rp.rejudge(json.loads(Path(args.rejudge).read_text()), rows, judge, args.budget_usd)
+    else:
+        rows = rp.sample(rp.load(Path(args.recordings), args.site), args.n)
+        report = rp.run(rows, [Target.parse(m) for m in args.model], judge, args.budget_usd)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"site": args.site, **report}, indent=1))
     print(rp.render(report, args.site))

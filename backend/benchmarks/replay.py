@@ -180,6 +180,37 @@ def run(rows: List[dict], targets: List[Target], judge: Optional[Target], budget
             "results": results, "summary": summarize(results, models)}
 
 
+def rejudge(prev: dict, rows: List[dict], judge: Target, budget_usd: float,
+            log: Callable[[str], None] = print) -> dict:
+    """Judge an earlier report's saved outputs again with another judge, without rerunning
+    the models. Inputs are matched to the report's results by recording timestamp."""
+    by_ts = {r.get("ts"): r for r in rows}
+    rng = random.Random(SEED)
+    models = prev["models"]
+    spent, results = 0.0, []
+    for i, old in enumerate(prev["results"]):
+        row = by_ts.get(old.get("ts"))
+        if row is None:
+            raise ValueError(f"recording {old.get('ts')} not found; rejudge needs the same recordings")
+        if spent >= budget_usd:
+            log(f"budget: stopping after {i} input(s), spent ${spent:.4f}")
+            break
+        runs, judged = old["runs"], {}
+        ref = runs[models[0]]
+        if ref["ok"]:
+            for m in models[1:]:
+                if not runs[m]["ok"]:
+                    continue
+                j = judge_pair(row, ref, runs[m], judge, rng)
+                spent += cost(judge.provider, judge.model, j["input_tokens"] or 0, j["output_tokens"] or 0,
+                              conservative=True)
+                judged[m] = j
+        results.append({"ts": old.get("ts"), "runs": runs, "judged": judged})
+        log(f"{i + 1}/{len(prev['results'])} judged")
+    return {"models": models, "judge": judge.label, "previous_judge": prev.get("judge"),
+            "spent_usd": round(spent, 4), "results": results, "summary": summarize(results, models)}
+
+
 def render(report: dict, site: str) -> str:
     ref = report["models"][0]
     lines = [f"## {site}: {len(report['results'])} recorded input(s), reference `{ref}`, "

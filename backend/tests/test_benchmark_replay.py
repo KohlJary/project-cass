@@ -72,3 +72,25 @@ def test_parse_verdict():
     assert replay.parse_verdict('ok {"winner": "B", "reason": "x"}') == "B"
     assert replay.parse_verdict("no json") is None
     assert replay.parse_verdict('{"winner": "C"}') is None
+
+
+@pytest.mark.unit
+def test_rejudge_reuses_saved_outputs_and_only_calls_the_judge(monkeypatch):
+    seen = []
+    _fake(monkeypatch, {REF.model: "ref-out", LOCAL.model: "local-out"}, "ref", seen)
+    first = replay.run(_rows(4), [REF, LOCAL], JUDGE, budget_usd=5, log=lambda m: None)
+    seen.clear()
+    _fake(monkeypatch, {REF.model: None, LOCAL.model: None}, "local", seen)
+    other = Target("openai", "gpt-4o")
+    rep = replay.rejudge(first, _rows(4), other, budget_usd=5, log=lambda m: None)
+    assert {site for site, _ in seen} == {"benchmark.judge"}
+    assert all(kw["default"].model_id == "gpt-4o" for _, kw in seen)
+    assert rep["summary"][LOCAL.label]["wins"] == 4
+    assert rep["previous_judge"] == JUDGE.label
+
+
+@pytest.mark.unit
+def test_rejudge_refuses_recordings_that_do_not_match():
+    prev = {"models": [REF.label, LOCAL.label], "results": [{"ts": "nope", "runs": {}, "judged": {}}]}
+    with pytest.raises(ValueError):
+        replay.rejudge(prev, _rows(2), JUDGE, budget_usd=5, log=lambda m: None)
