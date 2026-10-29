@@ -101,6 +101,8 @@ async def get_next_action(context: Dict[str, Any]) -> ActionResult:
                 message="No goals available",
                 data={"goal": "", "goal_id": "", "goal_type": "", "action": ""},
             )
+        # One open goal per need: the rest of a need's backlog is abandoned here.
+        orchestrator.retire_duplicate_need_goals(goal)
 
         # Parse action from context
         action = ""

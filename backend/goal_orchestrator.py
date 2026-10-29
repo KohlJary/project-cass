@@ -39,6 +39,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _goal_addresses_need(goal, need_name: str, mapping: Dict[str, Any]) -> bool:
+    ctx = goal.context_summary or ""
+    if f"need:{need_name}" in ctx.split("|"):
+        return True
+    if mapping.get("action") and f"action:{mapping['action']}" in ctx.split("|"):
+        return True
+    return bool(mapping.get("title")) and goal.title == mapping["title"]
+
+
 # =============================================================================
 # GOAL ACTION MAPPINGS
 # =============================================================================
@@ -378,10 +387,10 @@ class GoalOrchestrator:
                 ],
             )
 
-            # Store action info as goal context
+            # Store action info as goal context (need: lets duplicates be found)
             self.goal_manager.update_goal(
                 goal.id,
-                context_summary=f"action:{mapping['action']}|spell:{mapping.get('spell', '')}",
+                context_summary=f"need:{need_name}|action:{mapping['action']}|spell:{mapping.get('spell', '')}",
             )
 
             # Auto-approve if configured
@@ -679,21 +688,52 @@ class GoalOrchestrator:
     # =========================================================================
 
     def _find_active_goal_for_need(self, need_name: str) -> Optional[Goal]:
-        """Find an active goal already addressing this need."""
-        # Check approved and active goals
+        """Find an open (approved or active) goal already addressing this need.
+
+        Goals are matched by the need recorded in their context ("need:<name>",
+        written since 2026-10-28), else by the mapping's title or action. The old
+        check looked for the need's name ("social_connection") in the title
+        ("Nurture social connection") and the context ("action:outreach.check_in"),
+        which never matched: every depletion event since February made a new
+        duplicate, and the executor drained hundreds of them.
+        """
+        mapping = NEED_TO_GOAL_MAPPING.get(need_name) or {}
         for status in [GoalStatus.APPROVED.value, GoalStatus.ACTIVE.value]:
             goals = self.goal_manager.list_goals(
                 status=status,
                 goal_type=GoalType.NEED_DRIVEN.value,
             )
             for goal in goals:
-                # Check if context mentions this need
-                if goal.context_summary and need_name in goal.context_summary:
-                    return goal
-                # Check title
-                if need_name in goal.title.lower():
+                if _goal_addresses_need(goal, need_name, mapping):
                     return goal
         return None
+
+    def retire_duplicate_need_goals(self, goal: Goal) -> int:
+        """Abandon other open goals for the same need as `goal` (one open goal per need).
+
+        The backlog this clears came from the dedupe bug in _find_active_goal_for_need:
+        by 2026-10-28 there were 138 open "Nurture social connection" and 80 "Express
+        creatively" goals, drained one per goal-executor cycle (a check-in draft or a
+        painting every ~20 minutes). Abandoned, with the reason, not deleted.
+        """
+        if goal.goal_type != GoalType.NEED_DRIVEN.value:
+            return 0
+        need = next((n for n, m in NEED_TO_GOAL_MAPPING.items() if _goal_addresses_need(goal, n, m)), None)
+        if need is None:
+            return 0
+        mapping = NEED_TO_GOAL_MAPPING[need]
+        retired = 0
+        for status in [GoalStatus.APPROVED.value, GoalStatus.ACTIVE.value]:
+            for other in self.goal_manager.list_goals(status=status, goal_type=GoalType.NEED_DRIVEN.value,
+                                                      limit=1000):
+                if other.id != goal.id and _goal_addresses_need(other, need, mapping):
+                    self.goal_manager.abandon_goal(
+                        other.id, reason=f"duplicate of {goal.id} for need {need} "
+                                         "(left by the need-goal dedupe bug, fixed 2026-10-28)")
+                    retired += 1
+        if retired:
+            logger.info(f"Retired {retired} duplicate goal(s) for need {need}")
+        return retired
 
     def get_next_action(self) -> Optional[Goal]:
         """
