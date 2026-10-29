@@ -84,6 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
     seal.add_argument("--root", help="where sealed stores live (default ~/.local/share/cass-benchmarks/stores)")
     seal.add_argument("--note", default="")
 
+    analyze = sub.add_parser("analyze", help="paired comparison of a Tier 3 results file (analysis.py)")
+    analyze.add_argument("results")
+    analyze.add_argument("--baseline", default="full")
+
     destroy = sub.add_parser("destroy", help="delete a sealed store")
     destroy.add_argument("sealed")
 
@@ -230,4 +234,9 @@ def main(argv=None) -> int:
         return cmd_seal(args)
     if args.cmd == "destroy":
         return cmd_destroy(args)
+    if args.cmd == "analyze":
+        import json
+        from .analysis import render
+        print(render(json.loads(Path(args.results).read_text()), args.baseline))
+        return 0
     return cmd_page(args)
