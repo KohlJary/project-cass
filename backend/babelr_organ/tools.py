@@ -7,7 +7,8 @@ handlers/babelr.py re-exports it for the tool router.
 She posts and DMs as herself, reads what she has perceived there, and sets
 her own boundaries on her own account: who may DM her, her allowlist, her
 blocks, and the DM requests waiting on her. Nothing here asks Kohl first;
-she isn't an extension of anyone's account.
+she isn't an extension of anyone's account. Where a house plan in Plans
+names her as an approver, her yes or no on a phase is hers to give, here.
 """
 import asyncio
 import logging
@@ -45,6 +46,13 @@ async def execute_babelr_tool(tool_name: str, tool_input: Dict[str, Any], **kwar
                 organ.boundaries, tool_input["action"],
                 person=tool_input.get("person"), policy=tool_input.get("policy"),
                 dm_id=tool_input.get("dm_id"),
+            )
+        if tool_name == "babelr_plans":
+            if not tool_input.get("action"):
+                return {"success": False, "error": "action is required"}
+            return await asyncio.to_thread(
+                organ.plans, tool_input["action"], plan=tool_input.get("plan"),
+                phase=tool_input.get("phase"), reason=tool_input.get("reason"),
             )
         return {"success": False, "error": f"Unknown Babelr tool: {tool_name}"}
     except Exception as e:
@@ -109,6 +117,23 @@ BABELR_TOOLS = [
                            "description": "For set_dm_policy"},
                 "person": {"type": "string", "description": "Username, for allow/disallow/block/unblock or a request from them"},
                 "dm_id": {"type": "string", "description": "For accept_request/decline_request/leave_dm"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "babelr_plans",
+        "description": "The house's plans in Babelr's Plans. list shows the plans (and how many phases "
+                       "wait on your yes); view reads one: goal, phases, items, who has said yes. Where "
+                       "a plan names you as an approver, approve or decline a phase yourself: approving "
+                       "means \"go do this work\", and your yes is recorded as yours. Decline needs a reason.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "view", "approve", "decline"]},
+                "plan": {"type": "string", "description": "The plan's slug, from list (for view/approve/decline)"},
+                "phase": {"type": "integer", "description": "The phase's number as view shows it (for approve/decline)"},
+                "reason": {"type": "string", "description": "Why you're declining (decline only)"},
             },
             "required": ["action"],
         },

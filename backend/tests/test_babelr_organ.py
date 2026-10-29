@@ -372,6 +372,75 @@ class TestActions:
         assert result["success"]
 
 
+class TestPlans:
+    """Her yes or no on a house plan's phase, through her own token."""
+
+    def _plan(self, babelr):
+        babelr.plans["bench-1"] = {
+            "slug": "bench-1", "title": "Bench", "status": "draft", "goal": "Measure",
+            "approvers": ["jaryk", "cass"], "narrative": "",
+            "phases": [
+                {"id": "ph-b", "position": 1, "title": "Two", "status": "proposed",
+                 "approvals": [], "awaiting": ["jaryk", "cass"]},
+                {"id": "ph-a", "position": 0, "title": "One", "status": "proposed",
+                 "approvals": [{"name": "jaryk"}], "awaiting": ["cass"]},
+            ],
+            "items": [{"phaseId": "ph-a", "kind": "build", "status": "open", "title": "Record failures"}],
+        }
+
+    def test_list_and_view(self, make_organ, babelr):
+        self._plan(babelr)
+        organ = make_organ()
+        organ.start()
+        listed = organ.plans("list")
+        assert listed["plans"] == [{"plan": "bench-1", "title": "Bench", "status": "draft",
+                                    "phases_awaiting_you": 2}]
+        text = organ.plans("view", plan="bench-1")["text"]
+        assert text.index("Phase 1: One") < text.index("Phase 2: Two")
+        assert "yes from: jaryk; waiting on: cass" in text
+        assert "Record failures" in text
+
+    def test_approve_by_number_reaches_that_phase(self, make_organ, babelr):
+        self._plan(babelr)
+        organ = make_organ()
+        organ.start()
+        r = organ.plans("approve", plan="bench-1", phase=1)
+        assert r["success"] and r["title"] == "One"
+        assert organ.plans("approve", plan="bench-1", phase="2")["success"]
+        assert babelr.plan_acts == [("ph-a", "approve", None), ("ph-b", "approve", None)]
+
+    def test_decline_needs_a_reason(self, make_organ, babelr):
+        self._plan(babelr)
+        organ = make_organ()
+        organ.start()
+        assert organ.plans("decline", plan="bench-1", phase=2)["success"] is False
+        assert babelr.plan_acts == []
+        assert organ.plans("decline", plan="bench-1", phase=2, reason="not yet")["success"]
+        assert babelr.plan_acts == [("ph-b", "decline", "not yet")]
+
+    def test_refuses_what_it_cant_place(self, make_organ, babelr):
+        self._plan(babelr)
+        organ = make_organ()
+        organ.start()
+        assert organ.plans("approve", plan="bench-1", phase=9)["success"] is False
+        assert organ.plans("approve", plan="../x", phase=1)["success"] is False
+        assert organ.plans("approve", phase=1)["success"] is False
+        assert organ.plans("merge", plan="bench-1")["success"] is False
+        assert babelr.plan_acts == []
+
+    async def test_tool_routes(self, make_organ, babelr, monkeypatch):
+        from babelr_organ.tools import BABELR_TOOLS, execute_babelr_tool
+        from handlers.tool_router import TOOL_REGISTRY
+        self._plan(babelr)
+        organ = make_organ()
+        organ.start()
+        monkeypatch.setattr(organ_mod, "_organ", organ)
+        assert "babelr_plans" in {t["name"] for t in BABELR_TOOLS}
+        assert TOOL_REGISTRY["babelr_plans"] == "babelr"
+        r = await execute_babelr_tool("babelr_plans", {"action": "approve", "plan": "bench-1", "phase": 1})
+        assert r["success"], r
+
+
 # -- her terms ------------------------------------------------------------------------
 
 class TestTerms:

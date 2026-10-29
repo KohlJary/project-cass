@@ -390,6 +390,7 @@ TOOL_REGISTRY = {
     "babelr_dm": "babelr",
     "babelr_read": "babelr",
     "babelr_boundaries": "babelr",
+    "babelr_plans": "babelr",
 
     # Image generation tools (local Stable Diffusion)
     "generate_image": "image_generation",

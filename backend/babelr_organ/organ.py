@@ -92,6 +92,40 @@ BOUNDARY_ACTIONS = (
 
 _ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
+PLANS = "/plugins/plans"
+PLAN_ACTIONS = ("list", "view", "approve", "decline")
+_SLUG_RE = re.compile(r"^[a-z0-9-]{1,120}$")
+
+
+def _pick_phase(detail: Dict[str, Any], phase: Any) -> Optional[Dict[str, Any]]:
+    """A phase by its number as view shows it (1-based) or by id."""
+    phases = sorted(detail.get("phases") or [], key=lambda f: f.get("position", 0))
+    if isinstance(phase, str) and phase.strip().isdigit():
+        phase = int(phase.strip())
+    if isinstance(phase, int) and not isinstance(phase, bool):
+        return phases[phase - 1] if 1 <= phase <= len(phases) else None
+    return next((f for f in phases if phase and f.get("id") == phase), None)
+
+
+def _plan_text(p: Dict[str, Any]) -> str:
+    """A plan as she reads it: goal, narrative, phases (numbered) with who still has to say yes."""
+    lines = [f"# {p.get('title')} ({p.get('status')})", f"Goal: {p.get('goal') or '-'}",
+             f"Approvers: {', '.join(p.get('approvers') or []) or 'the server owner'}", "",
+             p.get("narrative") or ""]
+    items = p.get("items") or []
+    for n, f in enumerate(sorted(p.get("phases") or [], key=lambda f: f.get("position", 0)), 1):
+        said = ", ".join(a["name"] for a in f.get("approvals") or []) or "nobody yet"
+        waiting = ", ".join(f.get("awaiting") or [])
+        lines.append(f"\n## Phase {n}: {f.get('title')} [{f.get('status')}]"
+                     f" (yes from: {said}" + (f"; waiting on: {waiting}" if waiting else "") + ")")
+        if f.get("goal"):
+            lines.append(f["goal"])
+        for i in [i for i in items if i.get("phaseId") == f.get("id")]:
+            owner = f" @{i['owner']}" if i.get("owner") else ""
+            lines.append(f"- ({i.get('kind')}, {i.get('status')}{owner}) {i.get('title')}"
+                         + (f": {i['body']}" if i.get("body") else ""))
+    return "\n".join(lines)
+
 # (events, context) -> what she says back, or None/"" to say nothing
 WakeCallback = Callable[[List[BabelrEvent], Dict[str, Any]], Awaitable[Optional[str]]]
 
@@ -823,6 +857,51 @@ class BabelrOrgan:
             return {"success": False, "error": str(e)}
         logger.info(f"[Babelr] She chose: {action}" + (f" ({person})" if person else ""))
         return {"success": True, "result": result}
+
+    def plans(self, action: str, plan: Optional[str] = None, phase: Optional[Any] = None,
+              reason: Optional[str] = None) -> Dict[str, Any]:
+        """The house's Plans, as herself: list them, read one, and say yes or no to a
+        phase where a plan names her as an approver.
+
+        Plans takes an approval only from the approver's own token, so this is the
+        one way her yes gets on its record. It runs only when she calls the
+        babelr_plans tool.
+        """
+        if not self.enabled:
+            return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
+        if action not in PLAN_ACTIONS:
+            return {"success": False, "error": f"unknown action '{action}' (one of {', '.join(PLAN_ACTIONS)})"}
+        if action != "list" and not plan:
+            return {"success": False, "error": f"'{action}' needs a plan (its slug, from list)"}
+        if plan and not _SLUG_RE.match(plan):
+            return {"success": False, "error": "that doesn't look like a plan slug"}
+        try:
+            if action == "list":
+                q = f"?serverId={self._server['id']}" if self._server else ""
+                rows = self.client._req("GET", f"{PLANS}/plans{q}") or []
+                return {"success": True, "plans": [
+                    {"plan": p.get("slug"), "title": p.get("title"), "status": p.get("status"),
+                     "phases_awaiting_you": p.get("awaitingMe", 0)} for p in rows]}
+            detail = self.client._req("GET", f"{PLANS}/plans/{plan}")
+            if action == "view":
+                return {"success": True, "plan": plan, "text": _plan_text(detail)}
+            target = _pick_phase(detail, phase)
+            if target is None:
+                return {"success": False, "error": f"no phase {phase!r} in that plan (use its number from view)"}
+            if action == "approve":
+                self.client._req("POST", f"{PLANS}/phases/{target['id']}/approve")
+            else:  # decline
+                if not (reason or "").strip():
+                    return {"success": False, "error": "say why you're declining (reason)"}
+                self.client._req("POST", f"{PLANS}/phases/{target['id']}/decline", {"reason": reason.strip()})
+        except Exception as e:
+            msg = str(e)
+            if "403" in msg and "plugins:" in msg:
+                msg += " (your token needs plugins:read and plugins:write; Kohl adds them with house-token)"
+            return {"success": False, "error": msg}
+        logger.info(f"[Babelr] She chose: {action} phase {target['position'] + 1} of {plan}")
+        return {"success": True, "plan": plan, "phase": target["position"] + 1,
+                "title": target.get("title"), "did": action}
 
     def get_stats(self) -> Dict[str, Any]:
         return {

@@ -38,6 +38,9 @@ class FakeBabelr:
         self.statuses: Dict[str, dict] = {}
         self.status_log: List[tuple] = []
         self.agents: List["FakeAgent"] = []
+        # Plans plugin: slug -> plan detail, as GET /plugins/plans/plans/:slug returns it.
+        self.plans: Dict[str, dict] = {}
+        self.plan_acts: List[tuple] = []
 
     def _stamp(self) -> str:
         n = next(self._clock)
@@ -167,4 +170,20 @@ class FakeAgent:
             return {"dmPolicy": "nobody", "allowlist": []}
         if method == "GET" and path == "/blocks":
             return []
+        if path.startswith("/plugins/plans/"):
+            return self._plans(method, path[len("/plugins/plans"):], body)
         return {"ok": True}
+
+    def _plans(self, method: str, path: str, body: Any) -> Any:
+        s = self.server
+        if method == "GET" and path.split("?")[0] == "/plans":
+            return [{"slug": k, "title": p["title"], "status": p["status"],
+                     "awaitingMe": sum("cass" in f.get("awaiting", []) for f in p["phases"])}
+                    for k, p in s.plans.items()]
+        if method == "GET" and path.startswith("/plans/"):
+            return s.plans[path.split("/")[2]]
+        if method == "POST" and path.startswith("/phases/"):
+            _, _, pid, act = path.split("/")
+            s.plan_acts.append((pid, act, (body or {}).get("reason")))
+            return {"ok": True}
+        raise RuntimeError(f"fake Plans: no route {method} {path}")
