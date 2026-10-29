@@ -696,6 +696,11 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 65:
         _ensure_token_heartbeat_run(conn)
 
+    # v65 -> v66: llm_call_failures, failed LLM call attempts per call site.
+    # SCHEMA_SQL creates it too; this keeps the upgrade explicit and idempotent.
+    if from_version < 66:
+        _ensure_llm_call_failures(conn)
+
 
 def ensure_users_legacy_credential_columns(conn):
     """Idempotently add users.legacy_email / legacy_password_hash."""
@@ -704,6 +709,30 @@ def ensure_users_legacy_credential_columns(conn):
         conn.execute("ALTER TABLE users ADD COLUMN legacy_email TEXT")
     if 'legacy_password_hash' not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN legacy_password_hash TEXT")
+
+
+def _ensure_llm_call_failures(conn):
+    """llm_call_failures and its index (v66). Idempotent."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_call_failures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            daemon_id TEXT NOT NULL REFERENCES daemons(id),
+            timestamp TEXT NOT NULL,
+            call_site TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            error_kind TEXT NOT NULL,
+            error_type TEXT,
+            error TEXT,
+            duration_ms INTEGER DEFAULT 0,
+            fell_back INTEGER NOT NULL DEFAULT 0,
+            category TEXT,
+            operation TEXT,
+            conversation_id TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_failures_site "
+                 "ON llm_call_failures(daemon_id, call_site, timestamp)")
 
 
 def _ensure_research_task_params(conn):

@@ -58,7 +58,8 @@ DIRECT_CALL_EXCEPTIONS = {
 }
 # Benchmarks and one-off scripts name their models on purpose (folding them
 # into the benchmark suite is a separate task on #64).
-EXCEPTION_DIRS = ("tests/", "venv/", "llm_bench/", "scripts/")
+EXCEPTION_DIRS = ("tests/", "venv/", "llm_bench/", "scripts/",
+                  "music/ace-step/")  # a gitignored local ACE-Step checkout, with its own .venv
 
 LLM_URL_MARKERS = ("api/generate", "api/chat", "api.anthropic.com", "api.openai.com",
                    "/v1/messages", "/v1/chat/completions")
@@ -77,7 +78,7 @@ def _chain(node) -> str:
 def _backend_files():
     for path in sorted(BACKEND.rglob("*.py")):
         rel = path.relative_to(BACKEND).as_posix()
-        if rel.startswith(EXCEPTION_DIRS) or "/venv/" in rel:
+        if rel.startswith(EXCEPTION_DIRS) or "/venv/" in rel or "/.venv/" in rel:
             continue
         yield rel, path
 
@@ -710,3 +711,84 @@ def test_dream_pin_ignores_the_callers_model():
     # Pinned sites whose model is the caller's by design keep the caller's.
     caller = ModelAssignment("openai", "gpt-4o")
     assert m.resolve("interviews.dispatch", caller) == caller
+
+
+# ---------------------------------------------------------------------------
+# Failed attempts are recorded (llm_call_failures), not only logged
+# ---------------------------------------------------------------------------
+
+from token_tracker import TokenUsageTracker  # noqa: E402
+
+def _failures(call_site=None):
+    from database import get_db
+    q = "SELECT call_site, provider, model, error_kind, error_type, fell_back FROM llm_call_failures"
+    with get_db() as conn:
+        rows = (conn.execute(q + " WHERE call_site = ? ORDER BY id", (call_site,)) if call_site
+                else conn.execute(q + " ORDER BY id")).fetchall()
+    return [tuple(r) for r in rows]
+
+
+@pytest.mark.unit
+@needs_sdk
+@pytest.mark.parametrize("site", NO_FALLBACK_ON_EXCEPTION)
+def test_lost_ollama_call_is_recorded_as_lost(site, fake_llm, ollama_on, monkeypatch):
+    """An Ollama timeout on an identity site used to leave only a log line."""
+    import config
+    monkeypatch.setattr(config, "SUMMARIZER_PROVIDER", "ollama")
+    _ollama_down(monkeypatch)
+    resp = asyncio.run(llm_caller.call_llm(site, user_prompt="x"))
+    model = resp.model_id
+    assert _failures(site) == [(site, "ollama", model, "exception", "ConnectError", 0)]
+    summary = TokenUsageTracker().get_failure_summary(days=1)[site]
+    assert summary["failures"] == 1 and summary["lost"] == 1
+    assert summary["by_type"] == {"ConnectError": 1} and "connection refused" in summary["last_error"]
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_failed_attempt_with_a_fallback_is_recorded_as_fell_back(fake_llm, monkeypatch):
+    LLMConfigManager().set("wiki.enrich_page", ModelAssignment("ollama", "llama3.1:8b", "anthropic", HAIKU))
+    _ollama_down(monkeypatch)
+    fake_llm.queue_text("# Page\n\nfrom Claude")
+    resp = asyncio.run(llm_caller.call_llm("wiki.enrich_page", user_prompt="x"))
+    assert resp.success
+    assert _failures() == [("wiki.enrich_page", "ollama", "llama3.1:8b", "exception", "ConnectError", 1)]
+    s = TokenUsageTracker().get_failure_summary(days=1)["wiki.enrich_page"]
+    assert s["failures"] == 1 and s["lost"] == 0
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_error_status_and_rejected_replies_are_recorded(fake_llm, ollama_on, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "SUMMARIZER_PROVIDER", "ollama")
+    _ollama_status(monkeypatch)
+    fake_llm.queue_text("nope")
+    resp = asyncio.run(llm_caller.call_llm("memory.journal_entry", user_prompt="x",
+                                           accept=lambda t: t != "nope"))
+    assert not resp.success or resp.rejected
+    rows = _failures("memory.journal_entry")
+    assert [(r[1], r[3], r[5]) for r in rows] == [("ollama", "http", 1), ("anthropic", "rejected", 0)]
+    assert TokenUsageTracker().get_failure_summary(days=1)["memory.journal_entry"]["rejected"] == 1
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_success_records_no_failure(fake_llm):
+    fake_llm.queue_text("A title")
+    asyncio.run(llm_caller.call_llm("title_generation", user_prompt="x"))
+    assert _failures() == []
+
+
+@pytest.mark.unit
+def test_usage_view_carries_failures(monkeypatch):
+    from routes.admin import llm_routing
+    monkeypatch.setattr(llm_routing, "_usage", lambda days: {"memory.journal_entry": {
+        "calls": 3, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "last_call": None, "models": []}})
+    monkeypatch.setattr(llm_routing, "_failures", lambda days: {"memory.journal_entry": {
+        "failures": 2, "lost": 1, "rejected": 0, "by_kind": {"exception": 2}, "by_type": {},
+        "last_failure": "t", "last_error": "e", "failed_ms": 10}})
+    usage = asyncio.run(llm_routing.get_llm_usage(days=7, admin={}))["usage"]
+    site = usage["memory.journal_entry"]
+    assert site["failures"]["lost"] == 1
+    assert site["failure_rate"] == 0.4  # 2 failed of 5 attempts

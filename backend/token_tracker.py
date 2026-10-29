@@ -610,3 +610,76 @@ class TokenUsageTracker:
                     "models": sorted((row[6] or "").split(",")) if row[6] else [],
                 }
         return out
+
+    def record_failure(
+        self,
+        call_site: str,
+        provider: str,
+        model: str,
+        error_kind: str,
+        error: Optional[str] = None,
+        duration_ms: int = 0,
+        fell_back: bool = False,
+        category: Optional[str] = None,
+        operation: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+    ) -> None:
+        """Record one failed LLM call attempt in llm_call_failures."""
+        text = error or ""
+        head = text.split(":", 1)[0].strip()
+        error_type = head if head.isidentifier() and head[:1].isupper() else None
+        from database import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO llm_call_failures (
+                    daemon_id, timestamp, call_site, provider, model, error_kind,
+                    error_type, error, duration_ms, fell_back, category, operation,
+                    conversation_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                self._daemon_id, datetime.now().isoformat(), call_site, provider or "none",
+                model or "", error_kind, error_type, text[:300], duration_ms,
+                1 if fell_back else 0, category, operation, conversation_id,
+            ))
+            conn.commit()
+
+    def get_failure_summary(self, days: int = 30) -> Dict[str, Dict[str, Any]]:
+        """Failed attempts per call site over the last `days`.
+
+        failures: every failed attempt. lost: attempts with no fallback after
+        them, so the caller got nothing usable (for most call sites that
+        output is simply gone). by_kind / by_type count the failures.
+        """
+        from database import get_db
+        since = (datetime.now() - timedelta(days=days)).isoformat()
+        out: Dict[str, Dict[str, Any]] = {}
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT call_site, error_kind, COALESCE(error_type, ''), fell_back,
+                       COUNT(*), MAX(timestamp), COALESCE(SUM(duration_ms), 0)
+                FROM llm_call_failures
+                WHERE daemon_id = ? AND timestamp >= ?
+                GROUP BY call_site, error_kind, error_type, fell_back
+            """, (self._daemon_id, since)).fetchall()
+            last = {r[0]: r[1] for r in conn.execute("""
+                SELECT f.call_site, f.provider || ':' || f.model || ' ' || COALESCE(f.error, '')
+                FROM llm_call_failures f
+                JOIN (SELECT call_site, MAX(id) AS id FROM llm_call_failures
+                      WHERE daemon_id = ? AND timestamp >= ? GROUP BY call_site) m ON m.id = f.id
+            """, (self._daemon_id, since)).fetchall()}
+        for site, kind, etype, fell_back, n, ts, dur in rows:
+            s = out.setdefault(site, {"failures": 0, "lost": 0, "rejected": 0, "by_kind": {},
+                                      "by_type": {}, "last_failure": None, "last_error": last.get(site),
+                                      "failed_ms": 0})
+            s["failures"] += n
+            s["failed_ms"] += dur
+            if not fell_back:
+                s["lost"] += n
+            if kind == "rejected":
+                s["rejected"] += n
+            s["by_kind"][kind] = s["by_kind"].get(kind, 0) + n
+            if etype:
+                s["by_type"][etype] = s["by_type"].get(etype, 0) + n
+            if ts and (s["last_failure"] is None or ts > s["last_failure"]):
+                s["last_failure"] = ts
+        return out

@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 65  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62)
+SCHEMA_VERSION = 66  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -689,6 +689,30 @@ CREATE INDEX IF NOT EXISTS idx_token_records_daemon ON token_usage_records(daemo
 -- before call_site / heartbeat_run_id exist on old tables.
 CREATE INDEX IF NOT EXISTS idx_token_records_date ON token_usage_records(daemon_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_token_records_category ON token_usage_records(daemon_id, category);
+
+-- LLM call attempts that failed: an exception, an error status, or a reply the
+-- caller's accept() refused. token_usage_records holds only answered calls, so
+-- without this an Ollama timeout left no trace but a log line. One row per
+-- failed attempt; fell_back = 1 when another model was tried after it, 0 when
+-- the call ended there (the caller got nothing usable).
+CREATE TABLE IF NOT EXISTS llm_call_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    daemon_id TEXT NOT NULL REFERENCES daemons(id),
+    timestamp TEXT NOT NULL,
+    call_site TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    error_kind TEXT NOT NULL,   -- exception | http | rejected | error
+    error_type TEXT,            -- exception class, e.g. ReadTimeout
+    error TEXT,                 -- first 300 chars of the message
+    duration_ms INTEGER DEFAULT 0,
+    fell_back INTEGER NOT NULL DEFAULT 0,
+    category TEXT,
+    operation TEXT,
+    conversation_id TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_failures_site ON llm_call_failures(daemon_id, call_site, timestamp);
 
 -- GitHub metrics snapshots
 CREATE TABLE IF NOT EXISTS github_metrics (

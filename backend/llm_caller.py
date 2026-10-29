@@ -9,7 +9,9 @@ tests/test_llm_routing.py). For each call it:
 2. Calls Anthropic, Ollama or OpenAI.
 3. Falls back to the assignment's fallback model when the first one fails.
 4. Records usage in the token ledger (token_usage_records) with the call
-   site name, so spend can be shown per subsystem.
+   site name, so spend can be shown per subsystem, and each failed attempt
+   (exception, error status, or a reply accept() refused) in
+   llm_call_failures, so a failure leaves more than a log line.
 
 Two entry points:
 
@@ -157,6 +159,33 @@ def _record_response(call_site: str, resp: "LLMResponse", started: float, ledger
         duration_ms=int((time.time() - started) * 1000),
         **ledger,
     )
+
+
+def record_failure(call_site: str, provider: str, model_id: str, error_kind: str,
+                   error: Optional[str], started: float, ledger: dict, fell_back: bool):
+    """Write one failed attempt to llm_call_failures. Never raises in production."""
+    try:
+        from token_tracker import TokenUsageTracker
+        TokenUsageTracker().record_failure(
+            call_site, provider, model_id, error_kind, error=error,
+            duration_ms=int((time.time() - started) * 1000), fell_back=fell_back,
+            category=_category_for(call_site, ledger.get("category")),
+            operation=ledger.get("operation") or call_site,
+            conversation_id=ledger.get("conversation_id"),
+        )
+    except Exception as e:
+        from strict import report_swallowed
+        report_swallowed(e, f"llm failure record ({call_site})")
+
+
+def _record_failed(call_site: str, resp: "LLMResponse", started: float, ledger: dict, fell_back: bool):
+    if resp.error is not None:
+        kind, error = resp.error_kind or "error", resp.error
+    elif resp.rejected:
+        kind, error = "rejected", f"accept() refused a {len(resp.content or '')}-char reply"
+    else:
+        return
+    record_failure(call_site, resp.provider, resp.model_id, kind, error, started, ledger, fell_back)
 
 
 def _attempts(assignment: Optional[ModelAssignment]) -> list:
@@ -496,12 +525,16 @@ async def call_llm(
     req = _Request(system_prompt, user_prompt, max_tokens=max_tokens, temperature=temperature,
                    timeout=timeout, **req_kw)
     resp = None
-    for provider, model_id in attempts:
+    for i, (provider, model_id) in enumerate(attempts):
         started = time.time()
         resp = await _call_provider(provider, model_id, req)
         _record_response(call_site, resp, started, ledger)
         resp, ok = _finish(call_site, resp, accept)
-        if ok or _stop_on_exception(call_site, resp):
+        if ok:
+            return resp
+        stop = _stop_on_exception(call_site, resp)
+        _record_failed(call_site, resp, started, ledger, fell_back=not stop and i + 1 < len(attempts))
+        if stop:
             return resp
     return resp
 
@@ -525,12 +558,16 @@ def call_llm_sync(
     req = _Request(system_prompt, user_prompt, max_tokens=max_tokens, temperature=temperature,
                    timeout=timeout, **req_kw)
     resp = None
-    for provider, model_id in attempts:
+    for i, (provider, model_id) in enumerate(attempts):
         started = time.time()
         resp = _call_provider_sync(provider, model_id, req)
         _record_response(call_site, resp, started, ledger)
         resp, ok = _finish(call_site, resp, accept)
-        if ok or _stop_on_exception(call_site, resp):
+        if ok:
+            return resp
+        stop = _stop_on_exception(call_site, resp)
+        _record_failed(call_site, resp, started, ledger, fell_back=not stop and i + 1 < len(attempts))
+        if stop:
             return resp
     return resp
 
@@ -632,6 +669,8 @@ async def create_message(
                 msg = await c.messages.create(model=model_id, **kwargs)
             except Exception as e:
                 last_error = e
+                record_failure(call_site, provider, model_id, _error_kind(e), f"{type(e).__name__}: {e}",
+                               started, ledger, fell_back=i + 1 < len(attempts))
                 if i + 1 < len(attempts):
                     logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {e}; trying fallback")
                     continue
@@ -642,6 +681,7 @@ async def create_message(
         _record_response(call_site, resp, started, ledger)
         if resp.error is None:
             return _as_message(resp)
+        _record_failed(call_site, resp, started, ledger, fell_back=i + 1 < len(attempts))
         last_error = RuntimeError(resp.error)
         logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {resp.error}")
     raise last_error or RuntimeError(f"{call_site}: no model to call")
@@ -676,6 +716,8 @@ def create_message_sync(
                 msg = c.messages.create(model=model_id, **kwargs)
             except Exception as e:
                 last_error = e
+                record_failure(call_site, provider, model_id, _error_kind(e), f"{type(e).__name__}: {e}",
+                               started, ledger, fell_back=i + 1 < len(attempts))
                 if i + 1 < len(attempts):
                     logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {e}; trying fallback")
                     continue
@@ -686,6 +728,7 @@ def create_message_sync(
         _record_response(call_site, resp, started, ledger)
         if resp.error is None:
             return _as_message(resp)
+        _record_failed(call_site, resp, started, ledger, fell_back=i + 1 < len(attempts))
         last_error = RuntimeError(resp.error)
         logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {resp.error}")
     raise last_error or RuntimeError(f"{call_site}: no model to call")
@@ -725,8 +768,13 @@ async def ollama_raw(
     body = dict(payload)
     body["model"] = assignment.model_id
     started = time.time()
-    data = await _ollama_request(_ollama_url(base_url), endpoint, body, timeout)
+    ledger = dict(category=category, operation=operation, conversation_id=conversation_id, user_id=user_id)
+    try:
+        data = await _ollama_request(_ollama_url(base_url), endpoint, body, timeout)
+    except Exception as e:
+        record_failure(call_site, "ollama", assignment.model_id, _error_kind(e),
+                       f"{type(e).__name__}: {e}", started, ledger, fell_back=False)
+        raise
     resp = _ollama_to_response(data, assignment.model_id)
-    _record_response(call_site, resp, started, dict(category=category, operation=operation,
-                                                     conversation_id=conversation_id, user_id=user_id))
+    _record_response(call_site, resp, started, ledger)
     return data

@@ -41,6 +41,35 @@ def _usage(days: int) -> Dict[str, Dict]:
         return {}
 
 
+def _failures(days: int) -> Dict[str, Dict]:
+    try:
+        from token_tracker import TokenUsageTracker
+        return TokenUsageTracker().get_failure_summary(days=days)
+    except Exception as e:  # failure table unavailable: show usage without it
+        from strict import report_swallowed
+        report_swallowed(e, "llm-config failure summary")
+        return {}
+
+
+def _with_failures(usage: Dict[str, Dict], failures: Dict[str, Dict]) -> Dict[str, Dict]:
+    """Each site's usage plus its failed attempts and failure rate.
+
+    failure_rate is failed attempts over all attempts. Answered calls are in
+    `calls`; a rejected reply has a ledger row too, so it isn't counted twice.
+    """
+    empty = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
+             "last_call": None, "models": []}
+    out = {}
+    for name in set(usage) | set(failures):
+        u = dict(usage.get(name) or empty)
+        f = failures.get(name)
+        u["failures"] = f or {"failures": 0, "lost": 0, "rejected": 0}
+        attempts = u["calls"] + (f["failures"] - f["rejected"] if f else 0)
+        u["failure_rate"] = round(f["failures"] / attempts, 4) if f and attempts else 0.0
+        out[name] = u
+    return out
+
+
 def _site_view(manager: LLMConfigManager, name: str, usage: Dict[str, Dict]) -> Dict:
     site = CALL_SITES[name]
     try:
@@ -88,7 +117,7 @@ async def get_llm_config(
 ):
     """Every call site: default, override, effective model, and usage over `days`."""
     manager = LLMConfigManager()
-    usage = _usage(days)
+    usage = _with_failures(_usage(days), _failures(days))
     sites = [_site_view(manager, name, usage) for name in sorted(CALL_SITES)]
     # Back-compat shape for older clients: effective assignment + metadata.
     assignments = {
@@ -113,8 +142,8 @@ async def get_llm_usage(
     days: int = Query(30, ge=1, le=365),
     admin: Dict = Depends(require_admin),
 ):
-    """Calls, tokens and spend per call site from the token ledger."""
-    return {"days": days, "usage": _usage(days)}
+    """Calls, tokens, spend and failed attempts per call site."""
+    return {"days": days, "usage": _with_failures(_usage(days), _failures(days))}
 
 
 @router.put("/llm-config/{call_site}")
