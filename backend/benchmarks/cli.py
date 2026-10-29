@@ -98,6 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--budget-usd", type=float, required=True)
     replay.add_argument("--out", required=True, help="results JSON (holds her prompts: keep it out of the repo)")
 
+    pw = sub.add_parser("pairwise", help="blind A/B of each config against a baseline, from a Tier 3 results file")
+    pw.add_argument("results")
+    pw.add_argument("--judge", required=True, metavar="PROVIDER:MODEL")
+    pw.add_argument("--baseline", default="full")
+    pw.add_argument("--config", action="append", default=[])
+    pw.add_argument("--budget-usd", type=float, required=True)
+    pw.add_argument("--out", required=True, help="verdicts JSON (outside the repo for --store runs)")
+
     destroy = sub.add_parser("destroy", help="delete a sealed store")
     destroy.add_argument("sealed")
 
@@ -263,6 +271,22 @@ def main(argv=None) -> int:
         return cmd_seal(args)
     if args.cmd == "destroy":
         return cmd_destroy(args)
+    if args.cmd == "pairwise":
+        import json
+        from . import pairwise as pwm
+        from .isolation import REPO_DIR
+        out = Path(args.out).resolve()
+        run = json.loads(Path(args.results).read_text())
+        if run.get("store") and REPO_DIR.resolve() in out.parents:
+            print("refused: verdicts from a --store run hold her replies; --out outside the repo", file=sys.stderr)
+            return 4
+        report = pwm.run_pairwise(run, Target.parse(args.judge), args.budget_usd, args.baseline,
+                                  args.config or None)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=1))
+        print(pwm.render(report))
+        print(f"Verdicts: {out}; spent ${report['spent_usd']:.4f}")
+        return 0
     if args.cmd == "replay":
         return cmd_replay(args)
     if args.cmd == "analyze":
