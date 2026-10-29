@@ -165,10 +165,13 @@ def _ledger_from_db(db_path: Path) -> list:
 class SubprocessExecutor:
     """Runs each cell as `python -m benchmarks cell` with a fresh DATA_DIR."""
 
-    def __init__(self, scratch_root: Path, timeout: float = 1800.0, python: str = sys.executable):
+    def __init__(self, scratch_root: Path, timeout: float = 1800.0, python: str = sys.executable,
+                 store: Optional[Path] = None):
         self.root = Path(scratch_root)
         self.timeout = timeout
         self.python = python
+        # A sealed store (store.seal): each cell gets its own copy, deleted when the cell ends.
+        self.store = Path(store) if store else None
 
     def env_for(self, data_dir: Path, local_only: bool = False) -> dict:
         env = dict(os.environ)
@@ -188,6 +191,17 @@ class SubprocessExecutor:
         data_dir = cell_dir / "data"
         data_dir.mkdir(parents=True, exist_ok=False)
         check_data_dir(data_dir)
+        if self.store is not None:
+            from . import store as store_mod
+            store_mod.seed(self.store, data_dir)
+        try:
+            return self._run(cell, spec, cell_dir, data_dir, extra_prices)
+        finally:
+            if self.store is not None:
+                from . import store as store_mod
+                store_mod.discard(data_dir)
+
+    def _run(self, cell: Cell, spec: dict, cell_dir: Path, data_dir: Path, extra_prices=None) -> dict:
         spec_path, out_path = cell_dir / "spec.json", cell_dir / "result.json"
         spec_path.write_text(json.dumps(spec, indent=1))
         cmd = [self.python, "-m", "benchmarks", "cell", "--spec", str(spec_path), "--out", str(out_path)]
@@ -261,7 +275,8 @@ def criteria_fingerprint(path: Path) -> dict:
 
 
 def run_plan(plan: Plan, executor: Callable, judge: Judge, cap_usd: float,
-             criteria: Optional[dict] = None, log: Callable[[str], None] = print) -> dict:
+             criteria: Optional[dict] = None, log: Callable[[str], None] = print,
+             store: Optional[dict] = None) -> dict:
     """Run every cell, then judge it. Stops starting cells once the cap is reached."""
     check_budget(plan, cap_usd)
     meter = Meter(cap_usd)
@@ -282,6 +297,8 @@ def run_plan(plan: Plan, executor: Callable, judge: Judge, cap_usd: float,
         "configs": [{"name": c.name, "driver": c.driver, "levers": c.levers, "meaningful": c.meaningful,
                      "caveat": c.caveat} for c in {c.config.name: c.config for c in plan.cells}.values()],
         "criteria": criteria,
+        # The sealed store the cells ran against (store.seal), or None for fresh cells.
+        "store": store,
         "skipped": plan.skipped,
         "cells": [],
         "status": "running",

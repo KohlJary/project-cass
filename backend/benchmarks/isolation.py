@@ -6,7 +6,8 @@ run's scratch root. These guards refuse to go on when that isn't true:
 
 - `check_data_dir(path)`: the directory must not be (or sit inside) the
   default data directory (backend/data, a symlink to <repo>/data on her
-  machine), and must not already hold a cass.db.
+  machine), and must not already hold a cass.db, unless it is a cell's
+  working copy of a sealed store (store.seed marks those).
 - `check_checkout()`: some modules still build paths from their own file
   location instead of DATA_DIR (interviews, music, the wiki route, a legacy
   journal loop). Importing main_sdk creates directories there. So the app is
@@ -49,7 +50,7 @@ def check_data_dir(path) -> Path:
             if candidate == live or live in candidate.parents:
                 raise IsolationError(f"DATA_DIR {path} is inside the default data directory {live}; "
                                      "benchmarks only run against a fresh scratch directory")
-    if (resolved / "cass.db").exists():
+    if (resolved / "cass.db").exists() and not (resolved / "STORE_COPY.json").exists():
         raise IsolationError(f"DATA_DIR {path} already holds a cass.db; benchmarks seed a fresh directory")
     return resolved
 

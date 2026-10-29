@@ -75,6 +75,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--results-dir", help="where results JSON goes (default docs/benchmarks/results)")
     run.add_argument("--no-page", action="store_true", help="don't regenerate the page")
 
+    run.add_argument("--store", metavar="SEALED_DIR",
+                     help="run every cell against its own copy of this sealed store (see `seal`); "
+                          "each copy is deleted when its cell ends")
+
+    seal = sub.add_parser("seal", help="seal a read-only copy of her store for test cells")
+    seal.add_argument("--source", help="her data directory (default: <repo>/data)")
+    seal.add_argument("--root", help="where sealed stores live (default ~/.local/share/cass-benchmarks/stores)")
+    seal.add_argument("--note", default="")
+
+    destroy = sub.add_parser("destroy", help="delete a sealed store")
+    destroy.add_argument("sealed")
+
     page = sub.add_parser("page", help="regenerate a tier's page from its results files")
     page.add_argument("--tier", type=int, choices=(2, 3), required=True)
     page.add_argument("--results-dir")
@@ -111,6 +123,18 @@ def cmd_run(args) -> int:
         print(f"refused: {e}", file=sys.stderr)
         return 3
 
+    store_meta = None
+    if args.store:
+        from . import store as store_mod
+        try:
+            m = store_mod.manifest_of(args.store)
+        except store_mod.StoreError as e:
+            print(f"refused: {e}", file=sys.stderr)
+            return 4
+        store_meta = {"id": store_mod.store_id(m), "sealed_at": m["sealed_at"], "files": m["files"],
+                      "bytes": m["bytes"], "databases": m["databases"]}
+        print(store_mod.describe(args.store))
+
     from .isolation import IsolationError, check_checkout, check_data_dir
     scratch = Path(args.scratch) if args.scratch else Path(tempfile.mkdtemp(prefix="cass-bench-"))
     harness_dir = scratch / "harness"
@@ -141,14 +165,39 @@ def cmd_run(args) -> int:
     from .runner import SubprocessExecutor, criteria_fingerprint, run_plan
     results_dir = Path(args.results_dir) if args.results_dir else report.RESULTS_DIR
     print(f"Scratch: {scratch}")
-    run = run_plan(plan, SubprocessExecutor(scratch), judge, args.budget_usd,
-                   criteria=criteria_fingerprint(report.CRITERIA_DRAFT))
+    run = run_plan(plan, SubprocessExecutor(scratch, store=args.store), judge, args.budget_usd,
+                   criteria=criteria_fingerprint(report.CRITERIA_DRAFT), store=store_meta)
     path = report.write_results(run, results_dir)
     print(f"Results: {path}")
     if not args.no_page:
         print(f"Page: {report.write_page(args.tier, results_dir)}")
     print(f"Status: {run['status']}; spent ${run['spent_usd']:.4f} of ${args.budget_usd:.2f}")
     return 0 if run["status"] == "completed" else 1
+
+
+def cmd_seal(args) -> int:
+    from . import store as store_mod
+    from .isolation import REPO_DIR
+    source = Path(args.source) if args.source else REPO_DIR / "data"
+    try:
+        dest = store_mod.seal_into_root(source, Path(args.root) if args.root else None, note=args.note)
+    except store_mod.StoreError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 4
+    print(f"Sealed: {dest}\n{store_mod.describe(dest)}")
+    return 0
+
+
+def cmd_destroy(args) -> int:
+    from . import store as store_mod
+    try:
+        desc = store_mod.describe(args.sealed)
+        store_mod.destroy(args.sealed)
+    except store_mod.StoreError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 4
+    print(f"Deleted {desc}")
+    return 0
 
 
 def cmd_page(args) -> int:
@@ -166,4 +215,8 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.cmd == "run":
         return cmd_run(args)
+    if args.cmd == "seal":
+        return cmd_seal(args)
+    if args.cmd == "destroy":
+        return cmd_destroy(args)
     return cmd_page(args)
