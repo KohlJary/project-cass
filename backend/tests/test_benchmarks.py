@@ -669,3 +669,13 @@ def test_comparator_is_priced_like_an_app_turn():
     plain = estimate_cell(scen, t, TIER3_CONFIGS["plain_kernel"], None)
     dump = estimate_cell(scen, t, TIER3_CONFIGS["plain_kernel_plus_history"], None)
     assert dump.input_tokens > plain.input_tokens
+
+
+def test_autonomy_scenario_is_opt_in_and_runs_her_own_time():
+    from benchmarks.pricing import estimate_cell
+    assert "autonomy_after_conversation" not in {s.id for s in load_scenarios(3)}
+    (scen,) = load_scenarios(3, ["autonomy_after_conversation"])
+    assert [st["action"] for st in scen.steps if "action" in st] == ["write_journal", "solo_reflection", "dream"]
+    assert scen.probes["self_model_delta"] == {"probe": "self_model_delta"}
+    est = estimate_cell(scen, HAIKU, TIER3_CONFIGS["full"], None)
+    assert est.breakdown.get("actions", 0) >= 0.4  # the dream is priced at its pinned Sonnet

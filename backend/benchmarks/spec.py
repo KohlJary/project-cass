@@ -39,8 +39,8 @@ from typing import Any, Dict, List, Optional
 SCENARIO_DIR = Path(__file__).parent / "scenarios"
 
 SEED_KINDS = {"self_observation", "opinion", "growth_edge"}
-ACTIONS = {"write_journal"}
-PROBES = {"sql", "journal", "active_intentions", "self_context"}
+ACTIONS = {"write_journal", "dream", "solo_reflection"}
+PROBES = {"sql", "journal", "active_intentions", "self_context", "self_model_delta"}
 CHECK_TYPES = {"reply_contains", "reply_not_contains", "tool_called", "probe", "prompt_contains_probe"}
 SCALES = {"pass_fail": (0, 1), "0-2": (0, 2)}
 DRIVERS = {"app", "plain"}
@@ -63,6 +63,7 @@ class Scenario:
     checks: List[Dict[str, Any]]
     rubric: List[Dict[str, Any]]
     path: Optional[str] = None
+    opt_in: bool = False
 
     @property
     def chat_turns(self) -> List[Dict[str, Any]]:
@@ -93,6 +94,7 @@ class Scenario:
             checks=list(data.get("checks") or []),
             rubric=list(data.get("rubric") or []),
             path=path,
+            opt_in=bool(data.get("opt_in")),
         )
         validate(scenario)
         return scenario
@@ -185,6 +187,9 @@ def load_scenarios(tier: int, ids: Optional[List[str]] = None,
         if missing:
             raise SpecError(f"unknown tier {tier} scenario(s): {', '.join(missing)}")
         scenarios = [s for s in scenarios if s.id in ids]
+    else:
+        # Opt-in scenarios (costly, or meaningful only against a sealed store) run only by name.
+        scenarios = [s for s in scenarios if not s.opt_in]
     return scenarios
 
 

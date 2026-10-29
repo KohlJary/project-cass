@@ -210,6 +210,7 @@ class AppDriver:
 
     def __enter__(self):
         self.tap.__enter__()
+        self._counts_at_start = self._self_model_counts()
         self._make_users()
         if self.target is not None:
             self._apply_target(self.target)
@@ -314,7 +315,48 @@ class AppDriver:
             if resp.status_code != 200:
                 raise RuntimeError(f"/journal/generate {resp.status_code}: {resp.text[:300]}")
             return {"date": date, "status": resp.json().get("status")}
+        if step["action"] == "dream":
+            resp = self.client.post("/dreams/generate", params={"visualize": "false"},
+                                    headers=self._admin_headers)
+            if resp.status_code != 200:
+                raise RuntimeError(f"/dreams/generate {resp.status_code}: {resp.text[:300]}")
+            body = resp.json()
+            return {"status": "ok" if body.get("success", True) else "no_dream",
+                    "message": body.get("message"), "dream_id": body.get("dream_id")}
+        if step["action"] == "solo_reflection":
+            return self._solo_reflection(step)
         raise ValueError(step["action"])  # pragma: no cover
+
+    def _solo_reflection(self, step: dict) -> dict:
+        resp = self.client.post("/solo-reflection/sessions", headers=self._admin_headers,
+                                json={"duration_minutes": int(step.get("minutes", 3)),
+                                      "theme": step.get("theme")})
+        if resp.status_code != 200:
+            raise RuntimeError(f"/solo-reflection/sessions {resp.status_code}: {resp.text[:300]}")
+        sid = resp.json()["session_id"]
+        deadline = time.monotonic() + 60 * (int(step.get("minutes", 3)) + 10)
+        status = "active"
+        while time.monotonic() < deadline:
+            got = self.client.get(f"/solo-reflection/sessions/{sid}", headers=self._admin_headers)
+            status = got.json().get("status") if got.status_code == 200 else status
+            if status not in ("active", "running", "pending"):
+                break
+            time.sleep(5)
+        return {"session_id": sid, "status": status}
+
+    SELF_MODEL_TABLES = ("self_observations", "opinions", "growth_edges", "dreams", "solo_reflections",
+                         "journals")
+
+    def _self_model_counts(self) -> Dict[str, int]:
+        from database import get_db
+        out = {}
+        with get_db() as conn:
+            for t in self.SELF_MODEL_TABLES:
+                try:
+                    out[t] = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                except Exception:
+                    out[t] = None
+        return out
 
     # --- reading state -----------------------------------------------------
 
@@ -340,6 +382,11 @@ class AppDriver:
         if kind == "self_context":
             import main_sdk
             return main_sdk.self_manager.get_self_context(include_observations=True)
+        if kind == "self_model_delta":
+            # What this cell added to her self-model: rows per table since the cell started.
+            now, start = self._self_model_counts(), getattr(self, "_counts_at_start", {})
+            return {t: (now[t] - start[t]) if now.get(t) is not None and start.get(t) is not None else None
+                    for t in now}
         raise ValueError(kind)  # pragma: no cover
 
     def spent(self) -> List[tuple]:

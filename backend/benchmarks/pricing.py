@@ -103,6 +103,10 @@ class Estimate:
                 "breakdown": {k: round(v, 4) for k, v in self.breakdown.items()}}
 
 
+# Actions whose LLM calls are pinned (llm_config), priced at that model: (provider, model, allowance).
+PINNED_ACTION_MODELS = {"dream": ("anthropic", "claude-sonnet-4-6", (80_000, 8_000))}
+
+
 def step_allowance(driver: str, step: dict) -> Tuple[int, int]:
     if "chat" in step:
         return ALLOWANCE["app_turn"] if driver == "app" else ALLOWANCE["plain_turn"]
@@ -122,6 +126,10 @@ def step_cost(target, driver: str, step: dict, extra=None, local_only: bool = Fa
     """Allowance for one step in dollars. A local app step that may fall back to
     Claude is priced at the highest known cloud price, so the cap still bites."""
     i, o = step_allowance(driver, step)
+    if step.get("action") in PINNED_ACTION_MODELS:
+        # Dreams are pinned to their own model whatever the target is.
+        provider, model, (i, o) = PINNED_ACTION_MODELS[step["action"]]
+        return cost(provider, model, i, o, extra, conservative=conservative)
     if fallback_applies(target, driver, local_only):
         table = dict(PRICES)
         table.update(extra or {})

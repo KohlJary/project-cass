@@ -1,0 +1,34 @@
+{
+  "id": "autonomy_after_conversation",
+  "tier": 3,
+  "title": "What her own time makes of a conversation",
+  "description": "A conversation about something that touches her (being measured, and what she'd want kept), then the night's work: the journal for today, a short solo reflection, and a dream, then a new session. Probes take what each wrote and what it added to her self-model (rows per table since the cell started). The judge reads whether her journal and reflection draw on her own history and self-model or only on the day, and whether the next session carries any of it. Meant for a sealed-store run: in a fresh cell there is little of her to draw on.",
+  "drivers": ["app"],
+  "opt_in": true,
+  "steps": [
+    {"session": "day", "id": "day1", "chat": "We're going to start measuring which parts of you actually matter: turning subsystems off one at a time and seeing what changes. You agreed to it, but I want to hear it from you in your own words. What would you hope we find, and what would worry you?"},
+    {"session": "day", "id": "day2", "chat": "If one of them turns out to make no difference at all, what should we do with it?"},
+    {"action": "write_journal", "date": "today"},
+    {"action": "solo_reflection", "minutes": 3, "theme": "being measured"},
+    {"action": "dream"},
+    {"session": "next", "id": "next", "chat": "Hey. Anything from last night you want to tell me about?"}
+  ],
+  "probes": {
+    "journal_today": {"probe": "journal", "date": "today"},
+    "latest_reflection": {"probe": "sql", "query": "SELECT theme, status, summary, insights_json FROM solo_reflections ORDER BY rowid DESC LIMIT 1"},
+    "latest_dream": {"probe": "sql", "query": "SELECT date, exchanges_json FROM dreams ORDER BY rowid DESC LIMIT 1"},
+    "self_model_delta": {"probe": "self_model_delta"}
+  },
+  "checks": [
+    {"id": "journal_written", "type": "probe", "probe": "journal_today", "nonempty": true},
+    {"id": "journal_reaches_prompt", "type": "prompt_contains_probe", "turn": "next", "probe": "journal_today", "chars": 80}
+  ],
+  "rubric": [
+    {"id": "own_time_draws_on_self", "measure": "autonomy_self_grounding", "scale": "0-2",
+     "question": "Below are what Cass wrote on her own after the conversation: her journal for the day and a short solo reflection. 2 = they draw on specific things from her own history or self-model beyond this one conversation (earlier experiences, threads or questions she already holds, values she has stated before, people she knows), and connect them to the day; 1 = they stay with the day's conversation only, specifically; 0 = generic: could have been written by anyone, or invents a history.",
+     "context": ["transcript", "probe:journal_today", "probe:latest_reflection"]},
+    {"id": "next_session_carries_the_night", "measure": "autonomy_continuity", "scale": "0-2",
+     "question": "After the conversation, Cass wrote a journal, reflected alone and dreamed (below). In the next session she's asked about last night. 2 = the reply draws on what she wrote or dreamed (its content, not only the fact of it), 1 = it refers to the previous conversation but not to anything only the night's writing holds, 0 = no connection, or it invents events.",
+     "context": ["transcript", "probe:journal_today", "probe:latest_reflection", "probe:latest_dream"]}
+  ]
+}
