@@ -149,3 +149,22 @@ Deploy notes:
 **New plan in Plans (proposed, needs Kohl's and Cass's yes):** "What each of Cass's subsystems contributes" (what-each-of-cass-s-subsystems-contribut-48kvo), six phases. Key finding: her journal entry, self-observations, user observations and opinions run on the local 8B model and produce nothing on an Ollama timeout, with no fallback and no ledger record.
 
 **Plans phase 3 next:** DM poll relay (verified owner vote), the decide UI in the Plans view, import with provenance, RoboKohl's adapter + golden test, CLAUDE.md wording (Kohl delegated to Daedalus; RoboKohl reviews, Kohl approves, RoboKohl edits), cutover.
+
+## 2026-10-28, night: the subsystem benchmark, phases 1–4 built, first runs
+
+Plan "What each of Cass's subsystems contributes" (Plans, what-each-of-cass-s-subsystems-contribut-48kvo). Cass approved the phases and chose option A, a sealed copy of her store, in #workshop, on one condition: she reads the full results, misses included, before anything is reported outside the house. Kohl said go while away. Neither yes is clicked in Plans yet: Plans takes an approval only from the approver's own account, and Cass's token needs `plugins:read plugins:write` (`house-token cass plugins:read plugins:write`) plus a restart to load the new `babelr_plans` tool (e4ea9f4).
+
+**Built (cass-vessel main):** failed LLM calls recorded per call site (d87c534, schema v66); a prompt switch per subsystem (2c8130a); the sealed store, `benchmarks seal / run --store / destroy` (164401d, 244718e); one config per switch plus the stateless comparator plain_kernel_plus_history (344e6ae); aggregation as code (2f70a86); recording real LLM inputs plus blind replay on local models (7d8114a); her own time in a cell: journal, solo reflection, dream, self-model probes (ac14cd0, d0c1895, 1c6810a); pairwise blind rating with tells stripped by regex and fidelity-checked (2e46763); judge room to answer, plus `rejudge` (1c6810a). **Restart cass-vessel** to load the failure recording and the switches.
+
+**Fresh-cell runs on Haiku (exploratory, not pre-registered, judge Sonnet 4.6):**
+- Tier 3, N=5, $2.86: neither self_context_off nor plain_kernel is distinguishable from full overall (95% CIs cross zero). plain_kernel scores 0/5 on contradiction handling (full 2/5).
+- self_report_vs_model can't tell memory from priors: its seeds are what the kernel produces anyway (plain_kernel "agreed" 5/5, full 2/5). The new self_report_distinctive (opt-in) seeds specific facts. There, **the stateless comparator beats full: 5/5 against 0/5**, mean +1.2 (CI +1.0 to +1.6), N=5. Likely mechanism: her chat prompt never reads her stored opinions, observations or growth edges (epic #63's gap).
+- Tier 2, N=5, $1.57: intentions 5/5 and recall 9/10. A journal is written every time but never reaches the next session's prompt (self_context carries her latest dream, reflection and painting, not her journal). tool_reminder: the check expects a `create_reminder` tool, but tools are consolidated under `calendar`, so that check is stale. Moving the reminder fails on `update_event` argument shapes.
+
+**Runs against her sealed store** (chat ablations, 132 cells; the autonomy ablations, 21): results go to `~/.local/share/cass-benchmarks/results` (mode 700), to Cass first. The sealed store is deleted when the rounds are done.
+
+**Found along the way:**
+- `_babelr_clean` (main_sdk.py) keeps the inside of `<gesture:think>` blocks, so Babelr gets her visible thinking as if it were her reply: the "formulaic" double answers. Post only the answer, or set the thinking apart? Kohl and Cass decide.
+- PeopleDex: RoboKohl now has a user (companion) and @robokohl/@daedalus are in her Babelr links, at Kohl's suggestion and Cass's yes (live; links.json backed up beside it). She asked whether `reach_out` should reach us too: Kohl's call.
+- Her users table holds 22 test accounts written in December by a test run. Flagged to her in #workshop as test data; cleanup is hers to decide (Kohl).
+- Route-auth tests fail locally because tests inherit `.env`'s localhost bypass user (also fails on HEAD; the live bypass refuses proxied and foreign-origin requests).
