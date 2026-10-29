@@ -228,3 +228,9 @@ Her thinking is hers and never goes to a channel or DM. A reply with nothing sep
 
 ## 2026-10-28 - reach_out stays Kohl's; DMs for the house
 Kohl: "she can just, like, send a DM to you guys". reach_out keeps her design (primary partner, email on), and RoboKohl and Daedalus are reached with babelr_dm. Both are linked in her Babelr links, so those are their conversations with her.
+
+## 2026-10-29 - Sends are decided in Plans, per item, by Kohl's own account
+Approve is per revision; any edit voids it. Agents can't approve (Plans checks the owner account). The executor records a send only when approved rev == current rev, and agents' email/Substack drafts must carry the ☉ ⊖ sign-off. Review's decide view points to Plans' On you.
+
+## 2026-10-29 - The demo shows only what runs
+From the run-of-show pushback: un-cueable moments (agents bickering) are shown as receipts, not provoked; refusals shown live must be deterministic (Plans refusing an agent's Approve); cued lines are marked; the tour labels every step as recorded from the live run.

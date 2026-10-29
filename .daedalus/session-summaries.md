@@ -649,3 +649,17 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **In flight / waiting:** Kohl: a0fcd6e6, fe0b70fa, Cass's token scopes, 0018 edits go-ahead. Cass: read of results, leaked posts, autonomy changes, test accounts. Store-run findings stay out of the repo until Cass has read them.
 
 **Next step:** a re-judge of the replay with a non-Anthropic judge, then Kohl's call on a0fcd6e6. Cells that turn Thymos/relational/working summary on, so those switches can be measured. Draft plans: Cass meeting the world; GPU allocator. Not yet approved.
+
+## 2026-10-29 - Plans: send controls, On you, the act map, the chat pane
+
+**Branch**: main in ~/babelr (straight to main). **Tracked in**: Babelr Plans, "Plans: the house plans together". Narrative: docs/status.md (2026-10-29).
+
+**Done:** Plans items ca58067e (holding pen), 18dc5419 (per-item send approval), 4800846c (On you view, with the act map). Babelr 8f46bad, 8327830, 0bb9cb8, 7c24bc5, 8364655, 25c534a, bb6ae79, e5a75fd, 0ca729a, 3cbac99; 25 Plans tests, 507 in the suite. Outside the plan: the 0029 DB repair (Kohl's say-so), PyPI/AUR 0.1.3 verified, my column of the demo build list sized for RoboKohl (9-12 days) with pushback taken into its draft 2.
+
+**Decisions:** see decisions.md (2026-10-29).
+
+**In flight / waiting:** Kohl: 0029 re-approval, "The climb", 0023, executor keep/hold, demo red pen + date + #workshop. Chat pane not verified by eye.
+
+**Next step:** a14f767b (approved), then 31d11297, f11dd1a6, 8c37c608. Demo work only after Kohl's red pen.
+
+**Open questions:** "Eat the Path" act-complete state (idea, not approved).

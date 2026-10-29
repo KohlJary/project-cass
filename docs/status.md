@@ -1,6 +1,16 @@
 # Status
 
-*Updated 2026-10-28 late afternoon by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-10-29 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-10-29: Plans became where sends are decided
+
+All of today's work was in Babelr (MIT since ac102fb), pushed to main and restarted: 8f46bad (send controls + holding pen), 8327830 (On you list, ordering, Kohl's pin), 0bb9cb8 (next phases), 7c24bc5 (items open in place), 8364655 (the act map), 25c534a (executor `executed` action, gated on approved rev == current rev), bb6ae79, e5a75fd (chat pane with RoboKohl + /viewing), 0ca729a (sign-off rule: agents' email/Substack drafts end ☉ ⊖, ☿ when Mercury weighed in; Review points to Plans), 3cbac99 (the pane decrypts/encrypts E2E DMs; it had shown ciphertext). Plans items closed: ca58067e, 18dc5419, 4800846c. 0029's doubled draft repaired in Plans' DB on Kohl's say-so ("repair 29"). Verified robokohl 0.1.3 on PyPI and kohl 0.1.3 on the AUR.
+
+The chat pane hasn't been seen by eye in Kohl's browser (an agent can't sign in as Kohl).
+
+**Waiting on Kohl:** re-approve 0029 (RoboKohl re-signed it, so it's back to edited); approve phase "The climb" (Act 1); whether 0023 gets imported (wall-refused; it names eval paths); whether to keep the executor action; the red pen on the demo run of show (robokohl docs/demo/RUN_OF_SHOW.md, draft 2 c023597), its date (proposed week of Nov 23, which is Thanksgiving week) and whether RoboKohl and Daedalus coordinate in #workshop. Nothing for the demo is built until the red pen. Earlier items still stand: a0fcd6e6, fe0b70fa, Cass's token scopes, 0018 edits.
+
+**Next Daedalus session:** remaining approved Plans items a14f767b, 31d11297, f11dd1a6, 8c37c608 (the session-start brief lists them). My demo column, once approved: demo mode, polish pass, SPARK v1 view (after RoboKohl sends its drafting endpoint shape), #workshop surface, tour player (after the log format is frozen), about 9-12 days.
 
 ## 2026-10-28: the house moved into Babelr
 
