@@ -268,6 +268,12 @@ TIER3_CONFIGS: Dict[str, Config] = {
         "tools, tags or state. Only meaningful against a sealed store (run --store).",
         caveat=STORE_CAVEAT, dump=True),
     # One per prompt lever off (benchmark plan, phase 4): what each subsystem contributes.
+    "self_model_off": Config(
+        "self_model_off", "app", {"self_context": True, "prompt_self_model": False},
+        "As full, without her self-model profile where her own sessions and journal read it "
+        "(chat never reads it). For autonomy scenarios. Only meaningful against a sealed store "
+        "(run --store).",
+        caveat=STORE_CAVEAT),
     "thymos_off": Config(
         "thymos_off", "app", {"self_context": True, "prompt_thymos": False},
         "As full, without the Thymos section. Only meaningful against a sealed store (run --store).",
@@ -305,6 +311,8 @@ TIER3_CONFIGS: Dict[str, Config] = {
 # The configurations a run uses when none are named; the ablations above are opt-in
 # (--config NAME, or --config ablations for all of them).
 DEFAULT_TIER3 = ("full", "self_context_off", "plain_kernel")
+AUTONOMY_ABLATIONS = ("full", "self_model_off", "memories_off", "identity_snippet_off", "metacog_off",
+                      "thymos_off", "self_context_off")
 ABLATIONS = ("full", "plain_kernel", "plain_kernel_plus_history",
              "thymos_off", "relational_off", "threads_off", "questions_off", "working_summary_off", "memories_off", "identity_snippet_off", "metacog_off")
 
@@ -314,6 +322,8 @@ def parse_configs(names: Optional[List[str]]) -> List[Config]:
         return [TIER3_CONFIGS[n] for n in DEFAULT_TIER3]
     if names == ["ablations"]:
         return [TIER3_CONFIGS[n] for n in ABLATIONS]
+    if names == ["autonomy_ablations"]:
+        return [TIER3_CONFIGS[n] for n in AUTONOMY_ABLATIONS]
     unknown = [n for n in names if n not in TIER3_CONFIGS]
     if unknown:
         raise SpecError(f"unknown configuration(s): {', '.join(unknown)} "
