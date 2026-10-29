@@ -227,13 +227,13 @@ def cmd_seal(args) -> int:
     return 0
 
 
-def cmd_rejudge(args) -> int:
-    """Re-score rubric items of an existing run, writing <file>-rejudged.json beside it."""
-    import json
-    src = Path(args.results)
-    run = json.loads(src.read_text())
-    harness = Path(tempfile.mkdtemp(prefix="cass-rejudge-")) / "harness"
+def _scratch_harness(prefix: str) -> Path:
+    """A fresh DATA_DIR for a command that makes LLM calls outside a cell, set before
+    any backend import reads it, so its ledger rows never land in her database."""
+    from .isolation import check_data_dir
+    harness = Path(tempfile.mkdtemp(prefix=prefix)) / "harness"
     harness.mkdir(parents=True)
+    check_data_dir(harness)
     os.environ["DATA_DIR"] = str(harness)
     os.environ.pop("LLM_CONFIG_PATH", None)
     os.environ["CASS_PROFILE"] = "test"
@@ -241,6 +241,15 @@ def cmd_rejudge(args) -> int:
     from database.migrations import init_database
     init_database()
     get_or_create_daemon("cass")
+    return harness
+
+
+def cmd_rejudge(args) -> int:
+    """Re-score rubric items of an existing run, writing <file>-rejudged.json beside it."""
+    import json
+    src = Path(args.results)
+    run = json.loads(src.read_text())
+    _scratch_harness("cass-rejudge-")
     from llm_config import LLMConfigManager, ModelAssignment
     from .judge import LLMJudge, build_context
     from .pricing import cost
@@ -284,6 +293,7 @@ def cmd_replay(args) -> int:
         print("refused: --out must be outside the repository (it holds her prompts)", file=sys.stderr)
         return 4
     rows = rp.sample(rp.load(Path(args.recordings), args.site), args.n)
+    _scratch_harness("cass-replay-")
     targets = [Target.parse(m) for m in args.model]
     judge = Target.parse(args.judge) if args.judge else None
     report = rp.run(rows, targets, judge, args.budget_usd)
@@ -336,6 +346,7 @@ def main(argv=None) -> int:
         if run.get("store") and REPO_DIR.resolve() in out.parents:
             print("refused: verdicts from a --store run hold her replies; --out outside the repo", file=sys.stderr)
             return 4
+        _scratch_harness("cass-pairwise-")
         report = pwm.run_pairwise(run, Target.parse(args.judge), args.budget_usd, args.baseline,
                                   args.config or None)
         out.parent.mkdir(parents=True, exist_ok=True)
