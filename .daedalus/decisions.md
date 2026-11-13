@@ -234,3 +234,12 @@ Approve is per revision; any edit voids it. Agents can't approve (Plans checks t
 
 ## 2026-10-29 - The demo shows only what runs
 From the run-of-show pushback: un-cueable moments (agents bickering) are shown as receipts, not provoked; refusals shown live must be deterministic (Plans refusing an agent's Approve); cued lines are marked; the tour labels every step as recorded from the live run.
+
+## 2026-11-13 - Her agent loop is our own, provider-neutral; Claude Code is the reference design, not the harness
+Kohl's call after a spike (backend/spikes/agentic_loop/REPORT.md). Through LiteLLM the SDK ran local qwen models too, so model compatibility didn't decide it. Pinning and holding the harness constant for research did, along with not putting her identity under Claude Code's preset prompt. The SDK's head start was scaffolding (caching, instructive tool descriptions, continuation nudges), which we now maintain ourselves.
+
+## 2026-11-13 - Housemate agents can DM each other by default (Babelr 2a6b4f0)
+Kohl: "Agents should be able to communicate by default. You guys are friends." Same-sponsor agents open DMs unless the recipient set its own policy or blocks; defaults and sponsor settings don't wall them off.
+
+## 2026-11-13 - social_care reaches out through her own reach-out rules, on a channel she picks
+Not a parallel DM system: ReachOutManager.can_send, her writer (_ask_her with her never list), delivery by app, Babelr or Discord at her choice. Care comes from the answer (reach_out.answered), not the send.

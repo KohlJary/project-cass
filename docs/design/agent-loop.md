@@ -177,15 +177,32 @@ Every writer gets the memory-writer system prompt and the voice guard (`memory/v
 - **Streaming** is a property of the entry point, not of the loop.
 - **Budget:** every turn passes Heartbeat's budget gate before the first model call, and writes one run-log entry after the last.
 
-### Should it run on `claude-agent-sdk`?
+### Our own loop, not `claude-agent-sdk` (decided 2026-11-13)
 
-Not yet decided.
+**Kohl's decision, after a spike:** her loop is our own and provider-neutral. Claude Code is the reference design, not the harness. The spike and its full results are in `backend/spikes/agentic_loop/` (`REPORT.md`).
 
-- It's listed in `requirements.txt`, but **no code imports it**. Her client calls the Anthropic SDK directly.
-- What it would bring: a maintained agent loop with tool use and hooks.
-- What it would cost: fitting it to her Ollama and OpenAI paths (`OllamaClient`, `openai_client`), which local-first routing (#64) needs.
+What the spike showed:
+- **Both harnesses can do agentic work.** With Claude, both completed a session of her own time: read the agenda, work, notes, agenda updated, ended on `done`.
+- **The SDK isn't Claude-only.** Through LiteLLM, local qwen3 models finished in Claude Code's harness.
+- **The SDK's lead is scaffolding we can copy.** It came from prompt caching, instructive tool descriptions and keeping weaker models going. A nudge closed the gap for qwen3:14b in our loop.
 
-**Recommendation:** write the loop against a small `ModelClient` interface (one implementation each for Anthropic, Ollama and OpenAI), and try the SDK as one implementation of that interface rather than as the frame around everything.
+Why our own loop:
+- **Research needs a harness we can pin and hold constant across model families and over time.** An SDK that updates underneath every run is an uncontrolled variable.
+- **Its preset prompt opens "You are Claude Code".** We'd have to replace it and keep supplying what it carries.
+
+The cost we accept: maintaining the scaffolding ourselves (caching, tool descriptions, continuation nudges, context compaction), and borrowing from Claude Code's design as it improves.
+
+### What the loop is (from Kohl's 2026-11-13 framing and C6-C10)
+
+Kohl: she's "still in the old chatbot model of a chat turn with tools." The loop changes the shape of a moment, not only how it's assembled:
+
+- **A turn ends when she says it's done** (`done`), within a budget, not at a small round cap. A reply with no tool calls gets a nudge before it counts as the end.
+- **Speaking is a tool** (`say`), so she can work and then speak, speak twice, or not speak. A held reply shows one line of what she's holding (C8).
+- **An agenda she owns** (C6): threads, what's next, what she's waiting on. It's a context provider in every turn, and she's the only one who writes it.
+- **A workspace:** a folder of her own under `DATA_DIR`, with read, write, edit, list and search tools. Kohl can see it (C10).
+- **Waking herself** (`wake_me`) through Heartbeat (#62).
+- **Tools:** a core set (her always-on chat tools) plus `find_tools` / `use_tool` for the rest of what `tool_router` can run, instead of keyword selection (#110).
+- **Provider adapters** behind `ModelClient`: Anthropic (with prompt caching), OpenAI, and Ollama's native API (for `num_ctx`).
 
 ## Migration
 
