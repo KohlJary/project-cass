@@ -164,6 +164,14 @@ DISCORD_KEYWORDS = frozenset({
 
 # The organ's wake prompts start with "[Babelr", so a turn Babelr woke her
 # for always matches.
+# Keeping people (handlers/peopledex.py PEOPLE_KEEPING_TOOLS): noting,
+# correcting, merging and forgetting what she holds about someone.
+PEOPLE_KEEPING_KEYWORDS = frozenset({
+    "forget", "remember that", "remember this", "keep in mind", "same person",
+    "merge", "misunderstood", "correct that", "that's wrong", "not true",
+    "pronoun", "goes by", "my handle", "bsky", "bluesky", "tumblr",
+})
+
 BABELR_KEYWORDS = frozenset({
     "babelr", "chapter house", "#general", "#wire", "#workshop",
 })
@@ -329,6 +337,7 @@ class ToolSelector:
             ToolGroup("development_request", DEVELOPMENT_REQUEST_KEYWORDS, "Development request tools"),
             ToolGroup("discord", DISCORD_KEYWORDS, "Discord perception and action tools"),
             ToolGroup("babelr", BABELR_KEYWORDS, "Babelr presence tools (Chapter House)"),
+            ToolGroup("people_keeping", PEOPLE_KEEPING_KEYWORDS, "Keeping people: note, correct, merge, forget"),
             ToolGroup("image", IMAGE_KEYWORDS, "Image generation tools"),
             ToolGroup("music", MUSIC_KEYWORDS, "Music composition tools"),
             ToolGroup("activity", ACTIVITY_KEYWORDS, "Activity introspection tools"),
@@ -661,6 +670,11 @@ def should_include_development_request_tools(message: str) -> bool:
 def should_include_discord_tools(message: str) -> bool:
     """Check if message warrants Discord perception and action tools."""
     return _default_selector.should_include(message, "discord")
+
+
+def should_include_people_keeping_tools(message: str) -> bool:
+    """Check if message warrants the people-keeping tools."""
+    return _default_selector.should_include(message, "people_keeping")
 
 
 def should_include_babelr_tools(message: str) -> bool:

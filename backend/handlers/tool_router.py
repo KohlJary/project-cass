@@ -333,6 +333,10 @@ TOOL_REGISTRY = {
     # PeopleDex tools (biographical entity database)
     "lookup_person": "peopledex",
     "remember_person": "peopledex",
+    "note_about_person": "peopledex",
+    "correct_person": "peopledex",
+    "merge_people": "peopledex",
+    "forget_about_person": "peopledex",
     "remember_relationship": "peopledex",
 
     # Stakeholder tools (link people to goals)

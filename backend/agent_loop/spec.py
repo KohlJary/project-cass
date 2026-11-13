@@ -170,6 +170,8 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     "note_disagreement": ("my_position", "rationale"),
     "record_user_observation": ("observation",),
     "mark_cross_session_insight": ("insight",),
+    "note_about_person": ("text",),
+    "correct_person": ("new_text", "resolution"),
     # Her workspace, agenda included.
     "workspace_write": ("content",),
     "workspace_edit": ("new_text",),

@@ -408,6 +408,32 @@ class PeopleDexManager:
                 return self._row_to_entity(row)
             return None
 
+    def find_entities(self, query: str, limit: int = 5) -> List[Entity]:
+        """By name, alias or handle. Accepts "@someone.bsky.social",
+        "bluesky:someone" (platform:handle) or a bare name or handle."""
+        query = (query or "").strip()
+        if not query:
+            return []
+        found: List[Entity] = list(self.search_entities(query, limit=limit))
+        platform, _, handle = query.partition(":") if ":" in query and " " not in query else ("", "", query)
+        handle = handle.lstrip("@")
+        sql = ("SELECT DISTINCT entity_id FROM peopledex_attributes "
+               "WHERE attribute_type IN ('handle', 'name') AND LOWER(LTRIM(value, '@')) LIKE ?")
+        params: List[Any] = [f"%{handle.lower()}%"]
+        if platform:
+            sql += " AND LOWER(COALESCE(attribute_key, '')) = ?"
+            params.append(platform.lower())
+        with get_db() as conn:
+            ids = [r[0] for r in conn.execute(sql + " LIMIT ?", params + [limit]).fetchall()]
+        seen = {e.id for e in found}
+        for entity_id in ids:
+            if entity_id not in seen:
+                e = self.get_entity(entity_id)
+                if e:
+                    found.append(e)
+                    seen.add(entity_id)
+        return found[:limit]
+
     def get_entity_by_user(self, user_id: str) -> Optional[Entity]:
         """Get the entity linked to a user."""
         with get_db() as conn:
@@ -926,6 +952,18 @@ class PeopleDexManager:
                 "UPDATE peopledex_relationships SET to_entity_id = ? WHERE to_entity_id = ?",
                 (keep_id, merge_id)
             )
+
+            # Move everything she noted about them. These tables cascade on
+            # delete, so before this a merge silently dropped her
+            # observations, moments, patterns, shaping and facts for the
+            # merged entry. Relationship meta is one row per daemon: the
+            # kept entry's wins (OR IGNORE), the other's goes with it.
+            for table in ("peopledex_observations", "peopledex_moments",
+                          "peopledex_relationship_patterns", "peopledex_mutual_shaping",
+                          "peopledex_facts"):
+                conn.execute(f"UPDATE {table} SET entity_id = ? WHERE entity_id = ?", (keep_id, merge_id))
+            conn.execute("UPDATE OR IGNORE peopledex_relationship_meta SET entity_id = ? WHERE entity_id = ?",
+                         (keep_id, merge_id))
 
             # Copy user_id and npc_id if keep_entity doesn't have them
             if merge_entity.user_id and not keep_entity.user_id:
@@ -1868,6 +1906,25 @@ class PeopleDexManager:
             entity_type=EntityType.PERSON,
             user_id=user_id,
         ))
+
+    def update_observation_content(self, observation_id: str, content: str) -> bool:
+        """Correct what an observation says (she misunderstood, or learned more)."""
+        with get_db() as conn:
+            cur = conn.execute(
+                "UPDATE peopledex_observations SET content = ?, updated_at = ? WHERE id = ?",
+                (content, datetime.now().isoformat(), observation_id))
+            return cur.rowcount > 0
+
+    def update_moment(self, moment_id: str, description: str) -> bool:
+        with get_db() as conn:
+            cur = conn.execute("UPDATE peopledex_moments SET description = ? WHERE id = ?",
+                               (description, moment_id))
+            return cur.rowcount > 0
+
+    def delete_moment(self, moment_id: str) -> bool:
+        with get_db() as conn:
+            cur = conn.execute("DELETE FROM peopledex_moments WHERE id = ?", (moment_id,))
+            return cur.rowcount > 0
 
     def delete_observation(self, observation_id: str, entity_id: Optional[str] = None) -> bool:
         """Delete one observation (optionally only if it belongs to entity_id)."""

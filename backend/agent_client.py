@@ -1830,6 +1830,12 @@ class CassAgentClient:
             lookup_tool = [t for t in PEOPLEDEX_TOOLS if t["name"] == "lookup_person"]
             tools.extend(lookup_tool)
 
+            # Keeping people: note, correct, merge, forget (keyword-gated)
+            from tool_selector import should_include_people_keeping_tools
+            if should_include_people_keeping_tools(message):
+                from handlers.peopledex import PEOPLE_KEEPING_TOOLS
+                tools.extend(PEOPLE_KEEPING_TOOLS)
+
             # === KEYWORD-TRIGGERED (Conditional loading) ===
 
             # Calendar tools - scheduling/dates (consolidated: 11 tools -> 1)
