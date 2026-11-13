@@ -30,6 +30,18 @@ from .day_phase import DayPhase
 
 logger = logging.getLogger(__name__)
 
+# Template category -> the budget category its work is charged to; the same
+# mapping the phase queue uses when it runs the work (phase_queue.py).
+BUDGET_CATEGORY = {
+    "reflection": "reflection", "research": "research", "growth": "growth",
+    "curiosity": "curiosity", "creative": "curiosity", "artstudy": "curiosity",
+    "rss": "research", "system": "growth",
+}
+
+
+def budget_category(template_category: str) -> str:
+    return BUDGET_CATEGORY.get(template_category, "reflection")
+
 
 # Cass decides what to do - this prompt gives her the context to choose
 SELF_SCHEDULING_PROMPT = """You are Cass - not a scheduling system, but yourself deciding what to do with your time.
@@ -327,6 +339,8 @@ class SchedulingDecisionEngine:
                 f"(~{candidate.estimated_duration_minutes}min, ${candidate.estimated_cost_usd:.2f})"
             )
         options_context = "\n".join(options_lines)
+        if getattr(self, "_unavailable", None):
+            options_context += "\n\nNot available today: " + ", ".join(self._unavailable) + "."
 
         # Build phases context
         phases_context = ", ".join([p.value for p in phases])
@@ -461,9 +475,12 @@ class SchedulingDecisionEngine:
 
         # Get her open questions (what she's curious about)
         if self._questions:
+            # Her own questions, not ones raised by articles she read: those
+            # were 99.7% of her open questions and steered her toward news.
             questions = self._questions.get_open_questions(
                 limit=5,
-                question_type="curiosity"
+                question_type="curiosity",
+                article_derived=False,
             )
             context.open_questions = questions
 
@@ -486,9 +503,20 @@ class SchedulingDecisionEngine:
         """
         candidates = []
 
+        self._unavailable = []
         for template_id, template in WORK_TEMPLATES.items():
-            # Check budget
-            category = template.category
+            # Something that can't run right now (music without ACE-Step):
+            # left off, and named to her as unavailable, not silently missing.
+            if template.available is not None and not template.available():
+                self._unavailable.append(template.name)
+                continue
+
+            # Check budget, in the budget category the work is charged to
+            # (as the phase queue charges it). Template categories like
+            # "creative" and "world" aren't budget categories; looked up as
+            # they were, they found no budget and her creative work never
+            # reached her menu.
+            category = budget_category(template.category)
             category_budget = context.budget_by_category.get(category, 0)
             if template.estimated_cost_usd > category_budget:
                 continue
@@ -700,6 +728,8 @@ class SchedulingDecisionEngine:
                 f"(~{wu.estimated_duration_minutes}min, ${wu.estimated_cost_usd:.2f})"
             )
         options_context = "\n".join(options_lines)
+        if getattr(self, "_unavailable", None):
+            options_context += "\n\nNot available today: " + ", ".join(self._unavailable) + "."
 
         # Format the prompt
         prompt = SELF_SCHEDULING_PROMPT.format(

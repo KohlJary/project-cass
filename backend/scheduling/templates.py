@@ -6,7 +6,7 @@ Each template maps to an existing SessionRunner or composite action sequence.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import uuid
 
 from .work_unit import WorkUnit, TimeWindow, WorkPriority
@@ -30,6 +30,12 @@ class WorkUnitTemplate:
     priority: WorkPriority = WorkPriority.NORMAL
     requires_idle: bool = False
     category: str = "reflection"  # For budget allocation
+    # A check for whether it can run right now (e.g. music needs ACE-Step).
+    # None: always. When it says no, the planner names it as unavailable.
+    available: Optional[Callable[[], bool]] = None
+
+    def is_available(self) -> bool:
+        return self.available is None or bool(self.available())
 
     def instantiate(
         self,
@@ -221,6 +227,40 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         category="creative",
     ),
 
+    # === Her art and music (plan "Cass plans her own day", phase 2) ===
+    # Kohl, 2026-11-13: she should be able to work on her art and music. The
+    # actions existed; nothing on her menu offered them.
+    "painting": WorkUnitTemplate(
+        id="painting",
+        name="Painting",
+        description="Paint something of my own: I choose what and why, and see what I made.",
+        action_sequence=["creative.generate_image"],
+        default_duration_minutes=20,
+        estimated_cost_usd=0.10,
+        category="creative",
+    ),
+
+    "art_study": WorkUnitTemplate(
+        id="art_study",
+        name="Art Study",
+        description="Study an artist: their life, their works, what I want to take into my own style, then make something from it.",
+        action_sequence=["artstudy.full_session"],
+        default_duration_minutes=40,
+        estimated_cost_usd=0.40,
+        category="creative",
+    ),
+
+    "music": WorkUnitTemplate(
+        id="music",
+        name="Music",
+        description="Compose an original piece of music from where I am right now.",
+        action_sequence=["creative.compose_music"],
+        default_duration_minutes=20,
+        estimated_cost_usd=0.05,
+        category="creative",
+        available=lambda: _music_service_up(),
+    ),
+
     # === Memory & system maintenance ===
     "memory_maintenance": WorkUnitTemplate(
         id="memory_maintenance",
@@ -340,3 +380,13 @@ def get_templates_by_category(category: str) -> List[WorkUnitTemplate]:
 def list_templates() -> List[Dict[str, Any]]:
     """List all available templates."""
     return [t.to_dict() for t in WORK_TEMPLATES.values()]
+
+
+def _music_service_up() -> bool:
+    """ACE-Step answers its health check (a 2-second look)."""
+    try:
+        import httpx
+        from music.music_client import get_music_client
+        return httpx.get(f"{get_music_client().base_url}/health", timeout=2.0).status_code == 200
+    except Exception:
+        return False
