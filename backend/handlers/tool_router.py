@@ -975,6 +975,27 @@ def tool_result_content(value):
         return str(value)
 
 
+def result_for_model(tool_result: Dict[str, Any]) -> Any:
+    """What the model is told a tool returned.
+
+    Executors report in two shapes: {"success", "result"} and, as many do
+    (her Babelr tools among them), {"success", ...fields}. Before, only
+    `result` was read, so a successful call in the second shape reached her
+    as "Unknown error" (2026-11-13: her Plans list, posts, DMs, reads).
+    Now: `result` if it has one; for a failure, its error; for a success
+    without `result`, the other fields.
+    """
+    if not isinstance(tool_result, dict):
+        return tool_result if tool_result not in (None, "") else "Unknown error"
+    result = tool_result.get("result")
+    if result is not None and result != "":
+        return result
+    if not tool_result.get("success", False):
+        return tool_result.get("error") or "Unknown error"
+    rest = {k: v for k, v in tool_result.items() if k not in ("success", "result")}
+    return rest if rest else "Done."
+
+
 async def execute_tool_batch(
     tool_uses: List[Dict],
     ctx: ToolContext,
@@ -1002,10 +1023,7 @@ async def execute_tool_batch(
             executors=executors
         )
 
-        # Use 'or' chaining to handle None/empty values - dict.get() returns the value
-        # even if it's None/empty when the key exists, breaking fallback logic
-        result_content = tool_result.get("result") or tool_result.get("error") or "Unknown error"
-        result_content = tool_result_content(result_content)
+        result_content = tool_result_content(result_for_model(tool_result))
         results.append({
             "tool_use_id": tool_use["id"],
             "result": result_content,

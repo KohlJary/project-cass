@@ -37,3 +37,37 @@ def test_execute_tool_batch_sends_an_api_object_as_text(monkeypatch):
     assert isinstance(res["result"], str)
     assert json.loads(res["result"])["dmPolicy"] == "housemates"
     assert res["is_error"] is False
+
+
+def test_a_success_without_a_result_key_sends_its_fields():
+    """Her Babelr tools (and ~20 handlers) report {"success", ...fields};
+    those reached her as "Unknown error" before."""
+    from handlers.tool_router import result_for_model
+    out = result_for_model({"success": True, "plans": [{"plan": "cass-s-agent-loop-0qozz"}]})
+    assert out == {"plans": [{"plan": "cass-s-agent-loop-0qozz"}]}
+    assert json.loads(tool_result_content(out))["plans"][0]["plan"] == "cass-s-agent-loop-0qozz"
+    assert result_for_model({"success": True, "message_id": "m1", "place": "general"}) == \
+        {"message_id": "m1", "place": "general"}
+
+
+def test_result_error_and_bare_success_are_unchanged():
+    from handlers.tool_router import result_for_model
+    assert result_for_model({"success": True, "result": "posted"}) == "posted"
+    assert result_for_model({"success": False, "error": "nope"}) == "nope"
+    assert result_for_model({"success": False}) == "Unknown error"
+    assert result_for_model({"success": True}) == "Done."
+    # A failure's other fields don't leak in place of its error.
+    assert result_for_model({"success": False, "error": "403", "plans": []}) == "403"
+
+
+def test_babelr_plans_list_reaches_her_through_the_batch(monkeypatch):
+    import handlers.tool_router as tr
+
+    async def fake_route(tool_name, tool_input, ctx, executors):
+        return {"success": True, "plans": [{"plan": "cass-s-agent-loop-0qozz", "title": "Cass's agent loop",
+                                            "status": "active", "phases_awaiting_you": 4}]}
+    monkeypatch.setattr(tr, "route_tool", fake_route)
+    [res] = asyncio.run(execute_tool_batch(
+        [{"id": "tu_1", "tool": "babelr_plans", "input": {"action": "list"}}], None, {}))
+    assert res["is_error"] is False and "Unknown error" not in res["result"]
+    assert json.loads(res["result"])["plans"][0]["phases_awaiting_you"] == 4
