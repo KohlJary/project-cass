@@ -326,6 +326,17 @@ def build_continuous_context(
     )
 
 
+ARTICLE_MEMORY_TYPES = ("article_consumption",)
+ARTICLE_OBSERVATION_PREFIX = "world_awareness:"
+
+
+def _from_article_scanning(metadata: Dict) -> bool:
+    """True for memories that came from scanning articles, not from her life."""
+    if metadata.get("type") in ARTICLE_MEMORY_TYPES:
+        return True
+    return str(metadata.get("category") or "").startswith(ARTICLE_OBSERVATION_PREFIX)
+
+
 def _retrieve_semantic_memories(
     memory: "MemoryCore",
     query: str,
@@ -345,12 +356,19 @@ def _retrieve_semantic_memories(
         Formatted string of relevant memories, or None if no results
     """
     try:
-        # Retrieve semantically similar memories
+        # Retrieve semantically similar memories. Over-fetch, then leave out
+        # what came from scanning articles: article summaries, and the
+        # observations the world integrator used to file as
+        # world_awareness:* self-observations. Cass asked that recall about
+        # people not draw on her article reading (plan "Cass's memory",
+        # item fe5ddbe8, 2026-11-13).
         memories = memory.retrieve_relevant(
             query=query,
-            n_results=n_results,
+            n_results=n_results * 4,
             filter_type=None  # Get all types (conversations, journals, etc.)
         )
+        memories = [m for m in memories or [] if not _from_article_scanning(m.get("metadata") or {})]
+        memories = memories[:n_results]
 
         if not memories:
             return None

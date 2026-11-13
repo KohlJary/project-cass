@@ -273,13 +273,13 @@ async def execute_world_consumption_tool(
 WORLD_CONSUMPTION_TOOLS = [
     {
         "name": "search_articles",
-        "description": "Search articles you've consumed. Use this to recall what you've read about a topic, find articles from a specific source, or review recent reading. Recent articles (last 7 days) are also in ambient memory and may surface naturally.",
+        "description": "Search articles you've consumed, and what you noticed in them (your observations from articles are kept with each article). Use this to recall what you've read about a topic, find articles from a specific source, or review recent reading. Recent articles (last 7 days) are also in ambient memory and may surface naturally.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search text to match in headlines or summaries"
+                    "description": "Search text to match in headlines, summaries, or what you noticed in them"
                 },
                 "category": {
                     "type": "string",

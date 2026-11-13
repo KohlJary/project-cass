@@ -182,8 +182,10 @@ def search_consumed_articles(
     params: List[Any] = [daemon_id, cutoff]
 
     if query:
-        sql += " AND (headline LIKE ? OR summary LIKE ?)"
-        params.extend([f"%{query}%", f"%{query}%"])
+        # What she noticed in an article is searched too: her observations
+        # from articles live here, with the article (plan "Cass's memory", fe5ddbe8).
+        sql += " AND (headline LIKE ? OR summary LIKE ? OR observations_json LIKE ?)"
+        params.extend([f"%{query}%", f"%{query}%", f"%{query}%"])
 
     if category:
         sql += " AND category = ?"

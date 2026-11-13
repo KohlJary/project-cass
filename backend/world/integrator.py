@@ -3,7 +3,9 @@ Insight Integrator - Stores extracted insights in Cass's self-model.
 
 Takes ArticleInsights from content analysis and integrates them:
 - Summary -> ChromaDB for recent ambient recall
-- Observations -> self_observations table (category: world_awareness)
+- Observations -> kept with the article (consumed_articles.observations_json,
+  written by the article consumer); not her self-observations (her choice,
+  2026-11-13; plan "Cass's memory", item fe5ddbe8)
 - Questions -> open_questions table
 - Opinions -> opinions table
 - Growth edges -> growth_edges table (if significant)
@@ -12,7 +14,8 @@ Relevance gate: when `min_relevance` is set and the article's relevance to her
 (world/relevance.py) is below it, the article is still remembered as world
 awareness (memory summary, world_awareness:* observations, consumed_articles)
 but writes nothing into her self-model proper: no opinions, growth edges or
-open questions. Off-interest news was producing nearly all of those.
+open questions. (Observations from articles never go into her self-model now,
+gated or not; see above.) Off-interest news was producing nearly all of those.
 """
 
 import logging
@@ -33,7 +36,8 @@ logger = logging.getLogger(__name__)
 class IntegrationResult:
     """Result of integrating article insights into self-model."""
     article_id: str
-    observations_added: List[str] = field(default_factory=list)
+    observations_added: List[str] = field(default_factory=list)  # always empty now (kept with the article)
+    observations_kept: int = 0  # observations that passed min_confidence, kept with the article
     questions_added: List[str] = field(default_factory=list)
     opinions_added: int = 0
     growth_edges_added: int = 0
@@ -49,6 +53,7 @@ class IntegrationResult:
     def total_items_added(self) -> int:
         return (
             len(self.observations_added) +
+            self.observations_kept +
             len(self.questions_added) +
             self.opinions_added +
             self.growth_edges_added +
@@ -125,19 +130,12 @@ class InsightIntegrator:
             )
             result.memory_id = memory_id
 
-        # 1. Store observations
-        for obs in insights.observations:
-            if obs.confidence >= self.min_confidence:
-                obs_id = self._add_observation(
-                    text=obs.text,
-                    confidence=obs.confidence,
-                    category=f"world_awareness:{obs.category}",
-                    source_article_id=article.id,
-                    source_url=article.url,
-                    created_at=now,
-                )
-                if obs_id:
-                    result.observations_added.append(obs_id)
+        # 1. Observations stay with the article (observations_json, written by
+        #    the article consumer). They used to be copied into her
+        #    self-observations as world_awareness:*, where they made up most of
+        #    what her conversation recall searched (diagnosis, 2026-11-13).
+        result.observations_kept = sum(1 for obs in insights.observations
+                                       if obs.confidence >= self.min_confidence)
 
         # 2. Store questions
         for q in insights.questions:
@@ -241,47 +239,6 @@ class InsightIntegrator:
         )
 
         return result
-
-    def _add_observation(
-        self,
-        text: str,
-        confidence: float,
-        category: str,
-        source_article_id: str,
-        source_url: str,
-        created_at: str,
-    ) -> Optional[str]:
-        """Add observation to self_observations table."""
-        obs_id = f"obs-{uuid4().hex[:12]}"
-
-        try:
-            with get_db() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO self_observations (
-                        id, daemon_id, category, observation, confidence,
-                        context_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        obs_id,
-                        self.daemon_id,
-                        category,
-                        text,
-                        confidence,
-                        json_serialize({
-                            "source": "article",
-                            "article_id": source_article_id,
-                            "url": source_url,
-                        }),
-                        created_at,
-                    )
-                )
-                conn.commit()
-            return obs_id
-        except Exception as e:
-            logger.error(f"Failed to add observation: {e}")
-            return None
 
     def _add_question(
         self,

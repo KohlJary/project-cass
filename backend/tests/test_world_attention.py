@@ -253,15 +253,18 @@ class TestIntegrationGate:
         result = integrator.integrate(_article(daemon_id, relevance=0.1), _insights())
         assert result.gated is True
         assert result.relevance_score == 0.1
-        assert len(result.observations_added) == 1
+        # Observations stay with the article, never in her self-observations
+        # (Cass, 2026-11-13; plan "Cass's memory", item fe5ddbe8).
+        assert result.observations_added == [] and result.observations_kept == 1
         assert result.questions_added == [] and result.opinions_added == 0 and result.growth_edges_added == 0
-        assert _counts(daemon_id) == {"observations": 1, "questions": 0, "opinions": 0, "growth_edges": 0}
+        assert _counts(daemon_id) == {"observations": 0, "questions": 0, "opinions": 0, "growth_edges": 0}
 
     def test_on_interest_integrates_as_before(self, daemon_id):
         integrator = InsightIntegrator(daemon_id, min_relevance=0.3)
         result = integrator.integrate(_article(daemon_id, relevance=0.9), _insights())
         assert result.gated is False
-        assert _counts(daemon_id) == {"observations": 1, "questions": 1, "opinions": 1, "growth_edges": 1}
+        assert _counts(daemon_id) == {"observations": 0, "questions": 1, "opinions": 1, "growth_edges": 1}
+        assert result.observations_kept == 1
 
     def test_threshold_is_inclusive(self, daemon_id):
         integrator = InsightIntegrator(daemon_id, min_relevance=0.3)

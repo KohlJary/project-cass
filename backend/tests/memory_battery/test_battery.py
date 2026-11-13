@@ -75,15 +75,17 @@ def test_working_summary_carries_the_recent_arc(world):
 # person's recall survives the noise depends on word overlap, so a
 # per-person check would pass or fail by accident.
 
-@pytest.mark.xfail(strict=True, reason=FIX_ARTICLES)
+# After fe5ddbe8 the article observations are filtered out, but where they
+# fill the whole over-fetch nothing is left: episodes need their own slots.
+@pytest.mark.xfail(strict=True, reason=FIX_SCOPED)
 def test_recall_by_reference_finds_the_episode(world):
     missed = [(p.name, ep.keywords) for p in world.people for ep in p.episodes
               if ep.marker not in _section(context_for(world, p, ep.keywords), "semantic_memories")]
     assert not missed, missed
 
 
-@pytest.mark.xfail(strict=True, reason=FIX_ARTICLES)
 def test_news_observations_dont_take_episode_slots(world):
+    # Fixed by fe5ddbe8: recall leaves out what came from scanning articles.
     crowded = [(p.name, ep.keywords) for p in world.people for ep in p.episodes
                if "Trend I noticed in the news" in _section(context_for(world, p, ep.keywords),
                                                            "semantic_memories")]
