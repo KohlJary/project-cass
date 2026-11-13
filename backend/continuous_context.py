@@ -309,6 +309,12 @@ def build_continuous_context(
     # these are the pieces it was folded from.
     if memory and user_id and wanted("recent_timeline"):
         timeline = _recent_timeline(memory, user_id, conversation_id)
+        # Outside their main thread (a Babelr channel, a Discord channel),
+        # the arc with them lives in that thread's working summary, which
+        # this conversation's own summary doesn't carry (63c8e59b).
+        main = _main_thread_summary(conversation_manager, user_id, conversation_id)
+        if main:
+            timeline = f"- Our main thread, lately: {main}" + (f"\n{timeline}" if timeline else "")
         if timeline:
             context_sections["recent_timeline"] = timeline
 
@@ -392,6 +398,28 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -
     chosen = episodes[:episode_slots] + others[:n_results - episode_slots]
     spare = episodes[episode_slots:] + others[n_results - episode_slots:]
     return chosen + spare[:n_results - len(chosen)]
+
+
+MAIN_THREAD_CHARS = 1500
+
+
+def _main_thread_summary(conversation_manager, user_id: str, conversation_id: Optional[str]) -> Optional[str]:
+    """Their main (continuous) thread's working summary, when this turn is elsewhere."""
+    if not conversation_manager or not hasattr(conversation_manager, "get_continuous_id"):
+        return None
+    try:
+        main_id = conversation_manager.get_continuous_id(user_id)
+        if not main_id or main_id == conversation_id:
+            return None
+        text = conversation_manager.get_working_summary(main_id) or ""
+        from memory.voice_guard import looks_like_refusal
+        if not text.strip() or looks_like_refusal(text):
+            return None
+        text = " ".join(text.split())
+        return text[:MAIN_THREAD_CHARS] + ("..." if len(text) > MAIN_THREAD_CHARS else "")
+    except Exception as e:
+        print(f"[RecentTimeline] main thread skipped: {e}")
+        return None
 
 
 TIMELINE_CHUNKS = 4

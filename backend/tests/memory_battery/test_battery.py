@@ -139,10 +139,12 @@ def test_the_timeline_is_only_ever_theirs(world, name):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("name", NAMES)
-@pytest.mark.xfail(strict=True, reason=FIX_BABELR)
-def test_a_babelr_dm_knows_who_she_is_talking_with(world, name):
+def test_a_babelr_channel_turn_knows_who_she_is_talking_with(world, name):
+    # Fixed by 63c8e59b: in a channel (its own conversation, no owner), her
+    # turn with a linked person carries their context, and her main thread
+    # with them comes along in the timeline.
     p = world.person(name)
-    ctx = context_for(world, p, f"hey it's {name} on Babelr", babelr=True)
+    ctx = context_for(world, p, "hey", babelr=True)
     assert p.observation in _section(ctx, "relational_context")
     assert any(ep.marker in ctx.system_prompt for ep in p.recent), name
 

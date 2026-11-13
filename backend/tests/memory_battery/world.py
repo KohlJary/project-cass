@@ -169,10 +169,12 @@ def build_world(articles: int = 150) -> World:
             entity = pdx.get_entity_by_user(p.user_id)
             pdx.update_entity(entity.id, entity_type="daemon")
 
-        # A Babelr DM with them: its own conversation, as the organ makes it today.
-        bab = conversations.create_conversation(title=f"Babelr: DM with @{p.name.lower()}")
+        # A Babelr channel they talk to her in: a shared conversation with no
+        # owner, as the organ makes it; her turn there runs as whoever woke
+        # her (the linked author).
+        bab = conversations.create_conversation(title=f"Babelr: #{p.name.lower()}-and-friends")
         p.babelr_conversation_id = bab.id
-        conversations.add_message(bab.id, "user", f"hey it's {p.name} on Babelr")
+        conversations.add_message(bab.id, "user", f"[Babelr #{p.name.lower()}-and-friends] @{p.name.lower()}: hey")
 
     for i in range(articles):
         topic = ARTICLE_TOPICS[i % len(ARTICLE_TOPICS)]
@@ -189,8 +191,10 @@ def build_world(articles: int = 150) -> World:
 def context_for(world: World, person: Person, query: Optional[str], *, babelr: bool = False):
     """Her chat context as chat builds it (continuous_context), for this person."""
     from continuous_context import build_continuous_context
+    # A Babelr channel turn runs as the linked person who woke her (the wake
+    # callback's channel_user_id), in the channel's own conversation.
     return build_continuous_context(
-        user_id=None if babelr else person.user_id,
+        user_id=person.user_id,
         conversation_id=person.babelr_conversation_id if babelr else person.conversation_id,
         user_manager=None, thread_manager=None, question_manager=None,
         conversation_manager=world.conversations, daemon_id=world.daemon_id,
