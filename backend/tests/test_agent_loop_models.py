@@ -78,6 +78,7 @@ def test_a_reply_without_a_tool_call_is_nudged_then_she_finishes():
     second = client.calls[1]["messages"]
     assert second[-1] == {"role": "user", "content": nudge_text("session_complete")}
     assert "session_complete" in second[-1]["content"]
+    assert second[-1]["content"].startswith("(loop: ")  # marked as the loop's, not a person's
 
 
 def test_nudges_run_out_and_the_turn_ends_saying_so():
