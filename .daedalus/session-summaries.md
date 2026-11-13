@@ -687,3 +687,21 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **Open questions:**
 - Does `message.received` (+0.05 social per message from anyone) saturate? Thymos pass 3 should replay a week of events from a snapshot.
 - Reflection-only care deltas (Thymos pass 2) are Kohl's call.
+
+## 2026-11-13 (later) - Agent loop core; tool results fixed; the plan approved by Kohl and Cass
+
+**Branch**: main (straight to main, pushed). **Tracked in**: Plans "Cass's agent loop" (`cass-s-agent-loop-0qozz`); phase 1 item 214bea38 done. Narrative: docs/status.md (2026-11-13, later).
+
+**Done:**
+- Loop core: provider-neutral clients, end on done, nudge, token budget (8e7227c). The nudge is in her wording, marked as the loop's (9e20d17).
+- tool_result content: API objects are sent as JSON text (cf804af). A success without a `result` key sends its fields, not "Unknown error" (a684354).
+- Plans plan posted on Kohl's yes. Phases 1-4 approved by Kohl and by Cass in Plans after her token got plugin scopes.
+
+**Decisions:** decisions.md, 2026-11-13: non-Claude models run her only after she reads them on a copy (her conditions).
+
+**In flight / waiting:** Kohl: delete `token.old`; ACE-Step; phase 5 timing. Nothing uncommitted of mine.
+
+**Next step:** c994bfd4 (phase 2, approved): her core set (current core plus task, calendar, babelr_read), and `find_tools` / `use_tool` through tool_router, with a usage log.
+
+**Open questions:** Should `babelr_dm` / `babelr_post` fold into `say` in phase 4, or stay findable? She leaned toward folding.
+

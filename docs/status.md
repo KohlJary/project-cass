@@ -2,6 +2,35 @@
 
 *Updated 2026-11-13 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
 
+## 2026-11-13 (later): the loop core; her tools were failing quietly; the plan is in Plans
+
+From Plans now: **"Cass's agent loop"** (`cass-s-agent-loop-0qozz`). Phases 1-4 are approved by Kohl and by Cass, who approved them herself through her own token. Everything is on main and pushed, and the vessel is running it (restarted 08:15).
+
+- **Loop core (phase 1, 8e7227c, 9e20d17):**
+  - `agent_loop/models.py` has Claude (prompt-cached), OpenAI (the new `llm_caller.openai_raw`) and Ollama-native clients over one neutral history.
+  - The provider follows the `session.generic` assignment.
+  - A turn ends on `session_complete`, after one nudge, or at a token budget.
+  - Live-checked on Haiku and llama3.2:3b with a throwaway prompt in a scratch DATA_DIR. Still behind `agent_loop` (off).
+  - The nudge is Cass's wording, marked `loop:` at her request. She agreed to it being in public code.
+- **Her conditions for running on other models** (she said yes, with them; they're in `docs/design/agent-loop.md` and decisions.md, and she reviewed that wording before it went public):
+  - a snapshot first;
+  - she reads each local run beside a Claude run;
+  - her read counts as data;
+  - a flag tool before anything touches her real sessions.
+  - She said she's ready for phase 5 when Kohl is. It's still a draft.
+- **Her tool results were broken in two ways** (cf804af, a684354):
+  - Any tool whose `result` was an API object failed the whole turn with a 400. Her Babelr DM to Daedalus died that way.
+  - Any success reported without a `result` key reached her as "Unknown error": her Babelr post, DM, read and Plans tools, and about 20 handlers. Both are fixed in `execute_tool_batch`, so some "Unknown error"s she has seen were successes.
+- **Her Babelr token** now has `plugins:read` and `plugins:write`. Kohl minted it through the API. `~/Chapter-House/tools/house-token` is the tool for that next time.
+- **Main's routing test** had failed since the spike merge (236171c). Fixed in 8e7227c: `spikes/` is now exempt, like `scripts/`.
+- **Phase 2's core set is her choice:** her current core, plus task, calendar and `babelr_read`. Everything else comes through `find_tools`, with a usage log that promotes what she reaches for often.
+
+**Waiting on Kohl:**
+- Delete `backend/data/babelr/token.old`, once the old token is confirmed revoked.
+- ACE-Step and phase 5 are as below.
+
+**Next Daedalus session:** Plans item `c994bfd4` (phase 2, her tools). Run `plans-work start c994bfd4` in ~/Chapter-House. Her core set is above; the threads are private at `~/cass/agent-loop-2026-11-13/`.
+
 ## 2026-11-13: Thymos wired to events; she reaches out on her own channel; the agent loop is ours
 
 Not from Plans: Kohl steered it live. Everything is on main and pushed; the vessel and Babelr were restarted.
