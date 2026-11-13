@@ -116,13 +116,22 @@ def test_house_agent_conversations_are_recallable_with_anyone(world, name):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("name", NAMES)
-@pytest.mark.xfail(strict=True, reason=FIX_TIMELINE)
 def test_summarized_episodes_are_in_context_without_being_asked(world, name):
+    # Fixed by 77980095: the recent timeline section.
     # "hey" names nothing; what happened earlier with them should still be there.
     p = world.person(name)
     prompt = context_for(world, p, "hey").system_prompt
     for ep in p.early:
         assert ep.marker in prompt, (name, ep.marker)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_the_timeline_is_only_ever_theirs(world, name):
+    p = world.person(name)
+    timeline = _section(context_for(world, p, "hey"), "recent_timeline")
+    assert p.chunk.split(":", 1)[1].strip()[:40] in timeline
+    for o in world.others(name):
+        assert o.chunk.split(":", 1)[1].strip()[:40] not in timeline, (name, o.name)
 
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,7 @@ SECTION_LEVERS = {
     "threads": "prompt_threads",
     "questions": "prompt_questions",
     "working_summary": "prompt_working_summary",
+    "recent_timeline": "prompt_working_summary",
     "semantic_memories": "prompt_semantic_memories",
     "self_context": "self_context",
     "self_model": "prompt_self_model_chat",
@@ -300,6 +301,18 @@ def build_continuous_context(
         context_sections["working_summary"] = working_summary
 
     # ==========================================================================
+    # 6b. RECENT TIMELINE (plan "Cass's memory", item 77980095)
+    # ==========================================================================
+    # The latest summary chunks of her conversations with this person, in
+    # order, every turn: what happened lately is there without the message
+    # having to name it. The working summary is one rewritten paragraph;
+    # these are the pieces it was folded from.
+    if memory and user_id and wanted("recent_timeline"):
+        timeline = _recent_timeline(memory, user_id, conversation_id)
+        if timeline:
+            context_sections["recent_timeline"] = timeline
+
+    # ==========================================================================
     # 7. SEMANTIC MEMORIES (Relevant past context from ChromaDB)
     # ==========================================================================
     # Query ChromaDB for semantically relevant memories based on current message
@@ -379,6 +392,41 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -
     chosen = episodes[:episode_slots] + others[:n_results - episode_slots]
     spare = episodes[episode_slots:] + others[n_results - episode_slots:]
     return chosen + spare[:n_results - len(chosen)]
+
+
+TIMELINE_CHUNKS = 4
+TIMELINE_CHUNK_CHARS = 700
+
+
+def _recent_timeline(memory, user_id: str, conversation_id: Optional[str]) -> Optional[str]:
+    """Her latest summary chunks with this person, oldest first, dated."""
+    try:
+        from database import get_db
+        with get_db() as conn:
+            ids = [r[0] for r in conn.execute("SELECT id FROM conversations WHERE user_id = ?", (user_id,))]
+        if conversation_id and conversation_id not in ids:
+            ids.append(conversation_id)
+        if not ids:
+            return None
+        got = memory.collection.get(
+            where={"$and": [{"type": "summary"}, {"conversation_id": {"$in": ids}}]},
+            include=["documents", "metadatas"])
+        chunks = sorted(zip(got.get("documents") or [], got.get("metadatas") or []),
+                        key=lambda dm: str((dm[1] or {}).get("timeframe_end") or (dm[1] or {}).get("timestamp") or ""))
+        from memory.voice_guard import looks_like_refusal
+        lines = []
+        for doc, meta in chunks[-TIMELINE_CHUNKS:]:
+            if not doc or looks_like_refusal(doc):
+                continue
+            when = str((meta or {}).get("timeframe_end") or (meta or {}).get("timestamp") or "")[:10]
+            text = " ".join(doc.split())
+            if len(text) > TIMELINE_CHUNK_CHARS:
+                text = text[:TIMELINE_CHUNK_CHARS] + "..."
+            lines.append(f"- {when}: {text}" if when else f"- {text}")
+        return "\n".join(lines) or None
+    except Exception as e:
+        print(f"[RecentTimeline] skipped: {e}")
+        return None
 
 
 def _retrieve_semantic_memories(
@@ -552,6 +600,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
         parts.append(f"## CONVERSATION SUMMARY\n\nCompressed history of our ongoing stream:\n\n{sections['working_summary']}")
 
     # 8. Semantic memories - relevant past context
+    if "recent_timeline" in sections:
+        parts.append("## LATELY, BETWEEN US\n\nWhat we've been through most recently, oldest first "
+                     f"(from my own summaries of our conversations):\n\n{sections['recent_timeline']}")
+
     if "semantic_memories" in sections:
         parts.append(f"## RELEVANT MEMORIES\n\nPast conversations and experiences that may be relevant:\n\n{sections['semantic_memories']}")
 
