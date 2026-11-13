@@ -207,7 +207,7 @@ TOOL_LIST_OBSERVATIONS = {
 
 TOOL_LIST_GROWTH_EDGES = {
     "name": "list_growth_edges",
-    "description": "List current growth edges and their status.",
+    "description": "List my growth edges, most important and most recently touched first.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -215,6 +215,10 @@ TOOL_LIST_GROWTH_EDGES = {
                 "type": "string",
                 "enum": ["active", "completed", "paused", "all"],
                 "description": "Filter by status"
+            },
+            "limit": {
+                "type": "integer",
+                "description": "How many (default 20)"
             }
         }
     }
@@ -771,9 +775,22 @@ async def handle_list_growth_edges(
     try:
         # SelfManager has no list_growth_edges; edges live on the profile and
         # have no status/progress fields, so the status filter doesn't apply.
-        edges = self_manager.load_profile().growth_edges
+        edges = list(self_manager.load_profile().growth_edges)
+        # Her store has thousands of edges (many from news reading); listing
+        # them all made one session's prompt 466k tokens (live check,
+        # 2026-11-13). The most important and most recently touched first.
+        try:
+            limit = max(1, min(100, int(tool_input.get("limit") or 20)))
+        except (TypeError, ValueError):
+            limit = 20
+        edges.sort(key=lambda e: (getattr(e, "importance", 0) or 0,
+                                  getattr(e, "last_touched", "") or ""), reverse=True)
+        total = len(edges)
+        edges = edges[:limit]
 
         return {
+            "total": total,
+            "showing": len(edges),
             "growth_edges": [
                 {
                     "id": e.edge_id,

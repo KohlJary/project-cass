@@ -93,6 +93,19 @@ class LoopOutcome:
     withheld: List[Dict[str, Any]] = field(default_factory=list)
 
 
+# One tool result's share of the prompt. A session's list_growth_edges once
+# returned 1.9 MB and made the next request 466k tokens (live check,
+# 2026-11-13); no single result may take the turn down.
+MAX_TOOL_RESULT_CHARS = 20_000
+
+
+def cap_tool_result(content: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
+    if len(content) <= limit:
+        return content
+    return (content[:limit] + f"\n[loop: result cut at {limit} of {len(content)} characters; "
+            "ask for less, e.g. a limit or a narrower query]")
+
+
 def guard_tool_input(spec: TurnSpec, name: str, tool_input: Dict[str, Any]) -> Optional[str]:
     """Return the refusal phrase if a memory-writing tool's text reads as one."""
     from memory.voice_guard import looks_like_refusal
@@ -206,11 +219,8 @@ async def run_loop(
                     out.completion = dict(tool_input)
                     ended = True
                 step.tool_results.append({"tool_name": name, "result": result})
-                results.append({
-                    "id": call["id"],
-                    "name": name,
-                    "content": json.dumps(result, default=str) if isinstance(result, dict) else str(result),
-                })
+                content = json.dumps(result, default=str) if isinstance(result, dict) else str(result)
+                results.append({"id": call["id"], "name": name, "content": cap_tool_result(content)})
             history.append({"role": "tool", "results": results})
             if ended:
                 out.status, out.end_reason = "completed", "I said I was done"
