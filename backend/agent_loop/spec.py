@@ -144,6 +144,12 @@ class TurnSpec:
     # Model assignment call site (llm_config / #64). Resolved in loop.resolve_model.
     model_site: str
     max_iterations: int = 10
+    # A reply with no tool call before the end tool gets this many nudges,
+    # then the turn ends (loop.run_loop).
+    nudges: int = 1
+    # Tokens one turn may spend across all its steps (input, output and
+    # cache reads/writes); None for no limit.
+    turn_token_budget: Optional[int] = None
     # Conversations are never refused for budget (Kohl, 2026-10-20).
     refusable_for_budget: bool = True
     # Dreams keep their own model and container (Kohl, 2026-10-20) [C5].
@@ -166,6 +172,11 @@ class TurnSpec:
         return names
 
 
+# Generous for a 10-step session (prompt ~10k tokens a step); it's a backstop
+# against a runaway turn, not a target.
+SESSION_TOKEN_BUDGET = 500_000
+
+
 def session_spec(activity: str, max_iterations: int = 10) -> TurnSpec:
     packs = ("core", "memory") + ACTIVITY_PACKS.get(activity, ()) + ("session",)
     return TurnSpec(
@@ -176,6 +187,7 @@ def session_spec(activity: str, max_iterations: int = 10) -> TurnSpec:
         where=ACTIVITY_WORDS.get(activity, f"a {activity.replace('_', ' ')} session"),
         model_site="session.autonomous",
         max_iterations=max_iterations,
+        turn_token_budget=SESSION_TOKEN_BUDGET,
     )
 
 

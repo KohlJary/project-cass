@@ -290,6 +290,9 @@ def install(fake: FakeLLM, monkeypatch) -> FakeLLM:
                     "prompt_eval_count": resp.input_tokens, "eval_count": resp.output_tokens}
             if endpoint == "chat":
                 data["message"] = {"role": "assistant", "content": resp.text}
+                if resp.tool_uses:  # Ollama's shape: no ids, arguments as a dict
+                    data["message"]["tool_calls"] = [
+                        {"function": {"name": t["name"], "arguments": t["input"]}} for t in resp.tool_uses]
             else:
                 data["response"] = resp.text
             return data

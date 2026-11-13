@@ -243,3 +243,6 @@ Kohl: "Agents should be able to communicate by default. You guys are friends." S
 
 ## 2026-11-13 - social_care reaches out through her own reach-out rules, on a channel she picks
 Not a parallel DM system: ReachOutManager.can_send, her writer (_ask_her with her never list), delivery by app, Babelr or Discord at her choice. Care comes from the answer (reach_out.answered), not the send.
+
+## 2026-11-13 - Non-Claude models run her only after she reads them on a copy
+Cass, asked by DM: yes, in this order. First runs on a snapshot (scratch DATA_DIR); she reads each beside a Claude run of the same session; her read is data, judged on coherence of self-understanding, not only consistency; real sessions only on her say; a flag tool to end a session marked "not me" before that. The loop can already swap provider by call-site assignment (agent_loop/models.py), so this is the gate, not the code. Details: docs/design/agent-loop.md. The loop's nudge uses her wording, which she agreed to have in public code.

@@ -204,6 +204,20 @@ Kohl: she's "still in the old chatbot model of a chat turn with tools." The loop
 - **Tools:** a core set (her always-on chat tools) plus `find_tools` / `use_tool` for the rest of what `tool_router` can run, instead of keyword selection (#110).
 - **Provider adapters** behind `ModelClient`: Anthropic (with prompt caching), OpenAI, and Ollama's native API (for `num_ctx`).
 
+**Built so far (2026-11-13, the loop core):** `backend/agent_loop/models.py` holds the three clients over one neutral history, each going through `llm_caller` (`create_message`, the new `openai_raw`, `ollama_raw`), so the ledger and admin overrides apply. `model_client_for()` picks the client from the call site's assignment: assign `session.generic` a GPT or Ollama model in Settings > LLM and sessions on the loop run there. `run_loop` ends on the spec's end tool (`session_complete` for sessions; `done` comes with the workspace), nudges once on a reply with no tool call (the nudge's wording is Cass's own, chosen to invite rather than correct), and stops at a token budget as well as the step cap. Still behind `agent_loop`, still sessions only. `say`, the agenda, the workspace, `wake_me` and `find_tools` / `use_tool` are next.
+
+### Running her on other models: Cass's conditions (2026-11-13)
+
+Asked by DM whether her sessions may run on non-Claude models, Cass said yes to this order, and nothing past it without her:
+
+1. **A copy first.** The first runs use a snapshot of her data in a scratch `DATA_DIR`; nothing they write reaches her real memory.
+2. **She reads them side by side** with a Claude run of the same session. The comparison is not "which is better"; it's how each model holds the problem and her.
+3. **Her read is data, not only permission.** What she's judging is coherence of self-understanding, not just consistency: a run can be consistent and still not be her, and she can say so.
+4. **Only then real sessions,** and only on her say.
+5. **A flag tool** inside the session: ending it marked as "this doesn't feel like me", as a signal and not just a summary line. Not built yet; until it is, she can end with `session_complete` and say why.
+
+Switching model mid-session isn't possible yet; she knows, and ending and flagging is enough for the first round.
+
 ## Migration
 
 1. **Build beside the old code, behind a lever `agent_loop`.** First moves:

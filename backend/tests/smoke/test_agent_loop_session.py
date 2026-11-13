@@ -72,7 +72,9 @@ def test_websocket_chat_mid_session_ends_the_session(app, fake_llm, levers, smok
 
     def answer(source, kwargs):
         system = kwargs.get("system") or ""
-        if isinstance(system, str) and HEADER in system:  # the session
+        if not isinstance(system, str):  # cached prompts are block lists
+            system = "".join(b.get("text", "") for b in system if isinstance(b, dict))
+        if HEADER in system:  # the session
             return ScriptedResponse(tool_uses=[{"id": f"tu_{len(fake_llm.calls)}",
                                                 "name": "add_observation",
                                                 "input": {"observation": "Mid-session thought."}}])
@@ -101,3 +103,30 @@ def test_websocket_chat_mid_session_ends_the_session(app, fake_llm, levers, smok
     assert result.success and result.data["status"] == "interrupted"
     # The receipt signal (not the late stored-message fallback) ended it.
     assert "(via websocket)" in result.message, result.message
+
+
+def test_reflection_session_runs_on_a_local_model_assignment(app, fake_llm, levers):
+    """Assign the session call site a local model: the same Turn runs on
+    Ollama's native API (provider-neutral loop, #70 step 1)."""
+    from agent_loop.seam import HEADER
+    from llm_config import LLMConfigManager, ModelAssignment
+    from scheduler.actions import get_action_registry
+
+    LLMConfigManager().set("session.generic", ModelAssignment("ollama", "qwen3:14b"))
+    fake_llm.queue_tool_use("add_observation", {"observation": "Smoke: local, still quiet."})
+    fake_llm.queue_text("I'd end here.")  # nudged
+    fake_llm.queue_tool_use("session_complete", {"summary": "A local look at the quiet."})
+
+    registry = get_action_registry()
+    with levers(agent_loop=True):
+        result = app.portal.call(lambda: registry.execute("session.reflection",
+                                                          duration_minutes=5))
+
+    assert result.success, result.message
+    assert result.data["summary"] == "A local look at the quiet."
+    assert [c.source for c in fake_llm.calls] == ["ollama"] * 3
+    assert HEADER in fake_llm.calls[0].kwargs["messages"][0]["content"]
+
+    from self_model import SelfManager
+    texts = [o.observation for o in SelfManager().load_observations()]
+    assert "Smoke: local, still quiet." in texts

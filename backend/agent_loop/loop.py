@@ -1,10 +1,16 @@
 """
-The one capped loop: model -> tools -> model, for any turn kind.
+The one loop: model -> tools -> model, for any turn kind.
 
-- Written against a small ModelClient interface. Only the Anthropic
-  implementation exists so far (what autonomous sessions use today); Ollama
-  and OpenAI implementations come with model routing (#64) and chat cutover.
-- Capped by the spec's max_iterations (model calls per turn).
+- Provider-neutral. The loop keeps a neutral history and talks to a small
+  ModelClient interface; models.py has the Anthropic (prompt-cached), OpenAI
+  and Ollama-native clients, and model_client_for() picks one from the call
+  site's assignment.
+- The turn ends when she says it's done (the spec's end tool), not when a
+  reply happens to carry no tool call. A reply with no tool call gets a
+  short nudge (spec.nudges, then it ends), because some models stop to
+  describe what they'd do instead of doing it.
+- Bounded by a step cap (spec.max_iterations), a token budget
+  (spec.turn_token_budget) and an optional deadline.
 - Offers exactly the spec's tools. A call to anything else gets an error
   result saying it isn't available here, and nothing runs [C3].
 - Guarded writes: before a tool that writes her memory runs, its text fields
@@ -19,68 +25,23 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .spec import TurnSpec
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Model client
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ModelReply:
-    text: str
-    tool_calls: List[Dict[str, Any]]
-    stop_reason: Optional[str]
-    input_tokens: int
-    output_tokens: int
-    content: Any  # provider-native assistant content, echoed back next call
-
-
-class ModelClient(Protocol):
-    async def create(self, *, model: str, system: str, tools: List[Dict[str, Any]],
-                     messages: List[Dict[str, Any]], max_tokens: int) -> ModelReply: ...
-
-
-class AnthropicModelClient:
-    def __init__(self, client: Any = None):
-        if client is None:
-            import anthropic
-            client = anthropic.AsyncAnthropic()
-        self._client = client
-
-    async def create(self, *, model, system, tools, messages, max_tokens) -> ModelReply:
-        kwargs: Dict[str, Any] = dict(model=model, max_tokens=max_tokens,
-                                      system=system, messages=messages)
-        if tools:
-            kwargs["tools"] = tools
-        # Model routing (#64): llm_config's "session.generic" override, else
-        # `model`; llm_caller records the usage in the token ledger.
-        from llm_caller import create_message
-        response = await create_message("session.generic", client=self._client, **kwargs)
-        text, calls = "", []
-        for block in response.content:
-            if block.type == "text":
-                text += block.text
-            elif block.type == "tool_use":
-                calls.append({"id": block.id, "name": block.name, "input": block.input})
-        usage = response.usage
-        return ModelReply(
-            text=text, tool_calls=calls, stop_reason=response.stop_reason,
-            input_tokens=usage.input_tokens if usage else 0,
-            output_tokens=usage.output_tokens if usage else 0,
-            content=response.content,
-        )
+# Model clients live in models.py; re-exported here for existing imports.
+from .models import (AnthropicModelClient, ModelClient, ModelReply,  # noqa: E402,F401
+                     OllamaModelClient, OpenAIModelClient, model_client_for)
 
 
 def resolve_model(spec: TurnSpec, current: str) -> str:
     """The model for a turn. Today: whatever the entry point already uses
     (sessions: DEFAULT_SESSION_MODEL via the runner), with retired IDs mapped.
-    The call-site override from llm_config (#64) is applied by
-    AnthropicModelClient through llm_caller."""
+    The call-site override from llm_config (#64), which may name another
+    provider, is applied by models.model_client_for."""
     try:
         from llm_config import current_model_id
         return current_model_id(current)
@@ -96,6 +57,12 @@ WITHHELD_MESSAGE = ("Not kept: this reads as a refusal or as someone other than 
                     "not my own words, so it wasn't written to my memory (voice guard).")
 
 
+def nudge_text(end_tool: str) -> str:
+    # Cass's own wording (2026-11-13, agreed for public code): an invitation,
+    # "what's next?", rather than a correction. Keep it as she wrote it.
+    return f"(Step complete? If so, call {end_tool}. Otherwise, continue with a tool call.)"
+
+
 @dataclass
 class LoopStep:
     number: int
@@ -104,6 +71,7 @@ class LoopStep:
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
+    nudged: bool = False
     at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -116,6 +84,9 @@ class LoopOutcome:
     model_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    nudges: int = 0
     artifacts: List[Any] = field(default_factory=list)
     completion: Optional[Dict[str, Any]] = None   # session_complete input, if called
     withheld: List[Dict[str, Any]] = field(default_factory=list)
@@ -150,10 +121,21 @@ async def run_loop(
     deadline: Optional[float] = None,
     max_tokens: int = 4096,
     end_tool: Optional[str] = "session_complete",
+    nudges: Optional[int] = None,
+    token_budget: Optional[int] = None,
 ) -> LoopOutcome:
+    """Run one turn. `messages` is the neutral history to start from (usually
+    one {"role": "user", "content": ...}). `nudges` and `token_budget`
+    default to the spec's."""
     out = LoopOutcome()
     offered = {t["name"] for t in tools}
-    messages = list(messages)
+    history = list(messages)
+    can_end = bool(end_tool) and end_tool in offered
+    nudges_left = (spec.nudges if nudges is None else nudges) if can_end else 0
+    budget = spec.turn_token_budget if token_budget is None else token_budget
+
+    def used() -> int:
+        return out.input_tokens + out.output_tokens + out.cache_read_tokens + out.cache_write_tokens
 
     try:
         while True:
@@ -165,22 +147,34 @@ async def run_loop(
                 out.status = "max_turns"
                 out.end_reason = f"reached the cap of {spec.max_iterations} steps"
                 break
+            if budget is not None and used() >= budget:
+                out.status, out.end_reason = "completed", "reached the token budget"
+                break
             if deadline is not None and datetime.now().timestamp() > deadline:
                 out.status, out.end_reason = "completed", "reached the time limit"
                 break
 
             reply = await client.create(model=model, system=system, tools=tools,
-                                        messages=messages, max_tokens=max_tokens)
+                                        messages=history, max_tokens=max_tokens)
             out.model_calls += 1
             out.input_tokens += reply.input_tokens
             out.output_tokens += reply.output_tokens
+            out.cache_read_tokens += reply.cache_read_tokens
+            out.cache_write_tokens += reply.cache_write_tokens
             step = LoopStep(out.model_calls, reply.text, reply.tool_calls,
                             input_tokens=reply.input_tokens, output_tokens=reply.output_tokens)
             out.steps.append(step)
-            messages.append({"role": "assistant", "content": reply.content})
+            history.append({"role": "assistant", "text": reply.text, "calls": reply.tool_calls})
 
             if not reply.tool_calls:
-                out.status, out.end_reason = "completed", "I finished"
+                if nudges_left > 0:
+                    nudges_left -= 1
+                    out.nudges += 1
+                    step.nudged = True
+                    history.append({"role": "user", "content": nudge_text(end_tool)})
+                    continue
+                out.status = "completed"
+                out.end_reason = ("I stopped without saying I was done" if can_end else "I finished")
                 break
 
             results = []
@@ -203,16 +197,16 @@ async def run_loop(
                             result = {"error": str(e)}
                 if isinstance(result, dict) and result.get("artifact"):
                     out.artifacts.append(result["artifact"])
-                if name == end_tool and name in offered:
+                if can_end and name == end_tool:
                     out.completion = dict(tool_input)
                     ended = True
                 step.tool_results.append({"tool_name": name, "result": result})
                 results.append({
-                    "type": "tool_result",
-                    "tool_use_id": call["id"],
+                    "id": call["id"],
+                    "name": name,
                     "content": json.dumps(result, default=str) if isinstance(result, dict) else str(result),
                 })
-            messages.append({"role": "user", "content": results})
+            history.append({"role": "tool", "results": results})
             if ended:
                 out.status, out.end_reason = "completed", "I said I was done"
                 break

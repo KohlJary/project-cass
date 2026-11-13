@@ -8,7 +8,10 @@ dreams, journals and the memory writers still use their own paths.
   spec.py       TurnSpec per kind: tool packs, write policy, cap, budget rules
   seam.py       the "THIS MOMENT" block, rendered from the spec
   assemble.py   assemble(): the one system-prompt builder for a turn
-  loop.py       ModelClient interface + the one capped tool loop, guarded writes
+  models.py     ModelClient + neutral history; Anthropic (cached), OpenAI and
+                Ollama-native clients through llm_caller; model_client_for()
+  loop.py       the one loop: ends on the end tool, nudge, step cap and token
+                budget, guarded writes
   interrupt.py  has a conversation arrived since the turn began?
   session.py    autonomous sessions as Turns
 """

@@ -44,7 +44,7 @@ def _ollama_env(monkeypatch):
 
 
 ROUTER_FUNCS = {"call_llm", "call_llm_sync", "create_message", "create_message_sync",
-                "ollama_raw", "resolve_model", "plan_message"}
+                "ollama_raw", "openai_raw", "resolve_model", "plan_message"}
 
 # Direct model calls allowed outside llm_caller.py, by (file, function):
 DIRECT_CALL_EXCEPTIONS = {
@@ -58,7 +58,7 @@ DIRECT_CALL_EXCEPTIONS = {
 }
 # Benchmarks and one-off scripts name their models on purpose (folding them
 # into the benchmark suite is a separate task on #64).
-EXCEPTION_DIRS = ("tests/", "venv/", "llm_bench/", "scripts/",
+EXCEPTION_DIRS = ("tests/", "venv/", "llm_bench/", "scripts/", "spikes/",
                   "music/ace-step/")  # a gitignored local ACE-Step checkout, with its own .venv
 
 LLM_URL_MARKERS = ("api/generate", "api/chat", "api.anthropic.com", "api.openai.com",

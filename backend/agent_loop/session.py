@@ -28,7 +28,7 @@ from memory.voice_guard import looks_like_refusal
 
 from . import interrupt
 from .assemble import assemble
-from .loop import AnthropicModelClient, LoopOutcome, ModelClient, resolve_model, run_loop
+from .loop import LoopOutcome, ModelClient, model_client_for, resolve_model, run_loop
 from .spec import Trigger, TurnSpec, session_spec
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,10 @@ def _session_result_cls():
         model: Optional[str] = None
         withheld: List[Dict[str, Any]] = field(default_factory=list)
         prompt_sections: List[str] = field(default_factory=list)
+        provider: Optional[str] = None
+        cache_read_tokens: int = 0
+        cache_write_tokens: int = 0
+        nudges: int = 0
 
         def to_dict(self) -> Dict[str, Any]:
             data = super().to_dict()
@@ -91,6 +95,10 @@ def _session_result_cls():
                 "model": self.model,
                 "withheld": self.withheld,
                 "prompt_sections": self.prompt_sections,
+                "provider": self.provider,
+                "cache_read_tokens": self.cache_read_tokens,
+                "cache_write_tokens": self.cache_write_tokens,
+                "nudges": self.nudges,
             })
             return data
 
@@ -155,7 +163,10 @@ async def run_session_turn(
     tools = tool_definitions(tool_names)
     prompt = assemble(spec, trigger, tool_names, additions)
     model = resolve_model(spec, runner.model)
-    client = client or AnthropicModelClient(runner.client)
+    if client is None:
+        # The call site's assignment picks the provider: Claude by default,
+        # or a GPT / local model if Settings > LLM assigns one.
+        client, model = model_client_for("session.generic", model, runner.client)
     daemon_id = getattr(runner, "daemon_id", None)
     try:
         from database import get_daemon_id
@@ -206,16 +217,26 @@ async def run_session_turn(
         end_reason=outcome.end_reason,
         model=model,
         prompt_sections=[s.name for s in prompt.sections],
+        provider=getattr(client, "provider", None),
+        cache_read_tokens=outcome.cache_read_tokens,
+        cache_write_tokens=outcome.cache_write_tokens,
+        nudges=outcome.nudges,
     )
     result.summary = keep_narrative(outcome, runner)
     result.insights = _insights(outcome)
     result.withheld = outcome.withheld
 
-    pricing = runner.MODEL_PRICING.get(model, {})
-    result.estimated_cost_usd = (
-        result.total_input_tokens / 1000 * pricing.get("input", runner.DEFAULT_INPUT_COST_PER_1K)
-        + result.total_output_tokens / 1000 * pricing.get("output", runner.DEFAULT_OUTPUT_COST_PER_1K)
-    )
+    if result.provider == "ollama":
+        result.estimated_cost_usd = 0.0
+    else:
+        pricing = runner.MODEL_PRICING.get(model, {})
+        per_in = pricing.get("input", runner.DEFAULT_INPUT_COST_PER_1K)
+        # Anthropic bills cache reads at 0.1x input and cache writes at 1.25x.
+        result.estimated_cost_usd = (
+            (result.total_input_tokens + 0.1 * outcome.cache_read_tokens
+             + 1.25 * outcome.cache_write_tokens) / 1000 * per_in
+            + result.total_output_tokens / 1000 * pricing.get("output", runner.DEFAULT_OUTPUT_COST_PER_1K)
+        )
 
     await runner._save_session_log(result)
     logger.info(f"[agent_loop] session {session_id} {result.status}"

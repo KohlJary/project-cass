@@ -259,12 +259,13 @@ def _anthropic_client(is_async: bool, api_key: Optional[str] = None):
     return anthropic.AsyncAnthropic(api_key=key) if is_async else anthropic.Anthropic(api_key=key)
 
 
-def _openai_client(is_async: bool, api_key: Optional[str] = None):
+def _openai_client(is_async: bool, api_key: Optional[str] = None, base_url: Optional[str] = None):
     import openai
     key = api_key or os.environ.get("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY not set")
-    return openai.AsyncOpenAI(api_key=key) if is_async else openai.OpenAI(api_key=key)
+    cls = openai.AsyncOpenAI if is_async else openai.OpenAI
+    return cls(api_key=key, base_url=base_url) if base_url else cls(api_key=key)
 
 
 def _ollama_url(base_url: Optional[str]) -> str:
@@ -823,3 +824,48 @@ async def ollama_raw(
     resp = _ollama_to_response(data, assignment.model_id)
     _record_response(call_site, resp, started, ledger)
     return data
+
+
+# ---------------------------------------------------------------------------
+# openai_raw: for loops that speak chat.completions with function tools
+# ---------------------------------------------------------------------------
+
+async def openai_raw(
+    call_site: str,
+    payload: dict,
+    *,
+    default_model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    category: Optional[str] = None,
+    operation: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    """Send a chat.completions request for `call_site`; return the completion.
+
+    For code that needs OpenAI's own request/response shape (tool calls), as
+    ollama_raw is for Ollama. The model comes from llm_config when it assigns
+    an OpenAI model; any other assignment can't take this request, so the
+    call site's default runs (logged). `base_url` reaches any server that
+    speaks the API. Raises like the SDK.
+    """
+    _check_site(call_site)
+    default = ModelAssignment("openai", default_model or payload.get("model"))
+    assignment = resolve_model(call_site, default) or default
+    if assignment.provider != "openai":
+        logger.warning(f"[llm:{call_site}] assigned {assignment.provider}:{assignment.model_id} "
+                       f"but this request is OpenAI-native; running {default.model_id}")
+        assignment = default
+    body = dict(payload)
+    body["model"] = assignment.model_id
+    started = time.time()
+    ledger = dict(category=category, operation=operation, conversation_id=conversation_id, user_id=user_id)
+    try:
+        completion = await _openai_client(True, api_key, base_url).chat.completions.create(**body)
+    except Exception as e:
+        record_failure(call_site, "openai", assignment.model_id, _error_kind(e),
+                       f"{type(e).__name__}: {e}", started, ledger, fell_back=False)
+        raise
+    _record_response(call_site, _openai_to_response(completion, assignment.model_id), started, ledger)
+    return completion
