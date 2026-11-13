@@ -85,6 +85,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("workspace", "read, write, edit, list and search my workspace, a folder of my own; "
                           "my agenda (AGENDA.md) lives there and carries my threads between moments",
              WORKSPACE_TOOLS),
+    ToolPack("say", "say something to my partner, through my own reach-out (my limits, "
+                    "my channel; no reply is owed)", ("say",)),
+    ToolPack("wake", "ask to be woken later to continue something", ("wake_me",)),
     ToolPack("find", "find any of my other tools by what I want to do, and use them",
              ("find_tools", "use_tool")),
     ToolPack("session", "end the session when I'm done",
@@ -94,14 +97,18 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
 ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house"})
-LOOP_PACKS = frozenset({"find", "workspace"})
+LOOP_PACKS = frozenset({"find", "workspace", "say", "wake"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
 # Named so a missing capability is visible rather than silently absent [C3].
 NOT_YET_IN_LOOP: Tuple[Tuple[str, str], ...] = (
     ("journal", "my journal is written nightly, not from inside a session yet"),
-    ("reach out", "reaching out happens in conversation or on its own schedule"),
 )
+# Shown when the turn has no `say` (the reach_out lever is off) ...
+REACH_OUT_NOT_YET = ("reach out", "reaching out happens in conversation or on its own schedule")
+# ... and when it has one: say reaches my partner, nobody else yet.
+OTHERS_NOT_YET = ("speaking to anyone else", "say reaches my partner; posting or DMing anyone "
+                                              "else isn't part of this yet")
 
 # Session activity -> the activity's own packs (on top of core + memory).
 ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
@@ -166,6 +173,8 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     # Her workspace, agenda included.
     "workspace_write": ("content",),
     "workspace_edit": ("new_text",),
+    # What she says reaches a person and is kept in their conversation.
+    "say": ("message",),
     # session_complete's summary is the narrative; it is guarded where the
     # narrative is kept (loop.keep_narrative), so ending is never blocked.
 }
@@ -240,9 +249,12 @@ SESSION_TOKEN_BUDGET = 500_000
 
 
 def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool = True,
-                 promoted: Tuple[str, ...] = ()) -> TurnSpec:
+                 promoted: Tuple[str, ...] = (), can_say: bool = True,
+                 can_wake: bool = True) -> TurnSpec:
     packs = (("core", "memory") + ACTIVITY_PACKS.get(activity, ()) + ("chat_core", "work")
-             + (("chapter_house",) if chapter_house else ()) + ("workspace", "find", "session"))
+             + (("chapter_house",) if chapter_house else ()) + ("workspace",)
+             + (("say",) if can_say else ()) + (("wake",) if can_wake else ())
+             + ("find", "session"))
     return TurnSpec(
         kind="session",
         activity=activity,

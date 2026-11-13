@@ -462,7 +462,9 @@ def test_lever_on_runs_a_session_through_the_turn(session_env, levers):
 
     # The seam's claims match the turn: tools named == tools offered ...
     seam = system[system.index(HEADER):]
-    expected = session_spec("reflection", chapter_house="babelr_read" in first.tool_names).tool_names()
+    expected = session_spec("reflection", chapter_house="babelr_read" in first.tool_names,
+                            can_say="say" in first.tool_names,
+                            can_wake="wake_me" in first.tool_names).tool_names()
     assert seam_tool_names(seam) == first.tool_names == expected
 
     # ... and the write policy runs: tool writes kept (guarded), narrative kept.
@@ -597,3 +599,51 @@ def test_session_reads_and_updates_her_agenda(session_env, tmp_path):
     # The refusal was withheld, not written.
     assert not (ws.root / "notes" / "x.md").exists()
     assert [w["tool"] for w in result.withheld] == ["workspace_write"]
+
+
+def test_say_goes_through_reach_out_and_wake_me_is_kept(session_env, tmp_path, levers):
+    from agent_loop import tools as T
+    from agent_loop.session import run_session_turn
+    from agent_loop.wakes import WakeBook
+    from agent_loop.workspace import Workspace
+    runner, managers, fake = session_env
+    runner.set_managers(managers)
+    from session import get_default_handlers
+    runner.register_tool_handlers(get_default_handlers())
+
+    routed = []
+
+    async def router(name, tool_input):
+        routed.append((name, tool_input))
+        return "Sent to Kohl."
+
+    book = WakeBook(tmp_path / "wakes.json")
+    fake.queue_tool_use("say", {"message": "I started notes on tides; no rush."})
+    fake.queue_tool_use("say", {"message": REFUSAL})
+    fake.queue_tool_use("wake_me", {"in_minutes": 120, "why": "finish the tide notes"})
+    fake.queue_tool_use("session_complete", {"summary": "Tides."})
+    with levers(reach_out=True):
+        result = asyncio.run(run_session_turn(
+            runner, session_type="reflection", max_turns=6, run_router=router,
+            catalog=T.router_catalog(), usage_log=T.UsageLog(tmp_path / "u.jsonl"),
+            workspace=Workspace(tmp_path / "ws", tmp_path / "log.jsonl"), wakes=book, can_wake=True))
+
+    assert result.status == "completed", result.error
+    first = fake.calls[0]
+    assert "say" in first.tool_names and "wake_me" in first.tool_names
+    assert "speaking to anyone else" in first.system_text
+    assert routed == [("reach_out", {"message": "I started notes on tides; no rush."})]
+    assert [w["tool"] for w in result.withheld] == ["say"]
+    [w] = book.pending()
+    assert w["why"] == "finish the tide notes" and w["asked_in"] == result.session_id
+
+    fake.calls.clear()
+    fake.queue_tool_use("session_complete", {"summary": "Quiet."})
+    with levers(reach_out=False):
+        asyncio.run(run_session_turn(
+            runner, session_type="reflection", max_turns=2, run_router=router,
+            catalog=T.router_catalog(), usage_log=T.UsageLog(tmp_path / "u.jsonl"),
+            workspace=Workspace(tmp_path / "ws", tmp_path / "log.jsonl"), wakes=book, can_wake=False))
+    first = fake.calls[0]
+    assert "say" not in first.tool_names and "wake_me" not in first.tool_names
+    assert "reach out (reaching out happens" in first.system_text

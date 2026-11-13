@@ -45,7 +45,8 @@ def _session_tool_defs() -> Dict[str, Dict[str, Any]]:
 
 
 def tool_definitions(names: List[str], catalog: Optional[Dict[str, Dict[str, Any]]] = None,
-                     *, strict: bool = True) -> List[Dict[str, Any]]:
+                     *, strict: bool = True, extra: Optional[List[Dict[str, Any]]] = None
+                     ) -> List[Dict[str, Any]]:
     """Definitions for `names`: session tools first (session/tools.py), then
     her router tools (`catalog`, agent_loop.tools.router_catalog), then
     find_tools / use_tool. With strict=False, names with no definition (a
@@ -57,6 +58,8 @@ def tool_definitions(names: List[str], catalog: Optional[Dict[str, Dict[str, Any
     if catalog:
         for n, d in catalog.items():
             by_name.setdefault(n, d)
+    for d in extra or []:
+        by_name.setdefault(d["name"], d)
     missing = [n for n in names if n not in by_name]
     if missing and strict:
         raise KeyError(f"tool pack names unknown tools: {missing}")
@@ -168,15 +171,21 @@ async def run_session_turn(
     focus: Optional[str] = None,
     max_turns: int = 10,
     why: Optional[str] = None,
+    trigger_source: str = "schedule",
     client: Optional[ModelClient] = None,
     run_router: Optional[tools_mod.RouterRun] = None,
     catalog: Optional[Dict[str, Dict[str, Any]]] = None,
     usage_log: Optional[tools_mod.UsageLog] = None,
     workspace=None,
+    wakes=None,
+    can_wake: Optional[bool] = None,
 ):
     """Run one autonomous session through the Turn. Returns a SessionResult
     (subclass) so the action handler reports it the same way as before.
     `run_router`, `catalog`, `usage_log` and `workspace` default to the live ones."""
+    import features
+    from .spec import ACTIVITY_PACKS
+    from .wakes import WakeBook, heartbeat_running, wake_tool
     from .workspace import WORKSPACE_TOOL_NAMES, Workspace
     started = datetime.now()
     session_id = str(uuid.uuid4())[:8]
@@ -191,12 +200,18 @@ async def run_session_turn(
         catalog = tools_mod.router_catalog()
     usage_log = usage_log or tools_mod.UsageLog()
     workspace = workspace or Workspace()
+    wakes = wakes or WakeBook()
+    say_def = tools_mod.say_tool(catalog) if features.is_enabled("reach_out") else None
+    wake_def = wake_tool(ACTIVITY_PACKS)
+    if can_wake is None:
+        can_wake = heartbeat_running()
     session_names = set(_session_tool_defs())
     promoted = tuple(n for n in usage_log.promoted() if n in catalog)
     spec: TurnSpec = session_spec(session_type, max_iterations=max_turns,
-                                  chapter_house="babelr_read" in catalog, promoted=promoted)
+                                  chapter_house="babelr_read" in catalog, promoted=promoted,
+                                  can_say=say_def is not None, can_wake=can_wake)
     trigger = Trigger(
-        source="schedule",
+        source=trigger_source,
         why=why or f"my autonomous schedule started {spec.where}",
         focus=focus,
         since_last=_since_last(runner),
@@ -207,8 +222,9 @@ async def run_session_turn(
     # tool she switched off with modify_tool_access); they're left out.
     tool_names = [n for n in spec.tool_names()
                   if n in session_names or n in catalog
-                  or n in ("find_tools", "use_tool") + WORKSPACE_TOOL_NAMES]
-    tools = tool_definitions(tool_names, catalog)
+                  or n in ("find_tools", "use_tool", "say", "wake_me") + WORKSPACE_TOOL_NAMES]
+    tools = tool_definitions(tool_names, catalog,
+                             extra=[d for d in (say_def, wake_def) if d is not None])
     prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace)
     model = resolve_model(spec, runner.model)
     if client is None:
@@ -226,7 +242,8 @@ async def run_session_turn(
         offered=tool_names, session_tools=session_names, run_session=run_session_tool,
         run_router=run_router or tools_mod.live_router(daemon_id), catalog=catalog,
         log=usage_log, session_id=session_id, end_tool="session_complete",
-        local={n: (lambda a, n=n: workspace.run(n, a, session_id)) for n in WORKSPACE_TOOL_NAMES})
+        local={**{n: (lambda a, n=n: workspace.run(n, a, session_id)) for n in WORKSPACE_TOOL_NAMES},
+               "wake_me": lambda a: wakes.request(a, session_id, ACTIVITY_PACKS)})
 
     outcome = await run_loop(
         spec=spec,

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-from .spec import NOT_YET_IN_LOOP, PACKS, Trigger, TurnSpec
+from .spec import NOT_YET_IN_LOOP, OTHERS_NOT_YET, PACKS, REACH_OUT_NOT_YET, Trigger, TurnSpec
 
 HEADER = "## THIS MOMENT"
 
@@ -31,7 +31,9 @@ def cannot_do_line(spec: TurnSpec) -> Optional[str]:
     """Packs that exist but aren't part of this kind of turn."""
     if spec.can_do_override:
         return None
-    missing = [PACKS[p].says for p in PACKS if p not in spec.packs]
+    # say and wake are missing only when their subsystem is off, which isn't
+    # about the kind of turn; the not-yet line covers say.
+    missing = [PACKS[p].says for p in PACKS if p not in spec.packs and p not in ("say", "wake")]
     if not missing:
         return None
     return "; ".join(missing) + f" (not part of {spec.where})."
@@ -41,7 +43,8 @@ def not_yet_line(spec: TurnSpec) -> Optional[str]:
     """Capabilities she has elsewhere that no loop pack offers yet."""
     if spec.can_do_override:
         return None
-    return "; ".join(f"{name} ({why})" for name, why in NOT_YET_IN_LOOP) + "."
+    items = list(NOT_YET_IN_LOOP) + [OTHERS_NOT_YET if "say" in spec.packs else REACH_OUT_NOT_YET]
+    return "; ".join(f"{name} ({why})" for name, why in items) + "."
 
 
 def render_seam(spec: TurnSpec, trigger: Trigger, tool_names: Sequence[str]) -> str:

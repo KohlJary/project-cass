@@ -185,10 +185,12 @@ def test_core_set_definitions_fit_her_budget():
 
 
 def test_tools_that_reach_a_person_wait_for_say():
-    # "Not yet: reach out" in the seam block stays true until phase 4.
+    # Speaking is `say` (her reach_out); nothing else that reaches a person
+    # is findable, and the seam says so.
     pytest.importorskip("anthropic")
-    from agent_loop.spec import NOT_YET_IN_LOOP
-    assert "reach out" in dict(NOT_YET_IN_LOOP)
+    from agent_loop.seam import not_yet_line
+    assert "speaking to anyone else" in not_yet_line(session_spec("reflection"))
+    assert "reach out" in not_yet_line(session_spec("reflection", can_say=False))
     catalog = T.router_catalog()
     left = T.findable(catalog, session_spec("reflection").tool_names())
     for name in T.NOT_YET_FINDABLE:

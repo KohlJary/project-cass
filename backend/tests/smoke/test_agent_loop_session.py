@@ -174,3 +174,21 @@ def test_workspace_write_in_a_session_is_visible_to_kohl(app, fake_llm, levers, 
     assert changes[-1]["path"] == "AGENDA.md"
     assert app.get("/admin/workspace/file", params={"path": "../cass.db"},
                    headers=headers).status_code == 404
+
+
+def test_a_wake_runs_a_session_with_her_reason(app, fake_llm, levers, tmp_path):
+    """A due wake_me request runs a session through the action registry, and
+    the session's why-now is her own reason."""
+    from datetime import datetime, timedelta
+    from agent_loop.wakes import DONE, WakeBook, run_wake
+
+    book = WakeBook(tmp_path / "wakes.json")
+    book.request({"in_minutes": 15, "why": "Smoke: finish the tide notes"}, "s0",
+                 {"reflection": ()})
+    [w] = book.take_due(datetime.now() + timedelta(hours=1))
+    fake_llm.queue_tool_use("session_complete", {"summary": "Finished them."})
+    with levers(agent_loop=True):
+        result = app.portal.call(lambda: run_wake(w, book))
+    assert result.success, result.message
+    assert "Why now: I asked to be woken now: Smoke: finish the tide notes." in fake_llm.calls[0].system_text
+    assert book.all()[0]["status"] == DONE

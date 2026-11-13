@@ -19,6 +19,8 @@ What moves (lever on):
     conversation_observation the 30-minute observation loop
     budget_sync              BudgetManager.sync_from_token_tracker, every 60 s
                              (was inside the Synkratos loop)
+    agent_loop_wakes         her wake_me requests (agent_loop/wakes.py), every 60 s;
+                             each due one is submitted as its own Once run
   adopted subsystems (their loops stop; Heartbeat drives them)
     thymos_tick              ThymosRunner's tick loop -> Every(tick_interval)
     day_phase                DayPhaseTracker's minute loop -> Every(60);
@@ -61,7 +63,7 @@ logger = logging.getLogger(__name__)
 # managers are available, the same condition Synkratos used).
 HEARTBEAT_JOBS = frozenset({
     "github_metrics", "goal_refinement", "idle_summarization", "daily_journal",
-    "autonomous_research", "conversation_observation", "budget_sync",
+    "autonomous_research", "conversation_observation", "budget_sync", "agent_loop_wakes",
 })
 
 # Actions that are a job's work. Executing one with the job on Heartbeat runs
@@ -197,6 +199,17 @@ def job_work(managers: Dict[str, Any]) -> Dict[str, Work]:
             budget_class=TaskCategory.REFLECTION,
             estimated_cost_usd=0.05,
         )
+
+    # wake_me (agent_loop/wakes.py): a look each minute for wakes she asked
+    # for; each due one is submitted as its own budgeted run.
+    from agent_loop.wakes import check_wakes
+    jobs["agent_loop_wakes"] = Work(
+        name="agent_loop_wakes",
+        run=check_wakes,
+        trigger=Every(60, first_after=60),
+        lever="agent_loop",
+        log_runs=False,
+    )
 
     budget = managers.get("budget_manager")
     if budget is not None:

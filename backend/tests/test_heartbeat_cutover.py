@@ -678,7 +678,8 @@ class TestOneTriggerPath:
             finally:
                 await hb.stop()
 
-        assert set(SYNKRATOS_JOBS) | {"conversation_observation", "budget_sync"} == on_heartbeat
+        assert (set(SYNKRATOS_JOBS) | {"conversation_observation", "budget_sync", "agent_loop_wakes"}
+                == on_heartbeat)
         for job in on_heartbeat:
             # Normal boot (Synkratos up) and the fallback (Synkratos init failed):
             assert trigger_paths(job, on_heartbeat, on_synkratos, fallback=False) == ["heartbeat"]

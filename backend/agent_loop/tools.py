@@ -18,6 +18,7 @@ Tools she has switched off with modify_tool_access stay off here too.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import re
@@ -57,10 +58,28 @@ PROMOTE_MAX = 8
 
 FIND_LIMIT = 6
 
+# Loop names for router tools: `say` is her own reach_out (reach_out.py).
+ALIASES = {"say": "reach_out"}
+
+
+def say_tool(catalog: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """`say`: her reach_out tool's definition under the loop's name."""
+    base = catalog.get("reach_out")
+    if not base:
+        return None
+    return {"name": "say",
+            "description": ("Say something to my partner. It goes through my own reach-out: my "
+                            "limits (without a reply in between, one note and one share; one "
+                            "share every few days), my usual channel unless I pick one, kept in "
+                            "our conversation. Speaking is optional; if now isn't the time, my "
+                            "agenda can hold it.\n\n" + base.get("description", "")),
+            "input_schema": base["input_schema"]}
+
 # Tools that reach a person (send, post, DM, submit for sending). Held back
 # from find_tools until phase 4, where speaking goes through her own
 # reach_out design as `say`; the seam block's "Not yet: reach out" stays true.
 NOT_YET_FINDABLE = frozenset({
+    "reach_out",  # offered as `say` when the reach_out lever is on
     "send_email", "submit_outreach_draft", "send_direct_message",
     "discord_respond", "discord_react", "babelr_post", "babelr_dm",
 })
@@ -320,7 +339,10 @@ class ToolBox:
 
     async def _run(self, name: str, tool_input: Dict[str, Any]) -> Any:
         if name in self.local:
-            return self.local[name](tool_input)
+            result = self.local[name](tool_input)
+            return await result if inspect.isawaitable(result) else result
+        if name in ALIASES:
+            return await self.run_router(ALIASES[name], tool_input)
         if name in self.session_tools:
             return await self.run_session(name, tool_input)
         return await self.run_router(name, tool_input)

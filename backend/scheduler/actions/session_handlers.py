@@ -73,6 +73,9 @@ async def _run_generic_session(
                 duration_minutes=duration,
                 focus=focus,
                 max_turns=max_turns,
+                # A wake (agent_loop/wakes.py) says why in her words.
+                why=context.get("why"),
+                trigger_source=context.get("trigger_source") or "schedule",
             )
         else:
             result = await session_runner.run_session(
