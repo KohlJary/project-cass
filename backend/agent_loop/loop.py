@@ -186,9 +186,13 @@ async def run_loop(
                     result: Any = {"error": f"{name} isn't available here "
                                             f"(not in this {spec.kind}'s tools)"}
                 else:
-                    refusal = guard_tool_input(spec, name, tool_input)
+                    # use_tool's inner call is guarded as that tool.
+                    guarded, guarded_input = name, tool_input
+                    if name == "use_tool" and isinstance(tool_input.get("input"), dict):
+                        guarded, guarded_input = str(tool_input.get("name") or ""), tool_input["input"]
+                    refusal = guard_tool_input(spec, guarded, guarded_input)
                     if refusal:
-                        out.withheld.append({"tool": name, "matched": refusal})
+                        out.withheld.append({"tool": guarded, "matched": refusal})
                         result = {"error": WITHHELD_MESSAGE}
                     else:
                         try:

@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 from memory.voice_guard import looks_like_refusal
 
 from . import interrupt
+from . import tools as tools_mod
 from .assemble import assemble
 from .loop import LoopOutcome, ModelClient, model_client_for, resolve_model, run_loop
 from .spec import Trigger, TurnSpec, session_spec
@@ -34,17 +35,31 @@ from .spec import Trigger, TurnSpec, session_spec
 logger = logging.getLogger(__name__)
 
 
-def tool_definitions(names: List[str]) -> List[Dict[str, Any]]:
-    """Anthropic tool definitions for `names`, from the session tool module."""
+def _session_tool_defs() -> Dict[str, Dict[str, Any]]:
     from session.tools import SESSION_TOOLS
     by_name: Dict[str, Dict[str, Any]] = {}
     for defs in SESSION_TOOLS.values():
         for d in defs:
             by_name.setdefault(d["name"], d)
+    return by_name
+
+
+def tool_definitions(names: List[str], catalog: Optional[Dict[str, Dict[str, Any]]] = None,
+                     *, strict: bool = True) -> List[Dict[str, Any]]:
+    """Definitions for `names`: session tools first (session/tools.py), then
+    her router tools (`catalog`, agent_loop.tools.router_catalog), then
+    find_tools / use_tool. With strict=False, names with no definition (a
+    subsystem that's off, a tool she switched off) are dropped, not raised."""
+    by_name = dict(_session_tool_defs())
+    for d in tools_mod.FIND_TOOLS_DEFS:
+        by_name.setdefault(d["name"], d)
+    if catalog:
+        for n, d in catalog.items():
+            by_name.setdefault(n, d)
     missing = [n for n in names if n not in by_name]
-    if missing:
-        raise KeyError(f"tool pack names unknown session tools: {missing}")
-    return [by_name[n] for n in names]
+    if missing and strict:
+        raise KeyError(f"tool pack names unknown tools: {missing}")
+    return [by_name[n] for n in names if n in by_name]
 
 
 def _since_last(runner) -> Optional[str]:
@@ -85,6 +100,9 @@ def _session_result_cls():
         cache_read_tokens: int = 0
         cache_write_tokens: int = 0
         nudges: int = 0
+        promoted_tools: List[str] = field(default_factory=list)
+        tools_found: List[str] = field(default_factory=list)
+        tools_used_via_find: List[str] = field(default_factory=list)
 
         def to_dict(self) -> Dict[str, Any]:
             data = super().to_dict()
@@ -99,6 +117,9 @@ def _session_result_cls():
                 "cache_read_tokens": self.cache_read_tokens,
                 "cache_write_tokens": self.cache_write_tokens,
                 "nudges": self.nudges,
+                "promoted_tools": self.promoted_tools,
+                "tools_found": self.tools_found,
+                "tools_used_via_find": self.tools_used_via_find,
             })
             return data
 
@@ -145,12 +166,29 @@ async def run_session_turn(
     max_turns: int = 10,
     why: Optional[str] = None,
     client: Optional[ModelClient] = None,
+    run_router: Optional[tools_mod.RouterRun] = None,
+    catalog: Optional[Dict[str, Dict[str, Any]]] = None,
+    usage_log: Optional[tools_mod.UsageLog] = None,
 ):
     """Run one autonomous session through the Turn. Returns a SessionResult
-    (subclass) so the action handler reports it the same way as before."""
-    spec: TurnSpec = session_spec(session_type, max_iterations=max_turns)
+    (subclass) so the action handler reports it the same way as before.
+    `run_router`, `catalog` and `usage_log` default to the live ones."""
     started = datetime.now()
     session_id = str(uuid.uuid4())[:8]
+    daemon_id = getattr(runner, "daemon_id", None)
+    try:
+        from database import get_daemon_id
+        daemon_id = get_daemon_id()
+    except Exception:
+        pass
+
+    if catalog is None:
+        catalog = tools_mod.router_catalog()
+    usage_log = usage_log or tools_mod.UsageLog()
+    session_names = set(_session_tool_defs())
+    promoted = tuple(n for n in usage_log.promoted() if n in catalog)
+    spec: TurnSpec = session_spec(session_type, max_iterations=max_turns,
+                                  chapter_house="babelr_read" in catalog, promoted=promoted)
     trigger = Trigger(
         source="schedule",
         why=why or f"my autonomous schedule started {spec.where}",
@@ -159,26 +197,28 @@ async def run_session_turn(
         at=started,
     )
 
-    tool_names = spec.tool_names()
-    tools = tool_definitions(tool_names)
+    # Router tools not in the catalog are off (a subsystem that's down, or a
+    # tool she switched off with modify_tool_access); they're left out.
+    tool_names = [n for n in spec.tool_names()
+                  if n in session_names or n in catalog or n in ("find_tools", "use_tool")]
+    tools = tool_definitions(tool_names, catalog)
     prompt = assemble(spec, trigger, tool_names, additions)
     model = resolve_model(spec, runner.model)
     if client is None:
         # The call site's assignment picks the provider: Claude by default,
         # or a GPT / local model if Settings > LLM assigns one.
         client, model = model_client_for("session.generic", model, runner.client)
-    daemon_id = getattr(runner, "daemon_id", None)
-    try:
-        from database import get_daemon_id
-        daemon_id = get_daemon_id()
-    except Exception:
-        pass
 
     logger.info(f"[agent_loop] starting {session_type} session {session_id} through the Turn")
 
-    async def execute(name: str, tool_input: Dict[str, Any]):
+    async def run_session_tool(name: str, tool_input: Dict[str, Any]):
         return await runner._execute_tool(name, tool_input, session_id=session_id,
                                           session_type=session_type)
+
+    box = tools_mod.ToolBox(
+        offered=tool_names, session_tools=session_names, run_session=run_session_tool,
+        run_router=run_router or tools_mod.live_router(daemon_id), catalog=catalog,
+        log=usage_log, session_id=session_id, end_tool="session_complete")
 
     outcome = await run_loop(
         spec=spec,
@@ -188,7 +228,7 @@ async def run_session_turn(
         tools=tools,
         messages=[{"role": "user",
                    "content": runner._get_default_initial_message(session_type, focus)}],
-        execute=execute,
+        execute=box.execute,
         interrupted=lambda: interrupt.conversation_since(started, daemon_id),
         deadline=started.timestamp() + duration_minutes * 60,
     )
@@ -221,6 +261,9 @@ async def run_session_turn(
         cache_read_tokens=outcome.cache_read_tokens,
         cache_write_tokens=outcome.cache_write_tokens,
         nudges=outcome.nudges,
+        promoted_tools=list(promoted),
+        tools_found=list(box.found),
+        tools_used_via_find=list(box.used),
     )
     result.summary = keep_narrative(outcome, runner)
     result.insights = _insights(outcome)

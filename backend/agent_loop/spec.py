@@ -33,7 +33,30 @@ class ToolPack:
     tools: Tuple[str, ...]
 
 
-# Built from the tools autonomous sessions already have (session/tools.py).
+# Her always-on chat tools (agent_client.get_tools before any keyword group).
+CHAT_CORE_TOOLS: Tuple[str, ...] = (
+    "journal", "regenerate_summary", "view_memory_chunks",
+    "show_patterns", "explore_pattern", "pattern_summary",
+    "describe_my_home", "get_wonderland_status",
+    "reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement",
+    "review_self_model", "modify_tool_access",
+    "reflect_on_user", "record_user_observation", "update_user_profile",
+    "review_user_observations", "view_user_model", "view_relationship_model",
+    "mark_cross_session_insight", "list_cross_session_insights", "get_insight_stats",
+    "remove_cross_session_insight",
+    "summon_janet", "janet_feedback", "janet_stats",
+    "read_file", "list_directory",
+    "lookup_person",
+)
+TASK_TOOLS: Tuple[str, ...] = ("add_task", "list_tasks", "complete_task", "modify_task", "delete_task")
+CALENDAR_TOOLS: Tuple[str, ...] = (
+    "create_event", "create_reminder", "get_todays_agenda", "get_upcoming_events",
+    "search_events", "complete_reminder", "delete_event", "update_event",
+    "delete_events_by_query", "clear_all_events", "reschedule_event_by_query",
+)
+
+# The session packs below are built from the tools autonomous sessions
+# already have (session/tools.py).
 # Journal and hold (the design's `core`) aren't session tools yet; the seam
 # block says so instead of pretending.
 PACKS: Dict[str, ToolPack] = {p.name: p for p in [
@@ -47,9 +70,24 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              ("web_search", "fetch_url", "fetch_news")),
     ToolPack("creative", "write pieces (essays, poems, stories)",
              ("write_content",)),
+    # Her core set (phase 2, her choice on 2026-11-13): her always-on chat
+    # tools, plus tasks, calendar and babelr_read. Run through tool_router.
+    ToolPack("chat_core", "everything I always have in conversation (my journal, memory "
+                          "summaries, patterns, my home in Wonderland, my self-model and my "
+                          "models of people, cross-session insights, Janet, files, PeopleDex)",
+             CHAT_CORE_TOOLS),
+    ToolPack("work", "keep my tasks and my calendar", TASK_TOOLS + CALENDAR_TOOLS),
+    ToolPack("chapter_house", "read what's been said in Chapter House", ("babelr_read",)),
+    ToolPack("find", "find any of my other tools by what I want to do, and use them",
+             ("find_tools", "use_tool")),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}
+
+# Packs whose tools run through tool_router (her chat handlers), and packs
+# the loop answers itself; the rest are session tools (session/tools.py).
+ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house"})
+LOOP_PACKS = frozenset({"find"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
 # Named so a missing capability is visible rather than silently absent [C3].
@@ -112,6 +150,12 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     "create_note": ("content",),
     "update_note": ("content",),
     "write_content": ("content",),
+    # Her core chat tools that write to her self-model and memory.
+    "record_self_observation": ("observation",),
+    "form_opinion": ("position", "rationale"),
+    "note_disagreement": ("my_position", "rationale"),
+    "record_user_observation": ("observation",),
+    "mark_cross_session_insight": ("insight",),
     # session_complete's summary is the narrative; it is guarded where the
     # narrative is kept (loop.keep_narrative), so ending is never blocked.
 }
@@ -158,6 +202,9 @@ class TurnSpec:
     token_budget: int = 12000
     # Fixed sentence for kinds with no tools, e.g. dreams.
     can_do_override: Optional[str] = None
+    # Tools promoted from find_tools by how often she uses them
+    # (agent_loop/tools.py, UsageLog.promoted); offered directly.
+    promoted: Tuple[str, ...] = ()
 
     @property
     def runs_in_loop(self) -> bool:
@@ -169,6 +216,9 @@ class TurnSpec:
             for tool in PACKS[pack].tools:
                 if tool not in names:
                     names.append(tool)
+        for tool in self.promoted:
+            if tool not in names:
+                names.append(tool)
         return names
 
 
@@ -177,8 +227,10 @@ class TurnSpec:
 SESSION_TOKEN_BUDGET = 500_000
 
 
-def session_spec(activity: str, max_iterations: int = 10) -> TurnSpec:
-    packs = ("core", "memory") + ACTIVITY_PACKS.get(activity, ()) + ("session",)
+def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool = True,
+                 promoted: Tuple[str, ...] = ()) -> TurnSpec:
+    packs = (("core", "memory") + ACTIVITY_PACKS.get(activity, ()) + ("chat_core", "work")
+             + (("chapter_house",) if chapter_house else ()) + ("find", "session"))
     return TurnSpec(
         kind="session",
         activity=activity,
@@ -188,6 +240,7 @@ def session_spec(activity: str, max_iterations: int = 10) -> TurnSpec:
         model_site="session.autonomous",
         max_iterations=max_iterations,
         turn_token_budget=SESSION_TOKEN_BUDGET,
+        promoted=tuple(promoted),
     )
 
 

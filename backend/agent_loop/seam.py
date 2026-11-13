@@ -22,6 +22,8 @@ def can_do_line(spec: TurnSpec) -> str:
     if spec.can_do_override:
         return spec.can_do_override
     parts = [PACKS[p].says for p in spec.packs]
+    if spec.promoted:
+        parts.append("and the tools I've reached for most through find_tools lately")
     return "; ".join(parts) + "."
 
 

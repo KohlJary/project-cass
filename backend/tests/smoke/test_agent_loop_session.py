@@ -130,3 +130,24 @@ def test_reflection_session_runs_on_a_local_model_assignment(app, fake_llm, leve
     from self_model import SelfManager
     texts = [o.observation for o in SelfManager().load_observations()]
     assert "Smoke: local, still quiet." in texts
+
+
+def test_core_router_tool_runs_for_real_in_a_session(app, fake_llm, levers):
+    """A core tool (add_task) runs through tool_router with the vessel's own
+    managers, and find_tools / use_tool reach a tool outside the core."""
+    from scheduler.actions import get_action_registry
+
+    fake_llm.queue_tool_use("add_task", {"description": "Smoke: read about tides"})
+    fake_llm.queue_tool_use("find_tools", {"query": "list tasks"})
+    fake_llm.queue_tool_use("use_tool", {"name": "get_insight_stats", "input": {}})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Noted a task."})
+    with levers(agent_loop=True):
+        result = app.portal.call(lambda: get_action_registry().execute("session.reflection",
+                                                                       duration_minutes=5))
+    assert result.success, result.message
+    sent = fake_llm.calls[1].messages[-1]["content"][0]
+    assert sent["type"] == "tool_result" and not sent.get("is_error"), sent
+    assert "tool context isn't set up" not in str(sent["content"])
+    # use_tool on a core tool still runs it.
+    third = fake_llm.calls[3].messages[-1]["content"][0]
+    assert "no tool named" not in str(third["content"]), third

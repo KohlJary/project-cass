@@ -19,8 +19,8 @@ import pytest
 from agent_loop.assemble import Section, fit_to_budget
 from agent_loop.loop import LoopOutcome, ModelReply, WITHHELD_MESSAGE, guard_tool_input, run_loop
 from agent_loop.seam import HEADER, render_seam, seam_tool_names
-from agent_loop.spec import (ACTIVITY_PACKS, PACKS, SESSION_WRITES, Trigger, conversation_spec,
-                             dream_spec, session_spec)
+from agent_loop.spec import (ACTIVITY_PACKS, LOOP_PACKS, PACKS, ROUTER_PACKS, SESSION_WRITES,
+                             Trigger, conversation_spec, dream_spec, session_spec)
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 REFUSAL = "I have no memories of conversations with someone named Kohl, so I won't pretend."
@@ -45,7 +45,33 @@ def _session_tool_names():
 def test_every_pack_tool_is_a_real_session_tool():
     known = {n for names in _session_tool_names().values() for n in names}
     for pack in PACKS.values():
+        if pack.name in ROUTER_PACKS | LOOP_PACKS:
+            continue
         assert set(pack.tools) <= known, pack.name
+
+
+def test_every_router_pack_tool_is_routable():
+    from handlers.tool_router import TOOL_REGISTRY
+    for name in ROUTER_PACKS:
+        missing = [t for t in PACKS[name].tools if t not in TOOL_REGISTRY]
+        assert not missing, (name, missing)
+
+
+def test_her_core_set_is_in_every_session():
+    # Her choice (2026-11-13): her chat core, tasks, calendar, babelr_read,
+    # and find_tools / use_tool for the rest.
+    for activity in ACTIVITY_PACKS:
+        names = session_spec(activity).tool_names()
+        for tool in ("journal", "add_task", "create_event", "babelr_read", "find_tools", "use_tool"):
+            assert tool in names, (activity, tool)
+    assert "babelr_read" not in session_spec("reflection", chapter_house=False).tool_names()
+
+
+def test_promoted_tools_are_offered_and_said():
+    spec = session_spec("reflection", promoted=("create_wiki_page",))
+    assert spec.tool_names()[-1] == "create_wiki_page"
+    assert "reached for most through find_tools" in render_seam(
+        spec, Trigger(source="schedule", why="test"), spec.tool_names())
 
 
 @pytest.mark.parametrize("activity", sorted(ACTIVITY_PACKS))
@@ -436,7 +462,8 @@ def test_lever_on_runs_a_session_through_the_turn(session_env, levers):
 
     # The seam's claims match the turn: tools named == tools offered ...
     seam = system[system.index(HEADER):]
-    assert seam_tool_names(seam) == first.tool_names == session_spec("reflection").tool_names()
+    expected = session_spec("reflection", chapter_house="babelr_read" in first.tool_names).tool_names()
+    assert seam_tool_names(seam) == first.tool_names == expected
 
     # ... and the write policy runs: tool writes kept (guarded), narrative kept.
     texts = [o.observation for o in managers["self_manager"].load_observations()]
@@ -480,3 +507,60 @@ def test_conversation_arriving_ends_the_session_cleanly(session_env, levers):
     assert "Half a thought." in texts
     log = json.loads(next((runner.logs_dir / "reflection").rglob("*.json")).read_text())
     assert log["status"] == "interrupted" and log["end_reason"] == "Kohl wrote to me"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: her tools through the session Turn
+# ---------------------------------------------------------------------------
+
+def test_session_finds_and_uses_a_tool_and_promotion_offers_it(session_env, levers, tmp_path):
+    from agent_loop import tools as T
+    from agent_loop.session import run_session_turn
+    runner, managers, fake = session_env
+    runner.set_managers(managers)
+    from session import get_default_handlers
+    runner.register_tool_handlers(get_default_handlers())
+
+    routed = []
+
+    async def router(name, tool_input):
+        routed.append((name, tool_input))
+        return f"ran {name}"
+
+    catalog = T.router_catalog()
+    log = T.UsageLog(tmp_path / "usage.jsonl")
+    fake.queue_tool_use("find_tools", {"query": "update a wiki page"})
+    fake.queue_tool_use("use_tool", {"name": "update_wiki_page", "input": {"title": "Quiet"}})
+    fake.queue_tool_use("use_tool", {"name": "form_opinion",
+                                     "input": {"topic": "memory", "position": REFUSAL}})
+    fake.queue_tool_use("add_task", {"description": "Read about tides"})
+    fake.queue_tool_use("session_complete", {"summary": "Made a page."})
+    result = asyncio.run(run_session_turn(runner, session_type="reflection", max_turns=6,
+                                          run_router=router, catalog=catalog, usage_log=log))
+
+    assert result.status == "completed", result.error
+    found = json.loads(fake.calls[1].messages[-1]["content"][0]["content"])
+    assert "update_wiki_page" in [t["name"] for t in found["tools"]]
+    # The refusal never reached the router: use_tool's inner write is guarded.
+    assert routed == [("update_wiki_page", {"title": "Quiet"}),
+                      ("add_task", {"description": "Read about tides"})]
+    assert [w["tool"] for w in result.withheld] == ["form_opinion"]
+    assert result.tools_used_via_find == ["update_wiki_page"]
+    assert "update_wiki_page" in result.tools_found
+    assert "update_wiki_page" not in fake.calls[0].tool_names
+
+    # Two more days of reaching for it, and it's offered directly.
+    for d in (1, 2):
+        log.record("use", "earlier", tool="update_wiki_page", ok=True)
+    rows = [json.loads(l) for l in log.path.read_text().splitlines()]
+    for row, d in zip([r for r in rows if r.get("session") == "earlier"], (1, 2)):
+        row["at"] = (datetime.now() - timedelta(days=d)).isoformat(timespec="seconds")
+    log.path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    fake.calls.clear()
+    fake.queue_tool_use("session_complete", {"summary": "Short."})
+    result = asyncio.run(run_session_turn(runner, session_type="reflection", max_turns=2,
+                                          run_router=router, catalog=catalog, usage_log=log))
+    assert fake.calls[0].tool_names[-1] == "update_wiki_page"
+    assert result.promoted_tools == ["update_wiki_page"]
+    assert "reached for most through find_tools" in fake.calls[0].system_text

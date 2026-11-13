@@ -297,7 +297,8 @@ LEVER_COVERAGE = {
         "tests": [f"{AGENT_LOOP}::test_reflection_session_runs_through_the_turn",
                   f"{AGENT_LOOP}::test_reflection_session_is_legacy_with_the_lever_off",
                   f"{AGENT_LOOP}::test_websocket_chat_mid_session_ends_the_session",
-                  f"{AGENT_LOOP}::test_reflection_session_runs_on_a_local_model_assignment"],
+                  f"{AGENT_LOOP}::test_reflection_session_runs_on_a_local_model_assignment",
+                  f"{AGENT_LOOP}::test_core_router_tool_runs_for_real_in_a_session"],
         "note": "Provider-neutral: the last test runs the same Turn on an Ollama assignment. "
                 "Per-client checks (Anthropic caching, OpenAI, Ollama) are fast-suite: "
                 "tests/test_agent_loop_models.py.",
