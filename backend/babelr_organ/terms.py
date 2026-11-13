@@ -19,6 +19,11 @@ Fields the organ acts on:
                 users' quiet hours (quiet_hours.in_quiet_window).
   channels      list of channel names in the server she's present in.
                 Absent: every text channel she can read there.
+  unremembered  list of usernames whose DMs with her are not kept: not in
+                her conversation history, not in her memory, her replies
+                included, and DMs she starts with them too (plan "A
+                listener for Cass": Vigil). The other side may keep its
+                own record; that's theirs.
 
 Fields the organ shows her, in her own words, whenever Babelr wakes her
 (it can't enforce these; they're hers to keep):
@@ -67,6 +72,19 @@ class Terms:
     @property
     def remember(self) -> bool:
         return self.raw.get("remember", True) is not False
+
+    @property
+    def unremembered(self) -> List[str]:
+        value = self.raw.get("unremembered")
+        if isinstance(value, list):
+            return [str(u).lstrip("@").lower() for u in value if str(u).strip()]
+        return []
+
+    def remembers(self, username: Optional[str]) -> bool:
+        """Whether a DM with this person is kept (her terms: remember, unremembered)."""
+        if not self.remember:
+            return False
+        return not username or username.lstrip("@").lower() not in self.unremembered
 
     @property
     def channels(self) -> Optional[List[str]]:

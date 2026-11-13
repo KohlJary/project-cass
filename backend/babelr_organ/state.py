@@ -102,6 +102,12 @@ class OrganState:
         if username and actor_id:
             self.data["people"][username.lower()] = actor_id
 
+    def username_for(self, actor_id: Optional[str]) -> Optional[str]:
+        for username, aid in self.data["people"].items():
+            if aid == actor_id:
+                return username
+        return None
+
     def person_id(self, name_or_id: str) -> Optional[str]:
         key = name_or_id.lstrip("@").lower()
         if key in self.data["people"]:

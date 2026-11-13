@@ -733,3 +733,38 @@ class TestNoDoublePost:
         sent = [(k, c, t) for k, c, t in babelr.agents[-1].sent]
         assert sent == [("channel", "chan-general", "Hello, house."), ("channel", "chan-general", "Something else."),
                         ("channel", "chan-workshop", "Hello, house.")]
+
+
+class TestUnremembered:
+    """Her terms' "unremembered": DMs with these people aren't kept on her side
+    (plan "A listener for Cass": Vigil)."""
+
+    async def test_their_dms_and_her_replies_are_not_recorded(self, make_organ, babelr, tmp_path):
+        recorder = _Recorder()
+        organ = make_organ(reply="I hear you.", recorder=recorder)
+        _write_terms(organ.config, {"unremembered": ["@RoboKohl"]})
+        organ.start()
+        await organ.poll_once()
+        babelr.dm_from(ROBOKOHL, "how are you, really?")
+        babelr.dm_from(KOHL, "hey")
+        await organ.poll_once()
+        contexts = {c["author_username"]: c for _, c in organ.wakes}
+        assert contexts["robokohl"]["remember"] is False
+        assert contexts["kohl"]["remember"] is True
+        recorded = " ".join(m[2] for m in recorder.messages)
+        assert "how are you, really?" not in recorded
+        assert "@kohl: hey" in recorded
+        assert "I hear you." in recorded and recorded.count("I hear you.") == 1  # only her reply to Kohl
+
+    async def test_a_dm_she_starts_with_them_is_not_recorded(self, make_organ, babelr):
+        recorder = _Recorder()
+        organ = make_organ(recorder=recorder)
+        _write_terms(organ.config, {"unremembered": ["robokohl"]})
+        organ.start()
+        babelr.say("general", ROBOKOHL, "hello")
+        babelr.say("general", KOHL, "hello")
+        await organ.poll_once()
+        assert organ.dm("robokohl", "can we talk?")["success"]
+        assert organ.dm("kohl", "hi Kohl")["success"]
+        recorded = " ".join(m[2] for m in recorder.messages)
+        assert "can we talk?" not in recorded and "hi Kohl" in recorded

@@ -484,7 +484,10 @@ class BabelrOrgan:
             "recent": [f"@{e.author_name}: {e.text}" for e in recent if e.text],
             "terms": self.terms.shown_to_her(),
             "pending_requests": list(self._pending_requests),
-            "remember": self.terms.remember,
+            # Not kept when her terms say so: everything (remember: false),
+            # or a DM with someone she named in "unremembered".
+            "remember": (self.terms.remembers(last.author_name) if last.kind == "dm"
+                         else self.terms.remember),
             "me": self.my_username,
         }
 
@@ -690,6 +693,8 @@ class BabelrOrgan:
             logger.warning(f"[Babelr] Couldn't record to conversation history: {e}")
 
     def _record_incoming(self, event: BabelrEvent) -> None:
+        if event.kind == "dm" and not self.terms.remembers(event.author_name):
+            return
         body = event.text if event.text is not None else f"(couldn't be decrypted: {event.error})"
         where = "DM" if event.kind == "dm" else f"{event.place_label}"
         self._record(event.place, event.place_label, "user", f"[Babelr {where}] @{event.author_name}: {body}")
@@ -754,6 +759,8 @@ class BabelrOrgan:
         # written while she was composing, and that must still reach her.
         # The next poll sees her message and skips it by author.
         self._last_sent[place] = (text.strip(), time.monotonic(), msg.get("id"))
+        if record and kind == "dm" and not self.terms.remembers(self.state.username_for(partner_id)):
+            record = False
         if record:
             self._record(place, self._label_for(place), "assistant", text)
         return {"success": True, "message_id": msg.get("id"), "place": place}
