@@ -25,8 +25,13 @@ async def execute_journal_tool(
             date = tool_input.get("date")
 
             if date:
-                # Get specific journal entry
-                journal = memory.get_journal_entry(date)
+                # Her daily journal for that date. Research, spell and world
+                # journals share dates; this used to return whichever Chroma
+                # listed first, so a search pointing at a day's journal about
+                # Kohl could open a research summary instead.
+                journal = (memory.get_daily_journal_entry(date)
+                           if hasattr(memory, "get_daily_journal_entry") else None) \
+                    or memory.get_journal_entry(date)
                 if not journal:
                     return {
                         "success": True,

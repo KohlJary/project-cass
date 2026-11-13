@@ -46,12 +46,14 @@ def test_reflection_session_runs_through_the_turn(app, fake_llm, levers):
     assert "Smoke: I notice the quiet." in texts
 
 
-def test_reflection_session_is_legacy_with_the_lever_off(app, fake_llm):
+def test_reflection_session_is_legacy_with_the_lever_off(app, fake_llm, levers):
     from scheduler.actions import get_action_registry
 
     fake_llm.queue_text("Quiet reflection.")
-    result = app.portal.call(lambda: get_action_registry().execute("session.reflection",
-                                                                   duration_minutes=5))
+    # Explicitly off: the lever is on in a deployment's .env since 2026-11-13.
+    with levers(agent_loop=False):
+        result = app.portal.call(lambda: get_action_registry().execute("session.reflection",
+                                                                       duration_minutes=5))
     assert result.success, result.message
     assert "## THIS MOMENT" not in fake_llm.calls[0].system_text
 

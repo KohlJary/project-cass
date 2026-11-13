@@ -56,15 +56,22 @@ def resolve_user_id(user_id_or_name: str, pdx: Optional[PeopleDexManager] = None
     if entity:
         return user_id_or_name
 
-    # Try to find by display name (case-insensitive) in PeopleDex
-    search_name = user_id_or_name.lower().strip()
-    entities = pdx.search_entities(search_name, limit=10)
-    for ent in entities:
-        if ent.primary_name.lower() == search_name:
-            # Get the user_id from attributes
-            user_attr = pdx.get_attribute(ent.id, "user_id")
-            if user_attr:
-                return user_attr.value
+    # By the vessel user's display name ("Kohl").
+    from database import get_db
+    with get_db() as conn:
+        rows = conn.execute("SELECT id FROM users WHERE LOWER(display_name) = LOWER(?)",
+                            (user_id_or_name.strip(),)).fetchall()
+    if len(rows) == 1:
+        return rows[0][0]
+
+    # By PeopleDex name, alias or handle ("KohlJary", "@jaryk"), when exactly
+    # one matching entry is linked to a user. (This used to call a
+    # get_attribute method PeopleDex never had, and matched only an exact
+    # primary name, so "Kohl" never resolved: her user-model tools said
+    # "User not found: Kohl".)
+    linked = {e.user_id for e in pdx.find_entities(user_id_or_name.strip().lstrip("@"), limit=10) if e.user_id}
+    if len(linked) == 1:
+        return linked.pop()
 
     return None
 
