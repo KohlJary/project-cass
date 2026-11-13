@@ -401,8 +401,10 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -
             kept.append(m)
         return kept
 
-    episodes = pool({"type": {"$in": EPISODE_TYPES}}, n_results, episodic=True)
-    others = pool({"type": {"$nin": EPISODE_TYPES + list(ARTICLE_MEMORY_TYPES)}}, n_results, episodic=False)
+    from memory.recency import newer_first_among_similar
+    episodes = newer_first_among_similar(pool({"type": {"$in": EPISODE_TYPES}}, n_results, episodic=True))
+    others = newer_first_among_similar(
+        pool({"type": {"$nin": EPISODE_TYPES + list(ARTICLE_MEMORY_TYPES)}}, n_results, episodic=False))
     chosen = episodes[:episode_slots] + others[:n_results - episode_slots]
     spare = episodes[episode_slots:] + others[n_results - episode_slots:]
     return chosen + spare[:n_results - len(chosen)]
@@ -528,9 +530,12 @@ def _retrieve_semantic_memories(
             if looks_like_refusal(content):
                 continue
 
-            # Format with relevance indicator
+            # Format with relevance and when it's from: an old conclusion
+            # shows its date, so a newer event can outweigh it.
+            from memory.recency import label
             relevance = "high" if distance and distance < 0.5 else "moderate"
-            formatted_parts.append(f"[{mem_type} - {relevance}]: {content}")
+            when = label(metadata)
+            formatted_parts.append(f"[{mem_type} - {relevance}{', ' + when if when else ''}]: {content}")
 
         if not formatted_parts:
             return None

@@ -853,12 +853,22 @@ async def handle_recall_memories(
         limit = tool_input.get("limit", 5)
 
         # CassMemory has no search(); retrieve_relevant is the semantic search.
-        memories = memory.retrieve_relevant(query, n_results=int(limit))
+        # Over-fetch, leave out what came from scanning articles (as chat
+        # recall does), newer first among similar matches, and say when each
+        # memory is from (plan "Cass's memory", 5110da04 / 32c8e38f).
+        from continuous_context import _from_article_scanning
+        from memory.recency import label, newer_first_among_similar
+        n = int(limit)
+        found = memory.retrieve_relevant(query, n_results=n * 4) or []
+        found = [m for m in found if not _from_article_scanning(m.get("metadata") or {})]
+        memories = newer_first_among_similar(found)[:n]
 
         return {
             "memories": [
                 {
                     "content": m.get("content", str(m)),
+                    "kind": (m.get("metadata") or {}).get("type"),
+                    "when": label(m.get("metadata") or {}),
                     # Chroma returns a distance (lower = closer); report 1 - distance.
                     "relevance": round(1.0 - m["distance"], 3) if m.get("distance") is not None else 0.0,
                 }

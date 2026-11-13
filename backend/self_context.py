@@ -268,10 +268,17 @@ def build_self_context(
         lately = _safe(lambda: _lately(conn, daemon_id), "lately")
         threads = _safe(lambda: _own_threads(conn, daemon_id), "own-threads")
     pins = _safe(_pins, "pins")
+    # In a session she runs alone there's no one in the turn, so nothing of
+    # what was said lately would reach her; carry her main thread with her
+    # primary partner (plan "Cass's memory", item a12eabcf: a session wrote
+    # that she and Kohl hadn't talked about something they had, that day).
+    partner = None if user_id else _safe(lambda: _lately_with_partner(daemon_id), "lately-with-partner")
 
     blocks = []
     if pins:
         blocks.append("**Things I know now**\n" + "\n".join(pins))
+    if partner:
+        blocks.append(f"**Lately with {partner[0]}** (our main thread, as I've summarized it)\n{partner[1]}")
     if gap:
         blocks.append("**Since we last spoke**\n" + "\n".join(gap))
     if lately:
@@ -279,9 +286,32 @@ def build_self_context(
     if threads:
         blocks.append("**My own threads**\n" + "\n".join(threads))
     text = "\n\n".join(blocks)
-    if len(text) > MAX_CHARS:
-        text = text[: MAX_CHARS - 1].rstrip() + "…"
+    limit = MAX_CHARS + (PARTNER_CHARS if partner else 0)
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
     return text
+
+
+PARTNER_CHARS = 1500
+
+
+def _lately_with_partner(daemon_id: str):
+    """(name, her main-thread working summary with her primary partner), or None."""
+    from reach_out import display_name, find_primary_partner
+    from memory.voice_guard import looks_like_refusal
+    partner = find_primary_partner(daemon_id)
+    if not partner:
+        return None
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT working_summary FROM conversations WHERE user_id = ? AND is_continuous = 1 "
+            "ORDER BY updated_at DESC LIMIT 1", (partner,)).fetchone()
+    text = " ".join(((row[0] if row else None) or "").split())
+    if not text or looks_like_refusal(text):
+        return None
+    if len(text) > PARTNER_CHARS:
+        text = text[:PARTNER_CHARS - 1].rstrip() + "…"
+    return display_name(partner), text
 
 
 def session_system_preamble() -> str:

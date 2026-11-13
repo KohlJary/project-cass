@@ -240,7 +240,10 @@ def test_session_recall_memories_tool():
     from session.tools import handle_recall_memories
     out = asyncio.run(handle_recall_memories(
         {"query": "Momus", "limit": 3}, {"memory": _spec_memory(HITS)}))
-    assert out["memories"] == [{"content": "Kohl talked about Momus and myth", "relevance": 0.75}]
+    # Each memory also says what kind it is and when it's from (plan "Cass's
+    # memory", phase 7); this one has no date.
+    assert out["memories"] == [{"content": "Kohl talked about Momus and myth", "kind": "conversation",
+                                "when": "", "relevance": 0.75}]
 
 
 # ---------------------------------------------------------------------------

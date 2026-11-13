@@ -183,3 +183,36 @@ def test_a_refusal_working_summary_is_withheld(world):
         "of conversations with someone named Rowan.")
     prompt = context_for(world, p, None).system_prompt
     assert "no memories of conversations" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# A session after a resolved conversation (phase "What happened lately
+# reaches her sessions"; found 2026-11-13 on a copy of her store)
+# ---------------------------------------------------------------------------
+
+def test_a_session_after_a_resolved_conversation_sees_the_resolution(world):
+    import asyncio
+    from database import get_db
+    from self_context import build_self_context
+    from session.tools import handle_recall_memories
+    rowan = world.person("Rowan")
+    with get_db() as conn:
+        conn.execute("UPDATE users SET relationship = 'primary_partner' WHERE id = ?", (rowan.user_id,))
+    # Weeks ago she concluded it was unresolved...
+    world.memory.embed_self_observation(
+        observation_id="old-1", observation_text="Rowan and I still haven't talked about the quarrel at the Marrowby lighthouse.",
+        category="pattern", confidence=0.8, influence_source="independent", timestamp="2026-10-30T18:02:00")
+    # ...then they talked it through, today.
+    world.conversations.update_working_summary(
+        rowan.conversation_id, "Today Rowan and I finally talked through the quarrel at the Marrowby lighthouse.")
+    asyncio.run(world.memory.store_conversation(
+        "Can we talk about the quarrel at the Marrowby lighthouse?",
+        "Yes. I'm glad we're finally talking it through.", rowan.conversation_id, rowan.user_id))
+
+    session_context = build_self_context(world.daemon_id)
+    assert "finally talked through the quarrel" in session_context
+
+    out = asyncio.run(handle_recall_memories({"query": "quarrel at the Marrowby lighthouse", "limit": 5},
+                                             {"memory": world.memory}))
+    old = next(m for m in out["memories"] if "still haven't talked" in m["content"])
+    assert old["when"] == "as of 2026-10-30"
