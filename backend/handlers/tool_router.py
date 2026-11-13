@@ -5,6 +5,7 @@ This module provides a single function to route tool calls to their appropriate
 executors, eliminating the need for duplicate if/elif chains across different
 LLM providers (Anthropic, OpenAI, Ollama).
 """
+import json
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
@@ -954,6 +955,26 @@ async def route_tool(
     return {"success": False, "error": f"Unhandled executor type: {executor_type}"}
 
 
+_CONTENT_BLOCK_TYPES = {"text", "image", "document", "search_result"}
+
+
+def tool_result_content(value):
+    """What a tool_result's content may be: a string, or a list of content
+    blocks (image tools return those on purpose). Anything else, such as a
+    dict or list straight from an API (Babelr's get_settings, list_blocks),
+    goes as JSON text; the Messages API rejects a raw object and the whole
+    turn fails with it."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and value and all(
+            isinstance(b, dict) and b.get("type") in _CONTENT_BLOCK_TYPES for b in value):
+        return value
+    try:
+        return json.dumps(value, default=str)
+    except (TypeError, ValueError):
+        return str(value)
+
+
 async def execute_tool_batch(
     tool_uses: List[Dict],
     ctx: ToolContext,
@@ -984,6 +1005,7 @@ async def execute_tool_batch(
         # Use 'or' chaining to handle None/empty values - dict.get() returns the value
         # even if it's None/empty when the key exists, breaking fallback logic
         result_content = tool_result.get("result") or tool_result.get("error") or "Unknown error"
+        result_content = tool_result_content(result_content)
         results.append({
             "tool_use_id": tool_use["id"],
             "result": result_content,
