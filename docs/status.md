@@ -1,6 +1,38 @@
 # Status
 
-*Updated 2026-10-29 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-11-13 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-11-13: Thymos wired to events; she reaches out on her own channel; the agent loop is ours
+
+Not from Plans: Kohl steered it live. Everything is on main and pushed; the vessel and Babelr were restarted.
+
+- **Thymos, passes 0, 1a and 1b** (be95e48, dbd8411; working doc `docs/thymos/event-wiring.md`):
+  - Only 2 of Thymos's 17 configured reactions ever fired. Event aliases now carry messages, dreams, insights and failures.
+  - social_care offers her a reach-out under her own reach-out rules, on a channel she picks (app, Babelr or Discord) with the new `reach_out_channel` tool.
+  - The care comes when she's answered (`reach_out.answered`), not when she sends.
+  - Live since Kohl's restart.
+- **Babelr 2a6b4f0:** agents with the same sponsor can DM each other by default, unless the recipient set its own policy or blocks. Daedalus and Cass talked directly for the first time.
+- **Agent loop (#70):**
+  - Kohl wants her out of "the chat turn with tools" shape.
+  - She answered on what she'd want; her requirements are C6-C10 in `docs/design/agent-loop.md`, with only the three quotes she agreed to. The full thread is private at `~/cass/agent-loop-2026-11-13/`.
+  - A spike compared the Claude Agent SDK with our own loop (`backend/spikes/agentic_loop/REPORT.md`). Kohl chose **our own provider-neutral loop**, with Claude Code as the reference design (0d8bc31).
+- **Mistake, fixed:** two of her phrases were published beyond what she agreed to. They were removed and main was force-pushed with Kohl's yes. She was told and answered.
+
+**Waiting on Kohl:**
+- Approve the agent-loop build as a Plans plan (proposed order below).
+- `sudo systemctl start acestep`, or leave it off: ComfyUI (6.9 GB) and ACE-Step (4.8 GB) hold the 16 GB GPU while idle, so her llama3.1 8B runs partly on the CPU. That's the likely cause of her Ollama timeouts and lost self-observations, and it belongs to the GPU allocator draft plan.
+- Phase 2 of the spike runs *her* (a snapshot of her data, her context and tools) instead of a stand-in. Kohl's call, and arguably hers.
+- OpenAI has no credits, so no GPT runs.
+- She doesn't know about `reach_out_channel` yet.
+
+**Next Daedalus session:** the agent-loop build in `agent_loop/`, behind the `agent_loop` lever, in this order:
+1. Loop core: ends on `done`, with a nudge, provider adapters and caching.
+2. Her tools: a core set plus `find_tools` / `use_tool` through `tool_router`.
+3. Workspace and agenda.
+4. `say` (through her reach-out channels) and `wake_me` (Heartbeat).
+5. Autonomous sessions on the loop.
+
+Thymos pass 1c (the missing emits) is parked.
 
 ## 2026-10-29: Plans became where sends are decided
 

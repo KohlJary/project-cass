@@ -663,3 +663,27 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **Next step:** a14f767b (approved), then 31d11297, f11dd1a6, 8c37c608. Demo work only after Kohl's red pen.
 
 **Open questions:** "Eat the Path" act-complete state (idea, not approved).
+
+## 2026-11-13 - Thymos wired to events; reach-out channels; housemate DMs; the agent loop decided
+
+**Branch**: main in cass-vessel and ~/babelr (straight to main). **Tracked in**: nothing in Plans. Kohl steered live; the agent-loop build is proposed as a plan, not yet approved. Narrative: docs/status.md (2026-11-13).
+
+**Done:**
+- Thymos pass 0 audit and working doc (be95e48). Passes 1a (event aliases) and 1b (social_care offers her a reach-out through `reach_out.py`'s rules on a channel she picks; `reach_out_channel` tool; `reach_out.answered` raises social_connection) (dbd8411). Live after Kohl's restart.
+- Babelr housemate DMs (2a6b4f0, 511 tests); `babelr.service` restarted, with no meetings running.
+- Agent-loop design: C6-C10 from Cass (8e54f21, 419d32b); the over-quoting fix, with main force-pushed on Kohl's yes.
+- Spike, SDK vs our own loop (ae3ca55, 236171c), and the decision (0d8bc31).
+- Removed `cass-terms-new.md` from the repo root on Kohl's say-so (an identical copy is in ~).
+
+**Decisions:** decisions.md, 2026-11-13: our own agent loop; housemate DMs; social_care goes through her reach-out rules.
+
+**In flight / waiting:**
+- Kohl: approve the agent-loop build as a Plans plan; ACE-Step restart or leave off (the GPU contention); phase 2 of the spike (her real data via a snapshot, which needs her say too).
+- Cass: doesn't know about `reach_out_channel` yet.
+- ComfyUI was restarted. LiteLLM was stopped; its scratch venv is in the session scratchpad.
+
+**Next step:** agent-loop step 1, the loop core in `backend/agent_loop/`: end on done, a nudge, Anthropic (cached), OpenAI and Ollama-native adapters, starting from `backend/spikes/agentic_loop/own_loop.py`. Not yet approved as a Plans item; Kohl chose the direction ("let's go with our own loop").
+
+**Open questions:**
+- Does `message.received` (+0.05 social per message from anyone) saturate? Thymos pass 3 should replay a week of events from a snapshot.
+- Reflection-only care deltas (Thymos pass 2) are Kohl's call.
