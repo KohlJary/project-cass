@@ -335,6 +335,10 @@ async def _remember_relationship(
 
 NOTE_KINDS = {
     "observation": "general",
+    # Something she wants to bring up with them herself (Kohl, 2026-11-13:
+    # she should be able to bring things up on her own). Shown when they
+    # next talk with her, on any channel; she closes it with correct_person.
+    "to_raise": "to_raise",
     "open_question": "open_question",
     "contradiction": "contradiction",
 }
@@ -427,7 +431,7 @@ def _note_about_person(manager: PeopleDexManager, tool_input: Dict, conversation
             return {"success": False, "error": "Couldn't save the moment."}
         return {"success": True, "result": f"Kept a moment with {entity.primary_name} [m:{_short(m.id)}]."}
     if kind not in NOTE_KINDS:
-        return {"success": False, "error": "kind must be observation, moment, open_question or contradiction"}
+        return {"success": False, "error": "kind must be observation, moment, open_question, contradiction or to_raise"}
     o = manager.add_observation(entity.id, NOTE_KINDS[kind], text, confidence=confidence,
                                 source_type="cass_noted", source_conversation_id=conversation_id)
     if not o:
@@ -504,10 +508,10 @@ def _forget_about_person(manager: PeopleDexManager, tool_input: Dict) -> Dict:
 PEOPLE_KEEPING_TOOLS = [
     {
         "name": "note_about_person",
-        "description": "Keep something about a person: what you noticed (observation), a moment that mattered, an open question you're holding about them, or a contradiction you noticed. Use a name or a handle (\"@someone.bsky.social\", \"bluesky:someone\"); a new person gets an entry. Your line: public exchanges you keep; DMs only after you've asked them.",
+        "description": "Keep something about a person: what you noticed (observation), a moment that mattered, an open question you're holding about them, a contradiction you noticed, or something you want to bring up with them yourself (to_raise: it's in front of you the next time they talk with you, anywhere, and it's yours to raise or not; close it with correct_person and a resolution). Use a name or a handle (\"@someone.bsky.social\", \"bluesky:someone\"); a new person gets an entry. Your line: public exchanges you keep; DMs only after you've asked them.",
         "input_schema": {"type": "object", "properties": {
             "name": {"type": "string", "description": "Name or handle"},
-            "kind": {"type": "string", "enum": ["observation", "moment", "open_question", "contradiction"]},
+            "kind": {"type": "string", "enum": ["observation", "moment", "open_question", "contradiction", "to_raise"]},
             "text": {"type": "string", "description": "What you noticed, or what happened"},
             "significance": {"type": "string", "description": "For a moment: why it matters"},
             "confidence": {"type": "number", "description": "0-1: how sure you are (for observations)"},
@@ -515,7 +519,7 @@ PEOPLE_KEEPING_TOOLS = [
     },
     {
         "name": "correct_person",
-        "description": "Fix something you hold about a person: rewrite it (new_text) when you misunderstood or learned more, or resolve a contradiction or open question (resolution). lookup_person shows each item's id, like [o:1a2b3c4d].",
+        "description": "Fix something you hold about a person: rewrite it (new_text) when you misunderstood or learned more, or resolve a contradiction, an open question, or something you wanted to raise (resolution: what came of it, or that you let it go). lookup_person shows each item's id, like [o:1a2b3c4d].",
         "input_schema": {"type": "object", "properties": {
             "name": {"type": "string"},
             "item": {"type": "string", "description": "The id from lookup_person, e.g. o:1a2b3c4d"},

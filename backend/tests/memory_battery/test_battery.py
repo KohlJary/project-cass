@@ -135,6 +135,28 @@ def test_the_timeline_is_only_ever_theirs(world, name):
 
 
 # ---------------------------------------------------------------------------
+# Things she wants to bring up herself
+# ---------------------------------------------------------------------------
+
+def test_what_she_wants_to_raise_is_there_with_them_until_she_closes_it(world):
+    import asyncio
+    import re
+    from handlers.peopledex import execute_peopledex_tool
+    rowan, sam = world.person("Rowan"), world.person("Sam")
+    r = asyncio.run(execute_peopledex_tool("note_about_person", {
+        "name": "Rowan", "kind": "to_raise", "text": "Ask how the Marrowby photos came out."},
+        world.daemon_id))
+    assert r["success"], r
+    item = re.search(r"\[(o:[0-9a-f]+)\]", r["result"]).group(1)
+    assert "Marrowby photos" in _section(context_for(world, rowan, "hey"), "to_raise")
+    assert "Marrowby photos" in context_for(world, rowan, "hey", babelr=True).system_prompt
+    assert "Marrowby photos" not in context_for(world, sam, "hey").system_prompt
+    asyncio.run(execute_peopledex_tool("correct_person", {
+        "name": "Rowan", "item": item, "resolution": "Raised it; the photos were foggy."}, world.daemon_id))
+    assert "Marrowby photos" not in context_for(world, rowan, "hey").system_prompt
+
+
+# ---------------------------------------------------------------------------
 # Babelr threads
 # ---------------------------------------------------------------------------
 

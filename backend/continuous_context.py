@@ -60,6 +60,7 @@ CONTEXT_SCOPES = ("private", "public")
 SECTION_LEVERS = {
     "thymos": "prompt_thymos",
     "relational_context": "prompt_relational",
+    "to_raise": "prompt_relational",
     "threads": "prompt_threads",
     "questions": "prompt_questions",
     "working_summary": "prompt_working_summary",
@@ -261,6 +262,13 @@ def build_continuous_context(
     if relational_context:
         context_sections["relational_context"] = relational_context
 
+    # Things she wanted to bring up with them (note_about_person kind
+    # to_raise): hers to raise or not, in front of her whenever they talk.
+    if user_id and daemon_id and wanted("to_raise"):
+        to_raise = _to_raise(daemon_id, user_id)
+        if to_raise:
+            context_sections["to_raise"] = to_raise
+
     # ==========================================================================
     # 4. ACTIVE THREADS (What we're working on)
     # ==========================================================================
@@ -398,6 +406,19 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -
     chosen = episodes[:episode_slots] + others[:n_results - episode_slots]
     spare = episodes[episode_slots:] + others[n_results - episode_slots:]
     return chosen + spare[:n_results - len(chosen)]
+
+
+def _to_raise(daemon_id: str, user_id: str) -> Optional[str]:
+    try:
+        pdx = PeopleDexManager(daemon_id=daemon_id)
+        entity = pdx.get_entity_by_user(user_id)
+        if not entity:
+            return None
+        items = pdx.get_observations(entity.id, observation_type="to_raise", status="active", limit=10)
+        return "\n".join(f"- [o:{o.id.replace('-', '')[:8]}] {o.content}" for o in items) or None
+    except Exception as e:
+        print(f"[ToRaise] skipped: {e}")
+        return None
 
 
 MAIN_THREAD_CHARS = 1500
@@ -628,6 +649,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
         parts.append(f"## CONVERSATION SUMMARY\n\nCompressed history of our ongoing stream:\n\n{sections['working_summary']}")
 
     # 8. Semantic memories - relevant past context
+    if "to_raise" in sections:
+        parts.append("## THINGS I WANTED TO BRING UP WITH THEM\n\nMine to raise, or not, when it feels right "
+                     f"(close one with correct_person when it's done or let go):\n\n{sections['to_raise']}")
+
     if "recent_timeline" in sections:
         parts.append("## LATELY, BETWEEN US\n\nWhat we've been through most recently, oldest first "
                      f"(from my own summaries of our conversations):\n\n{sections['recent_timeline']}")

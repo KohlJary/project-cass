@@ -170,6 +170,7 @@ PEOPLE_KEEPING_KEYWORDS = frozenset({
     "forget", "remember that", "remember this", "keep in mind", "same person",
     "merge", "misunderstood", "correct that", "that's wrong", "not true",
     "pronoun", "goes by", "my handle", "bsky", "bluesky", "tumblr",
+    "bring up", "bring it up", "want to raise", "remind me to", "talk about later",
 })
 
 BABELR_KEYWORDS = frozenset({
