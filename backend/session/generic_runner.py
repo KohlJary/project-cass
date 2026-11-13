@@ -478,13 +478,13 @@ class GenericSessionRunner:
                             "started_at": log_data.get("started_at"),
                             "status": log_data.get("status"),
                             "total_turns": log_data.get("total_turns"),
-                            "summary": log_data.get("summary", "")[:200],
+                            "summary": (log_data.get("summary") or "")[:200],  # a null summary is saved as null
                         })
                     except Exception as e:
                         logger.warning(f"Failed to read log {log_file}: {e}")
 
         # Sort by start time and limit
-        logs.sort(key=lambda x: x.get("started_at", ""), reverse=True)
+        logs.sort(key=lambda x: x.get("started_at") or "", reverse=True)
         return logs[:limit]
 
     def get_session_log(self, session_id: str) -> Optional[Dict[str, Any]]:
