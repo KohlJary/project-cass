@@ -179,6 +179,7 @@ TOOL_REGISTRY = {
     "set_research_focus": "self_model",
     # Reach out to her primary partner on her own (reach_out.py)
     "reach_out": "self_model",
+    "reach_out_channel": "self_model",
 
     # User model tools
     "reflect_on_user": "user_model",

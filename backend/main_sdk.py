@@ -1318,19 +1318,9 @@ DISCORD_GUIDANCE = (
 
 
 def _discord_conversation_id(user_id: str, title: str) -> str:
-    """The conversation a linked Discord sender's turns go to: one per
-    (user, channel title), found again by title, created on first use.
-    Renaming it in the UI starts a new one on the next message."""
-    from database import get_db
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT id FROM conversations WHERE daemon_id = ? AND user_id = ? "
-            "AND title = ? AND is_continuous = 0 ORDER BY updated_at DESC LIMIT 1",
-            (conversation_manager.daemon_id, user_id, title),
-        ).fetchone()
-    if row:
-        return row["id"]
-    return conversation_manager.create_conversation(title=title, user_id=user_id).id
+    """See discord_bot.conversations.discord_conversation_id."""
+    from discord_bot.conversations import discord_conversation_id
+    return discord_conversation_id(conversation_manager, user_id, title)
 
 
 def make_discord_wake_callback(discord_bot):
@@ -1387,7 +1377,8 @@ def make_discord_wake_callback(discord_bot):
             # for every user), so for them only memory (as before) and token
             # usage are stored.
             conversation_id = None
-            conversation_title = f"Discord DM: {entity_name}" if is_dm else f"Discord #{channel_name}"
+            from discord_bot.conversations import dm_conversation_title, channel_conversation_title
+            conversation_title = dm_conversation_title(entity_name) if is_dm else channel_conversation_title(channel_name)
             if linked_user_id:
                 conversation_id = _discord_conversation_id(linked_user_id, conversation_title)
 
@@ -1754,6 +1745,11 @@ async def startup_event():
         logger.info("Thymos shadow runner started and subscribed to events")
     else:
         logger.info("Thymos disabled by lever (no tick loop, no event forwarding)")
+
+    # When her partner writes after a reach-out of hers, on any channel, the
+    # bus gets reach_out.answered (Thymos maps it to social_connection).
+    from reach_out import on_message_added as reach_out_on_message_added
+    global_state_bus.subscribe("conversation.message_added", reach_out_on_message_added)
 
     # Initialize Grimoire spell system (attached after heavy components load)
     # Spells integrate with Thymos for reactive behavior based on emotional/need state

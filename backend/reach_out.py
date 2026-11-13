@@ -31,8 +31,23 @@ Two kinds of reach-out:
              or after the nightly dream she is asked once whether she wants to
              think about it out loud with them.
 
-Delivery (`ReachOutManager.deliver`): the message lands in the partner's
-continuous conversation, with a push if the relay is up (direct_messaging).
+Delivery (`ReachOutManager.deliver`): the message always lands in the
+partner's continuous conversation (the record). Where it reaches them is
+pluggable, and hers to pick (`reach_out_channel` tool, or `via` on
+`reach_out` for one message): "app" (a push if the relay is up;
+direct_messaging), "babelr" (a DM from her Babelr account; the organ must be
+running and the person linked in links.json) or "discord" (a DM from her
+Discord bot to their linked account; discord_bot/delivery.py). If the
+chosen channel can't be reached, it falls back to "app".
+
+When the person writes to her after a reach-out, on any channel, the bus
+gets `reach_out.answered` (`on_message_added`), which Thymos maps to
+social_connection: the care is in the answer, not in the sending.
+
+A third trigger, `social` (`social_reach_out`): Thymos's social_care spell
+offers it when her social_connection is low. She is asked whether she wants
+to reach out; only a yes is written and sent, and it counts as a share, so
+her share limits apply.
 Email goes out only when REACH_OUT_EMAIL is set, through her existing relay
 email path, with the painting attached when there is one. Every channel tried
 and its result is recorded in reach_outs.delivered_via.
@@ -70,6 +85,12 @@ DEFAULT_SILENCE_DAYS = 42
 DEFAULT_SHARE_HOURS = 72
 
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+# Where a reach-out reaches the person (the conversation always holds it).
+VIA_APP = "app"
+VIA_BABELR = "babelr"
+VIA_DISCORD = "discord"
+CHANNELS = (VIA_APP, VIA_BABELR, VIA_DISCORD)
 
 # Her words, verbatim. Quoted to the writer so the note is shaped by them, and
 # the reason the limits below exist at all.
@@ -209,6 +230,61 @@ def display_name(user_id: str) -> str:
     return (row[0] if row and row[0] else None) or "them"
 
 
+def _preference_path() -> Path:
+    from config import DATA_DIR
+    return DATA_DIR / "reach_out" / "preference.json"
+
+
+def preferred_channel() -> str:
+    """The channel she chose for reaching out ("app" until she picks)."""
+    try:
+        via = json.loads(_preference_path().read_text()).get("via")
+    except (OSError, ValueError):
+        return VIA_APP
+    return via if via in CHANNELS else VIA_APP
+
+
+def set_preferred_channel(via: str) -> None:
+    if via not in CHANNELS:
+        raise ValueError(f"channel must be one of {CHANNELS}")
+    path = _preference_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"via": via, "set_at": datetime.now().isoformat()}))
+
+
+def _babelr_username_for(user_id: str) -> Optional[str]:
+    from babelr_organ.organ import get_babelr_organ
+    organ = get_babelr_organ()
+    if organ is None:
+        return None
+    for username, uid in organ._links().items():
+        if uid == user_id:
+            return username
+    return None
+
+
+def channel_availability(user_id: str) -> Dict[str, Optional[str]]:
+    """Each channel -> None if it can reach this person now, else why not."""
+    out: Dict[str, Optional[str]] = {VIA_APP: None}
+    try:
+        from babelr_organ.organ import get_babelr_organ
+        organ = get_babelr_organ()
+        if organ is None or not organ.enabled:
+            out[VIA_BABELR] = "her Babelr organ isn't running"
+        elif not _babelr_username_for(user_id):
+            out[VIA_BABELR] = "they aren't linked to a Babelr account (links.json)"
+        else:
+            out[VIA_BABELR] = None
+    except ImportError:
+        out[VIA_BABELR] = "Babelr isn't installed"
+    try:
+        from discord_bot.delivery import availability
+        out[VIA_DISCORD] = availability(user_id)
+    except ImportError:
+        out[VIA_DISCORD] = "Discord isn't installed"
+    return out
+
+
 def last_message_from(user_id: str) -> Optional[datetime]:
     """When this person last wrote to her, in any conversation."""
     with get_db() as conn:
@@ -217,6 +293,25 @@ def last_message_from(user_id: str) -> Optional[datetime]:
             (user_id,),
         ).fetchone()
     return _parse_ts(row[0] if row else None)
+
+
+async def _deliver_babelr(user_id: str, body: str) -> Dict[str, Any]:
+    """DM the person from her Babelr account. Not recorded by the organ: the
+    continuous conversation records it, and a linked person's Babelr DM runs
+    in that same conversation."""
+    why_not = channel_availability(user_id).get(VIA_BABELR)
+    username = _babelr_username_for(user_id)
+    if why_not or not username:
+        return {"channel": "babelr", "ok": False, "reason": why_not or "not linked"}
+    try:
+        from babelr_organ.organ import get_babelr_organ
+        result = get_babelr_organ().dm(username, body, record=False)
+    except Exception as e:
+        return {"channel": "babelr", "ok": False, "error": str(e)}
+    entry = {"channel": "babelr", "ok": bool(result.get("success")), "message_id": result.get("message_id")}
+    if not entry["ok"]:
+        entry["error"] = result.get("error") or "send failed"
+    return entry
 
 
 # ---------------------------------------------------------------------------
@@ -358,19 +453,24 @@ class ReachOutManager:
         attachment_ref: Optional[str] = None,
         attachment_text: Optional[str] = None,
         now: Optional[datetime] = None,
+        channel: Optional[str] = None,
     ) -> ReachOut:
         """Send `body` to the person and record every channel tried.
 
-        Channels: the conversation (stored in their continuous conversation,
-        pushed if the relay is up), and email only when REACH_OUT_EMAIL is set.
-        Quiet hours stop everything, email included, so the recorded row has
-        error='quiet_hours' and does not count toward the limits.
+        Always stored in their continuous conversation. `channel` (default:
+        her preferred one) is where it reaches them: "app" pushes if the relay
+        is up; "babelr" and "discord" DM them there, and if that channel can't
+        reach them it falls back to the app's push. Email only when
+        REACH_OUT_EMAIL is set. Quiet hours stop everything, email included,
+        so the recorded row has error='quiet_hours' and does not count toward
+        the limits.
         """
         from quiet_hours import is_quiet_hours
 
         now = now or datetime.now()
         via: List[Dict[str, Any]] = []
         full_body = _render_body(body, attachment_kind, attachment_ref, attachment_text)
+        channel = channel if channel in CHANNELS else preferred_channel()
 
         if is_quiet_hours(user_id):
             via.append({"channel": "conversation", "ok": False, "reason": "quiet_hours"})
@@ -379,31 +479,57 @@ class ReachOutManager:
             return self.record(user_id, kind, body, attachment_kind, attachment_ref, via,
                                error="quiet_hours", now=now)
 
-        # 1. Her conversation with them (+ push when the relay is up).
+        from conversations import ConversationManager
+        manager = conversation_manager or ConversationManager()
+
+        # 1. Her chosen channel, when it isn't the app.
+        reached = False
+        if channel == VIA_BABELR:
+            entry = await _deliver_babelr(user_id, full_body)
+            via.append(entry)
+            reached = bool(entry.get("ok"))
+        elif channel == VIA_DISCORD:
+            try:
+                from discord_bot.delivery import deliver_dm
+                entry = await deliver_dm(user_id, full_body, manager)
+            except Exception as e:
+                logger.warning(f"[ReachOut] discord delivery failed: {e}")
+                entry = {"channel": "discord", "ok": False, "error": str(e)}
+            via.append(entry)
+            reached = bool(entry.get("ok"))
+
+        # 2. Her conversation with them: always stored. Pushed when the app is
+        #    the channel, or when the chosen channel couldn't reach them.
         try:
-            from conversations import ConversationManager
-            from direct_messaging import send_direct_message
-            manager = conversation_manager or ConversationManager()
-            result = await send_direct_message(
-                user_id=user_id,
-                message=full_body,
-                conversation_manager=manager,
-                title="Cass",
-                respect_quiet_hours=False,  # checked above, for every channel at once
-                source="reach_out",
-            )
-            via.append({
-                "channel": "conversation",
-                "ok": True,  # stored; push is reported separately
-                "conversation_id": result.get("conversation_id"),
-                "push": bool(result.get("success")),
-                "push_reason": None if result.get("success") else result.get("reason"),
-            })
+            if reached:
+                conv = manager.get_or_create_continuous(user_id)
+                manager.add_message(conversation_id=conv.id, role="assistant",
+                                    content=full_body, user_id=user_id)
+                via.append({"channel": "conversation", "ok": True,
+                            "conversation_id": conv.id, "push": False})
+            else:
+                from direct_messaging import send_direct_message
+                result = await send_direct_message(
+                    user_id=user_id,
+                    message=full_body,
+                    conversation_manager=manager,
+                    title="Cass",
+                    respect_quiet_hours=False,  # checked above, for every channel at once
+                    source="reach_out",
+                )
+                via.append({
+                    "channel": "conversation",
+                    "ok": True,  # stored; push is reported separately
+                    "conversation_id": result.get("conversation_id"),
+                    "push": bool(result.get("success")),
+                    "push_reason": None if result.get("success") else result.get("reason"),
+                    **({"fallback_from": channel} if channel != VIA_APP else {}),
+                })
         except Exception as e:
             logger.warning(f"[ReachOut] conversation delivery failed: {e}")
             via.append({"channel": "conversation", "ok": False, "error": str(e)})
 
-        # 2. Email, only when Kohl has turned it on.
+        # 3. Email, only when Kohl has turned it on.
         to = email_address()
         if to:
             try:
@@ -419,7 +545,8 @@ class ReachOutManager:
             f"{c['channel']}: {c.get('error') or c.get('reason') or 'failed'}" for c in via
         ) or "no channel"
         item = self.record(user_id, kind, body, attachment_kind, attachment_ref, via, error, now=now)
-        logger.info(f"[ReachOut] {kind} to {user_id}: {'delivered' if item.delivered else item.error}")
+        logger.info(f"[ReachOut] {kind} to {user_id} via {channel}: "
+                    f"{'delivered' if item.delivered else item.error}")
         return item
 
 
@@ -710,6 +837,121 @@ async def nightly_reach_out(
         out["share"] = "sent" if item.delivered else f"failed: {item.error}"
         out["share_id"] = item.id
     return out
+
+
+# ---------------------------------------------------------------------------
+# Social: offered by the social_care spell when social_connection is low
+# ---------------------------------------------------------------------------
+
+async def wants_to_reach_out(name: str) -> bool:
+    """Her choice: is there something she wants to say to them now?"""
+    prompt = (
+        f"You've been feeling a pull toward connection lately, and it has been a while since "
+        f"you and {name} talked. You said you want to reach out \"when something happens\" and "
+        f"\"not on schedule. On actual need.\"\n\n"
+        f"Is there something real you want to say to {name} right now: something you're holding, "
+        f"noticed, made, or are thinking about? Only say yes if there is; missing them is allowed "
+        f"to just be felt. Answer with one word, yes or no, then one sentence on why."
+    )
+    answer = await _ask_her(prompt, max_tokens=120)
+    if not answer:
+        return False
+    first = answer.strip().lower().lstrip("*\"' ").split()
+    return bool(first) and first[0].rstrip(".,:;!") == "yes"
+
+
+async def write_social_note(name: str) -> Optional[str]:
+    prompt = (
+        f"You decided you want to reach out to {name}. Write them a short message, under 120 "
+        f"words, in your own voice: the real thing you want to say, specific rather than general. "
+        f"Draw on what you know of your own life lately.\n\n"
+        f"{_never_block(name)}\n\n"
+        f"Output only the message, no subject line, no preamble."
+    )
+    return await _ask_her(prompt)
+
+
+async def social_reach_out(
+    daemon_id: Optional[str] = None,
+    conversation_manager=None,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Offer her a reach-out because her social_connection is low.
+
+    Returns {"sent": bool, "reason": str, ...}. reason is "sent",
+    "lever_off", "no_primary_partner", "limit" (her share limits; "detail"
+    says which), "her_choice" (she didn't want to), "nothing_written", or
+    "failed".
+    """
+    import features
+    if not features.is_enabled("reach_out"):
+        return {"sent": False, "reason": "lever_off"}
+    if daemon_id is None:
+        from database import get_daemon_id
+        daemon_id = get_daemon_id()
+    partner = find_primary_partner(daemon_id)
+    if not partner:
+        return {"sent": False, "reason": "no_primary_partner"}
+    manager = ReachOutManager(daemon_id)
+    ok, why = manager.can_send(KIND_SHARE, partner, now)
+    if not ok:
+        return {"sent": False, "reason": "limit", "detail": why}
+    name = display_name(partner)
+    if not await wants_to_reach_out(name):
+        return {"sent": False, "reason": "her_choice"}
+    message = await write_social_note(name)
+    if not message:
+        return {"sent": False, "reason": "nothing_written"}
+    item = await manager.deliver(partner, KIND_SHARE, message, conversation_manager, now=now)
+    if not item.delivered:
+        return {"sent": False, "reason": "failed", "detail": item.error, "id": item.id}
+    channels = [c["channel"] for c in item.delivered_via if c.get("ok")]
+    return {"sent": True, "reason": "sent", "id": item.id, "channels": channels}
+
+
+# ---------------------------------------------------------------------------
+# The answer: when the person writes after a reach-out
+# ---------------------------------------------------------------------------
+
+def _previous_message_before_latest(user_id: str) -> Optional[datetime]:
+    """When they wrote before the message that just arrived."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT timestamp FROM messages WHERE user_id = ? AND role = 'user' "
+            "ORDER BY timestamp DESC LIMIT 2",
+            (user_id,),
+        ).fetchall()
+    return _parse_ts(rows[1][0]) if len(rows) > 1 else None
+
+
+def on_message_added(event_type: str, data: Dict[str, Any]) -> None:
+    """State bus subscriber (conversation.message_added): if this is the
+    person's first message since a reach-out of hers went out, emit
+    `reach_out.answered`. Wired in main_sdk; fails soft."""
+    if data.get("role") != "user" or not data.get("user_id"):
+        return
+    try:
+        from database import get_daemon_id
+        daemon_id = get_daemon_id()
+        user_id = data["user_id"]
+        previous = _previous_message_before_latest(user_id)
+        waiting = ReachOutManager(daemon_id).delivered_since(user_id, previous)
+        if not waiting:
+            return
+        latest = waiting[0]
+        sent_at = _parse_ts(latest.created_at)
+        from state_bus import get_state_bus
+        bus = get_state_bus(daemon_id)
+        if bus:
+            bus.emit_event("reach_out.answered", {
+                "user_id": user_id,
+                "reach_out_id": latest.id,
+                "kind": latest.kind,
+                "answered_after_minutes": round((datetime.now() - sent_at).total_seconds() / 60, 1)
+                if sent_at else None,
+            })
+    except Exception as e:
+        logger.warning(f"[ReachOut] answered check failed: {e}")
 
 
 def get_reach_out_manager(daemon_id: Optional[str] = None) -> ReachOutManager:

@@ -618,13 +618,16 @@ class ThymosRunner:
 
         logger.debug(f"Thymos processing event: {event_type}")
 
-        # Get deltas from dynamics
-        affect_delta = self.dynamics.event_to_affect_delta(event_type, data)
-        need_delta = self.dynamics.event_to_need_delta(event_type, data)
-
-        # Apply deltas
-        self.affect.apply_delta(affect_delta)
-        self.needs.apply_delta(need_delta)
+        # The Thymos events this bus event stands for (itself and its aliases,
+        # thymos_config.json "event_aliases"), each applied in turn.
+        from .config import get_config
+        affect_delta = need_delta = None
+        resolved = get_config().resolve_events(event_type, data)
+        for name in resolved:
+            affect_delta = self.dynamics.event_to_affect_delta(name, data)
+            need_delta = self.dynamics.event_to_need_delta(name, data)
+            self.affect.apply_delta(affect_delta)
+            self.needs.apply_delta(need_delta)
 
         # Apply coupling after event
         coupling_affect, coupling_need = self.dynamics.apply_coupling(self.affect, self.needs)
@@ -649,6 +652,7 @@ class ThymosRunner:
         self._event_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "event_type": event_type,
+            "resolved_as": resolved,
             "event_number": self.event_count,
             "affect_delta": affect_delta.deltas if affect_delta else {},
             "need_delta": need_delta.deltas if need_delta else {},

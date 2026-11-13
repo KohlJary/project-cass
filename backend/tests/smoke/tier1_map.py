@@ -106,6 +106,7 @@ LEVER_COVERAGE = {
     "grimoire_need_spells": {
         "depth": "partial",
         "tests": [f"{CYCLES}::test_need_spell_social_care_outreach",
+                  f"{CYCLES}::test_need_spell_social_care_reaches_out",
                   f"{CYCLES}::test_need_spell_novelty_care_wonderland"],
         "note": "Two of the need spells (social_care, novelty_care) are cast by hand; the threshold trigger and the other need spells are not run.",
     },
@@ -286,7 +287,9 @@ LEVER_COVERAGE = {
     },
 
     # --- Her reaching out ---
-    "reach_out": {"depth": "none", "tests": [], "note": "Fast-suite: tests/test_reach_out.py."},
+    "reach_out": {"depth": "partial",
+                  "tests": [f"{CYCLES}::test_need_spell_social_care_reaches_out"],
+                  "note": "The social trigger runs through social_care against the fake LLM and a fake Discord bot; the nightly silence/dream triggers are fast-suite only (tests/test_reach_out.py)."},
 
     # --- One agent loop ---
     "agent_loop": {

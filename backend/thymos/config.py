@@ -86,6 +86,8 @@ class ThymosConfig:
         self._affects: dict[str, AffectDimensionConfig] = {}
         self._needs: dict[str, NeedConfig] = {}
         self._events: dict[str, EventConfig] = {}
+        # bus event name -> [(payload match, Thymos event name)]
+        self._event_aliases: dict[str, list[tuple[dict[str, Any], str]]] = {}
         self._self_care_actions: dict[str, SelfCareActionConfig] = {}
         self._need_to_care_action: dict[str, str] = {}
         self._coupling_rules: list[CouplingRule] = []
@@ -104,6 +106,7 @@ class ThymosConfig:
             self._parse_affects()
             self._parse_needs()
             self._parse_events()
+            self._parse_event_aliases()
             self._parse_self_care_actions()
             self._parse_coupling()
             self._parse_goal_generation()
@@ -151,6 +154,30 @@ class ThymosConfig:
                 affect_deltas=data.get("affect_deltas", {}),
                 need_deltas=data.get("need_deltas", {}),
             )
+
+    def _parse_event_aliases(self) -> None:
+        """event_aliases: the bus names things differently than Thymos does
+        (docs/thymos/event-wiring.md). Each bus event maps to a list of
+        {"event": <Thymos event>, "when": {<payload key>: <value>}}; "when"
+        is optional and every key in it must match."""
+        self._event_aliases = {}
+        for bus_event, targets in self._raw.get("event_aliases", {}).items():
+            if bus_event.startswith("_"):
+                continue
+            for t in targets:
+                if t.get("event") not in self._events:
+                    logger.warning(f"Thymos alias {bus_event} -> {t.get('event')}: no such event")
+                    continue
+                self._event_aliases.setdefault(bus_event, []).append((dict(t.get("when", {})), t["event"]))
+
+    def resolve_events(self, event_type: str, data: dict[str, Any]) -> list[str]:
+        """The Thymos events a bus event stands for: itself, if configured,
+        plus every alias whose "when" matches the payload."""
+        names = [event_type] if event_type in self._events else []
+        for when, target in self._event_aliases.get(event_type, []):
+            if all(data.get(k) == v for k, v in when.items()) and target not in names:
+                names.append(target)
+        return names
 
     def _parse_self_care_actions(self) -> None:
         """Parse self-care actions."""

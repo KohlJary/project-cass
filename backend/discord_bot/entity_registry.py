@@ -167,6 +167,10 @@ class DiscordEntityRegistry:
         """Get entity by Discord user ID."""
         return self._by_discord_id.get(discord_id)
 
+    def get_by_user_id(self, user_id: str) -> List[DiscordEntity]:
+        """Discord entities linked to a Cass user (usually zero or one)."""
+        return [e for e in self._by_discord_id.values() if e.user_id == user_id]
+
     def get_by_slug(self, slug: str) -> Optional[DiscordEntity]:
         """Get entity by Ophanic slug."""
         return self._by_slug.get(slug)

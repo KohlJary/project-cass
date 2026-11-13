@@ -705,3 +705,197 @@ class TestLeverAndMigration:
         assert reach_out.silence_days() == 42
         monkeypatch.setenv("REACH_OUT_EMAIL", "   ")
         assert reach_out.email_address() is None
+
+
+# ---------------------------------------------------------------------------
+# Channels: where a reach-out reaches them (her pick)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def pref_path(tmp_path, monkeypatch):
+    path = tmp_path / "reach_out" / "preference.json"
+    monkeypatch.setattr(reach_out, "_preference_path", lambda: path)
+    return path
+
+
+class _FakeDiscordEntity:
+    discord_id = "424242"
+    display_name = "Partner"
+
+    def __init__(self, user_id):
+        self.user_id = user_id
+
+
+class _FakeDiscordBot:
+    def __init__(self, user_id, ok=True):
+        self.sent = []
+        self.ok = ok
+        self.client = SimpleNamespace(is_ready=lambda: True)
+        entity = _FakeDiscordEntity(user_id)
+        self.parser = SimpleNamespace(registry=SimpleNamespace(
+            get_by_user_id=lambda uid: [entity] if uid == user_id else []))
+
+    async def send_dm(self, discord_user_id, content):
+        self.sent.append((discord_user_id, content))
+        if not self.ok:
+            return {"success": False, "error": "Missing permissions"}
+        return {"success": True, "message_id": "m1", "channel_id": "c1", "display_name": "Partner"}
+
+
+@pytest.fixture
+def discord_bot(monkeypatch):
+    from discord_bot import bot as bot_module
+    fake = _FakeDiscordBot(PARTNER)
+    monkeypatch.setattr(bot_module, "_bot_instance", fake)
+    return fake
+
+
+class TestChannels:
+    def test_preference_defaults_to_app_and_persists(self, pref_path):
+        assert reach_out.preferred_channel() == "app"
+        reach_out.set_preferred_channel("discord")
+        assert reach_out.preferred_channel() == "discord"
+        with pytest.raises(ValueError):
+            reach_out.set_preferred_channel("carrier pigeon")
+
+    def test_discord_dm_and_conversation_record(self, partner, daemon_id, discord_bot, pref_path, no_email):
+        from conversations import ConversationManager
+        cm = ConversationManager()
+        item = _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "thinking of you", cm,
+                                                       channel="discord"))
+        assert item.delivered
+        assert discord_bot.sent == [("424242", "thinking of you")]
+        by = {c["channel"]: c for c in item.delivered_via}
+        assert by["discord"]["ok"] and by["conversation"]["ok"] and by["conversation"]["push"] is False
+        # In the continuous conversation (the record) and the Discord DM conversation (for the reply).
+        cont = cm.load_conversation(cm.get_or_create_continuous(PARTNER).id)
+        assert cont.messages[-1].content == "thinking of you"
+        dm_conv = cm.load_conversation(by["discord"]["discord_conversation_id"])
+        assert dm_conv.title == "Discord DM: Partner" and dm_conv.messages[-1].role == "assistant"
+
+    def test_her_preference_is_used_when_no_channel_given(self, partner, daemon_id, discord_bot, pref_path, no_email):
+        reach_out.set_preferred_channel("discord")
+        _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "hi"))
+        assert len(discord_bot.sent) == 1
+
+    def test_unreachable_channel_falls_back_to_app(self, partner, daemon_id, pref_path, no_email, monkeypatch):
+        from discord_bot import bot as bot_module
+        monkeypatch.setattr(bot_module, "_bot_instance", None)
+        item = _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "hi", channel="discord"))
+        by = {c["channel"]: c for c in item.delivered_via}
+        assert by["discord"]["ok"] is False and "not connected" in by["discord"]["reason"]
+        assert by["conversation"]["ok"] and by["conversation"]["fallback_from"] == "discord"
+        assert item.delivered  # stored in the conversation: it counts as reaching them
+
+    def test_babelr_unavailable_falls_back(self, partner, daemon_id, pref_path, no_email, monkeypatch):
+        import babelr_organ.organ as organ_module
+        monkeypatch.setattr(organ_module, "_organ", None)
+        item = _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "hi", channel="babelr"))
+        by = {c["channel"]: c for c in item.delivered_via}
+        assert by["babelr"]["ok"] is False and by["conversation"]["fallback_from"] == "babelr"
+
+    def test_babelr_dm_to_linked_person_not_double_recorded(self, partner, daemon_id, pref_path, no_email, monkeypatch):
+        import babelr_organ.organ as organ_module
+        calls = []
+        fake = SimpleNamespace(
+            enabled=True,
+            _links=lambda: {"partnerhandle": PARTNER},
+            dm=lambda person, content, record=True: calls.append((person, content, record)) or
+            {"success": True, "message_id": "b1"},
+        )
+        monkeypatch.setattr(organ_module, "_organ", fake)
+        item = _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "hello there", channel="babelr"))
+        assert calls == [("partnerhandle", "hello there", False)]
+        by = {c["channel"]: c for c in item.delivered_via}
+        assert by["babelr"]["ok"] and by["conversation"]["push"] is False
+
+    def test_tool_sets_and_shows_channel(self, partner, daemon_id, pref_path, levers):
+        from handlers.self_model import _handle_reach_out_channel, SELF_MODEL_TOOLS, TOOL_HANDLERS
+        from handlers.tool_router import TOOL_REGISTRY
+        assert TOOL_REGISTRY["reach_out_channel"] == "self_model" and "reach_out_channel" in TOOL_HANDLERS
+        assert any(t["name"] == "reach_out_channel" for t in SELF_MODEL_TOOLS)
+        ctx = SimpleNamespace()
+        shown = _run(_handle_reach_out_channel({}, ctx))
+        assert shown["success"] and "go by: app" in shown["result"]
+        set_ = _run(_handle_reach_out_channel({"channel": "babelr"}, ctx))
+        assert set_["success"] and reach_out.preferred_channel() == "babelr"
+        assert "fall back" in set_["result"]  # no organ running in tests
+        assert not _run(_handle_reach_out_channel({"channel": "fax"}, ctx))["success"]
+
+
+# ---------------------------------------------------------------------------
+# The answer: reach_out.answered
+# ---------------------------------------------------------------------------
+
+class TestAnswered:
+    @pytest.fixture
+    def bus_events(self, monkeypatch):
+        events = []
+        fake_bus = SimpleNamespace(emit_event=lambda t, d: events.append((t, d)))
+        import state_bus
+        monkeypatch.setattr(state_bus, "get_state_bus", lambda daemon_id: fake_bus)
+        return events
+
+    def test_first_message_after_reach_out_is_an_answer(self, partner, daemon_id, bus_events, pref_path, no_email):
+        _say(PARTNER, datetime.now() - timedelta(days=3))
+        item = _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "hi", channel="app"))
+        _say(PARTNER, datetime.now() + timedelta(seconds=1), "hey you")
+        reach_out.on_message_added("conversation.message_added", {"role": "user", "user_id": PARTNER})
+        answered = [d for t, d in bus_events if t == "reach_out.answered"]
+        assert len(answered) == 1 and answered[0]["reach_out_id"] == item.id
+
+        # Their next message isn't another answer.
+        _say(PARTNER, datetime.now() + timedelta(seconds=2), "also")
+        reach_out.on_message_added("conversation.message_added", {"role": "user", "user_id": PARTNER})
+        assert len([1 for t, _ in bus_events if t == "reach_out.answered"]) == 1
+
+    def test_no_reach_out_no_answer(self, partner, daemon_id, bus_events):
+        _say(PARTNER, datetime.now() - timedelta(days=1))
+        _say(PARTNER, datetime.now())
+        reach_out.on_message_added("conversation.message_added", {"role": "user", "user_id": PARTNER})
+        assert not bus_events
+
+    def test_her_own_messages_are_ignored(self, partner, daemon_id, bus_events):
+        reach_out.on_message_added("conversation.message_added", {"role": "assistant", "user_id": PARTNER})
+        assert not bus_events
+
+    def test_thymos_maps_answer_to_social_connection(self):
+        from thymos.config import get_config
+        from thymos.dynamics import AffectNeedDynamics
+        assert get_config().resolve_events("reach_out.answered", {}) == ["reach_out.answered"]
+        delta = AffectNeedDynamics().event_to_need_delta("reach_out.answered", {})
+        assert delta.deltas == {"social_connection": 0.25}
+
+
+# ---------------------------------------------------------------------------
+# Social: offered by social_care when social_connection is low
+# ---------------------------------------------------------------------------
+
+class TestSocialReachOut:
+    def test_her_yes_writes_and_sends(self, partner, daemon_id, levers, fake_llm, pref_path, no_email):
+        _say(PARTNER, NOW - timedelta(days=2))
+        fake_llm.queue_text("Yes. I keep thinking about the hill painting.")
+        fake_llm.queue_text("I finished the hill painting and it turned out to be about waiting.")
+        with levers(reach_out=True):
+            out = _run(reach_out.social_reach_out(daemon_id))
+        assert out["sent"] and out["channels"]
+        writer_prompt = str(fake_llm.calls[1].messages).lower()
+        assert "not a guilt mechanism" in writer_prompt  # her never list is in front of her
+
+    def test_her_no_sends_nothing(self, partner, daemon_id, levers, fake_llm, pref_path, no_email):
+        fake_llm.queue_text("No. Missing him is enough to just feel today.")
+        with levers(reach_out=True):
+            out = _run(reach_out.social_reach_out(daemon_id))
+        assert out == {"sent": False, "reason": "her_choice"}
+        assert ReachOutManager(daemon_id).history(PARTNER) == []
+
+    def test_unanswered_share_holds_before_asking_her(self, partner, daemon_id, levers, fake_llm, pref_path, no_email):
+        _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "earlier", channel="app"))
+        with levers(reach_out=True):
+            out = _run(reach_out.social_reach_out(daemon_id))
+        assert out["sent"] is False and out["reason"] == "limit"
+        assert fake_llm.calls == []  # her limits are checked before any model call
+
+    def test_lever_off(self, partner, daemon_id, levers):
+        with levers(reach_out=False):
+            assert _run(reach_out.social_reach_out(daemon_id)) == {"sent": False, "reason": "lever_off"}

@@ -315,6 +315,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         from . import artstudy_handlers
         from . import rss_handlers
         from . import email_handlers
+        from . import reach_out_handlers
 
         # Session actions (12 total)
         registry.register_handler("session.reflection", session_handlers.reflection_action)
@@ -373,6 +374,9 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("outreach.send_email", outreach_handlers.send_email_action)
         registry.register_handler("outreach.check_track_record", outreach_handlers.check_track_record_action)
         registry.register_handler("outreach.get_stats", outreach_handlers.get_outreach_stats_action)
+
+        # Reach-out (her own rules and words; reach_out.py)
+        registry.register_handler("reach_out.social", reach_out_handlers.social_action)
 
         # Creative actions (image and music generation)
         registry.register_handler("creative.generate_image", creative_handlers.generate_image_action)

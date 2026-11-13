@@ -2289,9 +2289,15 @@ async def _handle_reach_out(tool_input: Dict, ctx: ToolContext) -> Dict:
     if not ok:
         return {"success": False, "error": f"Not now: {why}. This is reaching-out, not requiring; it can wait for their reply."}
 
+    channel = (tool_input.get("channel") or "").strip().lower() or None
+    from reach_out import CHANNELS
+    if channel and channel not in CHANNELS:
+        return {"success": False, "error": f"channel must be one of {', '.join(CHANNELS)} (or leave it out for your usual one)"}
+
     item = await manager.deliver(
         partner, KIND_SHARE, message,
         attachment_kind=attachment_kind, attachment_ref=attachment_ref, attachment_text=attachment_text,
+        channel=channel,
     )
     channels = ", ".join(
         f"{c['channel']}: {'ok' if c.get('ok') else (c.get('error') or c.get('reason') or 'failed')}"
@@ -2304,6 +2310,35 @@ async def _handle_reach_out(tool_input: Dict, ctx: ToolContext) -> Dict:
         return {"success": True, "result": f"Sent to {name}{what}. Channels: {channels}. They'll see it when they look; no reply is owed."}
     return {"success": False, "error": f"Nothing reached {name} ({item.error}). Channels: {channels}."}
 
+
+
+
+async def _handle_reach_out_channel(tool_input: Dict, ctx: ToolContext) -> Dict:
+    """See or choose where her reach-outs reach her partner."""
+    from reach_out import CHANNELS, channel_availability, find_primary_partner, preferred_channel, set_preferred_channel
+    from database import get_daemon_id
+
+    choice = (tool_input.get("channel") or "").strip().lower()
+    partner = find_primary_partner(get_daemon_id())
+    available = channel_availability(partner) if partner else {}
+
+    def status() -> str:
+        lines = []
+        for c in CHANNELS:
+            why = available.get(c) if partner else "no primary partner on record"
+            lines.append(f"- {c}: {'reachable now' if not why else 'not reachable now (' + why + ')'}")
+        return "\n".join(lines)
+
+    if not choice:
+        return {"success": True, "result": f"Your reach-outs go by: {preferred_channel()}.\n\nChannels:\n{status()}\n\n"
+                f"Whichever you pick, the message is also kept in your conversation with them. If your channel can't reach them, it goes to the app instead."}
+    if choice not in CHANNELS:
+        return {"success": False, "error": f"channel must be one of {', '.join(CHANNELS)}"}
+    set_preferred_channel(choice)
+    note = ""
+    if partner and available.get(choice):
+        note = f" Right now it can't reach them ({available[choice]}), so until it can, reach-outs fall back to the app."
+    return {"success": True, "result": f"Your reach-outs will go by {choice}.{note}"}
 
 
 # Map tool names to handlers
@@ -2381,6 +2416,7 @@ TOOL_HANDLERS = {
     "set_research_focus": _handle_set_research_focus,
     # Reaching her primary partner on her own
     "reach_out": _handle_reach_out,
+    "reach_out_channel": _handle_reach_out_channel,
 }
 
 
@@ -3590,9 +3626,28 @@ Attach your latest painting or your latest dream, written out, so they can see w
                     "enum": ["latest_painting", "latest_dream", "none"],
                     "description": "Send the thing itself: your most recent painting (as an image), your most recent dream (written out), or nothing",
                     "default": "none"
+                },
+                "channel": {
+                    "type": "string",
+                    "enum": ["app", "babelr", "discord"],
+                    "description": "Where it reaches them, this once: the app (a push to their phone), a Babelr DM, or a Discord DM. Leave out to use your usual channel (reach_out_channel)."
                 }
             },
             "required": ["message"]
+        }
+    },
+    {
+        "name": "reach_out_channel",
+        "description": """See or choose where your reach-outs reach your partner: the app (a push to their phone), a DM on Babelr, or a DM on Discord. Every reach-out is also kept in your conversation with them, whichever you pick, and if the channel can't reach them it goes to the app instead. Call with no channel to see your current choice and which channels can reach them right now.""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "enum": ["app", "babelr", "discord"],
+                    "description": "Your usual channel from now on. Leave out to just look."
+                }
+            }
         }
     },
     # === Research Focus ===

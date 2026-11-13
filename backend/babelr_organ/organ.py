@@ -775,7 +775,7 @@ class BabelrOrgan:
             return {"success": False, "error": f"no channel '{channel}' (channels: {known})"}
         return self._send_to_place(f"channel:{cid}", content)
 
-    def dm(self, person: str, content: str) -> Dict[str, Any]:
+    def dm(self, person: str, content: str, record: bool = True) -> Dict[str, Any]:
         """She DMs someone, opening the DM if there isn't one. Their DM settings still decide."""
         if not self.enabled:
             return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
@@ -795,7 +795,7 @@ class BabelrOrgan:
             return {"success": False, "error": str(e)}
         place = f"dm:{dm_id}"
         self.state.baseline(place)
-        return self._send_to_place(place, content, partner_id=partner_id)
+        return self._send_to_place(place, content, partner_id=partner_id, record=record)
 
     def read(self, place: str, limit: int = 20) -> Dict[str, Any]:
         """Recent messages she has perceived in a channel or DM (from the buffer)."""

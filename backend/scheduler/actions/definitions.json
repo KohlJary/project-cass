@@ -512,6 +512,17 @@
       "priority": "low",
       "requires_idle": false
     },
+    "reach_out.social": {
+      "id": "reach_out.social",
+      "name": "Offer a Reach-Out",
+      "description": "Her social_connection is low: ask whether she wants to reach her partner, and if so write it in her voice and send it on her chosen channel, within her own reach-out limits.",
+      "category": "outreach",
+      "handler": "reach_out_handlers.social_action",
+      "estimated_cost_usd": 0.02,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
+    },
     "creative.generate_image": {
       "id": "creative.generate_image",
       "name": "Generate Autonomous Image",

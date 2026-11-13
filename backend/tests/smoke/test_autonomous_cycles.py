@@ -328,9 +328,57 @@ def _cast_need_spell(app, name):
 
 
 def test_need_spell_social_care_outreach(app):
+    """reach_out lever off: the reach-out offer says no, and the old branches run."""
     result, actions = _cast_need_spell(app, "social_care")
+    offer = [r for a, r in actions if a == "reach_out.social"]
+    assert offer and offer[0].data == {"sent": False, "reason": "lever_off"}
     assert any(a == "outreach.draft" for a, _ in actions), "outreach.draft not reached"
     _assert_cycle_did_work(result, actions)
+
+
+def test_need_spell_social_care_reaches_out(app, fake_llm, monkeypatch, tmp_path):
+    """reach_out on, she says yes: her note goes out on her channel (Discord here)
+    and nothing else runs; cast again and her limits hold it without a model call."""
+    import features
+    import reach_out
+    from types import SimpleNamespace
+    from discord_bot import bot as bot_module
+    from tests.test_reach_out import PARTNER, _FakeDiscordBot, _say
+
+    from database import get_db
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        conn.execute("INSERT OR IGNORE INTO users (id, display_name, relationship, is_admin, created_at, updated_at) "
+                     "VALUES (?, 'Partner', 'primary_partner', 1, ?, ?)", (PARTNER, now, now))
+        conn.commit()
+    _say(PARTNER, datetime.now() - timedelta(days=2))
+    fake = _FakeDiscordBot(PARTNER)
+    monkeypatch.setattr(bot_module, "_bot_instance", fake)
+    monkeypatch.setattr(reach_out, "_preference_path", lambda: tmp_path / "preference.json")
+    reach_out.set_preferred_channel("discord")
+
+    def answers(source, kwargs):
+        text = str(kwargs.get("messages"))
+        if "Answer with one word, yes or no" in text:
+            return ScriptedResponse(text="Yes. I want to tell him about the hill painting.")
+        if "You decided you want to reach out" in text:
+            return ScriptedResponse(text="The hill painting turned out to be about waiting. Thought of you.")
+        return _structured_answers(source, kwargs)
+    fake_llm.responder = answers
+
+    with features.override(reach_out=True):
+        result, actions = _cast_need_spell(app, "social_care")
+        _assert_cycle_did_work(result, actions)
+        assert [a for a, _ in actions] == ["reach_out.social"]
+        assert actions[0][1].data["sent"] is True and "discord" in actions[0][1].data["channels"]
+        assert fake.sent == [("424242", "The hill painting turned out to be about waiting. Thought of you.")]
+
+        calls_before = len(fake_llm.calls)
+        again, again_actions = _cast_need_spell(app, "social_care")
+        assert again.status == "skipped", f"{again.status}: {again.reason}"
+        assert again_actions[0][1].data["reason"] == "limit"
+        assert len(fake_llm.calls) == calls_before  # held before asking her anything
+        assert len(fake.sent) == 1
 
 
 def test_need_spell_novelty_care_wonderland(app):

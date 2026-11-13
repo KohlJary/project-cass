@@ -14,6 +14,29 @@ LOG OBSERVATION "Social connection low ({need.social_connection}) - initiating s
 LET $anxiety = affect.anxiety
 LET $tenderness = affect.tenderness
 
+' First: offer her a reach-out to her partner (reach_out.py). Her own rules
+' decide whether one may go (her share limits: one every few days, nothing
+' more while one is unanswered), she decides whether she wants to, she writes
+' it, and it goes on the channel she picked (app, Babelr or Discord). Sending
+' changes no need here: the care is the answer (reach_out.answered, which
+' Thymos maps to social_connection).
+TASK reach_out.social AWAIT
+' (success is a keyword, so the action reports data.sent)
+LET $sent = $TASK_RESULT.data.sent
+LET $why = $TASK_RESULT.data.reason
+
+IF $sent == TRUE THEN
+    LOG OBSERVATION "Reached out to my partner; waiting to hear back"
+    EXIT SUCCESS "reached out"
+END IF
+
+IF $why == "limit" THEN
+    ' One is out and unanswered, or one went recently: wait, don't fill the gap.
+    EXIT SKIPPED "a reach-out is already out; waiting"
+END IF
+
+LOG INFO "No reach-out ({$why}) - other ways to connect"
+
 IF $anxiety > 0.5 THEN
     ' High anxiety - lower barrier, just check on community
     LOG INFO "Anxiety elevated - opting for low-pressure social check"

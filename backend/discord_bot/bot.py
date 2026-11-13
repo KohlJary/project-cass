@@ -466,6 +466,29 @@ class CassDiscordBot:
             logger.error(f"[Bot] Error sending message: {e}")
             return {"success": False, "error": str(e)}
 
+    async def send_dm(self, discord_user_id: str, content: str) -> Dict[str, Any]:
+        """Open (or reuse) a DM with a Discord user and send a message.
+
+        Returns send_message's result plus channel_id and display_name. The
+        display name is computed the way the event parser computes it, so the
+        DM conversation title matches the one her wake turn uses.
+        """
+        if not self.client or not self.client.is_ready():
+            return {"success": False, "error": "Bot not connected"}
+        try:
+            user = self.client.get_user(int(discord_user_id)) or await self.client.fetch_user(int(discord_user_id))
+            dm = await user.create_dm()
+        except discord.Forbidden:
+            return {"success": False, "error": "Cannot open a DM with that user"}
+        except Exception as e:
+            logger.warning(f"[Bot] Failed to open DM with {discord_user_id}: {e}")
+            return {"success": False, "error": f"Cannot open DM: {e}"}
+
+        result = await self.send_message(str(dm.id), content)
+        result["channel_id"] = str(dm.id)
+        result["display_name"] = user.display_name or user.name
+        return result
+
     async def add_reaction(
         self,
         channel_id: str,

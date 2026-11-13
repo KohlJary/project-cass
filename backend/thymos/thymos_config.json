@@ -296,6 +296,11 @@
         "value_coherence": 0.05
       }
     },
+    "reach_out.answered": {
+      "_comment": "Her partner writes after a reach-out of hers, on any channel: the care social_care reaches for",
+      "affect_deltas": {"tenderness": 0.1, "satisfaction": 0.1, "anxiety": -0.05},
+      "need_deltas": {"social_connection": 0.25}
+    },
     "autonomous.action": {
       "affect_deltas": {
         "determination": 0.1,
@@ -308,6 +313,17 @@
     }
   },
 
+  "event_aliases": {
+    "_comment": "Bus event -> Thymos event(s). The bus names things its own way; see docs/thymos/event-wiring.md. 'when' matches payload keys.",
+    "conversation.message_added": [
+      {"event": "message.received", "when": {"role": "user"}},
+      {"event": "message.sent", "when": {"role": "assistant"}}
+    ],
+    "journal.dream_generated": [{"event": "dream.completed"}],
+    "research.insight_found": [{"event": "insight.gained"}],
+    "scheduler.task_failed": [{"event": "task.failed"}],
+    "session.failed": [{"event": "task.failed"}]
+  },
   "self_care_actions": {
     "take_break": {
       "name": "Take a break",
