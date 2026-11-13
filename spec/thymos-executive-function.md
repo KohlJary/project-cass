@@ -2,6 +2,8 @@
 
 **Unified homeostatic system for daemon motivation, planning, and action.**
 
+> **Working doc:** what the code actually does today, and the tuning passes, are in [`docs/thymos/event-wiring.md`](../docs/thymos/event-wiring.md).
+
 ## Overview
 
 Thymos becomes Cass's unified executive function - the single system that:
