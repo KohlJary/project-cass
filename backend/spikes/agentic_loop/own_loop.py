@@ -156,13 +156,48 @@ class OpenAIAdapter:
         return choice.content or "", calls, (u.prompt_tokens if u else 0), (u.completion_tokens if u else 0)
 
 
+class OllamaAdapter:
+    """Ollama's native /api/chat, so num_ctx can be set (its OpenAI endpoint ignores it).
+    LiteLLM's ollama_chat route, used by the SDK arm, calls the same API."""
+
+    def __init__(self, base_url: str = "http://localhost:11434", num_ctx: int = 32768):
+        import httpx
+        self.http = httpx.Client(base_url=base_url, timeout=900)
+        self.num_ctx = num_ctx
+
+    def call(self, model, system, tools, history, max_tokens=4096) -> Tuple[str, List[Dict], int, int]:
+        msgs: List[Dict[str, Any]] = [{"role": "system", "content": system}]
+        for h in history:
+            if h["role"] == "user":
+                msgs.append({"role": "user", "content": h["text"]})
+            elif h["role"] == "assistant":
+                m: Dict[str, Any] = {"role": "assistant", "content": h["text"] or ""}
+                if h["calls"]:
+                    m["tool_calls"] = [{"function": {"name": c["name"], "arguments": c["input"]}} for c in h["calls"]]
+                msgs.append(m)
+            else:
+                for r in h["results"]:
+                    msgs.append({"role": "tool", "content": r["content"], "tool_name": r["name"]})
+        fns = [{"type": "function", "function": {"name": t["name"], "description": t["description"][:1000],
+                                                 "parameters": t["input_schema"]}} for t in tools]
+        r = self.http.post("/api/chat", json={"model": model, "messages": msgs, "tools": fns, "stream": False,
+                                              "options": {"num_ctx": self.num_ctx, "num_predict": max_tokens}})
+        r.raise_for_status()
+        d = r.json()
+        msg = d.get("message", {})
+        calls = [{"id": f"call_{len(history)}_{i}", "name": tc["function"]["name"],
+                  "input": tc["function"].get("arguments") or {}}
+                 for i, tc in enumerate(msg.get("tool_calls") or [])]
+        return msg.get("content") or "", calls, d.get("prompt_eval_count", 0), d.get("eval_count", 0)
+
+
 def adapter_for(provider: str):
     if provider == "anthropic":
         return AnthropicAdapter()
     if provider == "openai":
         return OpenAIAdapter()
     if provider == "ollama":
-        return OpenAIAdapter(base_url=os.environ.get("OLLAMA_OPENAI_URL", "http://localhost:11434/v1"), api_key="ollama")
+        return OllamaAdapter()
     raise ValueError(provider)
 
 
@@ -170,9 +205,14 @@ def adapter_for(provider: str):
 # The loop
 # ---------------------------------------------------------------------------
 
-def run(ws: Path, provider: str, model: str, max_steps: int = 60, max_tokens_total: int = 1_500_000) -> RunRecord:
+NUDGE = ("(You haven't called done. If you're finished, update your agenda and call done. "
+         "If you meant to do something, do it now with a tool call rather than describing it.)")
+
+
+def run(ws: Path, provider: str, model: str, max_steps: int = 60, max_tokens_total: int = 1_500_000,
+        nudges: int = 0) -> RunRecord:
     ws = ws.resolve()
-    rec = RunRecord(arm=f"own_loop/{provider}", model=model)
+    rec = RunRecord(arm=f"own_loop/{provider}" + (f"+nudge{nudges}" if nudges else ""), model=model)
     adapter = adapter_for(provider)
     system = system_prompt(ws)
     file_names = {t["name"] for t in FILE_TOOLS}
@@ -193,6 +233,11 @@ def run(ws: Path, provider: str, model: str, max_steps: int = 60, max_tokens_tot
             history.append({"role": "assistant", "text": text, "calls": calls})
             rec.transcript.append({"step": rec.steps, "text": text, "calls": calls})
             if not calls:
+                if nudges > 0:
+                    nudges -= 1
+                    rec.transcript.append({"step": rec.steps, "nudge": NUDGE})
+                    history.append({"role": "user", "text": NUDGE})
+                    continue
                 rec.ended_how = "no_tool_calls"
                 break
             results = []

@@ -30,9 +30,10 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--max-steps", type=int, default=60)
     ap.add_argument("--budget-usd", type=float, default=3.0)
+    ap.add_argument("--nudges", type=int, default=0, help="own loop: remind a model that stops without done")
     a = ap.parse_args()
 
-    tag = f"{a.arm}-{a.provider if a.arm == 'loop' else ('proxy' if a.proxy else 'anthropic')}-{a.model.replace(':', '_').replace('/', '_')}-{time.strftime('%H%M%S')}"
+    tag = f"{a.arm}{'-nudge' if a.nudges else ''}-{a.provider if a.arm == 'loop' else ('proxy' if a.proxy else 'anthropic')}-{a.model.replace(':', '_').replace('/', '_')}-{time.strftime('%H%M%S')}"
     run_dir = Path(a.out) / tag
     ws = seed_workspace(run_dir)
     before = snapshot(ws)
@@ -41,7 +42,7 @@ def main():
         rec = run(ws, a.model, base_url=a.proxy, max_turns=a.max_steps, budget_usd=a.budget_usd)
     else:
         from .own_loop import run
-        rec = run(ws, a.provider, a.model, max_steps=a.max_steps)
+        rec = run(ws, a.provider, a.model, max_steps=a.max_steps, nudges=a.nudges)
     summary = rec.save(run_dir, ws, before)
     print(json.dumps({k: v for k, v in summary.items() if k not in ("said",)}, indent=2))
     print("said:", json.dumps(summary["said"], indent=2)[:1500])
