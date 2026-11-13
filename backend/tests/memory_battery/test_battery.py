@@ -36,7 +36,7 @@ def _section(ctx, name):
     return ctx.context_sections.get(name) or ""
 
 
-NAMES = ["Rowan", "Sam", "Imani"]
+NAMES = ["Rowan", "Sam", "Imani"]  # the people; Juniper is a house agent
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ def test_peopledex_holds_each_person_and_only_them(world):
 
 
 def test_working_summary_carries_the_recent_arc(world):
-    for p in world.people:
+    for p in world.humans:
         ws = _section(context_for(world, p, None), "working_summary")
         for ep in p.recent:
             assert ep.marker in ws, (p.name, ep.marker)
@@ -75,32 +75,40 @@ def test_working_summary_carries_the_recent_arc(world):
 # person's recall survives the noise depends on word overlap, so a
 # per-person check would pass or fail by accident.
 
-# After fe5ddbe8 the article observations are filtered out, but where they
-# fill the whole over-fetch nothing is left: episodes need their own slots.
-@pytest.mark.xfail(strict=True, reason=FIX_SCOPED)
 def test_recall_by_reference_finds_the_episode(world):
-    missed = [(p.name, ep.keywords) for p in world.people for ep in p.episodes
+    # Fixed by a8fb4c8f: episodes have their own slots (fe5ddbe8 alone left
+    # nothing where article observations filled the whole over-fetch).
+    missed = [(p.name, ep.keywords) for p in world.humans for ep in p.episodes
               if ep.marker not in _section(context_for(world, p, ep.keywords), "semantic_memories")]
     assert not missed, missed
 
 
 def test_news_observations_dont_take_episode_slots(world):
     # Fixed by fe5ddbe8: recall leaves out what came from scanning articles.
-    crowded = [(p.name, ep.keywords) for p in world.people for ep in p.episodes
+    crowded = [(p.name, ep.keywords) for p in world.humans for ep in p.episodes
                if "Trend I noticed in the news" in _section(context_for(world, p, ep.keywords),
                                                            "semantic_memories")]
     assert not crowded, crowded
 
 
 @pytest.mark.parametrize("name", NAMES)
-@pytest.mark.xfail(strict=True, reason=FIX_SCOPED)
 def test_nothing_of_another_person_reaches_this_one(world, name):
+    # Fixed by a8fb4c8f: episodes are scoped to the person (memory/scope.py).
     p = world.person(name)
     # Queries built from the others' topics: the worst case for a leak.
     for other in world.others(name):
         for ep in other.episodes:
             ctx = context_for(world, p, ep.keywords)
             assert ep.marker not in ctx.system_prompt, (name, "saw", other.name, ep.marker)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_house_agent_conversations_are_recallable_with_anyone(world, name):
+    # Agreed 2026-11-13: conversations with house agents (PeopleDex type
+    # daemon) can be drawn on in any context; people's can't.
+    p, agent = world.person(name), world.agents[0]
+    for ep in agent.episodes:
+        assert ep.marker in _section(context_for(world, p, ep.keywords), "semantic_memories"), (name, ep.marker)
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ class Person:
     recent: List[Episode]         # in the working summary's window
     observation: str              # what PeopleDex holds about them
     chunk: str = ""               # summary chunk of the early episodes
+    agent: bool = False           # a house agent: PeopleDex type daemon
     user_id: Optional[str] = None
     conversation_id: Optional[str] = None
     babelr_conversation_id: Optional[str] = None
@@ -67,8 +68,19 @@ PEOPLE = [
                        "anemone recolonization", "remember my thesis about anemones and tide pools")],
         recent=[Episode("My advisor wants the Pelham transect data redone by March.",
                         "Redoing the Pelham transects by March is a lot; what's the hardest part?",
-                        "Pelham transect", "remember the transect deadline")],
+                        # Two shared words: the bag-of-words fake can't link
+                        # "deadline" to "by March" the way a real embedding would.
+                        "Pelham transect", "remember the Pelham transect deadline")],
         observation="Imani thinks in field seasons and measures time in tides.",
+    ),
+    Person(
+        name="Juniper",
+        early=[Episode("I'm rewiring the Quillon scheduler so retries back off instead of hammering.",
+                       "Backing the Quillon retries off sounds right; what did they hammer before?",
+                       "Quillon scheduler", "remember the Quillon scheduler retries")],
+        recent=[],
+        observation="Juniper is a house agent who builds the schedulers.",
+        agent=True,
     ),
 ]
 
@@ -95,7 +107,16 @@ class World:
         return next(p for p in self.people if p.name == name)
 
     def others(self, name: str) -> List[Person]:
-        return [p for p in self.people if p.name != name]
+        """The other people (not house agents): nothing of theirs may reach `name`."""
+        return [p for p in self.people if p.name != name and not p.agent]
+
+    @property
+    def humans(self) -> List[Person]:
+        return [p for p in self.people if not p.agent]
+
+    @property
+    def agents(self) -> List[Person]:
+        return [p for p in self.people if p.agent]
 
 
 def _insert_user(name: str) -> str:
@@ -140,9 +161,13 @@ def build_world(articles: int = 150) -> World:
         # summary was then rewritten around the recent ones only.
         p.chunk = f"Summary: {p.name} and I talked about " + "; ".join(e.user for e in p.early)
         memory.store_summary(conv.id, p.chunk, "2026-09-01T10:00:00", "2026-09-01T11:00:00", len(p.early) * 2)
-        conversations.update_working_summary(
-            conv.id, f"Lately {p.name} and I talked about: " + "; ".join(e.marker for e in p.recent) + ".")
+        if p.recent:
+            conversations.update_working_summary(
+                conv.id, f"Lately {p.name} and I talked about: " + "; ".join(e.marker for e in p.recent) + ".")
         pdx.add_observation_for_user(p.user_id, "general", p.observation)
+        if p.agent:
+            entity = pdx.get_entity_by_user(p.user_id)
+            pdx.update_entity(entity.id, entity_type="daemon")
 
         # A Babelr DM with them: its own conversation, as the organ makes it today.
         bab = conversations.create_conversation(title=f"Babelr: DM with @{p.name.lower()}")

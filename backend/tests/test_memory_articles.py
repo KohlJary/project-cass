@@ -32,11 +32,11 @@ def test_recall_skips_article_memories_and_keeps_five_of_hers():
     items = ([{"content": f"news {i}", "distance": 0.2,
                "metadata": {"type": "cass_self_observation", "category": "world_awareness:trend"}}
               for i in range(6)]
-             + [{"content": f"talked with Rowan {i}", "distance": 0.4, "metadata": {"type": "conversation"}}
+             + [{"content": f"talked with Rowan {i}", "distance": 0.4,
+                 "metadata": {"type": "conversation", "user_id": "rowan"}}
                 for i in range(7)])
     mem = _Memory(items)
-    out = _retrieve_semantic_memories(mem, "Rowan", n_results=5)
-    assert mem.asked == 20
+    out = _retrieve_semantic_memories(mem, "Rowan", user_id="rowan", n_results=5)
     assert "news" not in out and out.count("talked with Rowan") == 5
 
 

@@ -245,6 +245,19 @@ Write ONLY the summary, no quotes or labels:"""
 
         return memories
 
+    def retrieve_where(self, query: str, n_results: int, where: Optional[Dict] = None) -> List[Dict]:
+        """retrieve_relevant with any Chroma `where` filter."""
+        results = self.collection.query(query_texts=[query], n_results=n_results, where=where)
+        memories = []
+        if results["documents"] and results["documents"][0]:
+            for i, doc in enumerate(results["documents"][0]):
+                memories.append({
+                    "content": doc,
+                    "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
+                    "distance": results["distances"][0][i] if results["distances"] else None,
+                })
+        return memories
+
     def format_for_context(self, memories: List[Dict]) -> str:
         """
         Format retrieved memories as context string for Claude.

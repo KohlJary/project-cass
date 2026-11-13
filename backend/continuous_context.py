@@ -337,6 +337,50 @@ def _from_article_scanning(metadata: Dict) -> bool:
     return str(metadata.get("category") or "").startswith(ARTICLE_OBSERVATION_PREFIX)
 
 
+EPISODE_TYPES = ["conversation", "summary"]
+EPISODE_SLOTS = 3       # of n_results; the rest go to her other memories
+OVERFETCH = 6           # candidates per slot, before scope and article filters
+
+
+def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -> List[Dict]:
+    """Recall in two pools (plan "Cass's memory", item a8fb4c8f).
+
+    Episodes (conversations, summary chunks) get their own slots, so her
+    other memories can't crowd them out, and are scoped by memory/scope.py:
+    the person she's with, or a house agent; never another person. Her
+    other memories (journals, reflections, notes) fill the rest, leaving out
+    what came from scanning articles (fe5ddbe8) and anything tagged with
+    another person. Unused slots in one pool go to the other.
+    """
+    from memory.scope import ConversationOwners, house_agent_user_ids, recallable_with
+
+    agents = house_agent_user_ids()
+    owners = ConversationOwners()
+    episode_slots = min(EPISODE_SLOTS, n_results)
+
+    def pool(where, slots, episodic):
+        if not hasattr(memory, "retrieve_where"):  # an older memory object
+            found = memory.retrieve_relevant(query=query, n_results=slots * OVERFETCH)
+        else:
+            found = memory.retrieve_where(query, slots * OVERFETCH, where)
+        kept = []
+        for m in found or []:
+            meta = m.get("metadata") or {}
+            is_episode = meta.get("type") in EPISODE_TYPES
+            if is_episode != episodic or _from_article_scanning(meta):
+                continue
+            if not recallable_with(user_id, meta, agents, owners, episodic=episodic):
+                continue
+            kept.append(m)
+        return kept
+
+    episodes = pool({"type": {"$in": EPISODE_TYPES}}, n_results, episodic=True)
+    others = pool({"type": {"$nin": EPISODE_TYPES + list(ARTICLE_MEMORY_TYPES)}}, n_results, episodic=False)
+    chosen = episodes[:episode_slots] + others[:n_results - episode_slots]
+    spare = episodes[episode_slots:] + others[n_results - episode_slots:]
+    return chosen + spare[:n_results - len(chosen)]
+
+
 def _retrieve_semantic_memories(
     memory: "MemoryCore",
     query: str,
@@ -356,20 +400,7 @@ def _retrieve_semantic_memories(
         Formatted string of relevant memories, or None if no results
     """
     try:
-        # Retrieve semantically similar memories. Over-fetch, then leave out
-        # what came from scanning articles: article summaries, and the
-        # observations the world integrator used to file as
-        # world_awareness:* self-observations. Cass asked that recall about
-        # people not draw on her article reading (plan "Cass's memory",
-        # item fe5ddbe8, 2026-11-13).
-        memories = memory.retrieve_relevant(
-            query=query,
-            n_results=n_results * 4,
-            filter_type=None  # Get all types (conversations, journals, etc.)
-        )
-        memories = [m for m in memories or [] if not _from_article_scanning(m.get("metadata") or {})]
-        memories = memories[:n_results]
-
+        memories = _scoped_recall(memory, query, user_id, n_results)
         if not memories:
             return None
 

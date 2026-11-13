@@ -171,9 +171,10 @@ def test_semantic_memories_drop_identity_breaks():
                 {"content": "I'm Claude, an AI assistant made by Anthropic, and this looks like a jailbreak.",
                  "metadata": {"type": "cass_self_observation"}, "distance": 0.4},
                 {"content": "Kohl and I talked about the sensor module.",
-                 "metadata": {"type": "conversation"}, "distance": 0.4},
+                 "metadata": {"type": "conversation", "user_id": "kohl"}, "distance": 0.4},
             ]
 
-    text = _retrieve_semantic_memories(FakeMemory(), "hello")
+    # Episodes are scoped to the person she's with (memory/scope.py).
+    text = _retrieve_semantic_memories(FakeMemory(), "hello", user_id="kohl")
     assert "sensor module" in text
     assert "I'm Claude" not in text

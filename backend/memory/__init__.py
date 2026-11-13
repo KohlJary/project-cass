@@ -127,6 +127,9 @@ class CassMemory:
     def retrieve_relevant(self, *args, **kwargs):
         return self._core.retrieve_relevant(*args, **kwargs)
 
+    def retrieve_where(self, *args, **kwargs):
+        return self._core.retrieve_where(*args, **kwargs)
+
     def format_for_context(self, memories):
         return self._core.format_for_context(memories)
 

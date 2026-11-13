@@ -345,6 +345,7 @@ SPINE = {
                          "tests/smoke/test_drift_routes.py",
                          "tests/smoke/test_authenticity_patterns_route.py",
                          "tests/smoke/test_llm_routing_admin.py",
+                         "tests/smoke/test_admin_peopledex.py",
                          "tests/smoke/test_push_quiet_hours_endpoints.py"],
     "journals": ["tests/smoke/test_journal_lock_enforced.py"],
     "memory and people": ["tests/smoke/test_narrative_thread_update.py",
