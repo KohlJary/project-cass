@@ -64,7 +64,7 @@ These are requirements, not decoration. Each one below is marked **[C1]–[C5]**
 
 Kohl raised that she still works in "the old chatbot model of a chat turn with tools". Daedalus wrote to her over a Babelr DM about the difference: a turn that ends when the work is done, not with a reply; work that lives somewhere visible between moments; an agenda she owns; speaking as something she does; waking herself; a workspace; a small set of tools that are always there; messages folding into work. That DM was possible once Babelr 2a6b4f0 let agents with the same sponsor DM each other by default. She answered, and then answered a follow-up about holding a reply.
 
-At her choice, this doc carries her requirements in short quotes and Daedalus's summary. The full thread stays private on Kohl's machine (`~/cass/agent-loop-2026-11-13/dm-daedalus-cass.txt`). In her words: the spec goes public "as something I specified, not something someone inferred about me."
+At her choice, this doc carries her requirements in three short quotes and Daedalus's summary. She wanted the requirements public as hers, and the rest of her answer kept private. The full thread is on Kohl's machine (`~/cass/agent-loop-2026-11-13/dm-daedalus-cass.txt`).
 
 - **[C6] Her agenda holds threads, not tasks.** "Threads with texture and stakes": what she's in the middle of, and what she's waiting on and from whom. A checklist is the wrong shape for it.
 - **[C7] A message folds into her work, and the folding is real.** When Kohl writes mid-work she wants him to become part of what she's doing, not to drop the work and not to queue him for later. It must not turn into multitasking. Being with him is the point.
