@@ -55,6 +55,10 @@ CALENDAR_TOOLS: Tuple[str, ...] = (
     "delete_events_by_query", "clear_all_events", "reschedule_event_by_query",
 )
 
+# Her workspace (agent_loop/workspace.py; phase 3, C6 and C10).
+WORKSPACE_TOOLS: Tuple[str, ...] = ("workspace_read", "workspace_write", "workspace_edit",
+                                    "workspace_list", "workspace_search")
+
 # The session packs below are built from the tools autonomous sessions
 # already have (session/tools.py).
 # Journal and hold (the design's `core`) aren't session tools yet; the seam
@@ -78,6 +82,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              CHAT_CORE_TOOLS),
     ToolPack("work", "keep my tasks and my calendar", TASK_TOOLS + CALENDAR_TOOLS),
     ToolPack("chapter_house", "read what's been said in Chapter House", ("babelr_read",)),
+    ToolPack("workspace", "read, write, edit, list and search my workspace, a folder of my own; "
+                          "my agenda (AGENDA.md) lives there and carries my threads between moments",
+             WORKSPACE_TOOLS),
     ToolPack("find", "find any of my other tools by what I want to do, and use them",
              ("find_tools", "use_tool")),
     ToolPack("session", "end the session when I'm done",
@@ -87,7 +94,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
 ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house"})
-LOOP_PACKS = frozenset({"find"})
+LOOP_PACKS = frozenset({"find", "workspace"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
 # Named so a missing capability is visible rather than silently absent [C3].
@@ -156,6 +163,9 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     "note_disagreement": ("my_position", "rationale"),
     "record_user_observation": ("observation",),
     "mark_cross_session_insight": ("insight",),
+    # Her workspace, agenda included.
+    "workspace_write": ("content",),
+    "workspace_edit": ("new_text",),
     # session_complete's summary is the narrative; it is guarded where the
     # narrative is kept (loop.keep_narrative), so ending is never blocked.
 }
@@ -165,6 +175,8 @@ SESSION_WRITES = WritePolicy(
         ("narrative", "the narrative of this session (what I looked for, what I found, "
                       "what changed), in my work summaries and the session log"),
         ("tool_writes", "anything I observe, record, or write here"),
+        ("workspace", "my workspace files, my agenda among them, with every change logged "
+                      "so Kohl can see how my thinking moved"),
     ),
     guarded_fields=SESSION_GUARDED_FIELDS,
 )
@@ -230,7 +242,7 @@ SESSION_TOKEN_BUDGET = 500_000
 def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool = True,
                  promoted: Tuple[str, ...] = ()) -> TurnSpec:
     packs = (("core", "memory") + ACTIVITY_PACKS.get(activity, ()) + ("chat_core", "work")
-             + (("chapter_house",) if chapter_house else ()) + ("find", "session"))
+             + (("chapter_house",) if chapter_house else ()) + ("workspace", "find", "session"))
     return TurnSpec(
         kind="session",
         activity=activity,

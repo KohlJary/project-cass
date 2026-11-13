@@ -7,6 +7,7 @@ It reuses what already exists rather than building anything new:
   - her own life, lately        self_context.build_self_context (lever self_context)
   - felt state                  thymos.get_thymos_context
   - the activity's instructions session.prompts.get_session_prompt
+  - her agenda                  agent_loop.workspace (AGENDA.md; turns with the workspace pack)
 
 Each provider builds fail-soft. The total is capped by the spec's token
 budget (chars / 4); when over, providers are cut in reverse priority. The
@@ -108,11 +109,21 @@ def _instructions(spec: TurnSpec, additions: Optional[str]) -> Optional[str]:
     return get_session_prompt(spec.activity, additions)
 
 
+def _agenda(spec: TurnSpec, workspace) -> Optional[str]:
+    if "workspace" not in spec.packs:
+        return None
+    if workspace is None:
+        from .workspace import Workspace
+        workspace = Workspace()
+    return workspace.agenda_section()
+
+
 def assemble(
     spec: TurnSpec,
     trigger: Trigger,
     tool_names: Sequence[str],
     additions: Optional[str] = None,
+    workspace=None,
 ) -> SystemPrompt:
     """Build the system prompt for one turn.
 
@@ -124,6 +135,9 @@ def assemble(
     candidates = [
         Section("kernel", _kernel(daemon_id), 0, never_cut=True),
         Section("seam", render_seam(spec, trigger, tool_names), 0, never_cut=True),
+        # Her agenda is in every turn that has her workspace (C6); it's capped
+        # in length by agenda_section, never cut for budget.
+        Section("agenda", _safe("agenda", lambda: _agenda(spec, workspace)) or "", 1, never_cut=True),
         Section("self_context", _safe("self_context", lambda: _self_context(daemon_id)) or "", 2),
         Section("thymos", _safe("thymos", _thymos) or "", 3),
         Section("instructions", _safe("instructions", lambda: _instructions(spec, additions)) or "", 1,

@@ -302,9 +302,12 @@ class ToolBox:
     def __init__(self, *, offered: Sequence[str], session_tools: Iterable[str],
                  run_session: Callable[[str, Dict[str, Any]], Awaitable[Any]],
                  run_router: RouterRun, catalog: Dict[str, Dict[str, Any]],
-                 log: UsageLog, session_id: str, end_tool: Optional[str] = None):
+                 log: UsageLog, session_id: str, end_tool: Optional[str] = None,
+                 local: Optional[Dict[str, Callable[[Dict[str, Any]], Any]]] = None):
         self.offered = list(offered)
         self.session_tools = set(session_tools)
+        # Tools the loop answers itself (the workspace): name -> fn(input).
+        self.local = dict(local or {})
         self.run_session = run_session
         self.run_router = run_router
         self.catalog = catalog
@@ -316,6 +319,8 @@ class ToolBox:
         self.used: List[str] = []
 
     async def _run(self, name: str, tool_input: Dict[str, Any]) -> Any:
+        if name in self.local:
+            return self.local[name](tool_input)
         if name in self.session_tools:
             return await self.run_session(name, tool_input)
         return await self.run_router(name, tool_input)

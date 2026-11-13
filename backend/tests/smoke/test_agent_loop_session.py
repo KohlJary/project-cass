@@ -151,3 +151,26 @@ def test_core_router_tool_runs_for_real_in_a_session(app, fake_llm, levers):
     # use_tool on a core tool still runs it.
     third = fake_llm.calls[3].messages[-1]["content"][0]
     assert "no tool named" not in str(third["content"]), third
+
+
+def test_workspace_write_in_a_session_is_visible_to_kohl(app, fake_llm, levers, smoke_admin):
+    """She writes her agenda in a session; the admin view shows it and the change."""
+    from scheduler.actions import get_action_registry
+
+    fake_llm.queue_tool_use("workspace_write", {"path": "AGENDA.md",
+                                                "content": "## Threads\n- Smoke: tides\n"})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Started an agenda."})
+    with levers(agent_loop=True):
+        result = app.portal.call(lambda: get_action_registry().execute("session.reflection",
+                                                                       duration_minutes=5))
+    assert result.success, result.message
+    first = fake_llm.calls[0]
+    assert "workspace_write" in first.tool_names and "## MY AGENDA" in first.system_text
+
+    headers = {"Authorization": f"Bearer {smoke_admin[1]}"}
+    view = app.get("/admin/workspace", headers=headers).json()
+    assert "Smoke: tides" in view["agenda"]
+    changes = app.get("/admin/workspace/changes", headers=headers).json()["changes"]
+    assert changes[-1]["path"] == "AGENDA.md"
+    assert app.get("/admin/workspace/file", params={"path": "../cass.db"},
+                   headers=headers).status_code == 404

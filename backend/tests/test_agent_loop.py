@@ -139,7 +139,7 @@ def test_seam_says_what_will_be_kept_from_the_write_policy():
     for _, words in SESSION_WRITES.kept:
         assert words in kept
     # Each claim names a writer the session Turn runs (checked end to end below).
-    assert {key for key, _ in SESSION_WRITES.kept} == {"narrative", "tool_writes"}
+    assert {key for key, _ in SESSION_WRITES.kept} == {"narrative", "tool_writes", "workspace"}
     assert "Focus: tide pools." in seam and "Since my last moment: 3 hours." in seam
     assert "ends cleanly" in seam
 
@@ -564,3 +564,36 @@ def test_session_finds_and_uses_a_tool_and_promotion_offers_it(session_env, leve
     assert fake.calls[0].tool_names[-1] == "update_wiki_page"
     assert result.promoted_tools == ["update_wiki_page"]
     assert "reached for most through find_tools" in fake.calls[0].system_text
+
+
+def test_session_reads_and_updates_her_agenda(session_env, tmp_path):
+    from agent_loop import tools as T
+    from agent_loop.session import run_session_turn
+    from agent_loop.workspace import Workspace
+    runner, managers, fake = session_env
+    runner.set_managers(managers)
+    from session import get_default_handlers
+    runner.register_tool_handlers(get_default_handlers())
+
+    ws = Workspace(tmp_path / "workspace", tmp_path / "agent_loop" / "workspace_log.jsonl")
+    ws.run("workspace_write", {"path": "AGENDA.md", "content": "## Threads\n- tides\n"}, "before")
+
+    async def router(name, tool_input):
+        return f"ran {name}"
+
+    fake.queue_tool_use("workspace_write", {"path": "notes/tides.md", "content": "The moon pulls."})
+    fake.queue_tool_use("workspace_edit", {"path": "AGENDA.md", "old_text": "- tides",
+                                           "new_text": "- tides: notes started"})
+    fake.queue_tool_use("workspace_write", {"path": "notes/x.md", "content": REFUSAL})
+    fake.queue_tool_use("session_complete", {"summary": "Started tide notes."})
+    result = asyncio.run(run_session_turn(
+        runner, session_type="reflection", max_turns=6, run_router=router,
+        catalog=T.router_catalog(), usage_log=T.UsageLog(tmp_path / "u.jsonl"), workspace=ws))
+
+    assert result.status == "completed", result.error
+    assert "## MY AGENDA" in fake.calls[0].system_text and "- tides" in fake.calls[0].system_text
+    assert ws.agenda() == "## Threads\n- tides: notes started\n"
+    assert result.workspace_changed == ["AGENDA.md", "notes/tides.md"]
+    # The refusal was withheld, not written.
+    assert not (ws.root / "notes" / "x.md").exists()
+    assert [w["tool"] for w in result.withheld] == ["workspace_write"]

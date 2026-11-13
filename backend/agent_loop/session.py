@@ -50,8 +50,9 @@ def tool_definitions(names: List[str], catalog: Optional[Dict[str, Dict[str, Any
     her router tools (`catalog`, agent_loop.tools.router_catalog), then
     find_tools / use_tool. With strict=False, names with no definition (a
     subsystem that's off, a tool she switched off) are dropped, not raised."""
+    from .workspace import WORKSPACE_TOOLS
     by_name = dict(_session_tool_defs())
-    for d in tools_mod.FIND_TOOLS_DEFS:
+    for d in tools_mod.FIND_TOOLS_DEFS + WORKSPACE_TOOLS:
         by_name.setdefault(d["name"], d)
     if catalog:
         for n, d in catalog.items():
@@ -103,6 +104,7 @@ def _session_result_cls():
         promoted_tools: List[str] = field(default_factory=list)
         tools_found: List[str] = field(default_factory=list)
         tools_used_via_find: List[str] = field(default_factory=list)
+        workspace_changed: List[str] = field(default_factory=list)
 
         def to_dict(self) -> Dict[str, Any]:
             data = super().to_dict()
@@ -120,6 +122,7 @@ def _session_result_cls():
                 "promoted_tools": self.promoted_tools,
                 "tools_found": self.tools_found,
                 "tools_used_via_find": self.tools_used_via_find,
+                "workspace_changed": self.workspace_changed,
             })
             return data
 
@@ -169,10 +172,12 @@ async def run_session_turn(
     run_router: Optional[tools_mod.RouterRun] = None,
     catalog: Optional[Dict[str, Dict[str, Any]]] = None,
     usage_log: Optional[tools_mod.UsageLog] = None,
+    workspace=None,
 ):
     """Run one autonomous session through the Turn. Returns a SessionResult
     (subclass) so the action handler reports it the same way as before.
-    `run_router`, `catalog` and `usage_log` default to the live ones."""
+    `run_router`, `catalog`, `usage_log` and `workspace` default to the live ones."""
+    from .workspace import WORKSPACE_TOOL_NAMES, Workspace
     started = datetime.now()
     session_id = str(uuid.uuid4())[:8]
     daemon_id = getattr(runner, "daemon_id", None)
@@ -185,6 +190,7 @@ async def run_session_turn(
     if catalog is None:
         catalog = tools_mod.router_catalog()
     usage_log = usage_log or tools_mod.UsageLog()
+    workspace = workspace or Workspace()
     session_names = set(_session_tool_defs())
     promoted = tuple(n for n in usage_log.promoted() if n in catalog)
     spec: TurnSpec = session_spec(session_type, max_iterations=max_turns,
@@ -200,9 +206,10 @@ async def run_session_turn(
     # Router tools not in the catalog are off (a subsystem that's down, or a
     # tool she switched off with modify_tool_access); they're left out.
     tool_names = [n for n in spec.tool_names()
-                  if n in session_names or n in catalog or n in ("find_tools", "use_tool")]
+                  if n in session_names or n in catalog
+                  or n in ("find_tools", "use_tool") + WORKSPACE_TOOL_NAMES]
     tools = tool_definitions(tool_names, catalog)
-    prompt = assemble(spec, trigger, tool_names, additions)
+    prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace)
     model = resolve_model(spec, runner.model)
     if client is None:
         # The call site's assignment picks the provider: Claude by default,
@@ -218,7 +225,8 @@ async def run_session_turn(
     box = tools_mod.ToolBox(
         offered=tool_names, session_tools=session_names, run_session=run_session_tool,
         run_router=run_router or tools_mod.live_router(daemon_id), catalog=catalog,
-        log=usage_log, session_id=session_id, end_tool="session_complete")
+        log=usage_log, session_id=session_id, end_tool="session_complete",
+        local={n: (lambda a, n=n: workspace.run(n, a, session_id)) for n in WORKSPACE_TOOL_NAMES})
 
     outcome = await run_loop(
         spec=spec,
@@ -264,6 +272,8 @@ async def run_session_turn(
         promoted_tools=list(promoted),
         tools_found=list(box.found),
         tools_used_via_find=list(box.used),
+        workspace_changed=sorted({c["path"] for c in workspace.changes(limit=10_000)
+                                  if c.get("session") == session_id}),
     )
     result.summary = keep_narrative(outcome, runner)
     result.insights = _insights(outcome)
