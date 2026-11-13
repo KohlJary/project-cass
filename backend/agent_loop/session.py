@@ -207,7 +207,8 @@ async def run_session_turn(
         can_wake = heartbeat_running()
     session_names = set(_session_tool_defs())
     promoted = tuple(n for n in usage_log.promoted() if n in catalog)
-    spec: TurnSpec = session_spec(session_type, max_iterations=max_turns,
+    from .spec import LOOP_MIN_STEPS
+    spec: TurnSpec = session_spec(session_type, max_iterations=max(max_turns, LOOP_MIN_STEPS),
                                   chapter_house="babelr_read" in catalog, promoted=promoted,
                                   can_say=say_def is not None, can_wake=can_wake)
     trigger = Trigger(

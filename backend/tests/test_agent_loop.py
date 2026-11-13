@@ -647,3 +647,21 @@ def test_say_goes_through_reach_out_and_wake_me_is_kept(session_env, tmp_path, l
     first = fake.calls[0]
     assert "say" not in first.tool_names and "wake_me" not in first.tool_names
     assert "reach out (reaching out happens" in first.system_text
+
+
+def test_loop_sessions_get_at_least_24_steps(session_env):
+    # Cass agreed to 24 (2026-11-13): a backstop, not a target.
+    from agent_loop import tools as T
+    from agent_loop.session import run_session_turn
+    runner, managers, fake = session_env
+    runner.set_managers(managers)
+    from session import get_default_handlers
+    runner.register_tool_handlers(get_default_handlers())
+    for i in range(12):
+        fake.queue_tool_use("list_observations", {})
+    fake.queue_tool_use("session_complete", {"summary": "ok"})
+    result = asyncio.run(run_session_turn(runner, session_type="reflection", max_turns=10,
+                                          run_router=lambda n, i: None, catalog={},
+                                          usage_log=T.UsageLog(runner.data_dir / "u.jsonl")))
+    # The scheduler asked for 10; she took 13 and ended it herself.
+    assert result.status == "completed" and result.total_turns == 13, (result.status, result.total_turns)

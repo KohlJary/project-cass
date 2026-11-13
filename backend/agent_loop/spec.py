@@ -249,6 +249,12 @@ class TurnSpec:
 # against a runaway turn, not a target.
 SESSION_TOKEN_BUDGET = 500_000
 
+# Steps a loop session may take, at least. The scheduler passes the old
+# path's 10; on the copy (phase 6 comparison, 2026-11-13) most loop sessions
+# hit 12 before she said she was done. Cass agreed to 24: a backstop, not a
+# target; the token budget above still applies.
+LOOP_MIN_STEPS = 24
+
 
 def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool = True,
                  promoted: Tuple[str, ...] = (), can_say: bool = True,
