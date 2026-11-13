@@ -942,7 +942,12 @@ class GlobalStateBus:
         if not self._capability_registry:
             return
 
-        for source in self._queryable_sources.values():
+        # A snapshot: other startup tasks register sources while this awaits
+        # (autonomous_schedule did, on every restart), and iterating the live
+        # dict raised "dictionary changed size during iteration", which ended
+        # the background heavy init early. A source registered meanwhile is
+        # indexed by register_source itself.
+        for source in list(self._queryable_sources.values()):
             await self._register_source_capabilities(source)
 
     async def _register_source_capabilities(self, source: "QueryableSource") -> None:
