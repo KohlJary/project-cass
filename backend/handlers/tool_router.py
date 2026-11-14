@@ -398,6 +398,12 @@ TOOL_REGISTRY = {
     "babelr_boundaries": "babelr",
     "babelr_plans": "babelr",
 
+    # Her room in Chapter House (room.py): what she chooses to share
+    "share_to_room": "room",
+    "unshare_from_room": "room",
+    "view_my_room": "room",
+    "set_room_section": "room",
+
     # Image generation tools (local Stable Diffusion)
     "generate_image": "image_generation",
     "get_my_images": "image_generation",
@@ -917,6 +923,13 @@ async def route_tool(
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,
+        )
+
+    elif executor_type == "room":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
         )
 
     elif executor_type == "music":

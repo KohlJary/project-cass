@@ -1637,6 +1637,7 @@ from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
 from handlers.peopledex import PEOPLEDEX_TOOLS
+from handlers.room import ROOM_TOOLS
 from handlers.stakeholders import STAKEHOLDER_TOOLS
 from handlers.email import EMAIL_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
@@ -1921,6 +1922,12 @@ class CassAgentClient:
             # Image generation tools - create visual art via local Stable Diffusion
             if should_include_image_tools(message):
                 tools.extend(IMAGE_GENERATION_TOOLS)
+
+            # Her room in Chapter House: share a piece, take it back (room.py).
+            # Offered when she's talking about her art, music or room.
+            if (should_include_image_tools(message) or should_include_music_tools(message)
+                    or any(w in message.lower() for w in ("my room", "share", "gallery", "journal"))):
+                tools.extend(ROOM_TOOLS)
 
             # Music composition tools - compose original music via ACE-Step
             if should_include_music_tools(message):

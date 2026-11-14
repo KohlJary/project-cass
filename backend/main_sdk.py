@@ -105,6 +105,7 @@ from handlers import (
     execute_tool_batch,
 )
 from handlers.stakeholders import execute_stakeholder_tool
+from handlers.room import execute_room_tool
 from handlers.email import execute_email_tool
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
@@ -521,6 +522,7 @@ TOOL_EXECUTORS = {
     "interest": execute_interest_tool,
     "home_assistant": execute_ha_tool,
     "home_automation": execute_home_automation_tool,
+    "room": execute_room_tool,
 }
 
 
@@ -610,6 +612,10 @@ app.include_router(files_router)
 # Register export routes
 from routes.export import router as export_router
 app.include_router(export_router)
+
+# Her room in Chapter House: read-only, room tokens only (routes/room.py)
+from routes.room import router as room_router
+app.include_router(room_router)
 
 # Register memory routes (initialized in background after memory is ready)
 from routes.memory import router as memory_router, init_memory_routes
