@@ -256,7 +256,7 @@ class AutonomousScheduler:
 
         await self.plan_day()
 
-    async def plan_day(self) -> Dict[str, List[WorkUnit]]:
+    async def plan_day(self, session_runner=None) -> Dict[str, List[WorkUnit]]:
         """
         Plan the full day's autonomous work.
 
@@ -286,7 +286,10 @@ class AutonomousScheduler:
         logger.info(f"Current phase: {current_phase.value}, planning for: {[p.value for p in remaining_phases]}")
 
         # Ask decision engine to plan for remaining phases
-        plan = await self.decision_engine.plan_day(remaining_phases)
+        if session_runner is not None:
+            plan = await self.decision_engine.plan_day(remaining_phases, session_runner=session_runner)
+        else:
+            plan = await self.decision_engine.plan_day(remaining_phases)
 
         if not plan:
             logger.warning("Decision engine returned no plan")

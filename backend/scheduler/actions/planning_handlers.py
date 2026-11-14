@@ -41,8 +41,16 @@ async def generate_day_plan_action(context: Dict[str, Any]) -> ActionResult:
         logger.info("Day planning action: using LLM-based planning")
 
     try:
-        # Call the scheduler's plan_day method which uses the decision engine
-        plan = await scheduler.plan_day()
+        # Call the scheduler's plan_day method which uses the decision engine.
+        # With a session runner she plans in her own turn on the agent loop.
+        runner = managers.get("session_runner")
+        if runner is not None:
+            from session import get_default_handlers
+            runner.set_managers(managers)
+            runner.register_tool_handlers(get_default_handlers())
+            plan = await scheduler.plan_day(session_runner=runner)
+        else:
+            plan = await scheduler.plan_day()
 
         if not plan:
             return ActionResult(

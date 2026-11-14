@@ -400,7 +400,12 @@ def _run_action(activity, managers):
     return asyncio.run(handler({"managers": managers, "duration_minutes": 5, "max_turns": 4}))
 
 
-@pytest.mark.parametrize("activity", sorted(ACTIVITY_PACKS))
+# Activities that only exist on the loop (her day plan, her homepage) have
+# no legacy path to compare against.
+LOOP_ONLY_ACTIVITIES = {"day_planning", "homepage"}
+
+
+@pytest.mark.parametrize("activity", sorted(set(ACTIVITY_PACKS) - LOOP_ONLY_ACTIVITIES))
 def test_lever_off_requests_are_byte_identical_to_the_legacy_runner(activity, session_env, levers,
                                                                     monkeypatch):
     runner, managers, fake = session_env

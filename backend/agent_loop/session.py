@@ -22,7 +22,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from memory.voice_guard import looks_like_refusal
 
@@ -179,10 +179,14 @@ async def run_session_turn(
     workspace=None,
     wakes=None,
     can_wake: Optional[bool] = None,
+    local_tools: Optional[Dict[str, Tuple[Dict[str, Any], Callable[[Dict[str, Any]], Any]]]] = None,
+    initial_message: Optional[str] = None,
 ):
     """Run one autonomous session through the Turn. Returns a SessionResult
     (subclass) so the action handler reports it the same way as before.
-    `run_router`, `catalog`, `usage_log` and `workspace` default to the live ones."""
+    `run_router`, `catalog`, `usage_log` and `workspace` default to the live ones.
+    `local_tools` (name -> (definition, handler)) are tools the entry point
+    answers itself, e.g. set_day_plan; handlers get the input and may be async."""
     import features
     from .spec import ACTIVITY_PACKS
     from .wakes import WakeBook, heartbeat_running, wake_tool
@@ -223,9 +227,11 @@ async def run_session_turn(
     # tool she switched off with modify_tool_access); they're left out.
     tool_names = [n for n in spec.tool_names()
                   if n in session_names or n in catalog
-                  or n in ("find_tools", "use_tool", "say", "wake_me") + WORKSPACE_TOOL_NAMES]
+                  or n in ("find_tools", "use_tool", "say", "wake_me") + WORKSPACE_TOOL_NAMES
+                  or n in (local_tools or {})]
     tools = tool_definitions(tool_names, catalog,
-                             extra=[d for d in (say_def, wake_def) if d is not None])
+                             extra=[d for d in (say_def, wake_def) if d is not None]
+                             + [d for d, _ in (local_tools or {}).values()])
     prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace)
     model = resolve_model(spec, runner.model)
     if client is None:
@@ -244,7 +250,8 @@ async def run_session_turn(
         run_router=run_router or tools_mod.live_router(daemon_id), catalog=catalog,
         log=usage_log, session_id=session_id, end_tool="session_complete",
         local={**{n: (lambda a, n=n: workspace.run(n, a, session_id)) for n in WORKSPACE_TOOL_NAMES},
-               "wake_me": lambda a: wakes.request(a, session_id, ACTIVITY_PACKS)})
+               "wake_me": lambda a: wakes.request(a, session_id, ACTIVITY_PACKS),
+               **{n: h for n, (_, h) in (local_tools or {}).items()}})
 
     outcome = await run_loop(
         spec=spec,
@@ -253,7 +260,8 @@ async def run_session_turn(
         system=prompt.text,
         tools=tools,
         messages=[{"role": "user",
-                   "content": runner._get_default_initial_message(session_type, focus)}],
+                   "content": initial_message
+                   or runner._get_default_initial_message(session_type, focus)}],
         execute=box.execute,
         interrupted=lambda: interrupt.conversation_since(started, daemon_id),
         deadline=started.timestamp() + duration_minutes * 60,

@@ -330,6 +330,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("session.writing", session_handlers.writing_action)
         registry.register_handler("session.creative", session_handlers.creative_action)
         registry.register_handler("session.user_synthesis", session_handlers.user_synthesis_action)
+        registry.register_handler("session.homepage", session_handlers.homepage_action)
 
         # Journal actions
         registry.register_handler("journal.generate_daily", journal_handlers.generate_daily_action)

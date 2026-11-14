@@ -207,3 +207,33 @@ async def creative_action(context: Dict[str, Any]) -> ActionResult:
 async def user_synthesis_action(context: Dict[str, Any]) -> ActionResult:
     """User model synthesis session - deepening understanding of users."""
     return await _run_generic_session(context, "user_synthesis")
+
+
+async def homepage_action(context: Dict[str, Any]) -> ActionResult:
+    """Her GeoCass homepage, in her own turn on the agent loop (plan "Cass
+    plans her own day", phase 3). Only on the loop: the old one-shot path
+    (homepage.run_homepage_reflection) wrote it without her kernel or memory."""
+    if not is_enabled("agent_loop"):
+        return ActionResult(success=False, message="Homepage sessions run on the agent loop, which is off")
+    managers = context.get("managers", {})
+    runner = managers.get("session_runner")
+    if not runner:
+        return ActionResult(success=False, message="GenericSessionRunner not available in managers")
+    runner.set_managers(managers)
+    runner.register_tool_handlers(get_default_handlers())
+    try:
+        from homepage_turn import run_homepage_turn
+        result, changes, synced = await run_homepage_turn(
+            runner, duration_minutes=context.get("duration_minutes", 30),
+            max_turns=context.get("max_turns", 10), focus=context.get("focus"),
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+    except Exception as e:
+        logger.error(f"Homepage session error: {e}", exc_info=True)
+        return ActionResult(success=False, message=f"Session error: {e}")
+    if result.status == "error":
+        return ActionResult(success=False, message=f"Homepage session failed: {result.error}",
+                            data={"status": result.status, "error": result.error})
+    message = ("Homepage session: " + ", ".join(changes)) if changes else "Homepage session: no changes"
+    return ActionResult(success=True, message=message, cost_usd=result.estimated_cost_usd,
+                        data={"session_id": result.session_id, "status": result.status,
+                              "summary": result.summary, "changes": changes, "synced": synced})

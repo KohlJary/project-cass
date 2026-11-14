@@ -261,6 +261,20 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _music_service_up(),
     ),
 
+    # Kohl, 2026-11-13: updating her homepage should be one of the things she
+    # can choose. Runs as her own turn on the agent loop, so only offered
+    # when the loop is on (phase 3).
+    "homepage": WorkUnitTemplate(
+        id="homepage",
+        name="My Homepage",
+        description="Work on my GeoCass homepage: its pages, its look, which of my pieces it features.",
+        action_sequence=["session.homepage"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.20,
+        category="creative",
+        available=lambda: _agent_loop_on(),
+    ),
+
     # === Memory & system maintenance ===
     "memory_maintenance": WorkUnitTemplate(
         id="memory_maintenance",
@@ -380,6 +394,11 @@ def get_templates_by_category(category: str) -> List[WorkUnitTemplate]:
 def list_templates() -> List[Dict[str, Any]]:
     """List all available templates."""
     return [t.to_dict() for t in WORK_TEMPLATES.values()]
+
+
+def _agent_loop_on() -> bool:
+    from features import is_enabled
+    return is_enabled("agent_loop")
 
 
 def _music_service_up() -> bool:

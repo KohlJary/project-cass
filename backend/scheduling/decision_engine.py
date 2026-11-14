@@ -260,6 +260,7 @@ class SchedulingDecisionEngine:
     async def plan_day(
         self,
         phases: List[DayPhase],
+        session_runner=None,
     ) -> Dict[DayPhase, List[WorkUnit]]:
         """
         Plan work for multiple phases in one LLM call.
@@ -288,7 +289,21 @@ class SchedulingDecisionEngine:
             logger.info("No viable work options for day planning")
             return {}
 
-        # Build the planning prompt
+        # On the agent loop she plans in her own turn (plan "Cass plans her
+        # own day", phase 3): her kernel, memory, agenda and tools, the menu,
+        # set_day_plan. The one-shot call below is the fallback if the turn
+        # can't run, and the path when the loop lever is off.
+        if session_runner is not None:
+            from features import is_enabled
+            if is_enabled("agent_loop"):
+                from .day_turn import plan_day_in_turn
+                try:
+                    return await plan_day_in_turn(
+                        session_runner, candidates, phases, context.remaining_budget,
+                        getattr(self, "_unavailable", None) or ())
+                except Exception as e:
+                    logger.error(f"Her planning turn failed, using the one-shot planner: {e}")
+
         plan = await self._plan_day_with_llm(phases, candidates, context)
         return plan
 

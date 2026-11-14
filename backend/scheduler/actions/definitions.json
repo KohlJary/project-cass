@@ -133,6 +133,18 @@
       "requires_idle": false,
       "runner_key": "creative"
     },
+    "session.homepage": {
+      "id": "session.homepage",
+      "name": "Homepage",
+      "description": "Work on her GeoCass homepage in her own turn on the agent loop",
+      "category": "creative",
+      "handler": "session_handlers.homepage_action",
+      "estimated_cost_usd": 0.20,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "homepage"
+    },
     "session.user_synthesis": {
       "id": "session.user_synthesis",
       "name": "User Model Synthesis",
