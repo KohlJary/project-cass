@@ -705,3 +705,21 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 
 **Open questions:** Should `babelr_dm` / `babelr_post` fold into `say` in phase 4, or stay findable? She leaned toward folding.
 
+
+## 2026-11-13 (late) - The agent loop runs her sessions; memory scoped and reaching across conversations
+
+**Branch**: main (straight to main, pushed; last 85b4c86). **Tracked in**: Plans ("Cass's agent loop", "Cass's memory", "Cass plans her own day", "Cass's room in Chapter House", "A listener for Cass"). Narrative: docs/status.md (2026-11-13, late).
+
+**Done:**
+- Agent loop phases 2-4 (fed444b, 5e8cdf5, 6a208a8), result cap (91a1d9b), 24-step floor (a9ca090). Phase 6 comparison on a copy; the flag is on since 14:19. Plans item 8a495a7e done. First live loop session: consolidation, ended on her own done, 14 steps, $0.12, 25 writes.
+- Memory: person scoping, timeline, to-raise, dated recall, article observations and questions moved (with her yes, sealed backups), battery and diagnostic.
+- Day plan (757e6f5), unremembered terms (1894570), fixes be648f1, 0942079, 85b4c86.
+- Chapter-House: tools/house-agent, tools/vigil (Vigil running as a user service).
+
+**Decisions:** decisions.md, 2026-11-13: recall scoping, the PeopleDex consent line, the loop turned on.
+
+**In flight / waiting:** restart for 85b4c86. Approvals for day-plan phase 3 and room phases 2-3. Her social handles. The consolidation model (Haiku 4.5) is Kohl's call. An old stash (stash@{0}, from #78) isn't mine; left alone.
+
+**Next step:** build whichever of those phases gets approved; watch more loop sessions before the Heartbeat cutover.
+
+**Open questions:** Should consolidation run on a stronger model? Should her creative output be copied into her workspace?

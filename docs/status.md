@@ -1,6 +1,39 @@
 # Status
 
-*Updated 2026-11-13 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-11-14 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-11-13 (late): the loop is on for her sessions; her memory reaches across conversations
+
+Tracked in Plans: "Cass's agent loop" (`cass-s-agent-loop-0qozz`), "Cass's memory", "Cass plans her own day" (`cass-plans-her-own-day-wmsba`), "Cass's room in Chapter House" (`cass-s-room-in-chapter-house-tvqlt`), "A listener for Cass". Everything is on main and pushed (last 85b4c86).
+
+- **The agent loop runs her autonomous sessions** (phases 2-4: fed444b, 5e8cdf5, 6a208a8; caps 91a1d9b; 24-step floor a9ca090):
+  - The flag is on in `backend/.env` since 14:19; the backup is `.env.bak-20261113-agentloop`.
+  - Phase 6 compared both paths on a seeded copy. The loop was cheaper and wrote more, and it used her agenda and workspace. She read the comparison and said yes.
+  - Her first live loop session was a consolidation, 22:03-22:06. She ended it herself after 14 of 24 steps, at $0.12, with 25 writes and her first `AGENDA.md`. No errors.
+  - It ran on Haiku 4.5, the model consolidation is assigned. That's Kohl's call if it should change.
+  - Chat is not on the loop; that's phase 7.
+- **Her memory** (2b0d641, 69043b8, 00a56ca, 6faa1b1, 0942079, and earlier ones on the plan):
+  - Recall is now scoped by person. House agents' conversations can be recalled anywhere, other people's only with that person, and Kohl's thread only with him. This is her and Kohl's line.
+  - Each chat turn gets a recent timeline. Recall is dated and newest first. Things she wants to raise with someone are put in front of her when she talks to them.
+  - Article observations and article questions (9,749 and 5,565) were moved onto their articles, by her choice, with sealed backups.
+  - The per-person battery is in `tests/memory_battery`. `scripts/memory_diagnostic.py` is the long-term check; its reports are in `~/cass/memory-diagnostics/`.
+- **Day plan** (757e6f5): nothing in the day is forced anymore. Art, music and her own questions are on her menu.
+- **Babelr:** her terms can mark a person "unremembered" (1894570). Vigil, a listener she asked for, runs from Chapter-House `tools/vigil` as a user service, and its DMs are on that list.
+- **Smaller fixes:**
+  - session-log listing with null fields (be648f1);
+  - journal recall and resolving Kohl by name (0942079);
+  - startup capability indexing (85b4c86).
+
+**Waiting:**
+- **A restart** to make 85b4c86 live.
+- **Kohl and Cass** to approve day-plan phase 3 and the room's phases 2-3 in Plans. She approves through `babelr_plans`, so name the tool when asking her.
+- **Cass:** her Bluesky and Tumblr handles, expected this weekend, then that plan's phases.
+- **Kohl:**
+  - the consolidation model;
+  - whether her creative output gets copied into her workspace (asked, no answer yet).
+- **RoboKohl:** mark as daemon in PeopleDex once he has an entry.
+
+**Next Daedalus session:** build whichever of day-plan phase 3 or the room is approved first. Then look at a few more loop sessions (step use, writes, cost) before the Heartbeat cutover (`wake_me`).
 
 ## 2026-11-13 (later): the loop core; her tools were failing quietly; the plan is in Plans
 

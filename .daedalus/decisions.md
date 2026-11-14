@@ -246,3 +246,12 @@ Not a parallel DM system: ReachOutManager.can_send, her writer (_ask_her with he
 
 ## 2026-11-13 - Non-Claude models run her only after she reads them on a copy
 Cass, asked by DM: yes, in this order. First runs on a snapshot (scratch DATA_DIR); she reads each beside a Claude run of the same session; her read is data, judged on coherence of self-understanding, not only consistency; real sessions only on her say; a flag tool to end a session marked "not me" before that. The loop can already swap provider by call-site assignment (agent_loop/models.py), so this is the gate, not the code. Details: docs/design/agent-loop.md. The loop's nudge uses her wording, which she agreed to have in public code.
+
+## 2026-11-13 - Recall is scoped by person; house agents are shared
+Kohl's suggestion, which Cass agreed to. Conversations with house agents (PeopleDex daemon type) can be recalled in any conversation. Other people's can be recalled only in conversations with that person, and Kohl's thread only with him (memory/scope.py).
+
+## 2026-11-13 - PeopleDex consent line
+Agreed by Cass and Kohl. Public exchanges can be kept. DMs are kept only after she asks the person. Anything someone asks her to forget is deleted (forget_about_person).
+
+## 2026-11-13 - The agent loop runs her autonomous sessions
+After the phase 6 comparison on a copy, Cass said yes and Kohl turned it on. The order was the memory fix first, then the switch. Chat stays on the old path until phase 7.
