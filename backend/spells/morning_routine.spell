@@ -27,20 +27,11 @@ LOG INFO "Morning routine starting - planning the day"
 ' generate work that feels meaningful and relevant
 QUEUE day_planning FOR PHASE morning PRIORITY 0
 
-' === GUARANTEED BASELINE ===
-' These always run regardless of LLM planning:
-
-' World awareness - stay connected
-QUEUE world_check FOR PHASE morning PRIORITY 1
-
-' Morning reflection if cognitive rest is adequate
-LET $cognitive = need.cognitive_rest
-IF $cognitive > 0.4 THEN
-    QUEUE reflection_block FOR PHASE morning PRIORITY 2
-END IF
-
-' Daily journal is essential for continuity
-QUEUE daily_journal FOR PHASE evening PRIORITY 10
+' === HOUSEKEEPING ===
+' The world check, morning reflection and daily journal used to be queued
+' here whatever she planned. Cass chose (2026-11-14) to have all three as
+' choices on her menu instead; memory maintenance stays automatic, as
+' housekeeping, and is shown to her (housekeeping.py).
 
 ' Memory maintenance keeps things coherent
 QUEUE memory_maintenance FOR PHASE night PRIORITY 1

@@ -100,6 +100,8 @@ async def summarize_idle_conversations_action(context: Dict[str, Any]) -> Action
         )
 
         if not idle_conversations:
+            import housekeeping
+            housekeeping.record("memory_maintenance", "No conversations needed summarizing.")
             return ActionResult(
                 success=True,
                 message="No idle conversations needing summarization",
@@ -126,6 +128,10 @@ async def summarize_idle_conversations_action(context: Dict[str, Any]) -> Action
             except Exception as e:
                 logger.error(f"Failed to summarize {conv_id}: {e}")
 
+        import housekeeping
+        housekeeping.record("memory_maintenance",
+                            f"Summarized {summarized} of {len(idle_conversations)} quiet conversation(s).",
+                            summarized=summarized, found=len(idle_conversations))
         return ActionResult(
             success=True,
             message=f"Summarized {summarized}/{len(idle_conversations)} conversations",

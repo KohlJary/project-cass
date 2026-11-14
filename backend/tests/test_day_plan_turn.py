@@ -249,3 +249,42 @@ def test_homepage_without_changes_or_geocass_doesnt_sync(loop_env, levers):
             runner, tools=HomepageTools("cass", "Cass", "i", hp=hp), sync=sync, workspace=ws, **kw))
     assert changes == ["stylesheet"] and out == []
     assert "switched off" in fake.calls[-1].system_text
+
+
+# --- Cass, 2026-11-14: news, reflection and journal are hers to choose;
+# memory maintenance stays automatic and visible ---------------------------
+
+def _spell_queues(name):
+    from pathlib import Path
+    import re
+    text = (Path(__file__).resolve().parents[1] / "spells" / f"{name}.spell").read_text()
+    return set(re.findall(r"^\s*QUEUE (\w+)", text, re.M))
+
+
+def test_spells_no_longer_force_news_reflection_or_journal():
+    for spell in ("morning_routine", "phase_evening", "phase_night"):
+        assert not _spell_queues(spell) & {"world_check", "reflection_block", "daily_journal"}, spell
+    assert "memory_maintenance" in _spell_queues("morning_routine")
+    assert "memory_maintenance" in _spell_queues("phase_night")
+
+
+def test_they_are_on_her_menu_and_housekeeping_isnt():
+    pytest.importorskip("anthropic")
+    from datetime import datetime
+    from scheduling.decision_engine import DecisionContext, SchedulingDecisionEngine
+    engine = SchedulingDecisionEngine("d")
+    ctx = DecisionContext(current_time=datetime(2026, 11, 14, 9))
+    ctx.budget_by_category = {"reflection": 5.0, "research": 5.0, "growth": 5.0, "curiosity": 5.0}
+    ids = {c.template_id for c in engine._get_viable_candidates(ctx)}
+    assert {"world_check", "reflection_block", "daily_journal"} <= ids
+    assert "memory_maintenance" not in ids
+
+
+def test_housekeeping_is_shown_to_her(tmp_path):
+    from datetime import datetime, timedelta
+    import housekeeping
+    assert housekeeping.section(tmp_path) is None
+    housekeeping.record("memory_maintenance", "Summarized 2 of 2 quiet conversation(s).", tmp_path)
+    text = housekeeping.section(tmp_path)
+    assert "HOUSEKEEPING" in text and "Summarized 2 of 2" in text and "into my memory" in text
+    assert housekeeping.section(tmp_path, now=datetime.now() + timedelta(days=3)) is None

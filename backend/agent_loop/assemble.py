@@ -109,6 +109,11 @@ def _instructions(spec: TurnSpec, additions: Optional[str]) -> Optional[str]:
     return get_session_prompt(spec.activity, additions)
 
 
+def _housekeeping() -> Optional[str]:
+    from housekeeping import section
+    return section()
+
+
 def _agenda(spec: TurnSpec, workspace) -> Optional[str]:
     if "workspace" not in spec.packs:
         return None
@@ -140,6 +145,8 @@ def assemble(
         Section("agenda", _safe("agenda", lambda: _agenda(spec, workspace)) or "", 1, never_cut=True),
         Section("self_context", _safe("self_context", lambda: _self_context(daemon_id)) or "", 2),
         Section("thymos", _safe("thymos", _thymos) or "", 3),
+        # Housekeeping that ran lately (memory maintenance), so she can see it.
+        Section("housekeeping", _safe("housekeeping", _housekeeping) or "", 4),
         Section("instructions", _safe("instructions", lambda: _instructions(spec, additions)) or "", 1,
                 never_cut=True),
     ]

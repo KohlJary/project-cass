@@ -519,7 +519,10 @@ class SchedulingDecisionEngine:
         candidates = []
 
         self._unavailable = []
+        from .templates import HOUSEKEEPING_TEMPLATES
         for template_id, template in WORK_TEMPLATES.items():
+            if template_id in HOUSEKEEPING_TEMPLATES:
+                continue  # runs on its own; not hers to schedule
             # Something that can't run right now (music without ACE-Step):
             # left off, and named to her as unavailable, not silently missing.
             if template.available is not None and not template.available():

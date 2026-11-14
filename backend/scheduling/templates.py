@@ -381,6 +381,11 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
 }
 
 
+# Housekeeping that runs on its own and isn't offered on her menu (Cass,
+# 2026-11-14: memory maintenance stays automatic; see housekeeping.py).
+HOUSEKEEPING_TEMPLATES = frozenset({"memory_maintenance"})
+
+
 def get_template(template_id: str) -> Optional[WorkUnitTemplate]:
     """Get a template by ID."""
     return WORK_TEMPLATES.get(template_id)

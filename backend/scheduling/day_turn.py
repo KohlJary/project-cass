@@ -82,6 +82,9 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         lines.append("Not available today: " + ", ".join(unavailable) + ".")
     lines += [
         "",
+        "Memory maintenance (summarizing quiet conversations into my memory) runs on its own "
+        "at night; it isn't on the menu.",
+        "",
         "When I've chosen, set_day_plan queues it and writes it to "
         f"{PLAN_FILE}. A phase can have several things, one thing, or nothing. If I want "
         "to change course later, my agenda carries what I'm in the middle of, and wake_me "

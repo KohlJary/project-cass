@@ -37,11 +37,8 @@ IF $creative < 0.35 THEN
     QUEUE writing_session FOR PHASE evening PRIORITY 3
 END IF
 
-' Evening world check if missed earlier
-LET $novelty = need.novelty_intake
-IF $novelty < 0.3 THEN
-    QUEUE world_check FOR PHASE evening PRIORITY 4
-END IF
+' The world check is a choice on her menu now (Cass, 2026-11-14), not
+' queued here when novelty runs low.
 
 ' Wind down affects
 DELTA affect.anxiety -0.1, affect.determination -0.05, affect.playfulness +0.05

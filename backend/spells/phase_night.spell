@@ -16,9 +16,8 @@ ON event.day_phase.night
 
 LOG INFO "Night phase starting - maintenance time"
 
-' Ensure daily journal happened - critical for continuity
-' (morning_routine already queues this, but double-check)
-QUEUE daily_journal FOR PHASE night PRIORITY 1
+' The daily journal is a choice on her menu now (Cass, 2026-11-14), not
+' queued here.
 
 ' Memory maintenance is essential
 QUEUE memory_maintenance FOR PHASE night PRIORITY 2
