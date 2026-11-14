@@ -94,6 +94,11 @@ class PhaseQueueManager:
             phase: [] for phase in DayPhase
         }
 
+        # Dispatchers running now, and units that failed during them; those
+        # go back on their queue when the last one finishes (_take_and_dispatch).
+        self._dispatching = 0
+        self._failed_held: Dict[DayPhase, List[QueuedWorkUnit]] = {phase: [] for phase in DayPhase}
+
         # History of dispatched work
         self._dispatch_history: List[Dict[str, Any]] = []
         self._max_history = 50
@@ -296,18 +301,7 @@ class PhaseQueueManager:
             )
             self.state_bus.write_delta(delta)
 
-        # Dispatch each work unit
-        dispatched = []
-        for queued in queue:
-            success = await self._dispatch_work(queued)
-            if success:
-                dispatched.append(queued)
-
-        # Clear dispatched items from queue
-        for item in dispatched:
-            self._phase_queues[current_phase].remove(item)
-        self._save_queues()
-
+        dispatched = await self._take_and_dispatch(current_phase)
         return len(dispatched)
 
     async def dispatch_next_from_current_phase(self) -> Optional[str]:
@@ -489,22 +483,7 @@ class PhaseQueueManager:
 
         # Dispatch each work unit to Synkratos with staggered timing
         # This prevents all work from hitting Synkratos simultaneously
-        dispatched = []
-        stagger_delay_seconds = 60  # 1 minute between dispatches
-
-        for i, queued in enumerate(queue):
-            if i > 0:
-                logger.info(f"Staggered dispatch: waiting {stagger_delay_seconds}s before next work unit")
-                await asyncio.sleep(stagger_delay_seconds)
-
-            success = await self._dispatch_work(queued)
-            if success:
-                dispatched.append(queued)
-
-        # Clear dispatched items from queue
-        for item in dispatched:
-            self._phase_queues[phase].remove(item)
-        self._save_queues()
+        dispatched = await self._take_and_dispatch(phase, stagger_seconds=self.STAGGER_SECONDS)
 
         # Record in history
         self._dispatch_history.append({
@@ -518,6 +497,51 @@ class PhaseQueueManager:
         })
         if len(self._dispatch_history) > self._max_history:
             self._dispatch_history = self._dispatch_history[-self._max_history:]
+
+    STAGGER_SECONDS = 60  # between dispatches after a phase change
+
+    async def _take_and_dispatch(self, phase: DayPhase, stagger_seconds: float = 0) -> List[QueuedWorkUnit]:
+        """Dispatch the phase's queue, taking each unit off the queue as it's
+        dispatched. Two dispatchers can run at once (the staggered one after a
+        phase change, and plan_day's for the current phase); both used to loop
+        over the live list and clear it only at the end, so on 2026-11-13 Day
+        Planning ran twice and news was dispatched twice. Work queued while
+        this runs is picked up in order. Failed units go back on the queue
+        once no dispatch is running."""
+        queue = self._phase_queues[phase]
+        dispatched: List[QueuedWorkUnit] = []
+        # Failed units wait until no dispatch is running, so another
+        # dispatcher doesn't retry them straight away.
+        held = self._failed_held
+        self._dispatching += 1
+        try:
+            await self._take_loop(phase, queue, dispatched, held[phase], stagger_seconds)
+        finally:
+            self._dispatching -= 1
+            if self._dispatching == 0:
+                for ph, units in held.items():
+                    if units:
+                        self._phase_queues[ph].extend(units)
+                        self._phase_queues[ph].sort(key=lambda q: q.priority)
+                        units.clear()
+                self._save_queues()
+        return dispatched
+
+    async def _take_loop(self, phase, queue, dispatched, failed, stagger_seconds) -> None:
+        first = True
+        while queue:
+            if not first and stagger_seconds:
+                logger.info(f"Staggered dispatch: waiting {stagger_seconds}s before next work unit")
+                await asyncio.sleep(stagger_seconds)
+                if not queue:
+                    break
+            first = False
+            queued = queue.pop(0)
+            self._save_queues()
+            if await self._dispatch_work(queued):
+                dispatched.append(queued)
+            else:
+                failed.append(queued)
 
     async def _dispatch_work(self, queued: QueuedWorkUnit) -> bool:
         """Dispatch a queued work unit to Synkratos (or to Heartbeat, #62)."""

@@ -118,3 +118,39 @@ def test_no_persist_path_stays_in_memory(tmp_path, monkeypatch):
     manager = PhaseQueueManager()
     manager.queue_for_phase(_unit("x"), DayPhase.MORNING)
     assert list(workdir.iterdir()) == []
+
+
+def test_two_dispatchers_never_dispatch_the_same_work_twice(tmp_path):
+    """2026-11-13: the staggered dispatch after the morning transition and
+    plan_day's current-phase dispatch both walked the live queue, so Day
+    Planning ran twice and news was dispatched twice."""
+    import asyncio
+    from scheduling.day_phase import DayPhase
+    from scheduling.phase_queue import PhaseQueueManager
+
+    manager = PhaseQueueManager(persist_path=tmp_path / "q.json")
+    manager.STAGGER_SECONDS = 0.01
+    for name in ("plan", "news", "reflect"):
+        manager.queue_for_phase(_unit(name), DayPhase.MORNING)
+    sent = []
+
+    async def dispatch(queued):
+        sent.append(queued.work_unit.name)
+        await asyncio.sleep(0)
+        if queued.work_unit.name == "plan":
+            # Planning queues her choices and dispatches the current phase.
+            manager.queue_for_phase(_unit("paint"), DayPhase.MORNING, priority=2)
+            await manager.dispatch_current_phase(DayPhase.MORNING)
+        return queued.work_unit.name != "reflect"
+
+    manager._dispatch_work = dispatch
+
+    class T:
+        transitioned_at = __import__("datetime").datetime.now()
+
+    async def run():
+        await manager._delayed_phase_dispatch(DayPhase.MORNING, 0, T())
+    asyncio.run(run())
+    assert sorted(sent) == ["news", "paint", "plan", "reflect"]
+    # The one that failed is still queued for a later try.
+    assert [q["work_unit"]["name"] for q in manager.get_queue(DayPhase.MORNING)] == ["reflect"]
