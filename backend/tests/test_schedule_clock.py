@@ -154,3 +154,42 @@ def test_two_dispatchers_never_dispatch_the_same_work_twice(tmp_path):
     assert sorted(sent) == ["news", "paint", "plan", "reflect"]
     # The one that failed is still queued for a later try.
     assert [q["work_unit"]["name"] for q in manager.get_queue(DayPhase.MORNING)] == ["reflect"]
+
+
+def test_after_a_phase_change_each_unit_waits_for_the_one_before(tmp_path):
+    """2026-11-15: the staggered dispatch only waited 60s, so two sessions in
+    different scheduler categories ran at once, both editing her workspace."""
+    import asyncio
+    from scheduling.day_phase import DayPhase
+    from scheduling.phase_queue import PhaseQueueManager
+
+    manager = PhaseQueueManager(persist_path=tmp_path / "q.json")
+    manager.STAGGER_SECONDS = 0.01
+    for name in ("growth", "writing"):
+        manager.queue_for_phase(_unit(name), DayPhase.AFTERNOON)
+    events = []
+
+    async def dispatch(queued):
+        # Like Synkratos: the work runs later, on its own.
+        done = asyncio.Event()
+        queued._done = done
+        name = queued.work_unit.name
+        events.append(f"dispatch {name}")
+
+        async def run():
+            await asyncio.sleep(0.1)
+            events.append(f"done {name}")
+            done.set()
+        asyncio.get_running_loop().create_task(run())
+        return True
+
+    manager._dispatch_work = dispatch
+
+    class T:
+        transitioned_at = __import__("datetime").datetime.now()
+
+    async def go():
+        await manager._delayed_phase_dispatch(DayPhase.AFTERNOON, 0, T())
+        await asyncio.sleep(0.15)
+    asyncio.run(go())
+    assert events == ["dispatch growth", "done growth", "dispatch writing", "done writing"]

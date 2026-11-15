@@ -102,12 +102,23 @@ def test_the_token_budget_ends_the_turn():
 
 
 def test_cache_tokens_count_toward_the_budget_and_are_kept():
+    # Writes at full weight, reads at a tenth: 10 + 5 + 200 + 900/10 = 305 a step.
     reply = ModelReply("", [{"id": "x", "name": "list_observations", "input": {}}], "tool_use",
                        10, 5, cache_read_tokens=900, cache_write_tokens=200)
-    client = StubClient([reply, reply])
+    client = StubClient([reply] * 5)
     out, _ = _run(client, token_budget=1000)
-    assert out.model_calls == 1
-    assert (out.cache_read_tokens, out.cache_write_tokens) == (900, 200)
+    assert out.model_calls == 4  # 305, 610, 915, then 1220 ends it
+    assert (out.cache_read_tokens, out.cache_write_tokens) == (3600, 800)
+
+
+def test_cache_reads_dont_cut_off_a_normal_session():
+    # The 2026-11-15 shape: ~30k tokens a step, almost all read from cache.
+    from agent_loop.spec import SESSION_TOKEN_BUDGET
+    reply = ModelReply("", [{"id": "x", "name": "list_observations", "input": {}}], "tool_use",
+                       6, 800, cache_read_tokens=30_000, cache_write_tokens=0)
+    client = StubClient([reply] * 30)
+    out, _ = _run(client, token_budget=SESSION_TOKEN_BUDGET)
+    assert out.end_reason.startswith("reached the cap of"), out.end_reason  # the step cap, not the budget
 
 
 def test_session_specs_carry_a_nudge_and_a_budget():

@@ -266,8 +266,9 @@ class TurnSpec:
         return names
 
 
-# Generous for a 10-step session (prompt ~10k tokens a step); it's a backstop
-# against a runaway turn, not a target.
+# A backstop against a runaway turn, not a target. Cache reads count at a
+# tenth (loop.CACHE_READ_DIVISOR), so a session of ~30k-token steps, mostly
+# re-read from cache, spends ~4-5k a step against it.
 SESSION_TOKEN_BUDGET = 500_000
 
 # Steps a loop session may take, at least. The scheduler passes the old

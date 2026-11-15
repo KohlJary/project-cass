@@ -29,6 +29,9 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .spec import TurnSpec
 
+# A cache read costs a tenth of an input token; the budget weighs it so.
+CACHE_READ_DIVISOR = 10
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,7 +152,12 @@ async def run_loop(
     budget = spec.turn_token_budget if token_budget is None else token_budget
 
     def used() -> int:
-        return out.input_tokens + out.output_tokens + out.cache_read_tokens + out.cache_write_tokens
+        # Cache reads count at a tenth (what they cost): every step re-reads
+        # the whole prompt from cache, so at full weight a normal session of
+        # ~30k-token steps reached 500k around step 14 and was cut off
+        # mid-work (2026-11-15 autonomy check).
+        return (out.input_tokens + out.output_tokens + out.cache_write_tokens
+                + out.cache_read_tokens // CACHE_READ_DIVISOR)
 
     try:
         while True:

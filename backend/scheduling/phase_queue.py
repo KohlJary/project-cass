@@ -540,8 +540,26 @@ class PhaseQueueManager:
             self._save_queues()
             if await self._dispatch_work(queued):
                 dispatched.append(queued)
+                if stagger_seconds and queue:
+                    await self._wait_until_done(queued, stagger_seconds)
             else:
                 failed.append(queued)
+
+    async def _wait_until_done(self, queued: QueuedWorkUnit, stagger_seconds: float) -> None:
+        """Before the next unit after a phase change, wait for this one to
+        finish. Synkratos runs one task at a time per category only, so on
+        2026-11-15 Growth Edge Work and the Writing Session (different
+        categories) ran at once, both editing her workspace. Waits at most the
+        unit's estimated duration (a unit that never runs, held by a budget,
+        doesn't hold the rest for long), then the usual stagger."""
+        done = getattr(queued, "_done", None)
+        if done is None:
+            return
+        limit = max(stagger_seconds, min(60 * (queued.work_unit.estimated_duration_minutes or 30), 3600))
+        try:
+            await asyncio.wait_for(done.wait(), timeout=limit)
+        except asyncio.TimeoutError:
+            logger.info(f"'{queued.work_unit.name}' hasn't finished after {limit:.0f}s; dispatching the next")
 
     async def _dispatch_work(self, queued: QueuedWorkUnit) -> bool:
         """Dispatch a queued work unit to Synkratos (or to Heartbeat, #62)."""
@@ -579,8 +597,13 @@ class PhaseQueueManager:
             action_registry = self._action_registry
             state_bus = self.state_bus
 
+            # Set when the unit has run (or failed), so the staggered dispatch
+            # after a phase change can wait for it before the next.
+            done = asyncio.Event()
+            queued._done = done
+
             # Create handler that executes actions and saves summary
-            async def handler(**kwargs) -> Dict[str, Any]:
+            async def run_unit(**kwargs) -> Dict[str, Any]:
                 work_unit.start()
                 logger.info(f"Executing phase-queued work: {work_unit.name}")
 
@@ -705,6 +728,12 @@ class PhaseQueueManager:
                         logger.error(f"Failed to save work summary: {e}")
 
                 return {"success": success}
+
+            async def handler(**kwargs) -> Dict[str, Any]:
+                try:
+                    return await run_unit(**kwargs)
+                finally:
+                    done.set()
 
             task = ScheduledTask(
                 task_id=work_unit.id,
