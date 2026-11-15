@@ -34,8 +34,8 @@ HOMEPAGE_TOOL_DEFS: List[Dict[str, Any]] = [
      "description": "Replace my homepage's stylesheet.",
      "input_schema": {"type": "object", "properties": {"css": {"type": "string"}}, "required": ["css"]}},
     {"name": "homepage_list_artifacts",
-     "description": "List my recent pieces I could feature (dreams, journals, research notes, wiki pages), "
-                    "and which are featured now.",
+     "description": "List my recent pieces I could feature (dreams, journals, research notes, paintings, "
+                    "songs), and which are featured now.",
      "input_schema": {"type": "object", "properties": {"limit": {"type": "integer"}}}},
     {"name": "homepage_feature_artifact",
      "description": "Feature one of my pieces on my homepage, or stop featuring it (unfeature: true).",
@@ -43,6 +43,13 @@ HOMEPAGE_TOOL_DEFS: List[Dict[str, Any]] = [
          "artifact_type": {"type": "string"}, "artifact_id": {"type": "string"},
          "title": {"type": "string"}, "excerpt": {"type": "string"}, "unfeature": {"type": "boolean"}},
          "required": ["artifact_type", "artifact_id"]}},
+    {"name": "homepage_place_piece",
+     "description": "Put one of my paintings or songs on my homepage's files so a page can show it. Returns "
+                    "the HTML to put in a page (an image, or a player for a song); it shows once I save a "
+                    "page with it. Whoever can see my homepage can see it.",
+     "input_schema": {"type": "object", "properties": {
+         "kind": {"type": "string", "enum": ["painting", "music"]}, "piece_id": {"type": "string"}},
+         "required": ["kind", "piece_id"]}},
 ]
 
 INSTRUCTIONS = """## MY HOMEPAGE
@@ -123,11 +130,23 @@ class HomepageTools:
             self.changes.append(f"featured {kind} {aid}")
         return f"Featuring {kind} {aid}." if ok else {"error": "Couldn't feature that piece."}
 
+    def place_piece(self, a: Dict[str, Any]) -> Any:
+        kind, pid = a.get("kind"), a.get("piece_id")
+        if not kind or not pid:
+            return {"error": "kind and piece_id are both needed"}
+        self._ensure()
+        out = self.hp.place_piece(self.label, self.daemon_id, kind, str(pid))
+        if "error" in out:
+            return out
+        self.changes.append(f"placed {kind} {pid}")
+        return json.dumps(out)
+
     def local_tools(self) -> Dict[str, Tuple[Dict[str, Any], Callable[[Dict[str, Any]], Any]]]:
         handlers = {"homepage_read": self.read, "homepage_save_page": self.save_page,
                     "homepage_save_stylesheet": self.save_stylesheet,
                     "homepage_list_artifacts": self.list_artifacts,
-                    "homepage_feature_artifact": self.feature}
+                    "homepage_feature_artifact": self.feature,
+                    "homepage_place_piece": self.place_piece}
         return {d["name"]: (d, handlers[d["name"]]) for d in HOMEPAGE_TOOL_DEFS}
 
 

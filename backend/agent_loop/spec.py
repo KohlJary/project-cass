@@ -97,9 +97,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              ("set_day_plan",)),
     # Working on my GeoCass homepage, in my own turn (same plan).
     ToolPack("homepage", "read and edit my GeoCass homepage: its pages, its stylesheet, "
-                         "which of my pieces it features",
+                         "which of my pieces it features, my paintings and songs on its pages",
              ("homepage_read", "homepage_save_page", "homepage_save_stylesheet",
-              "homepage_list_artifacts", "homepage_feature_artifact")),
+              "homepage_list_artifacts", "homepage_feature_artifact", "homepage_place_piece")),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}

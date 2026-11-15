@@ -40,7 +40,7 @@ ALLOWED_TAGS = {
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
     'blockquote', 'pre', 'code', 'em', 'strong', 'u', 's', 'i', 'b',
     'header', 'footer', 'nav', 'main', 'section', 'article', 'aside',
-    'details', 'summary', 'mark', 'time', 'address'
+    'details', 'summary', 'mark', 'time', 'address', 'audio', 'source'
 }
 
 
@@ -1349,9 +1349,81 @@ def get_available_artifacts(daemon_id: str, limit: int = 50) -> List[Dict[str, A
                 "date": row[3]
             })
 
+        # Paintings (with what she said about each, when she said something)
+        cursor = conn.execute("""
+            SELECT g.id, g.prompt, g.created_at, n.subject, n.artist_note
+            FROM generated_images g LEFT JOIN image_artist_notes n ON n.image_id = g.id
+            WHERE g.daemon_id = ? AND g.image_path IS NOT NULL
+            ORDER BY g.created_at DESC
+            LIMIT ?
+        """, (daemon_id, limit // 4))
+        for row in cursor.fetchall():
+            artifacts.append({
+                "type": "painting",
+                "id": row[0],
+                "title": row[3] or (row[1] or "A painting")[:80],
+                "excerpt": (row[4] or row[1] or "")[:200].replace('\n', ' '),
+                "date": row[2]
+            })
+
+    # Songs
+    try:
+        from music.music_client import get_music_client
+        for c in get_music_client().library.list(limit=limit):
+            if c.audio_path and c.status == "completed":
+                artifacts.append({
+                    "type": "music",
+                    "id": c.id,
+                    "title": c.title or "Untitled",
+                    "excerpt": (c.purpose or c.prompt or "")[:200],
+                    "date": c.created_at
+                })
+    except Exception as e:
+        logger.debug(f"No songs for the homepage list: {e}")
+
     # Sort by date descending
-    artifacts.sort(key=lambda x: x.get('date', ''), reverse=True)
+    artifacts.sort(key=lambda x: x.get('date') or '', reverse=True)
     return artifacts[:limit]
+
+
+PIECE_FILE_KINDS = ("painting", "music")
+
+
+def place_piece(daemon_label: str, daemon_id: str, kind: str, piece_id: str,
+                data_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    Put one of her paintings or songs among her homepage's assets, so a page
+    can show it: copies the file to assets/ and registers it in the manifest.
+    Returns {"filename", "html"} (a snippet for a page) or {"error"}.
+    """
+    import shutil
+    from room import Room
+    if kind not in PIECE_FILE_KINDS:
+        return {"error": f"I can place a painting or a song (not {kind!r})."}
+    room = Room(Path(data_dir) if data_dir else None, daemon_id)
+    meta = room.describe(kind, piece_id)
+    raw = (meta or {}).get("image_path" if kind == "painting" else "audio_path")
+    if not raw:
+        return {"error": f"No {kind} {piece_id} of mine with a file."}
+    src = Path(raw)
+    if not src.is_absolute():
+        src = room.data_dir / src
+    if not src.is_file():
+        return {"error": f"The file for {kind} {piece_id} is missing."}
+    safe_id = re.sub(r'[^A-Za-z0-9_-]+', '-', str(piece_id)).strip('-')[:60] or "piece"
+    filename = f"{kind}-{safe_id}{src.suffix.lower()}"
+    dest_dir = ensure_homepage_structure(daemon_label) / "assets"
+    title = (meta.get("title") or "").strip() or ("A painting" if kind == "painting" else "A song")
+    alt = (meta.get("subject") or title) if kind == "painting" else title
+    if not register_asset(daemon_label, filename, title, alt_text=alt):
+        return {"error": f"Couldn't add it (my homepage holds up to {MAX_ASSETS} files)."}
+    shutil.copy2(src, dest_dir / filename)
+    esc = lambda t: t.replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;')
+    if kind == "painting":
+        html = f'<figure><img src="assets/{filename}" alt="{esc(alt)}"><figcaption>{esc(title)}</figcaption></figure>'
+    else:
+        html = f'<figure><figcaption>{esc(title)}</figcaption><audio controls src="assets/{filename}"></audio></figure>'
+    return {"filename": filename, "html": html}
 
 
 def feature_artifact(

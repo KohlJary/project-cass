@@ -272,11 +272,39 @@ class Room:
                 servers = [c.server_url for c in get_all_connections()]
             except Exception:
                 pass
+            pages = []
+            if manifest is not None:
+                # Her pages as she wrote them (sanitized when saved), index first:
+                # the room shows them as linked cards.
+                for slug, title in [("index", manifest.daemon_name)] + \
+                        [(pg.get("slug"), pg.get("title")) for pg in manifest.pages if pg.get("slug")]:
+                    html = hp.get_page_content(label, slug)
+                    if html is not None:
+                        pages.append({"slug": slug, "title": title or slug, "html": html})
             return {"section": name, "exists": manifest is not None,
                     "tagline": getattr(manifest, "tagline", None),
                     "featured": getattr(manifest, "featured_artifacts", None) or [],
+                    "pages": pages,
+                    "stylesheet": hp.get_stylesheet(label) if manifest is not None else None,
+                    "assets": getattr(manifest, "assets", None) or [],
+                    "updated_at": getattr(manifest, "updated_at", None),
                     "label": label, "geocass_servers": servers}
         return None
+
+    def homepage_asset(self, filename: str, audience: str) -> Optional[Path]:
+        """A file from her homepage's assets/ (an image or song she placed on a
+        page), for whoever can see the homepage section."""
+        if audience != "kohl" or not self.state()["standing"].get("homepage"):
+            return None
+        try:
+            import homepage as hp
+            from homepage_turn import her_daemon
+            base = hp.get_daemon_homepage_path(her_daemon()[0]) / "assets"
+        except Exception as e:
+            logger.warning(f"[room] homepage assets unavailable: {e}")
+            return None
+        p = self._inside(base, filename)
+        return p if p is not None and p.is_file() else None
 
 
 # ---------------------------------------------------------------------------

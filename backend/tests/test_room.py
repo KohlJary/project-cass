@@ -4,6 +4,7 @@ she didn't share; Kohl's token sees what she shared, the house's only what
 she shared with the house; the feed only reads.
 """
 import asyncio
+import json
 from datetime import datetime
 
 import pytest
@@ -150,3 +151,60 @@ def test_route_guard_leaves_room_auth_to_the_room():
               for m, path, route, _ in route_guard.iter_mounted_routes(app) if path.startswith("/room")}
     assert levels[("GET", "/room")] == route_guard.SELF
     assert set(levels.values()) == {route_guard.SELF}
+
+
+@pytest.fixture
+def homepage(room, tmp_path, monkeypatch):
+    """Her homepage in tmp: index plus an about page, a stylesheet, and the
+    painting from the room fixture placed on it."""
+    import homepage as hp
+    import homepage_turn
+    monkeypatch.setattr(hp, "HOMEPAGE_DIR", tmp_path / "homepages")
+    monkeypatch.setattr(homepage_turn, "her_daemon", lambda: ("cass", "Cass", room.daemon_id))
+    hp.create_homepage("cass", "Cass", "tides and questions")
+    hp.save_page("cass", "index", '<p>Hello. <a href="about.html">About</a></p>')
+    hp.save_page("cass", "about", "<p>About me.</p>", title="about ~ cass")
+    hp.save_stylesheet("cass", "body { color: teal; }")
+    return hp
+
+
+def test_room_shows_her_homepage_pages_as_cards(room, homepage):
+    sec = room.section("homepage", "kohl")
+    assert sec["exists"] and sec["stylesheet"].strip().startswith("body")
+    slugs = [p["slug"] for p in sec["pages"]]
+    assert slugs[0] == "index" and "about" in slugs
+    assert 'href="about.html"' in sec["pages"][0]["html"]
+    assert room.section("homepage", "house") is None
+
+
+def test_she_can_place_a_painting_on_her_homepage(room, homepage, tmp_path):
+    from homepage_turn import HomepageTools
+    tools = HomepageTools("cass", "Cass", room.daemon_id, hp=homepage)
+    listed = json.loads(tools.list_artifacts({}))["pieces"]
+    assert any(p["type"] == "painting" and p["id"] == "img-1" for p in listed)
+    out = json.loads(tools.place_piece({"kind": "painting", "piece_id": "img-1"}))
+    assert out["filename"] == "painting-img-1.png"
+    assert '<img src="assets/painting-img-1.png" alt="The tide">' in out["html"]
+    assert tools.changes == ["placed painting img-1"]
+    assert (tmp_path / "homepages" / "cass" / "assets" / "painting-img-1.png").read_bytes().startswith(b"\x89PNG")
+    assert "error" in tools.place_piece({"kind": "journal", "piece_id": "j-1"})
+    assert "error" in tools.place_piece({"kind": "painting", "piece_id": "nope"})
+    # The room serves it to whoever sees the homepage, and nothing outside assets/.
+    assert room.homepage_asset("painting-img-1.png", "kohl").is_file()
+    assert room.homepage_asset("painting-img-1.png", "house") is None
+    assert room.homepage_asset("../manifest.json", "kohl") is None
+
+
+def test_homepage_asset_route(room, homepage, tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routes.room import router
+    homepage.place_piece("cass", room.daemon_id, "painting", "img-1")
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    kohl = {"Authorization": f"Bearer {mint_token('kohl', 't', tmp_path)}"}
+    r = client.get("/room/sections/homepage/assets/painting-img-1.png", headers=kohl)
+    assert r.status_code == 200 and r.content.startswith(b"\x89PNG")
+    assert client.get("/room/sections/homepage/assets/painting-img-1.png").status_code == 401
+    assert client.get("/room/sections/homepage", headers=kohl).json()["pages"][0]["slug"] == "index"

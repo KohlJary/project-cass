@@ -35,6 +35,14 @@ async def room_overview(audience: str = Depends(require_room_token)):
     return {"audience": audience, **_room().feed(audience)}
 
 
+@router.get("/sections/homepage/assets/{filename}")
+async def room_homepage_asset(filename: str, audience: str = Depends(require_room_token)):
+    path = _room().homepage_asset(filename, audience)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not in the room")
+    return FileResponse(path)
+
+
 @router.get("/sections/{name}")
 async def room_section(name: str, audience: str = Depends(require_room_token)):
     out = _room().section(name, audience)
