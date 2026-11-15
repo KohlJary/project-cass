@@ -148,6 +148,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "post and reply within her limits. Also needs the credentials Kohl places with "
            "scripts/social_setup.py once she's chosen her handle and said yes.",
            INTEGRATION, default=False, where="social/config.availability (every social tool)"),
+    _lever("bluesky_dms", "Her Bluesky DMs (social/): read, answer and start DM conversations, within "
+           "her limits. Needs the bluesky lever and an app password made with DM access. DMs with "
+           "someone who hasn't said she may remember them aren't kept (social/dms.py).",
+           INTEGRATION, default=False, where="social/tools._dm_tool"),
     _lever("tumblr", "Her Tumblr blog (social/): her tools read her dashboard and activity, "
            "post and reblog with her words within her limits. Also needs the credentials Kohl "
            "places with scripts/social_setup.py.",

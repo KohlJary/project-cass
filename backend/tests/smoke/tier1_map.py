@@ -217,6 +217,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Nothing starts on its own; her tools call it. Fast-suite: tests/test_social.py (fake transport).",
     },
+    "bluesky_dms": {
+        "depth": "none",
+        "tests": [],
+        "note": "Nothing starts on its own; her tools call it. Fast-suite: tests/test_social.py (fake transport).",
+    },
     "tumblr": {
         "depth": "none",
         "tests": [],

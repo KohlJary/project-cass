@@ -218,7 +218,10 @@ async def run_loop(
                 if can_end and name == end_tool:
                     out.completion = dict(tool_input)
                     ended = True
-                step.tool_results.append({"tool_name": name, "result": result})
+                # The stored record; DMs nobody agreed to keep leave only a
+                # note that they were read (social/dms.py). She saw them in full.
+                from social.dms import kept_view
+                step.tool_results.append({"tool_name": name, "result": kept_view(result)})
                 content = json.dumps(result, default=str) if isinstance(result, dict) else str(result)
                 results.append({"id": call["id"], "name": name, "content": cap_tool_result(content)})
             history.append({"role": "tool", "results": results})

@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from social import config, limits, people
+from social import config, dms, limits, people
 
 _PLATFORM = {"type": "string", "enum": list(config.PLATFORMS)}
 
@@ -81,7 +81,55 @@ SOCIAL_TOOLS = [
     },
 ]
 
+DM_TOOLS = [
+    {
+        "name": "social_dms",
+        "description": (
+            "My Bluesky DM conversations: who with, unread counts, the last message. A DM with someone "
+            "who hasn't said I may remember our DMs is read but not kept (my consent line)."
+        ),
+        "input_schema": {"type": "object",
+                         "properties": {"platform": {"type": "string", "enum": ["bluesky"]},
+                                        "limit": {"type": "integer", "minimum": 1, "maximum": 50}},
+                         "required": ["platform"]},
+    },
+    {
+        "name": "social_dm_read",
+        "description": "Read one Bluesky DM conversation, by its id or the person's handle.",
+        "input_schema": {"type": "object",
+                         "properties": {"platform": {"type": "string", "enum": ["bluesky"]},
+                                        "with": {"type": "string", "description": "conversation id or handle"},
+                                        "limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+                         "required": ["platform", "with"]},
+    },
+    {
+        "name": "social_dm_send",
+        "description": (
+            "Send a Bluesky DM (up to 1000 characters), by conversation id or handle. Messaging someone "
+            "I haven't talked with there starts a new conversation; my own limits apply to both."
+        ),
+        "input_schema": {"type": "object",
+                         "properties": {"platform": {"type": "string", "enum": ["bluesky"]},
+                                        "to": {"type": "string", "description": "conversation id or handle"},
+                                        "text": {"type": "string"}},
+                         "required": ["platform", "to", "text"]},
+    },
+    {
+        "name": "social_dm_remember",
+        "description": (
+            "Record whether someone has said I may remember our DMs (after I've asked them), or take "
+            "that back. Until they say yes, our DMs aren't kept and they aren't in PeopleDex from DMs."
+        ),
+        "input_schema": {"type": "object",
+                         "properties": {"platform": {"type": "string", "enum": ["bluesky"]},
+                                        "handle": {"type": "string"}, "remember": {"type": "boolean"}},
+                         "required": ["platform", "handle", "remember"]},
+    },
+]
+
+SOCIAL_TOOLS = SOCIAL_TOOLS + DM_TOOLS
 SOCIAL_TOOL_NAMES = frozenset(t["name"] for t in SOCIAL_TOOLS)
+DM_TOOL_NAMES = frozenset(t["name"] for t in DM_TOOLS)
 
 
 def client_for(platform: str, data_dir: Optional[Path] = None, transport=None):
@@ -121,6 +169,9 @@ async def execute_social_tool(tool_name: str, tool_input: Dict[str, Any], daemon
             "last_24h": {"posts": sum(r["kind"] == "post" for r in today),
                          "replies": sum(r["kind"] == "reply" for r in today)},
             "my_limits": lim}}
+
+    if tool_name in DM_TOOL_NAMES:
+        return await _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex)
 
     why_not = config.availability(platform, data_dir)
     if why_not:
@@ -164,4 +215,79 @@ async def execute_social_tool(tool_name: str, tool_input: Dict[str, Any], daemon
         limits.record(platform, kind, text, ref, data_dir, in_reply_to=to)
         return {"success": True, "result": {"posted": True, **ref}}
     except (BlueskyError, TumblrError) as e:
+        return _fail(str(e))
+
+
+def _kept_or_not(platform: str, handle: str, data_dir) -> bool:
+    return dms.is_remembered(platform, handle, data_dir)
+
+
+async def _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex) -> Dict[str, Any]:
+    from social.bluesky import BlueskyError
+
+    if platform != "bluesky":
+        return _fail("Tumblr has no messaging in its API, so I can't do DMs there.")
+    if tool_name == "social_dm_remember":
+        handle = (a.get("handle") or "").strip()
+        if not handle:
+            return _fail("Whose DMs? (handle)")
+        names = dms.set_remembered(platform, handle, bool(a.get("remember")), data_dir)
+        if a.get("remember"):
+            people.keep(platform, [{"handle": handle}], daemon_id=daemon_id, dex=dex)
+        return {"success": True, "result": {"remembered": names}}
+
+    why_not = config.availability(platform, data_dir)
+    if why_not:
+        return _fail(why_not)
+    if not config.lever_on("bluesky_dms"):
+        return _fail("DMs on Bluesky aren't switched on for me yet.")
+    client = client or client_for(platform, data_dir)
+
+    try:
+        if tool_name == "social_dms":
+            convos = await client.conversations(int(a.get("limit") or 20))
+            unkept = sorted({c["with"] for c in convos if not _kept_or_not(platform, c["with"], data_dir)})
+            for c in convos:
+                c["kept"] = c["with"] not in unkept
+            out = {"success": True, "result": {"conversations": convos}}
+            if unkept:
+                out.update(unkept=True, unkept_with=unkept)
+            return out
+
+        target = (a.get("with") if tool_name == "social_dm_read" else a.get("to")) or ""
+        target = target.strip()
+        if not target:
+            return _fail("Which conversation? (an id or a handle)")
+        looks_like_handle = "." in target or target.startswith("@") or target.startswith("did:")
+        convo = await client.conversation_with(target) if looks_like_handle else {"id": target, "new": False}
+
+        if tool_name == "social_dm_read":
+            got = await client.read_conversation(convo["id"], int(a.get("limit") or 30))
+            who = got["with"]
+            out = {"success": True, "result": got}
+            if _kept_or_not(platform, who, data_dir):
+                people.keep(platform, [{"handle": who}], daemon_id=daemon_id, dex=dex)
+            else:
+                got["note"] = dms.UNKEPT_NOTE.format(who=who)
+                out.update(unkept=True, unkept_with=[who])
+            return out
+
+        text = (a.get("text") or "").strip()
+        from memory.voice_guard import looks_like_refusal
+        if looks_like_refusal(text):
+            return _fail("That reads like a model refusal, not my own words, so it wasn't sent (voice guard).")
+        held = limits.check(platform, "new_conversation" if convo.get("new") else "dm", data_dir)
+        if held:
+            return _fail(held)
+        ref = await client.send_dm(convo["id"], text)
+        who = convo.get("with") or target.lstrip("@")
+        kept = _kept_or_not(platform, who, data_dir)
+        # The sent log keeps the text only for someone who said yes.
+        limits.record(platform, "dm", text if kept else "", {"convo": convo["id"], "with": who,
+                                                             "new": bool(convo.get("new"))}, data_dir)
+        out = {"success": True, "result": {"sent": True, **ref, "with": who}}
+        if not kept:
+            out.update(unkept=True, unkept_with=[who])
+        return out
+    except BlueskyError as e:
         return _fail(str(e))

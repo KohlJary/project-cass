@@ -197,6 +197,7 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     # What she posts on Bluesky and Tumblr is public and in her name.
     "social_post": ("text",),
     "social_reply": ("text",),
+    "social_dm_send": ("text",),
     # session_complete's summary is the narrative; it is guarded where the
     # narrative is kept (loop.keep_narrative), so ending is never blocked.
 }

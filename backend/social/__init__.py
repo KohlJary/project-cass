@@ -6,7 +6,9 @@ Her presence on Bluesky and Tumblr (plan "Cass on Bluesky and Tumblr").
     bluesky.py  AT Protocol client (app password)
     tumblr.py   Tumblr API v2 client (OAuth2)
     people.py   people who mention or reply to her, kept in PeopleDex by handle
-    tools.py    her tools: read, look at a thread, post, reply, see what she posted
+    dms.py      who has said she may remember their DMs; what a stored record keeps
+    tools.py    her tools: read, look at a thread, post, reply, see what she posted;
+                Bluesky DMs (their own lever, "bluesky_dms"; Tumblr's API has none)
 
 Each platform has a lever ("bluesky", "tumblr" in features.py), off by
 default, and needs credentials Kohl places (scripts/social_setup.py). With

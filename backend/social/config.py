@@ -55,6 +55,7 @@ def write_credentials(platform: str, creds: dict, data_dir: Optional[Path] = Non
 
 
 def lever_on(platform: str) -> bool:
+    """A platform's lever, or "bluesky_dms" (DMs, separate from posting)."""
     from features import is_enabled
     return is_enabled(platform)
 

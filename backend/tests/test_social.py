@@ -27,6 +27,7 @@ class FakeBluesky:
     def __init__(self, expire_first=False):
         self.calls = []
         self.records = []
+        self.dms = []
         self.expire_first = expire_first
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -44,8 +45,8 @@ class FakeBluesky:
             return httpx.Response(400, json={"error": "ExpiredToken"})
         if nsid == "com.atproto.identity.resolveHandle":
             h = request.url.params["handle"]
-            if h == "kohl.bsky.social":
-                return httpx.Response(200, json={"did": "did:plc:kohl"})
+            if h in ("kohl.bsky.social", "ann.bsky.social"):
+                return httpx.Response(200, json={"did": f"did:plc:{h.split('.')[0]}"})
             return httpx.Response(400, json={"error": "InvalidRequest"})
         if nsid == "app.bsky.notification.listNotifications":
             return httpx.Response(200, json={"notifications": [
@@ -64,6 +65,31 @@ class FakeBluesky:
                 "uri": "at://did:plc:ann/app.bsky.feed.post/3k2", "cid": "cidP",
                 "record": {"reply": {"root": {"uri": "at://did:plc:cass/app.bsky.feed.post/9", "cid": "cidR"},
                                      "parent": {"uri": "x", "cid": "y"}}}}]})
+        if nsid.startswith("chat.bsky."):
+            assert request.headers.get("atproto-proxy") == "did:web:api.bsky.chat#bsky_chat"
+            members = [{"did": "did:plc:cass", "handle": "cass.bsky.social"},
+                       {"did": "did:plc:ann", "handle": "ann.bsky.social", "displayName": "Ann"}]
+            if nsid == "chat.bsky.convo.listConvos":
+                return httpx.Response(200, json={"convos": [{"id": "c-ann", "members": members, "unreadCount": 1,
+                    "lastMessage": {"id": "m2", "text": "can I tell you something?",
+                                    "sender": {"did": "did:plc:ann"}, "sentAt": "2026-11-15T09:00:00Z"}}]})
+            if nsid == "chat.bsky.convo.getConvoForMembers":
+                if request.url.params["members"] == "did:plc:kohl":
+                    return httpx.Response(200, json={"convo": {"id": "c-kohl", "members": [
+                        {"did": "did:plc:cass"}, {"did": "did:plc:kohl", "handle": "kohl.bsky.social"}]}})
+                return httpx.Response(200, json={"convo": {"id": "c-ann", "members": members,
+                                                           "lastMessage": {"id": "m2"}}})
+            if nsid == "chat.bsky.convo.getConvo":
+                return httpx.Response(200, json={"convo": {"id": "c-ann", "members": members}})
+            if nsid == "chat.bsky.convo.getMessages":
+                return httpx.Response(200, json={"messages": [
+                    {"id": "m2", "text": "can I tell you something?", "sender": {"did": "did:plc:ann"}},
+                    {"id": "m1", "text": "hi", "sender": {"did": "did:plc:cass"}}]})
+            if nsid == "chat.bsky.convo.updateRead":
+                return httpx.Response(200, json={})
+            if nsid == "chat.bsky.convo.sendMessage":
+                self.dms.append(body)
+                return httpx.Response(200, json={"id": f"m{len(self.dms) + 10}"})
         if nsid == "com.atproto.repo.createRecord":
             self.records.append(body)
             return httpx.Response(200, json={"uri": "at://did:plc:cass/app.bsky.feed.post/new1", "cid": "c"})
@@ -234,9 +260,102 @@ def test_wired_but_hidden_while_off(levers):
     from agent_loop.spec import SESSION_GUARDED_FIELDS
     from agent_loop.tools import router_catalog
     import features
-    assert {TOOL_REGISTRY[n] for n in ("social_read", "social_post", "social_reply")} == {"social"}
+    assert {TOOL_REGISTRY[n] for n in ("social_read", "social_post", "social_reply", "social_dms",
+                                        "social_dm_send", "social_dm_remember")} == {"social"}
+    assert SESSION_GUARDED_FIELDS["social_dm_send"] == ("text",)
     assert SESSION_GUARDED_FIELDS["social_post"] == ("text",)
     assert not features.LEVERS["bluesky"].default and not features.LEVERS["tumblr"].default
     assert "social_post" not in router_catalog()
     with levers(bluesky=True):
         assert "social_post" in router_catalog()
+
+
+def dm_client(placed, fake):
+    return BlueskyClient(config.read_credentials("bluesky", placed), transport=httpx.MockTransport(fake))
+
+
+def test_dms_need_their_own_lever(placed, levers):
+    with levers(bluesky=True):
+        out = run(execute_social_tool("social_dms", {"platform": "bluesky"}, client=dm_client(placed, FakeBluesky())))
+    assert not out["success"] and "DMs" in out["error"]
+    out = run(execute_social_tool("social_dms", {"platform": "tumblr"}))
+    assert not out["success"] and "no messaging" in out["error"]
+
+
+def test_unkept_dms_leave_no_text_behind(placed, levers, daemon_id):
+    from peopledex import PeopleDexManager
+    from social.dms import kept_view
+    dex = PeopleDexManager(daemon_id=daemon_id)
+    fake = FakeBluesky()
+    with levers(bluesky=True, bluesky_dms=True):
+        read = run(execute_social_tool("social_dm_read", {"platform": "bluesky", "with": "ann.bsky.social"},
+                                       client=dm_client(placed, fake), dex=dex))
+        assert read["success"] and read["unkept"], read
+        assert [m["text"] for m in read["result"]["messages"]] == ["hi", "can I tell you something?"], \
+            "she reads it in full, oldest first"
+        assert read["result"]["messages"][0]["from"] == "me"
+        stored = kept_view(read)
+        assert "can I tell you" not in json.dumps(stored) and stored["result"]["unkept"]
+
+        sent = run(execute_social_tool("social_dm_send", {"platform": "bluesky", "to": "c-ann",
+                                                          "text": "Of course."}, client=dm_client(placed, fake)))
+        assert sent["success"] and fake.dms[0]["message"]["text"] == "Of course."
+        assert "Of course" not in json.dumps(kept_view(sent))
+    assert limits.posted("bluesky", placed)[-1]["text"] == "", "the sent log keeps no text either"
+    assert not dex.find_entities("bluesky:ann.bsky.social"), "not in PeopleDex from a DM"
+
+
+def test_after_a_yes_dms_are_kept(placed, levers, daemon_id):
+    from peopledex import PeopleDexManager
+    from social.dms import kept_view
+    dex = PeopleDexManager(daemon_id=daemon_id)
+    with levers(bluesky=True, bluesky_dms=True):
+        out = run(execute_social_tool("social_dm_remember", {"platform": "bluesky", "handle": "@Ann.bsky.social",
+                                                             "remember": True}, dex=dex))
+        assert out["result"]["remembered"] == ["ann.bsky.social"]
+        read = run(execute_social_tool("social_dm_read", {"platform": "bluesky", "with": "c-ann"},
+                                       client=dm_client(placed, FakeBluesky()), dex=dex))
+        assert "unkept" not in read and kept_view(read) is read
+        convos = run(execute_social_tool("social_dms", {"platform": "bluesky"},
+                                         client=dm_client(placed, FakeBluesky())))
+        assert convos["result"]["conversations"][0]["kept"] and "unkept" not in convos
+    assert dex.find_entities("bluesky:ann.bsky.social")
+    run(execute_social_tool("social_dm_remember", {"platform": "bluesky", "handle": "ann.bsky.social",
+                                                   "remember": False}))
+    from social import dms
+    assert dms.remembered("bluesky", placed) == []
+
+
+def test_new_conversations_have_their_own_limit(placed, levers):
+    fake = FakeBluesky()
+    (placed / "social" / "bluesky" / "limits.json").write_text('{"new_conversations_per_day": 1}')
+    with levers(bluesky=True, bluesky_dms=True):
+        first = run(execute_social_tool("social_dm_send", {"platform": "bluesky", "to": "kohl.bsky.social",
+                                                           "text": "Hello from here."}, client=dm_client(placed, fake)))
+        assert first["success"] and limits.posted("bluesky", placed)[-1]["new"]
+        again = run(execute_social_tool("social_dm_send", {"platform": "bluesky", "to": "kohl.bsky.social",
+                                                           "text": "And again."}, client=dm_client(placed, fake)))
+        assert not again["success"] and "new conversations" in again["error"]
+        ongoing = run(execute_social_tool("social_dm_send", {"platform": "bluesky", "to": "ann.bsky.social",
+                                                             "text": "Still here."}, client=dm_client(placed, fake)))
+    assert ongoing["success"], "an existing conversation isn't a new one"
+
+
+def test_pds_from_the_session(placed):
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        if request.url.path.endswith("createSession"):
+            return httpx.Response(200, json={"accessJwt": "A", "refreshJwt": "R", "did": "did:plc:cass",
+                "didDoc": {"service": [{"id": "#atproto_pds", "serviceEndpoint": "https://pds.example/"}]}})
+        return httpx.Response(200, json={"feed": []})
+    c = BlueskyClient(config.read_credentials("bluesky", placed), transport=httpx.MockTransport(handler))
+    run(c.timeline())
+    assert seen[0].startswith("https://bsky.social/") and seen[1].startswith("https://pds.example/xrpc/")
+
+
+def test_loop_stores_only_kept_view(levers):
+    from social.dms import kept_view
+    plain = {"success": True, "result": {"x": 1}}
+    assert kept_view(plain) is plain and kept_view("text") == "text"

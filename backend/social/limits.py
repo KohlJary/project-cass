@@ -17,7 +17,9 @@ from social.config import platform_dir
 DEFAULTS = {
     "posts_per_day": 3,
     "replies_per_day": 10,
-    "minutes_between": 10,   # between any two things she sends on one platform
+    "minutes_between": 10,   # between any two posts or replies on one platform
+    "dms_per_day": 40,       # DMs she sends (a conversation is back and forth, so no spacing)
+    "new_conversations_per_day": 2,  # DMs to someone she hasn't talked with there before
 }
 
 
@@ -53,12 +55,21 @@ def posted(platform: str, data_dir: Optional[Path] = None, since: Optional[datet
 
 def check(platform: str, kind: str, data_dir: Optional[Path] = None,
           now: Optional[datetime] = None) -> Optional[str]:
-    """None if she can send this now, else why not. kind: post | reply."""
+    """None if she can send this now, else why not. kind: post | reply | dm | new_conversation."""
     now = now or datetime.now()
     lim = limits(platform, data_dir)
     recent = posted(platform, data_dir, since=now - timedelta(days=1))
-    if recent:
-        last = max(datetime.fromisoformat(r["at"]) for r in recent)
+    if kind in ("dm", "new_conversation"):
+        dms = [r for r in recent if r.get("kind") == "dm"]
+        if len(dms) >= lim["dms_per_day"]:
+            return f"I've used my {lim['dms_per_day']} DMs on {platform} for today."
+        if kind == "new_conversation" and sum(1 for r in dms if r.get("new")) >= lim["new_conversations_per_day"]:
+            return (f"I've started my {lim['new_conversations_per_day']} new conversations on {platform} "
+                    f"for today.")
+        return None
+    public = [r for r in recent if r.get("kind") in ("post", "reply")]
+    if public:
+        last = max(datetime.fromisoformat(r["at"]) for r in public)
         wait = last + timedelta(minutes=lim["minutes_between"]) - now
         if wait > timedelta(0):
             return (f"I sent something on {platform} {int((now - last).total_seconds() // 60)} min ago; "

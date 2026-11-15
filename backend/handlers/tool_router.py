@@ -410,6 +410,10 @@ TOOL_REGISTRY = {
     "social_post": "social",
     "social_reply": "social",
     "social_my_posts": "social",
+    "social_dms": "social",
+    "social_dm_read": "social",
+    "social_dm_send": "social",
+    "social_dm_remember": "social",
 
     # Image generation tools (local Stable Diffusion)
     "generate_image": "image_generation",

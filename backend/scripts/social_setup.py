@@ -6,7 +6,8 @@ DATA_DIR/social/<platform>/credentials.json (mode 600). Nothing is sent
 anywhere until the platform's lever is on (CASS_FEATURE_BLUESKY=1 /
 CASS_FEATURE_TUMBLR=1).
 
-    python scripts/social_setup.py bluesky     # handle + an app password (Settings > App passwords)
+    python scripts/social_setup.py bluesky     # handle + an app password (Settings > App passwords;
+                                               # tick "allow access to direct messages" if DMs will be on)
     python scripts/social_setup.py tumblr      # an OAuth2 app at tumblr.com/oauth/apps, then sign in once
 
 Tumblr: register the app with redirect URL http://localhost/ ; the script
