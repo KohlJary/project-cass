@@ -404,6 +404,13 @@ TOOL_REGISTRY = {
     "view_my_room": "room",
     "set_room_section": "room",
 
+    # Her Bluesky and Tumblr (social/), each behind its own lever
+    "social_read": "social",
+    "social_thread": "social",
+    "social_post": "social",
+    "social_reply": "social",
+    "social_my_posts": "social",
+
     # Image generation tools (local Stable Diffusion)
     "generate_image": "image_generation",
     "get_my_images": "image_generation",
@@ -923,6 +930,13 @@ async def route_tool(
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,
+        )
+
+    elif executor_type == "social":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            daemon_id=ctx.daemon_id,
         )
 
     elif executor_type == "room":

@@ -109,6 +109,8 @@ def router_catalog() -> Dict[str, Dict[str, Any]]:
     for attr in sorted(dir(agent_client)):
         if not attr.endswith("_TOOLS") or attr in ("HOME_ASSISTANT_TOOLS", "HOME_AUTOMATION_TOOLS"):
             continue
+        if attr == "SOCIAL_TOOLS" and not agent_client._social_lever_on():
+            continue  # Bluesky/Tumblr: only once a platform is switched on
         value = getattr(agent_client, attr)
         if isinstance(value, list):
             groups.append(value)

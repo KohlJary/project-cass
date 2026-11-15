@@ -194,6 +194,9 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     # Her day plan and her homepage are hers and public-facing.
     "set_day_plan": ("intention",),
     "homepage_save_page": ("html",),
+    # What she posts on Bluesky and Tumblr is public and in her name.
+    "social_post": ("text",),
+    "social_reply": ("text",),
     # session_complete's summary is the narrative; it is guarded where the
     # narrative is kept (loop.keep_narrative), so ending is never blocked.
 }

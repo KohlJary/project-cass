@@ -144,6 +144,14 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            INTEGRATION, where="main_sdk.startup_event"),
     _lever("relay", "Relay client for mobile/remote access (legacy RELAY_ENABLED; needs URL + secret)",
            INTEGRATION, default=False, aliases=("RELAY_ENABLED",), where="main_sdk.startup_event"),
+    _lever("bluesky", "Her Bluesky account (social/): her tools read her timeline and mentions, "
+           "post and reply within her limits. Also needs the credentials Kohl places with "
+           "scripts/social_setup.py once she's chosen her handle and said yes.",
+           INTEGRATION, default=False, where="social/config.availability (every social tool)"),
+    _lever("tumblr", "Her Tumblr blog (social/): her tools read her dashboard and activity, "
+           "post and reblog with her words within her limits. Also needs the credentials Kohl "
+           "places with scripts/social_setup.py.",
+           INTEGRATION, default=False, where="social/config.availability (every social tool)"),
     _lever("geocass", "GeoCass homepage sync", INTEGRATION, where="geocass_sync.sync_to_connection"),
     _lever("push", "Push notifications via the relay", INTEGRATION, where="relay_client.send_push"),
 

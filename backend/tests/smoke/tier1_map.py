@@ -212,6 +212,16 @@ LEVER_COVERAGE = {
                   "tests/smoke/test_chat_event_loop.py::test_slow_retrieval_in_relay_chat_does_not_block_other_requests"],
         "note": "The relay chat handler runs; the relay client connection is not started.",
     },
+    "bluesky": {
+        "depth": "none",
+        "tests": [],
+        "note": "Nothing starts on its own; her tools call it. Fast-suite: tests/test_social.py (fake transport).",
+    },
+    "tumblr": {
+        "depth": "none",
+        "tests": [],
+        "note": "Nothing starts on its own; her tools call it. Fast-suite: tests/test_social.py (fake transport).",
+    },
     "geocass": {"depth": "none", "tests": [], "note": ""},
     "push": {
         "depth": "none",

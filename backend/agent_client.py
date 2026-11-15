@@ -1638,6 +1638,12 @@ from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
 from handlers.peopledex import PEOPLEDEX_TOOLS
 from handlers.room import ROOM_TOOLS
+from social.tools import SOCIAL_TOOLS
+
+
+def _social_lever_on() -> bool:
+    from features import is_enabled
+    return is_enabled("bluesky") or is_enabled("tumblr")
 from handlers.stakeholders import STAKEHOLDER_TOOLS
 from handlers.email import EMAIL_TOOLS
 from handlers.state_query import get_query_state_tool_definition, DISCOVER_CAPABILITIES_TOOL_DEFINITION
@@ -1928,6 +1934,11 @@ class CassAgentClient:
             if (should_include_image_tools(message) or should_include_music_tools(message)
                     or any(w in message.lower() for w in ("my room", "share", "gallery", "journal"))):
                 tools.extend(ROOM_TOOLS)
+
+            # Her Bluesky and Tumblr (social/): only once a platform's lever is on.
+            if (any(w in message.lower() for w in ("bluesky", "tumblr", "skeet", "my post", "mentions"))
+                    and _social_lever_on()):
+                tools.extend(SOCIAL_TOOLS)
 
             # Music composition tools - compose original music via ACE-Step
             if should_include_music_tools(message):
