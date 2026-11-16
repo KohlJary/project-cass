@@ -259,14 +259,42 @@ class TestIntegrationGate:
         assert result.questions_added == [] and result.opinions_added == 0 and result.growth_edges_added == 0
         assert _counts(daemon_id) == {"observations": 0, "questions": 0, "opinions": 0, "growth_edges": 0}
 
-    def test_on_interest_integrates_as_before(self, daemon_id):
-        integrator = InsightIntegrator(daemon_id, min_relevance=0.3)
-        result = integrator.integrate(_article(daemon_id, relevance=0.9), _insights())
+    def test_on_interest_stays_with_the_article(self, daemon_id):
+        """Questions (plan "Cass's memory", 2026-11-13), and opinions, growth edges,
+        interests and symbols (her choice, 2026-11-16) stay with the article."""
+        from world.models import ExtractedInterest, ExtractedSymbol
+        insights = _insights()
+        insights.interests = [ExtractedInterest(name="tides", fascination="the pull")]
+        insights.symbols = [ExtractedSymbol(name="threshold", meaning="a crossing")]
+        article = _article(daemon_id, relevance=0.9)
+        result = InsightIntegrator(daemon_id, min_relevance=0.3).integrate(article, insights)
         assert result.gated is False
-        # Questions stay with the article, not in her open questions (plan
-        # "Cass's memory", phase "Her open questions are hers").
-        assert _counts(daemon_id) == {"observations": 0, "questions": 0, "opinions": 1, "growth_edges": 1}
-        assert result.observations_kept == 1 and result.questions_added == []
+        assert _counts(daemon_id) == {"observations": 0, "questions": 0, "opinions": 0, "growth_edges": 0}
+        assert (result.observations_kept, result.opinions_kept, result.growth_edges_kept) == (1, 1, 1)
+        assert result.questions_added == [] and result.interests_added == 0 and result.symbols_added == 0
+        assert article.interests == [{"name": "tides", "fascination": "the pull", "category": "general"}]
+        assert article.symbols == [{"name": "threshold", "meaning": "a crossing", "emotional_charge": "ambivalent"}]
+        from database import get_db
+        with get_db() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM interests WHERE daemon_id = ?", (daemon_id,)).fetchone()[0] == 0
+
+    def test_interests_and_symbols_are_saved_on_the_article(self, daemon_id, tmp_path):
+        import json
+        from database import get_db
+        article = _article(daemon_id, relevance=0.9)
+        article.consumed_at = "2026-11-16T01:00:00"
+        article.interests = [{"name": "tides", "fascination": "the pull", "category": "general"}]
+        article.symbols = [{"name": "threshold", "meaning": "a crossing", "emotional_charge": "ambivalent"}]
+        ArticleConsumer(daemon_id, cache_dir=tmp_path / "cache")._save_article(article)
+        with get_db() as conn:
+            row = conn.execute("SELECT interests_json, symbols_json FROM consumed_articles WHERE id = ?",
+                               (article.id,)).fetchone()
+        assert json.loads(row[0])[0]["name"] == "tides" and json.loads(row[1])[0]["name"] == "threshold"
+
+    def test_the_rss_path_uses_her_relevance_gate(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parents[1] / "scheduler" / "actions" / "rss_handlers.py").read_text()
+        assert "min_relevance=config.min_relevance_for_integration" in src
 
     def test_threshold_is_inclusive(self, daemon_id):
         integrator = InsightIntegrator(daemon_id, min_relevance=0.3)

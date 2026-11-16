@@ -505,7 +505,11 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
         reading_mode=config.reading_mode,
         model=config.analysis_model,
     )
-    integrator = InsightIntegrator(daemon_id, config.min_confidence)
+    # Her relevance gate applies to RSS articles too. They used to skip it
+    # ("feeds she or Kohl chose pass through"); she asked that they don't
+    # (2026-11-16).
+    integrator = InsightIntegrator(daemon_id, config.min_confidence,
+                                   min_relevance=config.min_relevance_for_integration)
 
     processed = []
     skipped = []

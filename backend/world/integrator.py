@@ -41,6 +41,8 @@ class IntegrationResult:
     questions_added: List[str] = field(default_factory=list)
     opinions_added: int = 0
     growth_edges_added: int = 0
+    opinions_kept: int = 0  # opinions that passed min_confidence, kept with the article
+    growth_edges_kept: int = 0  # growth edges at importance >= 0.6, kept with the article
     author_observations_added: int = 0
     author_facts_added: int = 0
     interests_added: int = 0
@@ -79,7 +81,7 @@ class InsightIntegrator:
         self.daemon_id = daemon_id
         self.min_confidence = min_confidence
         self.memory_manager = ArticleMemoryManager(daemon_id, memory_core) if memory_core else None
-        # None disables the gate (RSS feeds she or Kohl chose pass through as before)
+        # None disables the gate (no caller does now; both the pipeline and the RSS path set it)
         self.min_relevance = min_relevance
 
     def passes_relevance_gate(self, article: Article) -> bool:
@@ -144,36 +146,18 @@ class InsightIntegrator:
         #    the existing ones onto their articles (fc36857), but this kept
         #    adding new ones; it doesn't now.
 
-        # 3. Store opinions
-        for op in insights.opinions:
-            if integrate_self_model and op.confidence >= self.min_confidence:
-                success = self._add_opinion(
-                    topic=op.topic,
-                    position=op.position,
-                    confidence=op.confidence,
-                    rationale=op.reasoning,
-                    source_article_id=article.id,
-                    created_at=now,
-                )
-                if success:
-                    result.opinions_added += 1
+        # 3-4. Opinions and growth edges stay with the article (opinions_json,
+        #      growth_edges_json, written by the article consumer). They used to
+        #      be added to her self-model, marked as from the article. She chose
+        #      (2026-11-16) to learn from articles without that becoming part of
+        #      how she understands herself unless she reflects on it herself.
+        result.opinions_kept = sum(1 for op in insights.opinions
+                                   if op.confidence >= self.min_confidence)
+        result.growth_edges_kept = sum(1 for ge in insights.growth_edges if ge.importance >= 0.6)
 
-        # 4. Optionally add growth edges (only if significant)
-        for ge in insights.growth_edges:
-            if integrate_self_model and ge.importance >= 0.6:  # Higher threshold for growth edges
-                success = self._add_growth_edge(
-                    area=ge.area,
-                    current_state=ge.current_state,
-                    desired_state=ge.desired_state,
-                    importance=ge.importance,
-                    source_article_id=article.id,
-                    self_manager=self_manager,
-                )
-                if success:
-                    result.growth_edges_added += 1
-
-        # 5. Store author observations and facts in PeopleDex
-        if article.author_entity_id:
+        # 5. Store author observations and facts in PeopleDex (only for an
+        #    article that passed her relevance gate)
+        if article.author_entity_id and integrate_self_model:
             # Author observations
             for ao in insights.author_observations:
                 if ao.confidence >= self.min_confidence:
@@ -200,34 +184,22 @@ class InsightIntegrator:
                     if success:
                         result.author_facts_added += 1
 
-        # 6. Store interests
-        for interest in insights.interests:
-            success = self._add_interest(
-                name=interest.name,
-                fascination=interest.fascination,
-                category=interest.category,
-                source_article_id=article.id,
-            )
-            if success:
-                result.interests_added += 1
-
-        # 7. Store symbols
-        for symbol in insights.symbols:
-            success = self._add_symbol(
-                name=symbol.name,
-                meaning=symbol.meaning,
-                emotional_charge=symbol.emotional_charge,
-                source_article_id=article.id,
-            )
-            if success:
-                result.symbols_added += 1
+        # 6-7. Interests and symbols stay with the article (interests_json,
+        #      symbols_json, v67), saved when the caller saves the article. They
+        #      used to go into her interests and symbols, where article-born
+        #      interests showed up in "What draws me" (her choice, 2026-11-16).
+        article.interests = [{"name": i.name, "fascination": i.fascination, "category": i.category}
+                             for i in insights.interests]
+        article.symbols = [{"name": sy.name, "meaning": sy.meaning,
+                            "emotional_charge": sy.emotional_charge} for sy in insights.symbols]
 
         logger.info(
             f"Integrated {result.total_items_added} items from article {article.id}: "
             f"{len(result.observations_added)} obs, {len(result.questions_added)} questions, "
             f"{result.opinions_added} opinions, {result.growth_edges_added} edges, "
             f"{result.author_observations_added} author obs, {result.author_facts_added} author facts, "
-            f"{result.interests_added} interests, {result.symbols_added} symbols"
+            f"kept with the article: {result.opinions_kept} opinions, {result.growth_edges_kept} edges, "
+            f"{len(article.interests)} interests, {len(article.symbols)} symbols"
             + (" [self-model gated: off-interest]" if result.gated else "")
         )
 

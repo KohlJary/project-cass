@@ -153,6 +153,10 @@ class Article:
     observation_ids: List[str] = field(default_factory=list)
     question_ids: List[str] = field(default_factory=list)
 
+    # Interests and symbols drawn from the article, kept with it (v67)
+    interests: List[Dict[str, Any]] = field(default_factory=list)
+    symbols: List[Dict[str, Any]] = field(default_factory=list)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for database storage."""
         return {

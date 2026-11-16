@@ -701,6 +701,20 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 66:
         _ensure_llm_call_failures(conn)
 
+    # v66 -> v67: interests and symbols drawn from an article are kept with the
+    # article, not in her self-model (her choice, 2026-11-16).
+    if from_version < 67:
+        ensure_consumed_articles_kept_columns(conn)
+
+
+def ensure_consumed_articles_kept_columns(conn):
+    """Idempotently add consumed_articles.interests_json / symbols_json (v67)."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(consumed_articles)").fetchall()}
+    if 'interests_json' not in columns:
+        conn.execute("ALTER TABLE consumed_articles ADD COLUMN interests_json TEXT")
+    if 'symbols_json' not in columns:
+        conn.execute("ALTER TABLE consumed_articles ADD COLUMN symbols_json TEXT")
+
 
 def ensure_users_legacy_credential_columns(conn):
     """Idempotently add users.legacy_email / legacy_password_hash."""

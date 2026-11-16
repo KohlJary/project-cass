@@ -678,8 +678,9 @@ class ArticleConsumer:
                     author_name, author_handle, author_handle_type, author_entity_id,
                     full_content, summary, consumed_at, processing_time_ms, tokens_used,
                     observations_json, growth_edges_json, opinions_json, questions_json,
-                    observation_ids_json, question_ids_json, processing_status, error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    observation_ids_json, question_ids_json, processing_status, error_message,
+                    interests_json, symbols_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(daemon_id, url) DO UPDATE SET
                     author_name = excluded.author_name,
                     author_handle = excluded.author_handle,
@@ -696,7 +697,9 @@ class ArticleConsumer:
                     observation_ids_json = excluded.observation_ids_json,
                     question_ids_json = excluded.question_ids_json,
                     processing_status = excluded.processing_status,
-                    error_message = excluded.error_message
+                    error_message = excluded.error_message,
+                    interests_json = excluded.interests_json,
+                    symbols_json = excluded.symbols_json
                 """,
                 (
                     article.id,
@@ -738,6 +741,8 @@ class ArticleConsumer:
                     json_serialize(article.question_ids),
                     article.processing_status.value,
                     article.error_message,
+                    json_serialize(article.interests),
+                    json_serialize(article.symbols),
                 )
             )
             conn.commit()

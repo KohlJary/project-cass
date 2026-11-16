@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 66  # v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
+SCHEMA_VERSION = 67  # v67 consumed_articles.interests_json / symbols_json; v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -1838,6 +1838,11 @@ CREATE TABLE IF NOT EXISTS consumed_articles (
 
     -- Generated image (v35)
     image_path TEXT,                    -- Path to generated illustration
+
+    -- Interests and symbols drawn from the article, kept here, not in her
+    -- self-model (v67; her choice, 2026-11-16)
+    interests_json TEXT,                -- [{name, fascination, category}]
+    symbols_json TEXT,                  -- [{name, meaning, emotional_charge}]
 
     UNIQUE(daemon_id, url)
 );
