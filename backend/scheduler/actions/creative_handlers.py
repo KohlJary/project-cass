@@ -91,20 +91,18 @@ def _get_recent_activity_context(daemon_id: str = "cass") -> Dict[str, Any]:
                 for r in cursor.fetchall()
             ]
 
-            # Recent music (avoid repetition) - table may not exist
+            # Recent music (avoid repetition). Her songs are in the music
+            # library's JSON index, not SQLite; this used to query a
+            # music_compositions table that never existed, so it was always empty.
             try:
-                cursor = conn.execute("""
-                    SELECT title, style, purpose, created_at
-                    FROM music_compositions
-                    WHERE daemon_id = ?
-                    ORDER BY created_at DESC LIMIT 3
-                """, (daemon_id,))
+                from music.music_client import get_music_client
                 context["recent_music"] = [
-                    {"title": r[0], "style": r[1], "purpose": r[2], "when": r[3]}
-                    for r in cursor.fetchall()
+                    {"title": c.title or "", "style": (c.metadata.genres if c.metadata else None),
+                     "purpose": c.purpose, "when": c.created_at}
+                    for c in get_music_client().library.list(limit=3)
                 ]
-            except Exception:
-                # Table doesn't exist - music stored in JSON, not DB
+            except Exception as e:
+                logger.warning(f"[creative] couldn't read her recent music: {e}")
                 context["recent_music"] = []
 
             # Personal symbols (motifs with meaning)
