@@ -42,6 +42,15 @@ except ImportError:
         "test_reach_out.py",
     ]
 
+# The live backend/.env never reaches a test: levers and modes set there for
+# the running vessel (DEMO_MODE, CASS_FEATURE_*) beat CASS_PROFILE=test and
+# made tests fail only on this machine (2026-11-16: DEMO_MODE opened routes,
+# CASS_FEATURE_AGENT_LOOP_CHAT added tools). Tests run as CI does, with no
+# .env. config.py imports load_dotenv by name, so this goes in before any
+# backend module is imported.
+import dotenv as _dotenv  # noqa: E402
+_dotenv.load_dotenv = lambda *a, **k: False
+
 # Feature levers: every background/autonomous/external subsystem is OFF in
 # tests unless a test turns it on with the `levers` fixture (see features.py).
 os.environ.setdefault("CASS_PROFILE", "test")
