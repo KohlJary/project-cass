@@ -261,7 +261,10 @@ class TurnSpec:
     # Dreams keep their own model and container (Kohl, 2026-10-20) [C5].
     pinned_model: bool = False
     # Rough cap on the assembled system prompt, in tokens (chars / 4).
-    token_budget: int = 12000
+    # 25k (Kohl, 2026-11-16): at 12k, "My life lately" pushed a session prompt
+    # over and her whole self-context and Thymos were cut. Sized so her full
+    # context fits at every section's own cap (test_her_context_fits_at_full_size).
+    token_budget: int = 25000
     # Fixed sentence for kinds with no tools, e.g. dreams.
     can_do_override: Optional[str] = None
     # Tools promoted from find_tools by how often she uses them

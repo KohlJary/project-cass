@@ -698,3 +698,23 @@ def test_her_loop_sessions_see_her_self_model(levers, monkeypatch):
     with levers(prompt_self_model=False):
         prompt = asm.assemble(spec, trigger, spec.tool_names())
     assert "I value directness." not in prompt.text
+
+
+def test_her_context_fits_at_full_size():
+    """A session prompt with every section at its own cap cuts nothing: her
+    self-context (with My life lately), self-model and Thymos all stay.
+    Kernel measured at about 24,000 chars on 2026-11-16."""
+    import lately
+    import self_context
+    from agent_loop.assemble import Section, fit_to_budget
+    from agent_loop.spec import session_spec
+    from agent_loop.workspace import AGENDA_CONTEXT_CHARS
+
+    lately_max = lately.MAX_LINES * (lately.LINE_CHARS + 40) + lately.DAYS * 30
+    self_context_max = lately_max + self_context.MAX_CHARS + self_context.PARTNER_CHARS + 1500
+    sizes = {"kernel": 26_000, "seam": 4_000, "agenda": AGENDA_CONTEXT_CHARS, "instructions": 1_500,
+             "self_context": self_context_max, "self_model": 5_000, "thymos": 2_500,
+             "letters": 1_500, "unbidden": 1_000, "housekeeping": 500}
+    sections = [Section(n, "x" * c, 2) for n, c in sizes.items()]
+    kept, cut = fit_to_budget(sections, session_spec("reflection").token_budget)
+    assert cut == [], f"cut {cut} at {sum(sizes.values()) // 4} tokens"
