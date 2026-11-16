@@ -30,6 +30,7 @@ CHANNELS = {
                        "a few seconds: a short spoken answer, then done", "anyone in the room"),
     "discord": ("Discord", "a reply in the channel when I have one", "everyone in the channel"),
     "babelr": ("Chapter House (Babelr)", "a reply when I have one", "everyone in the room"),
+    "babelr_dm": ("a DM on Chapter House (Babelr)", "they're waiting for my reply", "just them"),
 }
 
 RELATIONSHIP_WORDS = {"primary_partner": "my partner"}

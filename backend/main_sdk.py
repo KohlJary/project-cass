@@ -937,6 +937,7 @@ async def ha_conversation(request: Request):
                     conversation_id=conversation_id,
                     user_id=ha_user_id,
                     tool_cap=_config.HA_MAX_TOOL_ITERATIONS,
+                    channel="home_assistant",
                     generate_title=False,  # no background LLM title call, as before
                 ),
                 timeout=_config.HA_TURN_TIMEOUT_SECONDS,
@@ -1290,6 +1291,7 @@ async def process_relay_chat_message(
             user_id=user_id,
             provider=LLM_PROVIDER_ANTHROPIC,
             progress=relay_progress,
+            channel="relay",
         )
 
         response_data = {
@@ -1408,6 +1410,7 @@ def make_discord_wake_callback(discord_bot):
                 # state, self-context, Thymos, threads or questions.
                 context_scope="public",
                 provider=LLM_PROVIDER_ANTHROPIC,
+                channel="discord",
                 memory_metadata={"source": "discord", "channel": channel_name},
                 generate_title=False,
             )
@@ -1589,6 +1592,7 @@ def make_babelr_wake_callback():
                     conversation_id=conversation_id,
                     user_id=linked,
                     system_addendum=BABELR_DM_GUIDANCE,
+                    channel="babelr_dm",
                     memory_metadata={"source": "babelr", "place": place},
                 )
             result = await dm_turn(stored, "\n\n".join([stored] + extra))
@@ -1614,6 +1618,7 @@ def make_babelr_wake_callback():
                 user_id=channel_user,
                 system_addendum=BABELR_PUBLIC_GUIDANCE,
                 context_scope="private" if channel_user else "public",
+                channel="babelr",  # a room: others read it, even with Kohl's context
                 memory_metadata={"source": "babelr", "place": place},
                 generate_title=False,
             )
@@ -2681,6 +2686,7 @@ async def chat(request: ChatRequest, http_request: Request):
             image_media_type=request.image_media_type,
             include_memory=request.include_memory,
             provider=LLM_PROVIDER_ANTHROPIC,  # POST /chat has always been Anthropic-only
+            channel="http",
         )
     except NoLLMClient as e:
         raise HTTPException(status_code=503, detail=str(e))

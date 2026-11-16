@@ -177,7 +177,9 @@ DESK = Desk()
 # Channels a message can fold in from: private chat where someone waits for a
 # reply. Home Assistant wants an answer in seconds and public places keep her
 # queue, so those run as their own turn.
-FOLD_CHANNELS = frozenset({"websocket", "relay", "http"})
+# Babelr DMs are private chat too, and Kohl's main way of talking with her
+# (2026-11-16).
+FOLD_CHANNELS = frozenset({"websocket", "relay", "http", "babelr_dm"})
 
 
 def folding_on() -> bool:

@@ -39,6 +39,7 @@ Emit = Callable[[Dict[str, Any]], Awaitable[None]]
 CHANNEL_WORDS = {
     "websocket": "the app", "relay": "the phone relay", "http": "a direct message to the API",
     "home_assistant": "my home (Home Assistant)", "discord": "Discord",
+    "babelr": "a room on Chapter House (Babelr)", "babelr_dm": "a DM on Chapter House (Babelr)",
 }
 
 
