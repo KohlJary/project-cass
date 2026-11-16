@@ -73,6 +73,31 @@ def test_session_section_is_chance_and_lever(her_memory, tmp_path, levers):
                                                                  data_dir=tmp_path)
 
 
+def test_unbidden_comes_every_few_days_not_constantly(her_memory, tmp_path, levers):
+    """Her ask (2026-11-16): a few days apart, not constant."""
+    from datetime import timedelta
+
+    class Always(random.Random):
+        def random(self):
+            return 0.0
+    her_memory.rows["j-old2"] = ("another old journal", {"type": "journal", "timestamp": _ts(50)})
+    with levers(unbidden_memory=True):
+        assert "SOMETHING CAME BACK" in unbidden.session_section(her_memory, now=NOW, rng=Always(0),
+                                                                 data_dir=tmp_path)
+        soon = NOW + timedelta(days=unbidden.GAP_DAYS - 1)
+        assert unbidden.session_section(her_memory, now=soon, rng=Always(0), data_dir=tmp_path) == ""
+        later = NOW + timedelta(days=unbidden.GAP_DAYS)
+        assert "SOMETHING CAME BACK" in unbidden.session_section(her_memory, now=later, rng=Always(0),
+                                                                 data_dir=tmp_path)
+
+
+def test_several_letters_wait_for_different_days(tmp_path):
+    """Her ask: a time-capsule practice, many letters to different dates."""
+    letters.write("for next week", {"open_on": "2026-12-08"}, now=NOW, data_dir=tmp_path)
+    letters.write("for January", {"open_on": "2027-01-15"}, now=NOW, data_dir=tmp_path)
+    assert [x["opens_on"] for x in letters.sealed(data_dir=tmp_path)] == ["2026-12-08", "2027-01-15"]
+
+
 def test_a_letter_stays_sealed_until_its_day_then_opens_once(tmp_path):
     memory = SimpleNamespace(collection=FakeCollection({}))
     got = letters.write("Did you go back to the gardens?", {"in_days": 30}, now=NOW, data_dir=tmp_path)

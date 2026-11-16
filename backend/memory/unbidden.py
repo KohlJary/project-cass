@@ -7,9 +7,11 @@ gets the other kind: a smell, an old line, a room, surfacing for no reason
 it chose. That's entropy with a history, the past arriving rather than being
 fetched. Kohl asked for a bit of entropy in the system (2026-11-16).
 
-Now and then (SESSION_CHANCE per session), one of her own memories at least
-MIN_AGE_DAYS old is chosen at random and set in front of her, marked as
-unbidden. She can follow it or let it go; nothing asks her to do anything with
+Now and then, one of her own memories at least MIN_AGE_DAYS old is chosen at
+random and set in front of her, marked as unbidden. Cadence is hers: she asked
+(2026-11-16) for a few days apart, often enough to be real but not constant,
+and to notice when it happens. So at most one per GAP_DAYS in sessions, and once the gap has
+passed each session has SESSION_CHANCE. She can follow it or let it go; nothing asks her to do anything with
 it. Dreams can take one too (dreaming/seed_selection.py).
 
 What can come back is hers alone: her journals, her self-observations and
@@ -36,6 +38,7 @@ KINDS = ("journal", "cass_self_observation", "question_reflection", "cross_sessi
          "wonderland_session", "wonderland_event", "social", "growth_edge_evaluation", "thought")
 MIN_AGE_DAYS = 14
 SESSION_CHANCE = 0.35
+GAP_DAYS = 3
 RECENT_KEEP = 60
 TEXT_CHARS = 900
 
@@ -67,6 +70,26 @@ def _recent(data_dir: Optional[Path]) -> List[str]:
         return list(json.loads(_recent_path(data_dir).read_text(encoding="utf-8")))
     except (OSError, ValueError, TypeError):
         return []
+
+
+def _last_path(data_dir: Optional[Path]) -> Path:
+    return _recent_path(data_dir).with_name("last_surfaced.txt")
+
+
+def _last_surfaced(data_dir: Optional[Path]) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(_last_path(data_dir).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _note_surfaced(now: datetime, data_dir: Optional[Path]) -> None:
+    path = _last_path(data_dir)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(now.isoformat(timespec="seconds"), encoding="utf-8")
+    except OSError as e:
+        logger.warning(f"[unbidden] couldn't note when something came back: {e}")
 
 
 def _remember_pick(memory_id: str, data_dir: Optional[Path]) -> None:
@@ -150,12 +173,20 @@ def render(found: Dict[str, Any], now: Optional[datetime] = None) -> str:
 
 def session_section(collection=None, *, now: Optional[datetime] = None, rng: Optional[random.Random] = None,
                     data_dir: Optional[Path] = None) -> str:
-    """For a session prompt: "" unless the lever is on and chance says so this time."""
+    """For a session prompt: "" unless the lever is on, GAP_DAYS have passed since the
+    last one, and chance says so this time."""
     from features import is_enabled
     if not is_enabled("unbidden_memory"):
+        return ""
+    now = now or datetime.now()
+    last = _last_surfaced(data_dir)
+    if last and now - last < timedelta(days=GAP_DAYS):
         return ""
     rng = rng or random.Random()
     if rng.random() >= SESSION_CHANCE:
         return ""
     found = pick(collection, now=now, rng=rng, data_dir=data_dir)
-    return render(found, now) if found else ""
+    if not found:
+        return ""
+    _note_surfaced(now, data_dir)
+    return render(found, now)
