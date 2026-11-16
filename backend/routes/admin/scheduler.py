@@ -410,3 +410,42 @@ async def run_session_now(template_id: str, focus: Optional[str] = None,
     if not await pqm._dispatch_work(queued):
         raise HTTPException(status_code=500, detail="Dispatch failed (see the vessel log)")
     return {"status": "started", "template_id": template_id, "work_unit_id": unit.id}
+
+
+@router.post("/replan-day")
+async def replan_day(_admin: dict = Depends(require_admin)):
+    """Have her plan the rest of today again (e.g. when her planning turn
+    failed and the one-shot fallback planned instead).
+
+    Work still queued from an earlier plan, for this phase and the ones after
+    it, is taken off first, so the new plan replaces it rather than doubling
+    it. Spell-queued work and housekeeping stay. Then her day-planning
+    session runs, the same way it does each morning.
+    """
+    from scheduling.day_phase import DayPhase
+    from scheduling.phase_queue import QueuedWorkUnit
+    from scheduling.templates import HOUSEKEEPING_TEMPLATES, WORK_TEMPLATES
+
+    pqm = get_phase_queue_manager()
+    if not pqm:
+        raise HTTPException(status_code=503, detail="Phase queue not available")
+    order = [DayPhase.MORNING, DayPhase.AFTERNOON, DayPhase.EVENING, DayPhase.NIGHT]
+    current = DayPhase.MORNING
+    try:
+        current = DayPhase(pqm.state_bus.read_state().day_phase.current_phase)
+    except Exception:
+        pass
+    removed = []
+    for phase in order[order.index(current):]:
+        for queued in list(pqm._phase_queues[phase]):
+            unit = queued.work_unit
+            motivation = getattr(unit, "motivation", "") or ""
+            if unit.template_id in HOUSEKEEPING_TEMPLATES or motivation.startswith("Queued by spell") \
+                    or motivation.startswith("started by hand"):
+                continue
+            if pqm.remove_from_queue(phase, unit.id):
+                removed.append({"phase": phase.value, "name": unit.name})
+    unit = WORK_TEMPLATES["day_planning"].instantiate(motivation="started by hand: replanning the rest of today")
+    if not await pqm._dispatch_work(QueuedWorkUnit(work_unit=unit, target_phase=current)):
+        raise HTTPException(status_code=500, detail="Dispatch failed (see the vessel log)")
+    return {"status": "started", "removed": removed, "work_unit_id": unit.id}

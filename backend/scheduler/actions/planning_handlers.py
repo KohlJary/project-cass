@@ -133,7 +133,7 @@ async def replan_phase_action(context: Dict[str, Any]) -> ActionResult:
 
         # Clear current queue for this phase
         if scheduler._phase_queue:
-            scheduler._phase_queue.clear_phase(target_phase)
+            scheduler._phase_queue.clear_queue(target_phase)
 
         # Replan just this phase
         plan = await scheduler.decision_engine.plan_day([target_phase])
