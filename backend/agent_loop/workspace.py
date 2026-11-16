@@ -30,6 +30,10 @@ AGENDA_FILE = "AGENDA.md"
 LOG_FILE = "workspace_log.jsonl"   # beside the folder, not in it
 
 MAX_READ_CHARS = 60_000
+# One part of a read: under the loop's cap on a tool result (loop.py,
+# MAX_TOOL_RESULT_CHARS = 20,000), which otherwise cut a 43k file at 20k with
+# no way on (live, 2026-11-16).
+READ_PART_CHARS = 18_000
 MAX_WRITE_CHARS = 200_000
 MAX_LIST = 300
 MAX_HITS = 80
@@ -38,8 +42,14 @@ AGENDA_CONTEXT_CHARS = 8_000
 
 WORKSPACE_TOOLS: List[Dict[str, Any]] = [
     {"name": "workspace_read",
-     "description": "Read a file in my workspace (a folder of my own). Paths are relative to it.",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+     "description": ("Read a file in my workspace (a folder of my own). Paths are relative to it. "
+                     "A long file comes in parts: the result says where the next part starts "
+                     "(from_char)."),
+     "input_schema": {"type": "object",
+                      "properties": {"path": {"type": "string"},
+                                     "from_char": {"type": "integer", "minimum": 0,
+                                                   "description": "where to start reading (default 0)"}},
+                      "required": ["path"]}},
     {"name": "workspace_write",
      "description": "Create or overwrite a file in my workspace. Folders are made as needed.",
      "input_schema": {"type": "object",
@@ -191,9 +201,19 @@ class Workspace:
             if not p.is_file():
                 return {"error": f"No file {path} in my workspace."}
             text = p.read_text(encoding="utf-8", errors="replace")
-            if len(text) > MAX_READ_CHARS:
-                return text[:MAX_READ_CHARS] + f"\n[... {len(text) - MAX_READ_CHARS} more chars]"
-            return text
+            start = a.get("from_char") or 0
+            if not isinstance(start, int) or start < 0:
+                return {"error": "from_char must be a whole number, 0 or more"}
+            if start and start >= len(text):
+                return {"error": f"{path} has {len(text)} chars; from_char is past the end."}
+            end = start + READ_PART_CHARS
+            if start == 0 and len(text) <= READ_PART_CHARS:
+                return text
+            part = text[start:end]
+            if end < len(text):
+                return part + (f"\n[part: chars {start}-{end} of {len(text)}; "
+                               f"the rest starts at from_char={end}]")
+            return part + f"\n[part: chars {start}-{len(text)} of {len(text)}; the end]"
         if name == "workspace_write":
             content = a.get("content")
             if not isinstance(content, str):

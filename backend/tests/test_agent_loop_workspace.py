@@ -100,3 +100,23 @@ def test_agenda_is_in_the_assembled_prompt_and_never_cut(ws, monkeypatch):
     assert agenda is not None and agenda.never_cut and "the memory battery" in prompt.text
     names = [s.name for s in prompt.sections]
     assert names.index("seam") < names.index("agenda")
+
+
+def test_a_long_file_reads_in_parts_under_the_loops_cap(ws):
+    from agent_loop.loop import MAX_TOOL_RESULT_CHARS
+    from agent_loop.workspace import READ_PART_CHARS
+    text = "".join(f"line {i:05d}\n" for i in range(4000))   # 44,000 chars
+    ws.root.mkdir(parents=True, exist_ok=True)
+    (ws.root / "long.md").write_text(text)
+    got, start = "", 0
+    for _ in range(10):
+        part = ws.run("workspace_read", {"path": "long.md", "from_char": start})
+        assert isinstance(part, str) and len(part) < MAX_TOOL_RESULT_CHARS
+        body, note = part.rsplit("\n[part: ", 1)
+        got += body
+        if "the end]" in note:
+            break
+        start = int(note.split("from_char=")[1].rstrip("]"))
+    assert got == text and READ_PART_CHARS < MAX_TOOL_RESULT_CHARS
+    assert "error" in ws.run("workspace_read", {"path": "long.md", "from_char": len(text) + 1})
+    assert ws.run("workspace_read", {"path": "small.md"}) == {"error": "No file small.md in my workspace."}
