@@ -146,3 +146,20 @@ def test_a_follow_can_say_why_and_a_find_is_kept_in_her_words(placed, levers):
 def test_her_social_session_has_finds_and_dms():
     from agent_loop.spec import PACKS
     assert {"social_find", "social_dm_read", "social_dm_remember"} <= set(PACKS["social"].tools)
+
+
+def test_a_refused_dm_listing_doesnt_lose_the_mentions(placed):
+    from social import inbox
+
+    class Client:
+        async def notifications(self, limit=50):
+            return [{"uri": "at://ann/post/1", "reason": "reply", "author": "ann.bsky.social", "text": "hi"}]
+
+        async def post_stats(self, uris):
+            return {}
+
+        async def conversations(self, limit=50):
+            raise RuntimeError("Bluesky said no to chat.bsky.convo.listConvos: Bad token method")
+    added = run(inbox.poll("bluesky", Client(), placed, dms=True))
+    assert [i["kind"] for i in added] == ["reply"]
+    assert [i["kind"] for i in inbox.pending("bluesky", placed)] == ["reply"], "saved, not thrown away"

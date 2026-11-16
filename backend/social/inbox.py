@@ -18,6 +18,8 @@ is read in the session, under the consent line (social/dms.py).
 """
 from __future__ import annotations
 
+import logging
+
 import json
 import statistics
 from datetime import datetime
@@ -26,6 +28,8 @@ from typing import Any, Dict, List, Optional
 
 from social import limits
 from social.config import platform_dir
+
+logger = logging.getLogger(__name__)
 
 QUEUED_REASONS = ("mention", "reply", "quote", "follow")
 SEEN_KEEP = 1000        # notification uris remembered, so nothing is queued twice
@@ -96,9 +100,17 @@ async def poll(platform: str, client, data_dir: Optional[Path] = None, *, dms: b
         added.append(_item(n["reason"], id=uri, uri=uri, at=n.get("at"), **{"from": n.get("author")},
                            name=n.get("name"), text=n.get("text", ""), url=n.get("url")))
 
-    added += await _resonance(platform, client, state, data_dir)
-    if dms:
-        added += await _dms(client, state)
+    # Each part fails on its own: a refused DM listing (an app password made
+    # without DM access says "Bad token method") used to throw away the
+    # mentions and replies already fetched in this pass.
+    for part in (lambda: _resonance(platform, client, state, data_dir),
+                 (lambda: _dms(client, state)) if dms else None):
+        if part is None:
+            continue
+        try:
+            added += await part()
+        except Exception as e:
+            logger.warning(f"[social] part of the {platform} poll failed; the rest is kept: {e}")
 
     state["items"].extend(added)
     state["last_poll"] = now.isoformat(timespec="seconds")
