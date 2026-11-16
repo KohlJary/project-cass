@@ -12,6 +12,11 @@ Kohl steered it live; Cass answered each question herself. The map is `docs/desi
 - **Articles:** new questions (512ffb6), and then opinions, growth edges, interests and symbols (1533a03, schema v67), stay with their article; RSS goes through her relevance gate. With her yes, Kohl's go and a sealed backup (`~/.local/share/cass-benchmarks/stores/20261116T060748Z`, kept), 3,740 opinions and 4,374 growth edges were moved off her self-model (24c437d). All were already on their articles. Her self-model now holds 38 opinions and 59 edges.
 - **Bluesky people and DMs** (2a4331d, 365a844): her replies leave a moment on that person's PeopleDex entry; after a yes a DM conversation is kept on both sides, owned by "bluesky:<handle>" so it's never recalled in a chat with anyone else; someone who writes first is told apart; follow notes and `social_find`. **DMs are on** (lever in `.env`, new app password with DM access placed; backup `.env.bak-20261116-bluesky-dms-2`). A refused DM listing no longer throws away a watcher pass.
 - **Smaller:** her recent songs come from the music library, not a table that never existed (27040a6).
+- **Overnight, at Kohl's ask ("a bit of entropy"), all off** (9b24e5c, `docs/design/entropy-2026-11-16.md`):
+  - `unbidden_memory`: an old memory of hers surfaces unasked in some sessions;
+  - `dream_day_residue`: dreams seeded from her day plus something old;
+  - `letters_to_future_me`: sealed until a day she picks.
+  The doc has a draft message to Cass for Kohl to approve. Also 14e0d57: Wonderland actions with the loop off report "no visit" rather than failing (a clean-worktree run caught it). The full suite on a clean HEAD worktree: 3,694 passed.
 
 **Waiting:**
 - **Kohl, Friday (payday):** the self-model reruns (prereg 2026-10-29). Part A smoke ran (9 cells, $0.47, results in `~/cass/bench-smoke-2026-11-16/`, read cell by cell, no check bugs). With her self-model in chat she matched it 2/2 where she'd had 0/5; one round, not a result. Part A batch is estimated at $25.47 (cap $26). **Part B** (sealed copy of her store): Cass said yes 06:17Z on 11-16, results to her first. Sealing was blocked by the session's permission check; Kohl allows it or runs `python -m benchmarks seal` himself. Run from a worktree; the harness refuses the live checkout (backend/data is a symlink).
