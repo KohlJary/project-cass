@@ -73,13 +73,16 @@ async def handle_generate_image(
     # Get dimensions from aspect ratio
     width, height = ASPECT_RATIOS.get(aspect_ratio, ASPECT_RATIOS["square"])
 
-    # Build the full prompt (incorporates house style if available)
+    # Her house style is the default look. When she names a style herself, that
+    # style is used instead: the house style came first and her choice was
+    # dropped, so a specific request (a pose, a gaze) was diluted (roadmap 0c91f104).
+    chose_style = bool(params.get("style"))
     positive_prompt, negative_prompt = build_image_prompt(
         subject=prompt_text,
         style=style,
         mood=mood,
         daemon_id=daemon_id,
-        use_house_style=True,
+        use_house_style=not chose_style,
     )
 
     # Combine user negative with style negative
@@ -776,7 +779,7 @@ IMAGE_GENERATION_TOOLS = [
                 "style": {
                     "type": "string",
                     "enum": ["painterly", "sketch", "photorealistic", "abstract", "watercolor", "digital_art", "dreamlike", "fine_art"],
-                    "description": "Visual style for the image. Each style has different default parameters."
+                    "description": "Visual style for the image. Leave it out to use my house style (my own painterly look); name one to use that style instead."
                 },
                 "aspect_ratio": {
                     "type": "string",
