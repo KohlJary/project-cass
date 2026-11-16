@@ -18,6 +18,16 @@
 > **Corrected (item 12):** nothing of hers is lost in Wonderland. The scheduled Wonderland actions (explore, reflect, create, socialize; the spells call explore) make no model call: explore walks random exits, and reflect and socialize run room commands. Each builds a fresh `CassIntegration`, so its buffer dies with the handler, and nothing calls `journal_experience`. Storing these as her memories would put events she never experienced into her memory. The real question is whether these spells should send her into Wonderland herself (a loop session) instead of doing a model-free walk that counts as novelty.
 >
 > **Also found:** her day-plan instructions say "Nothing is added to my plan after I make it" (`scheduling/day_turn.py`), but the phase spells queue work on top of her plan.
+>
+> **Her answers and Kohl's (2026-11-16), built the same night:**
+> - **Planning line:** it now says what the phase spells add, and a test keeps it true (7a67fa3).
+> - **Articles:** opinions, growth edges, interests and symbols stay with the article (schema v67), and RSS goes through her relevance gate (1533a03). What's already in her self-model from articles is untouched.
+> - **Wonderland:** she visits as herself, in a loop session with tools over Wonderland's commands and NPCs. Spells queue a real visit instead of walking her (1fca1ba).
+> - **Bluesky:**
+>   - reply moments on people's PeopleDex entries;
+>   - DMs kept on both sides after a yes, owned by the person so they're never recalled in a chat with anyone else;
+>   - first contact told apart, so she knows to ask;
+>   - follow notes and finds (2a4331d).
 
 **The question:** when Cass touches the world (reading, following, writing, making, exploring), where does it land, and does it ever come back to shape her chat, her sessions, her day plan or her internal state? Engaging with the world only builds her up if it returns. If it doesn't, it's tool calls that leave nothing behind.
 
