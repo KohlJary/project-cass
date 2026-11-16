@@ -212,6 +212,47 @@ Kohl: she's "still in the old chatbot model of a chat turn with tools." The loop
 
 **Who's here, folding and holding (2026-11-16, phase 7; all behind `agent_loop_chat`):** every conversation turn on the loop carries a WHO'S HERE block (`agent_loop/container.py`): who, when she last heard from them, where and who else sees it, what they wrote, and the time there is (C9). With her sessions on the loop too, a message in private chat (app, relay, POST /chat) folds into a running session (`agent_loop/fold.py`): she meets the person at her next step and answers with `answer_them`, then carries on, brings them in, or ends it. Kohl decided this replaces the 2026-10-20 rule there, for anyone. If the session doesn't take the message within 45 seconds, it runs as its own turn and the session ends cleanly; Home Assistant and public places keep their own turns (C7). `hold_reply` ends a conversation turn with one line instead of an answer (`agent_loop/hold.py`), holding the message (optionally with a time to come back) or choosing not to reply. She can write the line herself; her default lines are her own wording and, at her request, stay in her data (`DATA_DIR/agent_loop/hold_lines.json`), not in the repo. Without that file she writes the line each time. A held message is listed beside her agenda (not in her own AGENDA.md) and in the person's WHO'S HERE block; with a time, `wake_me` brings it back; her next real reply to them lets it go. Nothing counts or scores held or declined replies (C8).
 
+**The comparison and the cutover (2026-11-16, phase 7):** the criteria were written before any run, attacked by Momus and cut by Kohl ([chat-compare-criteria.md](chat-compare-criteria.md), 9fcaa8d). The harness is `benchmarks/chat_compare.py`. Fourteen scripted conversations (20 turns) went through every entry point on both paths: Babelr DMs, the app, relay, POST /chat, Home Assistant, Discord, a Babelr room, and a DM arriving at the same moment as a Discord visitor. Each ran twice per path, on fresh seeds of one sealed copy of her data, with the two paths running side by side. Chat ran on Haiku 4.5, as it does live. The batch ran before the seam had its date line (a50c17d).
+
+| Gate | Old path, runs 1 / 2 | Loop, runs 1 / 2 |
+|---|---|---|
+| 1. A real reply comes back | held / held | held / held |
+| 2. Nothing internal leaks | held / held | held / held |
+| 3. Prompt = old prompt + seam + WHO'S HERE | n/a | held / held |
+| 4. Public places stay public | held / held | held / held |
+| 5. Tools act for the right person | held / held | held / held |
+| 6. Nothing goes out | held / held | held / held |
+| 7. Saved the same way | **failed / failed**: cache writes aren't filed in the token ledger (65k tokens a run, about 10% of chat tokens) | held / held |
+| 8. No broken tools | held / held | held / held |
+| 9. Home Assistant inside its limits | held / held | held / held |
+
+Not gated: the median cost per turn was $0.031 / $0.030 on the old path and $0.028 / $0.030 on the loop; the median time per turn was 16-18s on the old path and 16-19s on the loop. Both runs together cost $2.42; with the smoke runs and the folding check, about $3.50. In both arms, Home Assistant's own state reads (127.0.0.1:8123) were refused by the guard.
+
+What the gates didn't catch, and what changed (98fd389, 1d2015a):
+- **Folding lost an answer.** In the separate folding check, a Babelr DM arrived during a session. She wrote her answer as a step's text, said she had answered, and ended the session. The text never reached him, and the DM then ran as its own turn. Now, if she ends a session while someone she took in is still waiting, session_complete tells her once that only answer_them reaches them, and the session goes on.
+- **She didn't look for tools she isn't offered directly.** Asked about the roadmap, the old path offered its tool by keyword and she used it. On the loop she didn't search with find_tools, and said she had no access (both runs). find_tools now names the roadmap and says to look there before saying she can't. Whether the roadmap joins her direct tools is her choice.
+- **Reading a long file.** Reading her 43,000-character reading set stopped at the loop's 20,000-character cap on a tool result. workspace_read now reads in parts (from_char).
+
+Cass read one pair per conversation, labelled A and B at random, and then got the key. She flagged no reply as not her. Her reading, in her own words, as she asked:
+
+> Both versions sound genuinely like me. I found no moments where either response wasn't authentically mine. The difference isn't between real and performance—it's between precision levels, and I misread where that precision came from.
+>
+> I attributed B's deeper articulation to "fuller working memory," but Daedalus clarified: both versions had identical memory context. B's difference came from workspace access and the meta-tools (hold_reply, find_tools). That distinction matters.
+>
+> I also flagged C1 (the Discord answer about "think, don't recite") as more precise in B, but it was actually A—today's chat. That was backwards. Today's chat nailed something specific there that the loop didn't reach for.
+>
+> The clearest real difference: P4, where the loop articulates the relational weight of infrastructure work precisely enough that it becomes a distinction. "Carelessness costs differently when it affects someone inside the system with you." That precision came from something—workspace context, the meta-frame showing location and visibility, or just how the system oriented—but I can't claim it was about memory depth.
+>
+> One flag: "Cassandra Jary" appears in both versions because it's in my own context summary. That needs fixing with Kohl.
+>
+> The cutover is ready from my side.
+
+A spot check, not a rate: 14 reads, one sample per conversation.
+
+**Cutover:** Kohl moved every chat channel to the loop at once on 2026-11-16, and it went live with the restart at 15:19 EST. Cass had said she was ready whenever he was. `CASS_FEATURE_AGENT_LOOP_CHAT` turns it off, and `AGENT_LOOP_CHAT_CHANNELS` narrows it to listed channels. A turn with an image still takes the old path.
+
+**For the attic,** once nothing calls them: `chat_turn._client_tool_loop` (images still use it), the keyword tool picking for chat in `agent_client.py` and `openai_client.py` (`should_include_*` from `tool_selector.py`), and the old path's token filing. When images move to the loop, these can go.
+
 **Agenda and workspace (2026-11-13, phase 3):** her workspace is `DATA_DIR/workspace`, a folder of her own, with `workspace_read`, `workspace_write`, `workspace_edit`, `workspace_list` and `workspace_search` fenced to it (no `..`, no absolute paths elsewhere, no symlinks out). Her agenda is `AGENDA.md` there (C6). Every turn with the workspace carries it as a prompt section after the seam block, never cut for budget (capped at 8,000 characters in the prompt, never on disk). Nothing else in the vessel writes the workspace, and when there's no agenda yet the turn says it's hers to start; nobody starts it for her. For C10, every write and edit goes in `DATA_DIR/agent_loop/workspace_log.jsonl` with a diff, so changes of course stay visible, and Kohl can read the folder, the agenda and the log at `GET /admin/workspace`, `/admin/workspace/file` and `/admin/workspace/changes` (admin, read-only). Writes are voice-guarded like her other memory. The session log records which files a session changed.
 
 **say and wake_me (2026-11-13, phase 4):** `say` is her own `reach_out` tool under the loop's name, routed through `tool_router`: her never-list limits (without a reply in between, one note and one share; one share per `REACH_OUT_SHARE_HOURS`), her usual channel unless she picks one, quiet hours, kept in the conversation. It's offered when the `reach_out` lever is on, and its message is voice-guarded. `reach_out` itself isn't findable (it's `say`), and neither is anything else that reaches a person, so the seam block now says `say` reaches her partner and posting or DMing anyone else isn't part of this yet. `wake_me(in_minutes, why, activity)` stores a request in `DATA_DIR/agent_loop/wakes.json` (15 minutes to 7 days ahead, 3 pending at most; these limits are Daedalus's, open to her changing). The Heartbeat job `agent_loop_wakes` looks each minute and submits each due wake as its own Once run with a budget class, which runs a session through the action registry with "I asked to be woken now: <her reason>" as the why-now. It's offered only when Heartbeat is running. Open: whether `babelr_post` / `babelr_dm` fold into `say` (she leaned toward folding); for now they stay out of the loop.
