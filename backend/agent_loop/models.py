@@ -139,6 +139,11 @@ def anthropic_messages(history: List[Dict[str, Any]], cache: bool = True) -> Lis
                 for r in h["results"]]})
         else:
             raise ValueError(f"unknown history role {role!r}")
+        # Someone who arrived mid-turn (fold.py) comes right after tool results
+        # or a nudge; Anthropic wants roles to alternate, so one user message.
+        if len(msgs) > 1 and msgs[-1]["role"] == "user" and msgs[-2]["role"] == "user":
+            last = msgs.pop()
+            msgs[-1] = {"role": "user", "content": msgs[-1]["content"] + last["content"]}
     if cache and msgs:
         # Breakpoint on the newest block: the next step reads everything up
         # to here from the cache.

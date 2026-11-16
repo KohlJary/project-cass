@@ -251,22 +251,46 @@ async def run_chat_turn(
     on_loop = features.is_enabled("agent_loop_chat") and not image
     if on_loop:
         # Phase 7 of "Cass's agent loop": the same context, through the one loop.
-        from agent_loop.conversation import run_conversation
+        from agent_loop import fold as fold_mod
+        from agent_loop.container import arrival_for, render as render_arrival
+        from agent_loop.conversation import LoopChatResult, _gestures, run_conversation
         user_name = None
         if user_id and user_manager:
             profile = user_manager.load_profile(user_id)
             user_name = profile.display_name if profile else None
+        chan = channel or _guess_channel(websocket, context_scope, tool_cap)
+        arrival_block = render_arrival(arrival_for(user_id, user_name, chan, user_message))
+        # C7: in private chat, someone who writes while she's in a session
+        # arrives in it and she answers from there (agent_loop/fold.py).
+        folded_text = None
+        if (fold_mod.folding_on() and context_scope == "private" and chan in fold_mod.FOLD_CHANNELS
+                and fold_mod.DESK.is_open()):
+            offered = fold_mod.DESK.offer(arrival_block, user_name or "someone", chan)
+            if offered is not None:
+                await emit({"type": "thinking", "status": "Arriving in what I'm doing..."})
+                folded_text = await fold_mod.wait_for_answer(offered)
+                if folded_text is None:
+                    fold_mod.DESK.request_end(f"{user_name or 'someone'} wrote to me and it couldn't "
+                                              f"wait inside this session")
+    if on_loop and folded_text is not None:
+        clean_folded, folded_gestures = _gestures(folded_text, agent_client if is_anthropic else None)
+        looped = LoopChatResult(raw_response=folded_text, clean_text=clean_folded,
+                                animations=folded_gestures, input_tokens=0, output_tokens=0,
+                                cache_read_tokens=0, tool_iterations=0, tool_names_used=[],
+                                generated_images=[], hit_tool_cap=False)
+    elif on_loop:
         looped = await run_conversation(
             system_prompt=system_prompt,
             continuous_messages=continuous_messages,
             model_message=send_kwargs["message"],
             person={"user_id": user_id, "user_name": user_name, "conversation_id": conversation_id,
                     "project_id": project_id, "daemon_id": daemon_id},
-            channel=channel or _guess_channel(websocket, context_scope, tool_cap),
+            channel=chan, arrival_block=arrival_block,
             provider=response_provider, model=response_model,
             agent_client=agent_client if is_anthropic else None,
             tool_cap=tool_cap, emit=emit,
         )
+    if on_loop:
         raw_response, clean_text, animations = looped.raw_response, looped.clean_text, looped.animations
         total_input, total_output = looped.input_tokens, looped.output_tokens
         total_cache_read, tool_iterations = looped.cache_read_tokens, looped.tool_iterations

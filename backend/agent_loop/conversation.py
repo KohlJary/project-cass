@@ -122,6 +122,7 @@ async def run_conversation(
     run_router=None,
     catalog: Optional[Dict[str, Dict[str, Any]]] = None,
     workspace=None,
+    arrival_block: Optional[str] = None,
 ) -> LoopChatResult:
     """One conversation turn through the loop. `client`, `run_router`,
     `catalog` and `workspace` default to the live ones (tests pass fakes)."""
@@ -148,6 +149,8 @@ async def run_conversation(
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
     trigger = Trigger(source="message", why=f"{who} wrote to me through {where}")
     system = f"{system_prompt}\n\n{render_seam(spec, trigger, tool_names)}"
+    if arrival_block:   # C9: who's here, what's needed, how much time (container.py)
+        system += f"\n\n{arrival_block}"
 
     if client is None:
         client = _client_for(provider, model, agent_client)

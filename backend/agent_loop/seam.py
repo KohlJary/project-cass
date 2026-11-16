@@ -70,7 +70,11 @@ def render_seam(spec: TurnSpec, trigger: Trigger, tool_names: Sequence[str]) -> 
         lines.append(f"Not yet: {not_yet}")
     kept = "; ".join(words for _, words in spec.writes.kept)
     lines.append(f"What will be kept: {kept}.")
-    if spec.kind == "session":
+    if spec.kind == "session" and "answer_them" in tool_names:
+        lines.append("If someone writes to me in private chat, they arrive here and I answer "
+                     "them with answer_them, then carry on, bring them in, or end the session. "
+                     "Anyone in a public place or at home by voice gets their own turn.")
+    elif spec.kind == "session":
         lines.append("If someone starts a conversation with me, this session ends "
                      "cleanly and what I have so far is kept.")
     return "\n".join(lines)

@@ -94,6 +94,7 @@ class LoopOutcome:
     artifacts: List[Any] = field(default_factory=list)
     completion: Optional[Dict[str, Any]] = None   # session_complete input, if called
     withheld: List[Dict[str, Any]] = field(default_factory=list)
+    arrivals: int = 0                             # people who arrived mid-turn (fold.py)
 
 
 # One tool result's share of the prompt. A session's list_growth_edges once
@@ -140,10 +141,13 @@ async def run_loop(
     end_tool: Optional[str] = "session_complete",
     nudges: Optional[int] = None,
     token_budget: Optional[int] = None,
+    arrivals: Callable[[], List[str]] = lambda: [],
 ) -> LoopOutcome:
     """Run one turn. `messages` is the neutral history to start from (usually
     one {"role": "user", "content": ...}). `nudges` and `token_budget`
-    default to the spec's."""
+    default to the spec's. `arrivals` gives what someone said who arrived
+    since the last step (fold.py): each goes into the history before the next
+    model call, so she meets them inside the turn."""
     out = LoopOutcome()
     offered = {t["name"] for t in tools}
     history = list(messages)
@@ -175,6 +179,9 @@ async def run_loop(
             if deadline is not None and datetime.now().timestamp() > deadline:
                 out.status, out.end_reason = "completed", "reached the time limit"
                 break
+            for arrived in arrivals():
+                history.append({"role": "user", "content": arrived})
+                out.arrivals += 1
 
             reply = await client.create(model=model, system=system, tools=tools,
                                         messages=history, max_tokens=max_tokens)

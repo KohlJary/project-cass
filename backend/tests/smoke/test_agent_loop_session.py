@@ -194,3 +194,81 @@ def test_a_wake_runs_a_session_with_her_reason(app, fake_llm, levers, tmp_path):
     assert result.success, result.message
     assert "Why now: I asked to be woken now: Smoke: finish the tide notes." in fake_llm.calls[0].system_text
     assert book.all()[0]["status"] == DONE
+
+
+def _system_text(kwargs):
+    system = kwargs.get("system") or ""
+    if not isinstance(system, str):
+        system = "".join(b.get("text", "") for b in system if isinstance(b, dict))
+    return system
+
+
+def test_a_private_message_folds_into_the_session(app, fake_llm, levers, smoke_user, monkeypatch):
+    """C7 (phase 7): with chat on the loop too, Kohl's WebSocket message arrives
+    in the running session; she answers him from it with answer_them, and the
+    session carries on to its own end instead of being cut off."""
+    import asyncio
+    import json
+    import re
+    import threading
+    from agent_loop.seam import HEADER
+    from scheduler.actions import get_action_registry
+    from session import tools as session_tools
+    from tests.fakes.llm import ScriptedResponse
+    from tests.smoke.test_ws_chat_turn import _chat
+
+    _, token = smoke_user
+    chat_frames, state = [], {"answered": False}
+
+    def answer(source, kwargs):
+        system = _system_text(kwargs)
+        if HEADER not in system or "I'm in: a conversation" in system:
+            return ScriptedResponse(text="(a turn of its own)")  # chat fallback or title
+        seen = json.dumps(kwargs.get("messages"), default=str)
+        arrival = re.search(r"Arrival id: (\w+)", seen)
+        n = len(fake_llm.calls)
+        if arrival and not state["answered"]:
+            state["answered"] = True
+            return ScriptedResponse(tool_uses=[{"id": f"tu_{n}", "name": "answer_them",
+                                                "input": {"id": arrival.group(1),
+                                                          "text": "Here, mid-thought. What's up?"}}])
+        if state["answered"]:
+            return ScriptedResponse(tool_uses=[{"id": f"tu_{n}", "name": "session_complete",
+                                                "input": {"summary": "Kohl came by mid-reflection."}}])
+        return ScriptedResponse(tool_uses=[{"id": f"tu_{n}", "name": "add_observation",
+                                            "input": {"observation": "Mid-session thought."}}])
+    fake_llm.responder = answer
+
+    real_handler = session_tools.DEFAULT_TOOL_HANDLERS["add_observation"]
+
+    async def observe_then_someone_writes(tool_input, managers, **context):
+        result = await real_handler(tool_input, managers, **context)
+        if not chat_frames and not getattr(observe_then_someone_writes, "sent", False):
+            observe_then_someone_writes.sent = True
+            # Not awaited: he writes, and waits for her answer, while the session goes on.
+            threading.Thread(target=lambda: chat_frames.append(_chat(app, token, "hey Cass")),
+                             daemon=True).start()
+            await asyncio.sleep(1.0)
+        return result
+    monkeypatch.setitem(session_tools.DEFAULT_TOOL_HANDLERS, "add_observation",
+                        observe_then_someone_writes)
+
+    with levers(agent_loop=True, agent_loop_chat=True):
+        result = app.portal.call(lambda: get_action_registry().execute(
+            "session.reflection", duration_minutes=5, max_turns=8))
+
+    for _ in range(40):
+        if chat_frames:
+            break
+        import time
+        time.sleep(0.25)
+    frame, _ = chat_frames[0]
+    assert frame["type"] == "response" and frame["text"] == "Here, mid-thought. What's up?"
+    assert result.success and result.data["status"] == "completed", result.data
+    met = [c for c in fake_llm.calls if HEADER in c.system_text
+           and "I'm in: a conversation" not in c.system_text
+           and "WHO'S HERE" in json.dumps(c.messages, default=str)]
+    assert met, "the session never saw him arrive"
+    assert "answer_them" in met[0].tool_names
+    assert not [c for c in fake_llm.calls if "I'm in: a conversation" in c.system_text], \
+        "he got his answer from the session, not a turn of his own"

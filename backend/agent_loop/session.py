@@ -27,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from memory.voice_guard import looks_like_refusal
 
 from . import interrupt
+from . import fold as fold_mod
 from . import tools as tools_mod
 from .assemble import assemble
 from .loop import LoopOutcome, ModelClient, model_client_for, resolve_model, run_loop
@@ -108,6 +109,7 @@ def _session_result_cls():
         tools_found: List[str] = field(default_factory=list)
         tools_used_via_find: List[str] = field(default_factory=list)
         workspace_changed: List[str] = field(default_factory=list)
+        folded: List[Dict[str, Any]] = field(default_factory=list)
 
         def to_dict(self) -> Dict[str, Any]:
             data = super().to_dict()
@@ -126,6 +128,7 @@ def _session_result_cls():
                 "tools_found": self.tools_found,
                 "tools_used_via_find": self.tools_used_via_find,
                 "workspace_changed": self.workspace_changed,
+                "folded": self.folded,
             })
             return data
 
@@ -211,6 +214,14 @@ async def run_session_turn(
         can_wake = heartbeat_running()
     session_names = set(_session_tool_defs())
     promoted = tuple(n for n in usage_log.promoted() if n in catalog)
+    # C7 (phase 7): someone who writes in private chat arrives in this session
+    # instead of ending it, when chat runs on the loop too (fold.py).
+    folding = fold_mod.folding_on()
+    if folding:
+        local_tools = {**(local_tools or {}),
+                       "answer_them": (fold_mod.ANSWER_TOOL,
+                                       lambda a: fold_mod.DESK.answer(str(a.get("id") or ""),
+                                                                      str(a.get("text") or "")))}
     from .spec import LOOP_MIN_STEPS
     spec: TurnSpec = session_spec(session_type, max_iterations=max(max_turns, LOOP_MIN_STEPS),
                                   chapter_house="babelr_read" in catalog, promoted=promoted,
@@ -229,6 +240,8 @@ async def run_session_turn(
                   if n in session_names or n in catalog
                   or n in ("find_tools", "use_tool", "say", "wake_me") + WORKSPACE_TOOL_NAMES
                   or n in (local_tools or {})]
+    if folding:
+        tool_names.append("answer_them")
     tools = tool_definitions(tool_names, catalog,
                              extra=[d for d in (say_def, wake_def) if d is not None]
                              + [d for d, _ in (local_tools or {}).values()])
@@ -253,19 +266,35 @@ async def run_session_turn(
                "wake_me": lambda a: wakes.request(a, session_id, ACTIVITY_PACKS),
                **{n: h for n, (_, h) in (local_tools or {}).items()}})
 
-    outcome = await run_loop(
-        spec=spec,
-        client=client,
-        model=model,
-        system=prompt.text,
-        tools=tools,
-        messages=[{"role": "user",
-                   "content": initial_message
-                   or runner._get_default_initial_message(session_type, focus)}],
-        execute=box.execute,
-        interrupted=lambda: interrupt.conversation_since(started, daemon_id),
-        deadline=started.timestamp() + duration_minutes * 60,
-    )
+    folded: List[Dict[str, Any]] = []
+
+    def arrivals() -> List[str]:
+        got = fold_mod.DESK.take(session_id)
+        folded.extend({"who": f.who, "channel": f.channel, "id": f.id,
+                       "at": f.taken_at.isoformat(timespec="seconds")} for f in got)
+        return [fold_mod.arrival_message(f) for f in got]
+
+    if folding:
+        fold_mod.DESK.open_session(session_id)
+    try:
+        outcome = await run_loop(
+            spec=spec,
+            client=client,
+            model=model,
+            system=prompt.text,
+            tools=tools,
+            messages=[{"role": "user",
+                       "content": initial_message
+                       or runner._get_default_initial_message(session_type, focus)}],
+            execute=box.execute,
+            interrupted=((lambda: fold_mod.DESK.end_reason(session_id)) if folding
+                         else (lambda: interrupt.conversation_since(started, daemon_id))),
+            deadline=started.timestamp() + duration_minutes * 60,
+            arrivals=arrivals if folding else (lambda: []),
+        )
+    finally:
+        if folding:
+            fold_mod.DESK.close_session(session_id)
 
     from session.generic_runner import SessionTurn
     Result = _session_result_cls()
@@ -304,6 +333,9 @@ async def run_session_turn(
     result.summary = keep_narrative(outcome, runner)
     result.insights = _insights(outcome)
     result.withheld = outcome.withheld
+    for f in folded:
+        f["answered"] = bool(fold_mod.DESK.answered(f["id"]))
+    result.folded = folded
 
     if result.provider == "ollama":
         result.estimated_cost_usd = 0.0
