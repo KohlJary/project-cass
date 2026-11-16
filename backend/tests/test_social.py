@@ -288,7 +288,8 @@ def dm_client(placed, fake):
 
 
 def test_dms_need_their_own_lever(placed, levers):
-    with levers(bluesky=True):
+    # Explicitly off: the live .env turns bluesky_dms on (2026-11-16).
+    with levers(bluesky=True, bluesky_dms=False):
         out = run(execute_social_tool("social_dms", {"platform": "bluesky"}, client=dm_client(placed, FakeBluesky())))
     assert not out["success"] and "DMs" in out["error"]
     out = run(execute_social_tool("social_dms", {"platform": "tumblr"}))
