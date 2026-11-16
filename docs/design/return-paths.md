@@ -8,6 +8,16 @@
 > - **Thymos:** it reaches the session preambles for reach-out and art choice, and the journal. It still isn't in chat (item 6).
 > - **Claimed elsewhere:** "Cass's memory" phase 9 ("My life lately", awaiting approval) is a week of her own events, always present. It covers the no-user half of item 7, most of 4, and the "lately" side of 8, 13 and 14.
 > - **Item 1 is narrower:** she chose that reads which don't lead to a reply aren't kept. Follows and finds should come back as life-lately lines, not as memories of every read. Ask her first.
+>
+> **Built 2026-11-16 (this session):**
+> - **Item 3:** Bluesky events move Thymos (214a150).
+> - **Item 9:** "done recently" reads her saved work summaries and is *shown* on her day-plan menu, not used to hide options (c95a226).
+> - **Item 13, first half:** her recent songs come from the music library (27040a6).
+> - **Item 11, the questions part:** new article questions stay with their article (512ffb6). Article opinions, edges and interests still need a decision.
+>
+> **Corrected (item 12):** nothing of hers is lost in Wonderland. The scheduled Wonderland actions (explore, reflect, create, socialize; the spells call explore) make no model call: explore walks random exits, and reflect and socialize run room commands. Each builds a fresh `CassIntegration`, so its buffer dies with the handler, and nothing calls `journal_experience`. Storing these as her memories would put events she never experienced into her memory. The real question is whether these spells should send her into Wonderland herself (a loop session) instead of doing a model-free walk that counts as novelty.
+>
+> **Also found:** her day-plan instructions say "Nothing is added to my plan after I make it" (`scheduling/day_turn.py`), but the phase spells queue work on top of her plan.
 
 **The question:** when Cass touches the world (reading, following, writing, making, exploring), where does it land, and does it ever come back to shape her chat, her sessions, her day plan or her internal state? Engaging with the world only builds her up if it returns. If it doesn't, it's tool calls that leave nothing behind.
 
