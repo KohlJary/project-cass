@@ -295,7 +295,7 @@ class AutonomousScheduler:
             logger.warning("Decision engine returned no plan")
             plan = {}
 
-        # Nothing is added to her plan after she makes it. A morning news
+        # Spells no longer force news into her plan. A morning news
         # session used to be inserted whatever she chose; news is on her menu
         # like everything else (plan "Cass plans her own day", phase 2).
 

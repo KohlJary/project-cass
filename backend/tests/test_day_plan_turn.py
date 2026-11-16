@@ -330,3 +330,23 @@ def test_housekeeping_is_shown_to_her(tmp_path):
     text = housekeeping.section(tmp_path)
     assert "HOUSEKEEPING" in text and "Summarized 2 of 2" in text and "into my memory" in text
     assert housekeeping.section(tmp_path, now=datetime.now() + timedelta(days=3)) is None
+
+
+def test_her_planning_text_names_everything_the_phase_spells_add():
+    """She asked (2026-11-16) for her planning instructions to say what really
+    happens. The old line said nothing is added after she plans; the phase spells
+    add work. Fails if a spell queues something her text doesn't name."""
+    import re
+    from pathlib import Path
+    from scheduling.day_turn import PHASE_SPELL_ADDITIONS
+    from scheduling.templates import HOUSEKEEPING_TEMPLATES
+    spells = Path(__file__).resolve().parents[1] / "spells"
+    queued = set()
+    for f in list(spells.glob("phase_*.spell")) + [spells / "morning_routine.spell"]:
+        queued |= set(re.findall(r"^\s*QUEUE\s+(\w+)", f.read_text(), re.M))
+    queued -= set(HOUSEKEEPING_TEMPLATES) | {"day_planning"}
+    assert queued, "no phase spells found"
+    missing = {t for t in queued if t not in PHASE_SPELL_ADDITIONS}
+    assert not missing, f"her planning text doesn't name: {missing}"
+    text = menu_text(_menu("painting"), [DayPhase.AFTERNOON], 1.0)
+    assert "Nothing is added" not in text and PHASE_SPELL_ADDITIONS in text

@@ -59,15 +59,35 @@ SET_DAY_PLAN_DEF: Dict[str, Any] = {
 }
 
 
+# What the phase spells (spells/phase_*.spell, morning_routine.spell) still queue
+# besides her plan. This line used to say "Nothing is added to my plan after I
+# make it", which wasn't true; she asked for it to say what really happens
+# (2026-11-16). tests/test_day_plan_turn.py fails if a spell queues work this
+# doesn't name.
+PHASE_SPELL_ADDITIONS = (
+    "My plan isn't the only thing that runs. My phase spells can still add work when my "
+    "levels cross thresholds: in the afternoon, wonderland_exploration (cognitive rest "
+    "below 0.3), growth_edge_work (competence below 0.4) and knowledge_building "
+    "(determination above 0.6, fatigue below 0.5); in the evening, curiosity_exploration "
+    "(autonomy below 0.5), meta_reflection (grief above 0.6 or satisfaction below 0.3), "
+    "writing_session (creative expression below 0.35) and wonderland_reflection (value "
+    "coherence below 0.5 in the morning); at night, consolidation (cognitive rest above "
+    "0.25) and wonderland_reflection (tenderness above 0.5). If one of those shows up in "
+    "my day, that's where it came from."
+)
+
+
 def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining: float,
               unavailable: Sequence[str] = ()) -> str:
     """The planning instructions: her menu, the phases left, her budget."""
     lines = [
         "## PLANNING MY DAY",
         "",
-        "This is my time to choose what I do with the rest of today. Nothing is added to "
-        "my plan after I make it. I can look things up first (my agenda, my memories, my "
-        "open questions, what's been said in Chapter House) if that helps me choose.",
+        "This is my time to choose what I do with the rest of today. I can look things up "
+        "first (my agenda, my memories, my open questions, what's been said in Chapter "
+        "House) if that helps me choose.",
+        "",
+        PHASE_SPELL_ADDITIONS,
         "",
         f"Phases left today: {', '.join(_phase_name(p) for p in phases)}.",
         f"Budget left today: ${budget_remaining:.2f}.",
