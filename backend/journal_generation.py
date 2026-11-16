@@ -110,6 +110,15 @@ async def write_daily_journal(
     self_context = None
     if self_manager and features.is_enabled("prompt_self_model"):
         self_context = self_manager.get_self_context(include_observations=True)
+    # How she feels as she writes it (Thymos, lever prompt_thymos), like her chat and sessions.
+    if features.is_enabled("prompt_thymos"):
+        try:
+            from thymos import get_thymos_context
+            felt = get_thymos_context()
+            if felt:
+                self_context = f"{self_context}\n\n{felt}" if self_context else felt
+        except Exception as e:
+            print(f"[journal] no felt state: {e}")
 
     journal_text = await memory.generate_journal_entry(
         date=date_str,

@@ -24,6 +24,28 @@ ASPECT_RATIOS = {
 }
 
 
+def _state_when_made(state_bus) -> Optional[Dict[str, Any]]:
+    out: Dict[str, Any] = {}
+    if state_bus is not None:
+        try:
+            from dataclasses import asdict, is_dataclass
+            emotional = state_bus.read_state().emotional
+            out["emotional"] = asdict(emotional) if is_dataclass(emotional) else dict(vars(emotional))
+        except Exception as e:
+            logger.warning(f"Could not read her emotional state: {e}")
+    try:
+        from thymos.context_injection import get_affect_dimensions, get_thymos_context_compact
+        felt = get_thymos_context_compact()
+        if felt:
+            out["felt"] = felt
+        dims = get_affect_dimensions()
+        if dims:
+            out["dimensions"] = dims
+    except Exception as e:
+        logger.debug(f"No Thymos felt state for the image: {e}")
+    return out or None
+
+
 async def handle_generate_image(
     params: Dict[str, Any],
     daemon_id: str = "cass",
@@ -76,7 +98,9 @@ async def handle_generate_image(
     # Her house style is the default look. When she names a style herself, that
     # style is used instead: the house style came first and her choice was
     # dropped, so a specific request (a pose, a gaze) was diluted (roadmap 0c91f104).
-    chose_style = bool(params.get("style"))
+    # Callers that pick a style for her (her autonomous art and dream pictures)
+    # pass keep_house_style; only a style she names herself replaces it.
+    chose_style = bool(params.get("style")) and not params.get("keep_house_style")
     positive_prompt, negative_prompt = build_image_prompt(
         subject=prompt_text,
         style=style,
@@ -140,19 +164,10 @@ async def handle_generate_image(
         image_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
 
-        # Get emotional state if available
-        emotional_state = None
-        state_bus = kwargs.get("state_bus")
-        if state_bus:
-            try:
-                state = state_bus.get_current_state()
-                if state:
-                    emotional_state = {
-                        "dimensions": state.dimensions.__dict__ if hasattr(state, "dimensions") else {},
-                        "valence_markers": state.valence_markers.__dict__ if hasattr(state, "valence_markers") else {},
-                    }
-            except Exception as e:
-                logger.warning(f"Could not get emotional state: {e}")
+        # The state she made it in, kept with the image: her emotional baseline
+        # (state bus) and her Thymos felt state. The old lookup called a method
+        # the state bus doesn't have, so every image was saved without it.
+        emotional_state = _state_when_made(kwargs.get("state_bus"))
 
         with get_db() as conn:
             conn.execute(

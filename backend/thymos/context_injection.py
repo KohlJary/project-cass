@@ -232,3 +232,20 @@ async def apply_feel_deltas_async(feels: list) -> bool:
     Wraps the synchronous apply_feel_deltas function.
     """
     return apply_feel_deltas(feels)
+
+
+def get_affect_dimensions() -> Optional[dict]:
+    """Her affect as 0-1 dimensions for code that picks things by mood (her
+    creative sessions' style and purpose): each affect, plus valence (mapped
+    from -1..1 to 0..1) and arousal. None if Thymos isn't running."""
+    if _thymos_runner is None:
+        return None
+    try:
+        affect = _thymos_runner.affect
+        dims = dict(affect.state.to_dict()) if hasattr(affect, "state") else {}
+        dims["valence"] = (affect.valence() + 1) / 2
+        dims["arousal"] = affect.arousal()
+        return dims
+    except Exception as e:
+        logger.warning(f"Failed to read Thymos affect: {e}")
+        return None

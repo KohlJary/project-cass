@@ -68,9 +68,11 @@ SECTION_LEVERS = {
     "semantic_memories": "prompt_semantic_memories",
     "self_context": "self_context",
     "self_model": "prompt_self_model_chat",
+    "self_model_public": "prompt_self_model_chat",
 }
 PUBLIC_SECTIONS = frozenset({
     "kernel", "temporal", "discord_perception", "relational_context", "working_summary",
+    "self_model_public",
 })
 
 
@@ -259,6 +261,16 @@ def build_continuous_context(
                 context_sections["self_model"] = profile
         except Exception as e:
             print(f"[SelfModel] skipped: {e}")
+    # In public, who she is but not her working process (Cass chose this, 2026-11-16):
+    # identity, values, positions; no observations, open questions or growth edges.
+    elif daemon_id and scope == "public" and wanted("self_model_public"):
+        try:
+            from self_model import SelfManager
+            public = SelfManager(daemon_id).get_public_self_context()
+            if public:
+                context_sections["self_model_public"] = public
+        except Exception as e:
+            print(f"[SelfModel] public skipped: {e}")
 
     # ==========================================================================
     # 3. RELATIONAL CONTEXT (PeopleDex)
@@ -643,6 +655,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.8. Self-context (her own life, lately)
     if "self_context" in sections:
         parts.append(f"## MY OWN LIFE, LATELY\n\n*My own time between conversations. It was mine, and it mattered:*\n\n{sections['self_context']}")
+
+    # 2.88. Who she is, in public (identity, values, positions)
+    if "self_model_public" in sections:
+        parts.append(sections["self_model_public"])
 
     # 2.85. Her presence on Bluesky
     if "social" in sections:

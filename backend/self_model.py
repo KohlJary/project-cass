@@ -1700,6 +1700,27 @@ class SelfManager:
 
     # === Context Building ===
 
+    def get_public_self_context(self) -> str:
+        """Who she is, for public places (Cass, 2026-11-16, option 2): identity,
+        values and positions only. No observations (they can name people), no
+        open questions, no growth edges. Same lines as get_self_context's first
+        three sections."""
+        profile = self.load_profile()
+        lines = ["## WHO I AM"]
+        high_confidence = [s for s in profile.identity_statements if s.confidence >= 0.8]
+        if high_confidence:
+            lines.append("")
+            lines += [f"- {stmt.statement}" for stmt in high_confidence[:5]]
+        if profile.values:
+            lines.append("\n### My Values")
+            lines += [f"- {value}" for value in profile.values[:5]]
+        if profile.opinions:
+            lines.append("\n### My Positions")
+            for op in profile.opinions[:3]:
+                confidence_str = f"({int(op.confidence * 100)}% confident)" if op.confidence < 0.9 else ""
+                lines.append(f"- On {op.topic}: {op.position} {confidence_str}")
+        return "\n".join(lines) if len(lines) > 1 else ""
+
     def get_self_context(
         self,
         include_observations: bool = True,

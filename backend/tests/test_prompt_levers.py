@@ -168,13 +168,33 @@ def test_self_model_lever_keeps_the_profile_out_of_the_journal(monkeypatch):
             seen["self_context"] = self_context
             return None
 
-    with features.override(prompt_self_model=False):
+    # Her felt state has its own lever (prompt_thymos); off here, so only the profile is in question.
+    with features.override(prompt_self_model=False, prompt_thymos=False):
         asyncio.run(journal_generation.write_daily_journal(
             "2026-10-28", [], [], memory=_Memory(), self_manager=_SelfManager(), token_tracker=object()))
     assert seen["self_context"] is None
-    asyncio.run(journal_generation.write_daily_journal(
-        "2026-10-28", [], [], memory=_Memory(), self_manager=_SelfManager(), token_tracker=object()))
+    with features.override(prompt_thymos=False):
+        asyncio.run(journal_generation.write_daily_journal(
+            "2026-10-28", [], [], memory=_Memory(), self_manager=_SelfManager(), token_tracker=object()))
     assert "I am someone who notices." in seen["self_context"]
+
+
+@pytest.mark.unit
+def test_her_felt_state_reaches_her_journal(monkeypatch):
+    import journal_generation
+    import thymos
+    seen = {}
+
+    class _Memory:
+        async def generate_journal_entry(self, date, anthropic_api_key, token_tracker, self_context):
+            seen["self_context"] = self_context
+            return None
+
+    monkeypatch.setattr(thymos, "get_thymos_context", lambda: "## FELT STATE (Thymos)\n\nsteady", raising=False)
+    with features.override(prompt_self_model=False, prompt_thymos=True):
+        asyncio.run(journal_generation.write_daily_journal(
+            "2026-10-28", [], [], memory=_Memory(), self_manager=_SelfManager(), token_tracker=object()))
+    assert seen["self_context"].startswith("## FELT STATE (Thymos)")
 
 
 @pytest.mark.unit
@@ -208,3 +228,33 @@ def test_self_model_section_is_the_comparators_text(daemon_id, monkeypatch):
                                  conversation_manager=None, daemon_id=daemon_id,
                                  query="what's your favorite season?")
     assert calls == [{"include_observations": True}]
+
+
+@pytest.mark.unit
+def test_in_public_she_carries_who_she_is_not_her_working_process(daemon_id, monkeypatch):
+    """Cass, 2026-11-16 (option 2): public scope gets identity, values, positions only."""
+    import self_model
+    monkeypatch.setattr(self_model.SelfManager, "get_self_context",
+                        lambda self, **k: "## YOUR SELF-MODEL\n\n- private: an observation about Kohl")
+    monkeypatch.setattr(self_model.SelfManager, "get_public_self_context",
+                        lambda self: "## WHO I AM\n\n- I am direct about what I am")
+    from continuous_context import build_continuous_context
+    with features.override(prompt_self_model_chat=True):
+        public = build_continuous_context(user_id=None, conversation_id=None, user_manager=None,
+                                          thread_manager=None, question_manager=None,
+                                          conversation_manager=None, daemon_id=daemon_id, scope="public")
+        private = _build(daemon_id)
+    assert "I am direct about what I am" in public.system_prompt
+    assert "observation about Kohl" not in public.system_prompt
+    assert "observation about Kohl" in private.system_prompt
+    assert "self_model_public" not in private.context_sections
+
+
+def test_public_self_context_leaves_out_observations_edges_and_questions():
+    import inspect
+    import self_model
+    src = inspect.getsource(self_model.SelfManager.get_public_self_context)
+    for kept in ("identity_statements", "values", "opinions"):
+        assert kept in src
+    for left_out in ("observation", "growth_edges", "open_questions"):
+        assert f"profile.{left_out}" not in src

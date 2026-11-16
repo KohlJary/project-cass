@@ -176,6 +176,19 @@ PURPOSE_MOODS = {
 }
 
 
+def _her_mood() -> Optional[Dict]:
+    """Her Thymos affect, in the {"dimensions": {...}} shape the style and purpose
+    pickers read (valence, arousal, playfulness, tenderness, ...). The old lookup
+    called a state-bus method that doesn't exist, so mood never reached them."""
+    try:
+        from thymos.context_injection import get_affect_dimensions
+        dims = get_affect_dimensions()
+        return {"dimensions": dims} if dims else None
+    except Exception as e:
+        logger.warning(f"Could not read her mood: {e}")
+        return None
+
+
 def _select_style_from_emotion(emotional_state: Optional[Dict]) -> str:
     """Select an art style based on current emotional state."""
     if not emotional_state:
@@ -359,15 +372,7 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
         except Exception as e:
             logger.warning(f"Could not get self-model context: {e}")
 
-    if state_bus:
-        try:
-            state = state_bus.get_current_state()
-            if state:
-                emotional_state = {
-                    "dimensions": state.dimensions.__dict__ if hasattr(state, "dimensions") else {},
-                }
-        except Exception as e:
-            logger.warning(f"Could not get emotional state: {e}")
+    emotional_state = _her_mood() or emotional_state
 
     # Determine what to create
     purpose = context.get("purpose", "autonomous")
@@ -420,6 +425,8 @@ async def generate_image_action(context: Dict[str, Any]) -> ActionResult:
                 "prompt": prompt,
                 "style": style,
                 "aspect_ratio": aspect_ratio,
+                # A style picked here, not by her: her house style still leads.
+                "keep_house_style": True,
                 "purpose": purpose,
                 "mood": mood,
             },
@@ -579,6 +586,8 @@ async def visualize_recent_dream_action(context: Dict[str, Any]) -> ActionResult
                 "prompt": prompt,
                 "style": "dreamlike",
                 "aspect_ratio": "landscape",
+                # A style picked here, not by her: her house style still leads.
+                "keep_house_style": True,
                 "purpose": "dream",
                 "mood": "mysterious",
                 "context_id": dream_id,
@@ -672,6 +681,8 @@ async def dream_visualization_action(context: Dict[str, Any]) -> ActionResult:
                 "prompt": prompt,
                 "style": "dreamlike",
                 "aspect_ratio": "landscape",
+                # A style picked here, not by her: her house style still leads.
+                "keep_house_style": True,
                 "purpose": "dream",
                 "mood": "mysterious",
                 "context_id": dream_id,
@@ -879,15 +890,7 @@ async def compose_music_action(context: Dict[str, Any]) -> ActionResult:
         except Exception as e:
             logger.warning(f"Could not get self-model context: {e}")
 
-    if state_bus:
-        try:
-            state = state_bus.get_current_state()
-            if state:
-                emotional_state = {
-                    "dimensions": state.dimensions.__dict__ if hasattr(state, "dimensions") else {},
-                }
-        except Exception as e:
-            logger.warning(f"Could not get emotional state: {e}")
+    emotional_state = _her_mood() or emotional_state
 
     # Determine composition parameters
     purpose = context.get("purpose")
