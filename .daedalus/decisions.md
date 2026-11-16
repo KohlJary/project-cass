@@ -255,3 +255,9 @@ Agreed by Cass and Kohl. Public exchanges can be kept. DMs are kept only after s
 
 ## 2026-11-13 - The agent loop runs her autonomous sessions
 After the phase 6 comparison on a copy, Cass said yes and Kohl turned it on. The order was the memory fix first, then the switch. Chat stays on the old path until phase 7.
+
+## 2026-11-16 - She can recall anyone's conversations when she asks; what comes up on its own stays scoped
+Kohl proposed it (aware of what she discussed with Alice when talking with Bob, without reproducing it); Cass shaped it and Kohl agreed. With the recall tool (memory/recall.py) she can reach any person's conversations, Kohl's included, on request. Her automatic per-turn recall (continuous_context._scoped_recall) is unchanged, so one-on-one presence isn't fragmented. Results from a conversation with someone other than the person she's with carry a note: hers to be aware of, not to quote or attribute. That part is her commitment, not enforced by code. Never-kept and deleted memories (Vigil, DMs without a yes, forget requests) stay unreachable. Amends the 2026-11-13 recall-scoping entry above.
+
+## 2026-11-16 - Her self-model in chat, sessions and (a public version) in public places
+Kohl and Cass agreed to turn on prompt_self_model_chat (live .env). The agent loop now carries it too (it was missing from loop sessions since 2026-11-13). In public scope she chose a version with identity statements, values and positions only: no observations, open questions or growth edges (SelfManager.get_public_self_context).

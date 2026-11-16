@@ -107,6 +107,7 @@ from handlers import (
 from handlers.stakeholders import execute_stakeholder_tool
 from handlers.room import execute_room_tool
 from social.tools import execute_social_tool
+from handlers.recall import execute_recall_tool
 from handlers.email import execute_email_tool
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
@@ -525,6 +526,7 @@ TOOL_EXECUTORS = {
     "home_automation": execute_home_automation_tool,
     "room": execute_room_tool,
     "social": execute_social_tool,
+    "recall": execute_recall_tool,
 }
 
 

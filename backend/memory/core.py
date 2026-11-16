@@ -255,6 +255,7 @@ Write ONLY the summary, no quotes or labels:"""
                     "content": doc,
                     "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
                     "distance": results["distances"][0][i] if results["distances"] else None,
+                    "id": results["ids"][0][i] if results.get("ids") else None,
                 })
         return memories
 

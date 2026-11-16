@@ -1639,6 +1639,7 @@ from handlers.dreams import DREAM_TOOLS
 from handlers.peopledex import PEOPLEDEX_TOOLS
 from handlers.room import ROOM_TOOLS
 from social.tools import SOCIAL_TOOLS
+from handlers.recall import RECALL_TOOLS
 
 
 _SOCIAL_WORDS = ("bluesky", "tumblr", "skeet", "my post", "mentions", "post", "social", "follower",
@@ -1828,6 +1829,7 @@ class CassAgentClient:
             # Use consolidated journal tool (replaces 3 separate tools)
             tools.append(CONSOLIDATED_JOURNAL_TOOL)
             tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
+            tools.extend(RECALL_TOOLS)  # Her own queries over her memory (memory/recall.py)
             tools.extend(MARKER_TOOLS)  # Recognition-in-flow pattern tools (show_patterns, explore_pattern)
             tools.extend(WONDERLAND_TOOLS)  # Personal space tools (describe_my_home, wonderland status)
 

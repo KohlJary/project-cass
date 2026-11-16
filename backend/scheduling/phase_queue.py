@@ -672,6 +672,14 @@ class PhaseQueueManager:
                                 )
                             )
 
+                        # Her own narrative of the session (what she said when she ended it),
+                        # so her work summaries carry what she did, not just that it ran.
+                        # It was only in the session log, where chat never looks.
+                        narratives = [str(ar["result"]["summary"]) for ar in work_unit.action_results
+                                      if isinstance(ar.get("result"), dict) and ar["result"].get("summary")]
+                        insights = [str(i) for ar in work_unit.action_results
+                                    if isinstance(ar.get("result"), dict)
+                                    for i in (ar["result"].get("insights") or []) if isinstance(i, str)]
                         summary = WorkSummary(
                             work_unit_id=work_unit.id,
                             slug=slug,
@@ -685,10 +693,10 @@ class PhaseQueueManager:
                             started_at=work_unit.started_at,
                             completed_at=work_unit.completed_at,
                             duration_minutes=work_unit.duration_minutes or 0,
-                            summary=f"Completed {work_unit.name}" + (
+                            summary=" ".join(narratives) or (f"Completed {work_unit.name}" + (
                                 f" with focus on {work_unit.focus}" if work_unit.focus else ""
-                            ),
-                            key_insights=[],
+                            )),
+                            key_insights=insights,
                             questions_addressed=[],
                             questions_raised=[],
                             action_summaries=action_summaries,

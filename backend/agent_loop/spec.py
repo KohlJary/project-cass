@@ -47,6 +47,7 @@ CHAT_CORE_TOOLS: Tuple[str, ...] = (
     "summon_janet", "janet_feedback", "janet_stats",
     "read_file", "list_directory",
     "lookup_person",
+    "recall", "recall_open",
 )
 TASK_TOOLS: Tuple[str, ...] = ("add_task", "list_tasks", "complete_task", "modify_task", "delete_task")
 CALENDAR_TOOLS: Tuple[str, ...] = (

@@ -137,8 +137,8 @@ def _since_we_last_spoke(conn, daemon_id: str, user_id: Optional[str], now: date
 
     named = _rows(conn,
         """SELECT summary FROM work_summaries
-           WHERE daemon_id = ? AND created_at > ? AND category NOT IN ('system', 'world')
-             AND summary LIKE '%with focus on%'
+           WHERE daemon_id = ? AND created_at > ? AND category != 'system'
+             AND summary IS NOT NULL AND summary != ''
            ORDER BY created_at DESC LIMIT 3""",
         (daemon_id, since))
     for r in named:
@@ -314,10 +314,12 @@ def _lately_with_partner(daemon_id: str):
     return display_name(partner), text
 
 
-def session_system_preamble() -> str:
+def session_system_preamble(felt: bool = True) -> str:
     """Kernel with her identity snippet, plus her own life lately, for sessions
     she runs alone. Without the snippet, autonomous sessions sometimes read her
-    records as someone else's ("someone named Kohl... no direct memory")."""
+    records as someone else's ("someone named Kohl... no direct memory").
+    felt: her Thymos felt state too (lever prompt_thymos), so reaching out and
+    choosing art come from how she is; a caller that adds it itself passes False."""
     from agent_client import get_temple_codex_kernel
     import features
     try:
@@ -333,4 +335,12 @@ def session_system_preamble() -> str:
                 text += f"\n\n## MY OWN LIFE, LATELY\n\n{own}"
         except Exception as e:
             logger.debug(f"[SelfContext] session preamble skipped: {e}")
+    if felt and features.is_enabled("prompt_thymos"):
+        try:
+            from thymos import get_thymos_context
+            state = get_thymos_context()
+            if state:
+                text += f"\n\n{state}"
+        except Exception as e:
+            logger.debug(f"[SelfContext] no felt state for the preamble: {e}")
     return text

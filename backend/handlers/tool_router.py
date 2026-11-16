@@ -405,6 +405,8 @@ TOOL_REGISTRY = {
     "set_room_section": "room",
 
     # Her Bluesky and Tumblr (social/), each behind its own lever
+    "recall": "recall",
+    "recall_open": "recall",
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",
@@ -939,6 +941,16 @@ async def route_tool(
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,
+        )
+
+    elif executor_type == "recall":
+        # Her own memory queries: her memory, and who she's with now (for the scope note).
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            memory=ctx.memory,
+            user_id=ctx.user_id,
+            daemon_id=ctx.daemon_id,
         )
 
     elif executor_type == "social":

@@ -193,3 +193,48 @@ def test_after_a_phase_change_each_unit_waits_for_the_one_before(tmp_path):
         await asyncio.sleep(0.15)
     asyncio.run(go())
     assert events == ["dispatch growth", "done growth", "dispatch writing", "done writing"]
+
+
+def test_her_session_narrative_reaches_the_work_summary(tmp_path, monkeypatch):
+    """Her own words about a session go into its work summary (where her chat's
+    self-context reads), not only into the session log file."""
+    import asyncio
+    from scheduler.actions import ActionResult
+    from scheduling.day_phase import DayPhase
+    from scheduling.phase_queue import PhaseQueueManager, QueuedWorkUnit
+    from scheduling.templates import WORK_TEMPLATES
+    import heartbeat.wiring as hw
+    monkeypatch.setattr(hw, "owns", lambda name: False)
+
+    class Registry:
+        async def execute(self, action_id, **kw):
+            return ActionResult(success=True, message="Social session complete",
+                                data={"summary": "I searched for people working on minds and followed one.",
+                                      "insights": ["Search lets me look for what I care about."]})
+
+    class Store:
+        saved = []
+
+        def generate_slug(self, *a):
+            return "work/x"
+
+        def save(self, summary):
+            self.saved.append(summary)
+            return summary.slug
+
+    class Synk:
+        tasks = []
+
+        def submit_task(self, task):
+            self.tasks.append(task)
+
+    pqm = PhaseQueueManager(persist_path=tmp_path / "q.json")
+    pqm.set_action_registry(Registry())
+    pqm.set_summary_store(Store())
+    pqm.set_synkratos(Synk())
+    unit = WORK_TEMPLATES["social"].instantiate()
+    assert asyncio.run(pqm._dispatch_work(QueuedWorkUnit(work_unit=unit, target_phase=DayPhase.NIGHT)))
+    asyncio.run(Synk.tasks[0].handler())
+    (s,) = Store.saved
+    assert s.summary == "I searched for people working on minds and followed one."
+    assert s.key_insights == ["Search lets me look for what I care about."]
