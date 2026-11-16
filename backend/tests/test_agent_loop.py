@@ -718,3 +718,21 @@ def test_her_context_fits_at_full_size():
     sections = [Section(n, "x" * c, 2) for n, c in sizes.items()]
     kept, cut = fit_to_budget(sections, session_spec("reflection").token_budget)
     assert cut == [], f"cut {cut} at {sum(sizes.values()) // 4} tokens"
+
+
+def test_narrative_is_her_closing_not_her_answer_to_the_nudge():
+    from agent_loop.loop import LoopOutcome, LoopStep
+    from agent_loop.session import keep_narrative
+
+    class Runner:
+        @staticmethod
+        def _extract_summary(text):
+            return text
+
+    out = LoopOutcome(status="completed", end_reason="I stopped without saying I was done")
+    out.steps = [LoopStep(1, "working", [{"name": "recall"}]),
+                 LoopStep(2, "From analysis to practice.", []),
+                 LoopStep(3, "Yes, I'm done.", [])]
+    assert keep_narrative(out, Runner) == "From analysis to practice."
+    out.steps = [LoopStep(1, "", [{"name": "recall"}]), LoopStep(2, "Only words.", [])]
+    assert keep_narrative(out, Runner) == "Only words."

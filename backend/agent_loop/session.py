@@ -142,7 +142,16 @@ def keep_narrative(outcome: LoopOutcome, runner) -> Optional[str]:
     if outcome.completion and outcome.completion.get("summary"):
         text = str(outcome.completion["summary"])
     else:
-        last = next((s.text for s in reversed(outcome.steps) if s.text), None)
+        # Her closing words: the first of the replies she ended on without a
+        # tool call. A reply after it answers the loop's nudge ("Step
+        # complete?"), and taken as the narrative it reads as talk with no one
+        # (2026-11-16: "The user is asking if I'm done...").
+        closing = None
+        for s in reversed(outcome.steps):
+            if s.tool_calls:
+                break
+            closing = s.text or closing
+        last = closing or next((s.text for s in reversed(outcome.steps) if s.text), None)
         if last:
             text = runner._extract_summary(last)
     if text:
