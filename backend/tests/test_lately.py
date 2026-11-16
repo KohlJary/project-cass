@@ -151,3 +151,25 @@ def test_tool_is_wired_into_chat_loop_and_router():
     assert "lately_open" in CHAT_CORE_TOOLS
     out = asyncio.run(execute_recall_tool("lately_open", {"id": "nonsense"}, memory=None, daemon_id="x"))
     assert not out["success"] and "isn't a line" in out["error"]
+
+
+def test_an_older_session_reads_her_narrative_from_its_log(daemon_id, week):
+    """Before 2026-11-16 a work summary was only "Completed <name>"; her words are in the session log."""
+    ended = datetime.fromisoformat("2026-11-15T12:00:00")  # s-old's completed_at is NOW - 1 day
+    log_dir = week.data_dir / "session_logs" / "research" / ended.date().isoformat()
+    log_dir.mkdir(parents=True)
+    (log_dir / "120312_abcd1234.json").write_text(json.dumps({
+        "summary": "I read about glassblowing and kept thinking about breath as a tool.",
+        "insights": ["breath shapes"], "focus": "glass",
+        "turns": [{"role": "assistant", "timestamp": "2026-11-15T11:50:00", "content": "Let me look.",
+                   "tool_calls": [{"id": "t1", "name": "web_search", "input": {"q": "glassblowing"}}],
+                   "tool_results": [{"tool_name": "web_search", "result": "three pages"}]}]}))
+    text = "\n".join(lines(daemon_id, week))
+    assert "session (research): Reading: I read about glassblowing" in text
+    got = lately_open(daemon_id, "session:s-old", library=week.lib, data_dir=week.data_dir)
+    assert got["what I said when I ended it"].startswith("I read about glassblowing")
+    assert got["how it went"][0]["did"][0]["tool"] == "web_search"
+    assert got["how it went"][0]["came back"] == ["three pages"]
+    # A log far from the session's end isn't taken for it.
+    assert "abcd" not in lately_open(daemon_id, "session:s-social", library=week.lib,
+                                     data_dir=week.data_dir).get("what I said when I ended it", "")

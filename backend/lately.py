@@ -117,7 +117,44 @@ def _narrative(summary: Optional[str], name: str) -> str:
 # Sources. Each returns events since `since` (None = any age, newest first).
 # ---------------------------------------------------------------------------
 
-def _sessions(conn, daemon_id: str, since: Optional[datetime], n: int) -> List[Event]:
+# Sessions that ended before 2026-11-16 have only "Completed <name>" as their
+# work summary; her own narrative is in the session log (session_runner writes
+# session_logs/<type>/<date>/<HHMMSS>_<id>.json, named by when it ended). Read
+# it from there, read-only, matched by end time.
+LOG_MATCH = timedelta(minutes=10)
+
+
+def _data_dir(data_dir: Optional[Path]) -> Path:
+    if data_dir is not None:
+        return Path(data_dir)
+    from config import DATA_DIR
+    return Path(DATA_DIR)
+
+
+def _log_for(ended: Optional[datetime], data_dir: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    if not ended:
+        return None
+    root = _data_dir(data_dir) / "session_logs"
+    best = None
+    for day in {ended.date(), (ended - LOG_MATCH).date()}:
+        for path in root.glob(f"*/{day.isoformat()}/*.json"):
+            try:
+                at = datetime.combine(day, datetime.strptime(path.name[:6], "%H%M%S").time())
+            except ValueError:
+                continue
+            gap = abs(at - ended)
+            if gap <= LOG_MATCH and (best is None or gap < best[0]):
+                best = (gap, path)
+    if not best:
+        return None
+    try:
+        return json.loads(best[1].read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _sessions(conn, daemon_id: str, since: Optional[datetime], n: int,
+              data_dir: Optional[Path] = None) -> List[Event]:
     out = []
     for r in _rows(conn,
                    "SELECT slug, name, category, summary, COALESCE(completed_at, created_at) AS at "
@@ -125,9 +162,14 @@ def _sessions(conn, daemon_id: str, since: Optional[datetime], n: int) -> List[E
                    "AND COALESCE(completed_at, created_at) > ? ORDER BY at DESC LIMIT ?",
                    (daemon_id, since.isoformat() if since else "", n)):
         when = _parse_ts(r["at"])
-        if when:
-            out.append(Event(f"session:{r['slug']}", when, f"session ({r['category']})",
-                             _narrative(r["summary"], r["name"])))
+        if not when:
+            continue
+        text = _narrative(r["summary"], r["name"])
+        if text == r["name"]:
+            log = _log_for(when, data_dir)
+            if log and log.get("summary"):
+                text = f"{r['name']}: {log['summary']}"
+        out.append(Event(f"session:{r['slug']}", when, f"session ({r['category']})", text))
     return out
 
 
@@ -256,7 +298,8 @@ def events(daemon_id: str, since: Optional[datetime], n: int = MAX_LINES,
            library=None, data_dir: Optional[Path] = None) -> List[Event]:
     with get_db() as conn:
         found = []
-        for name, fn in (("sessions", _sessions), ("reflections", _reflections), ("dreams", _dreams),
+        found += _safe(lambda: _sessions(conn, daemon_id, since, n, data_dir), "sessions")
+        for name, fn in (("reflections", _reflections), ("dreams", _dreams),
                          ("journals", _journals), ("paintings", _paintings)):
             found += _safe(lambda fn=fn: fn(conn, daemon_id, since, n), name)
     found += _safe(lambda: _songs(since, n, library), "songs")
@@ -281,6 +324,26 @@ def build_lately(daemon_id: str, now: Optional[datetime] = None, library=None,
 # ---------------------------------------------------------------------------
 # Drill in: the full thing behind one line.
 # ---------------------------------------------------------------------------
+
+def _short(value: Any, limit: int = 400) -> Any:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _turn(t: Dict[str, Any]) -> Dict[str, Any]:
+    """One turn of a session as it went: what she wrote, what she did, what came back (shortened)."""
+    out: Dict[str, Any] = {"role": t.get("role"), "at": (t.get("timestamp") or "")[:19]}
+    if t.get("content"):
+        out["text"] = t["content"]
+    calls = t.get("tool_calls") or []
+    if calls:
+        out["did"] = [{"tool": c.get("name") or c.get("tool"), "with": _short(c.get("input") or c.get("arguments") or {}, 300)}
+                      for c in calls if isinstance(c, dict)]
+    results = t.get("tool_results") or []
+    if results:
+        out["came back"] = [_short(r.get("result", r.get("content")) if isinstance(r, dict) else r) for r in results]
+    return out
+
 
 def _one(conn, sql: str, params: tuple):
     rows = _rows(conn, sql, params)
@@ -326,6 +389,15 @@ def lately_open(daemon_id: str, event_id: str, library=None, data_dir: Optional[
             for k in ("key_insights", "questions_addressed", "questions_raised", "artifacts", "action_summaries"):
                 if data.get(k):
                     out[k] = data[k]
+            log = _log_for(_parse_ts(r["completed_at"] or r["created_at"]), data_dir)
+            if log:
+                if _narrative(r["summary"], r["name"]) == r["name"] and log.get("summary"):
+                    out["what I said when I ended it"] = log["summary"]
+                if log.get("insights") and not out.get("key_insights"):
+                    out["key_insights"] = log["insights"]
+                out["how it went"] = [_turn(t) for t in log.get("turns") or []]
+                if log.get("focus"):
+                    out["focus"] = log["focus"]
             return out
         if kind == "reflection":
             r = _one(conn, "SELECT * FROM solo_reflections WHERE daemon_id = ? AND id = ?", (daemon_id, key))
