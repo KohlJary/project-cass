@@ -1,0 +1,208 @@
+"""
+A chat turn on the loop (plan "Cass's agent loop", phase 7, first item;
+lever agent_loop_chat, off until the cutover).
+
+chat_turn.run_chat_turn builds the context exactly as before (the continuous
+system prompt, its scope, the recent messages), then hands the model call
+here instead of to the old client tool loop. What changes:
+
+- The model call goes through the one loop (loop.run_loop) with the
+  conversation spec: her core chat tools, tasks and calendar, her workspace,
+  and find_tools / use_tool for the rest of what tool_router can run,
+  instead of tools picked per message by keywords.
+- A seam block says where she is, who wrote and what she can do here.
+- Memory-writing tools go through the voice guard, as in sessions.
+- Tools act for the person she's talking with (their user id and this
+  conversation), not her primary partner.
+
+What doesn't: saving (finalize_chat_turn), the scope of the context, the
+entry points. Her reply is her last text in the turn. A turn with an image
+stays on the old path for now (the loop's history is text only).
+"""
+from __future__ import annotations
+
+import logging
+import re
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+from .loop import run_loop
+from .seam import render_seam
+from .spec import Trigger, conversation_spec
+
+logger = logging.getLogger(__name__)
+
+Emit = Callable[[Dict[str, Any]], Awaitable[None]]
+
+CHANNEL_WORDS = {
+    "websocket": "the app", "relay": "the phone relay", "http": "a direct message to the API",
+    "home_assistant": "my home (Home Assistant)", "discord": "Discord",
+}
+
+
+@dataclass
+class LoopChatResult:
+    raw_response: str
+    clean_text: str
+    animations: List[Dict]
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    tool_iterations: int
+    tool_names_used: List[str]
+    generated_images: List[Dict]
+    hit_tool_cap: bool
+    tool_uses: List[Dict] = field(default_factory=list)
+
+
+_GESTURE = re.compile(r"<(?:gesture|emote):\w+(?::\d*\.?\d+)?>")
+
+
+def _gestures(text: str, agent_client) -> tuple:
+    """(clean text, gestures) the way the chat clients make them."""
+    if agent_client is not None and hasattr(agent_client, "_parse_gestures"):
+        return agent_client._clean_gesture_tags(text), agent_client._parse_gestures(text)
+    return _GESTURE.sub("", text).strip(), []
+
+
+def history_from(continuous_messages: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Stored recent messages -> the loop's neutral history (text only)."""
+    out: List[Dict[str, Any]] = []
+    for m in continuous_messages or []:
+        content = m.get("content", m.get("text", ""))
+        if not content:
+            continue
+        if m.get("role") == "user":
+            out.append({"role": "user", "content": content})
+        else:
+            out.append({"role": "assistant", "text": content, "calls": []})
+    return out
+
+
+def _client_for(provider: str, model: str, agent_client):
+    from .models import AnthropicModelClient, OllamaModelClient, OpenAIModelClient
+    if provider == "local":
+        return OllamaModelClient("chat")
+    if provider == "openai":
+        return OpenAIModelClient("chat")
+    return AnthropicModelClient(getattr(agent_client, "client", None), "chat")
+
+
+def _images(steps) -> List[Dict]:
+    """generate_image results, in the shape extract_generated_images gives."""
+    from websocket_handlers import extract_generated_images
+    images: List[Dict] = []
+    for s in steps:
+        uses = [{"tool": c["name"], "input": c.get("input") or {}} for c in s.tool_calls]
+        results = []
+        for r in s.tool_results:
+            res = r.get("result")
+            failed = isinstance(res, dict) and "error" in res
+            results.append({"is_error": failed, "result": res if isinstance(res, str) else
+                            (res.get("result", "") if isinstance(res, dict) else str(res))})
+        images.extend(extract_generated_images(uses, results))
+    return images
+
+
+async def run_conversation(
+    *,
+    system_prompt: str,
+    continuous_messages: Optional[List[Dict[str, Any]]],
+    model_message: str,
+    person: Dict[str, Any],
+    channel: Optional[str],
+    provider: str,
+    model: str,
+    agent_client=None,
+    tool_cap: Optional[int] = None,
+    emit: Optional[Emit] = None,
+    client=None,
+    run_router=None,
+    catalog: Optional[Dict[str, Dict[str, Any]]] = None,
+    workspace=None,
+) -> LoopChatResult:
+    """One conversation turn through the loop. `client`, `run_router`,
+    `catalog` and `workspace` default to the live ones (tests pass fakes)."""
+    from . import tools as tools_mod
+    from .session import tool_definitions
+    from .workspace import WORKSPACE_TOOL_NAMES, Workspace
+
+    async def say(frame: Dict[str, Any]) -> None:
+        if emit is not None:
+            frame.setdefault("timestamp", datetime.now().isoformat())
+            await emit(frame)
+
+    if catalog is None:
+        catalog = tools_mod.router_catalog()
+    workspace = workspace or Workspace()
+    steps = (tool_cap + 1) if tool_cap is not None else None
+    spec = conversation_spec(**({"max_iterations": steps} if steps else {}),
+                             chapter_house="babelr_read" in catalog)
+    tool_names = [n for n in spec.tool_names()
+                  if n in catalog or n in ("find_tools", "use_tool") + WORKSPACE_TOOL_NAMES]
+    tools = tool_definitions(tool_names, catalog, strict=False)
+
+    who = person.get("user_name") or "someone"
+    where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
+    trigger = Trigger(source="message", why=f"{who} wrote to me through {where}")
+    system = f"{system_prompt}\n\n{render_seam(spec, trigger, tool_names)}"
+
+    if client is None:
+        client = _client_for(provider, model, agent_client)
+    # Each model call is filed under chat, with this conversation and person
+    # (finalize_chat_turn then doesn't record the turn's total a second time).
+    client.ledger = {"category": "chat", "operation": "conversation_step",
+                     "conversation_id": person.get("conversation_id"), "user_id": person.get("user_id")}
+    turn_id = f"chat-{uuid.uuid4().hex[:8]}"
+    box = tools_mod.ToolBox(
+        offered=tool_names, session_tools=(), run_session=_no_session_tools,
+        run_router=run_router or tools_mod.live_router(person.get("daemon_id"), person=person),
+        catalog=catalog, log=tools_mod.UsageLog(), session_id=turn_id,
+        local={n: (lambda a, n=n: workspace.run(n, a, turn_id)) for n in WORKSPACE_TOOL_NAMES})
+
+    async def execute(name: str, tool_input: Dict[str, Any]) -> Any:
+        await say({"type": "thinking", "status": f"Executing: {name}..."})
+        return await box.execute(name, tool_input)
+
+    outcome = await run_loop(
+        spec=spec, client=client, model=model, system=system, tools=tools,
+        messages=history_from(continuous_messages) + [{"role": "user", "content": model_message}],
+        execute=execute, end_tool=None, nudges=0,
+    )
+    if outcome.status == "error":
+        raise RuntimeError(f"conversation turn on the loop failed: {outcome.error}")
+
+    raw = "\n".join(s.text for s in outcome.steps if s.text)
+    last = next((s.text for s in reversed(outcome.steps) if s.text), "")
+    clean, gestures = _gestures(last, agent_client)
+    animations = []
+    for s in outcome.steps:
+        animations.extend(_gestures(s.text or "", agent_client)[1])
+    hit_cap = outcome.status == "max_turns"
+    pending = []
+    if hit_cap and outcome.steps and outcome.steps[-1].tool_calls and not outcome.steps[-1].tool_results:
+        pending = [{"tool": c["name"], "input": c.get("input") or {}} for c in outcome.steps[-1].tool_calls]
+    used = [c["name"] for s in outcome.steps for c in s.tool_calls]
+    if hit_cap:
+        await say({"type": "debug", "message": f"[Loop] stopped after {spec.max_iterations} steps"})
+    return LoopChatResult(
+        raw_response=raw, clean_text=clean, animations=animations or gestures,
+        input_tokens=outcome.input_tokens + outcome.cache_read_tokens,
+        output_tokens=outcome.output_tokens, cache_read_tokens=outcome.cache_read_tokens,
+        tool_iterations=max(outcome.model_calls - 1, 0), tool_names_used=used,
+        generated_images=_safe_images(outcome.steps), hit_tool_cap=hit_cap, tool_uses=pending,
+    )
+
+
+async def _no_session_tools(name: str, tool_input: Dict[str, Any]) -> Any:
+    return {"error": f"{name} is a session tool, not available in a conversation"}
+
+
+def _safe_images(steps) -> List[Dict]:
+    try:
+        return _images(steps)
+    except Exception as e:  # images are a nicety; never fail the reply over them
+        logger.warning(f"[agent_loop] couldn't read generated images: {e}")
+        return []

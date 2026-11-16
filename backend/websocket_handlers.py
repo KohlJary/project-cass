@@ -278,6 +278,7 @@ async def finalize_chat_turn(
     cache_read_tokens: int = 0,
     memory_metadata: Optional[Dict[str, Any]] = None,
     generate_title: bool = True,
+    record_tokens: bool = True,
 ) -> Dict[str, Any]:
     """Post-turn pipeline shared by every chat entry point.
 
@@ -370,19 +371,21 @@ async def finalize_chat_turn(
             metadata=memory_metadata,
         )
 
-    # Track token usage
+    # Track token usage (a turn on the loop already filed each model call
+    # through llm_caller, agent_loop/conversation.py; record_tokens=False).
     operation = "tool_continuation" if tool_iterations > 0 else "initial_message"
-    token_tracker.record(
-        category="chat",
-        operation=operation,
-        provider=provider,
-        model=model,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_read_tokens=cache_read_tokens,
-        conversation_id=conversation_id,
-        user_id=user_id
-    )
+    if record_tokens:
+        token_tracker.record(
+            category="chat",
+            operation=operation,
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            conversation_id=conversation_id,
+            user_id=user_id
+        )
 
     # Store in conversation if conversation_id provided
     if conversation_id:

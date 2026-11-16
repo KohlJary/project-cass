@@ -331,19 +331,30 @@ def dream_spec() -> TurnSpec:
     )
 
 
-def conversation_spec() -> TurnSpec:
-    # Not run through the loop yet (chat isn't cut over); written down so the
-    # budget rule and seam text have a home.
+# A conversation turn ends when she replies without a tool call; this caps how
+# many tool steps one reply can take (CHAT_MAX_TOOL_ITERATIONS is the old path's).
+CONVERSATION_MAX_STEPS = 16
+
+
+def conversation_spec(max_iterations: int = CONVERSATION_MAX_STEPS, *,
+                      chapter_house: bool = True) -> TurnSpec:
+    """A chat turn on the loop (plan "Cass's agent loop", phase 7; lever
+    agent_loop_chat). Her core chat tools, tasks and calendar, her workspace,
+    and find_tools / use_tool for everything else. No end tool: her reply is
+    the turn's last text, as in chat today."""
     return TurnSpec(
         kind="conversation",
         activity=None,
-        packs=("core", "memory"),
+        packs=("chat_core", "work") + (("chapter_house",) if chapter_house else ())
+              + ("workspace", "find"),
         writes=WritePolicy(kept=(
             ("exchange", "this conversation, summarized into my working memory"),
             ("tool_writes", "anything I observe, record, or write here"),
-        )),
+        ), guarded_fields=SESSION_GUARDED_FIELDS),
         where="a conversation",
         model_site="chat",
+        max_iterations=max_iterations,
+        nudges=0,
         refusable_for_budget=False,
     )
 

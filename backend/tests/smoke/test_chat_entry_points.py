@@ -545,3 +545,40 @@ def test_home_assistant_turn_is_bounded_in_time(booted_app, fake_llm, smoke_user
     assert resp.status_code == 200
     assert resp.json()["response"] == main_sdk.HA_TIMEOUT_REPLY
     assert elapsed < 1.9, f"HA waited {elapsed:.2f}s"
+
+
+# ---------------------------------------------------------------------------
+# Chat on the loop (plan "Cass's agent loop", phase 7; lever agent_loop_chat)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("entry_point", list(ENTRY_POINTS))
+def test_on_the_loop_every_entry_point_saves_what_the_old_path_saves(
+        booted_app, fake_llm, spies, levers, monkeypatch, entry_point):
+    """The same scripted turn, old path against the loop: the same reply,
+    message rows, memory write, marks and observations. Token usage is filed
+    per model call by llm_caller on the loop, so it's checked on its own."""
+    import websocket_handlers
+    from agent_loop.seam import HEADER
+
+    async def no_title(*a, **k):
+        return None
+    # The first run's background title call would take the second run's scripted reply.
+    monkeypatch.setitem(websocket_handlers._state, "generate_conversation_title", no_title)
+    with levers(agent_loop_chat=False):
+        old_reply, old = _run(booted_app, fake_llm, spies, entry_point)
+    with levers(agent_loop_chat=True):
+        reply, new = _run(booted_app, fake_llm, spies, entry_point)
+        calls = [c for c in fake_llm.calls if c.tools]
+
+    assert reply == old_reply == "Noted. Talk soon."
+    for key in ("assistant_row", "self_observation_texts", "chroma_assistant_response", "marks",
+                "model_calls", "tool_result_type", "tool_result_is_error", "system_prompt_source"):
+        assert new[key] == old[key], key
+    # One row per model call, filed under chat with this conversation (the
+    # turn's total isn't filed a second time), adding up to the same tokens.
+    rows = new["token_rows"]
+    assert [r["operation"] for r in rows] == ["conversation_step", "conversation_step"]
+    assert sum(r["input_tokens"] for r in rows) == old["token_rows"][0]["input_tokens"]
+    assert sum(r["output_tokens"] for r in rows) == old["token_rows"][0]["output_tokens"]
+    assert HEADER in calls[0].system_text and "wrote to me through" in calls[0].system_text
+    assert "find_tools" in calls[0].tool_names and "lookup_person" in calls[0].tool_names

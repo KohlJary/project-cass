@@ -224,6 +224,11 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "voice-guarded, and a conversation arriving ends the session cleanly. "
            "Off: the legacy GenericSessionRunner.run_session path.",
            default=False, where="scheduler/actions/session_handlers._run_generic_session"),
+    _lever("agent_loop_chat", "Run chat turns (every entry point) through the agent loop "
+           "(plan \"Cass's agent loop\", phase 7): same context, saving and scope as today; her core "
+           "tools plus find_tools / use_tool instead of per-message selection. Off: the old chat "
+           "tool loop. Turned on only after the comparison on a copy, on her yes and Kohl's.",
+           default=False, where="chat_turn.run_chat_turn"),
 
     # --- Heartbeat (epic #62) ---
     _lever("heartbeat", "Heartbeat: one clock, work registry, budget gate and run log "

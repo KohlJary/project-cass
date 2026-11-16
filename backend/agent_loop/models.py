@@ -92,22 +92,27 @@ def _parse_args(raw: Any) -> Dict[str, Any]:
 # literal default, so tests/test_llm_routing.py can see which site it names.
 # ---------------------------------------------------------------------------
 
-async def _anthropic_request(kwargs: Dict[str, Any], client: Any, call_site: str = "session.generic"):
+async def _anthropic_request(kwargs: Dict[str, Any], client: Any, call_site: str = "session.generic",
+                             ledger: Optional[Dict[str, Any]] = None):
     from llm_caller import create_message
-    return await create_message(call_site, client=client, **kwargs)
+    return await create_message(call_site, client=client, **(ledger or {}), **kwargs)
 
 
 async def _openai_request(payload: Dict[str, Any], model: str, base_url: Optional[str],
-                          api_key: Optional[str], call_site: str = "session.generic"):
+                          api_key: Optional[str], call_site: str = "session.generic",
+                          ledger: Optional[Dict[str, Any]] = None):
     from llm_caller import openai_raw
-    return await openai_raw(call_site, payload, default_model=model, base_url=base_url, api_key=api_key)
+    return await openai_raw(call_site, payload, default_model=model, base_url=base_url, api_key=api_key,
+                            **(ledger or {}))
 
 
 async def _ollama_request(payload: Dict[str, Any], model: str, base_url: Optional[str], timeout: float,
-                          call_site: str = "session.generic") -> Dict[str, Any]:
+                          call_site: str = "session.generic",
+                          ledger: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from llm_caller import ollama_raw
+    ledger = {"category": "autonomous", **(ledger or {})}
     return await ollama_raw(call_site, payload, endpoint="chat", default_model=model,
-                            base_url=base_url, timeout=timeout, category="autonomous")
+                            base_url=base_url, timeout=timeout, **ledger)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +150,9 @@ def anthropic_messages(history: List[Dict[str, Any]], cache: bool = True) -> Lis
 
 class AnthropicModelClient:
     provider = "anthropic"
+    # Who the usage ledger files each call under (a chat turn: category, its
+    # conversation and person); empty for sessions, which file by call site.
+    ledger: Dict[str, Any] = {}
 
     def __init__(self, client: Any = None, call_site: str = "session.generic", cache: bool = True):
         if client is None:
@@ -168,7 +176,7 @@ class AnthropicModelClient:
             kwargs["tools"] = tools
         # Model routing (#64): the call site's override, else `model`;
         # llm_caller records the usage (cache reads/writes too) in the ledger.
-        response = await _anthropic_request(kwargs, self._client, self.call_site)
+        response = await _anthropic_request(kwargs, self._client, self.call_site, self.ledger)
         text, calls = "", []
         for block in response.content:
             if block.type == "text":
@@ -216,6 +224,9 @@ def openai_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str
 
 class OpenAIModelClient:
     provider = "openai"
+    # Who the usage ledger files each call under (a chat turn: category, its
+    # conversation and person); empty for sessions, which file by call site.
+    ledger: Dict[str, Any] = {}
 
     def __init__(self, call_site: str = "session.generic", base_url: Optional[str] = None,
                  api_key: Optional[str] = None):
@@ -228,7 +239,8 @@ class OpenAIModelClient:
                                    "max_tokens": max_tokens}
         if tools:
             payload["tools"] = _function_tools(tools)
-        completion = await _openai_request(payload, model, self.base_url, self.api_key, self.call_site)
+        completion = await _openai_request(payload, model, self.base_url, self.api_key, self.call_site,
+                                           self.ledger)
         choice = completion.choices[0]
         message = choice.message
         calls = [{"id": tc.id or f"call_{i}", "name": tc.function.name,
@@ -277,6 +289,9 @@ def ollama_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str
 
 class OllamaModelClient:
     provider = "ollama"
+    # Who the usage ledger files each call under (a chat turn: category, its
+    # conversation and person); empty for sessions, which file by call site.
+    ledger: Dict[str, Any] = {}
 
     def __init__(self, call_site: str = "session.generic", base_url: Optional[str] = None,
                  num_ctx: Optional[int] = None, timeout: float = 900.0):
@@ -292,7 +307,8 @@ class OllamaModelClient:
                                    "options": {"num_ctx": self.num_ctx, "num_predict": max_tokens}}
         if tools:
             payload["tools"] = _function_tools(tools)
-        data = await _ollama_request(payload, model, self.base_url, self.timeout, self.call_site)
+        data = await _ollama_request(payload, model, self.base_url, self.timeout, self.call_site,
+                                     self.ledger)
         self._step += 1
         message = data.get("message") or {}
         # Ollama gives tool calls no ids; make ones unique within the turn.

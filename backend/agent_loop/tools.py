@@ -286,10 +286,12 @@ class UsageLog:
 RouterRun = Callable[[str, Dict[str, Any]], Awaitable[Any]]
 
 
-def live_router(daemon_id: Optional[str]) -> RouterRun:
+def live_router(daemon_id: Optional[str], *, person: Optional[Dict[str, Any]] = None) -> RouterRun:
     """Run a tool through tool_router with the vessel's own managers (the
     same context factory chat uses). Tools that act for a person (tasks,
-    calendar, user-model) act for her primary partner, as reach_out does."""
+    calendar, user-model) act for her primary partner, as reach_out does,
+    unless `person` says who she's with (a conversation: user_id, user_name,
+    conversation_id, project_id)."""
     async def run(name: str, tool_input: Dict[str, Any]) -> Any:
         import websocket_handlers as ws
         make_ctx = ws._state.get("create_tool_context")
@@ -297,14 +299,19 @@ def live_router(daemon_id: Optional[str]) -> RouterRun:
         batch = ws._state.get("execute_tool_batch")
         if not (make_ctx and executors and batch):
             return {"error": "my tool context isn't set up in this process"}
-        user_id = user_name = None
-        try:
-            from reach_out import display_name, find_primary_partner
-            user_id = find_primary_partner(daemon_id) if daemon_id else None
-            user_name = display_name(user_id) if user_id else None
-        except Exception as e:
-            logger.debug(f"[agent_loop] no primary partner for tools: {e}")
-        ctx = make_ctx(user_id=user_id, user_name=user_name, conversation_id=None, project_id=None)
+        if person is not None:
+            ctx = make_ctx(user_id=person.get("user_id"), user_name=person.get("user_name"),
+                           conversation_id=person.get("conversation_id"),
+                           project_id=person.get("project_id"))
+        else:
+            user_id = user_name = None
+            try:
+                from reach_out import display_name, find_primary_partner
+                user_id = find_primary_partner(daemon_id) if daemon_id else None
+                user_name = display_name(user_id) if user_id else None
+            except Exception as e:
+                logger.debug(f"[agent_loop] no primary partner for tools: {e}")
+            ctx = make_ctx(user_id=user_id, user_name=user_name, conversation_id=None, project_id=None)
         results = await batch([{"id": "loop", "tool": name, "input": tool_input}], ctx, executors)
         r = results[0] if results else {"result": "No result", "is_error": True}
         return {"error": r["result"]} if r.get("is_error") else r["result"]

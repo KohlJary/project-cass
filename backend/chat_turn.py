@@ -136,6 +136,7 @@ async def run_chat_turn(
     generate_title: bool = True,
     extra_send_kwargs: Optional[Dict[str, Any]] = None,
     websocket=None,
+    channel: Optional[str] = None,
 ) -> ChatTurnResult:
     """Run one chat turn and persist it. See the module docstring.
 
@@ -152,6 +153,9 @@ async def run_chat_turn(
     tool_cap: lower cap on tool iterations for this entry point (HA).
     progress: async callback receiving WebSocket-style frames
         ({"type": "thinking"|"debug", ...}).
+    channel: where the message came from, for her seam block on the loop
+        ("websocket", "relay", "http", "home_assistant", "discord"); guessed
+        from the other arguments when not given.
     """
     from continuous_context import build_continuous_context, get_recent_messages_for_continuous
     from websocket_handlers import (
@@ -243,6 +247,86 @@ async def run_chat_turn(
     if is_anthropic:
         send_kwargs.update(image=image, image_media_type=image_media_type, memory=memory)
 
+    import features
+    on_loop = features.is_enabled("agent_loop_chat") and not image
+    if on_loop:
+        # Phase 7 of "Cass's agent loop": the same context, through the one loop.
+        from agent_loop.conversation import run_conversation
+        user_name = None
+        if user_id and user_manager:
+            profile = user_manager.load_profile(user_id)
+            user_name = profile.display_name if profile else None
+        looped = await run_conversation(
+            system_prompt=system_prompt,
+            continuous_messages=continuous_messages,
+            model_message=send_kwargs["message"],
+            person={"user_id": user_id, "user_name": user_name, "conversation_id": conversation_id,
+                    "project_id": project_id, "daemon_id": daemon_id},
+            channel=channel or _guess_channel(websocket, context_scope, tool_cap),
+            provider=response_provider, model=response_model,
+            agent_client=agent_client if is_anthropic else None,
+            tool_cap=tool_cap, emit=emit,
+        )
+        raw_response, clean_text, animations = looped.raw_response, looped.clean_text, looped.animations
+        total_input, total_output = looped.input_tokens, looped.output_tokens
+        total_cache_read, tool_iterations = looped.cache_read_tokens, looped.tool_iterations
+        tool_names_used, generated_images = looped.tool_names_used, looped.generated_images
+        hit_tool_cap, tool_uses = looped.hit_tool_cap, looped.tool_uses
+    else:
+        (raw_response, clean_text, animations, tool_uses, total_input, total_output, total_cache_read,
+         tool_iterations, tool_names_used, generated_images, hit_tool_cap) = await _client_tool_loop(
+            turn_client, send_kwargs, response_provider, provider_label, is_anthropic, tool_cap,
+            user_id, user_manager, conversation_id, project_id, emit)
+
+    # 3. Persist: tags, marks, memory, SQLite, tokens, title, summary.
+    turn = await finalize_chat_turn(
+        user_message=user_message,
+        raw_response=raw_response,
+        clean_text=clean_text,
+        animations=animations,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        input_tokens=total_input,
+        output_tokens=total_output,
+        cache_read_tokens=total_cache_read,
+        provider=response_provider,
+        model=response_model,
+        tool_iterations=tool_iterations,
+        summarize_requested="<memory:summarize>" in raw_response,
+        memory_metadata=memory_metadata,
+        generate_title=generate_title,
+        websocket=websocket,
+        record_tokens=not on_loop,
+    )
+
+    # 4. Behavioral sample for cross-context consistency analysis.
+    _record_cross_context_sample(turn["clean_text"], user_message, tool_names_used, conversation_id)
+
+    extracted = {k: v for k, v in turn.items() if k not in ("clean_text", "marks")}
+    return ChatTurnResult(
+        clean_text=turn["clean_text"],
+        raw_response=raw_response,
+        animations=animations,
+        tool_uses=tool_uses or [],
+        conversation_id=conversation_id,
+        input_tokens=total_input,
+        output_tokens=total_output,
+        cache_read_tokens=total_cache_read,
+        provider=response_provider,
+        model=response_model,
+        tool_iterations=tool_iterations,
+        generated_images=generated_images,
+        memory_used=memory_used,
+        hit_tool_cap=hit_tool_cap,
+        marks=turn["marks"],
+        extracted=extracted,
+    )
+
+
+async def _client_tool_loop(turn_client, send_kwargs, response_provider, provider_label, is_anthropic,
+                            tool_cap, user_id, user_manager, conversation_id, project_id, emit):
+    """The chat tool loop on the provider clients (lever agent_loop_chat off)."""
+    from websocket_handlers import _state, execute_tools_safely, extract_generated_images, max_tool_iterations
     response = await turn_client.send_message(**send_kwargs)
     raw_response = response.raw
     clean_text = response.text
@@ -318,45 +402,15 @@ async def run_chat_turn(
         total_output += response.output_tokens
         total_cache_read += getattr(response, "cache_read_tokens", 0) or 0
 
-    # 3. Persist: tags, marks, memory, SQLite, tokens, title, summary.
-    turn = await finalize_chat_turn(
-        user_message=user_message,
-        raw_response=raw_response,
-        clean_text=clean_text,
-        animations=animations,
-        conversation_id=conversation_id,
-        user_id=user_id,
-        input_tokens=total_input,
-        output_tokens=total_output,
-        cache_read_tokens=total_cache_read,
-        provider=response_provider,
-        model=response_model,
-        tool_iterations=tool_iterations,
-        summarize_requested="<memory:summarize>" in raw_response,
-        memory_metadata=memory_metadata,
-        generate_title=generate_title,
-        websocket=websocket,
-    )
+    return (raw_response, clean_text, animations, tool_uses, total_input, total_output, total_cache_read,
+            tool_iterations, tool_names_used, generated_images, hit_tool_cap)
 
-    # 4. Behavioral sample for cross-context consistency analysis.
-    _record_cross_context_sample(turn["clean_text"], user_message, tool_names_used, conversation_id)
 
-    extracted = {k: v for k, v in turn.items() if k not in ("clean_text", "marks")}
-    return ChatTurnResult(
-        clean_text=turn["clean_text"],
-        raw_response=raw_response,
-        animations=animations,
-        tool_uses=tool_uses or [],
-        conversation_id=conversation_id,
-        input_tokens=total_input,
-        output_tokens=total_output,
-        cache_read_tokens=total_cache_read,
-        provider=response_provider,
-        model=response_model,
-        tool_iterations=tool_iterations,
-        generated_images=generated_images,
-        memory_used=memory_used,
-        hit_tool_cap=hit_tool_cap,
-        marks=turn["marks"],
-        extracted=extracted,
-    )
+def _guess_channel(websocket, context_scope: str, tool_cap) -> str:
+    if websocket is not None:
+        return "websocket"
+    if context_scope == "public":
+        return "discord"
+    if tool_cap is not None:
+        return "home_assistant"
+    return "http"

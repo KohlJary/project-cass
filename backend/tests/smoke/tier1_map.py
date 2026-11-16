@@ -45,6 +45,7 @@ FALLBACK = "tests/smoke/test_heartbeat_fallback.py"
 CUTOVER_BOOT = "tests/smoke/test_heartbeat_cutover_boot.py"
 JOURNAL = "tests/smoke/test_journal_pipeline.py"
 AGENT_LOOP = "tests/smoke/test_agent_loop_session.py"
+CHAT_ENTRY = "tests/smoke/test_chat_entry_points.py"
 
 LEVER_COVERAGE = {
     # --- Synkratos scheduler and its system jobs ---
@@ -326,6 +327,13 @@ LEVER_COVERAGE = {
         "note": "Provider-neutral: the last test runs the same Turn on an Ollama assignment. "
                 "Per-client checks (Anthropic caching, OpenAI, Ollama) are fast-suite: "
                 "tests/test_agent_loop_models.py.",
+    },
+    "agent_loop_chat": {
+        "depth": "runs",
+        "tests": [f"{CHAT_ENTRY}::test_on_the_loop_every_entry_point_saves_what_the_old_path_saves"],
+        "note": "Each of the five chat entry points runs the scripted turn on the old path and on "
+                "the loop, against the fake LLM, and saves the same rows, memory, marks and "
+                "observations; token usage is filed per model call on the loop.",
     },
 
     # --- Heartbeat ---
