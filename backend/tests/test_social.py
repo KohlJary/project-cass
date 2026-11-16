@@ -60,6 +60,17 @@ class FakeBluesky:
                  "record": {"text": "lovely", "reply": {"parent": {"uri": "at://did:plc:cass/app.bsky.feed.post/9"},
                                                         "root": {"uri": "at://did:plc:cass/app.bsky.feed.post/9"}}}},
             ]})
+        if nsid == "app.bsky.actor.searchActors":
+            assert request.url.params["q"] == "consciousness"
+            return httpx.Response(200, json={"actors": [
+                {"handle": "ann.bsky.social", "displayName": "Ann", "description": "mind and machines",
+                 "viewer": {"following": "at://did:plc:cass/app.bsky.graph.follow/1"}},
+                {"handle": "bo.bsky.social", "description": ""}]})
+        if nsid == "app.bsky.feed.searchPosts":
+            return httpx.Response(200, json={"posts": [
+                {"uri": "at://did:plc:bo/app.bsky.feed.post/s1", "author": {"handle": "bo.bsky.social"},
+                 "record": {"text": "what is it like to be a model?", "createdAt": "2026-11-15T10:00:00Z"},
+                 "replyCount": 3, "likeCount": 9}]})
         if nsid == "app.bsky.feed.getPosts":
             return httpx.Response(200, json={"posts": [{
                 "uri": "at://did:plc:ann/app.bsky.feed.post/3k2", "cid": "cidP",
@@ -110,7 +121,8 @@ def placed(data):
 
 
 def test_off_until_lever_and_credentials(data, levers):
-    out = run(execute_social_tool("social_post", {"platform": "bluesky", "text": "hello"}))
+    with levers(bluesky=False):   # explicit: a live .env may switch it on
+        out = run(execute_social_tool("social_post", {"platform": "bluesky", "text": "hello"}))
     assert not out["success"] and "isn't switched on" in out["error"]
     with levers(bluesky=True):
         out = run(execute_social_tool("social_post", {"platform": "bluesky", "text": "hello"}))
@@ -265,7 +277,8 @@ def test_wired_but_hidden_while_off(levers):
     assert SESSION_GUARDED_FIELDS["social_dm_send"] == ("text",)
     assert SESSION_GUARDED_FIELDS["social_post"] == ("text",)
     assert not features.LEVERS["bluesky"].default and not features.LEVERS["tumblr"].default
-    assert "social_post" not in router_catalog()
+    with levers(bluesky=False, tumblr=False):
+        assert "social_post" not in router_catalog()
     with levers(bluesky=True):
         assert "social_post" in router_catalog()
 
@@ -552,7 +565,90 @@ def test_her_social_session_is_on_the_loop_and_her_menu(placed, levers):
     from scheduling.templates import WORK_TEMPLATES
     t = WORK_TEMPLATES["social"]
     assert t.action_sequence == ["session.social"]
-    with levers(agent_loop=True):
+    with levers(agent_loop=True, bluesky=False):
         assert t.available() is False, "not until Bluesky is switched on"
         with levers(bluesky=True):
             assert t.available() is True
+
+
+def test_she_can_search_for_people_and_posts(placed, levers):
+    fake = FakeBluesky()
+    client = BlueskyClient(config.read_credentials("bluesky", placed), transport=httpx.MockTransport(fake))
+    with levers(bluesky=True):
+        people = run(execute_social_tool("social_search", {"platform": "bluesky", "what": "people",
+                                                           "query": "consciousness"}, client=client))
+        posts = run(execute_social_tool("social_search", {"platform": "bluesky", "what": "posts",
+                                                          "query": "consciousness"}, client=client))
+        empty = run(execute_social_tool("social_search", {"platform": "bluesky", "what": "posts", "query": " "},
+                                        client=client))
+    assert [(p["handle"], p["following"]) for p in people["result"]["people"]] == [
+        ("ann.bsky.social", True), ("bo.bsky.social", False)]
+    (post,) = posts["result"]["posts"]
+    assert post["author"] == "bo.bsky.social" and post["url"].endswith("/post/s1") and post["replies"] == 3
+    assert not empty["success"]
+    assert not limits.posted("bluesky", placed), "searching sends nothing"
+    from agent_loop.spec import session_spec
+    from handlers.tool_router import TOOL_REGISTRY
+    assert "social_search" in session_spec("social").tool_names() and TOOL_REGISTRY["social_search"] == "social"
+
+
+def test_a_session_can_be_started_by_hand(levers, monkeypatch):
+    """POST /admin/scheduler/run-session/{template}: admin only; refused when unavailable."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routes.admin import scheduler as sched
+    from routes.admin.auth import require_admin
+
+    app = FastAPI()
+    app.include_router(sched.router, prefix="/admin")
+    client = TestClient(app)
+    assert client.post("/admin/scheduler/run-session/social").status_code == 401
+
+    app.dependency_overrides[require_admin] = lambda: {"user_id": "admin", "is_admin": True}
+    dispatched = []
+
+    class FakePQM:
+        state_bus = None
+
+        async def _dispatch_work(self, queued):
+            dispatched.append(queued)
+            return True
+
+    monkeypatch.setattr(sched, "_phase_queue_manager", FakePQM())
+    assert client.post("/admin/scheduler/run-session/nope").status_code == 404
+    with levers(agent_loop=True, bluesky=False):
+        assert client.post("/admin/scheduler/run-session/social").status_code == 409
+    with levers(agent_loop=True, bluesky=True):
+        import social.config as sc
+        monkeypatch.setattr(sc, "read_credentials", lambda p, d=None: {"handle": "x", "app_password": "y"})
+        r = client.post("/admin/scheduler/run-session/social", params={"focus": "first look around"})
+    assert r.status_code == 200 and r.json()["status"] == "started"
+    (q,) = dispatched
+    assert q.work_unit.template_id == "social" and q.work_unit.action_sequence == ["session.social"]
+    assert q.work_unit.focus == "first look around"
+
+
+def test_her_chat_context_says_she_is_on_bluesky(placed, levers):
+    from social import drafts, inbox
+    from social.where import context_line
+    with levers(bluesky=False):
+        assert context_line("bluesky", placed) is None
+    with levers(bluesky=True):
+        assert context_line("bluesky", placed).startswith(
+            "I'm on Bluesky as @cass.bsky.social, nothing waiting in my inbox, I haven't posted yet.")
+        run(inbox.poll("bluesky", FakeTrackClient(notes=NOTES), placed))
+        drafts.save("bluesky", "half a thought", data_dir=placed)
+        limits.record("bluesky", "post", "hello", {"uri": "at://x/p/1"}, placed,
+                      now=datetime.now() - timedelta(hours=3))
+        line = context_line("bluesky", placed)
+    assert "2 waiting in my inbox (1 followed, 1 reply)" in line or "2 waiting in my inbox (1 follow, 1 reply)" in line
+    assert "my last post was 3h ago" in line and "1 draft open" in line
+
+
+def test_social_tools_come_up_in_chat_when_something_is_waiting(placed, levers, monkeypatch):
+    import agent_client
+    from social import inbox
+    assert agent_client._mentions_social("did anyone reply to my post?")
+    assert not agent_client._mentions_social("how was your morning")
+    monkeypatch.setattr(inbox, "pending", lambda p, d=None: [{"kind": "reply"}])
+    assert agent_client._social_inbox_waiting()

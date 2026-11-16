@@ -36,7 +36,7 @@ def test_one_watch_cycle_queues_and_posts_nothing(levers, tmp_path):
 
 def test_nothing_is_watched_while_bluesky_is_off(levers, tmp_path):
     config.write_credentials("bluesky", {"handle": "cass.bsky.social", "app_password": "pw"}, tmp_path)
-    with levers(social_watch=True):
+    with levers(social_watch=True, bluesky=False):
         assert asyncio.run(watch.watch_once(tmp_path, client_for=lambda p, d: FakeClient())) == {}
 
 

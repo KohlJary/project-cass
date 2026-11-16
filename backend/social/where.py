@@ -77,3 +77,38 @@ def where_i_am(platform: str, data_dir: Optional[Path] = None, now: Optional[dat
     if state.get("last_poll"):
         lines.append(f"(Inbox last checked {state['last_poll'][:16]}.)")
     return "\n".join(lines)
+
+
+def context_line(platform: str = "bluesky", data_dir: Optional[Path] = None,
+                 now: Optional[datetime] = None) -> Optional[str]:
+    """One line for her chat context: that she's there, and what's waiting.
+    None when the platform isn't usable."""
+    from social import config
+    if config.availability(platform, data_dir):
+        return None
+    now = now or datetime.now()
+    handle = (config.read_credentials(platform, data_dir) or {}).get("handle", "")
+    where = "Bluesky" if platform == "bluesky" else platform.capitalize()
+    parts = [f"I'm on {where}" + (f" as @{handle}" if handle else "")]
+    waiting = inbox.pending(platform, data_dir)
+    if waiting:
+        kinds: dict = {}
+        for i in waiting:
+            kinds[i["kind"]] = kinds.get(i["kind"], 0) + 1
+        parts.append(f"{len(waiting)} waiting in my inbox ("
+                     + ", ".join(f"{n} {k}{'s' if n > 1 and not k.endswith('ed') else ''}"
+                                 for k, n in kinds.items()) + ")")
+    else:
+        parts.append("nothing waiting in my inbox")
+    mine = [r for r in limits.posted(platform, data_dir) if r.get("kind") in ("post", "reply")]
+    if mine:
+        ago = now - datetime.fromisoformat(mine[-1]["at"])
+        hours = int(ago.total_seconds() // 3600)
+        parts.append(f"my last {mine[-1]['kind']} was "
+                     + (f"{hours // 24}d ago" if hours >= 48 else f"{hours}h ago" if hours else "just now"))
+    else:
+        parts.append("I haven't posted yet")
+    drafts_open = len(drafts.open_drafts(platform, data_dir))
+    if drafts_open:
+        parts.append(f"{drafts_open} draft{'s' if drafts_open > 1 else ''} open")
+    return ", ".join(parts) + ". (My social tools: social_inbox, social_post, social_reply, social_search, ...)"

@@ -414,6 +414,7 @@ TOOL_REGISTRY = {
     "social_inbox_mark": "social",
     "social_draft": "social",
     "social_follow": "social",
+    "social_search": "social",
     "social_dms": "social",
     "social_dm_read": "social",
     "social_dm_send": "social",

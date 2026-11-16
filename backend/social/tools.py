@@ -171,6 +171,22 @@ TRACK_TOOLS = [
         },
     },
     {
+        "name": "social_search",
+        "description": (
+            "Search Bluesky: 'people' (accounts by name, handle or what they say about themselves; "
+            "shows whether I follow them) or 'posts' (posts matching words). For finding people and "
+            "conversations I care about."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"platform": {"type": "string", "enum": ["bluesky"]},
+                           "what": {"type": "string", "enum": ["people", "posts"]},
+                           "query": {"type": "string"},
+                           "limit": {"type": "integer", "minimum": 1, "maximum": 50}},
+            "required": ["platform", "what", "query"],
+        },
+    },
+    {
         "name": "social_follow",
         "description": "Follow someone on Bluesky (by handle), so their posts are on my timeline.",
         "input_schema": {
@@ -280,6 +296,24 @@ async def _track_tool(tool_name, a, platform, daemon_id, data_dir, client, memor
                 drafts.set_status(d["id"], "posted", data_dir, url=out["result"].get("url"))
             return out
         return _fail("action is save, revise, list, post or drop")
+
+    if tool_name == "social_search":
+        if platform != "bluesky":
+            return _fail("Search is on Bluesky.")
+        why_not = config.availability(platform, data_dir)
+        if why_not:
+            return _fail(why_not)
+        q = (a.get("query") or "").strip()
+        if not q:
+            return _fail("Search for what? (query)")
+        client = client or client_for(platform, data_dir)
+        n = int(a.get("limit") or 15)
+        try:
+            if a.get("what") == "posts":
+                return {"success": True, "result": {"posts": await client.search_posts(q, n)}}
+            return {"success": True, "result": {"people": await client.search_people(q, n)}}
+        except BlueskyError as e:
+            return _fail(str(e))
 
     if tool_name == "social_follow":
         if platform != "bluesky":

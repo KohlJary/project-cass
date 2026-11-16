@@ -1641,6 +1641,23 @@ from handlers.room import ROOM_TOOLS
 from social.tools import SOCIAL_TOOLS
 
 
+_SOCIAL_WORDS = ("bluesky", "tumblr", "skeet", "my post", "mentions", "post", "social", "follower",
+                 "following", "timeline", "draft", "reply to", "inbox", "@")
+
+
+def _mentions_social(message: str) -> bool:
+    m = message.lower()
+    return any(w in m for w in _SOCIAL_WORDS)
+
+
+def _social_inbox_waiting() -> bool:
+    try:
+        from social.inbox import pending
+        return bool(pending("bluesky"))
+    except Exception:
+        return False
+
+
 def _social_lever_on() -> bool:
     from features import is_enabled
     return is_enabled("bluesky") or is_enabled("tumblr")
@@ -1935,9 +1952,10 @@ class CassAgentClient:
                     or any(w in message.lower() for w in ("my room", "share", "gallery", "journal"))):
                 tools.extend(ROOM_TOOLS)
 
-            # Her Bluesky and Tumblr (social/): only once a platform's lever is on.
-            if (any(w in message.lower() for w in ("bluesky", "tumblr", "skeet", "my post", "mentions"))
-                    and _social_lever_on()):
+            # Her Bluesky and Tumblr (social/): only once a platform's lever is on, and
+            # when the talk turns that way or something is waiting in her inbox (her
+            # context line tells her it is; this lets her act on it).
+            if _social_lever_on() and (_mentions_social(message) or _social_inbox_waiting()):
                 tools.extend(SOCIAL_TOOLS)
 
             # Music composition tools - compose original music via ACE-Step

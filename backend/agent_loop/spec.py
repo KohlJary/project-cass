@@ -102,9 +102,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
               "homepage_list_artifacts", "homepage_feature_artifact", "homepage_place_piece")),
     # My Bluesky and Tumblr, as their own track (plan "Cass on Bluesky and Tumblr", phase 5).
     ToolPack("social", "tend my Bluesky: my inbox of what came in, read my timeline and threads, "
-             "reply, post, keep drafts, follow people",
-             ("social_inbox", "social_inbox_mark", "social_read", "social_thread", "social_reply",
-              "social_post", "social_draft", "social_follow", "social_my_posts")),
+             "search for people and posts, reply, post, keep drafts, follow people",
+             ("social_inbox", "social_inbox_mark", "social_read", "social_thread", "social_search",
+              "social_reply", "social_post", "social_draft", "social_follow", "social_my_posts")),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}

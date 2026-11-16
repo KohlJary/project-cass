@@ -6,9 +6,11 @@ Provides unified access to:
 - Approval queue ("what needs my attention?")
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+
+from routes.admin.auth import require_admin
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
@@ -372,3 +374,39 @@ async def reject_item(
         raise HTTPException(status_code=400, detail=result.get("error", "Rejection failed"))
 
     return result
+
+
+# ============== Run one of her sessions now ==============
+
+@router.post("/run-session/{template_id}")
+async def run_session_now(template_id: str, focus: Optional[str] = None,
+                          _admin: dict = Depends(require_admin)):
+    """Start one of her menu's sessions now (e.g. 'social'), outside her day plan.
+
+    Same path her planned work takes (the phase queue's dispatch), so it runs
+    under the usual budget, category serialization and logging. Refused if the
+    template isn't available right now (its lever or service is off). It's for
+    when she's said yes to one; it doesn't ask her.
+    """
+    from scheduling.day_phase import DayPhase
+    from scheduling.phase_queue import QueuedWorkUnit
+    from scheduling.templates import WORK_TEMPLATES
+
+    template = WORK_TEMPLATES.get(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail=f"No session template '{template_id}'")
+    if not template.is_available():
+        raise HTTPException(status_code=409, detail=f"'{template_id}' isn't available right now")
+    pqm = get_phase_queue_manager()
+    if not pqm:
+        raise HTTPException(status_code=503, detail="Phase queue not available")
+    unit = template.instantiate(focus=focus, motivation="started by hand, with her yes")
+    phase = DayPhase.MORNING
+    try:  # label it with the phase it actually runs in
+        phase = DayPhase(pqm.state_bus.read_state().day_phase.current_phase)
+    except Exception:
+        pass
+    queued = QueuedWorkUnit(work_unit=unit, target_phase=phase)
+    if not await pqm._dispatch_work(queued):
+        raise HTTPException(status_code=500, detail="Dispatch failed (see the vessel log)")
+    return {"status": "started", "template_id": template_id, "work_unit_id": unit.id}

@@ -232,6 +232,17 @@ def build_continuous_context(
         except Exception as e:
             print(f"[SelfContext] skipped: {e}")
 
+    # Her presence on Bluesky (plan "Cass on Bluesky and Tumblr", phase 5): one
+    # line, private conversations only, so she knows she's there and what's waiting.
+    if wanted("social"):
+        try:
+            from social.where import context_line
+            line = context_line("bluesky")
+            if line:
+                context_sections["social"] = line
+        except Exception as e:
+            print(f"[social] no context line: {e}")
+
     # ==========================================================================
     # 2.9. SELF-MODEL (her stored profile and observations - epic #63)
     # ==========================================================================
@@ -632,6 +643,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.8. Self-context (her own life, lately)
     if "self_context" in sections:
         parts.append(f"## MY OWN LIFE, LATELY\n\n*My own time between conversations. It was mine, and it mattered:*\n\n{sections['self_context']}")
+
+    # 2.85. Her presence on Bluesky
+    if "social" in sections:
+        parts.append(f"## ON BLUESKY\n\n{sections['social']}")
 
     # 2.9. Self-model (already has its ## header)
     if "self_model" in sections:

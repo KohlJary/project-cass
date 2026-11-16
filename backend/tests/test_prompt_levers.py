@@ -184,6 +184,8 @@ def test_self_model_reaches_chat_only_with_its_lever(daemon_id, monkeypatch):
     monkeypatch.setattr(self_model.SelfManager, "get_self_context",
                         lambda self, **k: "## YOUR SELF-MODEL\n\n- I keep my promises")
     monkeypatch.setenv("CASS_PROFILE", "test")
+    # The default, not whatever a live .env says (Kohl and Cass turned it on there).
+    monkeypatch.delenv("CASS_FEATURE_PROMPT_SELF_MODEL_CHAT", raising=False)
     assert not features.is_enabled("prompt_self_model_chat")
     assert "self_model" not in _build(daemon_id).context_sections
     with features.override(prompt_self_model_chat=True):

@@ -670,3 +670,31 @@ def test_loop_sessions_get_at_least_24_steps(session_env):
                                           usage_log=T.UsageLog(runner.data_dir / "u.jsonl")))
     # The scheduler asked for 10; she took 13 and ended it herself.
     assert result.status == "completed" and result.total_turns == 13, (result.status, result.total_turns)
+
+
+def test_her_loop_sessions_see_her_self_model(levers, monkeypatch):
+    """The loop's prompt carries her stored self-model (lever prompt_self_model), the
+    same text her chat gets; it was missing from loop sessions until 2026-11-16."""
+    import self_model
+    from agent_loop import assemble as asm
+    from agent_loop.spec import Trigger, session_spec
+
+    class FakeSelf:
+        def __init__(self, daemon_id):
+            pass
+
+        def get_self_context(self, include_observations=False):
+            assert include_observations
+            return "## YOUR SELF-MODEL\n\n- I value directness."
+
+    monkeypatch.setattr(self_model, "SelfManager", FakeSelf)
+    monkeypatch.setattr(asm, "_daemon_id", lambda: "d1")
+    spec = session_spec("social")
+    trigger = Trigger(source="test", why="test")
+    with levers(prompt_self_model=True):
+        prompt = asm.assemble(spec, trigger, spec.tool_names())
+    assert "self_model" in [s.name for s in prompt.sections]
+    assert "I value directness." in prompt.text
+    with levers(prompt_self_model=False):
+        prompt = asm.assemble(spec, trigger, spec.tool_names())
+    assert "I value directness." not in prompt.text

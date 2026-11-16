@@ -147,6 +147,17 @@ class BlueskyClient:
                         "subject": n.get("reasonSubject")})
         return out
 
+    async def search_people(self, q: str, limit: int = 15) -> List[dict]:
+        data = await self.call("GET", "app.bsky.actor.searchActors", params={"q": q, "limit": min(limit, 50)})
+        return [{"handle": a.get("handle"), "name": a.get("displayName") or a.get("handle"),
+                 "about": (a.get("description") or "")[:300],
+                 "following": bool((a.get("viewer") or {}).get("following"))}
+                for a in data.get("actors", [])]
+
+    async def search_posts(self, q: str, limit: int = 15) -> List[dict]:
+        data = await self.call("GET", "app.bsky.feed.searchPosts", params={"q": q, "limit": min(limit, 50)})
+        return [self._post_view(p) for p in data.get("posts", [])]
+
     async def post_stats(self, uris: List[str]) -> Dict[str, dict]:
         """uri -> {replies, reposts, likes, quotes} for up to 25 of her posts."""
         if not uris:

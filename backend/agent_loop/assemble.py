@@ -94,6 +94,21 @@ def _self_context(daemon_id: Optional[str]) -> Optional[str]:
     return f"## MY OWN LIFE, LATELY\n\n{own}" if own else None
 
 
+def _self_model(daemon_id: Optional[str]) -> Optional[str]:
+    """Her stored self-model: the same text her chat gets (continuous_context,
+    lever prompt_self_model_chat), here under prompt_self_model, the lever her
+    sessions read it under before the loop. The loop never had it (2026-11-13
+    to 2026-11-16), so her loop sessions ran without it."""
+    import features
+    if not daemon_id or not features.is_enabled("prompt_self_model"):
+        return None
+    from self_model import SelfManager
+    profile = SelfManager(daemon_id).get_self_context(include_observations=True)
+    if not profile or profile.strip() == "## YOUR SELF-MODEL":
+        return None
+    return profile
+
+
 def _thymos() -> Optional[str]:
     try:
         from thymos import get_thymos_context
@@ -144,6 +159,7 @@ def assemble(
         # in length by agenda_section, never cut for budget.
         Section("agenda", _safe("agenda", lambda: _agenda(spec, workspace)) or "", 1, never_cut=True),
         Section("self_context", _safe("self_context", lambda: _self_context(daemon_id)) or "", 2),
+        Section("self_model", _safe("self_model", lambda: _self_model(daemon_id)) or "", 2),
         Section("thymos", _safe("thymos", _thymos) or "", 3),
         # Housekeeping that ran lately (memory maintenance), so she can see it.
         Section("housekeeping", _safe("housekeeping", _housekeeping) or "", 4),
