@@ -75,8 +75,10 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         "My menu (template_id: what it is, about how long, about what it costs):",
     ]
     for c in candidates:
+        last = _last_done_text(getattr(c, "last_done", None))
         lines.append(f"- {c.template_id}: {c.description} "
-                     f"(~{c.estimated_duration_minutes}min, ${c.estimated_cost_usd:.2f})")
+                     f"(~{c.estimated_duration_minutes}min, ${c.estimated_cost_usd:.2f}"
+                     f"{'; last done ' + last if last else ''})")
     if unavailable:
         lines.append("")
         lines.append("Not available today: " + ", ".join(unavailable) + ".")
@@ -92,6 +94,21 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         "session_complete.",
     ]
     return "\n".join(lines)
+
+
+def _last_done_text(when: Any, now: Optional[datetime] = None) -> str:
+    """'today', 'yesterday', 'N days ago' for an ISO time; '' if unknown."""
+    if not when:
+        return ""
+    try:
+        then = datetime.fromisoformat(str(when))
+    except ValueError:
+        return ""
+    now = now or datetime.now(then.tzinfo)
+    days = (now.date() - then.date()).days
+    if days <= 0:
+        return "today"
+    return "yesterday" if days == 1 else f"{days} days ago"
 
 
 def _phase_name(p: Any) -> str:

@@ -288,6 +288,7 @@ class SchedulingDecisionEngine:
         if not candidates:
             logger.info("No viable work options for day planning")
             return {}
+        self._mark_last_done(candidates)
 
         # On the agent loop she plans in her own turn (plan "Cass plans her
         # own day", phase 3): her kernel, memory, agenda and tools, the menu,
@@ -543,9 +544,8 @@ class SchedulingDecisionEngine:
             if template.requires_idle and not context.is_idle:
                 continue
 
-            # Check if we just did this recently (avoid repetition)
-            if self._did_recently(template_id):
-                continue
+            # What she did recently isn't taken off her menu: it's shown on it
+            # (_mark_last_done), and she decides whether to do it again.
 
             # Create work unit from template
             work_unit = template.instantiate()
@@ -673,26 +673,56 @@ class SchedulingDecisionEngine:
 
         return 0.5  # Neutral fit
 
+    def _recent_work_list(self) -> List[Dict]:
+        """What she's done lately, newest first. Read from her saved work
+        summaries, so it survives a restart; the in-process list
+        (record_work_completed) comes first. Before this, only the in-process
+        list was read and nothing filled it, so recency never counted."""
+        rows = list(self._recent_work)
+        try:
+            from .work_summary_store import WorkSummaryStore
+            for s in WorkSummaryStore(self.daemon_id).get_recent(self._max_recent):
+                if not s.template_id:
+                    continue
+                when = s.completed_at or s.started_at
+                rows.append({"template_id": s.template_id, "category": s.category,
+                             "completed_at": when.isoformat() if when else None})
+        except Exception as e:
+            logger.warning(f"[decision] couldn't read recent work summaries: {e}")
+        return rows[:self._max_recent]
+
     def _variety_score(self, candidate: WorkUnit) -> float:
         """Prefer things we haven't done recently."""
-        if not self._recent_work:
+        recent_work = self._recent_work_list()
+        if not recent_work:
             return 1.0
 
         # Check how recently we did this type
-        for i, recent in enumerate(self._recent_work):
+        for i, recent in enumerate(recent_work):
             if recent.get("template_id") == candidate.template_id:
                 # More recent = lower score
-                recency = 1.0 - (i / len(self._recent_work))
+                recency = 1.0 - (i / len(recent_work))
                 return 1.0 - (recency * 0.7)
 
         return 1.0  # Haven't done this recently
 
     def _did_recently(self, template_id: str, threshold: int = 2) -> bool:
         """Did we do this template very recently?"""
-        for i, recent in enumerate(self._recent_work[:threshold]):
+        for recent in self._recent_work_list()[:threshold]:
             if recent.get("template_id") == template_id:
                 return True
         return False
+
+    def _mark_last_done(self, candidates: List[WorkUnit]) -> None:
+        """Put when she last did each thing on its menu entry (`last_done`,
+        an ISO time or None), for the menu to show her."""
+        last: Dict[str, str] = {}
+        for r in self._recent_work_list():
+            tid, when = r.get("template_id"), r.get("completed_at")
+            if tid and when and tid not in last:
+                last[tid] = when
+        for c in candidates:
+            c.last_done = last.get(c.template_id or "")
 
     async def _cass_decides(
         self,

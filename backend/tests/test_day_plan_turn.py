@@ -268,6 +268,48 @@ def test_spells_no_longer_force_news_reflection_or_journal():
     assert "memory_maintenance" in _spell_queues("phase_night")
 
 
+def test_menu_shows_when_she_last_did_something():
+    from datetime import datetime, timedelta
+    from scheduling.day_turn import _last_done_text
+    menu = _menu("painting", "reflection_block")
+    menu[0].last_done = (datetime.now() - timedelta(days=1)).isoformat()
+    text = menu_text(menu, [DayPhase.AFTERNOON], 1.5)
+    painting = next(line for line in text.splitlines() if line.startswith("- painting:"))
+    reflection = next(line for line in text.splitlines() if line.startswith("- reflection_block:"))
+    assert "last done yesterday" in painting
+    assert "last done" not in reflection
+    now = datetime(2026, 11, 16, 9)
+    assert _last_done_text("2026-11-16T01:00:00", now) == "today"
+    assert _last_done_text("2026-11-12T20:00:00", now) == "4 days ago"
+    assert _last_done_text(None, now) == "" and _last_done_text("garbage", now) == ""
+
+
+def test_recent_work_comes_from_her_saved_summaries_and_stays_on_her_menu():
+    """record_work_completed had no caller, so 'done recently' never counted. It now
+    reads her saved work summaries; what she did is shown on her menu, not hidden."""
+    pytest.importorskip("anthropic")
+    from datetime import datetime
+    from scheduling.decision_engine import DecisionContext, SchedulingDecisionEngine
+    from scheduling.work_summary_store import WorkSummary, WorkSummaryStore
+    engine = SchedulingDecisionEngine("d")
+    done = datetime(2026, 11, 15, 20, 30)
+    WorkSummaryStore("d").save(WorkSummary(work_unit_id="w1", slug="painting-1", name="Painting",
+                                           template_id="painting", category="creative",
+                                           started_at=done, completed_at=done))
+    assert engine._recent_work_list()[0]["template_id"] == "painting"
+    assert engine._did_recently("painting")
+
+    ctx = DecisionContext(current_time=datetime(2026, 11, 16, 9))
+    ctx.budget_by_category = {"reflection": 5.0, "research": 5.0, "growth": 5.0, "curiosity": 5.0}
+    menu = engine._get_viable_candidates(ctx)
+    assert "painting" in {c.template_id for c in menu}
+    engine._mark_last_done(menu)
+    by_id = {c.template_id: c for c in menu}
+    assert by_id["painting"].last_done == done.isoformat()
+    assert by_id["reflection_block"].last_done is None
+    assert engine._variety_score(by_id["painting"]) < engine._variety_score(by_id["reflection_block"])
+
+
 def test_they_are_on_her_menu_and_housekeeping_isnt():
     pytest.importorskip("anthropic")
     from datetime import datetime

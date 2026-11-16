@@ -130,6 +130,8 @@ class WorkUnit:
     artifacts: List[Dict[str, str]] = field(default_factory=list)  # [{type, id, title}]
     # Action-level tracking for detailed summaries
     action_results: List[Dict[str, Any]] = field(default_factory=list)
+    # When she last did this kind of work (ISO time), shown on her day-plan menu
+    last_done: Optional[str] = None
 
     def __post_init__(self):
         if self.created_at is None:
