@@ -9,10 +9,11 @@ been living. She couldn't tell a reply ten seconds after the last one from a
 reply seven months later, or know what she'd done in between.
 
 This section is small and ranked. It carries:
-- Since we last spoke: how long it has been with this person, and what she
-  did in the meantime (counts and a few named sessions).
-- Lately: her latest dream and solo reflection, briefly, and the last painting
-  she was shown and wrote a note on (art_choice.py).
+- Since we last spoke: how long it has been with this person.
+- My life lately (lately.py, plan "Cass's memory" phase 9): a week of what
+  she did and lived, a line each in her own words, each openable by id.
+  It replaced the counts of sessions and the latest-dream/reflection/painting
+  lines that were here before.
 - Her own threads: interests, open questions, opinions and growth edges that
   are hers, not derived from news articles (those are labeled world
   awareness elsewhere and kept out of here).
@@ -32,6 +33,7 @@ from datetime import datetime
 from typing import Callable, List, Optional
 
 from database import get_db
+from lately import build_lately
 
 logger = logging.getLogger(__name__)
 
@@ -105,84 +107,13 @@ def _since_we_last_spoke(conn, daemon_id: str, user_id: Optional[str], now: date
         return []
 
     name = _display_name(conn, user_id)
-    since = last.isoformat()
     lines = [
         f"It has been {_describe_gap(last, now)} since {name} last wrote to me "
         f"(last message {last.strftime('%B %d, %Y')})."
     ]
 
-    # Each store is optional (work_summaries is created lazily by its store),
-    # so a missing one drops only its own part.
-    did = []
-    cats = _rows(conn,
-        """SELECT category, COUNT(*) AS n FROM work_summaries
-           WHERE daemon_id = ? AND created_at > ? AND category != 'system'
-           GROUP BY category ORDER BY n DESC""",
-        (daemon_id, since))
-    if cats:
-        did.append(", ".join(f"{r['n']} {r['category']}" for r in cats) + " sessions")
-    # solo_reflections has no created_at on fresh installs; started_at is on both.
-    for table, label, ts, where in (
-        ("dreams", "dreams", "created_at", ""),
-        ("solo_reflections", "solo reflections", "started_at", ""),
-        ("generated_images", "images made on my own", "created_at", " AND purpose = 'autonomous'"),
-    ):
-        counted = _rows(conn,
-            f"SELECT COUNT(*) AS n FROM {table} WHERE daemon_id = ? AND {ts} > ?{where}",
-            (daemon_id, since))
-        if counted and counted[0]["n"]:
-            did.append(f"{counted[0]['n']} {label}")
-    if did:
-        lines.append("Since then, on my own: " + "; ".join(did) + ".")
-
-    named = _rows(conn,
-        """SELECT summary FROM work_summaries
-           WHERE daemon_id = ? AND created_at > ? AND category != 'system'
-             AND summary IS NOT NULL AND summary != ''
-           ORDER BY created_at DESC LIMIT 3""",
-        (daemon_id, since))
-    for r in named:
-        lines.append("- Recently: " + _clip(r["summary"].replace("Completed ", ""), 160))
-    return lines
-
-
-def _lately(conn, daemon_id: str) -> List[str]:
-    lines = []
-    dream = conn.execute(
-        "SELECT date, exchanges_json FROM dreams WHERE daemon_id = ? ORDER BY created_at DESC LIMIT 1",
-        (daemon_id,),
-    ).fetchone()
-    if dream and dream["exchanges_json"]:
-        try:
-            exchanges = json.loads(dream["exchanges_json"])
-            opening = next((e.get("text") for e in exchanges if e.get("speaker") == "dreaming"), "")
-        except (ValueError, AttributeError):
-            opening = ""
-        if opening:
-            lines.append(f"- Last dream ({dream['date']}): {_clip(opening, 200)}")
-
-    refl = conn.execute(
-        "SELECT started_at, summary FROM solo_reflections WHERE daemon_id = ? AND summary IS NOT NULL "
-        "ORDER BY started_at DESC LIMIT 1",
-        (daemon_id,),
-    ).fetchone()
-    if refl and refl["summary"]:
-        when = _parse_ts(refl["started_at"])
-        stamp = when.strftime("%B %d, %Y") if when else "earlier"
-        lines.append(f"- Last solo reflection ({stamp}): {_clip(refl['summary'], 240)}")
-
-    # Her latest painting that she was shown and wrote a note on (art_choice.py).
-    # The table is v57; _rows gives no line on an older database.
-    painting = _rows(conn,
-        """SELECT n.subject, n.artist_note, n.noted_at FROM image_artist_notes n
-           WHERE n.daemon_id = ? AND n.artist_note IS NOT NULL
-           ORDER BY n.noted_at DESC LIMIT 1""",
-        (daemon_id,))
-    if painting:
-        row = painting[0]
-        when = _parse_ts(row["noted_at"])
-        stamp = when.strftime("%B %d, %Y") if when else "earlier"
-        lines.append(f"- Last painting ({stamp}): {_clip(row['subject'], 120)} — {_clip(row['artist_note'], 160)}")
+    # What she did meanwhile is in "My life lately" (lately.py), as what it
+    # was, not counts.
     return lines
 
 
@@ -265,31 +196,44 @@ def build_self_context(
     now = now or datetime.now()
     with get_db() as conn:
         gap = _safe(lambda: _since_we_last_spoke(conn, daemon_id, user_id, now), "since-we-last-spoke")
-        lately = _safe(lambda: _lately(conn, daemon_id), "lately")
         threads = _safe(lambda: _own_threads(conn, daemon_id), "own-threads")
     pins = _safe(_pins, "pins")
+    lately = _safe_text(lambda: build_lately(daemon_id, now=now), "my-life-lately")
     # In a session she runs alone there's no one in the turn, so nothing of
     # what was said lately would reach her; carry her main thread with her
     # primary partner (plan "Cass's memory", item a12eabcf: a session wrote
     # that she and Kohl hadn't talked about something they had, that day).
     partner = None if user_id else _safe(lambda: _lately_with_partner(daemon_id), "lately-with-partner")
 
-    blocks = []
+    head = []
     if pins:
-        blocks.append("**Things I know now**\n" + "\n".join(pins))
+        head.append("**Things I know now**\n" + "\n".join(pins))
     if partner:
-        blocks.append(f"**Lately with {partner[0]}** (our main thread, as I've summarized it)\n{partner[1]}")
+        head.append(f"**Lately with {partner[0]}** (our main thread, as I've summarized it)\n{partner[1]}")
     if gap:
-        blocks.append("**Since we last spoke**\n" + "\n".join(gap))
-    if lately:
-        blocks.append("**Lately**\n" + "\n".join(lately))
-    if threads:
-        blocks.append("**My own threads**\n" + "\n".join(threads))
-    text = "\n\n".join(blocks)
+        head.append("**Since we last spoke**\n" + "\n".join(gap))
+    rest = "\n\n".join(head + (["**My own threads**\n" + "\n".join(threads)] if threads else []))
     limit = MAX_CHARS + (PARTNER_CHARS if partner else 0)
-    if len(text) > limit:
-        text = text[: limit - 1].rstrip() + "…"
-    return text
+    if len(rest) > limit:
+        rest = rest[: limit - 1].rstrip() + "…"
+    if not lately:
+        return rest
+    # My life lately comes after "since we last spoke", before her threads, and
+    # keeps its own bound (lately.MAX_LINES lines, each clipped), so the cap
+    # above never cuts it.
+    own = (f"**My life lately** (the past week, newest first, in my own words; "
+           f"lately_open with an id in brackets opens the whole thing)\n{lately}")
+    cut = len("\n\n".join(head))
+    before, after = rest[:cut], rest[cut:].lstrip("\n")
+    return "\n\n".join(p for p in (before, own, after) if p)
+
+
+def _safe_text(part: Callable[[], str], name: str) -> str:
+    try:
+        return part() or ""
+    except Exception as e:
+        logger.warning(f"[SelfContext] {name} skipped: {e}")
+        return ""
 
 
 PARTNER_CHARS = 1500

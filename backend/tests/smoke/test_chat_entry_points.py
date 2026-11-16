@@ -429,9 +429,8 @@ PRIVATE_MARKERS = {
     "self-context": "SELF_MARKER",
     "threads": "THREAD_MARKER",
     "open questions": "QUESTION_MARKER",
+    "felt state (Thymos)": "THYMOS_MARKER",
 }
-# (Thymos is skipped for the public scope too, but _assemble_continuous_prompt
-# never places the thymos section in any prompt, so there's nothing to check.)
 PRIVATE_HEADERS = ["## RELEVANT MEMORIES", "## HOME STATE", "## CURRENT STATE",
                    "## MY OWN LIFE, LATELY", "## ACTIVE THREADS", "## OPEN QUESTIONS"]
 
@@ -456,10 +455,12 @@ def private_context_everywhere(monkeypatch):
     bus = state_bus.get_state_bus(websocket_handlers._state["daemon_id"])
     monkeypatch.setattr(bus, "get_context_snapshot", lambda *a, **k: "LOCATION_MARKER")
     monkeypatch.setattr(self_context, "build_self_context", lambda *a, **k: "SELF_MARKER")
+    import thymos
+    monkeypatch.setattr(thymos, "get_thymos_context", lambda: "THYMOS_MARKER")
     monkeypatch.setattr(ThreadManager, "format_threads_context", lambda self, **k: "THREAD_MARKER")
     monkeypatch.setattr(OpenQuestionManager, "format_questions_context",
                         lambda self, **k: "QUESTION_MARKER")
-    with features.override(self_context=True):
+    with features.override(self_context=True, prompt_thymos=True):
         yield
 
 

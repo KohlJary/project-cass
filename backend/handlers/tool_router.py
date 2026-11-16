@@ -407,6 +407,7 @@ TOOL_REGISTRY = {
     # Her Bluesky and Tumblr (social/), each behind its own lever
     "recall": "recall",
     "recall_open": "recall",
+    "lately_open": "recall",
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",

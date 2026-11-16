@@ -47,7 +47,7 @@ CHAT_CORE_TOOLS: Tuple[str, ...] = (
     "summon_janet", "janet_feedback", "janet_stats",
     "read_file", "list_directory",
     "lookup_person",
-    "recall", "recall_open",
+    "recall", "recall_open", "lately_open",
 )
 TASK_TOOLS: Tuple[str, ...] = ("add_task", "list_tasks", "complete_task", "modify_task", "delete_task")
 CALENDAR_TOOLS: Tuple[str, ...] = (
@@ -106,6 +106,10 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              "search for people and posts, reply, post, keep drafts, follow people",
              ("social_inbox", "social_inbox_mark", "social_read", "social_thread", "social_search",
               "social_reply", "social_post", "social_draft", "social_follow", "social_my_posts")),
+    # Wonderland, as myself (Kohl and Cass, 2026-11-16): answered by wonderland_turn.
+    ToolPack("wonderland", "be in Wonderland: look around, move, sense, reflect, speak, "
+                           "make something, talk with the beings there",
+             ("wonderland_look", "wonderland_act", "wonderland_talk")),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}
@@ -113,7 +117,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
 ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social"})
-LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage"})
+LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
 # Named so a missing capability is visible rather than silently absent [C3].
@@ -143,6 +147,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "day_planning": ("day_plan",),
     "homepage": ("homepage",),
     "social": ("social",),
+    "wonderland": ("wonderland",),
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -162,6 +167,7 @@ ACTIVITY_WORDS: Dict[str, str] = {
     "day_planning": "planning my day",
     "homepage": "a session working on my GeoCass homepage",
     "social": "a social session, tending my presence on Bluesky",
+    "wonderland": "a visit to Wonderland",
 }
 
 

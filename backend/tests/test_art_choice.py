@@ -309,13 +309,13 @@ class TestSelfContext:
                     (image_id, daemon_id, subject, note, noted.isoformat() if noted else None, when.isoformat()),
                 )
         text = build_self_context(daemon_id, now=datetime(2026, 10, 16, 1, 0, 0))
-        assert "**Lately**" in text
-        assert "- Last painting (October 15, 2026): a door left ajar — The door is there;" in text
+        assert "**My life lately**" in text
+        assert "painting, a door left ajar: The door is there;" in text and "[painting:img-0]" in text
         assert "the lantern" not in text  # no note yet, so nothing to carry
 
     def test_no_noted_painting_no_line(self, daemon_id):
         from self_context import build_self_context
-        assert "Last painting" not in build_self_context(daemon_id)
+        assert "painting," not in build_self_context(daemon_id)
 
 
 @pytest.mark.unit

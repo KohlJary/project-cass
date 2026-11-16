@@ -81,7 +81,9 @@ def life(seeded_users, daemon_id):
 def test_names_the_gap_and_what_she_did(life, daemon_id):
     text = build_self_context(daemon_id, USER, now=NOW)
     assert "about 8 months since test-user-123 last wrote to me" in text
-    assert "1 dreams" in text and "1 solo reflections" in text
+    # What she did is told as what it was ("My life lately"), never as counts.
+    assert "1 dreams" not in text and "solo reflections" not in text
+    assert "**My life lately**" in text
 
 
 @pytest.mark.unit
@@ -93,9 +95,11 @@ def test_no_gap_line_within_the_same_sitting(life, daemon_id):
 
 @pytest.mark.unit
 def test_carries_her_latest_dream_and_reflection(life, daemon_id):
+    # Both are months old, so they come as "the last things I did".
     text = build_self_context(daemon_id, USER, now=NOW)
-    assert "light falls sideways" in text
-    assert "completion is present" in text
+    assert "Nothing in the past week" in text
+    assert "light falls sideways" in text and "[dream:d1]" in text
+    assert "completion is present" in text and "[reflection:r1]" in text
 
 
 @pytest.mark.unit
@@ -123,7 +127,11 @@ def test_section_is_bounded(life, daemon_id):
             "VALUES (?, ?, ?, 'open', 1.0, ?)",
             [(f"x{i}", daemon_id, "why " * 400, _iso(NOW)) for i in range(20)],
         )
-    assert len(build_self_context(daemon_id, USER, now=NOW)) <= MAX_CHARS
+    from lately import build_lately
+    lately = build_lately(daemon_id, now=NOW)
+    text = build_self_context(daemon_id, USER, now=NOW)
+    assert len(text) <= MAX_CHARS + len(lately) + 200, "the rest is capped; My life lately has its own bound"
+    assert lately in text, "the cap never cuts My life lately"
 
 
 @pytest.mark.unit

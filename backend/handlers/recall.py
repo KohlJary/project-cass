@@ -46,6 +46,17 @@ RECALL_TOOLS = [
             "required": ["id"],
         },
     },
+    {
+        "name": "lately_open",
+        "description": "Open one line of 'My life lately' by the id in its brackets (session:..., dream:..., "
+                       "journal:..., painting:..., song:..., reflection:..., bluesky:...): the whole session as "
+                       "I told it when I ended it, the dream, the entry, the painting and my note, the song, the post.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+        },
+    },
 ]
 RECALL_TOOL_NAMES = frozenset(t["name"] for t in RECALL_TOOLS)
 
@@ -54,7 +65,7 @@ async def execute_recall_tool(tool_name: str, tool_input: Dict[str, Any], memory
                               user_id: Optional[str] = None, daemon_id: Optional[str] = None,
                               **_) -> Dict[str, Any]:
     from memory.recall import recall, recall_open
-    if memory is None:
+    if memory is None and tool_name != "lately_open":
         return {"success": False, "error": "My memory isn't reachable from here."}
     a = tool_input or {}
     try:
@@ -63,6 +74,10 @@ async def execute_recall_tool(tool_name: str, tool_input: Dict[str, Any], memory
                          between=a.get("between"), from_sources=a.get("from"),
                          order=a.get("order") or "relevance", limit=a.get("limit") or 10,
                          by_month=bool(a.get("by_month")), current_user_id=user_id, daemon_id=daemon_id)
+        elif tool_name == "lately_open":
+            from database import get_daemon_id
+            from lately import lately_open
+            out = lately_open(daemon_id or get_daemon_id(), a.get("id") or "")
         elif tool_name == "recall_open":
             out = recall_open(memory, a.get("id") or "", around=int(a.get("around", 3)), current_user_id=user_id)
         else:

@@ -652,6 +652,11 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     if "voice_recognition" in sections:
         parts.append(f"## VOICE RECOGNITION\n\n{sections['voice_recognition']}")
 
+    # 2.75. Her felt state (Thymos; already has its ## header). It was built
+    # but never placed here until #108 (2026-11-16), so chat never carried it.
+    if "thymos" in sections:
+        parts.append(sections["thymos"])
+
     # 2.8. Self-context (her own life, lately)
     if "self_context" in sections:
         parts.append(f"## MY OWN LIFE, LATELY\n\n*My own time between conversations. It was mine, and it mattered:*\n\n{sections['self_context']}")
