@@ -137,19 +137,12 @@ class InsightIntegrator:
         result.observations_kept = sum(1 for obs in insights.observations
                                        if obs.confidence >= self.min_confidence)
 
-        # 2. Store questions
-        for q in insights.questions:
-            if integrate_self_model and q.importance >= self.min_confidence:
-                q_id = self._add_question(
-                    question=q.question,
-                    question_type=q.question_type,
-                    importance=q.importance,
-                    context=f"From article: {article.headline}\n\n{q.context}",
-                    source_article_id=article.id,
-                    created_at=now,
-                )
-                if q_id:
-                    result.questions_added.append(q_id)
+        # 2. Questions stay with the article (questions_json, written by the
+        #    article consumer). They used to be added to her open questions as
+        #    "From article: ...". Plan "Cass's memory", phase "Her open
+        #    questions are hers" (approved by Kohl and Cass, 2026-11-13) moved
+        #    the existing ones onto their articles (fc36857), but this kept
+        #    adding new ones; it doesn't now.
 
         # 3. Store opinions
         for op in insights.opinions:

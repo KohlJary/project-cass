@@ -263,8 +263,10 @@ class TestIntegrationGate:
         integrator = InsightIntegrator(daemon_id, min_relevance=0.3)
         result = integrator.integrate(_article(daemon_id, relevance=0.9), _insights())
         assert result.gated is False
-        assert _counts(daemon_id) == {"observations": 0, "questions": 1, "opinions": 1, "growth_edges": 1}
-        assert result.observations_kept == 1
+        # Questions stay with the article, not in her open questions (plan
+        # "Cass's memory", phase "Her open questions are hers").
+        assert _counts(daemon_id) == {"observations": 0, "questions": 0, "opinions": 1, "growth_edges": 1}
+        assert result.observations_kept == 1 and result.questions_added == []
 
     def test_threshold_is_inclusive(self, daemon_id):
         integrator = InsightIntegrator(daemon_id, min_relevance=0.3)
