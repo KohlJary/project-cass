@@ -57,24 +57,16 @@ def _get_inner_context(daemon_id: str) -> str:
     except Exception as e:
         logger.debug(f"Could not get state bus: {e}")
 
-    # Get Thymos state (needs/drives)
+    # Her felt state, the same section every other path uses (lever prompt_thymos).
+    # This used to call get_thymos_runner(daemon_id) and methods the runner
+    # doesn't have, so it always failed quietly (context audit 2026-11-16).
     try:
-        from thymos import get_thymos_runner
-        thymos = get_thymos_runner(daemon_id)
-        if thymos:
-            needs = thymos.needs.get_all_needs()
-            low_needs = [n for n in needs if n.current < n.preferred_low]
-            if low_needs:
-                parts.append("## What I'm Yearning For")
-                for need in low_needs[:3]:
-                    parts.append(f"- {need.name.replace('_', ' ')}: seeking more")
-                parts.append("")
-
-            felt_state = thymos.get_felt_state()
-            if felt_state:
-                parts.append("## Felt Sense")
-                parts.append(felt_state)
-                parts.append("")
+        from features import is_enabled
+        from thymos import get_thymos_context
+        felt = get_thymos_context() if is_enabled("prompt_thymos") else None
+        if felt:
+            parts.append(felt)
+            parts.append("")
     except Exception as e:
         logger.debug(f"Could not get thymos state: {e}")
 

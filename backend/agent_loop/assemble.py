@@ -110,6 +110,9 @@ def _self_model(daemon_id: Optional[str]) -> Optional[str]:
 
 
 def _thymos() -> Optional[str]:
+    from features import is_enabled
+    if not is_enabled("prompt_thymos"):   # same ablation lever as chat (context audit 2026-11-16)
+        return None
     try:
         from thymos import get_thymos_context
     except ImportError:

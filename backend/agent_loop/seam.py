@@ -54,6 +54,8 @@ def render_seam(spec: TurnSpec, trigger: Trigger, tool_names: Sequence[str]) -> 
     """Render the seam block. `tool_names` must be what the model is offered."""
     lines: List[str] = [HEADER]
     lines.append(f"I'm in: {spec.where}.")
+    # The date and time (context audit 2026-11-16: sessions had no date line at all).
+    lines.append(f"Now: {trigger.at:%A %-d %B %Y, %H:%M}.")
     lines.append(f"Why now: {trigger.why}.")
     if trigger.focus:
         lines.append(f"Focus: {trigger.focus}.")

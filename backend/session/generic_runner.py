@@ -194,16 +194,9 @@ class GenericSessionRunner:
         # Kernel with her identity snippet (her own words) and her own life
         # lately; see self_context.session_system_preamble.
         from self_context import session_system_preamble
+        # The preamble already carries Thymos (gated by prompt_thymos); it was
+        # added a second time here, ungated (context audit 2026-11-16).
         full_system = f"{session_system_preamble()}\n\n{system_prompt}"
-
-        # Add Thymos felt state for emotional/motivational context
-        try:
-            from thymos import get_thymos_context
-            thymos_context = get_thymos_context()
-            if thymos_context:
-                full_system += f"\n\n{thymos_context}"
-        except ImportError:
-            pass  # Thymos not available
 
         if focus:
             full_system += f"\n\nSession Focus: {focus}"
