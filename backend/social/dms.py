@@ -8,6 +8,13 @@ Until someone says yes, a DM with them is read and answered but not kept:
 not in the stored session record (agent_loop/loop.py keeps only that a DM
 was read), not in the sent log's text, and they aren't added to PeopleDex.
 
+Once they have said yes, the conversation is kept, both sides (her choice,
+2026-11-16: keeping only her side would mean remembering conversations she can
+only see half of). Each message goes into her memory as a social_dm, owned by
+"<platform>:<handle>", so it's never recalled in a chat with anyone else; she
+finds it with her own recall. Someone who writes to her first is told apart
+(FIRST_CONTACT_NOTE), so she knows to ask before anything is kept.
+
     DATA_DIR/social/<platform>/dm.json   {"remembered": ["handle", ...]}
 """
 from __future__ import annotations
@@ -17,6 +24,10 @@ from pathlib import Path
 from typing import List, Optional
 
 from social.config import platform_dir
+
+FIRST_CONTACT_NOTE = ("{who} wrote to me first, and hasn't said I may remember our DMs. I can answer; "
+                      "nothing is kept unless they say yes. If I'd like to remember this, I can ask "
+                      "them, and record their yes with social_dm_remember.")
 
 UNKEPT_NOTE = ("Not kept: {who} hasn't said I may remember our DMs. I can answer, but this stays out "
                "of my notes and memory unless they say yes (then social_dm_remember).")
@@ -61,3 +72,41 @@ def kept_view(result):
                 "result": {"unkept": True, "note": f"DMs read or sent with {', '.join(who) or 'someone'}; "
                                                    "not kept (they haven't said I may remember them)."}}
     return result
+
+
+def owner(platform: str, handle: str) -> str:
+    return f"{platform}:{handle.lstrip('@').lower()}"
+
+
+def wrote_first(conversation: dict) -> bool:
+    """Did the other person start this conversation (its first message isn't hers)?"""
+    messages = conversation.get("messages") or []
+    return bool(messages) and messages[0].get("from") != "me"
+
+
+def keep_conversation(platform: str, conversation: dict, memory) -> int:
+    """Keep a conversation with someone who said yes, both sides. Returns how many
+    messages reached her memory. Call only after is_remembered."""
+    who = (conversation.get("with") or "").lstrip("@")
+    if memory is None or not who:
+        return 0
+    from social.remember import PLATFORM_NAMES
+    where = PLATFORM_NAMES.get(platform, platform)
+    ids, docs, metas = [], [], []
+    for m in conversation.get("messages") or []:
+        if not m.get("id") or not (m.get("text") or "").strip():
+            continue
+        speaker = "I" if m.get("from") == "me" else f"@{who}"
+        ids.append(f"social_dm_{platform}_{m['id']}")
+        docs.append(f"{where} DM with @{who}. {speaker} wrote: {m['text']}")
+        metas.append({"type": "social_dm", "platform": platform, "with": who,
+                      "user_id": owner(platform, who), "timestamp": m.get("at") or ""})
+    if not ids:
+        return 0
+    try:
+        memory.collection.upsert(ids=ids, documents=docs, metadatas=metas)
+        return len(ids)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"[social] couldn't keep the DMs with @{who}: {e}")
+        return 0

@@ -8,6 +8,7 @@ PeopleDex by handle (people.py).
 """
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -188,11 +189,25 @@ TRACK_TOOLS = [
     },
     {
         "name": "social_follow",
-        "description": "Follow someone on Bluesky (by handle), so their posts are on my timeline.",
+        "description": ("Follow someone on Bluesky (by handle), so their posts are on my timeline. A note "
+                        "(optional, my words) says why; it shows with the follow in my life lately."),
         "input_schema": {
             "type": "object",
-            "properties": {"platform": {"type": "string", "enum": ["bluesky"]}, "handle": {"type": "string"}},
+            "properties": {"platform": {"type": "string", "enum": ["bluesky"]}, "handle": {"type": "string"},
+                           "note": {"type": "string"}},
             "required": ["platform", "handle"],
+        },
+    },
+    {
+        "name": "social_find",
+        "description": ("Keep something I found on Bluesky: a post (its link or uri), who wrote it, and a "
+                        "line in my words about it. It shows in my life lately. Just reading isn't kept; "
+                        "this is for what I choose to keep."),
+        "input_schema": {
+            "type": "object",
+            "properties": {"platform": {"type": "string", "enum": ["bluesky"]}, "post": {"type": "string"},
+                           "author": {"type": "string"}, "note": {"type": "string"}},
+            "required": ["platform", "post", "note"],
         },
     },
 ]
@@ -240,6 +255,10 @@ async def _send(platform: str, kind: str, text: str, to: Optional[str], tags, cl
         inbox.answered(platform, (ref.get("answering") or {}).get("uri") or to, data_dir)
     from social import feeling
     feeling.sent(platform, kind)
+    answering = ref.get("answering") or {}
+    if kind == "reply" and answering.get("author"):
+        people.note_exchange(platform, answering["author"], answering.get("text") or "", text,
+                             daemon_id=daemon_id)
     out = {k: v for k, v in ref.items() if k != "answering"}
     return {"success": True, "result": {"posted": True, "in_my_memory": kept, **out}}
 
@@ -334,8 +353,25 @@ async def _track_tool(tool_name, a, platform, daemon_id, data_dir, client, memor
             ref = await client.follow(handle)
         except BlueskyError as e:
             return _fail(str(e))
-        limits.record(platform, "follow", "", {"with": handle, "uri": ref.get("uri")}, data_dir)
+        rec = {"with": handle, "uri": ref.get("uri")}
+        note = (a.get("note") or "").strip()
+        if note:
+            rec["note"] = note
+        limits.record(platform, "follow", "", rec, data_dir)
         return {"success": True, "result": ref}
+
+    if tool_name == "social_find":
+        if platform != "bluesky":
+            return _fail("Finds are on Bluesky.")
+        post, note = (a.get("post") or "").strip(), (a.get("note") or "").strip()
+        if not post or not note:
+            return _fail("Which post, and what about it? (post, note)")
+        author = (a.get("author") or "").strip().lstrip("@")
+        rec = {"uri": post}
+        if author:
+            rec["with"] = author
+        limits.record(platform, "find", note, rec, data_dir)
+        return {"success": True, "result": {"kept": True, "post": post, "with": author or None}}
     return _fail(f"unknown social tool {tool_name}")
 
 
@@ -366,7 +402,7 @@ async def execute_social_tool(tool_name: str, tool_input: Dict[str, Any], daemon
             "my_limits": lim}}
 
     if tool_name in DM_TOOL_NAMES:
-        return await _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex)
+        return await _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex, memory)
 
     why_not = config.availability(platform, data_dir)
     if why_not:
@@ -404,7 +440,7 @@ def _kept_or_not(platform: str, handle: str, data_dir) -> bool:
     return dms.is_remembered(platform, handle, data_dir)
 
 
-async def _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex) -> Dict[str, Any]:
+async def _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex, memory=None) -> Dict[str, Any]:
     from social.bluesky import BlueskyError
 
     if platform != "bluesky":
@@ -449,8 +485,10 @@ async def _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex) -> 
             out = {"success": True, "result": got}
             if _kept_or_not(platform, who, data_dir):
                 people.keep(platform, [{"handle": who}], daemon_id=daemon_id, dex=dex)
+                got["kept_in_my_memory"] = dms.keep_conversation(platform, got, memory)
             else:
-                got["note"] = dms.UNKEPT_NOTE.format(who=who)
+                note = dms.FIRST_CONTACT_NOTE if dms.wrote_first(got) else dms.UNKEPT_NOTE
+                got["note"] = note.format(who=who)
                 out.update(unkept=True, unkept_with=[who])
             return out
 
@@ -468,6 +506,10 @@ async def _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex) -> 
         limits.record(platform, "dm", text if kept else "", {"convo": convo["id"], "with": who,
                                                              "new": bool(convo.get("new"))}, data_dir)
         out = {"success": True, "result": {"sent": True, **ref, "with": who}}
+        if kept and ref.get("id"):
+            dms.keep_conversation(platform, {"with": who, "messages": [
+                {"id": ref["id"], "from": "me", "text": text,
+                 "at": datetime.now().isoformat(timespec="seconds")}]}, memory)
         if not kept:
             out.update(unkept=True, unkept_with=[who])
         return out
