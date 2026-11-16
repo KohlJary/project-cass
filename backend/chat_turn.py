@@ -285,7 +285,7 @@ async def run_chat_turn(
             model_message=send_kwargs["message"],
             person={"user_id": user_id, "user_name": user_name, "conversation_id": conversation_id,
                     "project_id": project_id, "daemon_id": daemon_id},
-            channel=chan, arrival_block=arrival_block,
+            channel=chan, arrival_block=arrival_block, user_message=user_message,
             provider=response_provider, model=response_model,
             agent_client=agent_client if is_anthropic else None,
             tool_cap=tool_cap, emit=emit,

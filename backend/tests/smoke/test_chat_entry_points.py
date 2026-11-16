@@ -582,3 +582,26 @@ def test_on_the_loop_every_entry_point_saves_what_the_old_path_saves(
     assert sum(r["output_tokens"] for r in rows) == old["token_rows"][0]["output_tokens"]
     assert HEADER in calls[0].system_text and "wrote to me through" in calls[0].system_text
     assert "find_tools" in calls[0].tool_names and "lookup_person" in calls[0].tool_names
+
+
+def test_on_the_loop_she_can_hold_a_reply(booted_app, fake_llm, smoke_user, levers, monkeypatch):
+    """C8: she calls hold_reply; the person sees her line, and it's on what she's holding.
+    Her default lines live in her data; a stand-in file here."""
+    import json
+    import websocket_handlers
+    from agent_loop.hold import HeldBook, lines_path
+
+    lines_path().parent.mkdir(parents=True, exist_ok=True)
+    lines_path().write_text(json.dumps({"hold": "HOLD.", "hold_back": "HOLD. Back in {time}."}))
+
+    async def no_title(*a, **k):
+        return None
+    monkeypatch.setitem(websocket_handlers._state, "generate_conversation_title", no_title)
+    user_id, _ = smoke_user
+    fake_llm.queue_tool_use("hold_reply", {"back_in_minutes": 60}, tool_id="toolu_hold")
+    with levers(agent_loop_chat=True):
+        text, conversation_id, _ = _via_websocket(booted_app, user_id)
+    assert text == "HOLD. Back in an hour."
+    assert [i["message"] for i in HeldBook().holding(user_id)] == [MESSAGE]
+    assert len([c for c in fake_llm.calls if c.tools]) == 1, "holding ends the turn"
+    assert "hold_reply" in fake_llm.calls[0].tool_names

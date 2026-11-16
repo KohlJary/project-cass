@@ -45,6 +45,7 @@ class Arrival:
     relationship: Optional[str] = None
     last_heard: Optional[datetime] = None   # their previous message, before this one
     at: Optional[datetime] = None
+    holding: tuple = ()            # what I held of theirs (hold.py): (held_at, message)
 
 
 def _ago(then: datetime, now: datetime) -> str:
@@ -71,6 +72,9 @@ def render(arrival: Arrival, now: Optional[datetime] = None) -> str:
     else:
         lines.append("Last heard from them: this is the first I have from them here.")
     lines.append(f"Where: {where}; seen by {seen_by}.")
+    for held_at, held_message in arrival.holding:
+        lines.append(f"I'm holding something of theirs from {held_at[:16].replace('T', ' ')}: "
+                     f"\"{held_message}\" (answering them now lets it go).")
     text = " ".join((arrival.message or "").split())
     if len(text) > PREVIEW_CHARS:
         text = text[: PREVIEW_CHARS - 1] + "…"
@@ -98,5 +102,12 @@ def arrival_for(user_id: Optional[str], user_name: Optional[str], channel: Optio
                     last = ts.astimezone().replace(tzinfo=None) if ts.tzinfo else ts
         except Exception:
             pass
+    holding = ()
+    if user_id:
+        try:
+            from .hold import HeldBook
+            holding = tuple((i["held_at"], i["message"]) for i in HeldBook().holding(user_id))
+        except Exception:
+            pass
     return Arrival(who=user_name or "someone", channel=channel, message=message,
-                   relationship=relationship, last_heard=last, at=now)
+                   relationship=relationship, last_heard=last, at=now, holding=holding)

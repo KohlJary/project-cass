@@ -230,7 +230,9 @@ async def run_loop(
                             result = {"error": str(e)}
                 if isinstance(result, dict) and result.get("artifact"):
                     out.artifacts.append(result["artifact"])
-                if can_end and name == end_tool:
+                # An end tool that answered with an error (refused, or
+                # missing what it needs) doesn't end the turn.
+                if can_end and name == end_tool and not (isinstance(result, dict) and result.get("error")):
                     out.completion = dict(tool_input)
                     ended = True
                 # The stored record; DMs nobody agreed to keep leave only a

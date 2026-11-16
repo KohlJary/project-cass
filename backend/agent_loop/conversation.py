@@ -123,6 +123,9 @@ async def run_conversation(
     catalog: Optional[Dict[str, Dict[str, Any]]] = None,
     workspace=None,
     arrival_block: Optional[str] = None,
+    user_message: Optional[str] = None,
+    held_book=None,
+    wakes=None,
 ) -> LoopChatResult:
     """One conversation turn through the loop. `client`, `run_router`,
     `catalog` and `workspace` default to the live ones (tests pass fakes)."""
@@ -141,9 +144,12 @@ async def run_conversation(
     steps = (tool_cap + 1) if tool_cap is not None else None
     spec = conversation_spec(**({"max_iterations": steps} if steps else {}),
                              chapter_house="babelr_read" in catalog)
+    from .hold import HeldBook, check, hold, hold_tool, load_lines
     tool_names = [n for n in spec.tool_names()
                   if n in catalog or n in ("find_tools", "use_tool") + WORKSPACE_TOOL_NAMES]
-    tools = tool_definitions(tool_names, catalog, strict=False)
+    tool_names.append("hold_reply")   # C8: "whether and when" (hold.py)
+    lines = load_lines()              # her default lines, from her data
+    tools = tool_definitions(tool_names, catalog, strict=False, extra=[hold_tool(lines)])
 
     who = person.get("user_name") or "someone"
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
@@ -163,7 +169,9 @@ async def run_conversation(
         offered=tool_names, session_tools=(), run_session=_no_session_tools,
         run_router=run_router or tools_mod.live_router(person.get("daemon_id"), person=person),
         catalog=catalog, log=tools_mod.UsageLog(), session_id=turn_id,
-        local={n: (lambda a, n=n: workspace.run(n, a, turn_id)) for n in WORKSPACE_TOOL_NAMES})
+        end_tool="hold_reply",
+        local={**{n: (lambda a, n=n: workspace.run(n, a, turn_id)) for n in WORKSPACE_TOOL_NAMES},
+               "hold_reply": lambda a: check(a, lines)})
 
     async def execute(name: str, tool_input: Dict[str, Any]) -> Any:
         await say({"type": "thinking", "status": f"Executing: {name}..."})
@@ -172,13 +180,23 @@ async def run_conversation(
     outcome = await run_loop(
         spec=spec, client=client, model=model, system=system, tools=tools,
         messages=history_from(continuous_messages) + [{"role": "user", "content": model_message}],
-        execute=execute, end_tool=None, nudges=0,
+        execute=execute, end_tool="hold_reply", nudges=0,
     )
     if outcome.status == "error":
         raise RuntimeError(f"conversation turn on the loop failed: {outcome.error}")
 
     raw = "\n".join(s.text for s in outcome.steps if s.text)
     last = next((s.text for s in reversed(outcome.steps) if s.text), "")
+    book = held_book or HeldBook()
+    if outcome.completion is not None:
+        # She held it, or chose not to reply: the person sees her one line.
+        chosen = hold(outcome.completion, person=person, channel=channel,
+                      message=user_message if user_message is not None else model_message,
+                      book=book, wakes=wakes, lines=lines)
+        last = chosen["line"]
+        raw = f"{raw}\n{last}" if raw else last
+    else:
+        book.let_go(person.get("user_id"))
     clean, gestures = _gestures(last, agent_client)
     animations = []
     for s in outcome.steps:

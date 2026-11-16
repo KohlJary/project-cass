@@ -135,7 +135,14 @@ def _agenda(spec: TurnSpec, workspace) -> Optional[str]:
     if workspace is None:
         from .workspace import Workspace
         workspace = Workspace()
-    return workspace.agenda_section()
+    section = workspace.agenda_section()
+    try:   # replies she chose to hold (hold.py), kept beside her agenda, not in it
+        from .hold import HeldBook
+        held = HeldBook().section()
+    except Exception as e:
+        logger.debug(f"[agent_loop] no held list: {e}")
+        held = None
+    return f"{section}\n\n{held}" if held and section else (section or held)
 
 
 def _letters(spec: TurnSpec) -> Optional[str]:
