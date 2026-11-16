@@ -15,7 +15,7 @@ Returns ActionResult.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from . import ActionResult
 from features import is_enabled
@@ -269,3 +269,42 @@ async def social_action(context: Dict[str, Any]) -> ActionResult:
     return ActionResult(success=True, message="Social session complete", cost_usd=result.estimated_cost_usd,
                         data={"session_id": result.session_id, "status": result.status,
                               "summary": result.summary})
+
+
+REFLECTION_FOCUS = "to sit somewhere contemplative in Wonderland and let the place shape my thinking"
+
+
+async def _wonderland(context: Dict[str, Any], default_focus: Optional[str]) -> ActionResult:
+    """Her Wonderland visit, as herself (wonderland_turn.py). On the agent loop
+    only: without it there is no honest way to be there, so nothing is faked."""
+    if not is_enabled("agent_loop"):
+        return ActionResult(success=False, message="Wonderland visits run on the agent loop, which is off")
+    managers = context.get("managers", {})
+    runner = managers.get("session_runner")
+    if not runner:
+        return ActionResult(success=False, message="GenericSessionRunner not available in managers")
+    runner.set_managers(managers)
+    runner.register_tool_handlers(get_default_handlers())
+    try:
+        from wonderland_turn import run_wonderland_turn
+        result = await run_wonderland_turn(
+            runner, duration_minutes=context.get("duration_minutes", 30),
+            focus=context.get("focus") or default_focus, why=context.get("why"),
+            memory=managers.get("memory"), trigger_source=context.get("trigger_source") or "schedule")
+    except Exception as e:
+        logger.error(f"Wonderland session error: {e}", exc_info=True)
+        return ActionResult(success=False, message=f"Session error: {e}")
+    if result.status == "error":
+        return ActionResult(success=False, message=f"Wonderland session failed: {result.error}",
+                            data={"status": result.status, "error": result.error})
+    return ActionResult(success=True, message="Wonderland visit complete", cost_usd=result.estimated_cost_usd,
+                        data={"session_id": result.session_id, "status": result.status,
+                              "summary": result.summary})
+
+
+async def wonderland_action(context: Dict[str, Any]) -> ActionResult:
+    return await _wonderland(context, None)
+
+
+async def wonderland_reflection_action(context: Dict[str, Any]) -> ActionResult:
+    return await _wonderland(context, REFLECTION_FOCUS)

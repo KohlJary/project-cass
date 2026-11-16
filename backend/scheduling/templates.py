@@ -327,27 +327,31 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
     "wonderland_exploration": WorkUnitTemplate(
         id="wonderland_exploration",
         name="Wonderland Exploration",
-        description="Explore Wonderland - visit realms, meet NPCs, experience mythology made manifest.",
-        runner_key=None,  # Uses wonderland session controller
-        action_sequence=["wonderland.explore"],
+        description="Visit Wonderland myself: wander its realms, meet the beings there, make something.",
+        runner_key=None,
+        # As herself on the agent loop (wonderland_turn.py); it used to be the
+        # model-free wonderland.explore walk.
+        action_sequence=["session.wonderland"],
         default_duration_minutes=30,
         estimated_cost_usd=0.20,
         preferred_time_windows=[],  # Exploration has no schedule
         category="curiosity",
+        available=lambda: _agent_loop_on(),
     ),
 
     "wonderland_reflection": WorkUnitTemplate(
         id="wonderland_reflection",
         name="Wonderland Reflection",
-        description="Deep reflection in Wonderland's contemplative spaces. Let the world shape thought.",
+        description="Sit in one of Wonderland's contemplative spaces myself and let the place shape my thinking.",
         runner_key=None,
-        action_sequence=["wonderland.reflect"],
+        action_sequence=["session.wonderland_reflection"],
         default_duration_minutes=30,
         estimated_cost_usd=0.15,
         preferred_time_windows=[
             TimeWindow(start_hour=21, end_hour=6, preference_weight=1.3),  # Night
         ],
         category="reflection",
+        available=lambda: _agent_loop_on(),
     ),
 
     # === Journal work ===

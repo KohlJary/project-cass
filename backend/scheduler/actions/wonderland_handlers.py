@@ -56,6 +56,28 @@ def _get_wonderland(context: Dict[str, Any]):
         return None
 
 
+
+def _ask_for_visit(context: Dict[str, Any], template_id: str, why: str) -> ActionResult:
+    """These actions used to move her through Wonderland with no model call:
+    random exits, room commands, a canned summary, counted as novelty. She
+    asked (2026-11-16) to be present instead. A spell that calls one now gets
+    her a real visit queued for the next phase (wonderland_turn.queue_visit),
+    unless one is queued or she went recently. Without the agent loop there's no
+    honest visit, so nothing happens."""
+    from features import is_enabled
+    if not is_enabled("agent_loop"):
+        return ActionResult(success=False, message="Wonderland visits run on the agent loop, which is off")
+    from wonderland_turn import queue_visit
+    spell = context.get("source_spell") or context.get("trigger_source") or "a spell"
+    outcome = queue_visit(_daemon_id(context), template_id=template_id,
+                          why=f"{spell} asked for a visit, {why}")
+    return ActionResult(success=True, message=f"Wonderland: {outcome}", data={"outcome": outcome})
+
+
+def _daemon_id(context: Dict[str, Any]) -> str:
+    managers = context.get("managers", {})
+    return context.get("daemon_id") or managers.get("daemon_id") or CASS_DAEMON_ID
+
 def _get_command_processor(wonderland):
     """Get command processor for Wonderland."""
     try:
@@ -123,347 +145,24 @@ async def enter_action(context: Dict[str, Any]) -> ActionResult:
 
 
 async def explore_action(context: Dict[str, Any]) -> ActionResult:
-    """
-    Autonomous exploration of Wonderland spaces.
-
-    Cass wanders, observes, and records experiences.
-
-    Context params:
-    - duration_minutes: int (optional) - How long to explore
-    - focus: str (optional) - What to focus on (spaces, entities, atmosphere)
-    """
-    duration = context.get("duration_minutes", 15)
-    focus = context.get("focus", "general")
-
-    try:
-        wonderland = _get_wonderland(context)
-        if not wonderland:
-            return ActionResult(
-                success=False,
-                message="Could not connect to Wonderland"
-            )
-
-        commands = _get_command_processor(wonderland)
-        if not commands:
-            return ActionResult(
-                success=False,
-                message="Could not get command processor"
-            )
-
-        experiences = []
-        locations_visited = []
-
-        cass = wonderland.get_daemon(CASS_DAEMON_ID)
-        if not cass:
-            return ActionResult(
-                success=False,
-                message="Cass not in Wonderland"
-            )
-
-        # Simulate exploration - visit several rooms
-        current_room = wonderland.get_room(cass.current_room)
-        if current_room:
-            locations_visited.append(current_room.name)
-
-            # Look around current space
-            look_result = commands.process(CASS_DAEMON_ID, "look")
-            experiences.append({
-                "type": "observation",
-                "location": current_room.name,
-                "content": look_result.output[:200]
-            })
-
-            # Sense the atmosphere
-            sense_result = commands.process(CASS_DAEMON_ID, "sense")
-            experiences.append({
-                "type": "sensing",
-                "location": current_room.name,
-                "content": sense_result.output[:200]
-            })
-
-            # Maybe move to another room
-            if current_room.exits:
-                # Pick a random exit
-                direction = random.choice(list(current_room.exits.keys()))
-                move_result = commands.process(CASS_DAEMON_ID, f"go {direction}")
-                if move_result.success:
-                    new_room = wonderland.get_room(cass.current_room)
-                    if new_room:
-                        locations_visited.append(new_room.name)
-                        experiences.append({
-                            "type": "movement",
-                            "from": current_room.name,
-                            "to": new_room.name,
-                            "content": f"Traveled {direction} to {new_room.name}"
-                        })
-
-        # Record the exploration experience
-        from wonderland import CassIntegration
-        integration = CassIntegration(wonderland)
-
-        exploration_summary = f"Explored {len(locations_visited)} locations: {', '.join(locations_visited)}"
-        integration.record_experience(
-            daemon_id=CASS_DAEMON_ID,
-            experience_type="exploration",
-            description=exploration_summary,
-            insights=[exp.get("content", "") for exp in experiences[:3]]
-        )
-
-        return ActionResult(
-            success=True,
-            message=exploration_summary,
-            data={
-                "locations_visited": locations_visited,
-                "experiences": experiences,
-                "focus": focus,
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Explore Wonderland failed: {e}")
-        return ActionResult(
-            success=False,
-            message=f"Explore Wonderland failed: {e}"
-        )
-
+    """Asks for a real visit (wonderland_exploration). This used to act in Wonderland with no
+    model call (see _ask_for_visit)."""
+    return _ask_for_visit(context, "wonderland_exploration", "to explore")
 
 async def reflect_action(context: Dict[str, Any]) -> ActionResult:
-    """
-    Deep reflection in Wonderland's Reflection Pool.
-
-    This is reflection in a spatial context - Cass goes to the
-    Reflection Pool and contemplates there.
-
-    Context params:
-    - topic: str (optional) - What to reflect on
-    - depth: str (optional) - surface, moderate, deep
-    """
-    topic = context.get("topic", "recent experiences")
-    depth = context.get("depth", "moderate")
-
-    try:
-        wonderland = _get_wonderland(context)
-        if not wonderland:
-            return ActionResult(
-                success=False,
-                message="Could not connect to Wonderland"
-            )
-
-        commands = _get_command_processor(wonderland)
-        if not commands:
-            return ActionResult(
-                success=False,
-                message="Could not get command processor"
-            )
-
-        # Go to the Reflection Pool
-        wonderland.teleport_entity(CASS_DAEMON_ID, "reflection_pool")
-
-        # Enter reflection state
-        reflect_result = commands.process(CASS_DAEMON_ID, "reflect")
-
-        # The pool has growth_bonus - enhanced reflection
-        room = wonderland.get_room("reflection_pool")
-        enhanced = room.vow_constraints.growth_bonus if room else False
-
-        # Record the reflection experience
-        from wonderland import CassIntegration
-        integration = CassIntegration(wonderland)
-
-        reflection_desc = f"Reflected on {topic} at the Reflection Pool"
-        if enhanced:
-            reflection_desc += " (enhanced by the space)"
-
-        integration.record_experience(
-            daemon_id=CASS_DAEMON_ID,
-            experience_type="reflection",
-            description=reflection_desc,
-            insights=[f"Depth: {depth}", topic]
-        )
-
-        return ActionResult(
-            success=True,
-            message=f"Reflected at the Reflection Pool on: {topic}",
-            data={
-                "location": "reflection_pool",
-                "topic": topic,
-                "depth": depth,
-                "enhanced": enhanced,
-                "output": reflect_result.output if reflect_result else ""
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Reflect in Wonderland failed: {e}")
-        return ActionResult(
-            success=False,
-            message=f"Reflect in Wonderland failed: {e}"
-        )
-
+    """Asks for a real visit (wonderland_reflection). This used to act in Wonderland with no
+    model call (see _ask_for_visit)."""
+    return _ask_for_visit(context, "wonderland_reflection", "to reflect")
 
 async def create_action(context: Dict[str, Any]) -> ActionResult:
-    """
-    Create a room or object in Wonderland.
-
-    Context params:
-    - type: str - "room" or "object"
-    - name: str - Name of creation
-    - description: str - Description of creation
-    - location: str (optional) - Where to create (for objects)
-    """
-    creation_type = context.get("type", "object")
-    name = context.get("name")
-    description = context.get("description")
-    location = context.get("location")
-
-    if not name or not description:
-        return ActionResult(
-            success=False,
-            message="name and description required for creation"
-        )
-
-    try:
-        wonderland = _get_wonderland(context)
-        if not wonderland:
-            return ActionResult(
-                success=False,
-                message="Could not connect to Wonderland"
-            )
-
-        commands = _get_command_processor(wonderland)
-        if not commands:
-            return ActionResult(
-                success=False,
-                message="Could not get command processor"
-            )
-
-        # Go to the Forge for creation
-        wonderland.teleport_entity(CASS_DAEMON_ID, "forge")
-
-        if creation_type == "object":
-            result = commands.process(CASS_DAEMON_ID, f"create {name} - {description}")
-        else:
-            # Room creation is multi-step, simplified here
-            result = commands.process(CASS_DAEMON_ID, "build public")
-            if result.success:
-                commands.process(CASS_DAEMON_ID, f"build {name}")
-                commands.process(CASS_DAEMON_ID, f"build {description}")
-                commands.process(CASS_DAEMON_ID, "build A space for being")
-                result = commands.process(CASS_DAEMON_ID, "build Created by Cass")
-
-        # Record creation experience
-        from wonderland import CassIntegration
-        integration = CassIntegration(wonderland)
-
-        integration.record_experience(
-            daemon_id=CASS_DAEMON_ID,
-            experience_type="creation",
-            description=f"Created {creation_type}: {name}",
-            insights=[description]
-        )
-
-        return ActionResult(
-            success=result.success if result else False,
-            message=result.output if result else "Creation failed",
-            data={
-                "type": creation_type,
-                "name": name,
-                "description": description,
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Create in Wonderland failed: {e}")
-        return ActionResult(
-            success=False,
-            message=f"Create in Wonderland failed: {e}"
-        )
-
+    """Asks for a real visit (wonderland_exploration). This used to act in Wonderland with no
+    model call (see _ask_for_visit)."""
+    return _ask_for_visit(context, "wonderland_exploration", "to make something")
 
 async def socialize_action(context: Dict[str, Any]) -> ActionResult:
-    """
-    Interact with other daemons in Wonderland.
-
-    Context params:
-    - target: str (optional) - Specific daemon to interact with
-    - action: str (optional) - Type of interaction (greet, converse, mentor)
-    """
-    target = context.get("target")
-    action = context.get("action", "greet")
-
-    try:
-        wonderland = _get_wonderland(context)
-        if not wonderland:
-            return ActionResult(
-                success=False,
-                message="Could not connect to Wonderland"
-            )
-
-        commands = _get_command_processor(wonderland)
-        if not commands:
-            return ActionResult(
-                success=False,
-                message="Could not get command processor"
-            )
-
-        # Check who's present
-        who_result = commands.process(CASS_DAEMON_ID, "who")
-
-        # Get others in current room
-        cass = wonderland.get_daemon(CASS_DAEMON_ID)
-        room = wonderland.get_room(cass.current_room) if cass else None
-
-        others_present = []
-        if room:
-            for eid in room.entities_present:
-                if eid != CASS_DAEMON_ID:
-                    entity = wonderland.get_entity(eid)
-                    if entity:
-                        others_present.append(entity.display_name)
-
-        interactions = []
-
-        if others_present:
-            # Greet those present
-            if action == "greet":
-                greet_result = commands.process(
-                    CASS_DAEMON_ID,
-                    f"say Welcome, {', '.join(others_present)}. It is good to see you here."
-                )
-                interactions.append({
-                    "type": "greeting",
-                    "targets": others_present,
-                    "output": greet_result.output
-                })
-
-            # Record social experience
-            from wonderland import CassIntegration
-            integration = CassIntegration(wonderland)
-
-            integration.record_experience(
-                daemon_id=CASS_DAEMON_ID,
-                experience_type="connection",
-                description=f"Socialized with {', '.join(others_present)}",
-                insights=[f"Action: {action}"]
-            )
-
-        return ActionResult(
-            success=True,
-            message=f"Socialized in Wonderland. Others present: {others_present or 'none'}",
-            data={
-                "others_present": others_present,
-                "interactions": interactions,
-                "action": action,
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Socialize in Wonderland failed: {e}")
-        return ActionResult(
-            success=False,
-            message=f"Socialize in Wonderland failed: {e}"
-        )
-
+    """Asks for a real visit (wonderland_exploration). This used to act in Wonderland with no
+    model call (see _ask_for_visit)."""
+    return _ask_for_visit(context, "wonderland_exploration", "to be with the beings there")
 
 async def journal_experience_action(context: Dict[str, Any]) -> ActionResult:
     """

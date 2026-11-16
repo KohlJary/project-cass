@@ -157,6 +157,30 @@
       "requires_idle": false,
       "runner_key": "social"
     },
+    "session.wonderland": {
+      "id": "session.wonderland",
+      "name": "Wonderland",
+      "description": "Her visit to Wonderland, as herself, in her own turn on the agent loop",
+      "category": "curiosity",
+      "handler": "session_handlers.wonderland_action",
+      "estimated_cost_usd": 0.20,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "wonderland"
+    },
+    "session.wonderland_reflection": {
+      "id": "session.wonderland_reflection",
+      "name": "Wonderland Reflection",
+      "description": "Her contemplative visit to Wonderland, as herself, on the agent loop",
+      "category": "reflection",
+      "handler": "session_handlers.wonderland_reflection_action",
+      "estimated_cost_usd": 0.15,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "wonderland"
+    },
     "session.user_synthesis": {
       "id": "session.user_synthesis",
       "name": "User Model Synthesis",
