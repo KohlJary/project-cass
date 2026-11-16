@@ -200,6 +200,18 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "gets: identity statements, values, positions, growth edges, recent self-observations, "
            "open questions) as a section of her chat prompt (epic #63)", default=False,
            where="continuous_context.build_continuous_context"),
+    # Entropy with a history (2026-11-16, Kohl: "a bit of entropy into the system"). All off
+    # until she and Kohl agree; see docs/design/entropy-2026-11-16.md.
+    _lever("unbidden_memory", "Now and then an old memory of hers (14+ days, her own kinds only, "
+           "never someone else's conversation) surfaces unasked in her session prompt "
+           "(memory/unbidden.py)", default=False,
+           where="agent_loop.assemble (section 'unbidden')"),
+    _lever("dream_day_residue", "Her dreams are seeded with what happened in her last day (from My life "
+           "lately) and one unbidden old memory, not only her growth edges and questions",
+           default=False, where="dreaming/dream_runner.generate_nightly_dream"),
+    _lever("letters_to_future_me", "She can write a letter sealed until a date she picks; when it's due, "
+           "it's put in front of her in a session and kept in her memory (letters.py)",
+           default=False, where="agent_client tools, agent_loop.assemble (section 'letters')"),
     _lever("llm_recording", "Record each answered text LLM call (prompt and output) to "
            "DATA_DIR/llm_recordings/<call site>.jsonl, for comparing models on real inputs "
            "(benchmark plan phase 6). CASS_LLM_RECORD_SITES narrows it to a list. Never chat or "

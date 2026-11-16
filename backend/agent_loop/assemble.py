@@ -138,6 +138,20 @@ def _agenda(spec: TurnSpec, workspace) -> Optional[str]:
     return workspace.agenda_section()
 
 
+def _letters(spec: TurnSpec) -> Optional[str]:
+    if spec.kind != "session":
+        return None
+    from letters import session_section
+    return session_section()
+
+
+def _unbidden(spec: TurnSpec) -> Optional[str]:
+    if spec.kind != "session":
+        return None
+    from memory.unbidden import session_section
+    return session_section()
+
+
 def assemble(
     spec: TurnSpec,
     trigger: Trigger,
@@ -161,6 +175,11 @@ def assemble(
         Section("self_context", _safe("self_context", lambda: _self_context(daemon_id)) or "", 2),
         Section("self_model", _safe("self_model", lambda: _self_model(daemon_id)) or "", 2),
         Section("thymos", _safe("thymos", _thymos) or "", 3),
+        # Entropy with a history (2026-11-16), each behind its own lever, sessions only:
+        # a letter from her past self whose day has come, and now and then an old
+        # memory surfacing unasked (letters.py, memory/unbidden.py).
+        Section("letters", _safe("letters", lambda: _letters(spec)) or "", 1),
+        Section("unbidden", _safe("unbidden", lambda: _unbidden(spec)) or "", 4),
         # Housekeeping that ran lately (memory maintenance), so she can see it.
         Section("housekeeping", _safe("housekeeping", _housekeeping) or "", 4),
         Section("instructions", _safe("instructions", lambda: _instructions(spec, additions)) or "", 1,

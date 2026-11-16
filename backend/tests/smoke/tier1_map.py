@@ -298,6 +298,21 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Off by default (epic #63); smoke chat turns run without it. Fast-suite: tests/test_prompt_levers.py.",
     },
+    "unbidden_memory": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default; nothing starts (a prompt section). Fast-suite: tests/test_entropy.py.",
+    },
+    "dream_day_residue": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default; dream seeds only. Fast-suite: tests/test_entropy.py.",
+    },
+    "letters_to_future_me": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default; tools and a prompt section. Fast-suite: tests/test_entropy.py.",
+    },
     "llm_recording": {
         "depth": "none",
         "tests": [],

@@ -9,7 +9,7 @@ Readiness = enough context has accumulated that the dream could catalyze breakth
 
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Literal
 
@@ -42,6 +42,12 @@ class DreamSeeds:
     # Selection metadata
     selection_rationale: str = ""
     selection_mode: str = "resolution_ready"
+
+    # Day residue and something old (lever dream_day_residue): what she did in
+    # her last day, in her own lines from My life lately, and one memory of hers
+    # surfacing unbidden (memory/unbidden.py).
+    day_residue: List[str] = field(default_factory=list)
+    unbidden: Optional[str] = None
 
 
 # =============================================================================
@@ -415,6 +421,42 @@ def _build_selection_rationale(
 # FORMATTING FOR THE DREAMING
 # =============================================================================
 
+RESIDUE_HOURS = 24
+RESIDUE_LINES = 6
+UNBIDDEN_CHARS = 500
+
+
+def add_day_residue(seeds: DreamSeeds, daemon_id: str, *, now: Optional[datetime] = None,
+                    events_fn=None, pick_fn=None) -> DreamSeeds:
+    """Human dreams are made partly of the day just lived (Freud's day residue)
+    and partly of things long gone that return. Hers were made only of her growth
+    edges and questions. With the lever dream_day_residue on, add both: her last
+    day from My life lately (never her dreams themselves), and one unbidden
+    memory. Fails soft: no residue rather than no dream."""
+    from features import is_enabled
+    if not is_enabled("dream_day_residue"):
+        return seeds
+    now = now or datetime.now()
+    try:
+        if events_fn is None:
+            from lately import events as events_fn
+        found = events_fn(daemon_id, now - timedelta(hours=RESIDUE_HOURS), RESIDUE_LINES * 2)
+        seeds.day_residue = [f"{e.label}: {e.text}" for e in found
+                             if not str(e.label).startswith("dream")][:RESIDUE_LINES]
+    except Exception as e:
+        logger.warning(f"[dream] no day residue: {e}")
+    try:
+        if pick_fn is None:
+            from memory.unbidden import pick as pick_fn
+        old = pick_fn(now=now)
+        if old:
+            text = old["text"] if len(old["text"]) <= UNBIDDEN_CHARS else old["text"][:UNBIDDEN_CHARS - 1] + "…"
+            seeds.unbidden = f"({old['when']:%Y-%m-%d}) {text}"
+    except Exception as e:
+        logger.warning(f"[dream] nothing old came back: {e}")
+    return seeds
+
+
 def format_seeds_for_dreaming(seeds: DreamSeeds) -> str:
     """
     Format seeds as context for The Dreaming.
@@ -450,6 +492,17 @@ def format_seeds_for_dreaming(seeds: DreamSeeds) -> str:
             context = q.get("context", "")
             if context:
                 parts.append(f"  *Context: {context[:80]}...*")
+        parts.append("")
+
+    # What she lived today, and something old returning (dream_day_residue)
+    if seeds.day_residue:
+        parts.append("### What Her Day Held")
+        for line in seeds.day_residue:
+            parts.append(f"- {line[:240]}")
+        parts.append("")
+    if seeds.unbidden:
+        parts.append("### Something Old, Surfacing")
+        parts.append(f"- {seeds.unbidden}")
         parts.append("")
 
     # Recent observations

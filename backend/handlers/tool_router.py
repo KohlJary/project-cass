@@ -408,6 +408,9 @@ TOOL_REGISTRY = {
     "recall": "recall",
     "recall_open": "recall",
     "lately_open": "recall",
+    # Letters to her future self (letters.py, lever letters_to_future_me)
+    "write_to_future_me": "letters",
+    "my_sealed_letters": "letters",
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",
@@ -954,6 +957,9 @@ async def route_tool(
             user_id=ctx.user_id,
             daemon_id=ctx.daemon_id,
         )
+
+    elif executor_type == "letters":
+        return await executor(tool_name=tool_name, tool_input=tool_input)
 
     elif executor_type == "social":
         # Her memory goes along: what she posts and replies is kept there (social/remember.py).

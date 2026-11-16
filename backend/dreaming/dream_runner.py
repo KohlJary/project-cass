@@ -295,7 +295,11 @@ async def generate_nightly_dream(
             max_edges=3,
             max_questions=2,
         )
-        print(f"      Seeds: {len(seeds.growth_edges)} edges, {len(seeds.open_questions)} questions")
+        from .seed_selection import add_day_residue
+        add_day_residue(seeds, daemon_id)
+        print(f"      Seeds: {len(seeds.growth_edges)} edges, {len(seeds.open_questions)} questions"
+              f"{f', {len(seeds.day_residue)} from her day' if seeds.day_residue else ''}"
+              f"{', something old' if seeds.unbidden else ''}")
         print(f"      Selection mode: {seeds.selection_mode}")
 
         # Run dream session
@@ -315,6 +319,8 @@ async def generate_nightly_dream(
             "growth_edges": edge_areas,
             "open_questions": question_texts,
             "recent_observations": seeds.recent_observations,
+            "day_residue": seeds.day_residue,
+            "unbidden": seeds.unbidden,
             # Include readiness metadata for later analysis
             "edge_readiness": {
                 edge.edge_id: seeds.edge_readiness.get(edge.edge_id, 0)
