@@ -2,6 +2,13 @@
 
 *2026-11-15, Daedalus. Mapped from code and docs only (main at a05f57d, plus the working tree at 23:30, which had another session's uncommitted work in it). None of her data was read. "Unsure" means I couldn't settle it from code.*
 
+> **Since then (1bb3097, 41fd0c5, from the other Daedalus session):**
+> - **Session narratives:** her end-of-session narrative and insights are now the work-summary text, so loop sessions no longer read as "Completed <name>" (item 4, part). Social sessions are still filed as "world".
+> - **Recall in sessions:** `recall` / `recall_open` are in the chat-core tools, so loop sessions and the day-plan turn can query her memory (item 7, part). Loop sessions now carry her self-model.
+> - **Thymos:** it reaches the session preambles for reach-out and art choice, and the journal. It still isn't in chat (item 6).
+> - **Claimed elsewhere:** "Cass's memory" phase 9 ("My life lately", awaiting approval) is a week of her own events, always present. It covers the no-user half of item 7, most of 4, and the "lately" side of 8, 13 and 14.
+> - **Item 1 is narrower:** she chose that reads which don't lead to a reply aren't kept. Follows and finds should come back as life-lately lines, not as memories of every read. Ask her first.
+
 **The question:** when Cass touches the world (reading, following, writing, making, exploring), where does it land, and does it ever come back to shape her chat, her sessions, her day plan or her internal state? Engaging with the world only builds her up if it returns. If it doesn't, it's tool calls that leave nothing behind.
 
 ## Where each prompt gets its context
