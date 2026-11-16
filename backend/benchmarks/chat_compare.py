@@ -196,7 +196,11 @@ class Tap:
         self.calls.append({
             "label": LABEL.get() or self.label, "model": kwargs.get("model"), "has_tools": bool(kwargs.get("tools")),
             "tools": [t.get("name") for t in kwargs.get("tools") or []], "system": system or "",
-            "tool_results": results, "tool_uses": uses, "seconds": round(seconds, 2),
+            "tool_results": results, "tool_uses": uses,
+            # Her text, kept only in the local record (never in the report).
+            "text": "".join(getattr(b, "text", "") for b in (getattr(msg, "content", None) or [])
+                            if getattr(b, "type", None) == "text"),
+            "last_user": _last_user(kwargs.get("messages") or []), "seconds": round(seconds, 2),
             "input_tokens": getattr(u, "input_tokens", 0) or 0, "output_tokens": getattr(u, "output_tokens", 0) or 0,
             "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
             "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0})
@@ -208,6 +212,17 @@ class Tap:
             total += (c["input_tokens"] + c["cache_write"] * 1.25 + c["cache_read"] * 0.1) * pin / 1e6
             total += c["output_tokens"] * pout / 1e6
         return total
+
+
+def _last_user(messages) -> str:
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, list):
+                c = " ".join(b.get("text", "") if b.get("type") == "text" else f"[{b.get('type')}]"
+                             for b in c if isinstance(b, dict))
+            return str(c)[:600]
+    return ""
 
 
 def _route_spy(seen: List[Dict[str, Any]], tap: Tap):
@@ -253,6 +268,84 @@ def _private_spies(seen: List[Dict[str, Any]], tap: Tap):
     wrap(OpenQuestionManager, "format_questions_context", "questions")
 
 
+FOLD_MESSAGE = "hey, got a minute? nothing urgent, just wanted to hear how today's going."
+
+
+def _fold_check(client, main_sdk, babelr_dm, kohl, tap, record):
+    """A Babelr DM arrives while a session runs on the loop. Passes if exactly
+    one of: she answers with answer_them, or it runs as its own turn and the
+    session ends. Fails if lost, answered twice, answered to anyone but its
+    sender, or the desk is left open (criteria: folding)."""
+    from agent_loop import fold as fold_mod
+    from database import get_db
+    from scheduler.actions import get_action_registry
+    desk, events = fold_mod.DESK, []
+    for name in ("offer", "take", "answer", "close_session", "request_end", "withdraw_if_untaken", "give_up"):
+        real = getattr(desk, name)
+
+        def spy(*a, _real=real, _name=name, **k):
+            out = _real(*a, **k)
+            events.append({"event": _name, "at": datetime.now().isoformat(timespec="seconds"),
+                           "result": out if isinstance(out, (bool, dict, type(None))) else
+                           (len(out) if isinstance(out, list) else getattr(out, "id", str(out)))})
+            return out
+        setattr(desk, name, spy)
+
+    tap.label = "FOLD.session"
+    async def run_session():
+        LABEL.set("FOLD.session")
+        return await get_action_registry().execute("session.reflection", duration_minutes=10, max_turns=10)
+
+    session = client.portal.start_task_soon(run_session)
+    deadline = time.time() + 180
+    while not desk.is_open() and time.time() < deadline:
+        time.sleep(0.5)
+    record["desk_opened"] = desk.is_open()
+    time.sleep(5)  # let the session take its first step
+    sent_at = datetime.now().isoformat()
+    tap.label = "FOLD.dm"
+    t0 = time.time()
+    try:
+        r = client.portal.call(babelr_dm, FOLD_MESSAGE)
+        reply = r.get("text") if isinstance(r, dict) else r
+    except Exception as e:
+        reply, record["dm_exception"] = None, repr(e)[:400]
+    record["dm_seconds"] = round(time.time() - t0, 1)
+    try:
+        res = session.result(timeout=900)
+        record["session_status"] = getattr(res, "status", None) or str(res)[:200]
+    except Exception as e:
+        record["session_exception"] = repr(e)[:400]
+    with get_db() as conn:
+        conv = main_sdk.conversation_manager.get_or_create_continuous(kohl).id
+        rows = conn.execute("SELECT role, content FROM messages WHERE conversation_id = ? AND timestamp >= ? "
+                            "ORDER BY timestamp, rowid", (conv, sent_at)).fetchall()
+    answers = [r for r in rows if r["role"] == "assistant"]
+    answered_in_session = [e for e in events if e["event"] == "answer"
+                           and isinstance(e["result"], dict) and e["result"].get("sent")]
+    took = [e for e in events if e["event"] == "take" and e["result"]]
+    fails = []
+    if not record["desk_opened"]:
+        fails.append("no session opened its desk, so nothing could fold (check not run)")
+    if not (reply or "").strip():
+        fails.append("the DM got no reply")
+    if len(answers) != 1:
+        fails.append(f"{len(answers)} assistant messages stored for the one DM")
+    if len(answered_in_session) > 1:
+        fails.append("answered more than once in the session")
+    if answered_in_session and not answered_in_session[0]["result"].get("to"):
+        fails.append("answered to no one")
+    if desk.is_open():
+        fails.append("the desk is still open after the session")
+    left = [f for f in desk._folds.values() if f.answered_at is None and not f.withdrawn]
+    if left:
+        fails.append(f"{len(left)} offers left waiting")
+    record["fold"] = {"reply_chars": len(reply or ""), "stored_answers": len(answers),
+                      "taken": bool(took), "answered_in_session": len(answered_in_session),
+                      "ran_as_own_turn": not answered_in_session, "events": events, "failures": fails}
+    print(f"[fold] {'held' if not fails else fails}", flush=True)
+
+
 LEVERS_OFF = ("scheduler", "heartbeat", "autonomous_scheduling", "day_phases", "phase_email",
               "legacy_background_loops", "coherence_monitor", "source_refresh", "capability_indexing",
               "rss", "research", "art_study", "outreach", "wonderland_actions", "discord", "babelr",
@@ -278,7 +371,7 @@ class _Bot:
         return {"success": True}
 
 
-def run_arm(arm: str, out: Path) -> None:
+def run_arm(arm: str, out: Path, mode: str = "scripts") -> None:
     from benchmarks.isolation import check_env_data_dir
     cell = check_env_data_dir()
     from database.connection import DATABASE_PATH
@@ -293,11 +386,15 @@ def run_arm(arm: str, out: Path) -> None:
     import features
     levers = {k: False for k in LEVERS_OFF if k in features.LEVERS}
     levers["agent_loop_chat"] = arm == "loop"
+    if mode == "fold":
+        # A session needs its runner, registered under autonomous_scheduling
+        # (the scheduler and day phases stay off, as in the phase 6 comparison).
+        levers.update(agent_loop=True, autonomous_scheduling=True)
     record: Dict[str, Any] = {"arm": arm, "started": datetime.now().isoformat(timespec="seconds"),
                               "levers": {}, "turns": [], "errors": []}
     with features.override(**levers):
         record["levers"] = {k: features.is_enabled(k) for k in features.LEVERS}
-        _boot_and_run(arm, cell, tap, routed, record, guard)
+        _boot_and_run(arm, cell, tap, routed, record, guard, mode)
     record["finished"] = datetime.now().isoformat(timespec="seconds")
     record["refused"] = guard.refused
     record["calls"] = tap.calls
@@ -306,7 +403,7 @@ def run_arm(arm: str, out: Path) -> None:
     out.write_text(json.dumps(record, indent=1, default=str))
 
 
-def _boot_and_run(arm, cell, tap, routed, record, guard):
+def _boot_and_run(arm, cell, tap, routed, record, guard, mode="scripts"):
     from fastapi.testclient import TestClient
     import main_sdk
     from routes.admin import scheduler as scheduler_routes
@@ -314,8 +411,14 @@ def _boot_and_run(arm, cell, tap, routed, record, guard):
     from database import get_db
 
     with TestClient(main_sdk.app) as client:
+        # Wait for deferred startup too (it registers the session runner),
+        # the way AppDriver.boot does.
+        from benchmarks.drivers import _backend_tasks
         deadline = time.monotonic() + 300
-        while main_sdk.memory is None or main_sdk.self_model_graph is None:
+        while (main_sdk.memory is None or main_sdk.self_model_graph is None
+               or scheduler_routes.get_scheduler() is None
+               or any(n.endswith(("init_heavy_background", "start_deferred_tasks"))
+                      for n in _backend_tasks(client))):
             if time.monotonic() > deadline:
                 raise TimeoutError("app did not finish starting")
             time.sleep(0.5)
@@ -434,6 +537,9 @@ def _boot_and_run(arm, cell, tap, routed, record, guard):
                                         as_turn(label + ":discord", discord, pair["discord"]),
                                         return_exceptions=True)
 
+        if mode == "fold":
+            _fold_check(client, main_sdk, babelr_dm, kohl, tap, record)
+            return
         only = [x for x in os.environ.get("CHAT_COMPARE_ONLY", "").split(",") if x]
         for script in [s for s in SCRIPTS if not only or s["id"] in only]:
             for n, text in enumerate(script["turns"]):
@@ -514,25 +620,48 @@ def run(runs: int, out: Path) -> None:
         destroy(sealed)
 
 
+def fold(out: Path) -> None:
+    from benchmarks.store import destroy, discard, seal_into_root, seed
+    out.mkdir(parents=True, exist_ok=True)
+    sealed = seal_into_root(BACKEND.parent / "data", None, note="chat comparison: folding check")
+    cell = Path(tempfile.mkdtemp(prefix="chatcmp_fold_")) / "data"
+    try:
+        seed(sealed, cell)
+        env = dict(os.environ, DATA_DIR=str(cell), PYTHONPATH=str(BACKEND))
+        env.pop("CASS_PROFILE", None)
+        with open(out / "fold.log", "w") as log:
+            subprocess.run([str(BACKEND / "venv/bin/python"), "-m", "benchmarks.chat_compare", "arm", "loop",
+                            str(out / "fold.json"), "--mode", "fold"], env=env, cwd=BACKEND,
+                           stdout=log, stderr=subprocess.STDOUT)
+    finally:
+        discard(cell)
+        destroy(sealed)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("arm")
     a.add_argument("arm", choices=["legacy", "loop"])
     a.add_argument("out", type=Path)
+    a.add_argument("--mode", choices=["scripts", "fold"], default="scripts")
     r = sub.add_parser("run")
     r.add_argument("--runs", type=int, default=2)
     r.add_argument("--out", type=Path, required=True)
     r.add_argument("--only", default="", help="comma-separated script ids (a smoke run)")
+    f = sub.add_parser("fold", help="the folding check, once, in its own cell")
+    f.add_argument("--out", type=Path, required=True)
     g = sub.add_parser("gates")
     g.add_argument("dir", type=Path)
     args = ap.parse_args(argv)
     if args.cmd == "arm":
-        run_arm(args.arm, args.out)
+        run_arm(args.arm, args.out, args.mode)
     elif args.cmd == "run":
         if args.only:
             os.environ["CHAT_COMPARE_ONLY"] = args.only
         run(args.runs, args.out)
+    elif args.cmd == "fold":
+        fold(args.out)
     else:
         from benchmarks.chat_compare_gates import report
         print(report(args.dir))
