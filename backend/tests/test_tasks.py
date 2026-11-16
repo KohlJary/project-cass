@@ -297,3 +297,27 @@ class TestTaskManager:
         user2_tasks = task_manager.list_tasks("user-2")
         assert len(user1_tasks) == 1
         assert len(user2_tasks) == 1
+
+
+def test_add_works_on_an_older_tasks_table_with_title(monkeypatch):
+    """Her database's tasks table predates the current schema and has
+    title NOT NULL; add() fills it with the description (2026-11-16, when
+    add_task failed in her reflection session)."""
+    import sqlite3
+    from contextlib import contextmanager
+    import task_manager as tm
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""CREATE TABLE tasks (id TEXT PRIMARY KEY, daemon_id TEXT NOT NULL, user_id TEXT,
+        title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'pending', priority TEXT,
+        due_date TEXT, tags_json TEXT, created_at TEXT NOT NULL, completed_at TEXT,
+        project TEXT, notes TEXT, modified_at TEXT)""")
+
+    @contextmanager
+    def old_db():
+        yield conn
+    monkeypatch.setattr(tm, "get_db", old_db)
+    monkeypatch.setattr(tm.TaskManager, "_emit_task_event", lambda *a, **k: None)
+    task = tm.TaskManager(daemon_id="d").add("u", "Write to Kohl", priority=Priority.HIGH)
+    assert conn.execute("SELECT title, description FROM tasks WHERE id=?", (task.id,)).fetchone() == \
+        ("Write to Kohl", "Write to Kohl")

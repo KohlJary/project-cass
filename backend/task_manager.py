@@ -254,17 +254,19 @@ class TaskManager:
         task.calculate_urgency()
 
         with get_db() as conn:
-            conn.execute("""
-                INSERT INTO tasks (
-                    id, daemon_id, user_id, description, status, priority,
-                    tags_json, project, due_date, notes, created_at, modified_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                task_id, self._daemon_id, user_id, description,
-                TaskStatus.PENDING.value, priority.value,
-                json_serialize(tags or []), project,
-                due.isoformat() if due else None, notes, now, now
-            ))
+            columns = ["id", "daemon_id", "user_id", "description", "status", "priority",
+                       "tags_json", "project", "due_date", "notes", "created_at", "modified_at"]
+            values = [task_id, self._daemon_id, user_id, description,
+                      TaskStatus.PENDING.value, priority.value,
+                      json_serialize(tags or []), project,
+                      due.isoformat() if due else None, notes, now, now]
+            # Older databases have tasks.title NOT NULL (the current schema has
+            # no title); fill it with the description there.
+            if "title" in {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}:
+                columns.append("title")
+                values.append(description)
+            conn.execute(f"INSERT INTO tasks ({', '.join(columns)}) "
+                         f"VALUES ({', '.join('?' for _ in columns)})", values)
             conn.commit()
 
         # Emit task added event
