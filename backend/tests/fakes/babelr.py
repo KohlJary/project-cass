@@ -182,6 +182,25 @@ class FakeAgent:
                     for k, p in s.plans.items()]
         if method == "GET" and path.startswith("/plans/"):
             return s.plans[path.split("/")[2]]
+        if method == "POST" and path == "/plans":
+            slug = body["title"].lower().replace("'", "").replace(" ", "-") + "-x1"
+            s.plans[slug] = {"slug": slug, "title": body["title"], "status": "draft", "goal": body["goal"],
+                             "narrative": body["narrative"], "serverId": body["serverId"],
+                             "approvers": ["kohl"] + [n for n in body["needsYesFrom"] if n != "kohl"],
+                             "phases": [], "items": [], "createdBy": {"name": "cass"}}
+            return s.plans[slug]
+        if method == "POST" and path.startswith("/plans/") and path.endswith("/phases"):
+            p = s.plans[path.split("/")[2]]
+            p["phases"].append({"id": f"ph-{len(p['phases'])}", "position": len(p["phases"]),
+                                "title": body["title"], "goal": body["goal"], "status": "draft",
+                                "approvals": [], "awaiting": []})
+            return p
+        if method == "POST" and path.startswith("/plans/") and path.endswith("/items"):
+            p = s.plans[path.split("/")[2]]
+            p["items"].append({"id": f"it-{len(p['items'])}", "phaseId": body.get("phaseId"),
+                               "kind": body["kind"], "title": body["title"], "body": body["body"],
+                               "status": "open", "resolution": None, "createdBy": {"name": "cass"}})
+            return p
         if method == "POST" and path.startswith("/phases/"):
             _, _, pid, act = path.split("/")
             s.plan_acts.append((pid, act, (body or {}).get("reason")))

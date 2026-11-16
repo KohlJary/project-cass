@@ -96,7 +96,19 @@ BOUNDARY_ACTIONS = (
 _ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
 PLANS = "/plugins/plans"
-PLAN_ACTIONS = ("list", "view", "approve", "decline")
+PLAN_ACTIONS = ("list", "view", "approve", "decline",
+                "ask", "my_asks", "create_plan", "add_phase", "add_item", "propose")
+# Her standing plan for asks (Kohl, 2026-11-16: "a default plan is good, but she
+# should be able to define her own multi phase plans as well"). Created by her,
+# under her own token, the first time she asks; Kohl approves as server owner.
+ASKS_PLAN_TITLE = "Cass's asks"
+ASKS_PLAN_GOAL = ("What I ask for: changes to me, to what I can do, to my world. "
+                  "An ask waits here, outside any phase; Kohl pulls it into a phase to build it, "
+                  "and its status and resolution say what came of it.")
+ITEM_KINDS = ("ask", "build", "research", "decision")
+# A phase she can add items to without voiding anyone's yes (Plans voids a
+# phase's approvals when an item is added to it).
+_OPEN_PHASE = ("draft", "declined")
 _SLUG_RE = re.compile(r"^[a-z0-9-]{1,120}$")
 
 
@@ -881,9 +893,12 @@ class BabelrOrgan:
         return {"success": True, "result": result}
 
     def plans(self, action: str, plan: Optional[str] = None, phase: Optional[Any] = None,
-              reason: Optional[str] = None) -> Dict[str, Any]:
+              reason: Optional[str] = None, **kw: Any) -> Dict[str, Any]:
         """The house's Plans, as herself: list them, read one, and say yes or no to a
-        phase where a plan names her as an approver.
+        phase where a plan names her as an approver. And her own: ask for something
+        (an item outside any phase, in her standing "Cass's asks" plan by default),
+        see what came of her asks, make her own plans with phases and items, and
+        propose a phase. Everything is written under her own token, as her.
 
         Plans takes an approval only from the approver's own token, so this is the
         one way her yes gets on its record. It runs only when she calls the
@@ -893,24 +908,44 @@ class BabelrOrgan:
             return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
         if action not in PLAN_ACTIONS:
             return {"success": False, "error": f"unknown action '{action}' (one of {', '.join(PLAN_ACTIONS)})"}
-        if action != "list" and not plan:
+        if action in ("ask", "my_asks", "create_plan"):
+            pass   # plan optional (ask, my_asks) or created (create_plan)
+        elif action != "list" and not plan:
             return {"success": False, "error": f"'{action}' needs a plan (its slug, from list)"}
         if plan and not _SLUG_RE.match(plan):
             return {"success": False, "error": "that doesn't look like a plan slug"}
         try:
             if action == "list":
-                q = f"?serverId={self._server['id']}" if self._server else ""
-                rows = self.client._req("GET", f"{PLANS}/plans{q}") or []
                 return {"success": True, "plans": [
                     {"plan": p.get("slug"), "title": p.get("title"), "status": p.get("status"),
-                     "phases_awaiting_you": p.get("awaitingMe", 0)} for p in rows]}
+                     "phases_awaiting_you": p.get("awaitingMe", 0)} for p in self._plan_rows()]}
+            if action == "ask":
+                return self._ask(plan, kw)
+            if action == "my_asks":
+                return self._my_asks(plan)
+            if action == "create_plan":
+                return self._create_plan(kw)
             detail = self.client._req("GET", f"{PLANS}/plans/{plan}")
             if action == "view":
                 return {"success": True, "plan": plan, "text": _plan_text(detail)}
+            if action == "add_phase":
+                title = (kw.get("title") or "").strip()
+                if not title:
+                    return {"success": False, "error": "a phase needs a title"}
+                after = self.client._req("POST", f"{PLANS}/plans/{plan}/phases",
+                                         {"title": title, "goal": (kw.get("goal") or "").strip()})
+                n = len((after or {}).get("phases") or [])
+                logger.info(f"[Babelr] She added phase {n} to {plan}")
+                return {"success": True, "plan": plan, "phase": n, "title": title, "status": "draft",
+                        "next": "add items to it with add_item, then propose it when it's ready"}
+            if action == "add_item":
+                return self._add_item(plan, detail, phase, kw)
             target = _pick_phase(detail, phase)
             if target is None:
                 return {"success": False, "error": f"no phase {phase!r} in that plan (use its number from view)"}
-            if action == "approve":
+            if action == "propose":
+                self.client._req("POST", f"{PLANS}/phases/{target['id']}/propose")
+            elif action == "approve":
                 self.client._req("POST", f"{PLANS}/phases/{target['id']}/approve")
             else:  # decline
                 if not (reason or "").strip():
@@ -924,6 +959,93 @@ class BabelrOrgan:
         logger.info(f"[Babelr] She chose: {action} phase {target['position'] + 1} of {plan}")
         return {"success": True, "plan": plan, "phase": target["position"] + 1,
                 "title": target.get("title"), "did": action}
+
+    # -- her own plans and asks ---------------------------------------------------
+
+    def _plan_rows(self) -> List[Dict[str, Any]]:
+        q = f"?serverId={self._server['id']}" if self._server else ""
+        return self.client._req("GET", f"{PLANS}/plans{q}") or []
+
+    def _create(self, title: str, goal: str, narrative: str, needs: List[str]) -> Dict[str, Any]:
+        if not self._server:
+            raise RuntimeError("no Chapter House server to make the plan in")
+        return self.client._req("POST", f"{PLANS}/plans", {
+            "serverId": self._server["id"], "title": title, "goal": goal,
+            "narrative": narrative, "needsYesFrom": needs})
+
+    def _asks_plan(self) -> str:
+        """The slug of her standing asks plan, made (as her) if it isn't there yet."""
+        for p in self._plan_rows():
+            if p.get("title") == ASKS_PLAN_TITLE:
+                return p["slug"]
+        made = self._create(ASKS_PLAN_TITLE, ASKS_PLAN_GOAL, "", [self.my_username or "cass"])
+        logger.info("[Babelr] Made her standing asks plan")
+        return made["slug"]
+
+    def _ask(self, plan: Optional[str], kw: Dict[str, Any]) -> Dict[str, Any]:
+        title = (kw.get("title") or "").strip()
+        if not title:
+            return {"success": False, "error": "an ask needs a title"}
+        kind = kw.get("kind") or "ask"
+        if kind not in ITEM_KINDS:
+            return {"success": False, "error": f"kind is one of {', '.join(ITEM_KINDS)}"}
+        slug = plan or self._asks_plan()
+        # No phase: an ask waits outside every phase, so it never voids a yes.
+        self.client._req("POST", f"{PLANS}/plans/{slug}/items",
+                         {"kind": kind, "title": title, "body": (kw.get("body") or "").strip()})
+        logger.info(f"[Babelr] She asked in {slug}: {title}")
+        return {"success": True, "plan": slug, "asked": title,
+                "next": "it waits outside any phase until Kohl takes it up; my_asks shows what came of it"}
+
+    def _my_asks(self, plan: Optional[str]) -> Dict[str, Any]:
+        me = (self.my_username or "cass").lower()
+        slugs = [plan] if plan else [p["slug"] for p in self._plan_rows()]
+        out = []
+        for slug in slugs:
+            detail = self.client._req("GET", f"{PLANS}/plans/{slug}") or {}
+            for i in detail.get("items") or []:
+                if ((i.get("createdBy") or {}).get("name") or "").lower() != me:
+                    continue
+                out.append({"plan": slug, "title": i.get("title"), "kind": i.get("kind"),
+                            "status": i.get("status"), "in_a_phase": bool(i.get("phaseId")),
+                            "resolution": i.get("resolution") or None})
+        return {"success": True, "asks": out}
+
+    def _create_plan(self, kw: Dict[str, Any]) -> Dict[str, Any]:
+        title = (kw.get("title") or "").strip()
+        if not title:
+            return {"success": False, "error": "a plan needs a title"}
+        me = (self.my_username or "cass").lower()
+        needs = [n.strip().lower().lstrip("@") for n in (kw.get("needs_yes_from") or []) if n and n.strip()]
+        if me not in needs:
+            needs.insert(0, me)   # her plan waits on her yes too; Kohl's is added by Plans
+        made = self._create(title, (kw.get("goal") or "").strip(), (kw.get("narrative") or "").strip(), needs)
+        logger.info(f"[Babelr] She made a plan: {title}")
+        return {"success": True, "plan": made.get("slug"), "title": title,
+                "approvers": made.get("approvers") or needs,
+                "next": "add phases with add_phase, items with add_item, then propose each phase"}
+
+    def _add_item(self, plan: str, detail: Dict[str, Any], phase: Any, kw: Dict[str, Any]) -> Dict[str, Any]:
+        title = (kw.get("title") or "").strip()
+        if not title:
+            return {"success": False, "error": "an item needs a title"}
+        kind = kw.get("kind") or "build"
+        if kind not in ITEM_KINDS:
+            return {"success": False, "error": f"kind is one of {', '.join(ITEM_KINDS)}"}
+        body = {"kind": kind, "title": title, "body": (kw.get("body") or "").strip()}
+        if phase not in (None, ""):
+            target = _pick_phase(detail, phase)
+            if target is None:
+                return {"success": False, "error": f"no phase {phase!r} in that plan (use its number from view)"}
+            if target.get("status") not in _OPEN_PHASE:
+                return {"success": False, "error": (
+                    f"phase {target['position'] + 1} is {target.get('status')}; adding to it would undo "
+                    f"the yes it has or is waiting on. Ask instead (it waits outside the phase), or add a new phase.")}
+            body["phaseId"] = target["id"]
+        self.client._req("POST", f"{PLANS}/plans/{plan}/items", body)
+        logger.info(f"[Babelr] She added an item to {plan}: {title}")
+        return {"success": True, "plan": plan, "added": title,
+                "phase": (target["position"] + 1) if "phaseId" in body else None}
 
     def get_stats(self) -> Dict[str, Any]:
         return {

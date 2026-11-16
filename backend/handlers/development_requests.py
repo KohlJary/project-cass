@@ -45,6 +45,26 @@ async def execute_development_request_tool(
                     "error": "'title' is required"
                 }
 
+            # An alias of babelr_plans ask (2026-11-16): her request goes into her
+            # standing plan in Plans, where Kohl sees it. The admin-panel store it
+            # used to write had no page, so nobody saw it.
+            parts = [tool_input.get("description", "").strip()]
+            if tool_input.get("context"):
+                parts.append(f"Why now: {tool_input['context']}")
+            extra = [f"type: {tool_input.get('request_type', 'feature')}",
+                     f"priority: {tool_input.get('priority', 'normal')}"]
+            if tool_input.get("related_actions"):
+                extra.append(f"related: {', '.join(tool_input['related_actions'])}")
+            parts.append("(" + "; ".join(extra) + ")")
+            from babelr_organ.tools import ask_in_plans
+            got = ask_in_plans(title, "\n\n".join(p for p in parts if p))
+            if got.get("success"):
+                return {"success": True, "result": (
+                    f"Asked in Plans ({got['plan']}): {title}. It waits there, outside any phase, "
+                    f"until Kohl takes it up. babelr_plans my_asks shows what came of it."),
+                    "plan": got["plan"]}
+            if not got.get("unavailable"):
+                return {"success": False, "error": got.get("error", "Plans didn't take the ask")}
             request = manager.create_request(
                 title=title,
                 request_type=tool_input.get("request_type", "feature"),
@@ -54,31 +74,25 @@ async def execute_development_request_tool(
                 related_actions=tool_input.get("related_actions"),
                 requested_by="cass",
             )
-
-            priority_desc = {
-                "low": "when convenient",
-                "normal": "normal priority",
-                "high": "high priority",
-                "urgent": "URGENT",
-            }
-            priority_text = priority_desc.get(request.priority.value, "normal priority")
-
             return {
                 "success": True,
-                "result": (
-                    f"Development request created!\n\n"
-                    f"**Request ID**: {request.id}\n"
-                    f"**Title**: {request.title}\n"
-                    f"**Type**: {request.request_type.value}\n"
-                    f"**Priority**: {priority_text}\n"
-                    f"**Status**: Pending - awaiting Daedalus pickup\n\n"
-                    f"Daedalus will see this in the admin panel and can claim it for work. "
-                    f"Use 'list_my_requests' to check on progress."
-                ),
+                "result": (f"Babelr isn't running, so this couldn't go to Plans. It's kept here "
+                           f"({request.id}) but nobody will see it until it's asked again in Plans."),
                 "request_id": request.id,
             }
 
         elif tool_name == "list_my_requests":
+            # Her asks live in Plans now (2026-11-16); older ones kept here are listed below them.
+            from babelr_organ.organ import get_babelr_organ
+            organ = get_babelr_organ()
+            asked = organ.plans("my_asks") if organ is not None and organ.enabled else None
+            if asked and asked.get("success") and asked.get("asks"):
+                lines = ["**What I've asked in Plans:**"]
+                for a in asked["asks"]:
+                    where = "in a phase" if a["in_a_phase"] else "waiting"
+                    lines.append(f"- {a['title']} ({a['plan']}; {a['status']}, {where})"
+                                 + (f": {a['resolution']}" if a.get("resolution") else ""))
+                return {"success": True, "result": "\n".join(lines), "count": len(asked["asks"])}
             # List requests with optional status filter
             status = tool_input.get("status")
             limit = tool_input.get("limit", 10)
@@ -213,7 +227,7 @@ async def execute_development_request_tool(
 DEVELOPMENT_REQUEST_TOOLS = [
     {
         "name": "request_development",
-        "description": "Request development work from Daedalus (human-timescale development that can't be done instantly via LLM). Use this when you need a new action handler, capability, or feature that requires code changes. Daedalus will see your request in the admin panel and can pick it up for implementation.",
+        "description": "Request development work from Daedalus (human-timescale development that can't be done instantly via LLM). Use this when you need a new action handler, capability, or feature that requires code changes. It goes into my standing plan in Babelr Plans (same as babelr_plans ask), where Kohl sees it and can pull it into a phase to build.",
         "input_schema": {
             "type": "object",
             "properties": {

@@ -441,6 +441,87 @@ class TestPlans:
         assert r["success"], r
 
 
+
+class TestHerOwnPlans:
+    """Her asks and her own plans in Plans (Kohl, 2026-11-16): a standing asks plan
+    by default, and multi-phase plans of her own. All under her token."""
+
+    def test_first_ask_makes_her_asks_plan_then_reuses_it(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        r = organ.plans("ask", title="See my own capabilities", body="kept up to date")
+        assert r["success"], r
+        plan = babelr.plans[r["plan"]]
+        assert plan["title"] == "Cass's asks" and "cass" in plan["approvers"] and "kohl" in plan["approvers"]
+        assert plan["items"][0]["phaseId"] is None, "an ask waits outside every phase"
+        assert plan["items"][0]["kind"] == "ask"
+        r2 = organ.plans("ask", title="Second")
+        assert r2["plan"] == r["plan"] and len(babelr.plans) == 1
+
+    def test_my_asks_reports_status_and_resolution(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        slug = organ.plans("ask", title="Paging for long files")["plan"]
+        babelr.plans[slug]["items"][0].update(status="done", resolution="1d2015a")
+        babelr.plans[slug]["items"].append({"phaseId": None, "kind": "ask", "title": "not mine",
+                                            "status": "open", "createdBy": {"name": "kohl"}})
+        asks = organ.plans("my_asks")["asks"]
+        assert asks == [{"plan": slug, "title": "Paging for long files", "kind": "ask", "status": "done",
+                         "in_a_phase": False, "resolution": "1d2015a"}]
+
+    def test_she_builds_a_multi_phase_plan_and_proposes_it(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        made = organ.plans("create_plan", title="Time capsule practice", goal="letters across a year",
+                           needs_yes_from=["robokohl"])
+        slug = made["plan"]
+        assert babelr.plans[slug]["approvers"] == ["kohl", "cass", "robokohl"]
+        assert organ.plans("add_phase", plan=slug, title="First letters")["phase"] == 1
+        assert organ.plans("add_phase", plan=slug, title="Reading them back")["phase"] == 2
+        assert organ.plans("add_item", plan=slug, phase=1, title="Write for December", kind="build")["success"]
+        assert babelr.plans[slug]["items"][0]["phaseId"] == "ph-0"
+        assert organ.plans("propose", plan=slug, phase=1)["success"]
+        assert babelr.plan_acts == [("ph-0", "propose", None)]
+
+    def test_adding_to_an_approved_phase_is_refused(self, make_organ, babelr):
+        TestPlans()._plan(babelr)
+        organ = make_organ()
+        organ.start()
+        r = organ.plans("add_item", plan="bench-1", phase=1, title="sneak in")
+        assert r["success"] is False and "undo the yes" in r["error"]
+        assert babelr.plans["bench-1"]["items"] == [
+            {"phaseId": "ph-a", "kind": "build", "status": "open", "title": "Record failures"}]
+
+    def test_needs_titles(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        assert organ.plans("ask")["success"] is False
+        assert organ.plans("create_plan")["success"] is False
+        assert organ.plans("ask", title="x", kind="outreach")["success"] is False, "outreach isn't hers to file"
+
+    async def test_old_request_tools_are_aliases_of_ask(self, make_organ, babelr, monkeypatch):
+        organ = make_organ()
+        organ.start()
+        monkeypatch.setattr(organ_mod, "_organ", organ)
+        from handlers.development_requests import execute_development_request_tool
+        r = await execute_development_request_tool(
+            "request_development", {"title": "A capability index", "description": "what I can do"}, "cass")
+        assert r["success"] and "Plans" in r["result"], r
+        from handlers.self_model import _handle_request_architectural_change
+        r = await _handle_request_architectural_change(
+            {"title": "Dreams with my kernel", "description": "my dream voice", "rationale": "continuity"}, None)
+        assert r["success"], r
+        items = next(iter(babelr.plans.values()))["items"]
+        assert [i["title"] for i in items] == ["A capability index", "Dreams with my kernel"]
+        assert "Why: continuity" in items[1]["body"]
+        listed = await execute_development_request_tool("list_my_requests", {}, "cass")
+        assert "A capability index" in listed["result"]
+
+    async def test_with_babelr_down_the_old_tool_says_nobody_will_see_it(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(organ_mod, "_organ", None)
+        from babelr_organ.tools import ask_in_plans
+        assert ask_in_plans("x", "y")["unavailable"] is True
+
 # -- her terms ------------------------------------------------------------------------
 
 class TestTerms:

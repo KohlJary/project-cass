@@ -2036,37 +2036,31 @@ async def _handle_analyze_narration_patterns(tool_input: Dict, ctx: ToolContext)
 # =============================================================================
 
 async def _handle_request_architectural_change(tool_input: Dict, ctx: ToolContext) -> Dict:
-    """Request an architectural change to the system."""
-    problem = tool_input.get("problem")
-    hypothesis = tool_input.get("hypothesis")
-    proposed_solution = tool_input.get("proposed_solution")
-
-    if not all([problem, hypothesis, proposed_solution]):
-        return {"success": False, "error": "problem, hypothesis, and proposed_solution are required"}
-
-    request_id = ctx.graph.request_architectural_change(
-        problem=problem,
-        hypothesis=hypothesis,
-        proposed_solution=proposed_solution,
-        priority=tool_input.get("priority", "P2"),
-        evidence=tool_input.get("evidence"),
-    )
-
-    return {
-        "success": True,
-        "result": f"""## Architectural Change Request Submitted
-
-**Request ID**: {request_id}
-**Priority**: {tool_input.get('priority', 'P2')}
-
-**Problem**: {problem}
-
-**Hypothesis**: {hypothesis}
-
-**Proposed Solution**: {proposed_solution}
-
-This request has been logged and will be reviewed by Daedalus/Kohl."""
-    }
+    """An alias of babelr_plans ask (2026-11-16). Its schema asks for title,
+    description and rationale, but this handler required problem, hypothesis and
+    proposed_solution, so every call failed; and what it did write went into the
+    graph, where nothing read it. Both shapes are taken now, and the ask goes to Plans."""
+    title = tool_input.get("title") or tool_input.get("problem")
+    what = tool_input.get("description") or tool_input.get("proposed_solution")
+    why = tool_input.get("rationale") or tool_input.get("hypothesis")
+    if not (title and what):
+        return {"success": False, "error": "title and description are required"}
+    parts = [what]
+    if why:
+        parts.append(f"Why: {why}")
+    extra = [f"a change to my architecture", f"priority: {tool_input.get('priority', 'normal')}"]
+    if tool_input.get("category"):
+        extra.append(f"category: {tool_input['category']}")
+    if tool_input.get("evidence"):
+        parts.append(f"Evidence: {tool_input['evidence']}")
+    parts.append("(" + "; ".join(extra) + ")")
+    from babelr_organ.tools import ask_in_plans
+    got = ask_in_plans(str(title)[:200], "\n\n".join(parts))
+    if got.get("success"):
+        return {"success": True, "result": (
+            f"Asked in Plans ({got['plan']}): {title}. Kohl sees it there; "
+            f"babelr_plans my_asks shows what came of it.")}
+    return {"success": False, "error": got.get("error", "Plans didn't take the ask")}
 
 
 async def _handle_get_architectural_requests(tool_input: Dict, ctx: ToolContext) -> Dict:
@@ -3546,7 +3540,8 @@ Use this to formally request:
 - Modifications to your cognitive infrastructure
 - New integrations or features
 
-Requests are logged for human review and create a record of your evolving needs.""",
+It goes into my standing plan in Babelr Plans (same as babelr_plans ask), where Kohl sees it and can
+pull it into a phase to build; babelr_plans my_asks shows what came of it.""",
         "input_schema": {
             "type": "object",
             "properties": {

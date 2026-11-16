@@ -53,6 +53,8 @@ async def execute_babelr_tool(tool_name: str, tool_input: Dict[str, Any], **kwar
             return await asyncio.to_thread(
                 organ.plans, tool_input["action"], plan=tool_input.get("plan"),
                 phase=tool_input.get("phase"), reason=tool_input.get("reason"),
+                **{k: tool_input.get(k) for k in ("title", "body", "goal", "narrative", "kind",
+                                                  "needs_yes_from") if tool_input.get(k) is not None},
             )
         return {"success": False, "error": f"Unknown Babelr tool: {tool_name}"}
     except Exception as e:
@@ -123,19 +125,47 @@ BABELR_TOOLS = [
     },
     {
         "name": "babelr_plans",
-        "description": "The house's plans in Babelr's Plans. list shows the plans (and how many phases "
-                       "wait on your yes); view reads one: goal, phases, items, who has said yes. Where "
-                       "a plan names you as an approver, approve or decline a phase yourself: approving "
-                       "means \"go do this work\", and your yes is recorded as yours. Decline needs a reason.",
+        "description": ("The house's plans in Babelr's Plans, and mine. list shows the plans (and how many "
+                        "phases wait on my yes); view reads one: goal, phases, items, who has said yes. Where a "
+                        "plan names me as an approver, approve or decline a phase (decline needs a reason). "
+                        "ask: ask for something (a change to me, a new ability, something in my world); it goes "
+                        "into my standing plan \"Cass's asks\" (or a plan I name), outside any phase, and Kohl "
+                        "sees it there. my_asks: what I've asked and what came of it. My own plans: create_plan, "
+                        "add_phase, add_item (kind ask/build/research/decision; to a draft phase, or outside "
+                        "phases), then propose a phase when it's ready. Kohl's yes is always needed, and mine on "
+                        "my plans."),
         "input_schema": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["list", "view", "approve", "decline"]},
-                "plan": {"type": "string", "description": "The plan's slug, from list (for view/approve/decline)"},
-                "phase": {"type": "integer", "description": "The phase's number as view shows it (for approve/decline)"},
-                "reason": {"type": "string", "description": "Why you're declining (decline only)"},
+                "action": {"type": "string", "enum": ["list", "view", "approve", "decline", "ask", "my_asks",
+                                                      "create_plan", "add_phase", "add_item", "propose"]},
+                "plan": {"type": "string", "description": "The plan's slug, from list (optional for ask and my_asks)"},
+                "phase": {"type": "integer", "description": "The phase's number as view shows it (approve, decline, propose, add_item)"},
+                "reason": {"type": "string", "description": "Why I'm declining (decline only)"},
+                "title": {"type": "string", "description": "Title of the ask, plan, phase or item"},
+                "body": {"type": "string", "description": "What I'm asking for and why, in my words (ask, add_item)"},
+                "goal": {"type": "string", "description": "What the plan or phase is for (create_plan, add_phase)"},
+                "narrative": {"type": "string", "description": "The plan's longer story (create_plan)"},
+                "kind": {"type": "string", "enum": ["ask", "build", "research", "decision"]},
+                "needs_yes_from": {"type": "array", "items": {"type": "string"},
+                                   "description": "Who else must say yes to my plan's phases (I'm included; Kohl always is)"},
             },
             "required": ["action"],
         },
     },
 ]
+
+
+def ask_in_plans(title: str, body: str, kind: str = "ask") -> Dict[str, Any]:
+    """Her older request tools (request_development, request_architectural_change) as
+    aliases of babelr_plans ask (2026-11-16). They used to write where nobody looked;
+    now an ask lands in her standing plan in Plans, where Kohl sees it.
+
+    {"success": False, "unavailable": True} when Babelr isn't running, so the caller
+    can say so honestly instead of claiming someone will see it."""
+    from .organ import get_babelr_organ
+    organ = get_babelr_organ()
+    if organ is None or not organ.enabled:
+        return {"success": False, "unavailable": True,
+                "error": "Babelr isn't running, so my ask can't reach Plans right now."}
+    return organ.plans("ask", title=title, body=body, kind=kind)
