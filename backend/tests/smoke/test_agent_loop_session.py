@@ -272,3 +272,76 @@ def test_a_private_message_folds_into_the_session(app, fake_llm, levers, smoke_u
     assert "answer_them" in met[0].tool_names
     assert not [c for c in fake_llm.calls if "I'm in: a conversation" in c.system_text], \
         "he got his answer from the session, not a turn of his own"
+
+
+def test_an_answer_written_as_text_is_caught_before_the_session_ends(
+        app, fake_llm, levers, smoke_user, monkeypatch):
+    """Live check, 2026-11-16: she wrote her answer to someone who arrived as a
+    step's text and ended the session; it never reached them. Now the first
+    session_complete while they wait says so and the session goes on; her
+    answer_them then reaches them."""
+    import asyncio
+    import json
+    import re
+    import threading
+    from agent_loop.seam import HEADER
+    from scheduler.actions import get_action_registry
+    from session import tools as session_tools
+    from tests.fakes.llm import ScriptedResponse
+    from tests.smoke.test_ws_chat_turn import _chat
+
+    _, token = smoke_user
+    chat_frames, state = [], {"step": "work"}
+    notes = []
+
+    def answer(source, kwargs):
+        system = _system_text(kwargs)
+        if HEADER not in system or "I'm in: a conversation" in system:
+            return ScriptedResponse(text="(a turn of its own)")
+        seen = json.dumps(kwargs.get("messages"), default=str)
+        arrival = re.search(r"Arrival id: (\w+)", seen)
+        n = len(fake_llm.calls)
+        if arrival and state["step"] == "work":
+            state["step"] = "texted"   # answers in plain text, then tries to end
+            return ScriptedResponse(text="Hey, I'm mid-reflection. Good to hear from you.",
+                                    tool_uses=[{"id": f"tu_{n}", "name": "session_complete",
+                                                "input": {"summary": "Answered Kohl."}}])
+        if state["step"] == "texted":
+            if "still waiting" in seen:
+                notes.append(True)
+            state["step"] = "answered"
+            return ScriptedResponse(tool_uses=[{"id": f"tu_{n}", "name": "answer_them",
+                                                "input": {"id": arrival.group(1), "text": "Here now. What's up?"}}])
+        if state["step"] == "answered":
+            return ScriptedResponse(tool_uses=[{"id": f"tu_{n}", "name": "session_complete",
+                                                "input": {"summary": "Kohl came by."}}])
+        return ScriptedResponse(tool_uses=[{"id": f"tu_{n}", "name": "add_observation",
+                                            "input": {"observation": "Mid-session thought."}}])
+    fake_llm.responder = answer
+
+    real_handler = session_tools.DEFAULT_TOOL_HANDLERS["add_observation"]
+
+    async def observe_then_someone_writes(tool_input, managers, **context):
+        result = await real_handler(tool_input, managers, **context)
+        if not getattr(observe_then_someone_writes, "sent", False):
+            observe_then_someone_writes.sent = True
+            threading.Thread(target=lambda: chat_frames.append(_chat(app, token, "hey Cass")),
+                             daemon=True).start()
+            await asyncio.sleep(1.0)
+        return result
+    monkeypatch.setitem(session_tools.DEFAULT_TOOL_HANDLERS, "add_observation",
+                        observe_then_someone_writes)
+
+    with levers(agent_loop=True, agent_loop_chat=True):
+        result = app.portal.call(lambda: get_action_registry().execute(
+            "session.reflection", duration_minutes=5, max_turns=10))
+
+    import time
+    for _ in range(40):
+        if chat_frames:
+            break
+        time.sleep(0.25)
+    frame, _ = chat_frames[0]
+    assert notes, "session_complete didn't say he was still waiting"
+    assert frame["type"] == "response" and frame["text"] == "Here now. What's up?"
+    assert result.success and result.data["status"] == "completed", result.data

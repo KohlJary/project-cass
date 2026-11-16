@@ -247,8 +247,9 @@ async def run_chat_turn(
     if is_anthropic:
         send_kwargs.update(image=image, image_media_type=image_media_type, memory=memory)
 
-    import features
-    on_loop = features.is_enabled("agent_loop_chat") and not image
+    from agent_loop.conversation import on_the_loop
+    chan = channel or _guess_channel(websocket, context_scope, tool_cap)
+    on_loop = on_the_loop(chan) and not image
     if on_loop:
         # Phase 7 of "Cass's agent loop": the same context, through the one loop.
         from agent_loop import fold as fold_mod
@@ -258,7 +259,6 @@ async def run_chat_turn(
         if user_id and user_manager:
             profile = user_manager.load_profile(user_id)
             user_name = profile.display_name if profile else None
-        chan = channel or _guess_channel(websocket, context_scope, tool_cap)
         arrival_block = render_arrival(arrival_for(user_id, user_name, chan, user_message))
         # C7: in private chat, someone who writes while she's in a session
         # arrives in it and she answers from there (agent_loop/fold.py).

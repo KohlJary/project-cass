@@ -37,3 +37,21 @@ def test_every_main_sdk_chat_turn_names_its_channel():
         named = {k.arg: k.value for k in call.keywords}
         assert "channel" in named, f"run_chat_turn at line {call.lineno} doesn't name its channel"
         assert named["channel"].value in CHANNELS, call.lineno
+
+
+def test_every_channel_is_cut_over_unless_narrowed(monkeypatch):
+    import features
+    from agent_loop.conversation import ALL_CHANNELS, on_the_loop
+    monkeypatch.delenv("AGENT_LOOP_CHAT_CHANNELS", raising=False)
+    with features.override(agent_loop_chat=True):
+        assert all(on_the_loop(c) for c in ALL_CHANNELS)
+        monkeypatch.setenv("AGENT_LOOP_CHAT_CHANNELS", "babelr_dm,websocket")
+        assert on_the_loop("babelr_dm") and not on_the_loop("discord")
+    with features.override(agent_loop_chat=False):
+        monkeypatch.delenv("AGENT_LOOP_CHAT_CHANNELS")
+        assert not any(on_the_loop(c) for c in ALL_CHANNELS)
+
+
+def test_every_channel_the_container_knows_can_be_cut_over():
+    from agent_loop.conversation import ALL_CHANNELS
+    assert set(CHANNELS) == set(ALL_CHANNELS)

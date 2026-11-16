@@ -283,6 +283,20 @@ async def run_session_turn(
                        "at": f.taken_at.isoformat(timespec="seconds")} for f in got)
         return [fold_mod.arrival_message(f) for f in got]
 
+    # Live check, 2026-11-16 (chat comparison): she wrote her answer to a
+    # person who arrived as a step's text, then ended the session, and it
+    # never reached them. session_complete says so once per arrival, and the
+    # turn goes on (an end tool's error doesn't end it).
+    told: set = set()
+
+    async def execute(name: str, tool_input: Dict[str, Any]) -> Any:
+        if folding and name == "session_complete":
+            waiting = [f for f in fold_mod.DESK.waiting() if f.id not in told]
+            if waiting:
+                told.update(f.id for f in waiting)
+                return {"error": fold_mod.unanswered_note(waiting)}
+        return await box.execute(name, tool_input)
+
     if folding:
         fold_mod.DESK.open_session(session_id)
     try:
@@ -295,7 +309,7 @@ async def run_session_turn(
             messages=[{"role": "user",
                        "content": initial_message
                        or runner._get_default_initial_message(session_type, focus)}],
-            execute=box.execute,
+            execute=execute,
             interrupted=((lambda: fold_mod.DESK.end_reason(session_id)) if folding
                          else (lambda: interrupt.conversation_since(started, daemon_id))),
             deadline=started.timestamp() + duration_minutes * 60,

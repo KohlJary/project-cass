@@ -34,6 +34,31 @@ from .spec import Trigger, conversation_spec
 
 logger = logging.getLogger(__name__)
 
+# The cutover, one channel at a time (plan "Cass's agent loop", phase 7, "Cut
+# over in steps"): with the agent_loop_chat lever on, these channels run on
+# the loop; any left out stay on the old path. Kohl, 2026-11-16, after the
+# comparison: all of them at once (Cass: ready whenever he is).
+# AGENT_LOOP_CHAT_CHANNELS (comma-separated, or "all") narrows it, to pull
+# one channel back; the lever is the way back for all of them.
+ALL_CHANNELS = ("babelr_dm", "websocket", "relay", "http", "home_assistant", "discord", "babelr")
+CUTOVER_CHANNELS = ALL_CHANNELS
+
+
+def loop_channels() -> frozenset:
+    import os
+    raw = os.environ.get("AGENT_LOOP_CHAT_CHANNELS", "").strip()
+    if not raw:
+        return frozenset(CUTOVER_CHANNELS)
+    if raw.lower() == "all":
+        return frozenset(ALL_CHANNELS)
+    return frozenset(c.strip() for c in raw.split(",") if c.strip())
+
+
+def on_the_loop(channel: Optional[str]) -> bool:
+    """Whether a chat turn in this channel runs on the loop."""
+    import features
+    return features.is_enabled("agent_loop_chat") and (channel or "") in loop_channels()
+
 Emit = Callable[[Dict[str, Any]], Awaitable[None]]
 
 CHANNEL_WORDS = {

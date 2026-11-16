@@ -346,7 +346,8 @@ LEVER_COVERAGE = {
     "agent_loop_chat": {
         "depth": "runs",
         "tests": [f"{CHAT_ENTRY}::test_on_the_loop_every_entry_point_saves_what_the_old_path_saves",
-                  f"{AGENT_LOOP}::test_a_private_message_folds_into_the_session"],
+                  f"{AGENT_LOOP}::test_a_private_message_folds_into_the_session",
+                  f"{AGENT_LOOP}::test_an_answer_written_as_text_is_caught_before_the_session_ends"],
         "note": "Each of the five chat entry points runs the scripted turn on the old path and on "
                 "the loop, against the fake LLM, and saves the same rows, memory, marks and "
                 "observations; token usage is filed per model call on the loop.",

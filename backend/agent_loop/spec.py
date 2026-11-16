@@ -89,7 +89,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("say", "say something to my partner, through my own reach-out (my limits, "
                     "my channel; no reply is owed)", ("say",)),
     ToolPack("wake", "ask to be woken later to continue something", ("wake_me",)),
-    ToolPack("find", "find any of my other tools by what I want to do, and use them",
+    ToolPack("find", "find any of my other tools by what I want to do, and use them (the roadmap, "
+                     "research, the wiki, goals, dreams, and more: if something isn't in the tools "
+                     "above, look there before saying I can't)",
              ("find_tools", "use_tool")),
     # Planning my day (plan "Cass plans her own day", phase 3): my menu is in
     # the instructions; set_day_plan queues what I choose and writes it to my

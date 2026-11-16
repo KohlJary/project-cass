@@ -127,6 +127,12 @@ class Desk:
         return {"sent": True, "to": f.who}
 
     # --- the chat turn's side ------------------------------------------------
+    def waiting(self) -> List[Fold]:
+        """Taken by the session and not yet answered: someone still waiting."""
+        with self._lock:
+            return [f for f in self._folds.values()
+                    if f.taken_at is not None and f.answered_at is None and not f.withdrawn]
+
     def is_open(self) -> bool:
         with self._lock:
             return self._session is not None
@@ -182,6 +188,13 @@ DESK = Desk()
 FOLD_CHANNELS = frozenset({"websocket", "relay", "http", "babelr_dm"})
 
 
+def unanswered_note(waiting: List["Fold"]) -> str:
+    """session_complete's answer while someone is still waiting (once per arrival)."""
+    who = ", ".join(f"{f.who} (id {f.id})" for f in waiting)
+    return (f"{who} is still waiting: what I wrote in my steps didn't reach them, only answer_them "
+            f"does. Answer them, then end the session. (If I end it now, they get a turn of their own.)")
+
+
 def folding_on() -> bool:
     """Folding needs both her sessions and chat on the loop."""
     import features
@@ -191,8 +204,8 @@ def folding_on() -> bool:
 def arrival_message(fold: Fold) -> str:
     """What she sees in the session when someone arrives."""
     return (f"{fold.block}\nArrival id: {fold.id}\n\n(loop: {fold.who} arrived while I'm in this "
-            f"session. I answer them with answer_them; then I carry on, bring them into what I'm "
-            f"doing, or end the session.)")
+            f"session. Only answer_them reaches them; what I write in my own steps they don't see. "
+            f"Then I carry on, bring them into what I'm doing, or end the session.)")
 
 
 async def wait_for_answer(fold: Fold, desk: Optional[Desk] = None, pickup: Optional[float] = None,

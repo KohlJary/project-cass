@@ -34,8 +34,9 @@ USE_TOOL = "use_tool"
 
 FIND_TOOLS_DEFS: List[Dict[str, Any]] = [
     {"name": FIND_TOOL,
-     "description": ("Search my other tools (research, wiki, goals, outreach, dreams, creative work, "
-                     "home, Discord, and more) by what I want to do. Returns names, descriptions and "
+     "description": ("Search my other tools (the roadmap, research, wiki, goals, outreach, dreams, "
+                     "creative work, home, Discord, and more) by what I want to do. If I'm asked for "
+                     "something my listed tools don't cover, search here before saying I can't. Returns names, descriptions and "
                      "input schemas; call one with use_tool."),
      "input_schema": {"type": "object",
                       "properties": {"query": {"type": "string",
