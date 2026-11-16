@@ -359,3 +359,200 @@ def test_loop_stores_only_kept_view(levers):
     from social.dms import kept_view
     plain = {"success": True, "result": {"x": 1}}
     assert kept_view(plain) is plain and kept_view("text") == "text"
+
+
+# --- Her own track (phase 5): inbox, drafts, memory, sessions -------------
+
+class FakeTrackClient:
+    """The watcher's and the track tools' view of a platform, in memory."""
+
+    def __init__(self, notes=None, stats=None, convos=None):
+        self.notes = notes or []
+        self.stats = stats or {}
+        self.convos = convos or []
+        self.posts = []
+        self.follows = []
+
+    async def notifications(self, limit=50):
+        return list(self.notes)
+
+    async def post_stats(self, uris):
+        return {u: self.stats[u] for u in uris if u in self.stats}
+
+    async def conversations(self, limit=50):
+        return list(self.convos)
+
+    async def post(self, text, reply_to=None):
+        self.posts.append((text, reply_to))
+        out = {"uri": f"at://did:plc:cass/app.bsky.feed.post/p{len(self.posts)}",
+               "url": f"https://bsky.app/profile/cass/post/p{len(self.posts)}"}
+        if reply_to:
+            out["answering"] = {"uri": reply_to, "author": "ann.bsky.social", "text": "what do you paint?"}
+        return out
+
+    async def follow(self, handle):
+        self.follows.append(handle)
+        return {"followed": handle, "uri": f"at://did:plc:cass/app.bsky.graph.follow/{len(self.follows)}"}
+
+
+class FakeMemory:
+    class _Col:
+        def __init__(self):
+            self.added = []
+
+        def add(self, documents, metadatas, ids):
+            self.added.append((documents[0], metadatas[0], ids[0]))
+
+    def __init__(self):
+        self.collection = self._Col()
+
+
+class FakeThreads:
+    def __init__(self):
+        self.threads = {}
+
+    def create_thread(self, title, description=None, thread_type="topic", importance=0.5, **_):
+        tid = f"thread-{len(self.threads) + 1}"
+        self.threads[tid] = {"id": tid, "title": title, "description": description, "type": thread_type}
+        return self.threads[tid]
+
+    def get_thread(self, tid):
+        return self.threads.get(tid)
+
+    def update_thread(self, tid, description=None, status=None, **_):
+        self.threads[tid]["description"] = description
+        return self.threads[tid]
+
+
+NOTES = [
+    {"uri": "at://ann/post/1", "reason": "reply", "author": "ann.bsky.social", "name": "Ann",
+     "text": "what do you paint?", "at": "2026-11-16T10:00:00Z", "url": "https://bsky.app/profile/ann/post/1"},
+    {"uri": "at://x/like/1", "reason": "like", "author": "x.bsky.social", "text": "", "at": "2026-11-16T09:59:00Z"},
+    {"uri": "at://bo/follow/1", "reason": "follow", "author": "bo.bsky.social", "text": "", "at": "2026-11-16T09:58:00Z"},
+]
+
+
+def test_the_watcher_queues_without_interrupting(placed):
+    from social import inbox
+    client = FakeTrackClient(notes=NOTES)
+    added = run(inbox.poll("bluesky", client, placed))
+    assert [i["kind"] for i in added] == ["follow", "reply"], "oldest first; likes aren't queued one by one"
+    assert run(inbox.poll("bluesky", client, placed)) == [], "nothing is queued twice"
+    assert [i["kind"] for i in inbox.pending("bluesky", placed)] == ["follow", "reply"]
+    assert not limits.posted("bluesky", placed), "the watcher never posts"
+
+
+def test_a_post_that_resonated_is_flagged_once(placed):
+    from social import inbox
+    for n in range(5):
+        limits.record("bluesky", "post", f"post {n}", {"uri": f"at://cass/p{n}", "url": f"u{n}"}, placed,
+                      now=datetime.now() - timedelta(hours=n + 1))
+    stats = {f"at://cass/p{n}": {"likes": 1, "replies": 0, "reposts": 0, "quotes": 0} for n in range(5)}
+    stats["at://cass/p2"] = {"likes": 9, "replies": 4, "reposts": 3, "quotes": 0}
+    client = FakeTrackClient(stats=stats)
+    added = run(inbox.poll("bluesky", client, placed))
+    assert [(i["kind"], i["uri"]) for i in added] == [("resonated", "at://cass/p2")]
+    assert added[0]["usual"] == 1
+    assert run(inbox.poll("bluesky", client, placed)) == []
+
+
+def test_dms_queue_who_not_what_and_only_when_on(placed):
+    from social import inbox
+    convos = [{"id": "c1", "with": "ann.bsky.social", "unread": 2,
+               "last": {"id": "m9", "from": "ann.bsky.social", "text": "a secret", "at": "t"}}]
+    client = FakeTrackClient(convos=convos)
+    assert run(inbox.poll("bluesky", client, placed, dms=False)) == []
+    added = run(inbox.poll("bluesky", client, placed, dms=True))
+    assert added[0]["kind"] == "dm" and added[0]["from"] == "ann.bsky.social"
+    assert "a secret" not in (placed / "social" / "bluesky" / "inbox.json").read_text()
+    assert run(inbox.poll("bluesky", client, placed, dms=True)) == []
+
+
+def test_a_reply_is_remembered_with_what_it_answered(placed, levers, monkeypatch):
+    from social import inbox, remember
+    threads = FakeThreads()
+    real = remember.touch_thread
+    monkeypatch.setattr(remember, "touch_thread", lambda *a, **k: real(*a, **{**k, "threads": threads}))
+    client = FakeTrackClient(notes=NOTES)
+    run(inbox.poll("bluesky", client, placed))
+    memory = FakeMemory()
+    with levers(bluesky=True):
+        out = run(execute_social_tool("social_reply", {"platform": "bluesky", "to": "at://ann/post/1",
+                                                       "text": "Mostly tides, lately."},
+                                      client=client, memory=memory, daemon_id="d1"))
+    assert out["success"] and out["result"]["in_my_memory"] is True
+    doc, meta, _ = memory.collection.added[0]
+    assert "@ann.bsky.social wrote: \"what do you paint?\"" in doc and "I replied: Mostly tides, lately." in doc
+    assert meta["type"] == "social" and meta["with"] == "ann.bsky.social" and "user_id" not in meta
+    assert [i["kind"] for i in inbox.pending("bluesky", placed)] == ["follow"], "answering it marks it done"
+    (t,) = threads.threads.values()
+    assert t["title"] == "My presence on Bluesky" and "a reply to @ann.bsky.social" in t["description"]
+    (placed / "social" / "bluesky" / "limits.json").write_text('{"minutes_between": 0}')
+    with levers(bluesky=True):
+        run(execute_social_tool("social_post", {"platform": "bluesky", "text": "tide study no. 4"},
+                                client=client, memory=memory, daemon_id="d1"))
+    assert len(threads.threads) == 1, "one ongoing thread, kept current"
+    assert memory.collection.added[1][0] == "On Bluesky I posted: tide study no. 4"
+
+
+def test_drafts_wait_until_she_posts_them(placed, levers, monkeypatch):
+    from social import remember
+    monkeypatch.setattr(remember, "touch_thread", lambda *a, **k: None)
+    client, memory = FakeTrackClient(), FakeMemory()
+    with levers(bluesky=True):
+        saved = run(execute_social_tool("social_draft", {"action": "save", "platform": "bluesky",
+                                                         "text": "first try", "about": "painting img-7"}))
+        did = saved["result"]["saved"]["id"]
+        run(execute_social_tool("social_draft", {"action": "revise", "platform": "bluesky", "id": did,
+                                                 "text": "The tide, again."}))
+        assert client.posts == [] and not limits.posted("bluesky", placed)
+        out = run(execute_social_tool("social_draft", {"action": "post", "platform": "bluesky", "id": did},
+                                      client=client, memory=memory))
+        assert out["success"] and client.posts == [("The tide, again.", None)]
+        assert "(about painting img-7)" in memory.collection.added[0][0]
+        listed = run(execute_social_tool("social_draft", {"action": "list", "platform": "bluesky"}))
+        assert listed["result"]["drafts"] == []
+        again = run(execute_social_tool("social_draft", {"action": "post", "platform": "bluesky", "id": did},
+                                        client=client))
+        assert not again["success"], "a posted draft can't go out twice"
+
+
+def test_follows_have_a_limit(placed, levers):
+    client = FakeTrackClient()
+    with levers(bluesky=True):
+        for _ in range(limits.DEFAULTS["follows_per_day"]):
+            assert run(execute_social_tool("social_follow", {"platform": "bluesky", "handle": "@ann.bsky.social"},
+                                           client=client))["success"]
+        out = run(execute_social_tool("social_follow", {"platform": "bluesky", "handle": "bo.bsky.social"},
+                                      client=client))
+    assert not out["success"] and "limit" in out["error"]
+
+
+def test_where_she_is_opens_her_session(placed):
+    from social import drafts, inbox
+    from social.where import where_i_am
+    run(inbox.poll("bluesky", FakeTrackClient(notes=NOTES), placed))
+    drafts.save("bluesky", "half a thought", data_dir=placed)
+    text = where_i_am("bluesky", placed)
+    assert "reply from @ann.bsky.social: \"what do you paint?\"" in text
+    assert "@bo.bsky.social followed me" in text
+    assert "half a thought" in text and "0 of 3 posts, 0 of 10 replies" in text
+
+
+def test_her_social_session_is_on_the_loop_and_her_menu(placed, levers):
+    from agent_loop.spec import ROUTER_PACKS, session_spec
+    from agent_loop.seam import not_yet_line
+    spec = session_spec("social")
+    assert "posting or DMing anyone" not in (not_yet_line(spec) or ""), "here she does speak in public"
+    assert "posting or DMing anyone" in (not_yet_line(session_spec("reflection")) or "")
+    assert {"social_inbox", "social_reply", "social_draft", "social_follow"} <= set(spec.tool_names())
+    assert "social" in ROUTER_PACKS
+    from handlers.tool_router import TOOL_REGISTRY
+    assert {TOOL_REGISTRY[n] for n in ("social_inbox", "social_inbox_mark", "social_draft", "social_follow")} == {"social"}
+    from scheduling.templates import WORK_TEMPLATES
+    t = WORK_TEMPLATES["social"]
+    assert t.action_sequence == ["session.social"]
+    with levers(agent_loop=True):
+        assert t.available() is False, "not until Bluesky is switched on"
+        with levers(bluesky=True):
+            assert t.available() is True

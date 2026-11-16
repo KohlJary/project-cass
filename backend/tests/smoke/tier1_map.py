@@ -217,6 +217,13 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Nothing starts on its own; her tools call it. Fast-suite: tests/test_social.py (fake transport).",
     },
+    "social_watch": {
+        "depth": "partial",
+        "tests": ["tests/smoke/test_social_watch.py::test_one_watch_cycle_queues_and_posts_nothing",
+                  "tests/smoke/test_social_watch.py::test_nothing_is_watched_while_bluesky_is_off",
+                  "tests/smoke/test_social_watch.py::test_watcher_starts_only_with_its_levers"],
+        "note": "One watch pass runs against a fake Bluesky client and queues into her inbox; the five-minute loop and the real client are not started. No LLM: the watcher only queues. Fast-suite: tests/test_social.py.",
+    },
     "bluesky_dms": {
         "depth": "none",
         "tests": [],

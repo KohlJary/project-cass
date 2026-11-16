@@ -129,6 +129,43 @@ class BlueskyClient:
             out.append(view)
         return out
 
+    async def notifications(self, limit: int = 50) -> List[dict]:
+        """Every notification, newest first, for the watcher (social/inbox.py):
+        {uri, reason, author, name, text, url, at, subject}. subject is the post
+        of hers a like or repost was about."""
+        data = await self.call("GET", "app.bsky.notification.listNotifications",
+                               params={"limit": min(limit, 100)})
+        out = []
+        for n in data.get("notifications", []):
+            author = n.get("author") or {}
+            rec = n.get("record") or {}
+            out.append({"uri": n.get("uri"), "reason": n.get("reason"), "author": author.get("handle"),
+                        "name": author.get("displayName") or author.get("handle"),
+                        "text": rec.get("text", ""), "at": n.get("indexedAt") or rec.get("createdAt"),
+                        "url": web_url(n.get("uri", ""), author.get("handle", ""))
+                        if n.get("reason") in ("mention", "reply", "quote") else None,
+                        "subject": n.get("reasonSubject")})
+        return out
+
+    async def post_stats(self, uris: List[str]) -> Dict[str, dict]:
+        """uri -> {replies, reposts, likes, quotes} for up to 25 of her posts."""
+        if not uris:
+            return {}
+        data = await self.call("GET", "app.bsky.feed.getPosts", params={"uris": list(uris)[:25]})
+        return {p["uri"]: {"replies": p.get("replyCount", 0), "reposts": p.get("repostCount", 0),
+                           "likes": p.get("likeCount", 0), "quotes": p.get("quoteCount", 0)}
+                for p in data.get("posts", [])}
+
+    async def follow(self, handle: str) -> dict:
+        if not self.did:
+            await self._login()
+        did = handle if handle.startswith("did:") else (await self.call(
+            "GET", "com.atproto.identity.resolveHandle", params={"handle": handle.lstrip("@")}))["did"]
+        data = await self.call("POST", "com.atproto.repo.createRecord", body={
+            "repo": self.did, "collection": "app.bsky.graph.follow",
+            "record": {"$type": "app.bsky.graph.follow", "subject": did, "createdAt": _now()}})
+        return {"followed": handle.lstrip("@"), "uri": data.get("uri")}
+
     async def resolve(self, ref: str) -> str:
         """An at:// post URI, from one or from a bsky.app link."""
         m = _WEB_POST.match(ref.strip())
@@ -186,6 +223,7 @@ class BlueskyClient:
         facets = await self._facets(text)
         if facets:
             record["facets"] = facets
+        answering = None
         if reply_to:
             uri = await self.resolve(reply_to)
             got = await self.call("GET", "app.bsky.feed.getPosts", params={"uris": [uri]})
@@ -195,11 +233,16 @@ class BlueskyClient:
             parent_ref = {"uri": parent["uri"], "cid": parent["cid"]}
             root = (parent.get("record") or {}).get("reply", {}).get("root") or parent_ref
             record["reply"] = {"root": root, "parent": parent_ref}
+            answering = {"uri": parent["uri"], "author": (parent.get("author") or {}).get("handle"),
+                         "text": (parent.get("record") or {}).get("text", "")}
         if not self.did:
             await self._login()
         data = await self.call("POST", "com.atproto.repo.createRecord",
                                body={"repo": self.did, "collection": "app.bsky.feed.post", "record": record})
-        return {"uri": data["uri"], "url": web_url(data["uri"], self.handle)}
+        out = {"uri": data["uri"], "url": web_url(data["uri"], self.handle)}
+        if answering:
+            out["answering"] = answering   # what she replied to, for her memory (social/remember.py)
+        return out
 
     # -- direct messages (Bluesky's chat service) ---------------------------
     # The app password must have been made with DM access allowed.

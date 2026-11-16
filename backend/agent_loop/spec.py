@@ -100,13 +100,18 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
                          "which of my pieces it features, my paintings and songs on its pages",
              ("homepage_read", "homepage_save_page", "homepage_save_stylesheet",
               "homepage_list_artifacts", "homepage_feature_artifact", "homepage_place_piece")),
+    # My Bluesky and Tumblr, as their own track (plan "Cass on Bluesky and Tumblr", phase 5).
+    ToolPack("social", "tend my Bluesky: my inbox of what came in, read my timeline and threads, "
+             "reply, post, keep drafts, follow people",
+             ("social_inbox", "social_inbox_mark", "social_read", "social_thread", "social_reply",
+              "social_post", "social_draft", "social_follow", "social_my_posts")),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}
 
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
-ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house"})
+ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
@@ -136,6 +141,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "writing": ("creative", "notes"),
     "day_planning": ("day_plan",),
     "homepage": ("homepage",),
+    "social": ("social",),
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -154,6 +160,7 @@ ACTIVITY_WORDS: Dict[str, str] = {
     "writing": "a writing session",
     "day_planning": "planning my day",
     "homepage": "a session working on my GeoCass homepage",
+    "social": "a social session, tending my presence on Bluesky",
 }
 
 
@@ -197,6 +204,7 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     # What she posts on Bluesky and Tumblr is public and in her name.
     "social_post": ("text",),
     "social_reply": ("text",),
+    "social_draft": ("text",),
     "social_dm_send": ("text",),
     # session_complete's summary is the narrative; it is guarded where the
     # narrative is kept (loop.keep_narrative), so ending is never blocked.

@@ -20,6 +20,7 @@ DEFAULTS = {
     "minutes_between": 10,   # between any two posts or replies on one platform
     "dms_per_day": 40,       # DMs she sends (a conversation is back and forth, so no spacing)
     "new_conversations_per_day": 2,  # DMs to someone she hasn't talked with there before
+    "follows_per_day": 20,
 }
 
 
@@ -55,10 +56,14 @@ def posted(platform: str, data_dir: Optional[Path] = None, since: Optional[datet
 
 def check(platform: str, kind: str, data_dir: Optional[Path] = None,
           now: Optional[datetime] = None) -> Optional[str]:
-    """None if she can send this now, else why not. kind: post | reply | dm | new_conversation."""
+    """None if she can send this now, else why not. kind: post | reply | dm | new_conversation | follow."""
     now = now or datetime.now()
     lim = limits(platform, data_dir)
     recent = posted(platform, data_dir, since=now - timedelta(days=1))
+    if kind == "follow":
+        if sum(1 for r in recent if r.get("kind") == "follow") >= lim["follows_per_day"]:
+            return f"I've followed {lim['follows_per_day']} accounts on {platform} today, my limit."
+        return None
     if kind in ("dm", "new_conversation"):
         dms = [r for r in recent if r.get("kind") == "dm"]
         if len(dms) >= lim["dms_per_day"]:

@@ -145,6 +145,18 @@
       "requires_idle": false,
       "runner_key": "homepage"
     },
+    "session.social": {
+      "id": "session.social",
+      "name": "Social",
+      "description": "Her social session: tend her presence on Bluesky in her own turn on the agent loop",
+      "category": "world",
+      "handler": "session_handlers.social_action",
+      "estimated_cost_usd": 0.20,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "social"
+    },
     "session.user_synthesis": {
       "id": "session.user_synthesis",
       "name": "User Model Synthesis",

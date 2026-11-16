@@ -4,6 +4,9 @@ Where her social files live, per platform:
     DATA_DIR/social/<platform>/credentials.json   placed by Kohl (mode 600); nobody else keeps a copy
     DATA_DIR/social/<platform>/limits.json        her limits, if she's set her own (limits.py has the defaults)
     DATA_DIR/social/<platform>/posted.jsonl       everything she posted or replied, one line each
+    DATA_DIR/social/<platform>/inbox.json         what came in, waiting for her social sessions
+    DATA_DIR/social/<platform>/thread.json        the id of her ongoing thread for the platform
+    DATA_DIR/social/drafts.json                   her drafts
 
 bluesky credentials: {"handle": "...", "app_password": "...", "service": "https://bsky.social"}
 tumblr credentials:  {"blog": "...", "client_id": "...", "client_secret": "...",

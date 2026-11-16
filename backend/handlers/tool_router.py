@@ -410,6 +410,10 @@ TOOL_REGISTRY = {
     "social_post": "social",
     "social_reply": "social",
     "social_my_posts": "social",
+    "social_inbox": "social",
+    "social_inbox_mark": "social",
+    "social_draft": "social",
+    "social_follow": "social",
     "social_dms": "social",
     "social_dm_read": "social",
     "social_dm_send": "social",
@@ -937,10 +941,12 @@ async def route_tool(
         )
 
     elif executor_type == "social":
+        # Her memory goes along: what she posts and replies is kept there (social/remember.py).
         return await executor(
             tool_name=tool_name,
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
+            memory=ctx.memory,
         )
 
     elif executor_type == "room":

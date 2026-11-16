@@ -2513,6 +2513,15 @@ async def startup_event():
                 except Exception as e:
                     logger.error(f"Failed to start Babelr organ: {e}")
 
+            # === Social watcher (queues what comes in for her social sessions) ===
+            # "social_watch" lever; acts only once a platform's own lever is on.
+            try:
+                from social.watch import start_social_watch
+                if start_social_watch():
+                    logger.info("Social watcher started")
+            except Exception as e:
+                logger.error(f"Failed to start social watcher: {e}")
+
         except Exception as e:
             logger.error(f"Failed to initialize Synkratos: {e}")
             import traceback

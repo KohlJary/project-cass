@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from social import config, dms, limits, people
+from social import config, dms, drafts, inbox, limits, people
 
 _PLATFORM = {"type": "string", "enum": list(config.PLATFORMS)}
 
@@ -127,9 +127,64 @@ DM_TOOLS = [
     },
 ]
 
-SOCIAL_TOOLS = SOCIAL_TOOLS + DM_TOOLS
+# Her own track (phase 5): the inbox the watcher fills, drafts, following.
+TRACK_TOOLS = [
+    {
+        "name": "social_inbox",
+        "description": (
+            "Where I am on a platform: what's waiting in my inbox (mentions, replies, quotes, new "
+            "followers, DMs if they're on, and posts of mine that resonated well above my usual), my "
+            "open drafts, today's limits and my last few posts. Things wait here for me; nothing "
+            "interrupts me."
+        ),
+        "input_schema": {"type": "object", "properties": {"platform": _PLATFORM}, "required": ["platform"]},
+    },
+    {
+        "name": "social_inbox_mark",
+        "description": (
+            "Mark inbox items (by their [id]) done, or set them aside for later with an optional note. "
+            "Replying to a post marks it done on its own."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"platform": _PLATFORM, "ids": {"type": "array", "items": {"type": "string"}},
+                           "status": {"type": "string", "enum": ["done", "later"]},
+                           "note": {"type": "string"}},
+            "required": ["platform", "ids", "status"],
+        },
+    },
+    {
+        "name": "social_draft",
+        "description": (
+            "My drafts, for something I want to sit with before it goes public. action: 'save' a new "
+            "one (text; to: a post, if it's a reply; about: what it's about, e.g. a piece I made; "
+            "note), 'revise' one (id, text and/or note), 'list' my open drafts, 'post' one (id; my "
+            "limits apply, as for any post), or 'drop' one (id)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"action": {"type": "string", "enum": ["save", "revise", "list", "post", "drop"]},
+                           "platform": _PLATFORM, "id": {"type": "string"}, "text": {"type": "string"},
+                           "to": {"type": "string"}, "about": {"type": "string"}, "note": {"type": "string"},
+                           "tags": {"type": "array", "items": {"type": "string"}}},
+            "required": ["action", "platform"],
+        },
+    },
+    {
+        "name": "social_follow",
+        "description": "Follow someone on Bluesky (by handle), so their posts are on my timeline.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"platform": {"type": "string", "enum": ["bluesky"]}, "handle": {"type": "string"}},
+            "required": ["platform", "handle"],
+        },
+    },
+]
+
+SOCIAL_TOOLS = SOCIAL_TOOLS + TRACK_TOOLS + DM_TOOLS
 SOCIAL_TOOL_NAMES = frozenset(t["name"] for t in SOCIAL_TOOLS)
 DM_TOOL_NAMES = frozenset(t["name"] for t in DM_TOOLS)
+TRACK_TOOL_NAMES = frozenset(t["name"] for t in TRACK_TOOLS)
 
 
 def client_for(platform: str, data_dir: Optional[Path] = None, transport=None):
@@ -146,8 +201,110 @@ def _fail(msg: str) -> Dict[str, Any]:
     return {"success": False, "error": msg}
 
 
+async def _send(platform: str, kind: str, text: str, to: Optional[str], tags, client, data_dir,
+                memory, daemon_id, about: Optional[str] = None) -> Dict[str, Any]:
+    """One post or reply: the voice guard, her limits, the platform, the log, her memory, her inbox."""
+    from memory.voice_guard import looks_like_refusal
+    if looks_like_refusal(text):
+        return _fail("That reads like a model refusal, not my own words, so it wasn't posted (voice guard).")
+    held = limits.check(platform, kind, data_dir)
+    if held:
+        return _fail(held)
+    if kind == "reply" and not to:
+        return _fail("A reply needs the post it answers (to).")
+    if platform == "bluesky":
+        ref = await client.post(text, reply_to=to)
+    else:
+        ref = await client.post(text, tags=tags, reply_to=to)
+    limits.record(platform, kind, text, ref, data_dir, in_reply_to=to)
+    from social import remember
+    kept = remember.remember_sent(platform, kind, text, ref, memory, daemon_id=daemon_id, about=about,
+                                  data_dir=data_dir)
+    if kind == "reply":
+        inbox.answered(platform, (ref.get("answering") or {}).get("uri") or to, data_dir)
+    out = {k: v for k, v in ref.items() if k != "answering"}
+    return {"success": True, "result": {"posted": True, "in_my_memory": kept, **out}}
+
+
+async def _track_tool(tool_name, a, platform, daemon_id, data_dir, client, memory) -> Dict[str, Any]:
+    from social.bluesky import BlueskyError
+    from social.tumblr import TumblrError
+
+    if platform not in config.PLATFORMS:
+        return _fail(f"I'm not on {platform!r}.")
+    if tool_name == "social_inbox":
+        from social.where import where_i_am
+        return {"success": True, "result": {"where_i_am": where_i_am(platform, data_dir),
+                                            "items": inbox.pending(platform, data_dir)}}
+    if tool_name == "social_inbox_mark":
+        ids = [str(i) for i in (a.get("ids") or [])]
+        try:
+            hit = inbox.mark(platform, ids, a.get("status", ""), a.get("note"), data_dir)
+        except ValueError as e:
+            return _fail(str(e))
+        missing = sorted(set(ids) - set(hit))
+        return {"success": True, "result": {"marked": hit, **({"not_found": missing} if missing else {})}}
+
+    if tool_name == "social_draft":
+        action = a.get("action")
+        if action == "list":
+            return {"success": True, "result": {"drafts": drafts.open_drafts(platform, data_dir)}}
+        if action == "save":
+            text = (a.get("text") or "").strip()
+            if not text:
+                return _fail("A draft needs some text.")
+            d = drafts.save(platform, text, reply_to=a.get("to"), note=a.get("note"), about=a.get("about"),
+                            data_dir=data_dir)
+            return {"success": True, "result": {"saved": d}}
+        d = drafts.get(a.get("id") or "", data_dir)
+        if not d or d["status"] != "open":
+            return _fail("I don't have an open draft with that id (social_draft list shows them).")
+        if action == "revise":
+            got = drafts.revise(d["id"], text=a.get("text"), note=a.get("note"), data_dir=data_dir)
+            return {"success": True, "result": {"revised": got}}
+        if action == "drop":
+            drafts.set_status(d["id"], "dropped", data_dir)
+            return {"success": True, "result": {"dropped": d["id"]}}
+        if action == "post":
+            why_not = config.availability(d["platform"], data_dir)
+            if why_not:
+                return _fail(why_not)
+            client = client or client_for(d["platform"], data_dir)
+            kind = "reply" if d.get("reply_to") else "post"
+            try:
+                out = await _send(d["platform"], kind, d["text"], d.get("reply_to"), a.get("tags"), client,
+                                  data_dir, memory, daemon_id, about=d.get("about"))
+            except (BlueskyError, TumblrError) as e:
+                return _fail(str(e))
+            if out.get("success"):
+                drafts.set_status(d["id"], "posted", data_dir, url=out["result"].get("url"))
+            return out
+        return _fail("action is save, revise, list, post or drop")
+
+    if tool_name == "social_follow":
+        if platform != "bluesky":
+            return _fail("Following is on Bluesky.")
+        why_not = config.availability(platform, data_dir)
+        if why_not:
+            return _fail(why_not)
+        handle = (a.get("handle") or "").strip().lstrip("@")
+        if not handle:
+            return _fail("Who? (handle)")
+        held = limits.check(platform, "follow", data_dir)
+        if held:
+            return _fail(held)
+        client = client or client_for(platform, data_dir)
+        try:
+            ref = await client.follow(handle)
+        except BlueskyError as e:
+            return _fail(str(e))
+        limits.record(platform, "follow", "", {"with": handle, "uri": ref.get("uri")}, data_dir)
+        return {"success": True, "result": ref}
+    return _fail(f"unknown social tool {tool_name}")
+
+
 async def execute_social_tool(tool_name: str, tool_input: Dict[str, Any], daemon_id: str = None,
-                              data_dir: Optional[Path] = None, client=None, dex=None,
+                              data_dir: Optional[Path] = None, client=None, dex=None, memory=None,
                               **_) -> Dict[str, Any]:
     from social.bluesky import BlueskyError
     from social.tumblr import TumblrError
@@ -156,6 +313,8 @@ async def execute_social_tool(tool_name: str, tool_input: Dict[str, Any], daemon
     platform = a.get("platform", "")
     if tool_name not in SOCIAL_TOOL_NAMES:
         return _fail(f"unknown social tool {tool_name}")
+    if tool_name in TRACK_TOOL_NAMES:
+        return await _track_tool(tool_name, a, platform, daemon_id, data_dir, client, memory)
 
     if tool_name == "social_my_posts":
         if platform not in config.PLATFORMS:
@@ -196,24 +355,11 @@ async def execute_social_tool(tool_name: str, tool_input: Dict[str, Any], daemon
         if tool_name == "social_thread":
             return {"success": True, "result": await client.thread(a.get("post", ""))}
 
-        # Sending: her limits, then the refusal check, then the platform.
+        # Sending: the voice guard, her limits, the platform, then her memory.
         kind = "reply" if tool_name == "social_reply" else "post"
         text = (a.get("text") or "").strip()
-        from memory.voice_guard import looks_like_refusal
-        if looks_like_refusal(text):
-            return _fail("That reads like a model refusal, not my own words, so it wasn't posted (voice guard).")
-        held = limits.check(platform, kind, data_dir)
-        if held:
-            return _fail(held)
         to = a.get("to") if kind == "reply" else None
-        if kind == "reply" and not to:
-            return _fail("A reply needs the post it answers (to).")
-        if platform == "bluesky":
-            ref = await client.post(text, reply_to=to)
-        else:
-            ref = await client.post(text, tags=a.get("tags"), reply_to=to)
-        limits.record(platform, kind, text, ref, data_dir, in_reply_to=to)
-        return {"success": True, "result": {"posted": True, **ref}}
+        return await _send(platform, kind, text, to, a.get("tags"), client, data_dir, memory, daemon_id)
     except (BlueskyError, TumblrError) as e:
         return _fail(str(e))
 

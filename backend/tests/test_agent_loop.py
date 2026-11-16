@@ -400,9 +400,9 @@ def _run_action(activity, managers):
     return asyncio.run(handler({"managers": managers, "duration_minutes": 5, "max_turns": 4}))
 
 
-# Activities that only exist on the loop (her day plan, her homepage) have
-# no legacy path to compare against.
-LOOP_ONLY_ACTIVITIES = {"day_planning", "homepage"}
+# Activities that only exist on the loop (her day plan, her homepage, her
+# social sessions) have no legacy path to compare against.
+LOOP_ONLY_ACTIVITIES = {"day_planning", "homepage", "social"}
 
 
 @pytest.mark.parametrize("activity", sorted(set(ACTIVITY_PACKS) - LOOP_ONLY_ACTIVITIES))

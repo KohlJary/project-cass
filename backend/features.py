@@ -152,6 +152,11 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "her limits. Needs the bluesky lever and an app password made with DM access. DMs with "
            "someone who hasn't said she may remember them aren't kept (social/dms.py).",
            INTEGRATION, default=False, where="social/tools._dm_tool"),
+    _lever("social_watch", "Her social watcher (social/watch.py): every few minutes, queues new "
+           "mentions, replies, follows and posts of hers that resonated into her inbox for her "
+           "social sessions. Never posts or wakes her. Acts only on a platform whose lever is on "
+           "and whose credentials are placed; DMs only with bluesky_dms.",
+           BACKGROUND, INTEGRATION, where="main_sdk.start_deferred_tasks: social.watch.start_social_watch"),
     _lever("tumblr", "Her Tumblr blog (social/): her tools read her dashboard and activity, "
            "post and reblog with her words within her limits. Also needs the credentials Kohl "
            "places with scripts/social_setup.py.",

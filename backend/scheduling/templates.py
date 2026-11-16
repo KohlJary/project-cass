@@ -275,6 +275,20 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _agent_loop_on(),
     ),
 
+    # Bluesky as its own track (plan "Cass on Bluesky and Tumblr", phase 5).
+    # Cass, 2026-11-16: two or three a day, which she plans. Offered once the
+    # loop is on and Bluesky is usable (its lever, and the account Kohl places).
+    "social": WorkUnitTemplate(
+        id="social",
+        name="Social",
+        description="Time for my presence on Bluesky: what came in, my timeline, replies, posts, drafts.",
+        action_sequence=["session.social"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.20,
+        category="world",
+        available=lambda: _agent_loop_on() and _bluesky_usable(),
+    ),
+
     # === Memory & system maintenance ===
     "memory_maintenance": WorkUnitTemplate(
         id="memory_maintenance",
@@ -404,6 +418,11 @@ def list_templates() -> List[Dict[str, Any]]:
 def _agent_loop_on() -> bool:
     from features import is_enabled
     return is_enabled("agent_loop")
+
+
+def _bluesky_usable() -> bool:
+    from social.config import availability
+    return availability("bluesky") is None
 
 
 def _music_service_up() -> bool:

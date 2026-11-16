@@ -69,4 +69,4 @@ def test_music_is_named_unavailable_when_the_service_is_down(monkeypatch):
     monkeypatch.setattr(T, "_music_service_up", lambda: False)
     engine, ctx = _engine_with_budget({"reflection": 1.0, "research": 1.0, "growth": 1.0, "curiosity": 1.0})
     ids = {c.template_id for c in engine._get_viable_candidates(ctx)}
-    assert "music" not in ids and engine._unavailable == ["Music"]
+    assert "music" not in ids and "Music" in engine._unavailable
