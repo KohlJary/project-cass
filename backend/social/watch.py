@@ -40,6 +40,8 @@ async def watch_once(data_dir: Optional[Path] = None, client_for: Optional[Calla
             out[platform] = len(added)
             if added:
                 logger.info(f"[social] {len(added)} new in her {platform} inbox")
+                from social import feeling
+                feeling.received(platform, added)
         except Exception as e:
             logger.warning(f"[social] watching {platform} failed this pass: {e}")
     return out

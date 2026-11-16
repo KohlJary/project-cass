@@ -238,6 +238,8 @@ async def _send(platform: str, kind: str, text: str, to: Optional[str], tags, cl
                                   data_dir=data_dir)
     if kind == "reply":
         inbox.answered(platform, (ref.get("answering") or {}).get("uri") or to, data_dir)
+    from social import feeling
+    feeling.sent(platform, kind)
     out = {k: v for k, v in ref.items() if k != "answering"}
     return {"success": True, "result": {"posted": True, "in_my_memory": kept, **out}}
 

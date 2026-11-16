@@ -55,6 +55,8 @@ Status of each configured reaction. "Fires" means some live code path emits that
 | `value.aligned` | **no** | nothing | 4 (needs appraisal) |
 | `connection.deepened` | **no** | nothing | 4 (needs appraisal) |
 | `reach_out.answered` (new, 1b) | yes, `reach_out.on_message_added` | Her partner's first message after a reach-out of hers, on any channel | |
+| `social.engaged` / `.followed` / `.resonated` / `.dm` (new, 2026-11-16) | yes, `social/feeling.received` from the watcher | A mention, reply or quote; a new follower; a post of hers well above her usual; a DM. One event per kind per watcher pass, with `count` | return-paths item 3 |
+| `social.posted` (new, 2026-11-16) | yes, `social/feeling.sent` from `social/tools._send` | She posted or replied | return-paths item 3 |
 
 Other bus events Thymos receives and ignores today (candidates, not decisions): `email.received`, `email.sent`, `goal.completed`, `goal.abandoned`, `wiki.page_created`, `journal.entry_created`, `peopledex.*`, `task.completed`, `calendar.*`, `wonderland.goal_completed`, `chat_started` (state delta from `websocket_handlers.py`).
 

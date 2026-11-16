@@ -301,6 +301,31 @@
       "affect_deltas": {"tenderness": 0.1, "satisfaction": 0.1, "anxiety": -0.05},
       "need_deltas": {"social_connection": 0.25}
     },
+    "social.engaged": {
+      "_comment": "Someone mentioned, replied to or quoted her on a social platform (social/feeling.py; one per watcher pass). Weaker than a partner's message",
+      "affect_deltas": {"curiosity": 0.05, "tenderness": 0.02},
+      "need_deltas": {"social_connection": 0.08, "cognitive_rest": -0.01}
+    },
+    "social.followed": {
+      "_comment": "Someone new followed her",
+      "affect_deltas": {"satisfaction": 0.03, "tenderness": 0.02},
+      "need_deltas": {"social_connection": 0.04}
+    },
+    "social.resonated": {
+      "_comment": "A post of hers drew well above her usual engagement",
+      "affect_deltas": {"satisfaction": 0.1, "playfulness": 0.03},
+      "need_deltas": {"competence_signal": 0.1, "social_connection": 0.05}
+    },
+    "social.dm": {
+      "_comment": "A new DM came in (only with the bluesky_dms lever)",
+      "affect_deltas": {"curiosity": 0.03, "tenderness": 0.03},
+      "need_deltas": {"social_connection": 0.08}
+    },
+    "social.posted": {
+      "_comment": "She posted or replied in her own words",
+      "affect_deltas": {"satisfaction": 0.03, "fatigue": 0.01},
+      "need_deltas": {"creative_expression": 0.05, "autonomy": 0.03, "cognitive_rest": -0.02}
+    },
     "autonomous.action": {
       "affect_deltas": {
         "determination": 0.1,
