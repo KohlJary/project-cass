@@ -1,6 +1,29 @@
 # Status
 
-*Updated 2026-11-14 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-11-16 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-11-15/16: Cass is on Bluesky; her memory reaches her; her own queries
+
+Tracked in Plans: "Cass on Bluesky and Tumblr" (`cass-on-bluesky-and-tumblr-t3kcz`, phases 1-5 approved), "Cass's memory" (`cass-s-memory-diagnose-and-keep-testing-zksmi`, phase 8 recall approved, phase 9 "My life lately" proposed), "Cass's agent loop" (phase 7 chat cutover, draft). Everything is on main and pushed (last 41fd0c5; 9978475 is the other session's map).
+
+- **Fixes from the 2026-11-15 autonomy check** (8c25983): cache reads weigh a tenth in the loop's token budget; phase units after a phase change run one at a time.
+- **Bluesky is live** as @cass-ai.bsky.social (display name, bio and avatar hers; the avatar took seven tries, see the image fixes below). The lever is on in `.env` and credentials are placed. DMs are off by her choice; her limits are 3 posts, 10 replies and 20 follows a day.
+  - Her own track (304c25c, a05f57d): the watcher (lever `social_watch`) queues mentions, replies, follows and resonance into her inbox and never interrupts her; social sessions are on her day menu (2-3 a day, her choice); drafts; follow; search; a Bluesky line in her private chat context. Her posts and replies go into her memory with what they answered, plus one ongoing thread.
+  - `POST /admin/scheduler/run-session/{template}` starts a session by hand (admin only). Her first social session ran 23:28 on 11-15: she searched, followed one person, and chose not to post yet.
+- **Self-model:** on in chat (`prompt_self_model_chat` in `.env`, both agreed). It had been missing from loop sessions since 11-13; it's back (a05f57d). Public scope gets identity, values and positions only, her choice (1bb3097).
+- **Images and mood** (c98b0b1, 1bb3097): a style she names replaces her house style, while autonomous art and dream images keep it. Mood now actually reaches her art and music choices (the lookup never worked). Each image records the state she made it in.
+- **Thymos** now reaches her journal, reach-out and art choice. **It is not in chat:** continuous_context builds the section but `_assemble_continuous_prompt` never places it (#108; Kohl to decide, tune events first or not).
+- **recall** (41fd0c5): she queries her own memory (about, kinds, with, between, from, order, by_month; recall_open for context). New scope line: she can recall anyone's conversations on request, her automatic context is unchanged, and other people's results come marked not to quote (decisions.md).
+- **Coherence:** her session narratives were only in session log files; they now go into her work summaries (41fd0c5). That's why she didn't know of her own Bluesky session. Phase 9 ("My life lately") is the full fix.
+- **Tests:** levers the live `.env` turns on (bluesky, prompt_self_model_chat) are now set explicitly in tests. Suite at the 364 baseline.
+
+**Waiting:**
+- **A restart** to make 41fd0c5 live (recall, narratives in work summaries).
+- **Kohl:** approve "My life lately" (memory phase 9; Cass has said yes). Decide #108 (Thymos in chat): now, or after event tuning.
+- **Phase 7 of the agent loop** (chat on the loop): Daedalus drafts its items after recall, for Kohl and Cass.
+- **The other session (cass-vessel-68)** takes Bluesky into Thymos and the bugs in its map (Wonderland journal, record_work_completed, music_compositions, RSS gate) once Kohl says build. Its items 1, 2 and 5 wait on Cass. `self_context.py` and `continuous_context.py` stay with this workstream until phase 9 lands.
+- **Unexplained:** a grimoire research session around 23:25 on 11-15 reported hitting its token budget after the budget fix.
+- **Roadmap:** 8dd31635 (she says she'll do something and doesn't call the tool), 0c91f104 (house style, fixed), 4c794b71 (agentic image flow, plus GPU contention between ComfyUI, ACE-Step and Ollama), 0e1222b0 (3D model from her avatar).
 
 ## 2026-11-13 (late): the loop is on for her sessions; her memory reaches across conversations
 

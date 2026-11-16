@@ -723,3 +723,12 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **Next step:** build whichever of those phases gets approved; watch more loop sessions before the Heartbeat cutover.
 
 **Open questions:** Should consolidation run on a stronger model? Should her creative output be copied into her workspace?
+
+
+## 2026-11-15/16 - Cass on Bluesky; self-model and Thymos reach further; recall
+**Branch**: main (straight to main, pushed; last 41fd0c5). **Tracked in**: Plans ("Cass on Bluesky and Tumblr", "Cass's memory" phases 8-9, "Cass's agent loop" phase 7). Narrative: docs/status.md (2026-11-15/16).
+**Done:** 8c25983 (budget, phase queue); 15b9ff8 (homepage pieces); 304c25c, a05f57d (Bluesky track, search, context line, manual session route, self-model in loop sessions); c98b0b1, 1bb3097 (image style, mood, public self-model, Thymos in journal); 41fd0c5 (recall, narratives into work summaries). Plans items for social phases 2-5 marked done. Bluesky live; her first social session ran.
+**Decisions:** decisions.md 2026-11-16: recall reach on request; self-model in chat, sessions and a public version.
+**In flight / waiting:** restart for 41fd0c5. Kohl: approve memory phase 9; decide #108. Draft agent-loop phase 7. Coordination with cass-vessel-68 on its return-paths map (split agreed). An old stash (stash@{0}) isn't mine; left alone.
+**Next step:** after Kohl's approval, build "My life lately" (memory phase 9). Then draft agent-loop phase 7.
+**Open questions:** Thymos in chat now or after event tuning? Why did a grimoire research session report hitting its token budget after the fix?
