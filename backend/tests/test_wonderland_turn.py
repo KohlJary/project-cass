@@ -131,7 +131,7 @@ def test_the_old_actions_no_longer_walk_without_her(monkeypatch, levers):
     monkeypatch.setattr(wt, "queue_visit", lambda d, **kw: asked.append(kw["template_id"]) or "queued")
     with levers(agent_loop=False):
         r = asyncio.run(WH.explore_action({}))
-        assert r.success is False and "agent loop" in r.message and asked == []
+        assert r.success and r.data == {"visited": False, "reason": "agent_loop_off"} and asked == []
     with levers(agent_loop=True):
         for action in (WH.explore_action, WH.reflect_action, WH.create_action, WH.socialize_action):
             assert asyncio.run(action({})).success

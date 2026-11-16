@@ -66,7 +66,9 @@ def _ask_for_visit(context: Dict[str, Any], template_id: str, why: str) -> Actio
     honest visit, so nothing happens."""
     from features import is_enabled
     if not is_enabled("agent_loop"):
-        return ActionResult(success=False, message="Wonderland visits run on the agent loop, which is off")
+        # Off isn't a failure (like reach_out with its lever off): no visit, and nothing faked.
+        return ActionResult(success=True, message="No Wonderland visit: they run on the agent loop, which is off",
+                            data={"visited": False, "reason": "agent_loop_off"})
     from wonderland_turn import queue_visit
     spell = context.get("source_spell") or context.get("trigger_source") or "a spell"
     outcome = queue_visit(_daemon_id(context), template_id=template_id,
