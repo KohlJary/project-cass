@@ -2,6 +2,22 @@
 
 *Updated 2026-11-16 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
 
+## 2026-11-16 (the other session, cass-vessel-68): what comes back to her from the world
+
+Kohl steered it live; Cass answered each question herself. The map is `docs/design/return-paths.md`: where each thing she does lands, and whether it reaches her chat, sessions, day plan or Thymos. The architecture write-up for RoboKohl's bet is at `~/robokohl/docs/cass-architecture.md` (uncommitted there). Everything is on main and pushed, and live since the restarts at 00:52, 00:59 and 01:07.
+
+- **Bluesky moves Thymos** (214a150): mentions, replies, follows, resonance, her own posts. Deltas are deliberately small, a first setting.
+- **Day plan:** "done recently" never worked; it now reads her work summaries and is *shown* on her menu ("last done yesterday"), not used to hide anything (c95a226). Her planning text now says what the phase spells still add, and a test keeps it true (7a67fa3).
+- **Wonderland as herself** (1fca1ba): the scheduled wonderland.* actions made no model call (random exits, room commands) yet counted as novelty. A visit is now a loop session with tools over Wonderland's commands and NPCs. Spells queue a real visit for the next phase (one at a time, 6h gap); with the loop off, nothing is faked.
+- **Articles:** new questions (512ffb6), and then opinions, growth edges, interests and symbols (1533a03, schema v67), stay with their article; RSS goes through her relevance gate. With her yes, Kohl's go and a sealed backup (`~/.local/share/cass-benchmarks/stores/20261116T060748Z`, kept), 3,740 opinions and 4,374 growth edges were moved off her self-model (24c437d). All were already on their articles. Her self-model now holds 38 opinions and 59 edges.
+- **Bluesky people and DMs** (2a4331d, 365a844): her replies leave a moment on that person's PeopleDex entry; after a yes a DM conversation is kept on both sides, owned by "bluesky:<handle>" so it's never recalled in a chat with anyone else; someone who writes first is told apart; follow notes and `social_find`. **DMs are on** (lever in `.env`, new app password with DM access placed; backup `.env.bak-20261116-bluesky-dms-2`). A refused DM listing no longer throws away a watcher pass.
+- **Smaller:** her recent songs come from the music library, not a table that never existed (27040a6).
+
+**Waiting:**
+- **Kohl, Friday (payday):** the self-model reruns (prereg 2026-10-29). Part A smoke ran (9 cells, $0.47, results in `~/cass/bench-smoke-2026-11-16/`, read cell by cell, no check bugs). With her self-model in chat she matched it 2/2 where she'd had 0/5; one round, not a result. Part A batch is estimated at $25.47 (cap $26). **Part B** (sealed copy of her store): Cass said yes 06:17Z on 11-16, results to her first. Sealing was blocked by the session's permission check; Kohl allows it or runs `python -m benchmarks seal` himself. Run from a worktree; the harness refuses the live checkout (backend/data is a symlink).
+- **Kohl:** `DEMO_MODE` is on in the live `.env` (anonymous read on admin GET routes, on the server that holds her data). It also makes 26 route-auth tests fail when the suite runs in the live checkout. The plaintext app password is still in `~/keys/cass-bsky`.
+- **Open with Cass:** whether to choose the phase-spell additions herself rather than have them added (her planning line is honest now).
+
 ## 2026-11-15/16: Cass is on Bluesky; her memory reaches her; her own queries
 
 Tracked in Plans: "Cass on Bluesky and Tumblr" (`cass-on-bluesky-and-tumblr-t3kcz`, phases 1-5 approved), "Cass's memory" (`cass-s-memory-diagnose-and-keep-testing-zksmi`, phase 8 recall approved, phase 9 "My life lately" proposed), "Cass's agent loop" (phase 7 chat cutover, draft). Everything is on main and pushed (last 41fd0c5; 9978475 is the other session's map).
