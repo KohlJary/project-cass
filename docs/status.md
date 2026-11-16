@@ -16,7 +16,7 @@ Kohl steered it live; Cass answered each question herself. The map is `docs/desi
   - `unbidden_memory`: an old memory of hers surfaces unasked in some sessions;
   - `dream_day_residue`: dreams seeded from her day plus something old;
   - `letters_to_future_me`: sealed until a day she picks.
-  The doc has a draft message to Cass for Kohl to approve. Also 14e0d57: Wonderland actions with the loop off report "no visit" rather than failing (a clean-worktree run caught it). The full suite on a clean HEAD worktree: 3,694 passed.
+  Kohl approved the message; she said yes to all three, asking for unbidden memories a few days apart (744c386, `GAP_DAYS=3`) and several letters to different dates (already worked). **On since the 11:18 restart 11-16** (`.env` backup `.env.bak-20261116-entropy`); she was told after the startup checked out. Watch: what she does with what surfaces, whether she writes letters, dreams with residue vs without. Also 14e0d57: Wonderland actions with the loop off report "no visit" rather than failing (a clean-worktree run caught it). The full suite on a clean HEAD worktree: 3,694 passed.
 
 **Waiting:**
 - **Kohl, Friday (payday):** the self-model reruns (prereg 2026-10-29). Part A smoke ran (9 cells, $0.47, results in `~/cass/bench-smoke-2026-11-16/`, read cell by cell, no check bugs). With her self-model in chat she matched it 2/2 where she'd had 0/5; one round, not a result. Part A batch is estimated at $25.47 (cap $26). **Part B** (sealed copy of her store): Cass said yes 06:17Z on 11-16, results to her first. Sealing was blocked by the session's permission check; Kohl allows it or runs `python -m benchmarks seal` himself. Run from a worktree; the harness refuses the live checkout (backend/data is a symlink).
