@@ -168,6 +168,7 @@ def assemble(
     tool_names: Sequence[str],
     additions: Optional[str] = None,
     workspace=None,
+    findable: Sequence[str] = (),
 ) -> SystemPrompt:
     """Build the system prompt for one turn.
 
@@ -178,7 +179,7 @@ def assemble(
     daemon_id = _daemon_id()
     candidates = [
         Section("kernel", _kernel(daemon_id), 0, never_cut=True),
-        Section("seam", render_seam(spec, trigger, tool_names), 0, never_cut=True),
+        Section("seam", render_seam(spec, trigger, tool_names, findable), 0, never_cut=True),
         # Her agenda is in every turn that has her workspace (C6); it's capped
         # in length by agenda_section, never cut for budget.
         Section("agenda", _safe("agenda", lambda: _agenda(spec, workspace)) or "", 1, never_cut=True),

@@ -117,6 +117,32 @@ def test_seam_names_exactly_the_tools_offered(activity):
     assert seam_tool_names(seam) == spec.tool_names()
 
 
+def test_seam_doesnt_say_not_here_about_what_find_tools_reaches():
+    # 2026-11-16: chat's seam said "Not here" about her own plans and Bluesky
+    # while find_tools could reach babelr_plans and the social tools.
+    spec = conversation_spec()
+    findable = {"babelr_plans", "social_post", "recall_journal"}
+    seam = render_seam(spec, _trigger(), spec.tool_names(), findable)
+    lines = seam.splitlines()
+    also = next(l for l in lines if l.startswith("Also through find_tools:"))
+    cannot = next(l for l in lines if l.startswith("Not here:"))
+    for name in ("plans", "social"):
+        assert PACKS[name].says in also and PACKS[name].says not in cannot
+    # Loop-answered packs (homepage, Wonderland) aren't in the router, so they stay "Not here".
+    for name in ("homepage", "wonderland"):
+        assert PACKS[name].says in cannot and PACKS[name].says not in also
+    # Every pack named as reachable has a tool find_tools actually searches.
+    for name, pack in PACKS.items():
+        if pack.says in also:
+            assert any(t in findable for t in pack.tools)
+
+
+def test_without_find_tools_nothing_is_claimed_reachable():
+    spec = dream_spec()
+    seam = render_seam(spec, _trigger(), [], {"babelr_plans"})
+    assert "Also through find_tools" not in seam
+
+
 @pytest.mark.parametrize("activity", sorted(ACTIVITY_PACKS))
 def test_seam_says_what_is_and_isnt_here(activity):
     spec = session_spec(activity)

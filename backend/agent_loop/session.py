@@ -254,7 +254,8 @@ async def run_session_turn(
     tools = tool_definitions(tool_names, catalog,
                              extra=[d for d in (say_def, wake_def) if d is not None]
                              + [d for d, _ in (local_tools or {}).values()])
-    prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace)
+    prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace,
+                      findable=list(tools_mod.findable(catalog, tool_names)))
     model = resolve_model(spec, runner.model)
     if client is None:
         # The call site's assignment picks the provider: Claude by default,

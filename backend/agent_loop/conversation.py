@@ -180,7 +180,8 @@ async def run_conversation(
     who = person.get("user_name") or "someone"
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
     trigger = Trigger(source="message", why=f"{who} wrote to me through {where}")
-    system = f"{system_prompt}\n\n{render_seam(spec, trigger, tool_names)}"
+    findable = tools_mod.findable(catalog, tool_names)
+    system = f"{system_prompt}\n\n{render_seam(spec, trigger, tool_names, findable)}"
     if arrival_block:   # C9: who's here, what's needed, how much time (container.py)
         system += f"\n\n{arrival_block}"
 

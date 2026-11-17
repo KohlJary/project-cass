@@ -11,7 +11,7 @@ It goes in her prompt only (Kohl, 2026-10-20), not shown separately in UIs.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from typing import Collection, List, Optional, Sequence
 
 from .spec import NOT_YET_IN_LOOP, OTHERS_NOT_YET, PACKS, REACH_OUT_NOT_YET, Trigger, TurnSpec
 
@@ -27,16 +27,41 @@ def can_do_line(spec: TurnSpec) -> str:
     return "; ".join(parts) + "."
 
 
-def cannot_do_line(spec: TurnSpec) -> Optional[str]:
-    """Packs that exist but aren't part of this kind of turn."""
-    if spec.can_do_override:
-        return None
+def _absent_packs(spec: TurnSpec) -> List[str]:
     # say and wake are missing only when their subsystem is off, which isn't
     # about the kind of turn; the not-yet line covers say.
-    missing = [PACKS[p].says for p in PACKS if p not in spec.packs and p not in ("say", "wake")]
+    return [p for p in PACKS if p not in spec.packs and p not in ("say", "wake")]
+
+
+def _through_find(spec: TurnSpec, findable: Collection[str]) -> List[str]:
+    """Absent packs find_tools can still reach (any of their tools is findable).
+    Without this the seam told her "Not here" about things a search would
+    have found (2026-11-16: her own plans and Bluesky, in chat)."""
+    if "find" not in spec.packs or not findable:
+        return []
+    return [p for p in _absent_packs(spec) if any(t in findable for t in PACKS[p].tools)]
+
+
+def cannot_do_line(spec: TurnSpec, findable: Collection[str] = ()) -> Optional[str]:
+    """Packs that exist but aren't part of this kind of turn, and that
+    find_tools can't reach either."""
+    if spec.can_do_override:
+        return None
+    reachable = set(_through_find(spec, findable))
+    missing = [PACKS[p].says for p in _absent_packs(spec) if p not in reachable]
     if not missing:
         return None
     return "; ".join(missing) + f" (not part of {spec.where})."
+
+
+def find_line(spec: TurnSpec, findable: Collection[str] = ()) -> Optional[str]:
+    """Packs not offered directly here that find_tools reaches."""
+    if spec.can_do_override:
+        return None
+    packs = _through_find(spec, findable)
+    if not packs:
+        return None
+    return "; ".join(PACKS[p].says for p in packs) + "."
 
 
 def not_yet_line(spec: TurnSpec) -> Optional[str]:
@@ -50,8 +75,10 @@ def not_yet_line(spec: TurnSpec) -> Optional[str]:
     return "; ".join(f"{name} ({why})" for name, why in items) + "."
 
 
-def render_seam(spec: TurnSpec, trigger: Trigger, tool_names: Sequence[str]) -> str:
-    """Render the seam block. `tool_names` must be what the model is offered."""
+def render_seam(spec: TurnSpec, trigger: Trigger, tool_names: Sequence[str],
+                findable: Collection[str] = ()) -> str:
+    """Render the seam block. `tool_names` must be what the model is offered;
+    `findable` is what find_tools searches (agent_loop.tools.findable)."""
     lines: List[str] = [HEADER]
     lines.append(f"I'm in: {spec.where}.")
     # The date and time (context audit 2026-11-16: sessions had no date line at all).
@@ -64,7 +91,10 @@ def render_seam(spec: TurnSpec, trigger: Trigger, tool_names: Sequence[str]) -> 
     lines.append(f"What I can do here: {can_do_line(spec)}")
     if tool_names:
         lines.append(f"(Tools: {', '.join(tool_names)}.)")
-    not_here = cannot_do_line(spec)
+    via_find = find_line(spec, findable)
+    if via_find:
+        lines.append(f"Also through find_tools: {via_find}")
+    not_here = cannot_do_line(spec, findable)
     if not_here:
         lines.append(f"Not here: {not_here}")
     not_yet = not_yet_line(spec)
