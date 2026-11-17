@@ -22,7 +22,7 @@ Built and fixed:
 - **rss_monitor crashes** (about 3 runs in 178 before the cutover, 2 in 10 after): `rss.process_items`' no-items return left out `skip_count`, and the spell compared None > 0. Behind it, the status count includes unprocessed items older than 72 hours, which the processor never picks up, so "28 unprocessed" is mostly old items.
 - **Growth edges vs. Plans:** she looked for her Plan as a growth edge and put the note on an unrelated edge. A missing edge now returns her edge names and points plans to `babelr_plans`, and growth-edge sessions carry the plans pack.
 
-Not changed, for Cass: the loop's nudge "(loop: Step complete? ...)" is her own wording, kept as she wrote it. It arrives in the user role, though, and twice today she read it as "the user is asking". Whether to change its wording, or where it sits, is her call.
+The loop's nudge, changed by Cass (4f6ef058, live 15:11): it twice read to her as "the user is asking", since it arrives in the user role. Shown both moments, she chose new wording, "[LOOP] Step complete? ...", and a seam line saying [LOOP] lines are the loop, not a person. Not chosen and still open (Kohl's call): telling her when she types session_complete as text instead of calling it (day planning lost its summary that way). The fold arrival line still starts "(loop:".
 
 ## 2026-11-16 (the other session, cass-vessel-68): what comes back to her from the world
 
