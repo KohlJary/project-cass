@@ -21,8 +21,8 @@ from token_tracker import TokenUsageTracker
 class _LastDayTracker:
     """The real ledger, read over the last 24 hours.
 
-    sync_from_token_tracker's own window has a timezone mismatch (see the
-    xfail test below); this keeps these tests about *what* is counted.
+    Keeps these tests about *what* is counted, independent of the hour
+    they run at.
     """
 
     def __init__(self):
@@ -110,12 +110,6 @@ def test_counted_call_sites_are_registered():
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(strict=True, reason=(
-    "Pre-existing (not #64): sync_from_token_tracker starts the day at UTC "
-    "midnight but the ledger stores naive local timestamps, so after UTC "
-    "midnight and before local midnight (e.g. 20:00-24:00 EDT) the gate "
-    "counts none of the day's spend. Left as is: fixing it changes budget "
-    "behaviour, which is Kohl's call."))
 def test_budget_window_timezone(monkeypatch):
     from database import get_db
     # 21:00 local on Oct 20 in UTC-4 is 01:00 UTC on Oct 21: same instant.

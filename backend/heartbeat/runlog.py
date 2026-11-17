@@ -11,10 +11,12 @@ Statuses:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
+
+KEEP_DAYS = 90   # finished runs older than this are pruned nightly (2026-11-17)
 
 
 def _daemon_id() -> Optional[str]:
@@ -80,3 +82,16 @@ class RunLog:
         with get_db() as conn:
             rows = conn.execute(sql, args).fetchall()
             return [dict(r) for r in rows]
+
+    def prune(self, keep_days: int = KEEP_DAYS, now: Optional[datetime] = None) -> int:
+        """Delete finished runs that started more than keep_days ago. Rows still
+        'running' stay (a crash left them; they're worth seeing). Returns how many."""
+        from database import get_db
+        cutoff = ((now or datetime.now()) - timedelta(days=keep_days)).isoformat()
+        with get_db() as conn:
+            cur = conn.execute("DELETE FROM heartbeat_runs WHERE started_at < ? "
+                               "AND status != 'running'", (cutoff,))
+            gone = cur.rowcount or 0
+        if gone:
+            logger.info(f"[heartbeat] pruned {gone} run-log rows older than {keep_days} days")
+        return gone

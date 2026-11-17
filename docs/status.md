@@ -1,6 +1,16 @@
 # Status
 
-*Updated 2026-11-16 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-11-17 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-11-17 (early): Heartbeat cutover
+
+Kohl asked to bring Heartbeat (#62) up to date and turn it on. Since it was built on 10-22, one new loop had started outside it: the Bluesky watcher, which is now a Heartbeat job (`social_watch`, every 5 minutes, no run-log rows). The Babelr organ's poll and the Discord bot stay on their own loops on purpose: they are perception that wakes her for conversation, polled every few seconds, not autonomous jobs. Agent-loop sessions from the day plan need no change, because phase-queue items run through the same action registry under Heartbeat.
+
+Two fixes before turning it on:
+- **Budget day:** it now starts at local midnight, the ledger's clock. It used to be UTC, so from 20:00 to midnight Eastern the gate counted none of the day's spend. The strict xfail that pinned this is now a normal test.
+- **Run log retention:** a nightly `runlog_prune` keeps 90 days of finished runs. It keeps rows still marked running, since those show a crash.
+
+Still open: which ledger rows the gate counts (`COUNT_ALL_LEDGER_SPEND` is False, so session, dream and art spend is outside the gate). Rollback: set `CASS_FEATURE_HEARTBEAT=0` and restart.
 
 ## 2026-11-16 (the other session, cass-vessel-68): what comes back to her from the world
 
@@ -267,7 +277,7 @@ Data (all four were settled on 2026-10-22: items 1–3 were applied with the def
 4. **Research entries with copied text:** before #90, research journals copied that day's first journal into themselves. Clean those up, or leave them? They're her data.
 
 Decisions:
-5. **Budget:** spend that wasn't recorded before (dreams, art, Wonderland, sessions) is now in the ledger but outside the gate. `COUNT_ALL_LEDGER_SPEND` in `scheduler/budget.py` opts in. The budget day is UTC while the ledger is local time, so from 20:00 to 24:00 EDT nothing counts. Fixing that changes gating; it's pinned as an xfail.
+5. **Budget:** spend that wasn't recorded before (dreams, art, Wonderland, sessions) is now in the ledger but outside the gate. `COUNT_ALL_LEDGER_SPEND` in `scheduler/budget.py` opts in. The budget day is local time since 2026-11-17.
 6. **Levers:** turning on `agent_loop` gives every session the core and memory tools, and `session_complete` ends a session. Turning on `heartbeat` moves every scheduled job onto it: since #104 that includes the Thymos tick, spells, day phases, phase queues and goal events (see #104). Per #87's review, its budget gate is advisory until the ledger question in 5 is settled: the token-tracker sync overwrites in-process spend every 60 s.
 7. **Research:** Tavily for the wiki queue is decided: it's on as of 2026-10-22 and the queue was cleared. Which session engine survives (legacy or generic)? Turn on `research_session_requests`, or cut them? The `queued`/`queued_count` bug was fixed by #97 on 2026-10-22.
 8. **Wiki LLM fallback (#25):** now a per-step setting on the Model Routing page.

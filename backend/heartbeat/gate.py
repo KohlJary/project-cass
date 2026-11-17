@@ -11,11 +11,9 @@ BUDGET_COUNTED_CALL_SITES, or all rows if COUNT_ALL_LEDGER_SPEND), and in the
 bucket the sync uses (budget_category_for). That is exactly what
 BudgetManager.sync_from_token_tracker rebuilds from the ledger every 60 s, so
 the sync no longer wipes what the gate charged (#87's review note): before a
-sync and after it, the gate sees the same spend. Two
-caveats stay open as decisions for Kohl, unchanged here: which ledger rows
-count (COUNT_ALL_LEDGER_SPEND stays False), and the budget day, which resets
-at UTC midnight while ledger timestamps are local (pinned by a strict xfail in
-tests/test_budget_routing.py). Rules:
+sync and after it, the gate sees the same spend. Which ledger rows count is
+still open (COUNT_ALL_LEDGER_SPEND stays False). The budget day runs on local
+time, the ledger's clock, since 2026-11-17 (it was UTC). Rules:
 
 - CONVERSATION work is always admitted. A person talking to her is never
   refused for budget (Kohl's rule), and chat spend is not charged to the

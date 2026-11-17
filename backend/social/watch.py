@@ -63,6 +63,10 @@ def start_social_watch(data_dir: Optional[Path] = None) -> Optional[asyncio.Task
     if not any(config.lever_on(p) for p in WATCHED):
         logger.info("[social] no watched platform is switched on; watcher not started")
         return None
+    from heartbeat.wiring import owns
+    if owns("social_watch"):
+        logger.info("[social] Heartbeat runs the watcher")
+        return None
     if _task and not _task.done():
         return _task
     _task = asyncio.create_task(run(data_dir))

@@ -96,10 +96,8 @@ async def spend(call_site: str):
 
 
 class LastDayTracker:
-    """The real ledger read over the last 24 h. sync_from_token_tracker's own
-    window is UTC midnight against local timestamps (strict xfail in
-    tests/test_budget_routing.py, a decision for Kohl); this keeps these tests
-    independent of the hour they run at."""
+    """The real ledger read over the last 24 h, so these tests don't depend on
+    the hour they run at (sync_from_token_tracker reads from local midnight)."""
 
     def __init__(self):
         from token_tracker import TokenUsageTracker
@@ -678,7 +676,7 @@ class TestOneTriggerPath:
             finally:
                 await hb.stop()
 
-        assert (set(SYNKRATOS_JOBS) | {"conversation_observation", "budget_sync", "agent_loop_wakes"}
+        assert (set(SYNKRATOS_JOBS) | {"conversation_observation", "budget_sync", "agent_loop_wakes", "runlog_prune"}
                 == on_heartbeat)
         for job in on_heartbeat:
             # Normal boot (Synkratos up) and the fallback (Synkratos init failed):

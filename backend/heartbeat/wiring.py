@@ -21,6 +21,13 @@ What moves (lever on):
                              (was inside the Synkratos loop)
     agent_loop_wakes         her wake_me requests (agent_loop/wakes.py), every 60 s;
                              each due one is submitted as its own Once run
+    social_watch             her Bluesky inbox (social/watch.py), every 5 min
+                             (2026-11-17)
+    runlog_prune             nightly; the run log keeps 90 days (2026-11-17)
+
+Not moved, on purpose: the Babelr organ's poll and the Discord bot. They're
+perception that wakes her for conversation, polled every few seconds, not
+autonomous jobs; they keep their own loops.
   adopted subsystems (their loops stop; Heartbeat drives them)
     thymos_tick              ThymosRunner's tick loop -> Every(tick_interval)
     day_phase                DayPhaseTracker's minute loop -> Every(60);
@@ -64,6 +71,7 @@ logger = logging.getLogger(__name__)
 HEARTBEAT_JOBS = frozenset({
     "github_metrics", "goal_refinement", "idle_summarization", "daily_journal",
     "autonomous_research", "conversation_observation", "budget_sync", "agent_loop_wakes",
+    "social_watch", "runlog_prune",
 })
 
 # Actions that are a job's work. Executing one with the job on Heartbeat runs
@@ -208,6 +216,28 @@ def job_work(managers: Dict[str, Any]) -> Dict[str, Work]:
         run=check_wakes,
         trigger=Every(60, first_after=60),
         lever="agent_loop",
+        log_runs=False,
+    )
+
+    # Her social inbox (social/watch.py), every 5 minutes, once a watched
+    # platform is switched on. No LLM; queues what came in for her sessions.
+    from social import watch as social_watch
+    from social import config as social_config
+    if any(social_config.lever_on(p) for p in social_watch.WATCHED):
+        jobs["social_watch"] = Work(
+            name="social_watch",
+            run=social_watch.watch_once,
+            trigger=Every(social_watch.WATCH_MINUTES * 60, first_after=30),
+            lever="social_watch",
+            log_runs=False,
+        )
+
+    # The run log keeps 90 days (heartbeat/runlog.py KEEP_DAYS).
+    from .runlog import RunLog
+    jobs["runlog_prune"] = Work(
+        name="runlog_prune",
+        run=RunLog().prune,     # sync: runs in a worker thread
+        trigger=Cron("30 3 * * *"),
         log_runs=False,
     )
 

@@ -6,7 +6,7 @@ integrating with TokenTracker for actual spend data.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Any, Optional
 from enum import Enum
 import logging
@@ -107,8 +107,9 @@ class BudgetManager:
         self._reset_if_new_day()
 
     def _reset_if_new_day(self) -> bool:
-        """Reset spend tracking if it's a new day (UTC). Returns True if reset occurred."""
-        now = datetime.now(timezone.utc)
+        """Reset spend tracking if it's a new day (local time, the ledger's
+        clock; 2026-11-17, was UTC). Returns True if reset occurred."""
+        now = datetime.now()
         today = now.date()
 
         if self._last_reset is None or self._last_reset.date() < today:
@@ -248,15 +249,16 @@ class BudgetManager:
         self._reset_if_new_day()
 
         # Get today's summary from token tracker
-        today_start = datetime.now(timezone.utc).replace(
+        # Local midnight: ledger timestamps are naive local time. (Until
+        # 2026-11-17 this was UTC midnight, so from 20:00 to midnight EDT the
+        # gate counted none of the day's spend.)
+        today_start = datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
 
         try:
             # Same window and records as get_summary(start_date=today_start),
             # filtered to the spend the gate counts (see BUDGET_COUNTED_CALL_SITES).
-            # NOTE: today_start is UTC midnight but ledger timestamps are naive
-            # local time; see test_budget_window_timezone (strict xfail).
             by_category: Dict[str, Dict[str, float]] = {}
             for record in self.tracker.get_records(start_date=today_start, limit=100000):
                 if not counts_toward_budget(record.get("call_site")):
