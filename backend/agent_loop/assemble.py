@@ -162,6 +162,13 @@ def _unbidden(spec: TurnSpec) -> Optional[str]:
     return session_section()
 
 
+def _changes(spec: TurnSpec) -> Optional[str]:
+    if spec.kind != "session":
+        return None
+    from self_account import unseen_changes_section
+    return unseen_changes_section()
+
+
 def assemble(
     spec: TurnSpec,
     trigger: Trigger,
@@ -191,6 +198,8 @@ def assemble(
         # memory surfacing unasked (letters.py, memory/unbidden.py).
         Section("letters", _safe("letters", lambda: _letters(spec)) or "", 1),
         Section("unbidden", _safe("unbidden", lambda: _unbidden(spec)) or "", 4),
+        # What changed in how she works since she last saw it, once (self_account.py).
+        Section("changes", _safe("changes", lambda: _changes(spec)) or "", 3),
         # Housekeeping that ran lately (memory maintenance), so she can see it.
         Section("housekeeping", _safe("housekeeping", _housekeeping) or "", 4),
         Section("instructions", _safe("instructions", lambda: _instructions(spec, additions)) or "", 1,

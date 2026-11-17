@@ -109,6 +109,7 @@ from handlers.room import execute_room_tool
 from social.tools import execute_social_tool
 from handlers.recall import execute_recall_tool
 from letters import execute_letters_tool
+from self_account import execute_self_account_tool
 from handlers.email import execute_email_tool
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
@@ -529,6 +530,7 @@ TOOL_EXECUTORS = {
     "social": execute_social_tool,
     "recall": execute_recall_tool,
     "letters": execute_letters_tool,
+    "self_account": execute_self_account_tool,
 }
 
 
@@ -1697,6 +1699,14 @@ async def startup_event():
     # Every subsystem below that starts on its own is behind a lever
     # (features.py). Log what's on/off once so a boot log shows it.
     log_lever_table(logger)
+
+    # How she works (self_account.py): compare her shape with the last start's,
+    # so her next session can show what changed.
+    try:
+        from self_account import note_changes
+        note_changes()
+    except Exception as e:
+        logger.warning(f"[self_account] couldn't compare how she works with the last start: {e}")
 
     # Research session tasks left in_progress by the previous process never
     # finish on their own (PR #90 review): fail them, archived like other

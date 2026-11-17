@@ -115,6 +115,18 @@ def day_plan_section(candidates: Sequence[Any], now: Optional[datetime] = None) 
                                offered=mine is not None, now=now)
 
 
+def _working_with() -> str:
+    """The short version of how she works (self_account.py), so she plans with what
+    she actually has; her shape, 2026-11-17."""
+    try:
+        from self_account import short
+        text = short()
+    except Exception as e:
+        logger.warning(f"[long_term_planning] couldn't put how I work in front of me: {e}")
+        return ""
+    return ("\n\n" + text) if text else ""
+
+
 async def run_long_term_planning_turn(runner, *, duration_minutes: int = 30, max_turns: int = 12,
                                       focus: Optional[str] = None, why: Optional[str] = None,
                                       **turn_kwargs):
@@ -123,7 +135,7 @@ async def run_long_term_planning_turn(runner, *, duration_minutes: int = 30, max
     working = working.replace("## WHAT I'M WORKING TOWARD\n\n", "", 1)
     return await run_session_turn(
         runner, session_type=TEMPLATE_ID,
-        additions=INSTRUCTIONS.format(working=working),
+        additions=INSTRUCTIONS.format(working=working) + _working_with(),
         duration_minutes=duration_minutes, focus=focus, max_turns=max_turns,
         why=why or "I chose time to look further ahead",
         initial_message="Time to look further ahead than today.", **turn_kwargs)

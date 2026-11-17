@@ -411,6 +411,8 @@ TOOL_REGISTRY = {
     # Letters to her future self (letters.py, lever letters_to_future_me)
     "write_to_future_me": "letters",
     "my_sealed_letters": "letters",
+    # How I work, generated from the code (self_account.py)
+    "how_i_work": "self_account",
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",
@@ -959,6 +961,9 @@ async def route_tool(
         )
 
     elif executor_type == "letters":
+        return await executor(tool_name=tool_name, tool_input=tool_input)
+
+    elif executor_type == "self_account":
         return await executor(tool_name=tool_name, tool_input=tool_input)
 
     elif executor_type == "social":

@@ -47,7 +47,7 @@ CHAT_CORE_TOOLS: Tuple[str, ...] = (
     "summon_janet", "janet_feedback", "janet_stats",
     "read_file", "list_directory",
     "lookup_person",
-    "recall", "recall_open", "lately_open",
+    "recall", "recall_open", "lately_open", "how_i_work",
 )
 TASK_TOOLS: Tuple[str, ...] = ("add_task", "list_tasks", "complete_task", "modify_task", "delete_task")
 CALENDAR_TOOLS: Tuple[str, ...] = (
@@ -119,13 +119,16 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("plans", "make and keep my own plans in Plans: phases, items, moving them along; "
                       "read the house's plans; ask for things",
              ("babelr_plans",)),
+    # How I work, generated from the code (self_account.py; her shape, 2026-11-17).
+    ToolPack("self", "read how I work: my tools, my systems on and off, my reach, my memory, "
+                     "Thymos, my limits, what changed lately", ("how_i_work",)),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}
 
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
-ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans"})
+ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
@@ -157,7 +160,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "homepage": ("homepage",),
     "social": ("social",),
     "wonderland": ("wonderland",),
-    "long_term_planning": ("plans", "chapter_house"),
+    "long_term_planning": ("plans", "chapter_house", "self"),
 }
 
 # Plain words for each activity, used in "I'm in: ...".

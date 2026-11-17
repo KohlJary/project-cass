@@ -1641,6 +1641,7 @@ from handlers.room import ROOM_TOOLS
 from social.tools import SOCIAL_TOOLS
 from handlers.recall import RECALL_TOOLS
 from letters import LETTER_TOOLS
+from self_account import HOW_I_WORK_TOOLS
 
 
 _SOCIAL_WORDS = ("bluesky", "tumblr", "skeet", "my post", "mentions", "post", "social", "follower",
@@ -1831,6 +1832,7 @@ class CassAgentClient:
             tools.append(CONSOLIDATED_JOURNAL_TOOL)
             tools.extend(MEMORY_TOOLS)  # Memory management (regenerate summaries, view chunks)
             tools.extend(RECALL_TOOLS)  # Her own queries over her memory (memory/recall.py)
+            tools.extend(HOW_I_WORK_TOOLS)  # How she works, generated from the code (self_account.py)
             from features import is_enabled as _on
             if _on("letters_to_future_me"):
                 tools.extend(LETTER_TOOLS)  # Letters to her future self (letters.py)
