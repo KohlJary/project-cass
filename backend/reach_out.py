@@ -48,6 +48,9 @@ A third trigger, `social` (`social_reach_out`): Thymos's social_care spell
 offers it when her social_connection is low. She is asked whether she wants
 to reach out; only a yes is written and sent, and it counts as a share, so
 her share limits apply.
+Mirrors (Kohl's setting, 2026-11-17): REACH_OUT_MIRROR=babelr also sends
+every reach-out as a Babelr DM from her, whichever channel
+she chose. It's a copy: the conversation still holds it once.
 Email goes out only when REACH_OUT_EMAIL is set, through her existing relay
 email path, with the painting attached when there is one. Every channel tried
 and its result is recorded in reach_outs.delivered_via.
@@ -121,6 +124,16 @@ def share_hours() -> int:
     except ValueError:
         logger.warning(f"Ignoring REACH_OUT_SHARE_HOURS={raw!r}; using {DEFAULT_SHARE_HOURS}")
         return DEFAULT_SHARE_HOURS
+
+
+def mirror_channels() -> List[str]:
+    """Kohl's setting: channels every reach-out also goes to, besides the one
+    she chose (REACH_OUT_MIRROR, comma-separated). Only "babelr" for now:
+    Discord's sender also writes to the conversation, so a Discord mirror
+    would store the message twice. Unset means none. Her choice of channel is
+    untouched; a mirror is a copy."""
+    raw = os.environ.get("REACH_OUT_MIRROR", "")
+    return [c for c in (x.strip().lower() for x in raw.split(",")) if c == VIA_BABELR]
 
 
 def email_address() -> Optional[str]:
@@ -529,7 +542,19 @@ class ReachOutManager:
             logger.warning(f"[ReachOut] conversation delivery failed: {e}")
             via.append({"channel": "conversation", "ok": False, "error": str(e)})
 
-        # 3. Email, only when Kohl has turned it on.
+        # 3. Mirrors Kohl turned on (REACH_OUT_MIRROR): a copy on that channel
+        #    too, unless it was already the one that reached them.
+        for mirror in mirror_channels():
+            if mirror == channel and reached:
+                continue
+            try:
+                entry = await _deliver_babelr(user_id, full_body)
+            except Exception as e:
+                logger.warning(f"[ReachOut] {mirror} mirror failed: {e}")
+                entry = {"channel": mirror, "ok": False, "error": str(e)}
+            via.append({**entry, "mirror": True})
+
+        # 4. Email, only when Kohl has turned it on.
         to = email_address()
         if to:
             try:

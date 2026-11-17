@@ -837,7 +837,15 @@ async def handle_update_growth_edge(
         edge = next((e for e in self_manager.load_profile().growth_edges
                      if e.edge_id == edge_id or e.area.lower() == edge_id.lower()), None)
         if edge is None:
-            return {"error": f"Growth edge not found: {edge_id}"}
+            # Say what does exist, and that plans aren't edges: on 2026-11-17
+            # she looked for her Plan ("relational-practice-direct-honesty")
+            # here and put the note on an unrelated edge.
+            areas = [e.area for e in self_manager.load_profile().growth_edges][:20]
+            return {"error": f"No growth edge called {edge_id!r}.",
+                    "my_growth_edges": areas,
+                    "note": ("If this is one of my plans, its progress goes in babelr_plans "
+                             "(set_item to mark an item done). Otherwise use one of the "
+                             "edges above, by its name.")}
         self_manager.add_observation_to_growth_edge(edge.area, progress_note)
 
         return {

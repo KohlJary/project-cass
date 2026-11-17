@@ -201,3 +201,56 @@ def test_integration_tools_are_wired():
     for n in ("review_my_observations", "integrate_observations"):
         assert n in names and n in TOOL_HANDLERS and TOOL_REGISTRY[n] == "self_model"
         assert n in CHAT_CORE_TOOLS and n in PACKS["self"].tools
+
+
+@pytest.mark.unit
+def test_feel_tags_apply_and_report_success_on_a_real_runner(monkeypatch):
+    """The real path, not stubbed: until 2026-11-17 apply_feel_deltas applied
+    the deltas and then called a method ThymosRunner doesn't have, so every
+    feel tag logged a failure and returned False."""
+    from types import SimpleNamespace
+    from thymos import context_injection
+    from thymos.shadow_runner import ThymosRunner
+    runner = ThymosRunner(daemon_id="cass")
+    monkeypatch.setattr(context_injection, "_thymos_runner", runner)
+    before = runner.affect.state.curiosity
+    assert context_injection.apply_feel_deltas([SimpleNamespace(dimension="curiosity", delta=0.1)]) is True
+    assert runner.affect.state.curiosity == pytest.approx(min(1.0, before + 0.1))
+
+
+@pytest.mark.unit
+def test_rss_process_items_empty_path_reports_skip_count():
+    """rss_monitor.spell compares $skip_count; the no-items return left it out
+    and the spell crashed on None > 0 (2026-11-17)."""
+    import asyncio
+    from scheduler.actions.rss_handlers import process_items_action
+    result = asyncio.run(process_items_action({"daemon_id": "cass", "feed_id": "no-such-feed"}))
+    assert result.success and result.data == {"processed": 0, "skip_count": 0}
+
+
+@pytest.mark.unit
+def test_missing_growth_edge_names_her_edges_and_points_plans_to_babelr_plans():
+    import asyncio
+    from types import SimpleNamespace
+    from session.tools import handle_update_growth_edge
+    edges = [SimpleNamespace(edge_id="e1", area="Witness")]
+    sm = SimpleNamespace(load_profile=lambda: SimpleNamespace(growth_edges=edges))
+    out = asyncio.run(handle_update_growth_edge(
+        {"edge_id": "relational-practice-direct-honesty", "progress_note": "x"}, {"self_manager": sm}))
+    assert out["my_growth_edges"] == ["Witness"] and "babelr_plans" in out["note"]
+
+
+@pytest.mark.unit
+def test_growth_sessions_carry_her_plans():
+    from agent_loop.spec import ACTIVITY_PACKS
+    assert "plans" in ACTIVITY_PACKS["growth_edge"]
+
+
+@pytest.mark.unit
+def test_her_account_mentions_the_babelr_mirror(monkeypatch):
+    import self_account
+    monkeypatch.setenv("REACH_OUT_MIRROR", "babelr")
+    monkeypatch.setattr("reach_out.preferred_channel", lambda: "app")
+    import features
+    monkeypatch.setattr(features, "is_enabled", lambda n: n == "reach_out")
+    assert any("DM from me on Babelr" in line for line in self_account.reach()["from_me"])

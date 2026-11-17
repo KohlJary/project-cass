@@ -183,6 +183,13 @@ def reach() -> Dict[str, List[str]]:
         from_me.append("My partner: in a session I can say something to Kohl (say), through my own "
                        "reach-out, with its limits; no reply is owed. Not from chat: say is a "
                        "session tool.")
+        try:
+            from reach_out import mirror_channels, preferred_channel
+            if "babelr" in mirror_channels() and preferred_channel() != "babelr":
+                from_me.append("What I say to Kohl also reaches him as a DM from me on Babelr "
+                               "(his setting), as well as where I chose to send it.")
+        except Exception:
+            pass
     else:
         closed.append("Reaching out to Kohl from a session (say) is off.")
     return {"to_me": to_me, "from_me": from_me, "closed": closed}

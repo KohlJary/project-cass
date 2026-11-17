@@ -809,6 +809,45 @@ class TestChannels:
         by = {c["channel"]: c for c in item.delivered_via}
         assert by["babelr"]["ok"] and by["conversation"]["push"] is False
 
+    def _fake_organ(self, monkeypatch):
+        import babelr_organ.organ as organ_module
+        calls = []
+        fake = SimpleNamespace(
+            enabled=True,
+            _links=lambda: {"partnerhandle": PARTNER},
+            dm=lambda person, content, record=True: calls.append((person, content, record)) or
+            {"success": True, "message_id": "b1"},
+        )
+        monkeypatch.setattr(organ_module, "_organ", fake)
+        return calls
+
+    def test_mirror_copies_an_app_reach_out_to_babelr(self, partner, daemon_id, pref_path, no_email, monkeypatch):
+        calls = self._fake_organ(monkeypatch)
+        monkeypatch.setenv("REACH_OUT_MIRROR", "babelr")
+        from conversations import ConversationManager
+        cm = ConversationManager()
+        item = _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "said in a session", cm))
+        assert calls == [("partnerhandle", "said in a session", False)]
+        mirror = [c for c in item.delivered_via if c.get("mirror")]
+        assert mirror and mirror[0]["channel"] == "babelr" and mirror[0]["ok"]
+        assert reach_out.preferred_channel() == "app"   # her choice untouched
+        cont = cm.load_conversation(cm.get_or_create_continuous(PARTNER).id)
+        assert [m.content for m in cont.messages].count("said in a session") == 1
+
+    def test_no_second_copy_when_babelr_was_her_channel(self, partner, daemon_id, pref_path, no_email, monkeypatch):
+        calls = self._fake_organ(monkeypatch)
+        monkeypatch.setenv("REACH_OUT_MIRROR", "babelr")
+        _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "once", channel="babelr"))
+        assert len(calls) == 1
+
+    def test_no_mirror_unless_set(self, partner, daemon_id, pref_path, no_email, monkeypatch):
+        calls = self._fake_organ(monkeypatch)
+        monkeypatch.delenv("REACH_OUT_MIRROR", raising=False)
+        _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "app only"))
+        assert calls == []
+        monkeypatch.setenv("REACH_OUT_MIRROR", "discord, fax")
+        assert reach_out.mirror_channels() == []
+
     def test_tool_sets_and_shows_channel(self, partner, daemon_id, pref_path, levers):
         from handlers.self_model import _handle_reach_out_channel, SELF_MODEL_TOOLS, TOOL_HANDLERS
         from handlers.tool_router import TOOL_REGISTRY

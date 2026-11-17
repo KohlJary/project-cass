@@ -477,7 +477,9 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
         return ActionResult(
             success=True,
             message="No unprocessed items to process",
-            data={"processed": 0}
+            # skip_count too: rss_monitor.spell compares it, and a missing
+            # value crashed the spell (2026-11-17)
+            data={"processed": 0, "skip_count": 0}
         )
 
     # Import news consumption machinery

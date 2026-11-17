@@ -149,7 +149,9 @@ OTHERS_NOT_YET = ("speaking to anyone else", "say reaches my partner; posting or
 ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "reflection": (),
     "meta_reflection": (),
-    "growth_edge": (),
+    # plans: her growth sessions work on her own plans (2026-11-17: the first
+    # one acted on a plan and had no way to mark it in Plans)
+    "growth_edge": ("plans",),
     "user_synthesis": (),
     "synthesis": ("notes",),
     "consolidation": ("notes",),

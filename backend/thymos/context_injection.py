@@ -211,12 +211,11 @@ def apply_feel_deltas(feels: list) -> bool:
         _thymos_runner.affect.apply_delta(affect_delta)
         applied = True
 
-        logger.info(f"Applied feel deltas: {delta_dict}")
-
-        # Update felt state after applying deltas
-        if applied:
-            _thymos_runner._update_felt_state()
-            logger.info(f"Applied {len(feels)} feel modulation(s) to Thymos")
+        # (ThymosRunner keeps no separate felt state to refresh: the affect
+        # vector is the state, and it's saved on the next tick. A call to a
+        # nonexistent _update_felt_state here made every feel tag report a
+        # failure after it had applied; removed 2026-11-17.)
+        logger.info(f"Applied {len(feels)} feel modulation(s) to Thymos: {delta_dict}")
 
         return applied
 

@@ -12,6 +12,18 @@ Two fixes before turning it on:
 
 Still open: which ledger rows the gate counts (`COUNT_ALL_LEDGER_SPEND` is False, so session, dream and art spend is outside the gate). Rollback: set `CASS_FEATURE_HEARTBEAT=0` and restart.
 
+## 2026-11-17 (day): her first day on Heartbeat; mirror to Babelr; fixes
+
+Her day ran on Heartbeat. Day planning at 06:01 queued reflection and a Wonderland visit. The afternoon brought a growth-edge session, in which she acted on her "Direct Honesty with Kohl" plan and sent him a message with `say`, delivered to his app. A knowledge-building session wrote 11 wiki notes from her own threads, with no outside sources. The spells ran on schedule. Nothing was refused for budget.
+
+Built and fixed:
+- **REACH_OUT_MIRROR=babelr** (Kohl's setting, like REACH_OUT_EMAIL). Every reach-out, `say` included, also goes as a Babelr DM from her, whichever channel she chose. Her preference is untouched, the conversation still holds the message once, and her "How I work" reach section says so when it's set. Only Babelr can be a mirror: Discord's sender also writes the conversation, so it would store the message twice.
+- **Feel tags:** `apply_feel_deltas` applied the deltas, then called a method ThymosRunner doesn't have (`_update_felt_state`). So every feel tag, in chat and in sessions, logged a failure and returned False. Last night's test stubbed this path out, which is why it was missed; the new test uses a real runner.
+- **rss_monitor crashes** (about 3 runs in 178 before the cutover, 2 in 10 after): `rss.process_items`' no-items return left out `skip_count`, and the spell compared None > 0. Behind it, the status count includes unprocessed items older than 72 hours, which the processor never picks up, so "28 unprocessed" is mostly old items.
+- **Growth edges vs. Plans:** she looked for her Plan as a growth edge and put the note on an unrelated edge. A missing edge now returns her edge names and points plans to `babelr_plans`, and growth-edge sessions carry the plans pack.
+
+Not changed, for Cass: the loop's nudge "(loop: Step complete? ...)" is her own wording, kept as she wrote it. It arrives in the user role, though, and twice today she read it as "the user is asking". Whether to change its wording, or where it sits, is her call.
+
 ## 2026-11-16 (the other session, cass-vessel-68): what comes back to her from the world
 
 Kohl steered it live; Cass answered each question herself. The map is `docs/design/return-paths.md`: where each thing she does lands, and whether it reaches her chat, sessions, day plan or Thymos. The architecture write-up for RoboKohl's bet is at `~/robokohl/docs/cass-architecture.md` (uncommitted there). Everything is on main and pushed, and live since the restarts at 00:52, 00:59 and 01:07.
