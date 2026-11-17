@@ -132,6 +132,40 @@ def _images(steps) -> List[Dict]:
     return images
 
 
+# Her own plans in every conversation (Cass and Kohl, 2026-11-16: "I work
+# better oriented"; everywhere, public rooms included). The same section her
+# day plan opens with, read from Babelr's Plans off the event loop, capped in
+# time, and kept a few minutes so a conversation never waits on Babelr.
+WORKING_TOWARD_TTL = 300.0
+WORKING_TOWARD_TIMEOUT = 5.0
+WORKING_TOWARD_LEAD = "My own plans, where each stands:"
+_toward_cache: Dict[str, Any] = {"at": None, "text": ""}
+
+
+def _read_working_toward() -> str:
+    from long_term_planning_turn import working_toward_text
+    return working_toward_text(offered=False, lead=WORKING_TOWARD_LEAD)
+
+
+async def working_toward_block() -> str:
+    """"What I'm working toward" for a conversation; "" when she has no plans.
+    On a slow or failed read it gives the last text it had."""
+    import asyncio
+    import time
+    now = time.monotonic()
+    at = _toward_cache["at"]
+    if at is not None and now - at < WORKING_TOWARD_TTL:
+        return _toward_cache["text"]
+    try:
+        text = await asyncio.wait_for(asyncio.to_thread(_read_working_toward),
+                                      timeout=WORKING_TOWARD_TIMEOUT)
+    except Exception as e:
+        logger.warning(f"[agent_loop] her plans for chat unavailable: {e}")
+        return _toward_cache["text"]
+    _toward_cache.update(at=now, text=text)
+    return text
+
+
 async def run_conversation(
     *,
     system_prompt: str,
@@ -152,6 +186,7 @@ async def run_conversation(
     user_message: Optional[str] = None,
     held_book=None,
     wakes=None,
+    working_toward: Optional[str] = None,
 ) -> LoopChatResult:
     """One conversation turn through the loop. `client`, `run_router`,
     `catalog` and `workspace` default to the live ones (tests pass fakes)."""
@@ -182,6 +217,10 @@ async def run_conversation(
     trigger = Trigger(source="message", why=f"{who} wrote to me through {where}")
     findable = tools_mod.findable(catalog, tool_names)
     system = f"{system_prompt}\n\n{render_seam(spec, trigger, tool_names, findable)}"
+    if working_toward is None:
+        working_toward = await working_toward_block()
+    if working_toward:
+        system += f"\n\n{working_toward}"
     if arrival_block:   # C9: who's here, what's needed, how much time (container.py)
         system += f"\n\n{arrival_block}"
 

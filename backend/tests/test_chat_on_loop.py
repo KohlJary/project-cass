@@ -46,3 +46,65 @@ def test_tools_act_for_the_person_she_is_with(monkeypatch):
     person = {"user_id": "u-ann", "user_name": "Ann", "conversation_id": "c-1", "project_id": None}
     assert asyncio.run(live_router("d", person=person)("add_task", {})) == "ok"
     assert seen == {"user_id": "u-ann", "user_name": "Ann", "conversation_id": "c-1", "project_id": None}
+
+
+# Her plans in every conversation (Cass and Kohl, 2026-11-16).
+
+def _fresh_toward(monkeypatch, read):
+    import agent_loop.conversation as conv
+    monkeypatch.setattr(conv, "_toward_cache", {"at": None, "text": ""})
+    monkeypatch.setattr(conv, "_read_working_toward", read)
+    return conv
+
+
+def test_her_plans_are_read_once_and_kept_a_few_minutes(monkeypatch):
+    calls = []
+    conv = _fresh_toward(monkeypatch, lambda: calls.append(1) or "## WHAT I'M WORKING TOWARD\n\n- **Paint**")
+    assert asyncio.run(conv.working_toward_block()).endswith("- **Paint**")
+    asyncio.run(conv.working_toward_block())
+    assert len(calls) == 1
+
+
+def test_a_slow_or_failed_read_never_holds_up_a_conversation(monkeypatch):
+    import time
+    conv = _fresh_toward(monkeypatch, lambda: time.sleep(1) or "late")
+    monkeypatch.setattr(conv, "WORKING_TOWARD_TIMEOUT", 0.05)
+    conv._toward_cache["text"] = "earlier"
+    assert asyncio.run(conv.working_toward_block()) == "earlier"
+
+    def broken():
+        raise RuntimeError("Babelr down")
+    conv = _fresh_toward(monkeypatch, broken)
+    assert asyncio.run(conv.working_toward_block()) == ""
+
+
+def test_the_chat_lead_doesnt_talk_about_her_menu():
+    from long_term_planning_turn import working_toward_text
+    plans = [{"plan": "p", "title": "Paint", "goal": "", "phase": None, "open": [], "loose": []}]
+    chat = working_toward_text(plans, offered=False, lead="My own plans, where each stands:")
+    assert "menu" not in chat and "- **Paint**" in chat
+    assert "menu" in working_toward_text(plans, offered=False)   # her day plan keeps its line
+
+
+def test_a_conversation_carries_what_shes_working_toward():
+    from agent_loop.conversation import run_conversation
+    from agent_loop.models import ModelReply
+    seen = {}
+
+    class Client:
+        ledger = None
+
+        async def create(self, *, model, system, tools, messages, max_tokens):
+            seen["system"] = system
+            return ModelReply("hi", [], "end_turn", 1, 1)
+
+    class Space:
+        def run(self, *a):
+            return ""
+
+    asyncio.run(run_conversation(
+        system_prompt="KERNEL", continuous_messages=[], model_message="hello",
+        person={"user_name": "Kohl"}, channel="discord", provider="anthropic", model="m",
+        client=Client(), catalog={}, workspace=Space(),
+        run_router=lambda *a: None, working_toward="## WHAT I'M WORKING TOWARD\n\n- **Paint**"))
+    assert "## WHAT I'M WORKING TOWARD" in seen["system"], "everywhere, public rooms included"

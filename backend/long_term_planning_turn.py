@@ -59,7 +59,7 @@ def _days_since(when: Any, now: datetime) -> Optional[int]:
 
 def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
                         last_planned: Any = None, offered: bool = True,
-                        now: Optional[datetime] = None) -> str:
+                        now: Optional[datetime] = None, lead: Optional[str] = None) -> str:
     """The "What I'm working toward" section of her day plan; "" when there's nothing
     to say. `last_planned` is when she last did a long-term planning session (ISO, or
     None for never); the nudge is shown only when the session is on her menu
@@ -96,8 +96,8 @@ def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
         return ""
     out = ["## WHAT I'M WORKING TOWARD", ""]
     if lines:
-        out += ["My own plans, where each stands. A thing on my menu can carry one forward "
-                "(its focus can name the item):", *lines]
+        out += [lead or ("My own plans, where each stands. A thing on my menu can carry one forward "
+                         "(its focus can name the item):"), *lines]
     elif unreadable:
         out.append("I couldn't read my plans in Plans just now.")
     else:
