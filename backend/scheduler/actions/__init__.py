@@ -332,6 +332,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("session.user_synthesis", session_handlers.user_synthesis_action)
         registry.register_handler("session.homepage", session_handlers.homepage_action)
         registry.register_handler("session.social", session_handlers.social_action)
+        registry.register_handler("session.long_term_planning", session_handlers.long_term_planning_action)
         registry.register_handler("session.wonderland", session_handlers.wonderland_action)
         registry.register_handler("session.wonderland_reflection", session_handlers.wonderland_reflection_action)
 

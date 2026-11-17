@@ -178,6 +178,7 @@ class FakeAgent:
         s = self.server
         if method == "GET" and path.split("?")[0] == "/plans":
             return [{"slug": k, "title": p["title"], "status": p["status"],
+                     "createdBy": p.get("createdBy") or {"name": "kohl"},
                      "awaitingMe": sum("cass" in f.get("awaiting", []) for f in p["phases"])}
                     for k, p in s.plans.items()]
         if method == "GET" and path.startswith("/plans/"):
@@ -201,6 +202,15 @@ class FakeAgent:
                                "kind": body["kind"], "title": body["title"], "body": body["body"],
                                "status": "open", "resolution": None, "createdBy": {"name": "cass"}})
             return p
+        if method == "POST" and path.startswith("/items/") and path.endswith("/status"):
+            iid = path.split("/")[2]
+            for p in s.plans.values():
+                for i in p["items"]:
+                    if i["id"] == iid:
+                        i["status"] = body["status"]
+                        i["resolution"] = body.get("resolution") or i.get("resolution")
+                        return p
+            raise RuntimeError(f"fake Plans: no item {iid}")
         if method == "POST" and path.startswith("/phases/"):
             _, _, pid, act = path.split("/")
             s.plan_acts.append((pid, act, (body or {}).get("reason")))

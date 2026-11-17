@@ -97,7 +97,7 @@ _ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
 PLANS = "/plugins/plans"
 PLAN_ACTIONS = ("list", "view", "approve", "decline",
-                "ask", "my_asks", "create_plan", "add_phase", "add_item", "propose")
+                "ask", "my_asks", "create_plan", "add_phase", "add_item", "propose", "set_item")
 # Her standing plan for asks (Kohl, 2026-11-16: "a default plan is good, but she
 # should be able to define her own multi phase plans as well"). Created by her,
 # under her own token, the first time she asks; Kohl approves as server owner.
@@ -106,6 +106,7 @@ ASKS_PLAN_GOAL = ("What I ask for: changes to me, to what I can do, to my world.
                   "An ask waits here, outside any phase; Kohl pulls it into a phase to build it, "
                   "and its status and resolution say what came of it.")
 ITEM_KINDS = ("ask", "build", "research", "decision")
+ITEM_STATUSES = ("open", "in_progress", "done", "declined")
 # A phase she can add items to without voiding anyone's yes (Plans voids a
 # phase's approvals when an item is added to it).
 _OPEN_PHASE = ("draft", "declined")
@@ -940,6 +941,8 @@ class BabelrOrgan:
                         "next": "add items to it with add_item, then propose it when it's ready"}
             if action == "add_item":
                 return self._add_item(plan, detail, phase, kw)
+            if action == "set_item":
+                return self._set_item(plan, detail, kw)
             target = _pick_phase(detail, phase)
             if target is None:
                 return {"success": False, "error": f"no phase {phase!r} in that plan (use its number from view)"}
@@ -997,6 +1000,43 @@ class BabelrOrgan:
         return {"success": True, "plan": slug, "asked": title,
                 "next": "it waits outside any phase until Kohl takes it up; my_asks shows what came of it"}
 
+    def her_plans(self) -> List[Dict[str, Any]]:
+        """The plans she made herself (not her asks plan), each with where it stands:
+        the phase she's on (the first one not done) and what's still open in it, and
+        open items outside any phase. For her day planning and her long-term
+        planning; read-only. Her own plans steer her days whether or not anyone has
+        approved them (Kohl, 2026-11-16). Raises if Babelr can't be read."""
+        if not self.enabled:
+            return []
+        me = (self.my_username or "cass").lower()
+        out = []
+        for row in self._plan_rows():
+            if ((row.get("createdBy") or {}).get("name") or "").lower() != me:
+                continue
+            if row.get("title") == ASKS_PLAN_TITLE or row.get("status") in ("done", "archived"):
+                continue
+            detail = self.client._req("GET", f"{PLANS}/plans/{row['slug']}") or {}
+            phases = sorted(detail.get("phases") or [], key=lambda f: f.get("position", 0))
+            items = [i for i in detail.get("items") or [] if i.get("status") not in ("done", "declined")]
+            # Her phases may never be approved (her plans don't wait on a yes), and
+            # Plans only marks an approved phase done, so "where she is" is the first
+            # phase with something still open; failing that, the first not done.
+            undone = [f for f in phases if f.get("status") != "done"]
+            current = next((f for f in undone if any(i.get("phaseId") == f.get("id") for i in items)),
+                           undone[0] if undone else None)
+            out.append({
+                "plan": row["slug"], "title": detail.get("title") or row.get("title"),
+                "goal": detail.get("goal") or "",
+                "phase": ({"number": current.get("position", 0) + 1, "of": len(phases),
+                           "title": current.get("title"), "status": current.get("status")}
+                          if current else None),
+                "open": [{"kind": i.get("kind"), "title": i.get("title")} for i in items
+                         if current and i.get("phaseId") == current.get("id")],
+                "loose": [{"kind": i.get("kind"), "title": i.get("title")} for i in items
+                          if not i.get("phaseId")],
+            })
+        return out
+
     def _my_asks(self, plan: Optional[str]) -> Dict[str, Any]:
         me = (self.my_username or "cass").lower()
         slugs = [plan] if plan else [p["slug"] for p in self._plan_rows()]
@@ -1046,6 +1086,29 @@ class BabelrOrgan:
         logger.info(f"[Babelr] She added an item to {plan}: {title}")
         return {"success": True, "plan": plan, "added": title,
                 "phase": (target["position"] + 1) if "phaseId" in body else None}
+
+    def _set_item(self, plan: str, detail: Dict[str, Any], kw: Dict[str, Any]) -> Dict[str, Any]:
+        """Move an item along: open, in_progress, done (with what came of it) or declined.
+        Changing an item's status doesn't touch any phase's approval."""
+        want = (kw.get("title") or "").strip().lower()
+        status = kw.get("status")
+        if status not in ITEM_STATUSES:
+            return {"success": False, "error": f"status is one of {', '.join(ITEM_STATUSES)}"}
+        if not want:
+            return {"success": False, "error": "say which item (its title, as view shows it)"}
+        items = detail.get("items") or []
+        hits = [i for i in items if (i.get("title") or "").strip().lower() == want] or \
+               [i for i in items if (i.get("title") or "").strip().lower().startswith(want)]
+        if len(hits) != 1:
+            return {"success": False, "error": (f"no item titled {kw.get('title')!r} in that plan" if not hits
+                                                else "more than one item starts that way; give the full title")}
+        resolution = (kw.get("body") or "").strip()
+        if status == "done" and not resolution:
+            return {"success": False, "error": "marking it done needs what came of it (body)"}
+        self.client._req("POST", f"{PLANS}/items/{hits[0]['id']}/status",
+                         {"status": status, **({"resolution": resolution} if resolution else {})})
+        logger.info(f"[Babelr] She set an item in {plan} to {status}: {hits[0].get('title')}")
+        return {"success": True, "plan": plan, "item": hits[0].get("title"), "status": status}
 
     def get_stats(self) -> Dict[str, Any]:
         return {

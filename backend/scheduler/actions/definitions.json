@@ -157,6 +157,18 @@
       "requires_idle": false,
       "runner_key": "social"
     },
+    "session.long_term_planning": {
+      "id": "session.long_term_planning",
+      "name": "Long-Term Planning",
+      "description": "Her long-term planning: her own plans in Plans, which then open her day plans; on the agent loop",
+      "category": "reflection",
+      "handler": "session_handlers.long_term_planning_action",
+      "estimated_cost_usd": 0.20,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "long_term_planning"
+    },
     "session.wonderland": {
       "id": "session.wonderland",
       "name": "Wonderland",

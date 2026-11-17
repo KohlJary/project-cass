@@ -115,13 +115,17 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("wonderland", "be in Wonderland: look around, move, sense, reflect, speak, "
                            "make something, talk with the beings there",
              ("wonderland_look", "wonderland_act", "wonderland_talk")),
+    # My own plans in Babelr's Plans, for looking further ahead (Kohl, 2026-11-16).
+    ToolPack("plans", "make and keep my own plans in Plans: phases, items, moving them along; "
+                      "read the house's plans; ask for things",
+             ("babelr_plans",)),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}
 
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
-ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social"})
+ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
@@ -153,6 +157,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "homepage": ("homepage",),
     "social": ("social",),
     "wonderland": ("wonderland",),
+    "long_term_planning": ("plans", "chapter_house"),
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -173,6 +178,7 @@ ACTIVITY_WORDS: Dict[str, str] = {
     "homepage": "a session working on my GeoCass homepage",
     "social": "a social session, tending my presence on Bluesky",
     "wonderland": "a visit to Wonderland",
+    "long_term_planning": "a long-term planning session, looking further ahead than today",
 }
 
 

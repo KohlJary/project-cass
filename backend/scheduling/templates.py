@@ -289,6 +289,19 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _agent_loop_on() and _bluesky_usable(),
     ),
 
+    # Looking further ahead (Kohl, 2026-11-16): her own plans in Plans, which
+    # then open every day plan (long_term_planning_turn.py). On the loop only.
+    "long_term_planning": WorkUnitTemplate(
+        id="long_term_planning",
+        name="Long-Term Planning",
+        description="Step back and look at the weeks and months: make, revise or let go of my own plans in Plans.",
+        action_sequence=["session.long_term_planning"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.20,
+        category="reflection",
+        available=lambda: _agent_loop_on(),
+    ),
+
     # === Memory & system maintenance ===
     "memory_maintenance": WorkUnitTemplate(
         id="memory_maintenance",

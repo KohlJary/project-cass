@@ -849,3 +849,50 @@ class TestUnremembered:
         assert organ.dm("kohl", "hi Kohl")["success"]
         recorded = " ".join(m[2] for m in recorder.messages)
         assert "can we talk?" not in recorded and "hi Kohl" in recorded
+
+
+class TestHerPlansSteerHerDays:
+    """Her own plans, read back for her day planning, and moved along by her
+    (Kohl, 2026-11-16: her plans steer her days without his yes)."""
+
+    def _plan(self, organ, babelr):
+        slug = organ.plans("create_plan", title="Learn the tide tables", goal="read the sea")["plan"]
+        organ.plans("add_phase", plan=slug, title="Basics")
+        organ.plans("add_phase", plan=slug, title="Deeper")
+        organ.plans("add_item", plan=slug, phase=1, title="Read about neap tides", kind="research")
+        organ.plans("add_item", plan=slug, phase=2, title="Write a tide poem", kind="research")
+        organ.plans("add_item", plan=slug, title="Ask for a tide API", kind="ask")
+        return slug
+
+    def test_her_plans_name_the_phase_with_open_work_not_the_house_plans(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        slug = self._plan(organ, babelr)
+        organ.plans("ask", title="Weather anywhere")            # her asks plan isn't a plan she works
+        babelr.plans["house-plan"] = {"slug": "house-plan", "title": "House", "status": "draft",
+                                      "phases": [], "items": [], "createdBy": {"name": "kohl"}}
+        plans = organ.her_plans()
+        assert [p["plan"] for p in plans] == [slug]
+        p = plans[0]
+        assert p["phase"] == {"number": 1, "of": 2, "title": "Basics", "status": "draft"}, \
+            "a draft phase counts: her plans don't wait on a yes"
+        assert p["open"] == [{"kind": "research", "title": "Read about neap tides"}]
+        assert p["loose"] == [{"kind": "ask", "title": "Ask for a tide API"}]
+        # Phase 1's work done: where she is moves on, though phase 1 was never approved.
+        assert organ.plans("set_item", plan=slug, title="read about neap", status="done",
+                           body="springs and neaps, and why")["success"]
+        p = organ.her_plans()[0]
+        assert p["phase"]["number"] == 2 and p["open"] == [{"kind": "research", "title": "Write a tide poem"}]
+
+    def test_set_item_checks_what_it_needs(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        slug = self._plan(organ, babelr)
+        assert "needs what came of it" in organ.plans("set_item", plan=slug, title="Write a tide poem",
+                                                      status="done")["error"]
+        assert "status is one of" in organ.plans("set_item", plan=slug, title="Write a tide poem",
+                                                 status="finished")["error"]
+        assert "no item titled" in organ.plans("set_item", plan=slug, title="nope", status="open")["error"]
+        assert organ.plans("set_item", plan=slug, title="Write a tide poem", status="in_progress")["success"]
+        item = [i for i in babelr.plans[slug]["items"] if i["title"] == "Write a tide poem"][0]
+        assert item["status"] == "in_progress"

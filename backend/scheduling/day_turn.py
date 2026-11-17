@@ -242,10 +242,19 @@ async def plan_day_in_turn(runner, candidates: Sequence[Any], phases: Sequence[A
 
     workspace = workspace or Workspace()
     tool = DayPlanTool(candidates, phases, workspace)
+    additions = menu_text(candidates, phases, budget_remaining, unavailable)
+    try:  # her own plans open the day (long_term_planning_turn.py); never costs her the plan
+        from long_term_planning_turn import day_plan_section
+        toward = day_plan_section(candidates)
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't put her plans in front of her: {e}")
+        toward = ""
+    if toward:
+        additions = toward + "\n\n" + additions
     result = await run_session_turn(
         runner,
         session_type="day_planning",
-        additions=menu_text(candidates, phases, budget_remaining, unavailable),
+        additions=additions,
         duration_minutes=turn_kwargs.pop("duration_minutes", 15),
         max_turns=turn_kwargs.pop("max_turns", 10),
         why=turn_kwargs.pop("why", "it's time to plan my day"),
