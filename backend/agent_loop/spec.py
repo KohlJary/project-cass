@@ -39,6 +39,7 @@ CHAT_CORE_TOOLS: Tuple[str, ...] = (
     "show_patterns", "explore_pattern", "pattern_summary",
     "describe_my_home", "get_wonderland_status",
     "reflect_on_self", "record_self_observation", "form_opinion", "note_disagreement",
+    "review_my_observations", "integrate_observations",
     "review_self_model", "modify_tool_access",
     "reflect_on_user", "record_user_observation", "update_user_profile",
     "review_user_observations", "view_user_model", "view_relationship_model",
@@ -82,7 +83,8 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
                           "models of people, cross-session insights, Janet, files, PeopleDex)",
              CHAT_CORE_TOOLS),
     ToolPack("work", "keep my tasks and my calendar", TASK_TOOLS + CALENDAR_TOOLS),
-    ToolPack("chapter_house", "read what's been said in Chapter House", ("babelr_read",)),
+    ToolPack("chapter_house", "read what's been said in Chapter House, post in a channel there, "
+                              "and DM someone, as myself", ("babelr_read", "babelr_post", "babelr_dm")),
     ToolPack("workspace", "read, write, edit, list and search my workspace, a folder of my own; "
                           "my agenda (AGENDA.md) lives there and carries my threads between moments",
              WORKSPACE_TOOLS),
@@ -121,7 +123,8 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              ("babelr_plans",)),
     # How I work, generated from the code (self_account.py; her shape, 2026-11-17).
     ToolPack("self", "read how I work: my tools, my systems on and off, my reach, my memory, "
-                     "Thymos, my limits, what changed lately", ("how_i_work",)),
+                     "Thymos, my limits, what changed lately; review my observations and choose "
+                     "what to integrate", ("how_i_work", "review_my_observations", "integrate_observations")),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}
@@ -160,7 +163,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "homepage": ("homepage",),
     "social": ("social",),
     "wonderland": ("wonderland",),
-    "long_term_planning": ("plans", "chapter_house", "self"),
+    "long_term_planning": ("plans", "self"),
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -227,6 +230,9 @@ SESSION_GUARDED_FIELDS: Dict[str, Tuple[str, ...]] = {
     "social_reply": ("text",),
     "social_draft": ("text",),
     "social_dm_send": ("text",),
+    # What she posts and DMs in Chapter House reaches people, in her name.
+    "babelr_post": ("content",),
+    "babelr_dm": ("content",),
     # session_complete's summary is the narrative; it is guarded where the
     # narrative is kept (loop.keep_narrative), so ending is never blocked.
 }

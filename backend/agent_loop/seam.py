@@ -69,9 +69,9 @@ def not_yet_line(spec: TurnSpec) -> Optional[str]:
     if spec.can_do_override:
         return None
     items = list(NOT_YET_IN_LOOP) + [OTHERS_NOT_YET if "say" in spec.packs else REACH_OUT_NOT_YET]
-    if "social" in spec.packs:
-        # Here she does speak to others: in public, on Bluesky.
-        items = [i for i in items if i is not OTHERS_NOT_YET]
+    if "social" in spec.packs or "chapter_house" in spec.packs:
+        # Here she does speak to others: on Bluesky, or in Chapter House (posts and DMs).
+        items = [i for i in items if i is not OTHERS_NOT_YET and i is not REACH_OUT_NOT_YET]
     return "; ".join(f"{name} ({why})" for name, why in items) + "."
 
 

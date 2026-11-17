@@ -462,6 +462,17 @@ async def handle_add_observation(
             source_type=f"session:{context.get('session_type', 'unknown')}",
         )
         obs_id = getattr(obs, "id", None)
+        # Searchable now, as chat's are (handlers/self_model.py), not only after
+        # the next restart (found 2026-11-17).
+        memory = managers.get("memory")
+        if memory is not None and obs_id:
+            try:
+                memory.embed_self_observation(
+                    observation_id=obs_id, observation_text=observation, category=category,
+                    confidence=confidence, influence_source="independent",
+                    timestamp=getattr(obs, "timestamp", None))
+            except Exception as e:
+                logger.warning(f"Couldn't embed a session observation (the next restart will): {e}")
 
         return {
             "success": True,

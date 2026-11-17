@@ -189,8 +189,11 @@ def test_tools_that_reach_a_person_wait_for_say():
     # is findable, and the seam says so.
     pytest.importorskip("anthropic")
     from agent_loop.seam import not_yet_line
-    assert "speaking to anyone else" in not_yet_line(session_spec("reflection"))
-    assert "reach out" in not_yet_line(session_spec("reflection", can_say=False))
+    # Chapter House posts and DMs are open (2026-11-17): where that pack is, she
+    # speaks to others; without it, the seam still says what isn't open.
+    assert "speaking to anyone else" not in (not_yet_line(session_spec("reflection")) or "")
+    assert "speaking to anyone else" in not_yet_line(session_spec("reflection", chapter_house=False))
+    assert "reach out" in not_yet_line(session_spec("reflection", can_say=False, chapter_house=False))
     catalog = T.router_catalog()
     left = T.findable(catalog, session_spec("reflection").tool_names())
     for name in T.NOT_YET_FINDABLE:

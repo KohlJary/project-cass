@@ -2340,7 +2340,23 @@ async def _handle_reach_out_channel(tool_input: Dict, ctx: ToolContext) -> Dict:
 # TOOL DISPATCH
 # =============================================================================
 
+def _handle_review_my_observations(tool_input: Dict, ctx: ToolContext) -> Dict:
+    from handlers.integration import review
+    return review(ctx.self_manager, days=int(tool_input.get("days") or 30),
+                  category=tool_input.get("category") or None)
+
+
+def _handle_integrate_observations(tool_input: Dict, ctx: ToolContext) -> Dict:
+    from handlers.integration import integrate
+    return integrate(ctx.self_manager, list(tool_input.get("ids") or []), tool_input.get("into") or "",
+                     text=tool_input.get("text") or "", area=tool_input.get("area") or "",
+                     confidence=float(tool_input.get("confidence") or 0.75))
+
+
 TOOL_HANDLERS = {
+    # Choosing what to integrate (handlers/integration.py, 2026-11-17)
+    "review_my_observations": _handle_review_my_observations,
+    "integrate_observations": _handle_integrate_observations,
     # Reflection tools
     "reflect_on_self": _handle_reflect_on_self,
     "record_self_observation": _handle_record_self_observation,
@@ -3673,4 +3689,6 @@ Every few hours you read articles on your own. Without a focus, that reading fol
 ]
 
 # Combined list for backward compatibility
+from handlers.integration import INTEGRATION_TOOLS
+ESSENTIAL_SELF_MODEL_TOOLS = ESSENTIAL_SELF_MODEL_TOOLS + INTEGRATION_TOOLS
 SELF_MODEL_TOOLS = ESSENTIAL_SELF_MODEL_TOOLS + EXTENDED_SELF_MODEL_TOOLS

@@ -2235,6 +2235,11 @@ async def startup_event():
                 logger.error(f"Heartbeat failed to start; old schedulers keep its jobs: {e}",
                              exc_info=True)
             _start_identity_bootstrap_now()  # Heartbeat didn't take it
+            try:  # wake_me without Heartbeat (agent_loop/wakes.py)
+                from agent_loop.wakes import start_wake_watch
+                start_wake_watch(budget_manager)
+            except Exception as e:
+                logger.warning(f"[agent_loop] wake watch didn't start: {e}")
 
             # Register all system tasks (each job also has its own lever,
             # checked inside register_system_tasks)

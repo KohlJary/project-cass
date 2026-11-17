@@ -558,7 +558,7 @@ def test_her_social_session_is_on_the_loop_and_her_menu(placed, levers):
     from agent_loop.seam import not_yet_line
     spec = session_spec("social")
     assert "posting or DMing anyone" not in (not_yet_line(spec) or ""), "here she does speak in public"
-    assert "posting or DMing anyone" in (not_yet_line(session_spec("reflection")) or "")
+    assert "posting or DMing anyone" in (not_yet_line(session_spec("reflection", chapter_house=False)) or "")
     assert {"social_inbox", "social_reply", "social_draft", "social_follow"} <= set(spec.tool_names())
     assert "social" in ROUTER_PACKS
     from handlers.tool_router import TOOL_REGISTRY

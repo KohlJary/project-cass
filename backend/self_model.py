@@ -1786,7 +1786,11 @@ class SelfManager:
 
         # Recent self-observations (if requested)
         if include_observations:
-            observations = self.get_high_confidence_observations(min_confidence=0.7, limit=3)
+            # Her newest confident ones. This took the top 3 by confidence, which
+            # stayed the same set while the heading said "recent" (found 2026-11-17).
+            # Integrated or let-go ones (handlers/integration.py) step aside.
+            observations = [o for o in self.get_recent_observations(limit=50)
+                            if o.confidence >= 0.7 and not o.superseded_by][:3]
             if observations:
                 lines.append("\n### Recent Self-Observations")
                 for obs in observations:

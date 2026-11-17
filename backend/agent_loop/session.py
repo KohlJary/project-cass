@@ -201,7 +201,7 @@ async def run_session_turn(
     answers itself, e.g. set_day_plan; handlers get the input and may be async."""
     import features
     from .spec import ACTIVITY_PACKS
-    from .wakes import WakeBook, heartbeat_running, wake_tool
+    from .wakes import WakeBook, wake_tool, wakes_available
     from .workspace import WORKSPACE_TOOL_NAMES, Workspace
     started = datetime.now()
     session_id = str(uuid.uuid4())[:8]
@@ -220,7 +220,7 @@ async def run_session_turn(
     say_def = tools_mod.say_tool(catalog) if features.is_enabled("reach_out") else None
     wake_def = wake_tool(ACTIVITY_PACKS)
     if can_wake is None:
-        can_wake = heartbeat_running()
+        can_wake = wakes_available()
     session_names = set(_session_tool_defs())
     promoted = tuple(n for n in usage_log.promoted() if n in catalog)
     # C7 (phase 7): someone who writes in private chat arrives in this session
@@ -263,6 +263,8 @@ async def run_session_turn(
         client, model = model_client_for("session.generic", model, runner.client)
 
     logger.info(f"[agent_loop] starting {session_type} session {session_id} through the Turn")
+    from . import felt
+    felt.session_started(daemon_id, session_type, session_id, focus, duration_minutes)
 
     async def run_session_tool(name: str, tool_input: Dict[str, Any]):
         return await runner._execute_tool(name, tool_input, session_id=session_id,
@@ -373,6 +375,10 @@ async def run_session_turn(
             + result.total_output_tokens / 1000 * pricing.get("output", runner.DEFAULT_OUTPUT_COST_PER_1K)
         )
 
+    felt.apply_feel_tags(s.text for s in outcome.steps)
+    felt.session_ended(daemon_id, session_type, session_id, result.status, result.end_reason,
+                       result.duration_seconds / 60, len(outcome.steps),
+                       sum(len(s.tool_calls or []) for s in outcome.steps))
     await runner._save_session_log(result)
     logger.info(f"[agent_loop] session {session_id} {result.status}"
                 + (f" ({result.end_reason})" if result.end_reason else ""))

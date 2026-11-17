@@ -198,3 +198,61 @@ def heartbeat_running() -> bool:
         return wiring.get_heartbeat() is not None
     except Exception:
         return False
+
+
+# Without Heartbeat (its lever is off), wake_me had nothing to fire it, so she
+# didn't have it (found 2026-11-17). This watcher does the same job when
+# Heartbeat isn't running: once a minute, each due wake runs as a session, one
+# at a time, if the reflection budget can cover it. Under the agent_loop lever.
+WATCH_SECONDS = 60
+_watch_task = None
+
+
+async def watch_once(book: Optional[WakeBook] = None, budget=None,
+                     run=None) -> int:
+    """One look: run each due wake (or put it back if the budget can't cover it)."""
+    import features
+    if not features.is_enabled("agent_loop") or heartbeat_running():
+        return 0
+    book = book or WakeBook()
+    run = run or run_wake
+    due = book.take_due()
+    for w in due:
+        if budget is not None:
+            from scheduler.budget import TaskCategory
+            if not budget.can_spend(TaskCategory.REFLECTION, WAKE_ESTIMATED_COST_USD):
+                book.release(w["id"])
+                logger.info(f"[agent_loop] wake {w['id']} waits: not enough budget left today")
+                continue
+        try:
+            await run(w, book)
+        except Exception as e:
+            logger.error(f"[agent_loop] wake {w['id']} failed: {e}")
+    return len(due)
+
+
+def start_wake_watch(budget=None) -> bool:
+    """Start the watcher if Heartbeat isn't running (and the loop is on). True if started."""
+    import asyncio
+    import features
+    global _watch_task
+    if not features.is_enabled("agent_loop") or heartbeat_running():
+        return False
+    if _watch_task is not None and not _watch_task.done():
+        return True
+
+    async def loop():
+        while True:
+            try:
+                await watch_once(budget=budget)
+            except Exception as e:
+                logger.error(f"[agent_loop] wake watch: {e}")
+            await asyncio.sleep(WATCH_SECONDS)
+    _watch_task = asyncio.create_task(loop())
+    logger.info("[agent_loop] wake watch started (Heartbeat isn't running)")
+    return True
+
+
+def wakes_available() -> bool:
+    """Whether something will fire her wakes: Heartbeat, or the watcher."""
+    return heartbeat_running() or (_watch_task is not None and not _watch_task.done())

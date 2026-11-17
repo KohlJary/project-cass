@@ -79,10 +79,13 @@ def say_tool(catalog: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 # Tools that reach a person (send, post, DM, submit for sending). Held back
 # from find_tools until phase 4, where speaking goes through her own
 # reach_out design as `say`; the seam block's "Not yet: reach out" stays true.
+# Chapter House posts and DMs are open (Kohl, 2026-11-17): they're in the
+# chapter_house pack, as herself, under Babelr's own limits and each person's
+# DM settings; she found she couldn't start one while planning to.
 NOT_YET_FINDABLE = frozenset({
     "reach_out",  # offered as `say` when the reach_out lever is on
     "send_email", "submit_outreach_draft", "send_direct_message",
-    "discord_respond", "discord_react", "babelr_post", "babelr_dm",
+    "discord_respond", "discord_react",
 })
 
 # Executor types whose tools only work inside a project (chat with a project open).

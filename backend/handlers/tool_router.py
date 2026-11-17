@@ -120,6 +120,8 @@ TOOL_REGISTRY = {
     # Self-model tools
     "reflect_on_self": "self_model",
     "record_self_observation": "self_model",
+    "review_my_observations": "self_model",
+    "integrate_observations": "self_model",
     "form_opinion": "self_model",
     "note_disagreement": "self_model",
     "review_self_model": "self_model",
