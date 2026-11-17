@@ -109,6 +109,11 @@ def render_seam(spec: TurnSpec, trigger: Trigger, tool_names: Sequence[str],
     elif spec.kind == "session":
         lines.append("If someone starts a conversation with me, this session ends "
                      "cleanly and what I have so far is kept.")
+    if spec.kind == "session" and "session_complete" in tool_names:
+        # Her words, 2026-11-17, in the seam's first person: the nudge
+        # (loop.nudge_text) arrives in the user role and read to her as a person.
+        lines.append("Lines that start with [LOOP] are the loop, not someone speaking to me: "
+                     "it's checking whether my work is complete.")
     return "\n".join(lines)
 
 

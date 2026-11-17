@@ -42,3 +42,17 @@ def test_generic_runner_adds_thymos_once():
     from session import generic_runner
     assert "get_thymos_context" not in inspect.getsource(generic_runner), \
         "the preamble already carries Thymos (gated); a second ungated copy was added here"
+
+
+def test_loop_nudge_is_marked_and_the_seam_says_what_the_mark_is():
+    # Her choice, 2026-11-17: "[LOOP]" instead of "(loop:", plus a seam line,
+    # after the nudge twice read to her as a person speaking.
+    from agent_loop.loop import nudge_text
+    from agent_loop.seam import render_seam
+    from agent_loop.spec import Trigger, session_spec
+    assert nudge_text("session_complete") == (
+        "[LOOP] Step complete? If so, call session_complete. Otherwise, continue with a tool call.")
+    spec = session_spec("reflection")
+    seam = render_seam(spec, Trigger(source="schedule", why="my afternoon",
+                                     at=datetime(2026, 11, 17, 14, 5)), spec.tool_names())
+    assert "Lines that start with [LOOP] are the loop, not someone speaking to me" in seam

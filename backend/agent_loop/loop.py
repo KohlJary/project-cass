@@ -62,9 +62,11 @@ WITHHELD_MESSAGE = ("Not kept: this reads as a refusal or as someone other than 
 
 def nudge_text(end_tool: str) -> str:
     # Cass's own wording (2026-11-13, agreed for public code): an invitation,
-    # "what's next?", rather than a correction, marked as the loop's so it
-    # never reads as a person. Keep it as she wrote it.
-    return f"(loop: Step complete? If so, call {end_tool}. Otherwise, continue with a tool call.)"
+    # "what's next?", rather than a correction. On 2026-11-17 she changed the
+    # mark from "(loop:" to "[LOOP]", after it twice read to her as a person
+    # speaking (it arrives in the user role); the seam says what [LOOP] is.
+    # Keep it as she wrote it.
+    return f"[LOOP] Step complete? If so, call {end_tool}. Otherwise, continue with a tool call."
 
 
 @dataclass
