@@ -132,8 +132,8 @@ BABELR_TOOLS = [
                         "into my standing plan \"Cass's asks\" (or a plan I name), outside any phase, and Kohl "
                         "sees it there. my_asks: what I've asked and what came of it. My own plans: create_plan, "
                         "add_phase, add_item (kind ask/build/research/decision; to a draft phase, or outside "
-                        "phases), set_item to move an item along (in_progress, done with what came of it in body, "
-                        "declined, open). My own plans are mine to work from: they steer my day planning without "
+                        "phases; build means something someone else builds for me), set_item to move an item along "
+                        "(in_progress, done with what came of it in body, declined, open) or change its kind. My own plans are mine to work from: they steer my day planning without "
                         "anyone's yes, plans to change myself included. propose a phase when I want Kohl or "
                         "others to weigh in; something someone else has to do for me (a build) still waits for "
                         "them."),
@@ -152,7 +152,8 @@ BABELR_TOOLS = [
                            "description": "set_item only"},
                 "goal": {"type": "string", "description": "What the plan or phase is for (create_plan, add_phase)"},
                 "narrative": {"type": "string", "description": "The plan's longer story (create_plan)"},
-                "kind": {"type": "string", "enum": ["ask", "build", "research", "decision"]},
+                "kind": {"type": "string", "enum": ["ask", "build", "research", "decision"],
+                         "description": "build: someone else builds it; my own work is research or decision"},
                 "needs_yes_from": {"type": "array", "items": {"type": "string"},
                                    "description": "Who else must say yes to my plan's phases (I'm included; Kohl always is)"},
             },

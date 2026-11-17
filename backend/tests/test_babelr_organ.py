@@ -896,3 +896,27 @@ class TestHerPlansSteerHerDays:
         assert organ.plans("set_item", plan=slug, title="Write a tide poem", status="in_progress")["success"]
         item = [i for i in babelr.plans[slug]["items"] if i["title"] == "Write a tide poem"][0]
         assert item["status"] == "in_progress"
+
+    def test_her_own_work_filed_as_build_can_be_refiled_then_started(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        slug = organ.plans("create_plan", title="Creative rhythm")["plan"]
+        organ.plans("add_phase", plan=slug, title="Start")
+        organ.plans("add_item", plan=slug, phase=1, title="Weekly rhythm", kind="build")
+        r = organ.plans("set_item", plan=slug, title="Weekly rhythm", status="in_progress")
+        assert not r["success"] and "decision or research" in r["error"], "says why and what to do"
+        item = babelr.plans[slug]["items"][0]
+        assert item["status"] == "open"
+        r = organ.plans("set_item", plan=slug, title="Weekly rhythm", kind="decision", status="in_progress")
+        assert r["success"] and item["kind"] == "decision" and item["status"] == "in_progress"
+
+    def test_kind_isnt_changed_under_a_yes(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        slug = organ.plans("create_plan", title="Asked for")["plan"]
+        organ.plans("add_phase", plan=slug, title="Start")
+        organ.plans("add_item", plan=slug, phase=1, title="A thing", kind="build")
+        babelr.plans[slug]["phases"][0]["status"] = "approved"
+        r = organ.plans("set_item", plan=slug, title="A thing", kind="research")
+        assert not r["success"] and "undo the yes" in r["error"]
+        assert babelr.plans[slug]["items"][0]["kind"] == "build"

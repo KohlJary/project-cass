@@ -202,6 +202,14 @@ class FakeAgent:
                                "kind": body["kind"], "title": body["title"], "body": body["body"],
                                "status": "open", "resolution": None, "createdBy": {"name": "cass"}})
             return p
+        if method == "PATCH" and path.startswith("/items/"):
+            iid = path.split("/")[2]
+            for p in s.plans.values():
+                for i in p["items"]:
+                    if i["id"] == iid:
+                        i.update(body)
+                        return p
+            raise RuntimeError(f"fake Plans: no item {iid}")
         if method == "POST" and path.startswith("/items/") and path.endswith("/status"):
             iid = path.split("/")[2]
             for p in s.plans.values():

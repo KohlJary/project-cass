@@ -1088,12 +1088,17 @@ class BabelrOrgan:
                 "phase": (target["position"] + 1) if "phaseId" in body else None}
 
     def _set_item(self, plan: str, detail: Dict[str, Any], kw: Dict[str, Any]) -> Dict[str, Any]:
-        """Move an item along: open, in_progress, done (with what came of it) or declined.
-        Changing an item's status doesn't touch any phase's approval."""
+        """Move an item along: open, in_progress, done (with what came of it) or declined;
+        and/or change its kind. A status change doesn't touch any phase's approval; a kind
+        change to an item in an approved or proposed phase would, so it's refused there."""
         want = (kw.get("title") or "").strip().lower()
-        status = kw.get("status")
-        if status not in ITEM_STATUSES:
+        status, kind = kw.get("status"), kw.get("kind")
+        if status is None and kind is None:
+            return {"success": False, "error": "say a status, a kind, or both"}
+        if status is not None and status not in ITEM_STATUSES:
             return {"success": False, "error": f"status is one of {', '.join(ITEM_STATUSES)}"}
+        if kind is not None and kind not in ITEM_KINDS:
+            return {"success": False, "error": f"kind is one of {', '.join(ITEM_KINDS)}"}
         if not want:
             return {"success": False, "error": "say which item (its title, as view shows it)"}
         items = detail.get("items") or []
@@ -1102,13 +1107,31 @@ class BabelrOrgan:
         if len(hits) != 1:
             return {"success": False, "error": (f"no item titled {kw.get('title')!r} in that plan" if not hits
                                                 else "more than one item starts that way; give the full title")}
+        item = hits[0]
+        phase = next((f for f in detail.get("phases") or [] if f.get("id") == item.get("phaseId")), None)
+        phase_status = (phase or {}).get("status")
         resolution = (kw.get("body") or "").strip()
         if status == "done" and not resolution:
             return {"success": False, "error": "marking it done needs what came of it (body)"}
-        self.client._req("POST", f"{PLANS}/items/{hits[0]['id']}/status",
-                         {"status": status, **({"resolution": resolution} if resolution else {})})
-        logger.info(f"[Babelr] She set an item in {plan} to {status}: {hits[0].get('title')}")
-        return {"success": True, "plan": plan, "item": hits[0].get("title"), "status": status}
+        if kind is not None and kind != item.get("kind"):
+            if phase is not None and phase_status not in _OPEN_PHASE:
+                return {"success": False, "error": (
+                    f"its phase is {phase_status}; changing the item would undo the yes it has or is "
+                    "waiting on")}
+            self.client._req("PATCH", f"{PLANS}/items/{item['id']}", {"kind": kind})
+            logger.info(f"[Babelr] She changed an item in {plan} to {kind}: {item.get('title')}")
+        now_kind = kind or item.get("kind")
+        if status == "in_progress" and now_kind == "build" and phase_status != "approved":
+            return {"success": False, "error": (
+                "a build item is work someone else builds, and Plans starts it only once its phase "
+                "is approved. If this is my own work, set its kind (decision or research) with "
+                "set_item, then start it.")}
+        if status is not None:
+            self.client._req("POST", f"{PLANS}/items/{item['id']}/status",
+                             {"status": status, **({"resolution": resolution} if resolution else {})})
+            logger.info(f"[Babelr] She set an item in {plan} to {status}: {item.get('title')}")
+        return {"success": True, "plan": plan, "item": item.get("title"),
+                **({"status": status} if status is not None else {}), "kind": now_kind}
 
     def get_stats(self) -> Dict[str, Any]:
         return {
