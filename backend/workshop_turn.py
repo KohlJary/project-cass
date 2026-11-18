@@ -33,6 +33,21 @@ def available() -> bool:
     return is_enabled(LEVER)
 
 
+def focused_project(focus: Optional[str], data_dir=None) -> Optional[str]:
+    """The slug of the project her focus names, if any."""
+    key = (focus or "").lower()
+    if not key:
+        return None
+    hit = next((p for p in W.list_projects(data_dir)
+                if p["project"] in key or (p["name"] or "").lower() in key), None)
+    return hit["project"] if hit else None
+
+
+DAEDALUS_LINE = ("\n\nI can work with Daedalus inside a project (work_with_daedalus): he reads and changes its "
+                 "files, and in software projects runs code in the same sandbox, but nothing outside it. He "
+                 "leaves what he changed uncommitted, so I look it over and commit it myself.")
+
+
 def project_block(focus: Optional[str], data_dir=None) -> str:
     """The project her focus names, opened in front of her (or her list, if none does)."""
     projects = W.list_projects(data_dir)
@@ -60,9 +75,20 @@ async def run_workshop_turn(runner, *, duration_minutes: int = 30, max_turns: in
     except Exception as e:
         logger.warning(f"[workshop] couldn't open the project: {e}")
         opened = ""
+    local = {"project": (W.PROJECT_TOOL, lambda a: W.handle(a))}
+    extra = ""
+    try:
+        from daedalus_bridge import project_tools
+        slug = focused_project(focus)
+        daedalus = project_tools(TEMPLATE_ID + (f"-{slug}" if slug else ""), default_project=slug)
+        if daedalus:
+            local.update(daedalus)
+            extra = DAEDALUS_LINE
+    except Exception as e:
+        logger.warning(f"[workshop] couldn't offer Daedalus: {e}")
     return await run_session_turn(
-        runner, session_type=TEMPLATE_ID, additions=INSTRUCTIONS + opened,
-        local_tools={"project": (W.PROJECT_TOOL, lambda a: W.handle(a))},
+        runner, session_type=TEMPLATE_ID, additions=INSTRUCTIONS + extra + opened,
+        local_tools=local,
         duration_minutes=duration_minutes, focus=focus, max_turns=max_turns,
         why=why or "I chose time in my workshop",
         initial_message="Time in my workshop.", **turn_kwargs)

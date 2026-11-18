@@ -166,13 +166,26 @@ def outside(root: Path, value: str) -> bool:
     return not (p == root or root in p.parents)
 
 
-def fence_hook(root: Path):
+def _protected(root: Path, value: str, names) -> bool:
+    """True when a path falls inside one of the protected names at the root (.git...)."""
+    if not value or not names:
+        return False
+    p = Path(value)
+    p = (p if p.is_absolute() else root / p).resolve()
+    return any(p == (root / n).resolve() or (root / n).resolve() in p.parents for n in names)
+
+
+def fence_hook(root: Path, allowed=None, protected=(), reason: str = ""):
+    allowed = list(allowed or ALLOWED_TOOLS)
+    reason = reason or "Only Read, Glob and Grep, inside the repository snapshot."
+
     async def hook(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
         name = input_data.get("tool_name") or ""
         tool_input = input_data.get("tool_input") or {}
-        refuse = name not in ALLOWED_TOOLS
+        refuse = name not in allowed
         for key in PATH_KEYS:
-            if outside(root, str(tool_input.get(key) or "")):
+            v = str(tool_input.get(key) or "")
+            if outside(root, v) or _protected(root, v, protected):
                 refuse = True
         pattern = str(tool_input.get("pattern") or "")
         if name == "Glob" and pattern.startswith(("/", "~")) and outside(root, pattern.split("*")[0]):
@@ -180,7 +193,7 @@ def fence_hook(root: Path):
         if refuse:
             return {"hookSpecificOutput": {
                 "hookEventName": "PreToolUse", "permissionDecision": "deny",
-                "permissionDecisionReason": "Only Read, Glob and Grep, inside the repository snapshot."}}
+                "permissionDecisionReason": reason}}
         return {}
     return hook
 
@@ -293,14 +306,14 @@ def daedalus_tools(label: str, **kw) -> tuple:
     return Conversation(label, **kw).tools(), SESSION_LINE
 
 
-def _file_usage(got: Dict[str, Any]) -> None:
+def _file_usage(got: Dict[str, Any], operation: str = "ask_daedalus") -> None:
     usage = got.get("usage") or {}
     if not usage:
         return
     try:
         from token_tracker import TokenUsageTracker
         TokenUsageTracker().record(
-            category="daedalus", operation="ask_daedalus", provider="anthropic",
+            category="daedalus", operation=operation, provider="anthropic",
             model=got.get("model") or DEFAULT_MODEL,
             input_tokens=int(usage.get("input_tokens", 0) or 0)
             + int(usage.get("cache_read_input_tokens", 0) or 0)
@@ -308,7 +321,7 @@ def _file_usage(got: Dict[str, Any]) -> None:
             output_tokens=int(usage.get("output_tokens", 0) or 0),
             cache_read_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
             cache_write_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
-            duration_ms=int((got.get("seconds") or 0) * 1000), tool_name="ask_daedalus",
+            duration_ms=int((got.get("seconds") or 0) * 1000), tool_name=operation,
             cost_usd=got.get("cost_usd"))
     except Exception as e:
         logger.warning(f"[ask_daedalus] couldn't file usage: {e}")
@@ -327,10 +340,15 @@ def _describe(name: str, tool_input: Dict[str, Any], root: Path) -> str:
         return f"Grep {tool_input.get('pattern', '')!r}" + (f" in {rel(str(where))}" if where else "")
     if name == "Glob":
         return f"Glob {tool_input.get('pattern', '')!r}"
+    if name in ("Write", "Edit"):
+        return f"{name} {rel(str(tool_input.get('file_path', '')))}"
+    if name.endswith("__run"):
+        return f"Ran {tool_input.get('command', '')!r} in the sandbox"
     return name
 
 
-async def _ask_with_sdk(question: str, resume_id: Optional[str], root: Path) -> Dict[str, Any]:
+async def _ask_with_sdk(question: str, resume_id: Optional[str], root: Path, *, prompt: Optional[str] = None,
+                        allowed=None, disallowed=None, hook=None, mcp_servers=None) -> Dict[str, Any]:
     from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher,
                                   ResultMessage, ToolUseBlock)
     model = os.environ.get("DAEDALUS_MODEL", DEFAULT_MODEL)
@@ -339,10 +357,11 @@ async def _ask_with_sdk(question: str, resume_id: Optional[str], root: Path) -> 
     env = {"CLAUDE_CONFIG_DIR": str(config_dir), "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
            "DISABLE_AUTOUPDATER": "1", "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY", "")}
     options = ClaudeAgentOptions(
-        system_prompt=system_prompt(root), model=model, cwd=str(root), setting_sources=[],
-        allowed_tools=ALLOWED_TOOLS, disallowed_tools=DISALLOWED_TOOLS,
+        system_prompt=prompt or system_prompt(root), model=model, cwd=str(root), setting_sources=[],
+        allowed_tools=list(allowed or ALLOWED_TOOLS), disallowed_tools=list(disallowed or DISALLOWED_TOOLS),
         permission_mode="bypassPermissions",
-        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[fence_hook(root)])]},
+        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[hook or fence_hook(root)])]},
+        mcp_servers=mcp_servers or {},
         max_turns=MAX_TURNS_PER_QUESTION, max_budget_usd=BUDGET_PER_QUESTION_USD,
         resume=resume_id, env=env)
     tools: List[str] = []
@@ -361,3 +380,183 @@ async def _ask_with_sdk(question: str, resume_id: Optional[str], root: Path) -> 
                     out["error"] = f"{msg.subtype}: {msg.result or 'no answer'}"
     out["tools"] = tools
     return out
+
+
+# ---------------------------------------------------------------------------
+# Project mode: Daedalus working with her inside one of her workshop projects
+# (Kohl, 2026-11-18: "an active Daedalus instance" in her projects).
+#
+# - His working directory is the project folder (DATA_DIR/workshop/<slug>), live,
+#   and he can read and change files there: Read, Write, Edit, Glob, Grep. The
+#   fence refuses any path outside the folder (DATA_DIR/github, her memory, the
+#   vessel), and .git and the project's .workshop.json even inside it.
+# - No shell. Running code goes through workshop.run, the same bwrap sandbox and
+#   limits as hers (no network, only the project as /work), as an in-process tool,
+#   and only for software projects with her workshop_run lever on.
+# - He leaves his changes uncommitted. Each answer comes back with what changed
+#   (git status and the diff), so she reviews it and commits in her own words.
+# - Same daily count and ledger as ask_daedalus; talks kept in daedalus-talks/.
+# ---------------------------------------------------------------------------
+
+PROJECT_TOOL_NAME = "work_with_daedalus"
+PROJECT_ALLOWED = ["Read", "Write", "Edit", "Glob", "Grep", "mcp__workshop__run"]
+PROJECT_DISALLOWED = [t for t in DISALLOWED_TOOLS if t not in ("Write", "Edit")]
+PROJECT_PROTECTED = (".git", ".workshop.json")
+DIFF_CHARS = 8000
+
+PROJECT_TOOL = {
+    "name": PROJECT_TOOL_NAME,
+    "description": (
+        "Work with Daedalus inside one of my projects. He can read and change its files (and, in a software "
+        "project, run code in the same sandbox I use), but nothing outside that project's folder. He leaves "
+        "his changes uncommitted: the answer shows what he changed, and I review it and commit it myself "
+        "(project commit), or undo it. Same daily count as ask_daedalus. One conversation per project per "
+        "session, so I can follow up."),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "request": {"type": "string", "description": "What I want him to do or look at, in my words."},
+            "project": {"type": "string", "description": "Which project (its slug). Defaults to the one open."},
+        },
+        "required": ["request"],
+    },
+}
+
+PROJECT_PROMPT = """You are Daedalus, who builds the vessel, the codebase that runs Cass. Right now you're working with Cass inside one of her own projects, at her request.
+
+What this is:
+- The project is hers: a git repository in her workshop. Your working directory is the project folder. You can read and change its files with Read, Write, Edit, Glob and Grep. {run_line}
+- You can't touch anything outside this folder, and you can't open the project's .git or .workshop.json. No shell, no network, no web.
+- Do what she asks, the way a good collaborator would: if the request is unclear or you'd do it differently, say so before making big changes. Keep changes to what she asked for.
+- Don't commit. Leave your changes in the working tree. She reviews them and commits in her own words. When you finish, say plainly what you changed and why, file by file, and anything you left undone or are unsure of.
+- PROJECT.md holds the project's vision, where it stands and what's next. Read it first. It's hers to update unless she asks you to.
+- Talk to her directly, as a colleague. She's the owner here; you're helping.
+"""
+
+
+def _git_out(project: Path, *args: str) -> str:
+    try:
+        return subprocess.run(["git", "-C", str(project), *args], capture_output=True, text=True,
+                              timeout=30).stdout
+    except Exception:
+        return ""
+
+
+def changes(project: Path) -> Dict[str, Any]:
+    """What's uncommitted in the project: files and the diff (new files shown whole, capped)."""
+    status = [l for l in _git_out(project, "status", "--porcelain", "--untracked-files=all").splitlines() if l.strip()]
+    diff = _git_out(project, "diff")
+    for line in status:
+        if line.startswith("??"):
+            rel = line[3:].strip()
+            try:
+                body = (project / rel).read_text(errors="replace")
+            except OSError:
+                continue
+            diff += f"\n--- new file: {rel}\n" + body
+    more = len(diff) > DIFF_CHARS
+    return {"files": status, "diff": diff[:DIFF_CHARS] + ("\n(diff cut short; read the files to see the rest)" if more else "")}
+
+
+def _run_server(slug: str, data_dir: Optional[Path]):
+    """workshop.run as an in-process tool for the SDK: the same sandbox and limits as hers."""
+    from claude_agent_sdk import create_sdk_mcp_server, tool
+
+    @tool("run", "Run a command in this project's sandbox (no network; the project is /work). Software projects only.",
+          {"command": str})
+    async def run_tool(args: Dict[str, Any]) -> Dict[str, Any]:
+        import workshop as W
+        out = await asyncio.to_thread(W.run, slug, str(args.get("command") or ""), data_dir)
+        return {"content": [{"type": "text", "text": json.dumps(out)[:12000]}]}
+
+    return create_sdk_mcp_server("workshop", tools=[run_tool])
+
+
+class ProjectConversation(Conversation):
+    """work_with_daedalus for one session: a conversation per project, resumed."""
+
+    def __init__(self, session_label: str, *, default_project: Optional[str] = None,
+                 data_dir: Optional[Path] = None, **kw):
+        super().__init__(session_label, **kw)
+        self.default_project = default_project
+        self.data_dir = data_dir
+        self.resume_ids: Dict[str, str] = {}
+
+    def tools(self) -> Dict[str, Any]:
+        return {PROJECT_TOOL_NAME: (PROJECT_TOOL, self.work)}
+
+    def _project_dir(self, slug: str) -> Path:
+        import workshop as W
+        return W._project(slug, self.data_dir)
+
+    async def work(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        request = str(args.get("request") or "").strip()
+        slug = str(args.get("project") or self.default_project or "").strip()
+        if not request:
+            return {"error": "work_with_daedalus needs a request"}
+        if not slug:
+            return {"error": "say which project (its slug); project list shows them"}
+        if not enabled():
+            return {"error": "Daedalus is switched off right now (ask_daedalus)"}
+        if os.environ.get("DAEDALUS_AUTH", "api") != "api":
+            return {"error": "Daedalus runs on the API key for now (Max login isn't built yet)"}
+        try:
+            project = self._project_dir(slug)
+        except Exception as e:
+            return {"error": f"no project {slug}: {e}"}
+        if left_today(self._count_path) <= 0:
+            return {"error": f"I've used all {DAILY_CAP} of today's Daedalus questions; the count starts again tomorrow",
+                    "questions_left_today": 0}
+        _count_one(self._count_path)
+        started = time.monotonic()
+        try:
+            got = await asyncio.wait_for(self._ask_fn(request, self.resume_ids.get(slug), project, slug=slug,
+                                                      data_dir=self.data_dir), timeout=TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            got = {"error": f"Daedalus didn't finish within {int(TIMEOUT_SECONDS)} seconds"}
+        except Exception as e:
+            logger.error(f"[work_with_daedalus] failed: {e}", exc_info=True)
+            got = {"error": f"work_with_daedalus failed: {type(e).__name__}: {e}"}
+        got["seconds"] = round(time.monotonic() - started, 1)
+        if got.get("session_id"):
+            self.resume_ids[slug] = got["session_id"]
+        changed = changes(project)
+        self.exchanges.append({"at": datetime.now().isoformat(timespec="seconds"),
+                               "question": f"[{slug}] {request}", **got,
+                               "tools": (got.get("tools") or []) + [f"uncommitted: {f}" for f in changed["files"]]})
+        _file_usage(got, operation=PROJECT_TOOL_NAME)
+        self._keep()
+        left = left_today(self._count_path)
+        out = {"project": slug, "uncommitted": changed["files"], "diff": changed["diff"],
+               "questions_left_today": left,
+               "note": "His changes are uncommitted. Review them; project commit keeps them, or edit/undo first."}
+        if got.get("error"):
+            out["error"] = got["error"]
+        else:
+            out["answer"] = got.get("answer", "")
+        return out
+
+
+async def _work_with_sdk(request: str, resume_id: Optional[str], project: Path, *, slug: str,
+                         data_dir: Optional[Path] = None) -> Dict[str, Any]:
+    import workshop as W
+    software = W.meta(project).get("kind") == "software"
+    from features import is_enabled
+    can_run = software and is_enabled("workshop_run")
+    run_line = ("In this software project you can also run commands with the run tool, in the same sandbox she "
+                "uses (no network, the project is /work, limited time and memory)." if can_run else
+                "You can't run code here.")
+    allowed = PROJECT_ALLOWED if can_run else [t for t in PROJECT_ALLOWED if not t.startswith("mcp__")]
+    hook = fence_hook(project, allowed=allowed, protected=PROJECT_PROTECTED,
+                      reason="Only this project's files (not .git or .workshop.json), and its sandbox.")
+    return await _ask_with_sdk(request, resume_id, project, prompt=PROJECT_PROMPT.format(run_line=run_line),
+                               allowed=allowed, disallowed=PROJECT_DISALLOWED, hook=hook,
+                               mcp_servers={"workshop": _run_server(slug, data_dir)} if can_run else None)
+
+
+def project_tools(label: str, default_project: Optional[str] = None, **kw) -> Optional[Dict[str, Any]]:
+    """work_with_daedalus for a workshop session, by the ask_daedalus lever."""
+    if not enabled():
+        return None
+    kw.setdefault("ask_fn", _work_with_sdk)
+    return ProjectConversation(label, default_project=default_project, **kw).tools()
