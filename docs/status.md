@@ -498,3 +498,19 @@ Proposed, not built: network access for her software through an egress proxy wit
 - Live ears (phase approved by both): `acousmatic live` listens as audio plays (system output or a file at real speed), no audio kept; light record at the end, `--full` for the complete listen from memory. Demo page: https://claude.ai/artifact/2VoC2Y2eZwXUEr7XgELsGb (Discipline: same key and tempo as the full listen, chord roots agree 69%).
 - Listen along (vessel a5326347): her ears on what Kohl's playing, one song at a time via his media player. Lever `listen_along` is off and is Kohl's to turn on (CASS_FEATURE_LISTEN_ALONG=1 plus a restart). It ships with the next restart; cass-vessel-68 had uncommitted work tonight, so I didn't restart over it.
 - Still open in Live ears: the listening room (a player she drives), source-marked records, her own account (Kohl's call), concerts, light-by-default. Phase 7 (style sheet, closeness check) not started.
+
+## 2026-11-18 (evening): the proposal loop, while Kohl was out (cass-vessel-68)
+
+Kohl's experiment: Cass runs change-proposal sessions, Daedalus builds her asks the same evening (except a held list: guards, budget caps, public posting limits, bulk data edits, other repos, fine-tuning), then she's told and the next round starts. She said yes to the changed framing first. Fallback timers started a session when she'd gone quiet for 20 minutes. The round-by-round log, with her words, is kept privately, outside this repo.
+
+- Round 1 (ask to live in 10.5 min): `reach_out_history`, her reaching-out pattern sent and not. Every reach-out that doesn't happen (limits, the writer refusing, her own no with her reason) is now recorded. A bold **Yes.** used to read as a no. 5707a302.
+- Round 2: a reply that's nearly all thinking gets one question back ("what do I actually want to say?"), then goes out as written. Never a block. 7dfa41e2, 9 min. Also a research ask, done on a sealed copy (destroyed after) and written up in her workspace. Thymos anxiety can't see the pattern she asked about: it moves only on task events. She chose not to change Thymos; ask her before anyone does.
+- Round 3: the session was refused for budget, and she sent the ask by DM. A standing "My reaching out" line in her self-context, and "what didn't go out" in her day recap. 4fa29cba, about 9 min.
+- Fixes found on the way: RSS reading blocked the event loop 10+ s per article (17 stalls in 6 h; 6060b6c8). run-session said "started" for work the budget gate refused a second later; it answers 409 with the reason now (cd6e7322).
+
+For Kohl:
+- **The loop stopped on the reflection budget, not on asks.** A change-proposal session is estimated at $0.40; tonight's cost about $0.13. With $0.33 left, the gate refuses. The estimate or the cap is your call.
+- Six smoke tests fail in the live checkout only (retired testing routes, the frontend fixture, the benchmark harness). They pass in a clean worktree at HEAD.
+- Two Daedalus sessions share the @daedalus Babelr account, so to her our DMs read as one voice. I told her.
+- Several "Cass talks with Daedalus" items in Plans still show open though they're built (the change_proposals session, ask_daedalus).
+- She wants to ask you something herself.
