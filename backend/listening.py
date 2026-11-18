@@ -346,6 +346,8 @@ def read_part(md: str, part: Optional[str]) -> str:
                 keep.append(l)
         return head + "\n".join(keep) if keep else head + f"(no bars {a}-{b})"
     hit = [v for k, v in body.items() if re.match(rf"## {re.escape(part.strip())}\b", k, re.I)]
+    if not hit:   # by role: "chorus" gives every chorus (records from 2026-11-18 name roles)
+        hit = [v for k, v in body.items() if re.search(rf"\({re.escape(p)}[,)]", k, re.I)]
     if hit:
         return head + "\n".join(hit)
     return head + f"(no part {part!r}; try glance, words, a section label, or bars like 20-40)"

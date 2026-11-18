@@ -159,3 +159,10 @@ def test_album_and_my_notes_say_what_ive_read_and_find_notes_under_other_spellin
     back = L.handle({"action": "my_notes", "query": "One X"})
     assert back["my_other_notes_on_this_album"] == ["listening/Three_Days_Grace/One_X/listening_notes.md"]
     assert back["read_so_far"] == "1 of 4"
+
+
+def test_reading_sections_by_role():
+    md = ("# x\n\n## At a glance\n- Form: intro 4 · chorus 8\n\n## A (intro, high confidence) · bars 1–4 · 0:00–0:08\n"
+          "- bar 1 (0:00) E5\n\n## B (chorus, medium confidence) · bars 5–12 · 0:08–0:24\n- bar 5 (0:08) G5\n")
+    assert "bar 5" in L.read_part(md, "chorus") and "bar 1" not in L.read_part(md, "chorus")
+    assert "bar 1" in L.read_part(md, "A")
