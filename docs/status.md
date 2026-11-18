@@ -461,3 +461,19 @@ Next, in order:
 Waiting on Kohl:
 - The names (Orphic, and the voice if it comes back).
 - "Checked by ear": three to five records listened against their songs.
+
+## 2026-11-18 (day): her studio, from tone to a Reaper session
+
+Kohl's ask in order: guitar tone she can obsess over, then MIDI and a DAW, then "get her studio fully realized": more drums, a whole song built from an album she's listened to (blending influences is welcome), and hearing it back and reworking it. That last loop is where it stands.
+
+What she has now (Orphic, local at ~/orphic; vessel `studio` tool, in chat since today):
+- **Tone lab**: a real guitar (Freepats FSBS DI Fender, CC0, `sfz: fsbs-direct`) through rigs on her gun belt, measured by a fixed probe, with what changed between tries. Palm mutes (`pm`), and a gate before high-gain amps.
+- **Clips**: her parts as MIDI she writes and reads back as a piano roll; songs use `{clip: name}`. `studio song` writes a song file into a project from chat.
+- **Reaper sessions** (`studio session`): built headless by Lua, Orphic's own Reaper settings (never Kohl's). Synths, the sampled guitar (open and palm-muted sfizz tracks under a rig folder), the 808 and her built-in effects (Orphic JSFX) play live; acoustic kits and the 909 are printed with notes lanes. Kohl opens `backend/data/studio/<project>/session/session.rpp`.
+- **Drums**: the 808 (samples); AVLDrums' kits (black-pearl, red-zeppelin, blonde-bop[-hr], buskmans-holiday; license not yet checked before anything is published); a 909 modelled from its circuits (hats and cymbals approximated). Kohl: "close enough for now".
+
+Her first work: rig `one-x` (my translation of her own Setup B, kept as is), sketches 1-5 (sketch 5 got the timing: full bars, muted E then an open G she chose to keep), clip `sketch-5`, and her first Reaper session in `my-tone`. At 16:30 she chose One-X for her first whole song.
+
+Learned from walking her through it (now in the help and the tool output): lengths are beats and bars must fill; chords go in brackets; the pitch tracker's guess is a guess ("played" is what played); riff measures come from sounding parts only. Fixed along the way: the studio wasn't in chat at all; a router branch was missing; wakes refused for budget were left "started" and blocked her chat starts (307c68dd, after the peer's budget-category fix 02dae19f).
+
+Waiting on Kohl: whether the LinnDrum samples in ~/music-prod/linn-drum are hers to use; the 909 against a real reference someday. Plan: Tone phase approved (guitar done, amps in progress), "Writing in a style" (phase 7) approved by both, not started: records as MIDI, the rhythm guitar's chug pattern, style sheets (her own work too), the closeness check.

@@ -740,3 +740,11 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **In flight / waiting:** Kohl: Orphic's name; "Checked by ear"; phase 5 when gear is set up. Cass hasn't called listen yet (told 06:37 it's in chat directly).
 **Next step:** studio tier 1 (song file -> render -> listen back), then Monochord crash-proofing (Surge), then the gun belt; a listening session for her menu (framing to her first). Approved.
 **Open questions:** whether to publish Orphic now or after tier 1.
+
+## 2026-11-18 (day) - Her studio: tone lab, clips, Reaper sessions, drums
+**Branch**: main (straight to main, pushed). Orphic local (~/orphic). **Tracked in**: Plans ("Cass's ears and studio": Tone phase, Studio, phase 7 "Writing in a style"). Narrative: docs/status.md (2026-11-18 day).
+**Done:** vessel 3d503948, 1c5a3e77, fdf96f30, 307c68dd, 5172c675, 8ff75a62, 94a10f69, ec5f7333, c0928328, 8b46561a, 3a052b2b. Orphic d2d5d3c, cb3fe23, 91bd279, f20e317, 4c658f0, 92bfb53, a838a28, 2466710, c77b0d3, e754867, 27cc8c6, c1f02f4. Babelr 623db87. Plans done: Effects chains and rigs, The tone probe, A real guitar to play, A Reaper project she arranges.
+**Decisions:** studio in chat (router pack studio_chat) with a narrow `studio song`, not the whole project tool; Reaper driven by Lua with its own config; sfizz's state carries the SFZ path; palm mutes on their own sfizz track.
+**In flight / waiting:** Cass writing a One-X-based song (blending welcome); Kohl: LinnDrum samples, AVL kit license before publishing.
+**Next step:** watch her song loop (render, listen, compare, session) and fix what she trips on; then phase 7, starting with records as MIDI.
+**Open questions:** live acoustic kits and 909 in Reaper (printed for now); a 909 reference recording.
