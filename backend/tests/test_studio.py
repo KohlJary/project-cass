@@ -247,3 +247,20 @@ def test_a_rig_with_knobs_that_dont_exist_isnt_saved(tmp_path, monkeypatch):
     assert not (tmp_path / "studio" / "belt" / "x.json").exists()
     ok = ST.handle({"action": "rig", "name": "x", "chain": [{"builtin": "highpass", "cutoff_frequency_hz": 100}]}, tmp_path)
     assert ok["saved"] == "x"
+
+
+def test_form_writes_sections_that_play_clips(tmp_path, monkeypatch):
+    import yaml
+    import workshop as W
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    slug = W.new("Form Test", "music", "x", tmp_path)["project"]
+    ST.handle({"action": "song", "project": slug, "message": "instruments",
+               "text": "tempo: 100\ninstruments: {guitar: {sfz: fsbs-direct}, bass: {synth: vitalium}}\n"}, tmp_path)
+    out = ST.handle({"action": "form", "project": slug,
+                     "form": "intro 4 · verse 8 · chorus 8 · verse 8 · chorus 16 · outro 4"}, tmp_path)
+    assert out["sections"] == ["intro 4", "verse 8", "chorus 8", "verse 8", "chorus-16 16", "outro 4"]
+    assert "verse-guitar" in out["clips_to_write"] and "chorus-bass" in out["clips_to_write"]
+    song = yaml.safe_load((W._project(slug, tmp_path) / "song.yaml").read_text())
+    assert song["tempo"] == 100 and song["sections"]["verse"]["guitar"] == {"clip": "verse-guitar"}
+    assert song["arrangement"][4] == "chorus-16"
+    assert "error" in ST.handle({"action": "form", "project": slug, "form": "verse eight"}, tmp_path)

@@ -66,7 +66,11 @@ TOOL = {
         "that Kohl can open in Reaper, and renders it there: synths play live from my MIDI, the sampled "
         "guitar and the 808 go in as their audio with the notes beside them. song writes a song file into a "
         "project (song.yaml, or another name ending .yaml) from text, checks it parses, and commits it with "
-        "my message; render and session then play it. share sets who can follow my music log in Babelr (my listening, what I write "
+        "my message; render and session then play it. form starts from the shape instead of the bars: I give "
+        "the sections and their lengths in order, and it writes the song's sections and arrangement, keeping my "
+        "tempo and instruments, with each instrument in each section playing a clip named for it "
+        "(verse-guitar, chorus-bass...); I write those clips (a bar or two loops to fill the section) and "
+        "render. Every render shows the song by section: what plays in each and how loud each is. share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
@@ -74,7 +78,10 @@ TOOL = {
             "action": {"type": "string",
                        "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
                                 "noodle", "sketchbook", "keep", "share", "hide", "show", "tone", "rig",
-                                "clip", "clips", "session", "song"]},
+                                "clip", "clips", "session", "song", "form"]},
+            "form": {"type": "string", "description": "form: the song's shape, sections and bars in order, like "
+                                                      "\"intro 4 · verse 8 · chorus 8 · verse 8 · chorus 8 · bridge 8 · "
+                                                      "chorus 16 · outro 4\""},
             "text": {"type": "string", "description": "song: the whole song file (YAML, as help shows)"},
             "clip_notes": {"type": "array", "items": {"type": "object"},
                            "description": "clip: the notes as MIDI, each {\"bar\": 1, \"beat\": 1.5, \"pitch\": \"E2\" "
@@ -239,6 +246,7 @@ def render(slug: str, song: str, message: str, data_dir=None) -> Dict[str, Any]:
         glance = read_part(rec.read_text(), "glance")
     return {"draft": n, "commit": head, "title": out.get("title"), "length_s": out.get("length_s"),
             "parts": out.get("tracks"), "would_have_clipped": out.get("would_have_clipped"),
+            "balance": out.get("balance"), "by_section": out.get("by_section"),
             "what_my_ears_heard": glance[:6000],
             "note": "studio read / look for more; compare against an earlier draft"}
 
@@ -451,6 +459,55 @@ def write_song(slug: str, song: Optional[str], text: str, message: str, data_dir
 
 
 # ---------------------------------------------------------------------------
+# form first: the song's shape, written as sections that play clips
+# ---------------------------------------------------------------------------
+
+def form(slug: str, shape: str, song: Optional[str], message: str, data_dir=None) -> Dict[str, Any]:
+    import workshop as W
+    import yaml
+    parts = [p.strip() for p in re.split(r"[·,;|>\n]+|\s-\s|→", shape or "") if p.strip()]
+    order = []
+    for p in parts:
+        m = re.fullmatch(r"([A-Za-z][\w-]*(?:[ -][A-Za-z][\w-]*)?)\s+(\d+)", p)
+        if not m:
+            return {"error": f"{p!r}: each section is a name and its bars, like 'verse 8'"}
+        order.append((re.sub(r"[^a-z0-9]+", "-", m.group(1).lower()).strip("-"), int(m.group(2))))
+    if not order:
+        return {"error": "form needs the sections in order, like 'intro 4 · verse 8 · chorus 8'"}
+    try:
+        project = W._project(slug, data_dir)
+    except Exception as e:
+        return {"error": f"no project {slug!r}: {e}"}
+    name = (song or "song.yaml").strip()
+    path = project / name
+    old = yaml.safe_load(path.read_text()) if path.exists() else {}
+    old = old if isinstance(old, dict) else {}
+    instruments = old.get("instruments") or {}
+    if not instruments:
+        return {"error": f"{name} has no instruments yet: write them first (studio song), then the form"}
+    sections, arrangement, lengths = {}, [], {}
+    for sec, bars in order:
+        key = sec
+        if sec in lengths and lengths[sec] != bars:   # the same section at another length is its own
+            key = f"{sec}-{bars}"
+        lengths.setdefault(key, bars)
+        arrangement.append(key)
+        sections[key] = {"bars": bars, **{inst: {"clip": f"{sec}-{inst}"} for inst in instruments}}
+    new = {k: v for k, v in old.items() if k not in ("sections", "arrangement")}
+    new.update({"sections": sections, "arrangement": arrangement})
+    text = yaml.safe_dump(new, sort_keys=False, allow_unicode=True)
+    out = write_song(slug, name, text, (message or "").strip() or "Form: " + shape[:80], data_dir)
+    if out.get("error"):
+        return out
+    have = {p.stem for p in (project / "clips").glob("*.mid")} if (project / "clips").exists() else set()
+    need = sorted({f"{sec}-{inst}" for sec, _ in order for inst in instruments})
+    return {"written": name, "sections": [f"{k} {lengths[k]}" for k in arrangement],
+            "clips_to_write": [c for c in need if c not in have], "clips_already_there": [c for c in need if c in have],
+            "next": "write each clip with studio clip (a bar or two loops to fill its section; a part I don't want "
+                    "in a section, I can delete from the song), then render"}
+
+
+# ---------------------------------------------------------------------------
 # a song as a Reaper session
 # ---------------------------------------------------------------------------
 
@@ -609,6 +666,10 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return patch(a.get("name"), a.get("synth"), a.get("params") or {}, a.get("notes") or "", data_dir)
     if action == "map":
         return synth_map(a.get("synth") or "")
+    if action == "form":
+        if not slug:
+            return {"error": "which project (project)?"}
+        return form(slug, a.get("form") or "", a.get("song"), a.get("message") or "", data_dir)
     if action == "song":
         if not slug:
             return {"error": "which project (project)?"}
@@ -658,7 +719,7 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
     if action == "keep":
         return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
     return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, "
-                     "keep, share, hide, show, tone, rig, clip, clips, session, song"}
+                     "keep, share, hide, show, tone, rig, clip, clips, session, song, form"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:
