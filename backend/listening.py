@@ -395,6 +395,14 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Acousmatic isn't installed where the vessel expects it"}
     found = find(query, index())
     tracks = found["tracks"]
+    if tracks:
+        try:
+            from music_log import log_activity
+            first = tracks[0] if (found["kind"] == "song" or action not in ("listen", "album")) else \
+                {"artist": tracks[0]["artist"], "album": tracks[0]["album"], "title": f"{tracks[0]['album']} (album)"}
+            log_activity(action, first)
+        except Exception as e:
+            logger.warning(f"[listening] activity log: {e}")
     if not tracks:
         return {"error": f"nothing on the shelf matches {query!r}; shelf with a query shows what's there"}
     if action == "listen":

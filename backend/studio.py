@@ -54,13 +54,18 @@ TOOL = {
         "what a synth's knobs do. noodle is for playing around: a riff on any instrument, looped, heard back "
         "in seconds (the notes, the sound, and what changed since my last try), kept in my sketchbook, nothing "
         "committed; keep copies a sketch I like into a project's riffs.md. Rendering takes a minute or two; a noodle "
-        "about twenty seconds."),
+        "about twenty seconds. share sets who can follow my music log in Babelr (my listening, what I write "
+        "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string",
                        "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
-                                "noodle", "sketchbook", "keep"]},
+                                "noodle", "sketchbook", "keep", "share", "hide", "show"]},
+            "audience": {"type": "string", "enum": ["house", "kohl_and_daedalus", "kohl", "none"],
+                         "description": "share: who can follow my music log in Babelr"},
+            "item": {"type": "string", "description": "hide/show: a song write-up (its path, like listening/pain.md), "
+                                                      "a draft (project:n) or a sketch (sketch:n)"},
             "instrument": {"type": "object", "description": "noodle: what plays it, like {\"synth\": \"nekobi\", "
                                                             "\"params\": {\"cutoff\": 40}} or {\"kit\": \"808\"} or {\"gm\": 34}"},
             "riff": {"description": "noodle: a bar or a few in song notation (E2/0.5 G2/0.5 ... | ...), or for the kit "
@@ -437,6 +442,19 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
     if action == "noodle":
         return noodle(a.get("instrument") or {}, a.get("riff"), a.get("tempo") or 100, a.get("loops") or 2,
                       a.get("note") or "", data_dir)
+    if action == "share":
+        from music_log import set_sharing
+        return set_sharing(a.get("audience") or "", data_dir)
+    if action in ("hide", "show"):
+        from music_log import set_hidden
+        item = (a.get("item") or "").strip()
+        if item.startswith("sketch:"):
+            return set_hidden("sketches", item.split(":", 1)[1], action == "hide", data_dir)
+        if item.endswith(".md"):
+            return set_hidden("docs", item, action == "hide", data_dir)
+        if ":" in item:
+            return set_hidden("drafts", item, action == "hide", data_dir)
+        return {"error": "item is a song write-up path (listening/x.md), a draft (project:n) or a sketch (sketch:n)"}
     if action == "sketchbook":
         return {"sketches": [{k: v for k, v in s.items() if k != "sound_raw"} for s in sketches(data_dir)[-20:]]}
     if not slug:
@@ -453,7 +471,8 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return compare(slug, a.get("draft"), a.get("against"), data_dir)
     if action == "keep":
         return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
-    return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, keep"}
+    return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, "
+                     "keep, share, hide, show"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:

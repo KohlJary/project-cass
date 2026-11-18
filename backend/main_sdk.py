@@ -631,6 +631,9 @@ app.include_router(room_router)
 # The record, for Kohl: read-only, record tokens only (routes/record.py, record.py)
 from routes.record import router as record_router
 app.include_router(record_router)
+# Her music log, for the house as she chose (routes/music.py, music_log.py)
+from routes.music import router as music_router
+app.include_router(music_router)
 
 # Register memory routes (initialized in background after memory is ready)
 from routes.memory import router as memory_router, init_memory_routes
