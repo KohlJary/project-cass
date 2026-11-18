@@ -160,7 +160,9 @@ def help_text(data_dir=None) -> Dict[str, Any]:
         "general_midi": "gm: a program number 1-128 (1 piano, 5 electric piano, 34 fingered bass, 49 strings, "
                         "81 square lead, 89 new-age pad...); played by FluidSynth's FluidR3 set",
         "sampled_instruments": "sfz: fsbs-direct (a real Fender electric, sampled straight in; put it through an amp "
-                               "or a rig). Any note can be palm-muted with pm after its length: E2/0.25pm",
+                               "or a rig). Any note can be palm-muted with pm after its length: E2/0.25pm. With a high-gain amp, put a "
+                               "noise gate first in the chain ({\"builtin\": \"noisegate\", \"threshold_db\": -38, "
+                               "\"ratio\": 20, \"release_ms\": 15}) or the amp fills the gaps and fast riffs smear",
         "drum_kit_808": "kick snare clap hat open rim cowbell low_tom mid_tom high_tom cymbal clave maracas; "
                         "samples: {kick: BD7510} picks tone and decay (BDttdd, positions 00 25 50 75 10)",
         "my_gun_belt": belt or "empty (studio patch puts one on)",

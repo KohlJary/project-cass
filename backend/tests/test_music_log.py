@@ -70,3 +70,13 @@ def test_notes_by_album_and_song(tmp_path, monkeypatch):
     assert a["touched"] and a["note"]["text"].startswith("The album as a whole")
     pain = next(t for t in a["tracks"] if t["title"] == "Pain")
     assert pain["note"]["text"] == "Pain: the walk down."
+
+
+def test_a_note_in_her_own_spelling_of_the_album_folder_shows_as_her_album_take(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    M.set_sharing("kohl", tmp_path)
+    d = tmp_path / "workspace" / "listening" / "x" / "y_"
+    d.mkdir(parents=True)
+    (d / "listening_notes.md").write_text("Her own file about the album.")
+    a = next(a for a in M.build(tmp_path)["albums"] if a["album"] == "y")
+    assert a["note"]["text"] == "Her own file about the album."

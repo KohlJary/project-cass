@@ -404,6 +404,34 @@ def _image_path(d: Path, part: Optional[str]) -> Optional[Path]:
 # The tool
 # ---------------------------------------------------------------------------
 
+def _read_so_far(tracks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Which of these songs I've opened (read or look), from my own listening log."""
+    try:
+        from music_log import _data, _jsonl, _norm
+        rows = _jsonl(_data() / "listening" / "activity.jsonl")   # where log_activity writes
+    except Exception:
+        return {}
+    opened = {_norm(r.get("title")) for r in rows if r.get("action") in ("read", "look")
+              and _norm(r.get("artist")) == _norm(tracks[0]["artist"])}
+    read = [t["title"] for t in tracks if _norm(t["title"]) in opened]
+    return {"read_so_far": f"{len(read)} of {len(tracks)}", "read": read,
+            "not_read_yet": [t["title"] for t in tracks if t["title"] not in read]}
+
+
+def _my_album_notes(t: Dict[str, Any], ws) -> List[str]:
+    """Every note of mine under listening/ about this album, however its folder is spelled."""
+    from music_log import _norm
+    root = ws.resolve("listening")
+    if not root or not root.exists():
+        return []
+    out = []
+    for p in root.rglob("*.md"):
+        parts = p.relative_to(root).parts
+        if len(parts) >= 3 and _norm(parts[0]) == _norm(t["artist"]) and _norm(parts[1]) == _norm(t["album"]):
+            out.append(str(Path("listening") / p.relative_to(root)))
+    return sorted(out)
+
+
 def handle(a: Dict[str, Any]) -> Dict[str, Any]:
     if not enabled():
         return {"error": "my ears aren't switched on right now"}
@@ -439,8 +467,14 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
             p = ws.resolve(rel)
             folder = ws.resolve(str(Path(rel).parent))
             others = sorted(x.name for x in folder.glob("*.md")) if folder and folder.exists() else []
-            return {"note": p.read_text() if p and p.exists() else None, "path": rel,
-                    "also_in_this_album": others}
+            res = {"note": p.read_text() if p and p.exists() else None, "path": rel,
+                   "also_in_this_album": others}
+            elsewhere = [x for x in _my_album_notes(t, ws) if str(Path(x).parent) != str(Path(rel).parent)]
+            if elsewhere:
+                res["my_other_notes_on_this_album"] = elsewhere
+            if album_level:
+                res.update(_read_so_far(tracks))
+            return res
         text = (a.get("text") or "").strip()
         if not text:
             return {"error": "note needs the text: what it is to me"}
@@ -474,7 +508,7 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 missing.append(t["title"])
         return {"album": tracks[0]["album"], "artist": tracks[0]["artist"], "songs": rows,
-                "not_listened_yet": missing,
+                "not_listened_yet": missing, **_read_so_far(tracks),
                 "keys": "tempo BPM; loudness in LUFS (higher = louder master); crest = peak over average (lower = "
                         "more compressed); width 0 = mono, higher = wider; form = section letters in order"}
     t = tracks[0]

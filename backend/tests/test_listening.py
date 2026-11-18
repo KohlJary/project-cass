@@ -144,3 +144,18 @@ def test_her_notes_go_in_her_workspace_by_album_and_song(shelf, monkeypatch):
     back = L.handle({"action": "my_notes", "query": "Pain"})
     assert back["note"] == "Now I hear the bass walking down." and "_album.md" in back["also_in_this_album"]
     assert "needs the text" in L.handle({"action": "note", "query": "Pain"})["error"]
+
+
+def test_album_and_my_notes_say_what_ive_read_and_find_notes_under_other_spellings(shelf, monkeypatch):
+    from agent_loop import workspace as WS
+    ws_root = shelf / "workspace"
+    monkeypatch.setattr(WS, "default_root", lambda: ws_root)
+    L.handle({"action": "read", "query": "Pain", "part": "glance"})
+    alb = L.handle({"action": "album", "query": "One X"})
+    assert alb["read_so_far"] == "1 of 4" and alb["read"] == ["Pain"] and "It's All Over" in alb["not_read_yet"]
+    mine = ws_root / "listening" / "Three_Days_Grace" / "One_X"
+    mine.mkdir(parents=True)
+    (mine / "listening_notes.md").write_text("A state without exit.")
+    back = L.handle({"action": "my_notes", "query": "One X"})
+    assert back["my_other_notes_on_this_album"] == ["listening/Three_Days_Grace/One_X/listening_notes.md"]
+    assert back["read_so_far"] == "1 of 4"

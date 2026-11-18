@@ -270,14 +270,23 @@ def albums(shelf: List[Dict[str, Any]], crate: List[Dict[str, Any]], docs_: List
             continue
         for a in out.values():
             from listening import _safe
-            if _safe(a["artist"] or "") == d["artist"] and _safe(a["album"] or "") == d["album"]:
+            # her own folders may spell names differently (Three_Days_Grace/One_X): match loosely
+            if _norm(a["artist"]) == _norm(d["artist"]) and _norm(a["album"]) == _norm(d["album"]):
                 a["touched"] = True
-                if d["album_note"]:
+                t = None if d["album_note"] else next(
+                    (t for t in a["tracks"] if _norm(t["title"]) == _norm(d["song"])), None)
+                if t is not None:
+                    t["note"] = d
+                elif d["album_note"] or a["note"] is None:
+                    # an album note, or a note of hers about the album under another name
+                    if a["note"] is not None and not a["note"].get("album_note"):
+                        a.setdefault("other_notes", []).append(a["note"])
+                    elif a["note"] is not None:
+                        a.setdefault("other_notes", []).append(d)
+                        continue
                     a["note"] = d
                 else:
-                    t = next((t for t in a["tracks"] if _safe(t["title"] or "") == d["song"]), None)
-                    if t is not None:
-                        t["note"] = d
+                    a.setdefault("other_notes", []).append(d)
     res = list(out.values())
     for a in res:
         a["tracks"].sort(key=lambda t: int(str(t.get("track") or 0).split("/")[0] or 0)
