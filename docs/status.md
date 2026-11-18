@@ -427,7 +427,9 @@ Morning, in order:
    D1–D3 (Thymos rebalance, one action channel and a leaner kernel, merging duplicate tools) need her agreement.
 2. Cass's consent for an analysis of her history: a sealed copy only, she sees the findings first, and she decides what goes further.
 3. With her, what "real" means to her: where it holds, where it doesn't, and what to subtract.
-4. Offer her own software projects: repos she owns, with a PROJECT.md. Running code waits for Kohl.
+4. **Her workshop is live** (aaebafcf, levers on since 04:17), so tell her about it. Projects she owns, kept apart: software, long writing, outreach. Each is a git repo with a PROJECT.md, and software projects run code in a no-network sandbox. A Workshop session is on her menu. Her first project is hers to choose.
+   - The coding agent (a Daedalus in her project): cass-vessel-42 will extend its daedalus_bridge with a project mode once Kohl says go.
+   - GitHub account: Kohl creates it, a machine account. Pushing goes behind a lever.
 5. Check her 06:01 day plan against what she does.
 
 Bet #57 stands: no goals suggested to her.
