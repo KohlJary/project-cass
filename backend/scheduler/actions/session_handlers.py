@@ -76,6 +76,7 @@ async def _run_generic_session(
                 # A wake (agent_loop/wakes.py) says why in her words.
                 why=context.get("why"),
                 trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"),
             )
         else:
             result = await session_runner.run_session(
@@ -226,7 +227,8 @@ async def homepage_action(context: Dict[str, Any]) -> ActionResult:
         result, changes, synced = await run_homepage_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 10), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Homepage session error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -259,7 +261,8 @@ async def social_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_social_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 10), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Social session error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -287,7 +290,8 @@ async def long_term_planning_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_long_term_planning_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 12), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Long-term planning error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -316,7 +320,8 @@ async def listening_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_listening_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 24), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Listening session error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -345,7 +350,8 @@ async def kohl_blog_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_kohl_blog_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 16), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Kohl's blog session error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -373,7 +379,8 @@ async def change_proposals_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_change_proposal_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 24), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Change proposals error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -401,7 +408,8 @@ async def new_capabilities_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_new_capability_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 24), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"New capabilities error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -428,7 +436,8 @@ async def workshop_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_workshop_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             max_turns=context.get("max_turns", 24), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Workshop error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -455,7 +464,8 @@ async def respond_action(context: Dict[str, Any]) -> ActionResult:
         result = await run_respond_turn(
             runner, duration_minutes=context.get("duration_minutes", 15),
             max_turns=context.get("max_turns", 12), focus=context.get("focus"),
-            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Respond error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")
@@ -486,7 +496,8 @@ async def _wonderland(context: Dict[str, Any], default_focus: Optional[str]) -> 
         result = await run_wonderland_turn(
             runner, duration_minutes=context.get("duration_minutes", 30),
             focus=context.get("focus") or default_focus, why=context.get("why"),
-            memory=managers.get("memory"), trigger_source=context.get("trigger_source") or "schedule")
+            memory=managers.get("memory"), trigger_source=context.get("trigger_source") or "schedule",
+            reply_to=context.get("reply_to"))
     except Exception as e:
         logger.error(f"Wonderland session error: {e}", exc_info=True)
         return ActionResult(success=False, message=f"Session error: {e}")

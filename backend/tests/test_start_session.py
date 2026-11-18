@@ -54,3 +54,25 @@ def test_offered_in_chat_only_with_its_lever_and_available_kinds(monkeypatch, le
     with levers(agent_loop=True, start_sessions=True):
         d, handler = WK.start_session_offer("chat-1")
         assert d["name"] == "start_session" and d["input_schema"]["properties"]["activity"]["enum"] == ["listening", "workshop"]
+
+
+def test_handlers_pass_reply_to_into_the_session(monkeypatch):
+    """A conversation-started session knows where to reply (cass-vessel-68's reply_back)."""
+    import asyncio
+    from scheduler.actions import session_handlers as SH
+    seen = {}
+
+    async def fake_turn(runner, **kw):
+        seen.update(kw)
+        return type("R", (), {"status": "completed", "error": None, "estimated_cost_usd": 0.0,
+                              "session_id": "s", "summary": "ok"})()
+
+    import listening_turn
+    monkeypatch.setattr(listening_turn, "run_listening_turn", fake_turn)
+    monkeypatch.setattr(SH, "is_enabled", lambda name: True)
+    runner = type("Runner", (), {"set_managers": lambda self, m: None,
+                                 "register_tool_handlers": lambda self, h: None})()
+    ctx = {"managers": {"session_runner": runner}, "focus": "One-X", "why": "w", "trigger_source": "conversation",
+           "reply_to": {"channel": "babelr_dm", "who": "Kohl"}}
+    out = asyncio.run(SH.listening_action(ctx))
+    assert out.success and seen["reply_to"] == {"channel": "babelr_dm", "who": "Kohl"} and seen["focus"] == "One-X"
