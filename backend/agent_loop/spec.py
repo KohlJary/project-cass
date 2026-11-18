@@ -404,7 +404,9 @@ def conversation_spec(max_iterations: int = CONVERSATION_MAX_STEPS, *,
     return TurnSpec(
         kind="conversation",
         activity=None,
-        packs=("chat_core", "work") + (("chapter_house",) if chapter_house else ())
+        # plans in chat too (audit Q5, 2026-11-18): "my plans" is the same tool in
+        # chat and sessions; it needs Babelr, like Chapter House.
+        packs=("chat_core", "work") + (("chapter_house", "plans") if chapter_house else ())
               + ("workspace", "find"),
         writes=WritePolicy(kept=(
             ("exchange", "this conversation, summarized into my working memory"),

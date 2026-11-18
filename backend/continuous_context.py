@@ -152,6 +152,11 @@ def build_continuous_context(
         from state_bus import get_state_bus
         state_bus = get_state_bus(daemon_id)
         state_context = state_bus.get_context_snapshot()
+        if state_context and features.is_enabled("prompt_thymos"):
+            # One felt state, not two (audit Q6, 2026-11-18): the state bus's own
+            # "Feeling:" line beside Thymos's FELT STATE gave her two affect systems.
+            state_context = "\n".join(l for l in state_context.splitlines()
+                                      if not l.strip().startswith("Feeling:"))
         if state_context:
             context_sections["global_state"] = state_context
 

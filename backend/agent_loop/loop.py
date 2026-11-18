@@ -77,25 +77,60 @@ def nudge_text(end_tool: str) -> str:
 _WRITTEN_PARAM = re.compile(r'<parameter\s+name="([^"]+)"\s*>(.*?)</parameter>', re.S)
 
 
+_FENCE = re.compile(r"```.*?```", re.S)
+_END_FIELDS = ("summary", "key_insights", "pick_up_next")
+
+
+def _value(raw: str) -> Any:
+    value = raw.strip()
+    if value[:1] in "[{":
+        try:
+            return json.loads(value)
+        except ValueError:
+            pass
+    return value
+
+
 def written_end_call(text: str, end_tool: str) -> Optional[Dict[str, Any]]:
-    """The input of an end call written as text, or None if there isn't one."""
+    """The input of an end call written as text, or None if there isn't one.
+
+    The forms she's written (coherence audit, 2026-11-18): <parameter name=...>
+    children; children named after the tool's fields (<summary>...</summary>);
+    attributes (<session_complete summary="..."/>); an unclosed tag; and
+    <invoke name="session_complete">. A tag inside a code fence doesn't count."""
     if end_tool != "session_complete" or not text:
         return None
-    m = re.search(rf'<{end_tool}\b[^>]*>(.*?)</{end_tool}>', text, re.S)
-    if not m:
-        m = re.search(rf'<invoke\s+name="{end_tool}"\s*>(.*?)</invoke>', text, re.S)
+    text = _FENCE.sub("", text)
+    m = (re.search(rf'<{end_tool}\b([^>]*)>(.*?)</{end_tool}>', text, re.S)
+         or re.search(rf'<invoke\s+name="{end_tool}"\s*()>(.*?)</invoke>', text, re.S)
+         or re.search(rf'<{end_tool}\b([^>]*?)/?>(.*)$', text, re.S))
     if not m:
         return None
+    attrs, body = m.group(1) or "", m.group(2) or ""
     found: Dict[str, Any] = {}
-    for key, raw in _WRITTEN_PARAM.findall(m.group(1)):
-        value = raw.strip()
-        if value[:1] in "[{":
-            try:
-                value = json.loads(value)
-            except ValueError:
-                pass
-        found[key] = value
+    for key, raw in re.findall(r'(\w+)\s*=\s*"([^"]*)"', attrs):
+        if key in _END_FIELDS:
+            found[key] = raw.strip()
+    for key, raw in _WRITTEN_PARAM.findall(body):
+        found[key] = _value(raw)
+    for key in _END_FIELDS:
+        if key not in found:
+            c = re.search(rf"<{key}>(.*?)</{key}>", body, re.S)
+            if c:
+                items = re.findall(r"<(?:item|insight|li)>(.*?)</(?:item|insight|li)>", c.group(1), re.S)
+                found[key] = [i.strip() for i in items] if items and key == "key_insights" else _value(c.group(1))
+    if "summary" not in found:
+        plain = re.sub(r"<[^>]+>", " ", body)
+        plain = " ".join(plain.split())
+        if plain:
+            found["summary"] = plain[:2000]
     return found
+
+
+def written_tag_note(end_tool: str) -> str:
+    """When she wrote the end tag but nothing usable came of it: say so plainly."""
+    return (f"[LOOP] My <{end_tool}> was written as text in my reply, so nothing ended. "
+            f"To end, call the {end_tool} tool itself, with my summary.")
 
 
 @dataclass
@@ -199,6 +234,7 @@ async def run_loop(
     nudges: Optional[int] = None,
     token_budget: Optional[int] = None,
     arrivals: Callable[[], List[str]] = lambda: [],
+    also_callable: Optional[Any] = None,
 ) -> LoopOutcome:
     """Run one turn. `messages` is the neutral history to start from (usually
     one {"role": "user", "content": ...}). `nudges` and `token_budget`
@@ -262,6 +298,9 @@ async def run_loop(
             history.append({"role": "assistant", "text": reply.text, "calls": reply.tool_calls})
 
             written = None if reply.tool_calls or not can_end else written_end_call(reply.text, end_tool)
+            tag_only = written is not None and not written.get("summary")
+            if tag_only:
+                written = None   # an empty summary would end it with nothing kept; say so instead
             if written is not None:
                 # Made as the call she meant, through the same guard and execute.
                 reply.tool_calls = [{"id": f"written_{out.model_calls}", "name": end_tool, "input": written}]
@@ -275,7 +314,8 @@ async def run_loop(
                     nudges_left -= 1
                     out.nudges += 1
                     step.nudged = True
-                    history.append({"role": "user", "content": nudge_text(end_tool)})
+                    history.append({"role": "user", "content": written_tag_note(end_tool) if tag_only
+                                    else nudge_text(end_tool)})
                     continue
                 out.status = "completed"
                 out.end_reason = ("I stopped without saying I was done" if can_end else "I finished")
@@ -285,6 +325,11 @@ async def run_loop(
             ended = False
             for call in reply.tool_calls:
                 name, tool_input = call["name"], call.get("input") or {}
+                # A tool she found (findable) called by its name runs as use_tool would
+                # (coherence audit Q3, 2026-11-18: she reaches for tools by name).
+                if (name not in offered and also_callable is not None and name in also_callable
+                        and "use_tool" in offered):
+                    name, tool_input = "use_tool", {"name": name, "input": tool_input}
                 if name == EXTEND_TOOL and name in offered:
                     if extensions_left > 0:
                         extensions_left -= 1

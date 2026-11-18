@@ -286,7 +286,7 @@ async def run_conversation(
     outcome = await run_loop(
         spec=spec, client=client, model=model, system=system, tools=tools,
         messages=history_from(continuous_messages) + [_this_message(model_message, image, image_media_type)],
-        execute=execute, end_tool="hold_reply", nudges=0,
+        execute=execute, end_tool="hold_reply", nudges=0, also_callable=set(box.findable),
     )
     if outcome.status == "error":
         raise RuntimeError(f"conversation turn on the loop failed: {outcome.error}")

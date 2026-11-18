@@ -381,6 +381,7 @@ async def run_session_turn(
             model=model,
             system=prompt.text,
             tools=tools,
+            also_callable=set(box.findable),
             messages=[{"role": "user",
                        "content": initial_message
                        or runner._get_default_initial_message(session_type, focus)}],

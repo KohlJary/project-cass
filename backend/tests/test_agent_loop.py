@@ -126,8 +126,11 @@ def test_seam_doesnt_say_not_here_about_what_find_tools_reaches():
     lines = seam.splitlines()
     also = next(l for l in lines if l.startswith("Also through find_tools:"))
     cannot = next(l for l in lines if l.startswith("Not here:"))
-    for name in ("plans", "social"):
-        assert PACKS[name].says in also and PACKS[name].says not in cannot
+    assert PACKS["social"].says in also and PACKS["social"].says not in cannot
+    # Her plans are offered in chat directly since 2026-11-18 (audit Q5): what she
+    # can do here, not something to find.
+    can = next(l for l in lines if l.startswith("What I can do here:"))
+    assert PACKS["plans"].says in can and PACKS["plans"].says not in also
     # Loop-answered packs (homepage, Wonderland) aren't in the router, so they stay "Not here".
     for name in ("homepage", "wonderland"):
         assert PACKS[name].says in cannot and PACKS[name].says not in also
@@ -154,8 +157,10 @@ def test_seam_says_what_is_and_isnt_here(activity):
             assert pack.says in can and pack.says not in cannot
         else:
             assert pack.says not in can and pack.says in cannot
-    not_yet = next(l for l in seam.splitlines() if l.startswith("Not yet:"))
-    assert "journal" in not_yet  # not a session tool yet, and she's told so
+    # journal is offered in sessions, so it's never "not yet" (audit Q4, 2026-11-18),
+    # and an empty "Not yet" line isn't shown.
+    not_yet = next((l for l in seam.splitlines() if l.startswith("Not yet:")), "")
+    assert "journal (" not in not_yet and not_yet != "Not yet: ."
 
 
 def test_seam_says_what_will_be_kept_from_the_write_policy():

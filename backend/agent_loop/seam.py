@@ -39,7 +39,11 @@ def _through_find(spec: TurnSpec, findable: Collection[str]) -> List[str]:
     have found (2026-11-16: her own plans and Bluesky, in chat)."""
     if "find" not in spec.packs or not findable:
         return []
-    return [p for p in _absent_packs(spec) if any(t in findable for t in PACKS[p].tools)]
+    # A pack with any tool already offered here isn't "through find_tools"
+    # (audit Q4, 2026-11-18: "self" was listed there while how_i_work was offered).
+    here = set(spec.tool_names())
+    return [p for p in _absent_packs(spec) if any(t in findable for t in PACKS[p].tools)
+            and not any(t in here for t in PACKS[p].tools)]
 
 
 def cannot_do_line(spec: TurnSpec, findable: Collection[str] = ()) -> Optional[str]:
@@ -68,10 +72,16 @@ def not_yet_line(spec: TurnSpec) -> Optional[str]:
     """Capabilities she has elsewhere that no loop pack offers yet."""
     if spec.can_do_override:
         return None
-    items = list(NOT_YET_IN_LOOP) + [OTHERS_NOT_YET if "say" in spec.packs else REACH_OUT_NOT_YET]
+    # Nothing "not yet" that's offered here (audit Q4: "Not yet: journal" while journal
+    # was offered, and she used it 11 times in sessions).
+    here = set(spec.tool_names())
+    items = ([i for i in NOT_YET_IN_LOOP if i[0] not in here]
+             + [OTHERS_NOT_YET if "say" in spec.packs else REACH_OUT_NOT_YET])
     if "social" in spec.packs or "chapter_house" in spec.packs:
         # Here she does speak to others: on Bluesky, or in Chapter House (posts and DMs).
         items = [i for i in items if i is not OTHERS_NOT_YET and i is not REACH_OUT_NOT_YET]
+    if not items:
+        return None
     return "; ".join(f"{name} ({why})" for name, why in items) + "."
 
 

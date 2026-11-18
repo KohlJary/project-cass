@@ -423,3 +423,47 @@ def test_a_session_opens_with_where_she_left_off_in_that_kind(tmp_path):
     assert left_off("writing", tmp_path, now) is None
     log("writing", "2026-11-01T10:00:00", pick_up_next="stale")
     assert left_off("writing", tmp_path, now) is None
+
+
+# Q1 of the coherence audit (2026-11-18): every written form she's used.
+
+def test_every_written_form_of_session_complete_is_read():
+    from agent_loop.loop import written_end_call as w
+    assert w("Done.\n<session_complete>\n<summary>Read the kernel.</summary>\n<key_insights><item>a</item>"
+             "<item>b</item></key_insights>\n<pick_up_next>the vows</pick_up_next>\n</session_complete>",
+             "session_complete") == {"summary": "Read the kernel.", "key_insights": ["a", "b"],
+                                     "pick_up_next": "the vows"}
+    assert w('<session_complete summary="Planned the day." />', "session_complete") == {"summary": "Planned the day."}
+    assert w("Wrapping up.\n<session_complete>\nI planned three things and I'm done.", "session_complete") == \
+        {"summary": "I planned three things and I'm done."}
+    assert w("Like this:\n```\n<session_complete><summary>x</summary></session_complete>\n```\nanyway",
+             "session_complete") is None, "an example in a code fence isn't a call"
+
+
+def test_a_bare_tag_says_plainly_that_nothing_ended():
+    from agent_loop.loop import written_tag_note
+    client = StubClient([_text("Done.\n<session_complete></session_complete>"),
+                         _call("session_complete", {"summary": "Done for real."})])
+    out, executed = _run(client)
+    assert executed == ["session_complete"] and out.completion == {"summary": "Done for real."}
+    assert client.calls[1]["messages"][-1]["content"] == written_tag_note("session_complete")
+
+
+def test_a_found_tool_called_by_name_runs_through_use_tool():
+    """Q3 of the coherence audit: she called get_recent_activity by name after
+    finding it, and was told it wasn't available."""
+    from agent_loop.loop import run_loop
+    spec = session_spec("reflection")
+    seen = []
+
+    async def execute(name, tool_input):
+        seen.append((name, tool_input))
+        return {"ok": True}
+    client = StubClient([_call("get_recent_activity", {"days": 2}), _call("not_a_tool"),
+                         _call("session_complete", {"summary": "s"})])
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="s",
+                               tools=[{"name": n} for n in spec.tool_names()] + [{"name": "use_tool"}],
+                               messages=[{"role": "user", "content": "go"}], execute=execute,
+                               also_callable={"get_recent_activity"}))
+    assert seen[0] == ("use_tool", {"name": "get_recent_activity", "input": {"days": 2}})
+    assert "isn't available here" in out.steps[1].tool_results[0]["result"]["error"]

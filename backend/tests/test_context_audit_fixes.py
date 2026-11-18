@@ -56,3 +56,26 @@ def test_loop_nudge_is_marked_and_the_seam_says_what_the_mark_is():
     seam = render_seam(spec, Trigger(source="schedule", why="my afternoon",
                                      at=datetime(2026, 11, 17, 14, 5)), spec.tool_names())
     assert "Lines that start with [LOOP] are the loop, not someone speaking to me" in seam
+
+
+def test_the_seam_never_contradicts_what_is_offered():
+    """Audit Q4 (2026-11-18): "Not yet: journal" with journal offered; "self" under
+    find_tools with how_i_work offered."""
+    from agent_loop.seam import _through_find, not_yet_line
+    from agent_loop.spec import PACKS, conversation_spec, session_spec
+    for spec in (session_spec("reflection"), conversation_spec()):
+        here = set(spec.tool_names())
+        line = not_yet_line(spec) or ""
+        assert not ("journal (" in line and "journal" in here)
+        for p in _through_find(spec, findable={t for pk in PACKS.values() for t in pk.tools}):
+            assert not any(t in here for t in PACKS[p].tools), p
+
+
+def test_chat_has_her_plans_and_one_felt_state():
+    """Audit Q5 and Q6 (2026-11-18)."""
+    import inspect
+    import continuous_context
+    from agent_loop.spec import conversation_spec
+    assert "babelr_plans" in conversation_spec().tool_names()
+    assert "babelr_plans" not in conversation_spec(chapter_house=False).tool_names()
+    assert 'startswith("Feeling:")' in inspect.getsource(continuous_context.build_continuous_context)
