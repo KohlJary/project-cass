@@ -202,7 +202,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "kohl_blog": ("kohl_blog", "plans"),
     "new_capabilities": ("self", "plans", "daedalus"),
     "workshop": ("workshop", "plans"),
-    "respond": ("social", "plans", "happenings"),
+    "respond": ("social", "plans", "happenings", "listening"),   # a record she asked for wakes her here
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -414,6 +414,15 @@ def dream_spec() -> TurnSpec:
 CONVERSATION_MAX_STEPS = 16
 
 
+def _listening_on() -> bool:
+    """Her ears in chat (Kohl, 2026-11-18): offered, not only findable, while the lever is on."""
+    try:
+        from features import is_enabled
+        return is_enabled("listening")
+    except Exception:
+        return False
+
+
 def conversation_spec(max_iterations: int = CONVERSATION_MAX_STEPS, *,
                       chapter_house: bool = True) -> TurnSpec:
     """A chat turn on the loop (plan "Cass's agent loop", phase 7; lever
@@ -426,6 +435,7 @@ def conversation_spec(max_iterations: int = CONVERSATION_MAX_STEPS, *,
         # plans in chat too (audit Q5, 2026-11-18): "my plans" is the same tool in
         # chat and sessions; it needs Babelr, like Chapter House.
         packs=("chat_core", "work", "commitments") + (("chapter_house", "plans") if chapter_house else ())
+              + (("listening",) if _listening_on() else ())
               + ("workspace", "find"),
         writes=WritePolicy(kept=(
             ("exchange", "this conversation, summarized into my working memory"),

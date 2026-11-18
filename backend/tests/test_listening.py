@@ -109,3 +109,21 @@ def test_pictures_reach_the_model_as_images():
              {"role": "assistant", "text": "", "calls": [{"id": "t2", "name": "n", "input": {}}]},
              {"role": "tool", "results": [{"id": "t2", "name": "n", "content": "ok"}]}]
     assert models.anthropic_messages(plain, cache=False)[-1]["content"][0]["content"] == "ok"
+
+
+def test_a_finished_record_is_logged_for_happenings(tmp_path, monkeypatch):
+    monkeypatch.setattr(L, "_root", lambda: tmp_path)
+    t = {"key": "k9", "artist": "A", "album": "B", "title": "C", "id": "B/01 C.mp3", "track": "1", "duration": 1.0}
+    d = tmp_path / "records" / "k9"
+    d.mkdir(parents=True)
+    L._log_ready(t, d)
+    line = json.loads((tmp_path / "ready.jsonl").read_text().splitlines()[0])
+    assert line["title"] == "C" and line["key"] == "k9" and line["record"].endswith("record.md")
+
+
+def test_chat_offers_listen_while_the_lever_is_on(monkeypatch):
+    from agent_loop import spec
+    monkeypatch.setattr(spec, "_listening_on", lambda: True)
+    assert "listening" in spec.conversation_spec().packs
+    monkeypatch.setattr(spec, "_listening_on", lambda: False)
+    assert "listening" not in spec.conversation_spec().packs

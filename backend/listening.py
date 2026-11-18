@@ -11,7 +11,9 @@ always gives the same record. What it means is hers.
 - shelf: browse the library (artists, albums, tracks), from file tags.
 - listen: a track or a whole album. Records are kept (DATA_DIR/listening/records,
   one per file, by its hash), so a song is listened to once; new ones run in the
-  background, a few at a time, at low priority, and she's told when they're ready.
+  background, a few at a time, at low priority. Each one that finishes is logged to
+  DATA_DIR/listening/ready.jsonl, which happenings.py turns into a wake (a record she
+  asked for is ready). Until that's on, status says what's done.
 - read: a record, whole or a part of it (glance, a section, bars, the words).
 - album: every track's at-a-glance lines side by side, for an album as a whole.
 - look: a picture from a record (spectrogram, stereo field, a section, a score page),
@@ -239,7 +241,20 @@ def _run(t: Dict[str, Any]) -> Dict[str, Any]:
         shutil.rmtree(d)
     tmp.rename(d)
     (d / "track.json").write_text(json.dumps({k: t[k] for k in ("id", "artist", "album", "title", "track", "duration")}))
+    _log_ready(t, d)
     return {"ready": True}
+
+
+def _log_ready(t: Dict[str, Any], d: Path) -> None:
+    """One line per finished record, for happenings.py to wake her with."""
+    from datetime import datetime
+    try:
+        line = {"key": t.get("key"), "artist": t.get("artist"), "album": t.get("album"), "title": t.get("title"),
+                "id": t.get("id"), "at": datetime.now().isoformat(timespec="seconds"), "record": str(d / "record.md")}
+        with open(_root() / "ready.jsonl", "a") as f:
+            f.write(json.dumps(line) + "\n")
+    except Exception as e:
+        logger.warning(f"[listening] couldn't log a ready record: {e}")
 
 
 def start(tracks: List[Dict[str, Any]]) -> Dict[str, Any]:
