@@ -21,7 +21,7 @@ LEVER = "workshop"
 
 INSTRUCTIONS = """## MY WORKSHOP
 
-This is time on one of my projects: the efforts of mine that run over many sessions, each kept apart. Software, long writing, outreach, anything large. The project tool does all of it: list, status, files, read, write, edit, commit, log, and new to start one (a name, its kind, and its vision in my words). Software projects can run code (run), sandboxed, with no network.
+This is time on one of my projects: the efforts of mine that run over many sessions, each kept apart. Software, long writing, outreach, anything large. The project tool does all of it: list, status, files, read, write, edit, commit, log, and new to start one (a name, its kind, and its vision in my words). Software projects can run code (run), sandboxed, with no network: the project folder is /work, each run gets 60 seconds of CPU and a fresh /tmp. What's there: Python 3.13 with numpy, scipy, pandas, matplotlib, flask, fastapi, pytest, PyYAML and Pillow; node (TypeScript's tsc too); go; rustc and cargo (no crates, since there's no network); gcc and make; sqlite3; lua. Nothing installs from the internet. A good rhythm: write a little, run it, read what it says, fix, commit with a message saying what changed and why, and keep PROJECT.md current.
 
 Each project carries its own state. PROJECT.md holds its vision, where it stands and what's next, and I keep it current. A commit, with a message saying what changed and why, is what makes work part of the project's history. Before I end, I commit what I've done and update "Where it stands" and "Next", so the next session picks up cleanly.
 
