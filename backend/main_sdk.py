@@ -624,6 +624,9 @@ app.include_router(export_router)
 # Her room in Chapter House: read-only, room tokens only (routes/room.py)
 from routes.room import router as room_router
 app.include_router(room_router)
+# The record, for Kohl: read-only, record tokens only (routes/record.py, record.py)
+from routes.record import router as record_router
+app.include_router(record_router)
 
 # Register memory routes (initialized in background after memory is ready)
 from routes.memory import router as memory_router, init_memory_routes

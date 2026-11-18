@@ -147,7 +147,9 @@ DANGEROUS_PREFIXES = (
 
 # Dependency names that mean "this route already authenticates".
 # require_room_token: the room feed (routes/room.py) checks its own room tokens.
-_SELF_AUTH_DEPENDENCIES = {"require_admin", "require_auth", "get_current_user", "require_room_token"}
+# require_record_token: the record (routes/record.py) checks its own record tokens.
+_SELF_AUTH_DEPENDENCIES = {"require_admin", "require_auth", "get_current_user", "require_room_token",
+                           "require_record_token"}
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
