@@ -149,7 +149,7 @@ def find(query: str, tracks: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Tracks a query names. A query that names an album gives the album (One X is both an
     album and a song on it: the album, unless she says "song"); a title gives the song."""
     raw = (query or "").lower()
-    q = _norm(re.sub(r"\b(the )?(album|record|song|track)\b", " ", raw))
+    q = _norm(re.sub(r"\b(the )?(album|record|song|track)\b|\bby\b", " ", raw))
     if not q:
         return {"tracks": [], "kind": None}
     words = q.split()
@@ -445,6 +445,11 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
             n = len(out["started"]) + len(out["already_listening"])
             out["note"] = (f"{n} song(s) listening now, {WORKERS} at a time, a few minutes each; "
                            "status shows progress, and read works as each is ready")
+        if out["ready"] and not out["started"] and not out["already_listening"]:
+            out["note"] = ("Already listened: all of these are ready now, nothing to wait for. listen read with a "
+                           "song opens it (part: glance for an overview); listen album lays them side by side.")
+        elif out["ready"]:
+            out["note"] = out.get("note", "") + f"; {len(out['ready'])} already ready to read now"
         return out
     if action == "album":
         rows, missing = [], []

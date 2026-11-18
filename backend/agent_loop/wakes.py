@@ -52,6 +52,8 @@ def wake_tool(activities) -> Dict[str, Any]:
 # run as wake_me, due now; one at a time, a few a day.
 START_LEVER = "start_sessions"
 STARTS_PER_DAY = 6
+# Kinds that don't count toward the day's starts (Kohl, 2026-11-18: listening doesn't).
+UNCOUNTED = frozenset({"listening"})
 START_MINUTES = (15, 60)
 
 
@@ -62,7 +64,7 @@ def start_tool(activities) -> Dict[str, Any]:
                         "that needs time and tools a reply doesn't have (listen through an album, work in my "
                         "studio or workshop, write, research). It runs in the background, within my budget, "
                         "and this conversation goes on; what I do there is kept like any session. One at a time, "
-                        f"{STARTS_PER_DAY} a day."),
+                        f"{STARTS_PER_DAY} a day (listening sessions don't count toward that)."),
         "input_schema": {"type": "object", "properties": {
             "activity": {"type": "string", "enum": sorted(activities), "description": "What kind of session"},
             "why": {"type": "string", "description": "Why now, in my words"},
@@ -155,8 +157,9 @@ class WakeBook:
             return {"error": f"a session I started is still going ({busy[0]['activity']}: {busy[0]['why'][:80]}); "
                              "one at a time"}
         today = now.date().isoformat()
-        used = sum(1 for w in mine if str(w.get("asked_at", "")).startswith(today))
-        if used >= STARTS_PER_DAY:
+        used = sum(1 for w in mine if str(w.get("asked_at", "")).startswith(today)
+                   and w.get("activity") not in UNCOUNTED)
+        if used >= STARTS_PER_DAY and activity not in UNCOUNTED:
             return {"error": f"I've started {STARTS_PER_DAY} sessions from conversations today; the count starts "
                              "again tomorrow (wake_me or my day plan can still place one)"}
         focus = str(tool_input.get("focus") or "").strip()[:300] or None
@@ -165,8 +168,10 @@ class WakeBook:
                       "asked_at": now.isoformat(timespec="seconds"), "status": PENDING,
                       "started_from": "conversation", "origin": origin or {}})
         self._save(items)
+        left = STARTS_PER_DAY - used - (0 if activity in UNCOUNTED else 1)
         return {"started": activity, "for": focus, "minutes": minutes,
-                "note": f"It starts in the background within a minute; I've {STARTS_PER_DAY - used - 1} more today."}
+                "note": f"It starts in the background within a minute; I've {left} more today"
+                        + (" (listening doesn't count toward them)." if activity in UNCOUNTED else ".")}
 
     def take_due(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """Due pending wakes, marked started (so a second look can't run them twice)."""
@@ -331,8 +336,11 @@ def startable() -> List[str]:
         from scheduling.templates import WORK_TEMPLATES
     except Exception:
         return []
+    system = {"consolidation", "memory_maintenance", "daily_journal", "phase_replan"}   # not hers to start
     out = []
     for k in ACTIVITY_PACKS:
+        if k in system:
+            continue
         t = WORK_TEMPLATES.get(k)
         try:
             if t is not None and t.is_available():

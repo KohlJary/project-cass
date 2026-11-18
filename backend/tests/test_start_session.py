@@ -22,7 +22,11 @@ def test_start_now_one_at_a_time_and_capped(tmp_path):
     for i in range(WK.STARTS_PER_DAY):   # finish each so the next can start
         for x in book.pending():
             book.finish(x["id"], WK.DONE)
-        r = book.start_now({"activity": "listening", "why": f"go {i}"}, "c", ["listening"], now=now)
+        r = book.start_now({"activity": "workshop", "why": f"go {i}"}, "c", ["workshop"], now=now)
+    assert r.get("started")                       # the 6th counted start (the listening one didn't count)
+    for x in book.pending():
+        book.finish(x["id"], WK.DONE)
+    r = book.start_now({"activity": "workshop", "why": "one more"}, "c", ["workshop"], now=now)
     assert "error" in r and "today" in r["error"]
 
 
@@ -76,3 +80,16 @@ def test_handlers_pass_reply_to_into_the_session(monkeypatch):
            "reply_to": {"channel": "babelr_dm", "who": "Kohl"}}
     out = asyncio.run(SH.listening_action(ctx))
     assert out.success and seen["reply_to"] == {"channel": "babelr_dm", "who": "Kohl"} and seen["focus"] == "One-X"
+
+
+def test_listening_does_not_count_toward_the_day(tmp_path):
+    book = WK.WakeBook(tmp_path / "wakes.json")
+    now = datetime(2026, 11, 18, 9, 0)
+    for i in range(WK.STARTS_PER_DAY):
+        book.start_now({"activity": "workshop", "why": f"w{i}"}, "c", ["workshop", "listening"], now=now)
+        for x in book.pending():
+            book.finish(x["id"], WK.DONE)
+    assert "today" in book.start_now({"activity": "workshop", "why": "one more"}, "c",
+                                     ["workshop", "listening"], now=now)["error"]
+    ok = book.start_now({"activity": "listening", "why": "One-X"}, "c", ["workshop", "listening"], now=now)
+    assert ok["started"] == "listening" and "doesn't count" in ok["note"]
