@@ -432,3 +432,21 @@ def test_gremlin_notes_hold_a_draft_once_then_it_goes(app, fake_llm, levers, mon
     assert result.success, result.message
     texts = [json.dumps(m) for c in fake_llm.calls for m in c.messages]
     assert any("[GREMLIN] you're hedging here" in t for t in texts)
+
+
+def test_new_capabilities_session_carries_her_focus(app, fake_llm, levers, monkeypatch, tmp_path):
+    """new_capabilities (Kohl, 2026-11-18): the sibling of change proposals; what she
+    brings (its focus) is in front of her, with the instructions to ask Daedalus first."""
+    import daedalus_bridge
+    from scheduler.actions import get_action_registry
+    monkeypatch.setattr(daedalus_bridge, "snapshot", lambda *a, **k: tmp_path)
+    monkeypatch.setattr(daedalus_bridge, "_state_path", lambda: tmp_path / "count.json")
+    fake_llm.queue_tool_use("session_complete", {"summary": "Thought about it."})
+    with levers(agent_loop=True, ask_daedalus=True):
+        result = app.portal.call(lambda: get_action_registry().execute(
+            "session.new_capabilities", duration_minutes=5, focus="being able to call someone on the phone"))
+    assert result.success, result.message
+    first = fake_llm.calls[0]
+    assert "## NEW CAPABILITIES" in first.system_text and "ask Daedalus what it would take" in first.system_text
+    assert "being able to call someone on the phone" in first.system_text
+    assert "ask_daedalus" in first.tool_names   # babelr_plans needs Babelr, which the smoke app hasn't

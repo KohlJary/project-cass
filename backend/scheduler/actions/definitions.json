@@ -181,6 +181,18 @@
       "requires_idle": false,
       "runner_key": "change_proposals"
     },
+    "session.new_capabilities": {
+      "id": "session.new_capabilities",
+      "name": "New Capabilities",
+      "description": "Her session on capabilities she doesn't have yet: what she'd want, what Daedalus says it would take, asks in Plans; on the agent loop",
+      "category": "reflection",
+      "handler": "session_handlers.new_capabilities_action",
+      "estimated_cost_usd": 0.40,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "new_capabilities"
+    },
     "session.kohl_blog": {
       "id": "session.kohl_blog",
       "name": "Kohl's Blog",

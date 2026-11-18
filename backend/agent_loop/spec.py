@@ -184,6 +184,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     # Asking for changes to myself, grounded in the code (same plan, phase 2).
     "change_proposals": ("self", "plans", "daedalus"),
     "kohl_blog": ("kohl_blog", "plans"),
+    "new_capabilities": ("self", "plans", "daedalus"),
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -207,6 +208,7 @@ ACTIVITY_WORDS: Dict[str, str] = {
     "long_term_planning": "a long-term planning session, looking further ahead than today",
     "change_proposals": "a session for changes to myself: what I'd ask for, grounded in my code",
     "kohl_blog": "a session reading Kohl's blog",
+    "new_capabilities": "a session about capabilities I don't have yet and want",
 }
 
 

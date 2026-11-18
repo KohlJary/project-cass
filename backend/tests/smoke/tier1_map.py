@@ -332,7 +332,8 @@ LEVER_COVERAGE = {
     },
     "ask_daedalus": {
         "depth": "gate",
-        "tests": [f"{AGENT_LOOP}::test_change_proposals_session_asks_daedalus"],
+        "tests": [f"{AGENT_LOOP}::test_change_proposals_session_asks_daedalus",
+                  f"{AGENT_LOOP}::test_new_capabilities_session_carries_her_focus"],
         "note": "A change-proposals session through the registry with the lever on; Claude Code "
                 "itself is faked. Fast-suite: tests/test_daedalus_bridge.py (fence, snapshot, cap).",
     },

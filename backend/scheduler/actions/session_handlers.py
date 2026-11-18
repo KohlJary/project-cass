@@ -356,6 +356,34 @@ async def change_proposals_action(context: Dict[str, Any]) -> ActionResult:
                               "summary": result.summary})
 
 
+async def new_capabilities_action(context: Dict[str, Any]) -> ActionResult:
+    """Her new-capabilities session: what she can't do yet and wants to, asked through
+    Daedalus and Plans (new_capability_turn.py). On the agent loop only."""
+    if not is_enabled("agent_loop"):
+        return ActionResult(success=False, message="New capabilities run on the agent loop, which is off")
+    managers = context.get("managers", {})
+    runner = managers.get("session_runner")
+    if not runner:
+        return ActionResult(success=False, message="GenericSessionRunner not available in managers")
+    runner.set_managers(managers)
+    runner.register_tool_handlers(get_default_handlers())
+    try:
+        from new_capability_turn import run_new_capability_turn
+        result = await run_new_capability_turn(
+            runner, duration_minutes=context.get("duration_minutes", 30),
+            max_turns=context.get("max_turns", 24), focus=context.get("focus"),
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+    except Exception as e:
+        logger.error(f"New capabilities error: {e}", exc_info=True)
+        return ActionResult(success=False, message=f"Session error: {e}")
+    if result.status == "error":
+        return ActionResult(success=False, message=f"New capabilities failed: {result.error}",
+                            data={"status": result.status, "error": result.error})
+    return ActionResult(success=True, message="New capabilities complete", cost_usd=result.estimated_cost_usd,
+                        data={"session_id": result.session_id, "status": result.status,
+                              "summary": result.summary})
+
+
 REFLECTION_FOCUS = "to sit somewhere contemplative in Wonderland and let the place shape my thinking"
 
 

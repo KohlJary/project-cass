@@ -290,3 +290,13 @@ def test_the_engine_names_over_budget_templates(monkeypatch):
     ctx.is_idle = True
     eng._get_viable_candidates(ctx)
     assert any("needs $" in u and "left today" in u for u in eng._unavailable)
+
+
+def test_new_capabilities_is_on_her_menu_beside_change_proposals(levers, monkeypatch):
+    from scheduling import templates as T
+    from scheduling.day_shape import kind_of
+    assert kind_of("new_capabilities") == kind_of("change_proposals") == "inward"
+    with levers(agent_loop=True, ask_daedalus=True):
+        assert T.WORK_TEMPLATES["new_capabilities"].available() and T.WORK_TEMPLATES["change_proposals"].available()
+    with levers(agent_loop=True, ask_daedalus=False):
+        assert not T.WORK_TEMPLATES["new_capabilities"].available()

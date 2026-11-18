@@ -329,6 +329,19 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _agent_loop_on() and _daedalus_on(),
     ),
 
+    # Its sibling (Kohl, 2026-11-18): capabilities she doesn't have yet, not
+    # iterating on what she has (new_capability_turn.py).
+    "new_capabilities": WorkUnitTemplate(
+        id="new_capabilities",
+        name="New Capabilities",
+        description="Think about what I can't do yet and want to be able to, ask Daedalus what it would take, and ask for it.",
+        action_sequence=["session.new_capabilities"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.40,
+        category="reflection",
+        available=lambda: _agent_loop_on() and _daedalus_on(),
+    ),
+
     # === Memory & system maintenance ===
     "memory_maintenance": WorkUnitTemplate(
         id="memory_maintenance",

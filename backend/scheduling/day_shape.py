@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 KINDS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "inward": ("inward: reflection, synthesis, growth, looking ahead",
                ("reflection_block", "synthesis_block", "meta_reflection", "growth_edge_work",
-                "long_term_planning", "wonderland_reflection", "change_proposals")),
+                "long_term_planning", "wonderland_reflection", "change_proposals",
+                "new_capabilities")),
     "learning": ("learning: research, knowledge, curiosity, the world's news",
                  ("research_block", "knowledge_building", "curiosity_exploration", "world_check",
                   "kohl_blog")),
@@ -46,7 +47,7 @@ SHAPE_FILE = "shape.json"
 # Session types (session log folders) -> kind, for what already ran today.
 SESSION_KINDS = {
     "reflection": "inward", "synthesis": "inward", "meta_reflection": "inward",
-    "growth_edge": "inward", "long_term_planning": "inward", "change_proposals": "inward",
+    "growth_edge": "inward", "long_term_planning": "inward", "change_proposals": "inward", "new_capabilities": "inward",
     "research": "learning", "kohl_blog": "learning", "knowledge_building": "learning", "curiosity": "learning",
     "world_state": "learning",
     "creative": "making", "writing": "making", "homepage": "making",
