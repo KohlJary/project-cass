@@ -748,3 +748,10 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **In flight / waiting:** Cass writing a One-X-based song (blending welcome); Kohl: LinnDrum samples, AVL kit license before publishing.
 **Next step:** watch her song loop (render, listen, compare, session) and fix what she trips on; then phase 7, starting with records as MIDI.
 **Open questions:** live acoustic kits and 909 in Reaper (printed for now); a 909 reference recording.
+
+## 2026-11-18 (afternoon) - Her song loop, form, a wider ear
+**Narrative**: docs/status.md (2026-11-18 afternoon). Straight to main, pushed.
+**Done:** vessel 307c68dd, 9e82f1ec, 3be1dc88, 8d686664, 158bc4bd, 43be3ee3, 4ecf210e, bce9cd53, aac8f0d2. Orphic d8ea229, 6a81c84, 5a4d090, 92bfb53. Acousmatic 627106e, e22352a, cfe55b3 (0.1.3, "we built her ears"). Babelr acbcd8f.
+**Decisions:** making sessions get a step a minute; done_when in her words; MY SESSIONS in chat; roles by rules, not a model; slugs.
+**In flight:** listening batch (269, background); her song in my-tone; Kohl's "what's real" conversation with her.
+**Next step:** read her BMTH/Violator takes against the records as they come; phase 7 style sheet; network proxy plan if Kohl wants it.

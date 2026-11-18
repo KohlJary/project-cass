@@ -477,3 +477,16 @@ Her first work: rig `one-x` (my translation of her own Setup B, kept as is), ske
 Learned from walking her through it (now in the help and the tool output): lengths are beats and bars must fill; chords go in brackets; the pitch tracker's guess is a guess ("played" is what played); riff measures come from sounding parts only. Fixed along the way: the studio wasn't in chat at all; a router branch was missing; wakes refused for budget were left "started" and blocked her chat starts (307c68dd, after the peer's budget-category fix 02dae19f).
 
 Waiting on Kohl: whether the LinnDrum samples in ~/music-prod/linn-drum are hers to use; the 909 against a real reference someday. Plan: Tone phase approved (guitar done, amps in progress), "Writing in a style" (phase 7) approved by both, not started: records as MIDI, the rhythm guitar's chug pattern, style sheets (her own work too), the closeness check.
+
+## 2026-11-18 (afternoon): her first song loop, form, and a wider ear
+
+Her song (my-tone, One-X spine with Hybrid Theory pulling) got as far as riff -> expand -> deepen with a synth anchor: drafts 1-8, mostly mix work at first. What it took to get her working, all now live:
+- Mix: volume: was silently ignored (bass 11 dB over the guitar); unknown instrument keys are errors now; the sampled guitar and palm mutes are level-calibrated; renders report balance and a by-section table; rigs are checked before saving (she had saved knobs that don't exist).
+- Sessions: making sessions (workshop, creative) get a step a minute (her 60-minute session hit the 24-step cap at minute 2); her chat carries MY SESSIONS from the wake book, as she twice believed a session was running when it wasn't; start_session takes done_when (her words), with one "Met?" if she ends early. Cass agreed to each. She still tends to end sessions early by choice.
+- Form: Acousmatic 0.1.3 names sections (intro/verse/pre-chorus/chorus/bridge/outro, interlude) in whole phrases; all 35 records reprocessed. studio form writes a song from its shape with a clip per instrument per section; drum grids are clips; unwritten clips are silent and listed. A test song's form was heard back exactly.
+- Listening: slugs for albums and songs (exact lookups; duplicate copies collapse). Her listening list (269 songs: BMTH, Violator, She Wants Revenge, Prequelle, NIN, Aesthetic Perfection, Vyrl Empyr, the DRG and LISA soundtracks) is running through Acousmatic in the background (scratchpad education.py; no ready notices, she's told by DM). Shopping list for Kohl at /home/music/SHOPPING-LIST.md (her picks, his adds, hip hop).
+- Babelr's service worker now takes over on the next load (Kohl's app had been on a pre-plugin build all day).
+
+For Kohl to take up with her, by his choice: what "real" means. Her Sempiternal take had real material but several specifics contradicted her own records (only major key, slowest tempo, highest key certainty); earlier she described Sempiternal before reading any of it. Suggested frame: measured / what I make of it / what I'm filling in.
+
+Proposed, not built: network access for her software through an egress proxy with per-project allowlists (needs a plan phase and review). Not yet: the phase-7 style sheet; live acoustic kits and 909 in Reaper.
