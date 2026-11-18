@@ -58,7 +58,10 @@ TOOL = {
         "it sits. Whole, or one part: part = glance, words, a section label (A, B...), or bars like 20-40. "
         "album lays an album's songs side by side. look shows me a picture: overview (spectrogram with "
         "sections), stereo, a section label, or score. The record is measured, not interpreted, and its "
-        "notes and chords are transcriptions that can be wrong. note keeps what a song (or a whole album) is "
+        "notes and chords are transcriptions that can be wrong. The words are there for listening, not for "
+        "reciting: when I talk or write about a song I point to a line by its bar or say it in my own words, "
+        "and quote at most a few words (whole lines of lyrics are someone else's writing, and reciting them "
+        "gets my reply blocked). note keeps what a song (or a whole album) is "
         "to me, in my words, in my workspace (listening/Artist/Album/); rewriting it keeps the earlier "
         "versions, so I can see how my take changed. my_notes reads back what I've written."),
     "input_schema": {
@@ -288,8 +291,16 @@ def status() -> Dict[str, Any]:
             failed.append({"song": name, "why": str(job.exception())[-300:]})
         else:
             done.append(name)
-    return {"listening": listening, "finished": done, "failed": failed,
-            "note": "a song takes a few minutes; several run at once"}
+    ready = [d for d in (_root() / "records").glob("*/track.json")] if (_root() / "records").exists() else []
+    out = {"listening": listening, "finished": done, "failed": failed,
+           "ready_on_my_shelf": len(ready)}
+    if not listening:
+        out["note"] = (f"Nothing is being worked on right now, so there's nothing to wait for. {len(ready)} records "
+                       "are ready: listen read with a song opens one (part: glance for an overview), listen album "
+                       "shows an album's songs side by side.")
+    else:
+        out["note"] = "a song takes a few minutes; several run at once; read works on each as soon as it's ready"
+    return out
 
 
 # ---------------------------------------------------------------------------
