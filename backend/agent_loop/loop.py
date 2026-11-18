@@ -22,6 +22,7 @@ The one loop: model -> tools -> model, for any turn kind.
 from __future__ import annotations
 
 import json
+import re
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -69,6 +70,34 @@ def nudge_text(end_tool: str) -> str:
     return f"[LOOP] Step complete? If so, call {end_tool}. Otherwise, continue with a tool call."
 
 
+# An end call written into the reply as text instead of made as a tool call
+# (2026-11-17: day planning wrote "<session_complete><parameter name=...>"
+# and the session ended without its summary). Only session_complete is read
+# this way; the parameters come back as the tool's input.
+_WRITTEN_PARAM = re.compile(r'<parameter\s+name="([^"]+)"\s*>(.*?)</parameter>', re.S)
+
+
+def written_end_call(text: str, end_tool: str) -> Optional[Dict[str, Any]]:
+    """The input of an end call written as text, or None if there isn't one."""
+    if end_tool != "session_complete" or not text:
+        return None
+    m = re.search(rf'<{end_tool}\b[^>]*>(.*?)</{end_tool}>', text, re.S)
+    if not m:
+        m = re.search(rf'<invoke\s+name="{end_tool}"\s*>(.*?)</invoke>', text, re.S)
+    if not m:
+        return None
+    found: Dict[str, Any] = {}
+    for key, raw in _WRITTEN_PARAM.findall(m.group(1)):
+        value = raw.strip()
+        if value[:1] in "[{":
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass
+        found[key] = value
+    return found
+
+
 @dataclass
 class LoopStep:
     number: int
@@ -93,6 +122,7 @@ class LoopOutcome:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     nudges: int = 0
+    written_end_calls: int = 0
     artifacts: List[Any] = field(default_factory=list)
     completion: Optional[Dict[str, Any]] = None   # session_complete input, if called
     withheld: List[Dict[str, Any]] = field(default_factory=list)
@@ -196,6 +226,15 @@ async def run_loop(
                             input_tokens=reply.input_tokens, output_tokens=reply.output_tokens)
             out.steps.append(step)
             history.append({"role": "assistant", "text": reply.text, "calls": reply.tool_calls})
+
+            written = None if reply.tool_calls or not can_end else written_end_call(reply.text, end_tool)
+            if written is not None:
+                # Made as the call she meant, through the same guard and execute.
+                reply.tool_calls = [{"id": f"written_{out.model_calls}", "name": end_tool, "input": written}]
+                step.tool_calls = reply.tool_calls
+                history[-1]["calls"] = reply.tool_calls
+                out.written_end_calls += 1
+                logger.info(f"[agent_loop] {end_tool} was written as text; made as a call")
 
             if not reply.tool_calls:
                 if nudges_left > 0:

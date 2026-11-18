@@ -105,6 +105,7 @@ def _session_result_cls():
         cache_read_tokens: int = 0
         cache_write_tokens: int = 0
         nudges: int = 0
+        written_end_calls: int = 0
         promoted_tools: List[str] = field(default_factory=list)
         tools_found: List[str] = field(default_factory=list)
         tools_used_via_find: List[str] = field(default_factory=list)
@@ -124,6 +125,7 @@ def _session_result_cls():
                 "cache_read_tokens": self.cache_read_tokens,
                 "cache_write_tokens": self.cache_write_tokens,
                 "nudges": self.nudges,
+                "written_end_calls": self.written_end_calls,
                 "promoted_tools": self.promoted_tools,
                 "tools_found": self.tools_found,
                 "tools_used_via_find": self.tools_used_via_find,
@@ -350,6 +352,7 @@ async def run_session_turn(
         cache_read_tokens=outcome.cache_read_tokens,
         cache_write_tokens=outcome.cache_write_tokens,
         nudges=outcome.nudges,
+        written_end_calls=outcome.written_end_calls,
         promoted_tools=list(promoted),
         tools_found=list(box.found),
         tools_used_via_find=list(box.used),

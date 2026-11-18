@@ -307,3 +307,48 @@ def test_a_session_runs_through_the_turn_on_an_ollama_assignment(tmp_path, fake,
     log = json.loads(next((runner.logs_dir / "reflection").rglob("*.json")).read_text())
     assert log["provider"] == "ollama" and log["model"] == "qwen3:14b"
     assert log["estimated_cost_usd"] == 0.0
+
+
+# The day-planning shape of 2026-11-17: session_complete written into the reply.
+WRITTEN_END = '''Done. The plan is set.
+
+<session_complete>
+<parameter name="summary">Day planning session complete.</parameter>
+<parameter name="key_insights">["one", "two"]</parameter>
+</session_complete>'''
+
+
+def test_session_complete_written_as_text_is_made_as_the_call():
+    client = StubClient([_text(WRITTEN_END)])
+    out, executed = _run(client)
+    assert executed == ["session_complete"]
+    assert out.end_reason == "I said I was done" and out.nudges == 0
+    assert out.completion == {"summary": "Day planning session complete.", "key_insights": ["one", "two"]}
+    assert out.written_end_calls == 1
+
+
+def test_a_mention_of_session_complete_is_not_a_call():
+    client = StubClient([_text("I'll call session_complete once I've looked."),
+                         _call("session_complete", {"summary": "Looked."})])
+    out, _ = _run(client)
+    assert out.nudges == 1 and out.written_end_calls == 0
+
+
+def test_a_refused_written_end_keeps_the_turn_going():
+    from agent_loop.loop import run_loop
+    spec = session_spec("reflection")
+    client = StubClient([_text(WRITTEN_END), _call("session_complete", {"summary": "ok"})])
+    seen = []
+
+    async def execute(name, tool_input):
+        seen.append(name)
+        return {"error": "someone is waiting"} if len(seen) == 1 else {"success": True}
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys",
+                               tools=[{"name": n} for n in spec.tool_names()],
+                               messages=[{"role": "user", "content": "begin"}], execute=execute))
+    assert seen == ["session_complete", "session_complete"]
+    # The written call went back to the model as a real call with its result.
+    second = client.calls[1]["messages"]
+    assert second[-2]["calls"][0]["name"] == "session_complete"
+    assert second[-1]["role"] == "tool" and second[-1]["results"][0]["id"] == second[-2]["calls"][0]["id"]
+    assert out.end_reason == "I said I was done"
