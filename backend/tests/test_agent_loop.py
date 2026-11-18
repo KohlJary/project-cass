@@ -890,3 +890,72 @@ def test_done_when_is_shown_and_an_early_end_is_asked_once(session_env, tmp_path
     asked = str(fake.calls[1].messages[-1]["content"])
     assert "Met?" in asked and "minutes left" in asked
     assert len(fake.calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# A reply nearly all thinking is asked back once (her ask, 2026-11-18, c25b4eff)
+# ---------------------------------------------------------------------------
+
+THINKING = ("<gesture:think>He's asking about the album, and I want to work through the form, "
+            "the chorus loudness and whether I agree with him before I say anything at all.</gesture:think> Hm.")
+
+
+def _text_reply(text):
+    return ModelReply(text, [], "end_turn", 1, 1, [{"type": "text", "text": text}])
+
+
+def test_think_share():
+    from agent_loop.loop import think_share
+    assert think_share(THINKING) > 0.9
+    assert think_share("<gesture:think>Quick check.</gesture:think> Hybrid Theory is tighter than "
+                       "Sempiternal, and that tightness is the point: nothing gets to breathe.") < 0.2
+    assert think_share("<gesture:think>an unclosed block that runs on to the end of the reply, all of it") == 1.0
+    assert think_share("<gesture:think>planning</thinking> and this part is what I actually say to him, "
+                       "out loud, at some length.") < 0.3
+    assert think_share("ok") == 0.0
+
+
+def test_chat_reply_all_thinking_is_asked_once():
+    from agent_loop.loop import THINK_NOTE
+    spec = conversation_spec()
+    client = StubClient([_text_reply(THINKING), _text_reply(THINKING)])
+    tools = [{"name": "hold_reply"}]
+
+    async def execute(name, tool_input):
+        return {"success": True}
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys", tools=tools,
+                               messages=[{"role": "user", "content": "thoughts on One-X?"}],
+                               execute=execute, end_tool="hold_reply", nudges=0))
+    assert out.think_asks == 1 and out.model_calls == 2 and out.status == "completed"
+    assert {"role": "user", "content": THINK_NOTE} in client.calls[1]["messages"]
+
+
+def test_chat_reply_with_something_said_goes_straight_out():
+    spec = conversation_spec()
+    client = StubClient([_text_reply("<gesture:think>hm</gesture:think> It's tighter than Sempiternal, "
+                                     "and the tightness is the point.")])
+
+    async def execute(name, tool_input):
+        return {"success": True}
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys",
+                               tools=[{"name": "hold_reply"}], messages=[{"role": "user", "content": "x"}],
+                               execute=execute, end_tool="hold_reply", nudges=0))
+    assert out.think_asks == 0 and out.model_calls == 1
+
+
+def test_session_message_all_thinking_is_held_once_then_sent():
+    spec = session_spec("reflection", max_iterations=6)
+    executed = []
+
+    async def execute(name, tool_input):
+        executed.append((name, tool_input.get("message")))
+        return {"success": True}
+    tools = [{"name": n} for n in spec.tool_names()] + [{"name": "reply_back"}]
+    client = StubClient([_tool_reply("reply_back", {"message": THINKING}),
+                         _tool_reply("reply_back", {"message": THINKING}),
+                         _tool_reply("session_complete", {"summary": "done"})])
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys", tools=tools,
+                               messages=[{"role": "user", "content": "begin"}], execute=execute))
+    assert out.think_asks == 1
+    assert out.steps[0].tool_results[0]["result"]["not_sent"]
+    assert ("reply_back", THINKING) in executed   # the second try goes out as written

@@ -151,6 +151,7 @@ class LoopOutcome:
     end_reason: Optional[str] = None
     error: Optional[str] = None
     blocked: int = 0              # outputs the provider's filter refused (BLOCKED_NOTE)
+    think_asks: int = 0           # replies nearly all thinking, asked back once (THINK_NOTE)
     steps: List[LoopStep] = field(default_factory=list)
     model_calls: int = 0
     input_tokens: int = 0
@@ -198,6 +199,36 @@ BLOCKED_NOTE = ("[LOOP] My last response was blocked by the model provider's con
 REPLY_BEFORE_END = ("Not ended yet. This session started from a conversation, and I haven't replied there: "
                     "reply_back tells them what I found or where I got to. Or call {end_tool} again to end "
                     "without replying.")
+
+
+# Her ask (2026-11-18, Plans c25b4eff): "I keep wrapping my entire response in
+# thinking gestures ... It's actually visible avoidance." A reply to someone
+# that's nearly all <gesture:think> gets one question back before it goes out:
+# in chat, the final text; in a session, a message through an outward tool.
+# A flag, not a gate: what she writes after the question goes out as written.
+THINK_SHARE = 0.8
+THINK_MIN_CHARS = 40
+THINK_NOTE = ("[LOOP] This is processing, not response: nearly all of what I wrote is inside thinking, "
+              "with little said to them. What do I actually want to say? (Asked once; what I write "
+              "next goes out as I write it.)")
+OUTWARD_TEXT = {"reply_back": "message", "say": "message", "reach_out": "message",
+                "babelr_dm": "content", "babelr_post": "content", "discord_respond": "content",
+                "social_dm_send": "text", "social_reply": "text"}
+_THINK_BLOCK = re.compile(r"<gesture:think(?::\d*\.?\d+)?>(.*?)(?:</gesture:think>|</thinking>|</think>|$)", re.S)
+_TAG = re.compile(r"</?[a-zA-Z_][\w:.\-]*(?:\s[^<>]*)?/?>")
+
+
+def _visible(text: str) -> str:
+    return " ".join(_TAG.sub(" ", text or "").split())
+
+
+def think_share(text: str) -> float:
+    """How much of a reply's words are inside thinking blocks (0 to 1)."""
+    total = len(_visible(text))
+    if total < THINK_MIN_CHARS:
+        return 0.0
+    inside = sum(len(_visible(m.group(1))) for m in _THINK_BLOCK.finditer(text or ""))
+    return min(1.0, inside / total)
 
 
 def _blocked(e: Exception) -> bool:
@@ -291,6 +322,8 @@ async def run_loop(
     can_reply = "reply_back" in offered
     replied = False
     asked_to_reply = False
+    think_asked = False      # chat: asked once per turn
+    think_asked_tools = set()  # sessions: once per outward tool
     warned = False
     try:
         while True:
@@ -350,6 +383,13 @@ async def run_loop(
                 out.written_end_calls += 1
                 logger.info(f"[agent_loop] {end_tool} was written as text; made as a call")
 
+            if (not reply.tool_calls and not session_like and not think_asked
+                    and think_share(reply.text) >= THINK_SHARE):
+                think_asked = True
+                out.think_asks += 1
+                logger.info("[agent_loop] a reply nearly all thinking; asked her once what she wants to say")
+                history.append({"role": "user", "content": THINK_NOTE})
+                continue
             if not reply.tool_calls:
                 if nudges_left > 0:
                     nudges_left -= 1
@@ -391,6 +431,15 @@ async def run_loop(
                     asked_to_reply = True
                     result = {"not_ended_yet": True,
                               "note": REPLY_BEFORE_END.format(end_tool=end_tool)}
+                    step.tool_results.append({"tool_name": name, "result": result})
+                    results.append({"id": call["id"], "name": name, "content": json.dumps(result)})
+                    continue
+                field_ = OUTWARD_TEXT.get(name)
+                if (field_ and name in offered and name not in think_asked_tools
+                        and think_share(str(tool_input.get(field_) or "")) >= THINK_SHARE):
+                    think_asked_tools.add(name)
+                    out.think_asks += 1
+                    result = {"not_sent": True, "note": THINK_NOTE}
                     step.tool_results.append({"tool_name": name, "result": result})
                     results.append({"id": call["id"], "name": name, "content": json.dumps(result)})
                     continue

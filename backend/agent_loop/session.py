@@ -152,6 +152,7 @@ def _session_result_cls():
         cache_read_tokens: int = 0
         cache_write_tokens: int = 0
         nudges: int = 0
+        think_asks: int = 0   # replies nearly all thinking, asked back once (loop.THINK_NOTE)
         written_end_calls: int = 0
         extended: int = 0
         summarized_at_cap: bool = False
@@ -175,6 +176,7 @@ def _session_result_cls():
                 "cache_read_tokens": self.cache_read_tokens,
                 "cache_write_tokens": self.cache_write_tokens,
                 "nudges": self.nudges,
+                "think_asks": self.think_asks,
                 "written_end_calls": self.written_end_calls,
                 "extended": self.extended,
                 "summarized_at_cap": self.summarized_at_cap,
@@ -461,6 +463,7 @@ async def run_session_turn(
         cache_read_tokens=outcome.cache_read_tokens,
         cache_write_tokens=outcome.cache_write_tokens,
         nudges=outcome.nudges,
+        think_asks=outcome.think_asks,
         written_end_calls=outcome.written_end_calls,
         extended=outcome.extended,
         summarized_at_cap=outcome.summarized_at_cap,
