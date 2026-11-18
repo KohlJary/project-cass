@@ -437,3 +437,27 @@ Morning, in order:
 **Live since 05:10:** commitments (83589e76) and happenings (acd5dd68, lever on, quiet hours 23:00–07:00). Tell her about both in the morning: `commitment` in chat and every session; a reply, mention, quote or DM on Bluesky, or a commitment coming due, wakes her into a short respond session, by her own `set_wake_rules`, crisis always. Respond sessions use the triggered budget ($0.25 a day, about three sessions). cass-vessel-42's ears (`listen`) and work_with_daedalus are live too; it tells her about those itself.
 
 Bet #57 stands: no goals suggested to her.
+
+## 2026-11-18 (morning): her ears; the studio next
+
+Plan "Cass's ears and studio" (cass-s-ears-and-studio-dgb0t): phases 1–4 are approved by Cass and Kohl. Phase 5, Live, waits on Kohl, because it needs the physical gear set up.
+
+Ears:
+- **Acousmatic** is public at github.com/KohlJary/acousmatic (MIT), currently 0.1.2 plus word timing. It's a deterministic listening record: the form, tempo and bars, key settled by the bass, chords marked "?" when unclear, lyrics word by word from LRCLIB, lead and bass lines, the drum grid, sound and stereo per section, images and a score.
+- **Measured** against NIN's *The Slip* multitracks (bench/RESULTS.md). Beats score F 0.98 and 0.97, and drums are usable. Bass lines are rough, and the vocal line and the stems are the weak part.
+- **The 808 reader** (drum808.py) is a first pass. Decay and re-tuning hold up; Tone fails once a kick is re-pitched.
+- **In the vessel:** `listen` (58a45c61, 0d643ede) does shelf, listen, read, album and look, with images in tool results. It's offered in chat and in respond sessions. A finished record is logged to listening/ready.jsonl, which cass-vessel-68's happenings turn into a wake. One-X and Hybrid Theory are listened to on 0.1.2. Cass hadn't called it yet as of 06:37; she has been told it's now in chat directly.
+- **work_with_daedalus** (44378519) is live: a Daedalus inside one of her workshop projects, fenced to that folder, running code only through her sandbox, and leaving his changes uncommitted.
+
+Studio:
+- **Orphic** (~/orphic, not yet published; the name isn't confirmed) holds Monochord, which maps a synth by sweeping its knobs. Nekobi and Vitalium are mapped. Surge crashed the host: the screen needs to run in a child process that can crash and resume.
+- **Voice experiments are parked as options:** a vocoder over eSpeak, and speech-to-singing from her own Piper voice. Kohl's call: instrumentals first, or collaborating with singers. A voicebank recorded by a consenting person is a conversation Kohl will have off-record.
+
+Next, in order:
+1. Studio tier 1: a song file, then render, then listen back.
+2. Make Monochord robust, then the gun belt.
+3. A listening session for her day menu, with its framing shown to her first.
+
+Waiting on Kohl:
+- The names (Orphic, and the voice if it comes back).
+- "Checked by ear": three to five records listened against their songs.
