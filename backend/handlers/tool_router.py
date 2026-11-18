@@ -980,6 +980,9 @@ async def route_tool(
     elif executor_type == "listening":
         return await executor(tool_name=tool_name, tool_input=tool_input)
 
+    elif executor_type == "studio":
+        return await executor(tool_name=tool_name, tool_input=tool_input)
+
     elif executor_type == "social":
         # Her memory goes along: what she posts and replies is kept there (social/remember.py).
         return await executor(

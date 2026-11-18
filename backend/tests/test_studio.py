@@ -171,3 +171,15 @@ def test_the_router_runs_the_studio(monkeypatch, tmp_path):
     assert out == {"success": True, "result": {"help": "ok", "asked": "help"}}
     monkeypatch.setattr(ST, "enabled", lambda: False)
     assert asyncio.run(ST.execute_studio_tool("studio", {"action": "help"}))["success"] is False
+
+
+def test_the_router_dispatches_the_studio_end_to_end():
+    """Through route_tool itself: the first chat try (2026-11-18) failed with
+    'Unhandled executor type: studio' because the dispatch branch was missing."""
+    import asyncio
+    from handlers.tool_router import ToolContext, route_tool
+
+    async def fake(tool_name, tool_input, **_):
+        return {"success": True, "result": {"ran": tool_input.get("action")}}
+    out = asyncio.run(route_tool("studio", {"action": "tone"}, ToolContext(), {"studio": fake}))
+    assert out == {"success": True, "result": {"ran": "tone"}}
