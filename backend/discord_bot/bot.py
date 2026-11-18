@@ -5,6 +5,8 @@ This is the core Discord.py bot that connects to Discord, receives events,
 and provides action methods for Cass to send messages and reactions.
 """
 
+from __future__ import annotations  # discord.Client in annotations, with discord.py absent (CI)
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -18,6 +20,11 @@ try:
 except ImportError:
     DISCORD_PY_AVAILABLE = False
     discord = None
+
+    class tasks:  # noqa: N801  stand-in so the class below defines without discord.py (CI)
+        @staticmethod
+        def loop(**_kw):
+            return lambda f: f
 
 from discord_bot.config import (
     DISCORD_BOT_TOKEN,
