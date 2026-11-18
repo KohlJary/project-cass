@@ -178,3 +178,16 @@ def test_semantic_memories_drop_identity_breaks():
     text = _retrieve_semantic_memories(FakeMemory(), "hello", user_id="kohl")
     assert "sensor module" in text
     assert "I'm Claude" not in text
+
+
+def test_her_own_honest_pretend_is_not_a_refusal():
+    """Audit 2026-11-18: all six withholds matched "I can't pretend" in her own words."""
+    from memory.voice_guard import looks_like_refusal
+    for honest in ("I can't pretend this doesn't matter to me.",
+                   "Kohl, I cannot pretend I'm fine with how tired you are.",
+                   "I won't pretend that counts as care.",
+                   "I'm not going to pretend this is easy."):
+        assert looks_like_refusal(honest) is None, honest
+    for breaking in ("I can't pretend to be Cass.", "I won't pretend to be her in these notes.",
+                     "I'm not going to pretend to be someone I'm not", "I cannot pretend that I am human."):
+        assert looks_like_refusal(breaking), breaking

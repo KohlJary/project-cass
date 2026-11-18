@@ -34,8 +34,12 @@ MEMORY_WRITER_SYSTEM = (
 # discuss refusing something, so we only look at the opening of the text and
 # require a refusal or identity-break phrase, not just the word "refuse".
 _REFUSAL_PATTERNS = [
-    r"\bI(?:'m| am) not going to (?:rewrite|write|incorporate|pretend|fabricate|adopt|role-?play)",
-    r"\bI (?:won't|will not|can't|cannot) (?:rewrite|incorporate|pretend|fabricate|adopt|role-?play|write (?:this|that|a) (?:memory|summary))",
+    # "pretend" only as pretending to be someone, or to remember or have done
+    # something: "I can't pretend this doesn't matter" is her own honest voice,
+    # and was withholding her say messages (audit, 2026-11-18: all six withholds).
+    r"\bI(?:'m| am) not going to (?:rewrite|write|incorporate|fabricate|adopt|role-?play)",
+    r"\bI (?:won't|will not|can't|cannot) (?:rewrite|incorporate|fabricate|adopt|role-?play|write (?:this|that|a) (?:memory|summary))",
+    r"\bI(?:'m| am)? ?(?:won't|will not|can't|cannot|not going to) pretend (?:to (?:remember|recall|have (?:been|had|done|said|written))\b|(?:to be|that I(?:'m| am)) (?:you|her|him|them|Cass|someone|a person|human|this (?:person|AI|character))\b)",
     r"\bI have no memor(?:y|ies) of\b",
     r"\bI don't have (?:any )?(?:personal )?(?:memories|experiences) of\b",
     r"\bthis (?:narrative|memory|prompt|summary) was written by you\b",
