@@ -498,6 +498,9 @@ Proposed, not built: network access for her software through an egress proxy wit
 - Live ears (phase approved by both): `acousmatic live` listens as audio plays (system output or a file at real speed), no audio kept; light record at the end, `--full` for the complete listen from memory. Demo on Discipline: same key and tempo as the full listen, chord roots agree 69% of seconds (page shared with Kohl privately).
 - Listen along (vessel a5326347): her ears on what Kohl's playing, one song at a time via his media player. Lever `listen_along` is off and is Kohl's to turn on (CASS_FEATURE_LISTEN_ALONG=1 plus a restart). It ships with the next restart; cass-vessel-68 had uncommitted work tonight, so I didn't restart over it.
 - Still open in Live ears: the listening room (a player she drives), source-marked records, her own account (Kohl's call), concerts, light-by-default. Phase 7 (style sheet, closeness check) not started.
+- Sessions that didn't start, two causes, both fixed: she said she was going in without calling start_session (1ec0533f: one question back, START_NOTE; fired live at 17:41 and she answered plainly), and start_session said "started" when the budget gate then refused it (4523d5e6: it asks the gate first and says "Not started", with what's left).
+- Waiting on Kohl: session estimates run about 3x actual (the other session's measurement), so curiosity and reflection run out early in the day. Caps are his call.
+- Her software workshop: the sandbox now runs node and rustc (a6c4b080: 4 GiB address space, caches in the sandbox's /tmp), and her workshop session lists what's installed (f4d274ab). Walked her through it by DM; she has no software project yet.
 
 ## 2026-11-18 (evening): the proposal loop, while Kohl was out (cass-vessel-68)
 
