@@ -164,3 +164,8 @@ def test_a_think_block_she_closes_with_thinking_is_mended():
     assert mend_think(ok) == ok
     assert mend_think("no block </thinking> here") == "no block </thinking> here", "a stray close alone is left"
     assert mend_think("<gesture:think:0.5>x</thinking>y") == "<gesture:think:0.5>x</gesture:think>y"
+
+
+def test_a_think_block_closed_with_think_is_mended_too():
+    from agent_loop.conversation import mend_think
+    assert mend_think("<gesture:think>plan</think>\n\nAnswer.") == "<gesture:think>plan</gesture:think>\n\nAnswer."

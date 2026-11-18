@@ -93,10 +93,10 @@ def mend_think(text: str) -> str:
     """Close a <gesture:think> block she closed with </thinking> (2026-11-18: her
     planning then showed as part of the reply, since nothing found the block's end).
     Only a </thinking> that follows a still-open <gesture:think> is changed."""
-    if not text or "</thinking>" not in text:
+    if not text or ("</thinking>" not in text and "</think>" not in text):
         return text
     out, pos, open_ = [], 0, 0
-    for m in re.finditer(r"<gesture:think(?::\d*\.?\d+)?>|</gesture:think>|</thinking>", text):
+    for m in re.finditer(r"<gesture:think(?::\d*\.?\d+)?>|</gesture:think>|</thinking>|</think>", text):
         out.append(text[pos:m.start()])
         tag = m.group(0)
         if tag.startswith("<gesture:think"):
