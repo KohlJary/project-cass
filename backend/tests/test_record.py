@@ -211,3 +211,13 @@ def test_the_review_shows_her_workshop_commits(tmp_path):
     md = R.build_review(24, tmp_path, now, waiting=lambda: [], heartbeat=lambda s: ([], []),
                         record={"entries": [], "unavailable": [], "spend_by_day": []}, repos={})
     assert "## What she made in her workshop" in md and "Tide Atlas (writing): Start Tide Atlas" in md
+
+
+def test_her_publishing_is_in_the_record(tmp_path):
+    (tmp_path / "workshop").mkdir()
+    (tmp_path / "workshop" / "published.jsonl").write_text(json.dumps(
+        {"at": "2026-11-18T10:00:00", "project": "tide", "url": "https://github.com/CassJary/tide",
+         "created": True, "private": True, "commit": "abc1234"}) + "\n")
+    (e,) = R.from_published(tmp_path)
+    assert e["title"] == "published tide to GitHub (private, new repository)" and e["kind"] == "world"
+    assert "abc1234" in e["source"]

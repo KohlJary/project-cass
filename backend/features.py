@@ -226,6 +226,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("workshop_run", "Running code in her software projects, in a bubblewrap sandbox (no network, only "
            "the project's folder, time and memory limits)",
            LOCAL, default=False, where="workshop.run"),
+    _lever("github_publish", "Publishing her workshop projects to her GitHub account (CassJary): creates the "
+           "repository (private unless she says public) and pushes its history. A new channel out: Kohl's call",
+           INTEGRATION, default=False, where="workshop.publish"),
     _lever("kohl_blog", "Kohl's blog on her day menu (kohl_blog.py, kohl_blog_turn.py): a session where she "
            "reads his Substack and keeps what she takes from it in her self-model, marked Kohl-influenced",
            LLM, default=False, where="scheduling.templates kohl_blog available"),

@@ -151,6 +151,15 @@ def from_social(dd: Path) -> List[Dict[str, Any]]:
     return out
 
 
+def from_published(dd: Path) -> List[Dict[str, Any]]:
+    """Her workshop projects published to GitHub (workshop.publish)."""
+    return [_entry(rec.get("at"), "cass", "world",
+                   f"published {rec.get('project')} to GitHub ({'private' if rec.get('private') else 'public'}"
+                   f"{', new repository' if rec.get('created') else ''})",
+                   f"workshop/published.jsonl:{n} {rec.get('url')} @ {rec.get('commit')}")
+            for n, rec in _jsonl(dd / "workshop" / "published.jsonl")]
+
+
 def from_room(dd: Path) -> List[Dict[str, Any]]:
     try:
         state = json.loads((dd / "room" / "shares.json").read_text(encoding="utf-8"))
@@ -280,6 +289,7 @@ def build(days: int = 30, data_dir: Optional[Path] = None, now: Optional[datetim
     take("reach-outs", lambda: from_reach_outs((reach_outs or _live_reach_outs)()))
     take("Bluesky/Tumblr", lambda: from_social(dd))
     take("her room", lambda: from_room(dd))
+    take("GitHub publishing", lambda: from_published(dd))
     take("her days", lambda: from_days(dd))
     take("vessel commits", lambda: from_git(repo or Path(__file__).resolve().parent.parent, since))
 

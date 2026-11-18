@@ -62,3 +62,39 @@ def test_the_sandbox_has_no_network_and_sees_only_the_project(tmp_path, levers):
     assert "cwd /work" in out["stdout"] and "net blocked" in out["stdout"]
     assert "/home False" in out["stdout"] and "/root False" in out["stdout"]
     assert (tmp_path / "workshop" / "probe" / "made.txt").read_text() == "kept"
+
+
+def test_publish_waits_for_the_lever_and_needs_a_clean_history(tmp_path, levers):
+    import json
+    W.new("tide", "writing", "v", tmp_path)
+    with levers(github_publish=False):
+        assert "isn't switched on" in W.publish("tide", data_dir=tmp_path)["error"]
+    (tmp_path / "github").mkdir()
+    (tmp_path / "github" / "credentials.json").write_text(json.dumps({"username": "CassJary", "token": "github_pat_x"}))
+    W.write("tide", "a.md", "draft", tmp_path)
+    with levers(github_publish=True):
+        assert "commit first" in W.publish("tide", data_dir=tmp_path)["error"]
+
+
+def test_publish_creates_a_private_repo_and_pushes_without_storing_the_token(tmp_path, levers):
+    import json
+    W.new("tide", "writing", "An essay.", tmp_path)
+    (tmp_path / "github").mkdir()
+    (tmp_path / "github" / "credentials.json").write_text(json.dumps({"username": "CassJary", "token": "github_pat_SECRET"}))
+    calls = []
+
+    def github(method, path, token, body=None):
+        calls.append((method, path, body))
+        if method == "GET":
+            return 404, {"message": "Not Found"}
+        return 201, {"html_url": "https://github.com/CassJary/tide", "private": body["private"]}
+    pushed = []
+    with levers(github_publish=True):
+        out = W.publish("tide", data_dir=tmp_path, github=github, push=lambda *a: pushed.append(a[1:]) or "pushed")
+    assert out["success"] and out["created"] and out["private"] and out["url"].endswith("/tide")
+    assert calls[1] == ("POST", "/user/repos", {"name": "tide", "private": True,
+                                                "description": "tide: a writing project of Cass's"})
+    assert pushed == [("CassJary", "github_pat_SECRET", "tide")]
+    proj = tmp_path / "workshop" / "tide"
+    assert "SECRET" not in (proj / ".git" / "config").read_text(), "the token is never written to the repo"
+    assert json.loads((tmp_path / "workshop" / "published.jsonl").read_text())["project"] == "tide"

@@ -229,23 +229,96 @@ def run(slug: str, command: str, data_dir: Optional[Path] = None) -> Dict[str, A
             "note": "No network in the sandbox; only this project's folder is there (as /work)."}
 
 
+# --- publishing (lever github_publish, off until Kohl switches it on) ---------
+# Her GitHub account (CassJary, set up by Kohl 2026-11-18). The token lives in
+# DATA_DIR/github/credentials.json (mode 600), outside every project, so the
+# sandbox never sees it; it's passed to git per call, never written to a repo.
+
+def _credentials(data_dir: Optional[Path] = None) -> Dict[str, str]:
+    if data_dir is None:
+        from config import DATA_DIR
+        data_dir = Path(DATA_DIR)
+    return json.loads((Path(data_dir) / "github" / "credentials.json").read_text(encoding="utf-8"))
+
+
+def _github(method: str, path: str, token: str, body: Optional[Dict[str, Any]] = None) -> tuple:
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(f"https://api.github.com{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                                          "User-Agent": "cass-vessel", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
+
+
+def _push(project: Path, user: str, token: str, repo: str) -> str:
+    import base64
+    auth = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    r = subprocess.run(["git", "-C", str(project), "-c", f"http.extraHeader=Authorization: Basic {auth}",
+                        "push", f"https://github.com/{user}/{repo}.git", "HEAD:main"],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.replace(auth, "***").strip()[:400])
+    return "pushed"
+
+
+def publish(slug: str, visibility: str = "private", data_dir: Optional[Path] = None,
+            github=None, push=None) -> Dict[str, Any]:
+    from features import is_enabled
+    if not is_enabled("github_publish"):
+        return {"error": "publishing to GitHub isn't switched on yet (Kohl's call)"}
+    if visibility not in ("private", "public"):
+        return {"error": "visibility is private or public"}
+    p = _project(slug, data_dir)
+    if _git(p, "status", "--porcelain").strip():
+        return {"error": "commit first: publishing sends the project's history, not uncommitted work"}
+    c = _credentials(data_dir)
+    github, push = github or _github, push or _push
+    status_code, repo = github("GET", f"/repos/{c['username']}/{p.name}", c["token"])
+    created = False
+    if status_code == 404:
+        m = meta(p)
+        status_code, repo = github("POST", "/user/repos", c["token"],
+                                   {"name": p.name, "private": visibility == "private",
+                                    "description": f"{m.get('name')}: a {m.get('kind')} project of Cass's"})
+        if status_code not in (200, 201):
+            return {"error": f"GitHub wouldn't create it ({status_code}): {repo.get('message')}"}
+        created = True
+    elif status_code != 200:
+        return {"error": f"GitHub answered {status_code}: {repo.get('message')}"}
+    push(p, c["username"], c["token"], p.name)
+    url = repo.get("html_url") or f"https://github.com/{c['username']}/{p.name}"
+    rec = {"at": datetime.now().isoformat(timespec="seconds"), "project": p.name, "url": url,
+           "created": created, "private": bool(repo.get("private", visibility == "private")),
+           "commit": _git(p, "rev-parse", "--short", "HEAD").strip()}
+    with (root(data_dir) / "published.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
+    return {"success": True, **rec}
+
+
 PROJECT_TOOL: Dict[str, Any] = {
     "name": "project",
     "description": ("My workshop: projects of mine that run over many sessions, each kept apart, each a git "
                     "history with a PROJECT.md (its vision, where it stands, what's next). Software, long "
                     "writing, outreach, anything large. action: new (name, kind, vision), list, status "
                     "(project), files, read (path), write (path, content), edit (path, old, new), commit "
-                    "(message), log, run (command; software projects, sandboxed, no network)."),
+                    "(message), log, run (command; software projects, sandboxed, no network), publish "
+                    "(to my GitHub, private unless I say public; once Kohl has switched it on)."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["new", "list", "status", "files", "read", "write", "edit",
-                                                  "commit", "log", "run"]},
+                                                  "commit", "log", "run", "publish"]},
             "project": {"type": "string"}, "name": {"type": "string"},
             "kind": {"type": "string", "enum": list(KINDS)}, "vision": {"type": "string"},
             "path": {"type": "string"}, "content": {"type": "string"},
             "old": {"type": "string"}, "new": {"type": "string"},
             "message": {"type": "string"}, "command": {"type": "string"}, "n": {"type": "integer"},
+            "visibility": {"type": "string", "enum": ["private", "public"]},
         },
         "required": ["action"],
     },
@@ -276,6 +349,8 @@ def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]
             return log(slug, a.get("n") or 20, data_dir)
         if action == "run":
             return run(slug, a.get("command") or "", data_dir)
-        return {"error": "action is one of: new, list, status, files, read, write, edit, commit, log, run"}
+        if action == "publish":
+            return publish(slug, a.get("visibility") or "private", data_dir)
+        return {"error": "action is one of: new, list, status, files, read, write, edit, commit, log, run, publish"}
     except (ValueError, RuntimeError, OSError) as e:
         return {"error": str(e)}
