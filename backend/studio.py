@@ -374,8 +374,9 @@ def _differences(before: Dict, after: Dict) -> List[str]:
               "attack_ms": "attack (ms)", "sustain": "sustain", "release_ms": "release (ms)",
               "brightness_motion": "brightness change over a note (octaves)", "am_rate_hz": "tremolo/beating (Hz)",
               "am_depth": "tremolo/beating depth", "width": "stereo width", "peak_hz": "resonant peak (Hz)",
-              "peak_db": "resonant peak height (dB)"}
-    scale = {"level_db": 3, "noise": 0.05, "sustain": 0.1, "brightness_motion": 0.3, "am_rate_hz": 1,
+              "peak_db": "resonant peak height (dB)", "sounding_share": "share of the loop that sounds",
+              "rings_ms": "notes ring for (ms)"}
+    scale = {"level_db": 3, "sounding_share": 0.1, "noise": 0.05, "sustain": 0.1, "brightness_motion": 0.3, "am_rate_hz": 1,
              "am_depth": 0.1, "width": 0.08, "peak_db": 3}
     out = []
     for k, lab in labels.items():
