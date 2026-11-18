@@ -552,6 +552,15 @@ def rig(name: str, chain, notes: str, data_dir=None) -> Dict[str, Any]:
     name = re.sub(r"[^a-z0-9_-]+", "-", (name or "").lower()).strip("-")
     if not name or not chain:
         return {"error": "a rig needs a name and a chain"}
+    if Path(ORPHIC).exists():
+        try:
+            r = subprocess.run([ORPHIC, "check-chain", "--chain", json.dumps(chain)], capture_output=True, text=True,
+                               timeout=120)
+            verdict = json.loads(r.stdout)
+        except (subprocess.TimeoutExpired, ValueError):
+            verdict = {"error": "the chain couldn't be checked"}
+        if verdict.get("error"):
+            return {"error": f"not saved: {verdict['error']}"}
     belt = _belt(data_dir)
     belt.mkdir(parents=True, exist_ok=True)
     (belt / f"{name}.json").write_text(json.dumps({"name": name, "kind": "rig", "chain": chain, "notes": notes or "",

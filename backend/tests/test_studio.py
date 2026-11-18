@@ -126,6 +126,8 @@ TONE = r'''#!/usr/bin/env python3
 import json, sys
 from pathlib import Path
 args = sys.argv
+if "check-chain" in args:
+    print(json.dumps({"ok": True})); sys.exit(0)
 inst = json.loads(args[args.index("--instrument") + 1])
 chain = json.loads(args[args.index("--chain") + 1]) if "--chain" in args else []
 drive = (chain[0].get("params") or {}).get("preampdrive", 0.5) if chain else 0.5
@@ -235,3 +237,13 @@ def test_song_writes_and_commits_a_song_file(tmp_path, monkeypatch):
     assert "valid YAML" in ST.handle({"action": "song", "project": slug, "text": "tempo: [1"}, tmp_path)["error"]
     assert "tempo" in ST.handle({"action": "song", "project": slug, "text": "title: x"}, tmp_path)["error"]
     assert ".yaml" in ST.handle({"action": "song", "project": slug, "song": "../x.yaml", "text": "tempo: 1"}, tmp_path)["error"]
+
+
+@pytest.mark.skipif(not Path(ST.ORPHIC).exists(), reason="needs Orphic installed")
+def test_a_rig_with_knobs_that_dont_exist_isnt_saved(tmp_path, monkeypatch):
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    bad = ST.handle({"action": "rig", "name": "x", "chain": [{"builtin": "eq", "low_cut_hz": 100}]}, tmp_path)
+    assert "not saved" in bad["error"] and "highpass" in bad["error"]
+    assert not (tmp_path / "studio" / "belt" / "x.json").exists()
+    ok = ST.handle({"action": "rig", "name": "x", "chain": [{"builtin": "highpass", "cutoff_frequency_hz": 100}]}, tmp_path)
+    assert ok["saved"] == "x"
