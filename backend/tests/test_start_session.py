@@ -93,3 +93,22 @@ def test_listening_does_not_count_toward_the_day(tmp_path):
                                      ["workshop", "listening"], now=now)["error"]
     ok = book.start_now({"activity": "listening", "why": "One-X"}, "c", ["workshop", "listening"], now=now)
     assert ok["started"] == "listening" and "doesn't count" in ok["note"]
+
+
+def test_a_refused_or_hung_wake_stops_blocking_new_starts(tmp_path):
+    from datetime import timedelta
+    book = WK.WakeBook(tmp_path / "wakes.json")
+    t0 = datetime(2026, 11, 18, 9, 34)
+    book.start_now({"activity": "listening", "why": "Hybrid Theory"}, "c", ["listening", "workshop"], now=t0)
+    [w] = book.take_due(t0)            # handed to Heartbeat, which then refuses it: run_wake never runs
+    soon = book.start_now({"activity": "workshop", "why": "x"}, "c", ["workshop"], now=t0 + timedelta(minutes=2))
+    assert "one at a time" in soon["error"]
+    later = book.start_now({"activity": "workshop", "why": "x"}, "c", ["workshop"], now=t0 + timedelta(minutes=6))
+    assert later.get("started") == "workshop"
+    old = next(x for x in book.all() if x["id"] == w["id"])
+    assert old["status"] == WK.FAILED and "never started" in old["result"]
+    # one that really ran and never finished closes after its minutes plus the margin
+    [w2] = book.take_due(t0 + timedelta(minutes=6))
+    book.mark_running(w2["id"])
+    assert book.settle(datetime.now() + timedelta(minutes=10)) == 0
+    assert book.settle(datetime.now() + timedelta(minutes=30 + 31)) == 1

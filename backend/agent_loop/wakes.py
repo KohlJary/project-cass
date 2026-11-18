@@ -150,6 +150,7 @@ class WakeBook:
         except (TypeError, ValueError):
             minutes = 30
         minutes = max(START_MINUTES[0], min(START_MINUTES[1], minutes))
+        self.settle(now)
         items = self._load()
         mine = [w for w in items if w.get("started_from") == "conversation"]
         busy = [w for w in mine if w.get("status") in (PENDING, STARTED)]
@@ -195,6 +196,52 @@ class WakeBook:
             self._save(items)
         return due
 
+    # A wake handed to Heartbeat is marked started, but the gate can still refuse it
+    # (over budget), and then run_wake never runs and nothing finishes it; a stuck
+    # one blocked every start_session from chat (2026-11-18, found by the peer
+    # session). run_wake marks when it really begins; settle() closes the rest.
+    NEVER_RAN_MINUTES = 5
+    STALE_MARGIN_MINUTES = 30
+
+    def mark_running(self, wake_id: str) -> None:
+        items = self._load()
+        for w in items:
+            if w.get("id") == wake_id:
+                w["running_at"] = datetime.now().isoformat(timespec="seconds")
+        self._save(items)
+
+    def settle(self, now: Optional[datetime] = None) -> int:
+        """Close started wakes that never ran, or ran and never finished."""
+        now = now or datetime.now()
+        items = self._load()
+        closed = 0
+        for w in items:
+            if w.get("status") != STARTED:
+                continue
+            try:
+                started = datetime.fromisoformat(w.get("started_at") or w["at"])
+            except (KeyError, ValueError):
+                continue
+            if not w.get("running_at"):
+                if now - started > timedelta(minutes=self.NEVER_RAN_MINUTES):
+                    w["status"], w["result"] = FAILED, ("never started: Heartbeat didn't run it "
+                                                        "(refused, usually over budget, or dropped)")
+                    w["finished_at"] = now.isoformat(timespec="seconds")
+                    closed += 1
+                continue
+            try:
+                running = datetime.fromisoformat(w["running_at"])
+            except ValueError:
+                continue
+            limit = int(w.get("minutes") or WAKE_SESSION_MINUTES) + self.STALE_MARGIN_MINUTES
+            if now - running > timedelta(minutes=limit):
+                w["status"], w["result"] = FAILED, "never finished (the vessel restarted, or it hung)"
+                w["finished_at"] = now.isoformat(timespec="seconds")
+                closed += 1
+        if closed:
+            self._save(items)
+        return closed
+
     def release(self, wake_id: str) -> None:
         """Back to pending (it couldn't be started this time)."""
         items = self._load()
@@ -227,6 +274,7 @@ def wake_why(w: Dict[str, Any]) -> str:
 async def run_wake(w: Dict[str, Any], book: Optional[WakeBook] = None) -> Any:
     """One woken session, through the action registry like any session."""
     book = book or WakeBook()
+    book.mark_running(w["id"])
     from scheduler.actions import get_action_registry
     try:
         result = await get_action_registry().execute(
@@ -267,6 +315,7 @@ async def check_wakes(book: Optional[WakeBook] = None) -> int:
     from heartbeat import wiring
     from scheduler.budget import TaskCategory
     book = book or WakeBook()
+    book.settle()
     due = book.take_due()
     for w in due:
         budget, estimate = wake_budget(w["activity"])
@@ -302,6 +351,7 @@ async def watch_once(book: Optional[WakeBook] = None, budget=None,
     if not features.is_enabled("agent_loop") or heartbeat_running():
         return 0
     book = book or WakeBook()
+    book.settle()
     run = run or run_wake
     due = book.take_due()
     for w in due:
