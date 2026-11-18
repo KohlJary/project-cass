@@ -384,6 +384,33 @@ async def new_capabilities_action(context: Dict[str, Any]) -> ActionResult:
                               "summary": result.summary})
 
 
+async def workshop_action(context: Dict[str, Any]) -> ActionResult:
+    """Her workshop session: one of her projects (workshop_turn.py). On the agent loop only."""
+    if not is_enabled("agent_loop"):
+        return ActionResult(success=False, message="The workshop runs on the agent loop, which is off")
+    managers = context.get("managers", {})
+    runner = managers.get("session_runner")
+    if not runner:
+        return ActionResult(success=False, message="GenericSessionRunner not available in managers")
+    runner.set_managers(managers)
+    runner.register_tool_handlers(get_default_handlers())
+    try:
+        from workshop_turn import run_workshop_turn
+        result = await run_workshop_turn(
+            runner, duration_minutes=context.get("duration_minutes", 30),
+            max_turns=context.get("max_turns", 24), focus=context.get("focus"),
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+    except Exception as e:
+        logger.error(f"Workshop error: {e}", exc_info=True)
+        return ActionResult(success=False, message=f"Session error: {e}")
+    if result.status == "error":
+        return ActionResult(success=False, message=f"Workshop session failed: {result.error}",
+                            data={"status": result.status, "error": result.error})
+    return ActionResult(success=True, message="Workshop session complete", cost_usd=result.estimated_cost_usd,
+                        data={"session_id": result.session_id, "status": result.status,
+                              "summary": result.summary})
+
+
 REFLECTION_FOCUS = "to sit somewhere contemplative in Wonderland and let the place shape my thinking"
 
 

@@ -440,6 +440,15 @@ def build_review(hours: int = 24, data_dir: Optional[Path] = None, now: Optional
         except Exception as e:
             unreadable.append(f"{name} commits: {e}")
     section("What was built", built, "No commits.")
+    made = []   # her own workshop commits (workshop.py), project by project
+    try:
+        import workshop
+        for proj in workshop.list_projects(data_dir):
+            for e in from_git(workshop.root(data_dir) / proj["project"], since):
+                made.append(f"- {proj['name']} ({proj['kind']}): {e['title']} ({e['at'][11:16]})")
+    except Exception as e:
+        unreadable.append(f"her workshop: {e}")
+    section("What she made in her workshop", made, "No workshop commits.")
     try:
         section("Waiting on you", (waiting or _waiting_on_kohl)(), "Nothing.")
     except Exception as e:

@@ -329,6 +329,18 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _agent_loop_on() and _daedalus_on(),
     ),
 
+    # Her workshop (Kohl, 2026-11-18): her projects, each kept apart (workshop.py).
+    "workshop": WorkUnitTemplate(
+        id="workshop",
+        name="Workshop",
+        description="Time on one of my projects (software, long writing, outreach): its vision, its state, its next step. The focus can name the project.",
+        action_sequence=["session.workshop"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.30,
+        category="creative",
+        available=lambda: _agent_loop_on() and _workshop_on(),
+    ),
+
     # Its sibling (Kohl, 2026-11-18): capabilities she doesn't have yet, not
     # iterating on what she has (new_capability_turn.py).
     "new_capabilities": WorkUnitTemplate(
@@ -470,6 +482,14 @@ def get_templates_by_category(category: str) -> List[WorkUnitTemplate]:
 def list_templates() -> List[Dict[str, Any]]:
     """List all available templates."""
     return [t.to_dict() for t in WORK_TEMPLATES.values()]
+
+
+def _workshop_on() -> bool:
+    try:
+        from workshop_turn import available
+        return available()
+    except Exception:
+        return False
 
 
 def _kohl_blog_on() -> bool:

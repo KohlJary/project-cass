@@ -323,6 +323,16 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Off by default; dream seeds only. Fast-suite: tests/test_entropy.py.",
     },
+    "workshop": {
+        "depth": "gate",
+        "tests": [f"{AGENT_LOOP}::test_workshop_session_opens_her_project_and_commits"],
+        "note": "One Workshop session through the registry with the fake LLM: the project in her focus opens with its PROJECT.md, she writes and commits. Fast-suite: tests/test_workshop.py.",
+    },
+    "workshop_run": {
+        "depth": "none",
+        "tests": [],
+        "note": "Nothing starts on its own; her project tool's run calls it. Fast-suite: tests/test_workshop.py runs the real bubblewrap sandbox (no network, only the project).",
+    },
     "kohl_blog": {
         "depth": "gate",
         "tests": [f"{AGENT_LOOP}::test_kohl_blog_session_reads_and_keeps"],

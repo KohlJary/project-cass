@@ -450,3 +450,24 @@ def test_new_capabilities_session_carries_her_focus(app, fake_llm, levers, monke
     assert "## NEW CAPABILITIES" in first.system_text and "ask Daedalus what it would take" in first.system_text
     assert "being able to call someone on the phone" in first.system_text
     assert "ask_daedalus" in first.tool_names   # babelr_plans needs Babelr, which the smoke app hasn't
+
+
+def test_workshop_session_opens_her_project_and_commits(app, fake_llm, levers, monkeypatch, tmp_path):
+    """workshop (Kohl, 2026-11-18): the project her focus names opens with its
+    PROJECT.md; she writes and commits through the project tool."""
+    import workshop
+    from scheduler.actions import get_action_registry
+    monkeypatch.setattr(workshop, "root", lambda data_dir=None: tmp_path / "workshop")
+    workshop.new("Tide Atlas", "writing", "An essay on tides and patience.")
+    fake_llm.queue_tool_use("project", {"action": "write", "project": "tide-atlas", "path": "one.md",
+                                        "content": "The moon pulls."})
+    fake_llm.queue_tool_use("project", {"action": "commit", "project": "tide-atlas", "message": "First line"})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Wrote the first line.", "pick_up_next": "paragraph two"})
+    with levers(agent_loop=True, workshop=True):
+        result = app.portal.call(lambda: get_action_registry().execute(
+            "session.workshop", duration_minutes=5, focus="tide-atlas: the opening"))
+    assert result.success, result.message
+    first = fake_llm.calls[0]
+    assert "## MY WORKSHOP" in first.system_text and "An essay on tides and patience." in first.system_text
+    assert "project" in first.tool_names
+    assert [c["message"] for c in workshop.log("tide-atlas")["log"]][0] == "First line"

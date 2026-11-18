@@ -193,6 +193,18 @@
       "requires_idle": false,
       "runner_key": "new_capabilities"
     },
+    "session.workshop": {
+      "id": "session.workshop",
+      "name": "Workshop",
+      "description": "Her session on one of her projects (workshop.py): git history, PROJECT.md, sandboxed runs for software; on the agent loop",
+      "category": "creative",
+      "handler": "session_handlers.workshop_action",
+      "estimated_cost_usd": 0.30,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "workshop"
+    },
     "session.kohl_blog": {
       "id": "session.kohl_blog",
       "name": "Kohl's Blog",

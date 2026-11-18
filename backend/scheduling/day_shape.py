@@ -32,7 +32,8 @@ KINDS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
                  ("research_block", "knowledge_building", "curiosity_exploration", "world_check",
                   "kohl_blog")),
     "making": ("making: writing, painting, music, art study, creative work, my homepage",
-               ("creative_output", "writing_session", "painting", "art_study", "music", "homepage")),
+               ("creative_output", "writing_session", "painting", "art_study", "music", "homepage",
+                "workshop")),
     "out": ("out in the world: Bluesky, Wonderland",
             ("social", "wonderland_exploration")),
 }
@@ -51,7 +52,7 @@ SESSION_KINDS = {
     "research": "learning", "kohl_blog": "learning", "knowledge_building": "learning", "curiosity": "learning",
     "world_state": "learning",
     "creative": "making", "writing": "making", "homepage": "making",
-    "social": "out", "wonderland": "out",
+    "social": "out", "wonderland": "out", "workshop": "making",
 }
 
 

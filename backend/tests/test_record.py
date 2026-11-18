@@ -202,3 +202,12 @@ def test_the_live_plans_tuple_reaches_from_plans_with_titles_and_plans_status_sh
                   reach_outs=lambda: [], repo=tmp_path / "none")
     (e,) = [x for x in rec["entries"] if x["kind"] in ("plan", "ask")]
     assert e["title"] == "item status: Code search -> in_progress" and e["who"] == "jaryk"
+
+
+def test_the_review_shows_her_workshop_commits(tmp_path):
+    import workshop
+    workshop.new("Tide Atlas", "writing", "An essay.", tmp_path)
+    now = datetime.now()
+    md = R.build_review(24, tmp_path, now, waiting=lambda: [], heartbeat=lambda s: ([], []),
+                        record={"entries": [], "unavailable": [], "spend_by_day": []}, repos={})
+    assert "## What she made in her workshop" in md and "Tide Atlas (writing): Start Tide Atlas" in md
