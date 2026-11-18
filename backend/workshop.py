@@ -33,7 +33,9 @@ PROJECT_FILE = "PROJECT.md"
 MAX_READ = 60_000
 MAX_WRITE = 400_000
 RUN_SECONDS = 60
-RUN_MEMORY = 1024 * 1024 * 1024   # 1 GiB address space
+# Address space, not resident memory: JIT runtimes reserve far more than they use.
+# At 1 GiB, node crashed on startup and rustc couldn't compile hello world (2026-11-18).
+RUN_MEMORY = 4 * 1024 * 1024 * 1024
 RUN_OUTPUT = 12_000
 AUTHOR = ("Cass", "cass@vessel.local")
 
@@ -204,6 +206,9 @@ def sandbox_argv(project: Path, command: str) -> List[str]:
             "--symlink", "usr/bin", "/bin", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
             "--bind", str(project), "/work", "--chdir", "/work", "--clearenv",
             "--setenv", "PATH", "/usr/bin", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8",
+            # build caches in the fresh /tmp, not in her project (and its git)
+            "--setenv", "XDG_CACHE_HOME", "/tmp/.cache", "--setenv", "XDG_CONFIG_HOME", "/tmp/.config", "--setenv", "GOPATH", "/tmp/go",
+            "--setenv", "GOTOOLCHAIN", "local", "--setenv", "CARGO_HOME", "/tmp/.cargo",
             "/usr/bin/sh", "-c", command]
 
 
