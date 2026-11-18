@@ -137,3 +137,47 @@ def test_she_can_read_her_record(monkeypatch):
     assert out["success"] and out["result"].startswith("# Cass: the record, last 3 days")
     assert any(t["name"] == "my_record" for t in self_account.HOW_I_WORK_TOOLS)
     assert "my_record" in session_spec("long_term_planning").tool_names()
+
+
+def test_the_daily_review_has_every_section_and_names_what_it_couldnt_read(tmp_path):
+    now = datetime(2026, 11, 18, 18, 0)
+    rec = {"entries": [{"at": "2026-11-18T09:15:00", "who": "cass", "kind": "plan",
+                        "title": "item status: Reach out -> done", "detail": "sent", "source": "Plans event #1"},
+                       {"at": "2026-11-16T09:00:00", "who": "cass", "kind": "plan", "title": "old", "detail": "",
+                        "source": "x"}],
+           "unavailable": [], "spend_by_day": [{"day": "2026-11-18", "sessions": 7, "minutes": 12.5, "cost_usd": 0.81}]}
+    (tmp_path / "social").mkdir()
+    (tmp_path / "social" / "triage.jsonl").write_text(json.dumps({"at": "2026-11-18T10:00:00", "label": "crisis"}) + "\n")
+    (tmp_path / "gremlin").mkdir()
+    (tmp_path / "gremlin" / "reviews.jsonl").write_text(
+        json.dumps({"at": "2026-11-18T11:00:00", "notes": ["you're hedging"]}) + "\n"
+        + json.dumps({"at": "2026-11-18T11:01:00", "followup": True, "revised": True}) + "\n")
+
+    def down():
+        raise RuntimeError("Babelr isn't connected")
+    md = R.build_review(24, tmp_path, now, waiting=down,
+                        heartbeat=lambda since: ([{"work_name": "phase.research_block", "started_at": "2026-11-18T14:00:00",
+                                                   "error": "research budget"}], []),
+                        record=rec, repos={"cass-vessel": _repo(tmp_path)})
+    for heading in ("## What Cass did", "## What was built", "## Waiting on you", "## Anything off", "## Signals", "## Spend"):
+        assert heading in md
+    assert "item status: Reach out -> done" in md and "old" not in md.split("## What was built")[0]
+    assert "cass-vessel: A change she asked for (daedalus" in md
+    assert "Refused: phase.research_block at 14:00: research budget" in md
+    assert "1 inbound message(s) labeled crisis" in md
+    assert "Gremlin reviews: 2 drafts, 1 got notes, 1 of 1 follow-ups revised." in md
+    assert "7 sessions, 12.5 min, $0.81" in md
+    assert "waiting on you: Babelr isn't connected" in md
+
+
+def test_the_review_route_needs_a_record_token(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import routes.record as RR
+    app = FastAPI()
+    app.include_router(RR.router)
+    monkeypatch.setattr(R, "token_ok", lambda t, data_dir=None: t == "record_ok")
+    monkeypatch.setattr(R, "build_review", lambda hours=24: f"# Daily review ({hours})")
+    c = TestClient(app)
+    assert c.get("/record/review.md").status_code == 401
+    assert c.get("/record/review.md?hours=12", headers={"Authorization": "Bearer record_ok"}).text == "# Daily review (12)"

@@ -80,6 +80,16 @@ class RunLog:
                 (since.isoformat(), limit)).fetchall()
             return [dict(r) for r in rows]
 
+    def failed_since(self, since: datetime, limit: int = 50) -> List[dict]:
+        """Runs that ended in error since `since`, oldest first (Kohl's daily review)."""
+        from database import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT work_name, started_at, error FROM heartbeat_runs "
+                "WHERE status = 'error' AND started_at >= ? ORDER BY id LIMIT ?",
+                (since.isoformat(), limit)).fetchall()
+            return [dict(r) for r in rows]
+
     def recent(self, limit: int = 50, work_name: Optional[str] = None) -> List[dict]:
         from database import get_db
         sql = "SELECT * FROM heartbeat_runs"

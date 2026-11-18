@@ -27,6 +27,14 @@ async def get_record(days: int = Query(30, ge=1, le=3650), _ok: bool = Depends(r
     return await asyncio.to_thread(build, days)
 
 
+@router.get("/review.md", response_class=PlainTextResponse)
+async def get_review(hours: int = Query(24, ge=1, le=168), _ok: bool = Depends(require_record_token)):
+    """Kohl's end-of-day review (record.build_review)."""
+    import asyncio
+    from record import build_review
+    return await asyncio.to_thread(build_review, hours)
+
+
 @router.get(".md", response_class=PlainTextResponse)
 async def get_record_markdown(days: int = Query(30, ge=1, le=3650), _ok: bool = Depends(require_record_token)):
     import asyncio

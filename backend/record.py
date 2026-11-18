@@ -343,3 +343,120 @@ def token_ok(token: Optional[str], data_dir: Optional[Path] = None) -> bool:
     except (OSError, ValueError):
         return False
     return any(secrets.compare_digest(t.get("hash", ""), h) for t in tokens)
+
+
+# ---------------------------------------------------------------------------
+# Kohl's end-of-day review (2026-11-18): "come back at the end and review
+# everything y'all did". One page: her day, what we built, what's waiting on
+# him, what went wrong, what it cost. Every source that can't be read is named.
+# ---------------------------------------------------------------------------
+
+REVIEW_REPOS = {"cass-vessel": Path(__file__).resolve().parent.parent,
+                "babelr": Path.home() / "babelr", "Chapter-House": Path.home() / "Chapter-House"}
+
+
+def _waiting_on_kohl() -> List[str]:
+    """Phases that wait on Kohl's yes, and her open asks."""
+    from babelr_organ.organ import PLANS, get_babelr_organ
+    organ = get_babelr_organ()
+    if organ is None or not organ.enabled:
+        raise RuntimeError("Babelr isn't connected")
+    lines = []
+    for row in organ._plan_rows():
+        d = organ.client._req("GET", f"{PLANS}/plans/{row['slug']}") or {}
+        for f in d.get("phases") or []:
+            if f.get("status") == "proposed" and any(n.lower() in ("jaryk", "kohl") for n in f.get("awaiting") or []):
+                lines.append(f"- Phase waiting on your yes: \"{d.get('title')}\", phase {f.get('position', 0) + 1}: "
+                             f"{f.get('title')}")
+        if (d.get("title") or "").startswith("Cass's asks"):
+            for i in d.get("items") or []:
+                if i.get("status") in ("open", "in_progress"):
+                    lines.append(f"- Her ask ({i.get('status')}): {i.get('title')}")
+    return lines
+
+
+def _jsonl_since(path: Path, since: datetime) -> List[Dict[str, Any]]:
+    out = []
+    for _, rec in _jsonl(path):
+        try:
+            if datetime.fromisoformat(str(rec.get("at"))) >= since:
+                out.append(rec)
+        except ValueError:
+            continue
+    return out
+
+
+def build_review(hours: int = 24, data_dir: Optional[Path] = None, now: Optional[datetime] = None,
+                 waiting: Optional[Callable[[], List[str]]] = None,
+                 heartbeat: Optional[Callable[[datetime], tuple]] = None,
+                 record: Optional[Dict[str, Any]] = None, repos: Optional[Dict[str, Path]] = None) -> str:
+    now = now or datetime.now()
+    since = now - timedelta(hours=hours)
+    dd = _data_dir(data_dir)
+    rec = record if record is not None else build(days=max(1, (hours + 23) // 24), data_dir=data_dir, now=now)
+
+    def recent(e):
+        try:
+            t = datetime.fromisoformat(e["at"].replace("Z", "+00:00"))
+            t = t.astimezone().replace(tzinfo=None) if t.tzinfo else t
+            return t >= since
+        except ValueError:
+            return False
+    entries = [e for e in rec["entries"] if recent(e)]
+    out = [f"# Daily review: {now:%A %Y-%m-%d %H:%M} (last {hours} hours)", ""]
+    unreadable = list(rec.get("unavailable") or [])
+
+    def section(title, lines, empty):
+        out.extend([f"## {title}", ""] + (lines or [empty]) + [""])
+
+    mine = [e for e in entries if e["kind"] != "code"]
+    section("What Cass did", [f"- {e['at'][11:16]} {KIND_WORDS.get(e['kind'], e['kind'])}: {e['title']}"
+                              + (f": {e['detail'][:200]}" if e['detail'] else "") for e in mine],
+            "Nothing recorded.")
+    built = []
+    for name, path in (repos or REVIEW_REPOS).items():
+        try:
+            built += [f"- {name}: {e['title']} ({e['who']}, {e['source'].replace('commit ', '')})"
+                      for e in from_git(path, since)]
+        except Exception as e:
+            unreadable.append(f"{name} commits: {e}")
+    section("What was built", built, "No commits.")
+    try:
+        section("Waiting on you", (waiting or _waiting_on_kohl)(), "Nothing.")
+    except Exception as e:
+        unreadable.append(f"waiting on you: {e}")
+        section("Waiting on you", [], "(couldn't be read; see below)")
+    trouble = []
+    try:
+        if heartbeat is None:
+            from heartbeat.runlog import RunLog
+            refused, failed = RunLog().refused_since(since), RunLog().failed_since(since)
+        else:
+            refused, failed = heartbeat(since)
+        trouble += [f"- Refused: {r['work_name']} at {str(r['started_at'])[11:16]}: {r.get('error')}" for r in refused]
+        trouble += [f"- Failed: {r['work_name']} at {str(r['started_at'])[11:16]}: {(r.get('error') or '')[:160]}"
+                    for r in failed]
+    except Exception as e:
+        unreadable.append(f"Heartbeat runs: {e}")
+    labels = _jsonl_since(dd / "social" / "triage.jsonl", since)
+    crisis = [r for r in labels if r.get("label") == "crisis"]
+    if crisis:
+        trouble.append(f"- {len(crisis)} inbound message(s) labeled crisis (social/triage.jsonl): check she answered, "
+                       "and whether she flagged you.")
+    section("Anything off", trouble, "Nothing refused or failed.")
+    notes = [r for r in _jsonl_since(dd / "gremlin" / "reviews.jsonl", since)]
+    held = [r for r in notes if r.get("notes")]
+    follow = [r for r in notes if r.get("followup")]
+    signals = []
+    if labels:
+        signals.append(f"- Triage labels: {len(labels)} ({', '.join(sorted({str(r.get('label')) for r in labels}))}).")
+    if notes:
+        signals.append(f"- Gremlin reviews: {len(notes)} drafts, {len(held)} got notes, "
+                       f"{sum(1 for r in follow if r.get('revised'))} of {len(follow)} follow-ups revised.")
+    section("Signals", signals, "None.")
+    today = [d for d in rec.get("spend_by_day") or [] if d["day"] >= since.strftime("%Y-%m-%d")]
+    section("Spend", [f"- {d['day']}: {d['sessions']} sessions, {d['minutes']} min, ${d['cost_usd']:.2f}" for d in today],
+            "No sessions.")
+    if unreadable:
+        out += ["## Not included (couldn't be read)", ""] + [f"- {u}" for u in unreadable] + [""]
+    return "\n".join(out)
