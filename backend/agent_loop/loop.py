@@ -150,6 +150,7 @@ class LoopOutcome:
     status: str = "completed"     # completed | max_turns | interrupted | error
     end_reason: Optional[str] = None
     error: Optional[str] = None
+    blocked: int = 0              # outputs the provider's filter refused (BLOCKED_NOTE)
     steps: List[LoopStep] = field(default_factory=list)
     model_calls: int = 0
     input_tokens: int = 0
@@ -182,6 +183,20 @@ EXTEND_STEPS = 12
 # can't keep a session going forever.
 FREE_TOOLS = frozenset({"reply_back"})
 FREE_REFUNDS = 3
+# The provider can refuse to return an output ("Output blocked by content
+# filtering policy"), most often for long verbatim lyrics or other copyrighted
+# text. That used to end the whole session or chat turn (2026-11-18: a
+# listening session died right after she opened a song's words). Now she's told
+# and carries on, a couple of times at most.
+BLOCKED_RETRIES = 2
+BLOCKED_NOTE = ("[LOOP] My last response was blocked by the model provider's content filter, most likely "
+                "for reproducing song lyrics or other copyrighted text at length. Nothing of it was kept. I "
+                "carry on without reciting: I point at a line by its bar, quote a few words at most, or say "
+                "it in my own words.")
+
+
+def _blocked(e: Exception) -> bool:
+    return "content filtering" in str(e).lower() or "output blocked" in str(e).lower()
 
 
 def cap_warning(end_tool: str) -> str:
@@ -265,6 +280,7 @@ async def run_loop(
     session_like = can_end and end_tool == "session_complete"
     extensions_left = 1 if session_like and EXTEND_TOOL in offered else 0
     refunds_left = FREE_REFUNDS if FREE_TOOLS & set(offered) else 0
+    blocked_left = BLOCKED_RETRIES
     warned = False
     try:
         while True:
@@ -291,8 +307,17 @@ async def run_loop(
                 history.append({"role": "user", "content": arrived})
                 out.arrivals += 1
 
-            reply = await client.create(model=model, system=system, tools=tools,
-                                        messages=history, max_tokens=max_tokens)
+            try:
+                reply = await client.create(model=model, system=system, tools=tools,
+                                            messages=history, max_tokens=max_tokens)
+            except Exception as e:
+                if not _blocked(e) or blocked_left <= 0:
+                    raise
+                blocked_left -= 1
+                out.blocked += 1
+                logger.warning(f"[agent_loop] an output was blocked by the provider's filter; telling her and going on")
+                history.append({"role": "user", "content": BLOCKED_NOTE})
+                continue
             out.model_calls += 1
             out.input_tokens += reply.input_tokens
             out.output_tokens += reply.output_tokens

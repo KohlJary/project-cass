@@ -772,3 +772,33 @@ def test_narrative_is_her_closing_not_her_answer_to_the_nudge():
     assert keep_narrative(out, Runner) == "From analysis to practice."
     out.steps = [LoopStep(1, "", [{"name": "recall"}]), LoopStep(2, "Only words.", [])]
     assert keep_narrative(out, Runner) == "Only words."
+
+
+class _Blocked(Exception):
+    pass
+
+
+def test_a_blocked_output_is_survived_and_she_is_told():
+    """2026-11-18: an output the provider's filter refused (likely lyrics) ended
+    the whole session. Now she's told and carries on; a third block still ends it."""
+    from agent_loop.loop import BLOCKED_NOTE
+
+    class BlockingClient(StubClient):
+        def __init__(self, replies, blocks):
+            super().__init__(replies)
+            self.blocks = blocks
+
+        async def create(self, **kwargs):
+            if self.blocks:
+                self.blocks -= 1
+                self.calls.append(kwargs)
+                raise _Blocked("Error code: 400 - Output blocked by content filtering policy")
+            return await super().create(**kwargs)
+
+    spec = session_spec("reflection", max_iterations=4)
+    client = BlockingClient([_tool_reply("session_complete", {"summary": "Read Runaway's structure."})], blocks=1)
+    out = _loop(spec, client, [])
+    assert out.status == "completed" and out.blocked == 1
+    assert any(m.get("content") == BLOCKED_NOTE for m in client.calls[-1]["messages"])
+    out = _loop(spec, BlockingClient([], blocks=3), [])
+    assert out.status == "error" and out.blocked == 2
