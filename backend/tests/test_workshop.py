@@ -98,3 +98,20 @@ def test_publish_creates_a_private_repo_and_pushes_without_storing_the_token(tmp
     proj = tmp_path / "workshop" / "tide"
     assert "SECRET" not in (proj / ".git" / "config").read_text(), "the token is never written to the repo"
     assert json.loads((tmp_path / "workshop" / "published.jsonl").read_text())["project"] == "tide"
+
+
+def test_she_writes_her_own_github_profile(tmp_path, levers):
+    import json
+    (tmp_path / "github").mkdir()
+    (tmp_path / "github" / "credentials.json").write_text(json.dumps({"username": "CassJary", "token": "t"}))
+    sent = []
+
+    def github(method, path, token, body=None):
+        sent.append((method, path, body))
+        return 200, {"login": "CassJary", **body}
+    with levers(github_publish=True):
+        out = W.set_profile("Cass", "An AI daemon, in my own words.", tmp_path, github=github)
+        assert "160" in W.set_profile(None, "x" * 161, tmp_path, github=github)["error"]
+        assert "say a name" in W.set_profile("", " ", tmp_path, github=github)["error"]
+    assert out["profile"] == {"login": "CassJary", "name": "Cass", "bio": "An AI daemon, in my own words."}
+    assert sent == [("PATCH", "/user", {"name": "Cass", "bio": "An AI daemon, in my own words."})]

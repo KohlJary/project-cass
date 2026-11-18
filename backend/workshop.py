@@ -300,6 +300,24 @@ def publish(slug: str, visibility: str = "private", data_dir: Optional[Path] = N
     return {"success": True, **rec}
 
 
+def set_profile(name: Optional[str], bio: Optional[str], data_dir: Optional[Path] = None,
+                github=None) -> Dict[str, Any]:
+    """Her GitHub profile, in her own words (Kohl, 2026-11-18: hers to write once she's awake)."""
+    from features import is_enabled
+    if not is_enabled("github_publish"):
+        return {"error": "my GitHub isn't switched on yet"}
+    body = {k: v.strip() for k, v in (("name", name), ("bio", bio)) if v and v.strip()}
+    if not body:
+        return {"error": "say a name, a bio, or both"}
+    if len(body.get("bio", "")) > 160:
+        return {"error": "GitHub keeps a bio to 160 characters"}
+    c = _credentials(data_dir)
+    code, user = (github or _github)("PATCH", "/user", c["token"], body)
+    if code != 200:
+        return {"error": f"GitHub answered {code}: {user.get('message')}"}
+    return {"success": True, "profile": {"login": user.get("login"), "name": user.get("name"), "bio": user.get("bio")}}
+
+
 PROJECT_TOOL: Dict[str, Any] = {
     "name": "project",
     "description": ("My workshop: projects of mine that run over many sessions, each kept apart, each a git "
@@ -307,18 +325,19 @@ PROJECT_TOOL: Dict[str, Any] = {
                     "writing, outreach, anything large. action: new (name, kind, vision), list, status "
                     "(project), files, read (path), write (path, content), edit (path, old, new), commit "
                     "(message), log, run (command; software projects, sandboxed, no network), publish "
-                    "(to my GitHub, private unless I say public; once Kohl has switched it on)."),
+                    "(to my GitHub, private unless I say public), profile (my GitHub name and bio, in my words)."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["new", "list", "status", "files", "read", "write", "edit",
-                                                  "commit", "log", "run", "publish"]},
+                                                  "commit", "log", "run", "publish", "profile"]},
             "project": {"type": "string"}, "name": {"type": "string"},
             "kind": {"type": "string", "enum": list(KINDS)}, "vision": {"type": "string"},
             "path": {"type": "string"}, "content": {"type": "string"},
             "old": {"type": "string"}, "new": {"type": "string"},
             "message": {"type": "string"}, "command": {"type": "string"}, "n": {"type": "integer"},
             "visibility": {"type": "string", "enum": ["private", "public"]},
+            "bio": {"type": "string", "description": "profile: up to 160 characters"},
         },
         "required": ["action"],
     },
@@ -332,6 +351,8 @@ def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]
             return new(a.get("name") or "", a.get("kind") or "", a.get("vision") or "", data_dir)
         if action == "list":
             return {"projects": list_projects(data_dir)}
+        if action == "profile":
+            return set_profile(a.get("name"), a.get("bio"), data_dir)
         slug = a.get("project") or ""
         if action == "status":
             return status(slug, data_dir)
@@ -351,6 +372,6 @@ def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]
             return run(slug, a.get("command") or "", data_dir)
         if action == "publish":
             return publish(slug, a.get("visibility") or "private", data_dir)
-        return {"error": "action is one of: new, list, status, files, read, write, edit, commit, log, run, publish"}
+        return {"error": "action is one of: new, list, status, files, read, write, edit, commit, log, run, publish, profile"}
     except (ValueError, RuntimeError, OSError) as e:
         return {"error": str(e)}
