@@ -295,6 +295,19 @@ class BudgetManager:
 # Ledger (token_tracker) categories -> TaskCategory, for the budget. Used by
 # BudgetManager.sync_from_token_tracker and by Heartbeat's measured charging
 # (#62), so both put a ledger row's spend in the same bucket.
+# A session template's category -> the budget it spends from (the phase
+# queue's map, scheduling/phase_queue.py). Shared so wakes (and sessions she
+# starts from chat) spend where her planned sessions of that kind do.
+TEMPLATE_BUDGET = {
+    "reflection": "reflection", "research": "research", "growth": "growth", "curiosity": "curiosity",
+    "creative": "curiosity", "artstudy": "curiosity", "rss": "research", "system": "growth",
+}
+
+
+def budget_for_template(category: Optional[str]) -> "TaskCategory":
+    return TaskCategory(TEMPLATE_BUDGET.get(category or "", "reflection"))
+
+
 LEDGER_CATEGORY_MAP = {
     "research": TaskCategory.RESEARCH,
     "reflection": TaskCategory.REFLECTION,

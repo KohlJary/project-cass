@@ -802,3 +802,15 @@ def test_a_blocked_output_is_survived_and_she_is_told():
     assert any(m.get("content") == BLOCKED_NOTE for m in client.calls[-1]["messages"])
     out = _loop(spec, BlockingClient([], blocks=3), [])
     assert out.status == "error" and out.blocked == 2
+
+
+def test_a_wake_spends_from_its_kinds_budget():
+    """2026-11-18: wakes all went to reflection at $0.50; a listening wake was
+    refused with research, curiosity and growth untouched."""
+    from agent_loop.wakes import wake_budget
+    from scheduler.budget import TaskCategory
+    assert wake_budget("listening") == (TaskCategory.RESEARCH, 0.25)
+    assert wake_budget("workshop")[0] == TaskCategory.CURIOSITY
+    assert wake_budget("growth_edge_work")[0] == TaskCategory.GROWTH
+    assert wake_budget("reflection_block")[0] == TaskCategory.REFLECTION
+    assert wake_budget("no_such_thing") == (TaskCategory.REFLECTION, 0.50)

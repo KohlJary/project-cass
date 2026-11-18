@@ -242,6 +242,22 @@ async def run_wake(w: Dict[str, Any], book: Optional[WakeBook] = None) -> Any:
     return result
 
 
+def wake_budget(activity: str):
+    """(budget category, estimate) for a woken session: its template's, like a planned
+    session of that kind (2026-11-18: every wake was charged to reflection at $0.50,
+    and her listening session was refused with research, curiosity and growth unspent)."""
+    from scheduler.budget import TaskCategory, budget_for_template
+    try:
+        from scheduling.templates import WORK_TEMPLATES
+        t = WORK_TEMPLATES.get(activity)
+    except Exception:
+        t = None
+    if t is None:
+        return TaskCategory.REFLECTION, WAKE_ESTIMATED_COST_USD
+    est = getattr(t, "estimated_cost_usd", None) or getattr(t, "estimated_cost", None) or WAKE_ESTIMATED_COST_USD
+    return budget_for_template(t.category), float(est)
+
+
 async def check_wakes(book: Optional[WakeBook] = None) -> int:
     """The `agent_loop_wakes` job: submit each due wake as its own run."""
     import features
@@ -253,9 +269,10 @@ async def check_wakes(book: Optional[WakeBook] = None) -> int:
     book = book or WakeBook()
     due = book.take_due()
     for w in due:
+        budget, estimate = wake_budget(w["activity"])
         submitted = wiring.submit(f"agent_loop.wake.{w['activity']}", partial(run_wake, w, book),
-                                  lever=("agent_loop",), budget_class=TaskCategory.REFLECTION,
-                                  estimated_cost_usd=WAKE_ESTIMATED_COST_USD,
+                                  lever=("agent_loop",), budget_class=budget,
+                                  estimated_cost_usd=estimate,
                                   group="agent_loop.wake")
         if not submitted:  # Heartbeat stopped: leave it for the next look
             book.release(w["id"])
