@@ -1103,3 +1103,39 @@ def history_text(days: int = 14, daemon_id: Optional[str] = None, now: Optional[
     head = (f"My reaching out, the last {days} days: {sent} sent, {held} that didn't happen. "
             "(Decisions that didn't happen are recorded from 2026-11-18 on.)")
     return head + "\n\n" + "\n".join(l for _, l in lines)
+
+
+def week_line(daemon_id: Optional[str] = None, now: Optional[datetime] = None, days: int = 7) -> str:
+    """Her reaching out over the past week in a line or two, for her standing context (her ask,
+    2026-11-18: "see the pattern forming mid-week instead of only catching it in review").
+    "" when nothing was sent and nothing held or declined."""
+    now = now or datetime.now()
+    since = now - timedelta(days=days)
+    sent, failed, last_sent = 0, 0, None
+    for r in get_reach_out_manager(daemon_id).history(limit=200):
+        at = _parse_ts(r.created_at)
+        if not at or at < since:
+            continue
+        if r.delivered:
+            sent += 1
+            last_sent = max(last_sent or at, at)
+        else:
+            failed += 1
+    held = decisions_since(since)
+    if not (sent or failed or held):
+        return ""
+    by = {}
+    for d in held:
+        by[d.get("outcome")] = by.get(d.get("outcome"), 0) + 1
+    parts = [f"sent {sent}" + (f" (last {last_sent:%a %H:%M})" if last_sent else "")]
+    if failed:
+        parts.append(f"{failed} failed or held by their quiet hours")
+    if held:
+        kinds = ", ".join(f"{n} {_OUTCOME_WORDS.get(k, k)}" for k, n in sorted(by.items(), key=lambda x: -x[1]))
+        parts.append(f"didn't go out {len(held)} ({kinds})")
+    line = "Past 7 days: " + "; ".join(parts) + "."
+    mine = [d for d in held if d.get("outcome") == "her_choice" and d.get("reason")]
+    if mine:
+        last = mine[-1]
+        line += f" Latest no ({datetime.fromisoformat(last['at']):%a %H:%M}): \"{last['reason'][:160]}\""
+    return line + " (reach_out_history has all of it.)"

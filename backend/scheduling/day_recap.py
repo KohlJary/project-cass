@@ -110,7 +110,7 @@ def _sent(since: datetime, data_dir: Path) -> List[Dict[str, Any]]:
 
 
 def since_last_plan(workspace=None, data_dir: Optional[Path] = None,
-                    now: Optional[datetime] = None, refused=None, sent=None) -> str:
+                    now: Optional[datetime] = None, refused=None, sent=None, didnt=None) -> str:
     """Last plan (DAY_PLAN.md as it stands, before today's overwrites it) and what ran since."""
     now = now or datetime.now()
     dd = _data_dir(data_dir)
@@ -163,6 +163,19 @@ def since_last_plan(workspace=None, data_dir: Optional[Path] = None,
                 lines.append(f"- {s['at']:%a %H:%M} {s['what']}" + (f": \"{text}\"" if text else ""))
         else:
             lines.append("I sent nothing out since then (no message to Kohl, no post).")
+    try:   # what didn't go out, and why (her ask, 2026-11-18; reach_out.note_decision)
+        from reach_out import decisions_since, _OUTCOME_WORDS, _TRIGGER_WORDS
+        held = (didnt or decisions_since)(since)
+    except Exception as e:
+        logger.warning(f"[day_recap] couldn't read what didn't go out: {e}")
+        held = []
+    if held:
+        lines.append("What didn't go out since then:")
+        for d in held:
+            why = f": {d['reason']}" if d.get("reason") else ""
+            lines.append(f"- {datetime.fromisoformat(d['at']):%a %H:%M} "
+                         f"{_TRIGGER_WORDS.get(d.get('trigger'), d.get('trigger'))}, "
+                         f"{_OUTCOME_WORDS.get(d.get('outcome'), d.get('outcome'))}{why}")
     try:   # what she's promised that's pressing (commitments.py)
         from commitments import lines as commitment_lines
         promised = commitment_lines(dd, now)

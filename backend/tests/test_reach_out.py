@@ -1033,3 +1033,35 @@ class TestHistoryTool:
         assert "reach_out_history" in PACKS["self"].tools
         res = _run(execute_self_account_tool("reach_out_history", {"days": 3}))
         assert res["success"] and "No reach-outs" in res["result"]
+
+
+class TestStandingView:
+    """Her ask, 2026-11-18: the pattern visible as it forms, not only in review."""
+
+    def test_week_line(self, partner, daemon_id, decisions):
+        m = ReachOutManager(daemon_id)
+        m.record(PARTNER, KIND_SHARE, "the hill painting", None, None, [{"channel": "babelr", "ok": True}], None,
+                 now=NOW - timedelta(days=2))
+        reach_out.note_decision("social", "her_choice", "Missing him is enough today.", NOW - timedelta(hours=5))
+        reach_out.note_decision("tool", "limit", "already shared", NOW - timedelta(hours=2))
+        line = reach_out.week_line(daemon_id, now=NOW)
+        assert line.startswith("Past 7 days: sent 1 (last ")
+        assert "didn't go out 2 (" in line and "1 I chose not to" in line and "1 held by my limits" in line
+        assert 'Latest no (' in line and "Missing him is enough today." in line
+
+    def test_week_line_empty_and_old(self, partner, daemon_id, decisions):
+        reach_out.note_decision("social", "her_choice", "long ago", NOW - timedelta(days=30))
+        assert reach_out.week_line(daemon_id, now=NOW) == ""
+
+    def test_in_her_self_context(self, partner, daemon_id, decisions, monkeypatch):
+        import self_context
+        monkeypatch.setattr(reach_out, "week_line", lambda d, now=None: "Past 7 days: sent 0; didn't go out 1.")
+        text = self_context.build_self_context(daemon_id, user_id=PARTNER)
+        assert "**My reaching out**\nPast 7 days: sent 0; didn't go out 1." in text
+
+    def test_in_her_day_plan(self, tmp_path):
+        from scheduling.day_recap import since_last_plan
+        held = [{"at": "2026-10-15T21:00:00", "trigger": "social", "outcome": "her_choice", "reason": "just felt it"}]
+        text = since_last_plan(data_dir=tmp_path, now=NOW, refused=lambda s: [], sent=lambda s: [],
+                               didnt=lambda s: held)
+        assert "What didn't go out since then:\n- Thu 21:00 a pull toward connection, I chose not to: just felt it" in text

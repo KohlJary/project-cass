@@ -144,6 +144,20 @@ def llm_config_file(tmp_path, monkeypatch):
     llm_config.LLMConfigManager.reset_instance()
 
 
+@pytest.fixture(autouse=True)
+def reach_out_decisions_file(tmp_path, monkeypatch):
+    """Each test gets its own reach-out decisions log (reach_out.note_decision), so a
+    test that holds or declines a reach-out doesn't show up in another's context."""
+    try:
+        import reach_out
+    except Exception:  # pragma: no cover
+        yield None
+        return
+    path = tmp_path / "reach_out_decisions.jsonl"
+    monkeypatch.setattr(reach_out, "_decisions_path", lambda: path)
+    yield path
+
+
 # User IDs the manager tests write rows for. Tasks, calendar events,
 # conversations and projects all have a foreign key to users(id).
 TEST_USER_IDS = [

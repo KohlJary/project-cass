@@ -187,6 +187,12 @@ def _safe(part: Callable[[], List[str]], name: str) -> List[str]:
         return []
 
 
+def _reach_out_week(daemon_id: str, now: datetime) -> List[str]:
+    from reach_out import week_line
+    line = week_line(daemon_id, now=now)
+    return [line] if line else []
+
+
 def build_self_context(
     daemon_id: str,
     user_id: Optional[str] = None,
@@ -198,6 +204,8 @@ def build_self_context(
         gap = _safe(lambda: _since_we_last_spoke(conn, daemon_id, user_id, now), "since-we-last-spoke")
         threads = _safe(lambda: _own_threads(conn, daemon_id), "own-threads")
     pins = _safe(_pins, "pins")
+    # Her reaching out this week, standing (her ask, 2026-11-18): the pattern as it forms.
+    reach = _safe(lambda: _reach_out_week(daemon_id, now), "reach-out-week")
     lately = _safe_text(lambda: build_lately(daemon_id, now=now), "my-life-lately")
     # In a session she runs alone there's no one in the turn, so nothing of
     # what was said lately would reach her; carry her main thread with her
@@ -212,6 +220,8 @@ def build_self_context(
         head.append(f"**Lately with {partner[0]}** (where we've talked most recently, as I've summarized it)\n{partner[1]}")
     if gap:
         head.append("**Since we last spoke**\n" + "\n".join(gap))
+    if reach:
+        head.append("**My reaching out**\n" + "\n".join(reach))
     rest = "\n\n".join(head + (["**My own threads**\n" + "\n".join(threads)] if threads else []))
     limit = MAX_CHARS + (PARTNER_CHARS if partner else 0)
     if len(rest) > limit:
