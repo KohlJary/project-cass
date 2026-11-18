@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-KINDS = ("software", "writing", "outreach", "other")
+KINDS = ("software", "writing", "music", "outreach", "other")
 META = ".workshop.json"
 PROJECT_FILE = "PROJECT.md"
 MAX_READ = 60_000
