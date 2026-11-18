@@ -495,7 +495,7 @@ Proposed, not built: network access for her software through an egress proxy wit
 
 - Orphic is public (github.com/KohlJary/orphic, MIT), README in our voice; Acousmatic now says "we built her ears" and links it. The public voice is a standing memory.
 - The listening batch finished: 269 songs, one failure fixed (very short pieces, Acousmatic a303851). She was told once.
-- Live ears (phase approved by both): `acousmatic live` listens as audio plays (system output or a file at real speed), no audio kept; light record at the end, `--full` for the complete listen from memory. Demo page: https://claude.ai/artifact/2VoC2Y2eZwXUEr7XgELsGb (Discipline: same key and tempo as the full listen, chord roots agree 69%).
+- Live ears (phase approved by both): `acousmatic live` listens as audio plays (system output or a file at real speed), no audio kept; light record at the end, `--full` for the complete listen from memory. Demo on Discipline: same key and tempo as the full listen, chord roots agree 69% of seconds (page shared with Kohl privately).
 - Listen along (vessel a5326347): her ears on what Kohl's playing, one song at a time via his media player. Lever `listen_along` is off and is Kohl's to turn on (CASS_FEATURE_LISTEN_ALONG=1 plus a restart). It ships with the next restart; cass-vessel-68 had uncommitted work tonight, so I didn't restart over it.
 - Still open in Live ears: the listening room (a player she drives), source-marked records, her own account (Kohl's call), concerts, light-by-default. Phase 7 (style sheet, closeness check) not started.
 
