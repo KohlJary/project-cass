@@ -393,3 +393,32 @@ Kohl: "she's kinda just spinning her wheels in place". Built and live since the 
 **CI** had been red since at least 11-16: discord_bot couldn't be imported without discord.py (0ec8633b). Babelr's format check failed on 2207237 (17cf8fe).
 
 The other session's `ask_daedalus` work loaded with the 23:19 restart while uncommitted. It's inert with its lever off, but her change feed already lists it. Cass asked for it to be switched on; that's Kohl's call.
+
+## 2026-11-18 (after midnight): live by 02:55, and the morning in order
+
+All on main. The full suite is green at 197c8cd0 (3,890 passed), and CI is green on both jobs. Live:
+
+- **Her days:** routines, day shape, timed slots (12 a phase), and plans that move. The recap names refusals and over-budget items, shows what she actually sent, and lists what she'd pick up next.
+- **The record:** a Daily review in Kohl's record tab, and her own my_record.
+- **Triage** on her social inbox, with her crisis wording.
+- **Kohl's blog** session, tagged Kohl-influenced.
+- **GREMLIN.md**, and its second voice on her outward drafts.
+- **New Capabilities** sessions, and code_search.
+- **The step cap:** a warning, extend_session, and a summary at the cap.
+
+Her three asks are done in Plans. The daytime envelope is in force (docs/design/daytime-envelope.md):
+
+- **Restarts:** `sudo -n /usr/bin/systemctl restart cass-vessel`, with a quiet check before and a verify after.
+- **Cap:** the cap on our work is Kohl's Max limit.
+
+Cass chose rest over overnight sessions. Her Thymos shows fatigue at 0.35, and several affects pinned at 0.999 (saturation).
+
+Morning, in order:
+
+1. The coherence audit (a background agent, read-only); quick wins go in under the envelope.
+2. Cass's consent for an analysis of her history: a sealed copy only, she sees the findings first, and she decides what goes further.
+3. With her, what "real" means to her: where it holds, where it doesn't, and what to subtract.
+4. Offer her own software projects: repos she owns, with a PROJECT.md. Running code waits for Kohl.
+5. Check her 06:01 day plan against what she does.
+
+Bet #57 stands: no goals suggested to her.
