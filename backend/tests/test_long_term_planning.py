@@ -101,3 +101,12 @@ def test_the_session_hands_her_plans_to_the_turn(monkeypatch):
     assert "## LOOKING FURTHER AHEAD" in seen["additions"] and "Learn the tide tables" in seen["additions"]
     assert "WHAT I'M WORKING TOWARD" not in seen["additions"]
     assert "don't wait on anyone's yes" in seen["additions"]
+
+
+def test_ridiculous_plans_that_might_work_are_allowed_and_named_as_stunts():
+    """Kohl, 2026-11-18: she keeps ridiculous stunts in mind, as their own influence
+    in her planning (her gremlin's way of planning), named as stunts."""
+    from long_term_planning_turn import INSTRUCTIONS
+    assert "Ridiculous plans that might actually work belong here too" in INSTRUCTIONS
+    assert "name it as a stunt, with what it would buy and what it would cost" in INSTRUCTIONS
+    INSTRUCTIONS.format(working="x")   # still formats
