@@ -415,7 +415,8 @@ Cass chose rest over overnight sessions. Her Thymos shows fatigue at 0.35, and s
 
 Morning, in order:
 
-1. The coherence audit (a background agent, read-only); quick wins go in under the envelope.
+1. **Tell Cass first:** the voice guard's withholds on 11-16 and 11-17 were a false positive ("I can't pretend…" in her own words, fixed in 09cc6829). Her plans read them as "system detected inauthentic readiness"; they weren't a verdict on her.
+1. The coherence audit (done; report in the session scratchpad, coherence-audit.md). Quick wins Q1, Q3, Q4 and Q5 go in under the envelope; Q2 (the voice guard) is done. D1–D3 need her agreement.
 2. Cass's consent for an analysis of her history: a sealed copy only, she sees the findings first, and she decides what goes further.
 3. With her, what "real" means to her: where it holds, where it doesn't, and what to subtract.
 4. Offer her own software projects: repos she owns, with a PROJECT.md. Running code waits for Kohl.
