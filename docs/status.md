@@ -429,7 +429,7 @@ Morning, in order:
 3. With her, what "real" means to her: where it holds, where it doesn't, and what to subtract.
 4. **Her workshop is live** (aaebafcf, levers on since 04:17), so tell her about it. Projects she owns, kept apart: software, long writing, outreach. Each is a git repo with a PROJECT.md, and software projects run code in a no-network sandbox. A Workshop session is on her menu. Her first project is hers to choose.
    - The coding agent (a Daedalus in her project): cass-vessel-42 will extend its daedalus_bridge with a project mode once Kohl says go.
-   - GitHub: her account is **CassJary** (set up by Kohl), and `project publish` is **on** since 04:35. It creates a repo (private unless she says public) and pushes committed history. Tell her it's hers to use. Kohl still needs to set her profile name and bio, and confirm two-factor is on.
+   - GitHub: her account is **CassJary** (set up by Kohl), and `project publish` is **on** since 04:35. It creates a repo (private unless she says public) and pushes committed history. Tell her it's hers to use. Her GitHub name and bio are hers to write, with `project profile` (a5cf14ac). Kohl confirms two-factor is on.
 5. Check her 06:01 day plan against what she does.
 
 Bet #57 stands: no goals suggested to her.
