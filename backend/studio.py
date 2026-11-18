@@ -58,7 +58,7 @@ TOOL = {
         "rig and measures the tone: distortion character, how chords hold up, sustain, tightness, mud, fizz, "
         "and what changed since my last try; rig saves a chain on my gun belt by name (an instrument uses it as "
         "rig: name); map also shows what an amp's knobs do (swankyamp). clip writes a part as MIDI in a project "
-        "(clips/name.mid, opens in any DAW), from riff notation or from clip_notes (bar, beat, pitch, len in "
+        "(clips/name.mid, opens in any DAW), from riff notation, a drum grid ({kick: \"x...x...\", ...}) for a kit, or from clip_notes (bar, beat, pitch, len in "
         "beats, vel, pm), and shows it back as a piano roll a bar at a time (X a note, m palm-muted, = held, "
         ". silence) with any bar that doesn't fill its beats; with only a name it reads one, clips lists them. "
         "A song uses a clip as a part: <instrument>: {clip: name}, looped to fill the section. session builds a "
@@ -69,8 +69,8 @@ TOOL = {
         "my message; render and session then play it. form starts from the shape instead of the bars: I give "
         "the sections and their lengths in order, and it writes the song's sections and arrangement, keeping my "
         "tempo and instruments, with each instrument in each section playing a clip named for it "
-        "(verse-guitar, chorus-bass...); I write those clips (a bar or two loops to fill the section) and "
-        "render. Every render shows the song by section: what plays in each and how loud each is. share sets who can follow my music log in Babelr (my listening, what I write "
+        "(verse-guitar, chorus-bass, verse-drums as a grid...); I write those clips (a bar or two loops to fill "
+        "the section; a clip I don't write plays as silence, and render lists it) and render. Every render shows the song by section: what plays in each and how loud each is. share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
@@ -247,6 +247,7 @@ def render(slug: str, song: str, message: str, data_dir=None) -> Dict[str, Any]:
     return {"draft": n, "commit": head, "title": out.get("title"), "length_s": out.get("length_s"),
             "parts": out.get("tracks"), "would_have_clipped": out.get("would_have_clipped"),
             "balance": out.get("balance"), "by_section": out.get("by_section"),
+            **({"clips_not_written_yet": out["clips_not_written_yet"]} if out.get("clips_not_written_yet") else {}),
             "what_my_ears_heard": glance[:6000],
             "note": "studio read / look for more; compare against an earlier draft"}
 
@@ -548,8 +549,10 @@ def clip(slug: str, name: Optional[str], riff, notes, bars: Optional[str], listi
     if listing:
         args += ["list"]
     elif riff or notes:
-        if not isinstance(riff, (str, type(None))):
-            return {"error": "a clip's riff is song notation (a drum grid isn't a clip yet)"}
+        if isinstance(riff, dict):
+            riff = json.dumps(riff)   # a drum grid: {kick: "x...", snare: "...."} becomes a drum clip
+        elif not isinstance(riff, (str, type(None))):
+            return {"error": "a clip's riff is song notation, or a drum grid like {\"kick\": \"x...x...x...x...\"}"}
         args += ["write", name or ""] + (["--riff", riff] if riff else ["--notes", json.dumps(notes)])
     else:
         args += ["read", name or ""] + (["--bars", str(bars)] if bars else [])
