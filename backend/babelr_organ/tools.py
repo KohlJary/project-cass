@@ -53,8 +53,10 @@ async def execute_babelr_tool(tool_name: str, tool_input: Dict[str, Any], **kwar
             return await asyncio.to_thread(
                 organ.plans, tool_input["action"], plan=tool_input.get("plan"),
                 phase=tool_input.get("phase"), reason=tool_input.get("reason"),
+                # "item"/"item_title": what she called the item when set_item kept refusing (2026-11-17)
                 **{k: tool_input.get(k) for k in ("title", "body", "goal", "narrative", "kind",
-                                                  "needs_yes_from", "status") if tool_input.get(k) is not None},
+                                                  "needs_yes_from", "status", "item", "item_title")
+                   if tool_input.get(k) is not None},
             )
         return {"success": False, "error": f"Unknown Babelr tool: {tool_name}"}
     except Exception as e:

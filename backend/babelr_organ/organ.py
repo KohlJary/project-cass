@@ -1091,7 +1091,10 @@ class BabelrOrgan:
         """Move an item along: open, in_progress, done (with what came of it) or declined;
         and/or change its kind. A status change doesn't touch any phase's approval; a kind
         change to an item in an approved or proposed phase would, so it's refused there."""
-        want = (kw.get("title") or "").strip().lower()
+        # "item" too (2026-11-17): she named the item that way and was refused
+        # three times with "say which item", the field's name never said.
+        named = kw.get("title") or kw.get("item") or kw.get("item_title") or ""
+        want = str(named).strip().lower()
         status, kind = kw.get("status"), kw.get("kind")
         if status is None and kind is None:
             return {"success": False, "error": "say a status, a kind, or both"}
@@ -1100,12 +1103,12 @@ class BabelrOrgan:
         if kind is not None and kind not in ITEM_KINDS:
             return {"success": False, "error": f"kind is one of {', '.join(ITEM_KINDS)}"}
         if not want:
-            return {"success": False, "error": "say which item (its title, as view shows it)"}
+            return {"success": False, "error": "say which item: title, its title as view shows it"}
         items = detail.get("items") or []
         hits = [i for i in items if (i.get("title") or "").strip().lower() == want] or \
                [i for i in items if (i.get("title") or "").strip().lower().startswith(want)]
         if len(hits) != 1:
-            return {"success": False, "error": (f"no item titled {kw.get('title')!r} in that plan" if not hits
+            return {"success": False, "error": (f"no item titled {named!r} in that plan" if not hits
                                                 else "more than one item starts that way; give the full title")}
         item = hits[0]
         phase = next((f for f in detail.get("phases") or [] if f.get("id") == item.get("phaseId")), None)

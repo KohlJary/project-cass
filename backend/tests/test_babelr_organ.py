@@ -893,6 +893,10 @@ class TestHerPlansSteerHerDays:
         assert "status is one of" in organ.plans("set_item", plan=slug, title="Write a tide poem",
                                                  status="finished")["error"]
         assert "no item titled" in organ.plans("set_item", plan=slug, title="nope", status="open")["error"]
+        # She named it "item" and was refused three times (2026-11-17): it's read as the title,
+        # and with neither the error names the field.
+        assert "say which item: title" in organ.plans("set_item", plan=slug, status="open")["error"]
+        assert organ.plans("set_item", plan=slug, item="Write a tide poem", status="open")["success"]
         assert organ.plans("set_item", plan=slug, title="Write a tide poem", status="in_progress")["success"]
         item = [i for i in babelr.plans[slug]["items"] if i["title"] == "Write a tide poem"][0]
         assert item["status"] == "in_progress"
@@ -920,3 +924,23 @@ class TestHerPlansSteerHerDays:
         r = organ.plans("set_item", plan=slug, title="A thing", kind="research")
         assert not r["success"] and "undo the yes" in r["error"]
         assert babelr.plans[slug]["items"][0]["kind"] == "build"
+
+
+def test_the_plans_tool_passes_an_item_name_through(monkeypatch):
+    """set_item named by "item" reached the organ as nothing (2026-11-17): the tool
+    forwarded only a fixed set of fields."""
+    import asyncio
+    from babelr_organ import tools as T
+    seen = {}
+
+    class Organ:
+        enabled = True
+
+        def plans(self, action, **kw):
+            seen.update(action=action, **kw)
+            return {"success": True}
+    monkeypatch.setattr(organ_mod, "get_babelr_organ", lambda: Organ())
+    monkeypatch.setattr("babelr_organ.config.babelr_enabled", lambda: True)
+    asyncio.run(T.execute_babelr_tool("babelr_plans", {"action": "set_item", "plan": "p",
+                                                       "item": "Reach out", "status": "done", "body": "sent"}))
+    assert seen["item"] == "Reach out" and seen["status"] == "done"
