@@ -12,15 +12,21 @@ from fastapi.security import HTTPAuthorizationCredentials
 from starlette.requests import Request
 
 from auth import ROLE_DAEDALUS, create_access_token
-from routes.admin.auth import DAEDALUS_ROUTES, require_admin
+from routes.admin.auth import DAEDALUS_ROUTES, require_admin, require_auth
 
 
 def _admin_routes():
+    """(method, path without /admin) for every admin route this environment mounts.
+    CI's lighter install doesn't mount every admin router (2026-11-18); with too
+    few to check, the route-walking tests skip rather than pass on nothing."""
     from admin_api import router
     out = set()
     for r in router.routes:
-        if isinstance(r, APIRoute) and r.path.startswith("/admin/"):
-            out |= {(m, r.path[len("/admin"):]) for m in r.methods}
+        if isinstance(r, APIRoute):
+            path = r.path[len("/admin"):] if r.path.startswith("/admin/") else r.path
+            out |= {(m, path) for m in r.methods}
+    if len(out) < 200:
+        pytest.skip(f"only {len(out)} admin routes mounted here; the walk needs the full app")
     return out
 
 
@@ -69,3 +75,12 @@ def test_every_other_admin_route_is_refused(token, tmp_path):
     log = (tmp_path / "daedalus_access.jsonl").read_text()
     assert '"route": "/self-model"' in log or '"route": "/memory"' in log
     assert '"allowed": false' in log
+
+
+def test_routes_that_only_ask_for_a_login_refuse_the_role_too(token):
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    for method, path in (("POST", "/narrative/threads"), ("DELETE", "/narrative/threads/{thread_id}"),
+                         ("GET", "/memory"), ("GET", "/journals")):
+        with pytest.raises(HTTPException) as e:
+            asyncio.run(require_auth(_request(method, path), creds))
+        assert e.value.status_code == 403, (method, path)

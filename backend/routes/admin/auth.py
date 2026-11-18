@@ -313,6 +313,12 @@ async def require_auth(
             headers={"WWW-Authenticate": "Bearer"}
         )
 
+    # Daedalus's role is held to its routes here too: some routes that write to
+    # her data (narrative threads and questions) only ask for a logged-in user.
+    daedalus = daedalus_principal(payload, request)
+    if daedalus is not None:
+        return daedalus
+
     _require_active_account(payload.get("user_id"))
     return payload
 
