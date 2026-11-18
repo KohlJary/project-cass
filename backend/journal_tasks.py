@@ -35,6 +35,25 @@ def _get_data_dir() -> Path:
     return DATA_DIR
 
 
+def _conversations_between(conversation_manager, start: str, end: str, limit: int = 500) -> list:
+    """Conversations updated between two dates (inclusive), in the shape
+    create_snapshot reads (as main_sdk's first snapshot builds them). Until
+    2026-11-18 the weekly snapshot was called without them and failed every
+    week (create_snapshot has needed them since 2025-12)."""
+    if conversation_manager is None:
+        return []
+    from dataclasses import asdict
+    out = []
+    for meta in conversation_manager.list_conversations(limit=limit):
+        day = (meta.get("updated_at") or "")[:10]
+        if not (start <= day <= end):
+            continue
+        conv = conversation_manager.load_conversation(meta.get("id"))
+        if conv and conv.messages:
+            out.append({"id": conv.id, "messages": [asdict(m) for m in conv.messages], "user_id": conv.user_id})
+    return out
+
+
 async def _create_development_log_entry(journal_text: str, date_str: str, conversation_count: int):
     """
     Create a development log entry from journal text.
@@ -166,7 +185,9 @@ Focus on genuine developmental signals, not just activity summaries. If no meani
                 period_end = date_str
                 period_start = (datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
 
-                snapshot = self_manager.create_snapshot(period_start, period_end)
+                import routes.admin as admin_state
+                week = _conversations_between(admin_state.conversations, period_start, period_end)
+                snapshot = self_manager.create_snapshot(period_start, period_end, week)
                 if snapshot:
                     print(f"   ✓ Snapshot created: {snapshot.id}")
 
