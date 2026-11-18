@@ -137,6 +137,8 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("kohl_blog", "read Kohl's blog posts and keep what I take from them (or disagree with) in "
                           "my self-model, marked as coming from his writing",
              ("blog_list", "blog_read", "blog_keep")),
+    # What may wake her when it happens (happenings.py; Kohl, 2026-11-18).
+    ToolPack("happenings", "set my rules for what may wake me when it happens", ("set_wake_rules",)),
     # Her commitments (commitments.py; Kohl, 2026-11-18): what she said she'd do, by when.
     ToolPack("commitments", "keep what I've said I'll do, for whom and by when, and mark it done or dropped",
              ("commitment",)),
@@ -152,7 +154,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 # the loop answers itself; the rest are session tools (session/tools.py).
 ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self", "commitments"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland",
-                        "daedalus", "kohl_blog", "workshop"})
+                        "daedalus", "kohl_blog", "workshop", "happenings"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
 # Named so a missing capability is visible rather than silently absent [C3].
@@ -194,6 +196,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "kohl_blog": ("kohl_blog", "plans"),
     "new_capabilities": ("self", "plans", "daedalus"),
     "workshop": ("workshop", "plans"),
+    "respond": ("social", "plans", "happenings"),
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -219,6 +222,7 @@ ACTIVITY_WORDS: Dict[str, str] = {
     "kohl_blog": "a session reading Kohl's blog",
     "new_capabilities": "a session about capabilities I don't have yet and want",
     "workshop": "a session in my workshop, on one of my projects",
+    "respond": "a short session answering something that happened",
 }
 
 

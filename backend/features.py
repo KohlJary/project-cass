@@ -220,6 +220,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("dream_day_residue", "Her dreams are seeded with what happened in her last day (from My life "
            "lately) and one unbidden old memory, not only her growth edges and questions",
            default=False, where="dreaming/dream_runner.generate_nightly_dream"),
+    _lever("happenings", "Happenings (happenings.py): a Bluesky mention, reply, quote or DM, or a commitment "
+           "coming due, wakes her into a short respond session, by her own rules (crisis always)",
+           LLM, BACKGROUND, default=False, where="heartbeat job happenings"),
     _lever("workshop", "Her workshop (workshop.py, workshop_turn.py): projects she owns, each a git repository "
            "with a PROJECT.md (software, long writing, outreach), and a Workshop session on her menu",
            LLM, default=False, where="scheduling.templates workshop available"),

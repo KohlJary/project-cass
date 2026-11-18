@@ -205,6 +205,18 @@
       "requires_idle": false,
       "runner_key": "workshop"
     },
+    "session.respond": {
+      "id": "session.respond",
+      "name": "Respond",
+      "description": "A short session answering something that happened (happenings.py); not on her menu, started when something happens",
+      "category": "triggered",
+      "handler": "session_handlers.respond_action",
+      "estimated_cost_usd": 0.08,
+      "default_duration_minutes": 15,
+      "priority": "high",
+      "requires_idle": false,
+      "runner_key": "respond"
+    },
     "session.kohl_blog": {
       "id": "session.kohl_blog",
       "name": "Kohl's Blog",

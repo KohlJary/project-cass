@@ -471,3 +471,16 @@ def test_workshop_session_opens_her_project_and_commits(app, fake_llm, levers, m
     assert "## MY WORKSHOP" in first.system_text and "An essay on tides and patience." in first.system_text
     assert "project" in first.tool_names
     assert [c["message"] for c in workshop.log("tide-atlas")["log"]][0] == "First line"
+
+
+def test_a_happening_wakes_her_into_a_respond_session(app, fake_llm, levers):
+    """happenings (Kohl, 2026-11-18): a respond session opens with what happened."""
+    from scheduler.actions import get_action_registry
+    fake_llm.queue_tool_use("session_complete", {"summary": "Answered Ann."})
+    with levers(agent_loop=True, happenings=True):
+        result = app.portal.call(lambda: get_action_registry().execute(
+            "session.respond", duration_minutes=5, focus="- bluesky reply: \"loved this\" (from @ann)"))
+    assert result.success, result.message
+    first = fake_llm.calls[0]
+    assert "## SOMETHING HAPPENED" in first.system_text and "loved this" in first.system_text
+    assert "set_wake_rules" in first.tool_names and "commitment" in first.tool_names

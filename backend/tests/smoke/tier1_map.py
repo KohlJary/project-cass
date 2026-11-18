@@ -323,6 +323,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Off by default; dream seeds only. Fast-suite: tests/test_entropy.py.",
     },
+    "happenings": {
+        "depth": "gate",
+        "tests": [f"{AGENT_LOOP}::test_a_happening_wakes_her_into_a_respond_session"],
+        "note": "One respond session through the registry with the fake LLM, its focus the happening. The 10-minute Heartbeat job and the real social inbox aren't run. Fast-suite: tests/test_happenings.py.",
+    },
     "workshop": {
         "depth": "gate",
         "tests": [f"{AGENT_LOOP}::test_workshop_session_opens_her_project_and_commits"],

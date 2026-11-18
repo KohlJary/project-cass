@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 HEARTBEAT_JOBS = frozenset({
     "github_metrics", "goal_refinement", "idle_summarization", "daily_journal",
     "autonomous_research", "conversation_observation", "budget_sync", "agent_loop_wakes",
-    "social_watch", "runlog_prune",
+    "social_watch", "runlog_prune", "happenings",
 })
 
 # Actions that are a job's work. Executing one with the job on Heartbeat runs
@@ -216,6 +216,17 @@ def job_work(managers: Dict[str, Any]) -> Dict[str, Work]:
         run=check_wakes,
         trigger=Every(60, first_after=60),
         lever="agent_loop",
+        log_runs=False,
+    )
+
+    # Happenings (happenings.py): what's happening to her, every 10 minutes;
+    # each wake is submitted as its own budgeted respond run.
+    from happenings import CHECK_SECONDS, check_happenings
+    jobs["happenings"] = Work(
+        name="happenings",
+        run=check_happenings,
+        trigger=Every(CHECK_SECONDS, first_after=120),
+        lever="happenings",
         log_runs=False,
     )
 
