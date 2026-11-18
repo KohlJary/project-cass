@@ -61,7 +61,10 @@ TOOL = {
         "(clips/name.mid, opens in any DAW), from riff notation or from clip_notes (bar, beat, pitch, len in "
         "beats, vel, pm), and shows it back as a piano roll a bar at a time (X a note, m palm-muted, = held, "
         ". silence) with any bar that doesn't fill its beats; with only a name it reads one, clips lists them. "
-        "A song uses a clip as a part: <instrument>: {clip: name}, looped to fill the section. share sets who can follow my music log in Babelr (my listening, what I write "
+        "A song uses a clip as a part: <instrument>: {clip: name}, looped to fill the section. session builds a "
+        "song as a real Reaper session (tracks, instruments, effects, my MIDI on each track, section markers) "
+        "that Kohl can open in Reaper, and renders it there: synths play live from my MIDI, the sampled "
+        "guitar and the 808 go in as their audio with the notes beside them. share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
@@ -69,7 +72,7 @@ TOOL = {
             "action": {"type": "string",
                        "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
                                 "noodle", "sketchbook", "keep", "share", "hide", "show", "tone", "rig",
-                                "clip", "clips"]},
+                                "clip", "clips", "session"]},
             "clip_notes": {"type": "array", "items": {"type": "object"},
                            "description": "clip: the notes as MIDI, each {\"bar\": 1, \"beat\": 1.5, \"pitch\": \"E2\" "
                                           "or [\"E2\", \"B2\"], \"len\": 0.25 (beats), \"vel\": 1-127, \"pm\": true}"},
@@ -421,6 +424,33 @@ def keep(slug: str, n: Optional[int], note: str, data_dir=None) -> Dict[str, Any
 
 
 # ---------------------------------------------------------------------------
+# a song as a Reaper session
+# ---------------------------------------------------------------------------
+
+def session(slug: str, song: Optional[str], data_dir=None) -> Dict[str, Any]:
+    import workshop as W
+    try:
+        project = W._project(slug, data_dir)
+    except Exception as e:
+        return {"error": f"no project {slug!r}: {e}"}
+    song_path = (project / (song or "song.yaml")).resolve()
+    if project.resolve() not in song_path.parents or not song_path.exists():
+        return {"error": f"no {song or 'song.yaml'} in {slug}; write it with project write first"}
+    out = _root(data_dir) / slug / "session"
+    env = {**os.environ, "ORPHIC_BELT": str(_belt(data_dir))}
+    try:
+        r = subprocess.run(["nice", "-n", "10", ORPHIC, "reaper", str(song_path), "-o", str(out)],
+                           capture_output=True, text=True, timeout=600, env=env)
+        res = json.loads(r.stdout)
+    except (subprocess.TimeoutExpired, ValueError):
+        return {"error": "Reaper didn't finish the session (too long or failed)"}
+    if res.get("error"):
+        return {"error": f"the session didn't build: {res['error']}"}
+    res["for_kohl"] = f"open {res['session']} in Reaper"
+    return res
+
+
+# ---------------------------------------------------------------------------
 # clips: parts as MIDI, in a project's clips/ folder
 # ---------------------------------------------------------------------------
 
@@ -543,6 +573,10 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return patch(a.get("name"), a.get("synth"), a.get("params") or {}, a.get("notes") or "", data_dir)
     if action == "map":
         return synth_map(a.get("synth") or "")
+    if action == "session":
+        if not slug:
+            return {"error": "a session is built from a song in a project: which one (project)?"}
+        return session(slug, a.get("song"), data_dir)
     if action in ("clip", "clips"):
         if not slug:
             return {"error": "clips live in a project: which one (project)?"}
@@ -584,7 +618,7 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
     if action == "keep":
         return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
     return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, "
-                     "keep, share, hide, show, tone, rig, clip, clips"}
+                     "keep, share, hide, show, tone, rig, clip, clips, session"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:

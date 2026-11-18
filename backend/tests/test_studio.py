@@ -203,3 +203,22 @@ def test_clips_write_read_and_list_in_a_project(tmp_path, monkeypatch):
     assert r["notes"] == 2 and "X===" in r["roll"]
     assert {c["clip"] for c in ST.handle({"action": "clips", "project": "p"}, tmp_path)["clips"]} == {"chug-one", "lift"}
     assert "error" in ST.handle({"action": "clip", "project": "p", "name": "nope"}, tmp_path)
+
+
+def test_session_builds_in_her_studio_folder(tmp_path, monkeypatch):
+    import sys
+    import workshop as W
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "song.yaml").write_text("tempo: 100\n")
+    monkeypatch.setattr(W, "_project", lambda slug, data_dir=None: proj)
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    fake = tmp_path / "orphic"
+    fake.write_text(f"#!{sys.executable}\nimport json, sys\na = sys.argv\n"
+                    "print(json.dumps({'session': a[a.index('-o') + 1] + '/session.rpp', 'tracks': []}))\n")
+    fake.chmod(0o755)
+    monkeypatch.setattr(ST, "ORPHIC", str(fake))
+    out = ST.handle({"action": "session", "project": "p"}, tmp_path)
+    assert out["session"] == str(tmp_path / "studio" / "p" / "session" / "session.rpp")
+    assert "Reaper" in out["for_kohl"]
+    assert "error" in ST.handle({"action": "session", "project": "p", "song": "nope.yaml"}, tmp_path)
