@@ -47,6 +47,10 @@ def where_i_am(platform: str, data_dir: Optional[Path] = None, now: Optional[dat
             else:
                 lines.append(f"- [{i['id']}] {i['kind']} from {who}: \"{_short(i.get('text', ''))}\" "
                              f"{i.get('url') or ''}" + (f" (my note: {i['note']})" if i.get("note") else ""))
+                from social.triage import label_line
+                heads_up = label_line(i.get("triage"), data_dir)
+                if heads_up:
+                    lines.append("  " + heads_up.replace("\n", "\n  "))
         if len(rest) > SHOW_ITEMS:
             lines.append(f"  (and {len(rest) - SHOW_ITEMS} older; social_inbox shows them all)")
     else:

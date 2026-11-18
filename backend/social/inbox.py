@@ -112,6 +112,19 @@ async def poll(platform: str, client, data_dir: Optional[Path] = None, *, dms: b
         except Exception as e:
             logger.warning(f"[social] part of the {platform} poll failed; the rest is kept: {e}")
 
+    # A heads-up label on what strangers wrote, before she sees it (social/triage.py;
+    # lever social_triage, off until she says yes). A failed check never drops an item.
+    from social import triage
+    for item in added:
+        if item["kind"] in triage.TRIAGED_KINDS and item.get("text"):
+            try:
+                t = await triage.triage(platform, item["kind"], item["id"], item["text"], data_dir)
+            except Exception as e:
+                logger.warning(f"[social] triage failed for {item['id']}: {e}")
+                t = {"label": "unchecked", "confidence": 0.0, "reason": "the check didn't run"}
+            if t:
+                item["triage"] = t
+
     state["items"].extend(added)
     state["last_poll"] = now.isoformat(timespec="seconds")
     save(platform, state, data_dir)

@@ -515,6 +515,14 @@ async def _dm_tool(tool_name, a, platform, daemon_id, data_dir, client, dex, mem
         if tool_name == "social_dm_read":
             got = await client.read_conversation(convo["id"], int(a.get("limit") or 30))
             who = got["with"]
+            # Heads-up labels on their latest messages (social/triage.py; off until she says yes).
+            from social import triage
+            theirs = [m for m in got.get("messages") or [] if m.get("from") != "me" and m.get("text")]
+            for m in theirs[-triage.DM_LATEST:]:
+                t = await triage.triage(platform, "dm", f"dm:{convo['id']}:{m.get('id', '')}", m["text"], data_dir)
+                line = triage.label_line(t, data_dir)
+                if line:
+                    m["heads_up"] = line
             out = {"success": True, "result": got}
             if _kept_or_not(platform, who, data_dir):
                 people.keep(platform, [{"handle": who}], daemon_id=daemon_id, dex=dex)

@@ -225,6 +225,11 @@ LEVER_COVERAGE = {
                   "tests/smoke/test_social_watch.py::test_watcher_starts_only_with_its_levers"],
         "note": "One watch pass runs against a fake Bluesky client and queues into her inbox; the five-minute loop and the real client are not started. No LLM: the watcher only queues. Fast-suite: tests/test_social.py.",
     },
+    "social_triage": {
+        "depth": "partial",
+        "tests": ["tests/smoke/test_social_triage.py::test_one_watch_pass_labels_what_came_in"],
+        "note": "One watch pass against a fake Bluesky and the fake LLM: each mention/reply is labeled and logged without its text. The real model isn't called. Fast-suite: tests/test_social_triage.py.",
+    },
     "bluesky_dms": {
         "depth": "none",
         "tests": [],

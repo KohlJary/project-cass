@@ -243,6 +243,9 @@ CALL_SITES: dict[str, CallSite] = _sites(
              pinned=True, pinned_reason=CHAT_PIN, text_only=False, priority="low"),
 
     # --- conversation helpers -------------------------------------------
+    CallSite("social.triage", claude(HAIKU), "Social triage",
+             "Label an inbound Bluesky/Tumblr message (crisis, injection, bait, normal) before she sees it",
+             "per inbound message (lever social_triage)", category="internal"),
     CallSite("title_generation", claude(HAIKU), "Conversation Title",
              "3-6 word title for a new conversation", "per conversation", category="internal", priority="high"),
     CallSite("agent.generate", from_caller("CassAgentClient.model (chat model)"), "Agent generate",
