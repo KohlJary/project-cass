@@ -16,6 +16,9 @@ email-validator>=2.0.0
 PyYAML>=6.0
 httpx>=0.25.0
 networkx>=3.0  # self_model_graph, imported by memory, image-style, PeopleDex and tool-result tests
+python-multipart>=0.0.6  # FastAPI form routes, imported when the app is built
+anthropic>=0.39.0  # agent_loop and llm_caller import it at module level
+Pillow>=10.0.0  # art choice and image handling (PIL)
 
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

@@ -53,7 +53,7 @@ def test_tts_module_imports_without_piper_or_pydub():
 @pytest.mark.timeout(120)
 def test_server_module_imports_without_piper_or_pydub():
     """main_sdk imports tts at module level; that used to kill the boot."""
-    pytest.importorskip("anthropic")  # main_sdk needs the runtime deps
+    pytest.importorskip("slowapi")  # main_sdk needs the runtime deps (anthropic alone is in the fast set)
     out = _run("""
         import main_sdk
         print("BOOTED", main_sdk.app is not None)

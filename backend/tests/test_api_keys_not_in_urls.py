@@ -63,6 +63,7 @@ def test_world_state_source_sends_news_key_as_header(monkeypatch):
 
 @pytest.mark.unit
 def test_httpx_request_logging_is_quiet_in_the_service():
+    pytest.importorskip("slowapi")  # imports main_sdk, which needs the runtime deps (not in the fast set)
     """OpenWeather and WikiArt keys can only go in the URL, so the service keeps
     httpx/httpcore request logs (which print URLs) below INFO."""
     pytest.importorskip("multipart")
