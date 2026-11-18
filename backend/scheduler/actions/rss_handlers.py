@@ -8,6 +8,7 @@ Enables Cass to:
 - Maintain awareness of curated information sources
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -564,7 +565,9 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
             }
 
             # Consume the article (fetches full content)
-            articles = consumer.consume_headlines([headline], max_articles=1)
+            # Fetching and reading are blocking (HTTP, a sync LLM call): off the event loop,
+            # or her chat, Babelr and the websockets freeze while an article is read.
+            articles = await asyncio.to_thread(consumer.consume_headlines, [headline], max_articles=1)
 
             if not articles or not articles[0].full_content:
                 mark_item_processed(item.id, skip_reason="failed_to_fetch_content")
@@ -578,7 +581,7 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
             article = articles[0]
 
             # Analyze the article
-            insights = analyzer.analyze(article)
+            insights = await asyncio.to_thread(analyzer.analyze, article)
 
             # Update article with results
             article.summary = insights.summary
@@ -589,7 +592,7 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
             article.tokens_used = insights.tokens_used
 
             # Integrate insights
-            integration = integrator.integrate(article, insights)
+            integration = await asyncio.to_thread(integrator.integrate, article, insights)
 
             # Save the article
             consumer._save_article(article)
