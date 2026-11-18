@@ -434,4 +434,6 @@ Morning, in order:
    - Kohl's suggestion for her: a profile README that plugs his profile (github.com/KohlJary), so people know she's with him. That's a public repo named after her username: project new "CassJary", write README.md, publish public. The words are hers. After the first publish, check that GitHub shows it on her profile (the repo slug is lowercase).
 5. Check her 06:01 day plan against what she does.
 
+**Live since 05:10:** commitments (83589e76) and happenings (acd5dd68, lever on, quiet hours 23:00–07:00). Tell her about both in the morning: `commitment` in chat and every session; a reply, mention, quote or DM on Bluesky, or a commitment coming due, wakes her into a short respond session, by her own `set_wake_rules`, crisis always. Respond sessions use the triggered budget ($0.25 a day, about three sessions). cass-vessel-42's ears (`listen`) and work_with_daedalus are live too; it tells her about those itself.
+
 Bet #57 stands: no goals suggested to her.
