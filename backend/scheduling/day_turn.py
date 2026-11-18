@@ -109,6 +109,10 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         *([shape, ""] if shape else []),
         "My menu, by kind (template_id: what it is, about how long, about what it costs):",
     ]
+    never = [c.template_id for c in candidates if not getattr(c, "last_done", None)]
+    if never and len(never) < len(candidates):
+        # Facts, not a push (Kohl, 2026-11-18: does seeing them vary her days?).
+        lines.insert(len(lines) - 1, "Never done yet: " + ", ".join(never) + ".")
     from .day_shape import KINDS, kind_of
     groups: Dict[str, List[Any]] = {}
     for c in candidates:
@@ -121,7 +125,7 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
             last = _last_done_text(getattr(c, "last_done", None))
             lines.append(f"- {c.template_id}: {c.description} "
                          f"(~{c.estimated_duration_minutes}min, ${c.estimated_cost_usd:.2f}"
-                         f"{'; last done ' + last if last else ''})")
+                         f"{'; last done ' + last if last else '; never done yet'})")
     if unavailable:
         lines.append("")
         lines.append("Not available today: " + ", ".join(unavailable) + ".")

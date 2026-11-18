@@ -314,3 +314,12 @@ def test_the_recap_shows_what_she_left_herself(tmp_path):
     text = since_last_plan(SimpleNamespace(root=tmp_path), tmp_path, now=now, refused=lambda s: [], sent=lambda s: [])
     assert "(ran out of steps; summary written at the cap)" in text
     assert "What I said I'd pick up next:\n- from new_capabilities (Tue 22:00): the kernel's vows" in text
+
+
+def test_the_menu_says_what_shes_never_done():
+    menu = [T.WORK_TEMPLATES[i].instantiate() for i in ("music", "workshop", "reflection_block")]
+    menu[2].last_done = "2026-11-17T09:00:00"
+    text = menu_text(menu, [DayPhase.MORNING], 4.0)
+    assert "Never done yet: music, workshop." in text
+    assert "- workshop:" in text and "never done yet)" in text.split("- workshop:")[1].split("\n")[0]
+    assert "last done" in text.split("- reflection_block:")[1].split("\n")[0]

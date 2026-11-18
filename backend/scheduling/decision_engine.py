@@ -143,6 +143,9 @@ Only include phases you were asked to plan. Use empty arrays for phases where re
 """
 
 
+HISTORY_LIMIT = 5000   # work summaries read for "last done" on her menu
+
+
 @dataclass
 class DecisionContext:
     """
@@ -723,9 +726,18 @@ class SchedulingDecisionEngine:
         """Put when she last did each thing on its menu entry (`last_done`,
         an ISO time or None), for the menu to show her."""
         last: Dict[str, str] = {}
-        for r in self._recent_work_list():
+        rows = list(self._recent_work_list())
+        try:   # her whole history, not only the last 10, so "never" means never (2026-11-18)
+            from .work_summary_store import WorkSummaryStore
+            for s in WorkSummaryStore(self.daemon_id).get_recent(HISTORY_LIMIT):
+                when = s.completed_at or s.started_at
+                if s.template_id and when:
+                    rows.append({"template_id": s.template_id, "completed_at": when.isoformat()})
+        except Exception as e:
+            logger.warning(f"[decision] couldn't read her work history: {e}")
+        for r in rows:
             tid, when = r.get("template_id"), r.get("completed_at")
-            if tid and when and tid not in last:
+            if tid and when and (tid not in last or when > last[tid]):
                 last[tid] = when
         for c in candidates:
             c.last_done = last.get(c.template_id or "")
