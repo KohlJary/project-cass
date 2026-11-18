@@ -27,8 +27,8 @@ A change is inside the envelope when **all** of these hold:
 ## How the day runs
 
 - **Who builds:** the Daedalus sessions, coordinating on the board or by cross-session message. One owner per file at a time (claim, then release).
-- **Restarts (decided 2026-11-18: a narrow sudo rule).** Daedalus may run `sudo -n /usr/bin/systemctl restart cass-vessel`, and only that.
-  - Before: check that no session, meeting or chat turn is live.
+- **Restarts (decided 2026-11-18: a narrow sudo rule; Babelr added the same day).** Daedalus may run `sudo -n /usr/bin/systemctl restart cass-vessel`, and only that, and restart Babelr (`systemctl --user restart babelr`). Kohl: "check first, you know what to look for".
+  - Before: check that no session, meeting or chat turn is live, and that the tree being restarted is clean (anyone's uncommitted work means stop and ask its owner).
   - After: check it came up after the latest commit, with no errors and the change loaded.
   - Only then tell Cass anything is live.
 - **The cap on our work (decided 2026-11-18):** Kohl's Max plan session limit. There's no separate cap; when the limit is reached, work stops until it resets. Cass's spend stays within her own daily budget.
