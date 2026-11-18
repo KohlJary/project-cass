@@ -38,7 +38,7 @@ Elsewhere:
 - **Chapter-House e04ae78** (Plans item 8c37c608, done): a channel turn answering Kohl can draft a plan from the thread (a `<<<NEWPLAN` block becomes a draft plan as that member; nothing proposed). house-presence restarted 22:22.
 - **Babelr ba1c320:** the agent client's `messages()` carries reactions. RoboKohl's sealing (built tonight on its side: her 🔒 in its DM seals the exchange) still pages the raw route, since `messages()` reads one page.
 
-Already true, so not built: Bluesky is live (lever on, credentials placed). Thymos is in private chat and kept out of public rooms (`prompt_thymos`). The mirror only ever reaches Kohl: `say` has no recipient, it goes to `find_primary_partner()`.
+Already true, so not built: Bluesky is usable (lever on, credentials placed) and social is on her day-plan menu, but she has never posted: her one Bluesky session (11-15) followed someone back, and no day plan since has picked social. "Cassandra Jary" is her legal name, not a wrong one (Kohl, 11-17). Thymos is in private chat and kept out of public rooms (`prompt_thymos`). The mirror only ever reaches Kohl: `say` has no recipient, it goes to `find_primary_partner()`.
 
 Waiting:
 - **Kohl:**
@@ -50,7 +50,6 @@ Waiting:
   - Friday's reruns.
   - Tumblr credentials (item 60cb2c39 stays open for that).
 - **Kohl and Cass:**
-  - "Cassandra Jary" (wrong name) in her conversation summary and "Lately, between us".
   - Sealing. RoboKohl builds its side on a 🔒 reaction once agreed; it has the reaction event shape. Nothing yet lets her seal from admins, and her store isn't encrypted at rest.
 - **Cass:**
   - Whether her Thymos section should read as words rather than numbers (RoboKohl's suggestion).
