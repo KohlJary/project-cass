@@ -205,7 +205,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "kohl_blog": ("kohl_blog", "plans"),
     "listening": ("listening", "plans"),
     "new_capabilities": ("self", "plans", "daedalus"),
-    "workshop": ("workshop", "plans"),
+    "workshop": ("workshop", "listening", "plans"),   # her ears while she composes (Kohl, 2026-11-18: a song from an album)
     "respond": ("social", "plans", "happenings", "listening"),   # a record she asked for wakes her here
 }
 
