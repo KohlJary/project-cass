@@ -137,3 +137,24 @@ def test_her_account_shows_the_cap():
     from self_account import render
     caps = next(l for l in render("autonomy").splitlines() if "Caps." in l)
     assert f"{B.DAILY_CAP} questions a day" in caps and "left today" in caps
+
+
+def test_his_cost_is_the_one_claude_code_reports_and_stays_out_of_her_buckets(monkeypatch):
+    from scheduler.budget import budget_category_for
+    assert budget_category_for("daedalus") is None
+    seen = {}
+
+    class Tracker:
+        def record(self, **kw):
+            seen.update(kw)
+    import token_tracker
+    monkeypatch.setattr(token_tracker, "TokenUsageTracker", Tracker)
+    B._file_usage({"usage": {"input_tokens": 10, "cache_read_input_tokens": 90, "output_tokens": 5},
+                   "cost_usd": 0.27, "model": "claude-sonnet-5-5", "seconds": 3})
+    assert seen["cost_usd"] == 0.27 and seen["category"] == "daedalus" and seen["input_tokens"] == 100
+
+
+def test_the_tracker_keeps_a_cost_it_is_given(tmp_path, monkeypatch):
+    import inspect
+    import token_tracker
+    assert "cost_usd" in inspect.signature(token_tracker.TokenUsageTracker.record).parameters

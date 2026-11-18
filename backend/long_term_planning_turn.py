@@ -74,7 +74,17 @@ def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
             logger.warning(f"[long_term_planning] couldn't read her plans: {e}")
             plans, unreadable = [], True
     lines: List[str] = []
+    # Grouped by area (plan_areas.py, 2026-11-18): plans with an area first, in
+    # the areas' order, then those without one.
+    from plan_areas import AREAS, SHORT
+    order = {a: i for i, a in enumerate(AREAS)}
+    plans = sorted(plans, key=lambda p: order.get(p.get("area") or "", len(order)))
+    shown_area: Any = object()
     for p in plans:
+        area = p.get("area") if p.get("area") in AREAS else None
+        if area != shown_area and any(q.get("area") in AREAS for q in plans):
+            lines.append(f"*{SHORT[area].capitalize() if area else 'No area yet'}:*")
+            shown_area = area
         head = f"- **{p['title']}**"
         if p.get("goal"):
             head += f": {p['goal']}"
@@ -92,6 +102,11 @@ def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
             lines.append(f"  - ({i.get('kind')}) {i.get('title')}")
         if len(todo) > MAX_ITEMS:
             lines.append(f"  - and {len(todo) - MAX_ITEMS} more (babelr_plans view {p['plan']})")
+    reached = {p.get("area") for p in plans}
+    missing = [SHORT[a] for a in AREAS if a not in reached]
+    if plans and missing:
+        lines += ["", "No plan of mine yet in: " + "; ".join(missing) +
+                  ". (babelr_plans set_area gives a plan an area.)"]
     days = _days_since(last_planned, now)
     nudge = ""
     if offered and (days is None or days >= NUDGE_DAYS):

@@ -38,6 +38,14 @@ MAX_WRITE_CHARS = 200_000
 MAX_LIST = 300
 MAX_HITS = 80
 MAX_DIFF_CHARS = 20_000
+# A write that would replace a file with under half of it (and the file is more
+# than a short note) needs replace: true (2026-11-18: she said "append" and a
+# write replaced her 25k agenda with 8k). The replaced version is kept beside the
+# workspace, the newest HISTORY_KEEP per file.
+SHRINK_GUARD_MIN_CHARS = 2_000
+SHRINK_GUARD_RATIO = 0.5
+HISTORY_DIR = "workspace_history"
+HISTORY_KEEP = 20
 AGENDA_CONTEXT_CHARS = 8_000
 
 WORKSPACE_TOOLS: List[Dict[str, Any]] = [
@@ -51,9 +59,15 @@ WORKSPACE_TOOLS: List[Dict[str, Any]] = [
                                                    "description": "where to start reading (default 0)"}},
                       "required": ["path"]}},
     {"name": "workspace_write",
-     "description": "Create or overwrite a file in my workspace. Folders are made as needed.",
+     "description": ("Create a file in my workspace, add to the end of one (append: true), or "
+                     "replace one. Replacing a file with much less than it has needs replace: true. "
+                     "Folders are made as needed; the version a write replaces is kept."),
      "input_schema": {"type": "object",
-                      "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                      "properties": {"path": {"type": "string"}, "content": {"type": "string"},
+                                     "append": {"type": "boolean",
+                                                "description": "add content to the end instead of replacing"},
+                                     "replace": {"type": "boolean",
+                                                 "description": "yes, replace this file even though it shrinks a lot"}},
                       "required": ["path", "content"]}},
     {"name": "workspace_edit",
      "description": ("Replace one exact occurrence of old_text with new_text in a workspace file. "
@@ -118,6 +132,17 @@ class Workspace:
         return f"## MY AGENDA ({AGENDA_FILE} in my workspace, mine to keep)\n\n{body}"
 
     # ----- the change log (C10) ------------------------------------------
+
+    def _keep_version(self, path: str, before: str) -> None:
+        """The version a write replaces, beside the workspace (not in it)."""
+        try:
+            folder = self.log_path.parent / HISTORY_DIR / path.replace("/", "__")
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / f"{datetime.now():%Y%m%d-%H%M%S-%f}.txt").write_text(before, encoding="utf-8")
+            for old in sorted(folder.iterdir())[:-HISTORY_KEEP]:
+                old.unlink()
+        except OSError as e:
+            logger.warning(f"[workspace] couldn't keep the earlier version of {path}: {e}")
 
     def _log(self, session_id: str, tool: str, path: str, before: Optional[str], after: str) -> None:
         diff = "".join(difflib.unified_diff((before or "").splitlines(keepends=True),
@@ -223,9 +248,25 @@ class Workspace:
             if p.is_dir():
                 return {"error": f"{path} is a folder."}
             before = p.read_text(encoding="utf-8", errors="replace") if p.is_file() else None
+            if a.get("append") and before is not None:
+                sep = "" if not before or before.endswith("\n") else "\n"
+                content = before + sep + content
+                if len(content) > MAX_WRITE_CHARS:
+                    return {"error": f"That would make {path} over {MAX_WRITE_CHARS} chars; start a new file."}
+            elif (before is not None and not a.get("replace")
+                  and len(before) >= SHRINK_GUARD_MIN_CHARS
+                  and len(content) < SHRINK_GUARD_RATIO * len(before)):
+                return {"error": (f"That would replace {path} ({len(before)} chars) with {len(content)} "
+                                  f"chars. To add to the end, pass append: true. To replace it anyway, "
+                                  f"pass replace: true (the old version is kept). To change one part, "
+                                  f"use workspace_edit.")}
+            if before is not None:
+                self._keep_version(path, before)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
             self._log(session_id, name, path, before, content)
+            if a.get("append") and before is not None:
+                return f"Added to the end of {path} (now {len(content)} chars)."
             return f"{'Wrote' if before is None else 'Rewrote'} {path} ({len(content)} chars)."
         if name == "workspace_edit":
             if not p.is_file():

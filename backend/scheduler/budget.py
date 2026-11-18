@@ -314,6 +314,11 @@ def budget_category_for(ledger_category: Optional[str]) -> Optional[TaskCategory
     """The budget bucket a ledger row's spend goes in, or None if it isn't
     autonomous spend. "chat" is user-driven, so it is left out; an unknown
     category goes to SYSTEM; rows recorded as "unknown" are left out."""
+    if ledger_category == "daedalus":
+        # ask_daedalus (daedalus_bridge): Claude Code answering her questions.
+        # Kept out of her buckets for now (Kohl, 2026-11-18); its own daily
+        # question cap bounds it, and its real cost is in the ledger.
+        return None
     if ledger_category in ("chat", "session"):
         # "session": agent-loop session rows from before 2026-11-17, filed
         # under the call site's prefix; uncounted then, so left out now (new

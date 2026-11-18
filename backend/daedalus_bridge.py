@@ -308,7 +308,8 @@ def _file_usage(got: Dict[str, Any]) -> None:
             output_tokens=int(usage.get("output_tokens", 0) or 0),
             cache_read_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
             cache_write_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
-            duration_ms=int((got.get("seconds") or 0) * 1000), tool_name="ask_daedalus")
+            duration_ms=int((got.get("seconds") or 0) * 1000), tool_name="ask_daedalus",
+            cost_usd=got.get("cost_usd"))
     except Exception as e:
         logger.warning(f"[ask_daedalus] couldn't file usage: {e}")
 

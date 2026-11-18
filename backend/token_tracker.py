@@ -177,6 +177,7 @@ class TokenUsageTracker:
         user_id: Optional[str] = None,
         tool_name: Optional[str] = None,
         call_site: Optional[str] = None,
+        cost_usd: Optional[float] = None,
     ) -> UsageRecord:
         """Record a single LLM usage event.
 
@@ -199,7 +200,9 @@ class TokenUsageTracker:
             user_id=user_id,
             tool_name=tool_name,
             duration_ms=duration_ms,
-            estimated_cost_usd=self._estimate_cost(
+            # A cost the caller already knows (Claude Code reports its own,
+            # daedalus_bridge) wins over the per-token estimate.
+            estimated_cost_usd=cost_usd if cost_usd is not None else self._estimate_cost(
                 provider, model, input_tokens, output_tokens, cache_read_tokens
             )
         )

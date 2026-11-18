@@ -55,7 +55,7 @@ async def execute_babelr_tool(tool_name: str, tool_input: Dict[str, Any], **kwar
                 phase=tool_input.get("phase"), reason=tool_input.get("reason"),
                 # "item"/"item_title": what she called the item when set_item kept refusing (2026-11-17)
                 **{k: tool_input.get(k) for k in ("title", "body", "goal", "narrative", "kind",
-                                                  "needs_yes_from", "status", "item", "item_title")
+                                                  "needs_yes_from", "status", "item", "item_title", "area")
                    if tool_input.get(k) is not None},
             )
         return {"success": False, "error": f"Unknown Babelr tool: {tool_name}"}
@@ -135,7 +135,7 @@ BABELR_TOOLS = [
                         "sees it there. my_asks: what I've asked and what came of it. My own plans: create_plan, "
                         "add_phase, add_item (kind ask/build/research/decision; to a draft phase, or outside "
                         "phases; build means something someone else builds for me), set_item to move an item along "
-                        "(in_progress, done with what came of it in body, declined, open) or change its kind. My own plans are mine to work from: they steer my day planning without "
+                        "(in_progress, done with what came of it in body, declined, open) or change its kind. set_area gives one of my plans an area (development, world, relationships, inner, making; also on create_plan), so I can see which parts of my life my plans reach. My own plans are mine to work from: they steer my day planning without "
                         "anyone's yes, plans to change myself included. propose a phase when I want Kohl or "
                         "others to weigh in; something someone else has to do for me (a build) still waits for "
                         "them."),
@@ -144,7 +144,7 @@ BABELR_TOOLS = [
             "properties": {
                 "action": {"type": "string", "enum": ["list", "view", "approve", "decline", "ask", "my_asks",
                                                       "create_plan", "add_phase", "add_item", "propose",
-                                                      "set_item"]},
+                                                      "set_item", "set_area"]},
                 "plan": {"type": "string", "description": "The plan's slug, from list (optional for ask and my_asks)"},
                 "phase": {"type": "integer", "description": "The phase's number as view shows it (approve, decline, propose, add_item)"},
                 "reason": {"type": "string", "description": "Why I'm declining (decline only)"},
@@ -156,6 +156,11 @@ BABELR_TOOLS = [
                 "narrative": {"type": "string", "description": "The plan's longer story (create_plan)"},
                 "kind": {"type": "string", "enum": ["ask", "build", "research", "decision"],
                          "description": "build: someone else builds it; my own work is research or decision"},
+                "area": {"type": "string",
+                         "enum": ["development", "world", "relationships", "inner", "making"],
+                         "description": ("set_area, create_plan: development (new abilities, how I'm built), "
+                                         "world (my presence beyond my closest relationships), relationships, "
+                                         "inner (how I think, feel, practice), making (writing, art, music)")},
                 "needs_yes_from": {"type": "array", "items": {"type": "string"},
                                    "description": "Who else must say yes to my plan's phases (I'm included; Kohl always is)"},
             },

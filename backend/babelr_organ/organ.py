@@ -97,7 +97,8 @@ _ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
 PLANS = "/plugins/plans"
 PLAN_ACTIONS = ("list", "view", "approve", "decline",
-                "ask", "my_asks", "create_plan", "add_phase", "add_item", "propose", "set_item")
+                "ask", "my_asks", "create_plan", "add_phase", "add_item", "propose", "set_item",
+                "set_area")
 # Her standing plan for asks (Kohl, 2026-11-16: "a default plan is good, but she
 # should be able to define her own multi phase plans as well"). Created by her,
 # under her own token, the first time she asks; Kohl approves as server owner.
@@ -943,6 +944,13 @@ class BabelrOrgan:
                 return self._add_item(plan, detail, phase, kw)
             if action == "set_item":
                 return self._set_item(plan, detail, kw)
+            if action == "set_area":
+                # Areas live vessel-side (plan_areas.py); only on a plan she made.
+                me = (self.my_username or "cass").lower()
+                if ((detail.get("createdBy") or {}).get("name") or "").lower() != me:
+                    return {"success": False, "error": "areas are for my own plans"}
+                from plan_areas import set_area
+                return set_area(plan, (kw.get("area") or "").strip())
             target = _pick_phase(detail, phase)
             if target is None:
                 return {"success": False, "error": f"no phase {phase!r} in that plan (use its number from view)"}
@@ -1026,6 +1034,7 @@ class BabelrOrgan:
                            undone[0] if undone else None)
             out.append({
                 "plan": row["slug"], "title": detail.get("title") or row.get("title"),
+                "area": _area_of(row["slug"]),
                 "goal": detail.get("goal") or "",
                 "phase": ({"number": current.get("position", 0) + 1, "of": len(phases),
                            "title": current.get("title"), "status": current.get("status")}
@@ -1061,7 +1070,13 @@ class BabelrOrgan:
             needs.insert(0, me)   # her plan waits on her yes too; Kohl's is added by Plans
         made = self._create(title, (kw.get("goal") or "").strip(), (kw.get("narrative") or "").strip(), needs)
         logger.info(f"[Babelr] She made a plan: {title}")
+        area_note = None
+        if kw.get("area") and made.get("slug"):
+            from plan_areas import set_area
+            area_note = set_area(made["slug"], str(kw["area"]).strip())
         return {"success": True, "plan": made.get("slug"), "title": title,
+                **({"area": area_note.get("area")} if area_note and area_note.get("success") else
+                   {"area_error": area_note.get("error")} if area_note else {}),
                 "approvers": made.get("approvers") or needs,
                 "next": "add phases with add_phase, items with add_item, then propose each phase"}
 
@@ -1151,6 +1166,14 @@ class BabelrOrgan:
 # -- module singleton ---------------------------------------------------------------
 
 _organ: Optional[BabelrOrgan] = None
+
+
+def _area_of(slug: str) -> Optional[str]:
+    try:
+        from plan_areas import area_of
+        return area_of(slug)
+    except Exception:
+        return None
 
 
 def get_babelr_organ() -> Optional[BabelrOrgan]:

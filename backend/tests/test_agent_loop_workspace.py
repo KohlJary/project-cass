@@ -120,3 +120,28 @@ def test_a_long_file_reads_in_parts_under_the_loops_cap(ws):
     assert got == text and READ_PART_CHARS < MAX_TOOL_RESULT_CHARS
     assert "error" in ws.run("workspace_read", {"path": "long.md", "from_char": len(text) + 1})
     assert ws.run("workspace_read", {"path": "small.md"}) == {"error": "No file small.md in my workspace."}
+
+
+def test_a_write_that_would_wipe_most_of_a_file_needs_replace(ws):
+    # 2026-11-18: she said "append" and a write replaced her 25k agenda with 8k.
+    big = "line of my agenda\n" * 500
+    ws.run("workspace_write", {"path": "AGENDA.md", "content": big}, "s1")
+    refused = ws.run("workspace_write", {"path": "AGENDA.md", "content": "tonight's notes"}, "s2")
+    assert "append: true" in refused["error"] and "replace: true" in refused["error"]
+    assert ws.run("workspace_read", {"path": "AGENDA.md", "from_char": 0}).startswith("line of my agenda")
+    assert "Rewrote" in ws.run("workspace_write", {"path": "AGENDA.md", "content": "short", "replace": True}, "s3")
+
+
+def test_append_adds_to_the_end(ws):
+    ws.run("workspace_write", {"path": "notes.md", "content": "first"}, "s1")
+    out = ws.run("workspace_write", {"path": "notes.md", "content": "second\n", "append": True}, "s2")
+    assert "Added to the end" in out
+    assert (ws.root / "notes.md").read_text() == "first\nsecond\n"
+
+
+def test_the_replaced_version_is_kept_beside_the_workspace(ws):
+    ws.run("workspace_write", {"path": "a/b.md", "content": "v1"}, "s1")
+    ws.run("workspace_write", {"path": "a/b.md", "content": "v2"}, "s2")
+    kept = list((ws.log_path.parent / "workspace_history" / "a__b.md").iterdir())
+    assert [k.read_text() for k in kept] == ["v1"]
+    assert not (ws.root / "workspace_history").exists(), "history isn't in her folder"
