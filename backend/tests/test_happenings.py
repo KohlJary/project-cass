@@ -59,3 +59,17 @@ def test_the_job_submits_a_budgeted_respond_run(tmp_path, monkeypatch, levers):
     assert sent[0][0] == "happenings.respond" and sent[0][1]["budget_class"].value == "triggered"
     with levers(happenings=False, agent_loop=True):
         assert asyncio.run(H.check_happenings(tmp_path)) == 0
+
+
+def test_a_ready_record_wakes_her_to_say_what_she_heard(tmp_path):
+    import json
+    (tmp_path / "listening").mkdir()
+    (tmp_path / "listening" / "ready.jsonl").write_text(
+        json.dumps({"key": "k1", "artist": "Slayer", "album": "Reign in Blood", "title": "Angel of Death",
+                    "id": "x", "at": "2026-11-18T13:50:00", "record": "/r/record.md"}) + "\n"
+        + json.dumps({"key": "k0", "artist": "Old", "title": "News", "at": "2026-11-10T10:00:00"}) + "\n")
+    due = H.due_to_wake(tmp_path, NOW)
+    assert [h["kind"] for h in due] == ["record"], "only the recent one"
+    assert 'Slayer, "Angel of Death" (Reign in Blood)' in H.describe(due)
+    H.mark_woken(due, tmp_path, NOW)
+    assert H.due_to_wake(tmp_path, NOW.replace(hour=15)) == []

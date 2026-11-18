@@ -6,7 +6,9 @@ happen, not at the next slot of a timetable.
 What counts as a happening:
   - on Bluesky, someone mentions her, replies to her, quotes her, or DMs her
     (from her social inbox, with its triage label);
-  - one of her commitments is coming due, within RESPOND_WINDOW, or is overdue.
+  - one of her commitments is coming due, within RESPOND_WINDOW, or is overdue;
+  - a record she asked to listen to is ready (listening.py appends to
+    DATA_DIR/listening/ready.jsonl), so she can read it and say what she heard.
 (Chapter House DMs and mentions already wake her straight into chat.)
 
 Every CHECK_SECONDS a Heartbeat job (lever "happenings") looks for ones she
@@ -31,8 +33,9 @@ logger = logging.getLogger(__name__)
 LEVER = "happenings"
 CHECK_SECONDS = 600
 RESPOND_WINDOW = timedelta(hours=6)
-KINDS = ("mention", "reply", "quote", "dm", "commitment")
-DEFAULT_RULES = {"wake_for": ["mention", "reply", "quote", "dm", "commitment"],
+KINDS = ("mention", "reply", "quote", "dm", "commitment", "record")
+RECORD_DAYS = 2   # a ready record older than this is no longer news
+DEFAULT_RULES = {"wake_for": ["mention", "reply", "quote", "dm", "commitment", "record"],
                  "quiet": ["23:00", "07:00"], "max_per_day": 8, "min_gap_minutes": 30}
 RESPOND_ESTIMATED_COST_USD = 0.08
 
@@ -96,7 +99,7 @@ def set_rules(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, A
 SET_WAKE_RULES_DEF: Dict[str, Any] = {
     "name": "set_wake_rules",
     "description": ("My rules for what may wake me when it happens: which kinds (mention, reply, quote, dm, "
-                    "commitment), quiet hours ([\"23:00\", \"07:00\"], or [] for none), most wakes a day, least "
+                    "commitment, record: a song I asked to hear is ready), quiet hours ([\"23:00\", \"07:00\"], or [] for none), most wakes a day, least "
                     "minutes between wakes. Someone who may be in crisis always wakes me."),
     "input_schema": {"type": "object", "properties": {
         "wake_for": {"type": "array", "items": {"type": "string", "enum": list(KINDS)}},
@@ -139,6 +142,32 @@ def gather(data_dir: Optional[Path] = None, now: Optional[datetime] = None) -> L
                                     + (f" (for {c['for_whom']})" if c.get("for_whom") else "")})
     except Exception as e:
         logger.warning(f"[happenings] couldn't read her commitments: {e}")
+    try:
+        out += _ready_records(data_dir, now)
+    except Exception as e:
+        logger.warning(f"[happenings] couldn't read her ready records: {e}")
+    return out
+
+
+def _ready_records(data_dir: Optional[Path], now: datetime) -> List[Dict[str, Any]]:
+    """Records she asked for that are ready (listening.py's ready.jsonl), recent ones only."""
+    path = _dir(data_dir).parent / "listening" / "ready.jsonl"
+    out = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for line in lines[-200:]:
+        try:
+            r = json.loads(line)
+            at = datetime.fromisoformat(str(r["at"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+        if now - at > timedelta(days=RECORD_DAYS):
+            continue
+        song = f"{r.get('artist') or 'someone'}, \"{r.get('title') or '?'}\"" + (f" ({r['album']})" if r.get("album") else "")
+        out.append({"id": f"record:{r.get('key')}:{r['at']}", "kind": "record", "who": "", "crisis": False,
+                    "what": f"a record I asked to hear is ready: {song}. listen read opens it"})
     return out
 
 
@@ -191,7 +220,7 @@ def mark_woken(happenings: List[Dict[str, Any]], data_dir: Optional[Path] = None
 
 
 def describe(happenings: List[Dict[str, Any]]) -> str:
-    return "\n".join(f"- {h['what']}" + (f" (from @{h['who']})" if h["kind"] != "commitment" and h.get("who") else "")
+    return "\n".join(f"- {h['what']}" + (f" (from @{h['who']})" if h["kind"] not in ("commitment", "record") and h.get("who") else "")
                      for h in happenings)
 
 

@@ -16,7 +16,9 @@ INSTRUCTIONS = """## SOMETHING HAPPENED
 
 Something came in that I wanted to be woken for. It's above, as my focus.
 
-This is a short session to answer it however fits: reply or act now (my social tools, Chapter House, say, my commitments), or decide it can wait and say when I'll come back to it (a commitment with a date, or wake_me). If it's someone who may be in crisis, my crisis protocol comes first, and I'm plain and present.
+This is a short session to answer it however fits. If it's a record I asked to hear, I read it (listen read) and, if I want, tell whoever pointed me to it what I heard.
+
+Otherwise: reply or act now (my social tools, Chapter House, say, my commitments), or decide it can wait and say when I'll come back to it (a commitment with a date, or wake_me). If it's someone who may be in crisis, my crisis protocol comes first, and I'm plain and present.
 
 I can change what wakes me (set_wake_rules): which kinds, quiet hours, how often. When I've handled it, I mark what I answered in my inbox (social_inbox_mark) and end."""
 
