@@ -370,9 +370,21 @@ async def run_loop(
                 # The stored record; DMs nobody agreed to keep leave only a
                 # note that they were read (social/dms.py). She saw them in full.
                 from social.dms import kept_view
+                # Pictures a tool hands her (listening's look): shown to the model as
+                # images, never stored in the step record or counted as text.
+                images = result.pop("_images", None) if isinstance(result, dict) else None
+                if (isinstance(result, list) and result and all(isinstance(b, dict) for b in result)
+                        and any(b.get("type") == "image" for b in result)):
+                    # content blocks (a router tool's pictures): text stays text, images go as images
+                    images = [b["source"] for b in result if b.get("type") == "image" and b.get("source")]
+                    images = [{"media_type": s.get("media_type", "image/png"), "data": s.get("data", "")} for s in images]
+                    result = "\n".join(b.get("text", "") for b in result if b.get("type") == "text")
                 step.tool_results.append({"tool_name": name, "result": kept_view(result)})
                 content = json.dumps(result, default=str) if isinstance(result, dict) else str(result)
-                results.append({"id": call["id"], "name": name, "content": cap_tool_result(content)})
+                entry = {"id": call["id"], "name": name, "content": cap_tool_result(content)}
+                if images:
+                    entry["images"] = images
+                results.append(entry)
             history.append({"role": "tool", "results": results})
             if ended:
                 out.status, out.end_reason = "completed", "I said I was done"

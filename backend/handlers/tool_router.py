@@ -418,6 +418,7 @@ TOOL_REGISTRY = {
     "my_record": "self_account",
     "commitment": "commitments",
     "code_search": "self_account",   # her own code, read-only (code_search.py)
+    "listen": "listening",           # her ears (listening.py, Acousmatic)
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",
@@ -973,6 +974,9 @@ async def route_tool(
         return await executor(tool_name=tool_name, tool_input=tool_input)
 
     elif executor_type == "self_account":
+        return await executor(tool_name=tool_name, tool_input=tool_input)
+
+    elif executor_type == "listening":
         return await executor(tool_name=tool_name, tool_input=tool_input)
 
     elif executor_type == "social":

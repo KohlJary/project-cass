@@ -111,6 +111,7 @@ from handlers.recall import execute_recall_tool
 from letters import execute_letters_tool
 from self_account import execute_self_account_tool
 from commitments import execute_commitment_tool
+from listening import execute_listening_tool
 from handlers.email import execute_email_tool
 from handlers.state_query import execute_state_query_tool
 from handlers.janet import execute_janet_tool
@@ -533,6 +534,7 @@ TOOL_EXECUTORS = {
     "letters": execute_letters_tool,
     "self_account": execute_self_account_tool,
     "commitments": execute_commitment_tool,
+    "listening": execute_listening_tool,
 }
 
 

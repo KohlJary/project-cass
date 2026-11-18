@@ -146,13 +146,19 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("workshop", "work on my projects: each a git history with its vision and state (software, "
                          "long writing, outreach), and run code in software ones, sandboxed",
              ("project",)),
+    # My ears (listening.py; plan "Cass's ears and studio"): records from Kohl's library.
+    ToolPack("listening", "listen to records from Kohl's music library: browse the shelf, listen to a "
+                          "song or an album, read what was heard (form, chords, words, lines, drums, "
+                          "sound), compare an album's songs, and look at spectrograms and the score",
+             ("listen",)),
     ToolPack("session", "end the session when I'm done (with what I'd pick up next), or extend it once",
              ("session_complete", "extend_session")),
 ]}
 
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
-ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self", "commitments"})
+ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self", "commitments",
+                          "listening"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland",
                         "daedalus", "kohl_blog", "workshop", "happenings"})
 

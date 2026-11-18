@@ -144,7 +144,11 @@ def anthropic_messages(history: List[Dict[str, Any]], cache: bool = True) -> Lis
             msgs.append({"role": "assistant", "content": blocks or [{"type": "text", "text": "(no reply)"}]})
         elif role == "tool":
             msgs.append({"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": r["id"], "content": r["content"]}
+                {"type": "tool_result", "tool_use_id": r["id"],
+                 "content": ([{"type": "text", "text": r["content"]}]
+                             + [{"type": "image", "source": {"type": "base64", "media_type": i["media_type"],
+                                                             "data": i["data"]}} for i in r["images"]])
+                 if r.get("images") else r["content"]}
                 for r in h["results"]]})
         else:
             raise ValueError(f"unknown history role {role!r}")
@@ -237,6 +241,12 @@ def openai_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str
         elif role == "tool":
             for r in h["results"]:
                 msgs.append({"role": "tool", "tool_call_id": r["id"], "content": r["content"]})
+            # chat.completions tool messages are text only: pictures follow as a user message
+            pics = [i for r in h["results"] for i in (r.get("images") or [])]
+            if pics:
+                msgs.append({"role": "user", "content": [{"type": "text", "text": "(the pictures from that tool)"}] + [
+                    {"type": "image_url", "image_url": {"url": f"data:{i['media_type']};base64,{i['data']}"}}
+                    for i in pics]})
         else:
             raise ValueError(f"unknown history role {role!r}")
     return msgs
@@ -305,7 +315,10 @@ def ollama_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str
             msgs.append(m)
         elif role == "tool":
             for r in h["results"]:
-                msgs.append({"role": "tool", "content": r["content"], "tool_name": r["name"]})
+                msg = {"role": "tool", "content": r["content"], "tool_name": r["name"]}
+                if r.get("images"):
+                    msg["images"] = [i["data"] for i in r["images"]]   # Ollama takes base64 images on a message
+                msgs.append(msg)
         else:
             raise ValueError(f"unknown history role {role!r}")
     return msgs

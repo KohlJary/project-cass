@@ -350,6 +350,13 @@ LEVER_COVERAGE = {
                 "an opinion, which reaches the self-model marked kohl_influenced. The feed fetch is faked. "
                 "Fast-suite: tests/test_kohl_blog.py.",
     },
+    "listening": {
+        "depth": "gate",
+        "tests": ["tests/smoke/test_listening.py::test_listen_reads_a_record_and_shows_a_picture"],
+        "note": "A session reaches listen through find_tools/use_tool, reads a record and gets a picture as an "
+                "image block (Acousmatic itself faked). Listens run in the background only when she asks. "
+                "Fast-suite: tests/test_listening.py.",
+    },
     "ask_daedalus": {
         "depth": "gate",
         "tests": [f"{AGENT_LOOP}::test_change_proposals_session_asks_daedalus",

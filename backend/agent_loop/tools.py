@@ -119,6 +119,8 @@ def router_catalog() -> Dict[str, Dict[str, Any]]:
             continue  # Bluesky/Tumblr: only once a platform is switched on
         if attr == "LETTER_TOOLS" and not letters_on:
             continue  # letters to her future self: only once switched on
+        if attr == "LISTENING_TOOLS" and not is_enabled("listening"):
+            continue  # her ears: only once switched on
         value = getattr(agent_client, attr)
         if isinstance(value, list):
             groups.append(value)
