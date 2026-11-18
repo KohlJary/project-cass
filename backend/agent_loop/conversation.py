@@ -86,6 +86,35 @@ class LoopChatResult:
 _GESTURE = re.compile(r"<(?:gesture|emote):\w+(?::\d*\.?\d+)?>")
 
 
+_THINK_OPEN = re.compile(r"<gesture:think(?::\d*\.?\d+)?>")
+
+
+def mend_think(text: str) -> str:
+    """Close a <gesture:think> block she closed with </thinking> (2026-11-18: her
+    planning then showed as part of the reply, since nothing found the block's end).
+    Only a </thinking> that follows a still-open <gesture:think> is changed."""
+    if not text or "</thinking>" not in text:
+        return text
+    out, pos, open_ = [], 0, 0
+    for m in re.finditer(r"<gesture:think(?::\d*\.?\d+)?>|</gesture:think>|</thinking>", text):
+        out.append(text[pos:m.start()])
+        tag = m.group(0)
+        if tag.startswith("<gesture:think"):
+            open_ += 1
+            out.append(tag)
+        elif tag == "</gesture:think>":
+            open_ = max(0, open_ - 1)
+            out.append(tag)
+        elif open_:
+            open_ -= 1
+            out.append("</gesture:think>")
+        else:
+            out.append(tag)
+        pos = m.end()
+    out.append(text[pos:])
+    return "".join(out)
+
+
 def _gestures(text: str, agent_client) -> tuple:
     """(clean text, gestures) the way the chat clients make them."""
     if agent_client is not None and hasattr(agent_client, "_parse_gestures"):
@@ -262,8 +291,8 @@ async def run_conversation(
     if outcome.status == "error":
         raise RuntimeError(f"conversation turn on the loop failed: {outcome.error}")
 
-    raw = "\n".join(s.text for s in outcome.steps if s.text)
-    last = next((s.text for s in reversed(outcome.steps) if s.text), "")
+    raw = "\n".join(mend_think(s.text) for s in outcome.steps if s.text)
+    last = mend_think(next((s.text for s in reversed(outcome.steps) if s.text), ""))
     book = held_book or HeldBook()
     if outcome.completion is not None:
         # She held it, or chose not to reply: the person sees her one line.

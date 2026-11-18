@@ -152,3 +152,15 @@ def test_image_turns_are_no_longer_kept_off_the_loop():
     src = inspect.getsource(chat_turn)
     assert "on_loop = on_the_loop(chan)\n" in src
     assert "image=image, image_media_type=image_media_type," in src
+
+
+def test_a_think_block_she_closes_with_thinking_is_mended():
+    """2026-11-18: she opened <gesture:think> and closed </thinking>; her planning
+    then showed as part of the reply."""
+    from agent_loop.conversation import mend_think
+    got = mend_think("<gesture:think>\nplanning it\n</thinking>\n\nThe answer.")
+    assert got == "<gesture:think>\nplanning it\n</gesture:think>\n\nThe answer."
+    ok = "<gesture:think>a</gesture:think> b"
+    assert mend_think(ok) == ok
+    assert mend_think("no block </thinking> here") == "no block </thinking> here", "a stray close alone is left"
+    assert mend_think("<gesture:think:0.5>x</thinking>y") == "<gesture:think:0.5>x</gesture:think>y"
