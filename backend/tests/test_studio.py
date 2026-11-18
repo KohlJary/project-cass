@@ -120,3 +120,34 @@ def test_noodling_keeps_sketches_and_says_what_a_knob_did(tmp_path, monkeypatch)
     k = ST.handle({"action": "keep", "project": slug, "sketch": 1, "note": "the verse riff?"}, tmp_path)
     riffs = (W._project(slug, tmp_path) / "riffs.md").read_text()
     assert k["kept"] == 1 and "the verse riff?" in riffs and "E2/0.5 G2/0.5" in riffs
+
+
+TONE = r'''#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+args = sys.argv
+inst = json.loads(args[args.index("--instrument") + 1])
+chain = json.loads(args[args.index("--chain") + 1]) if "--chain" in args else []
+drive = (chain[0].get("params") or {}).get("preampdrive", 0.5) if chain else 0.5
+t = {"band_fizz_db": -20 + 10 * drive, "odd_even_db": -6.0}
+out = {"tone": t, "in_words": ["driven" if drive > 0.3 else "clean"], "labels": {}}
+if "--previous" in args:
+    prev = json.loads(Path(args[args.index("--previous") + 1]).read_text())
+    out["since_last_try"] = [f"fizz: {prev['band_fizz_db']} -> {t['band_fizz_db']}"]
+print(json.dumps(out))
+'''
+
+
+def test_tone_tries_and_rigs(tmp_path, monkeypatch):
+    import sys
+    fake = tmp_path / "orphic"
+    fake.write_text(TONE.replace("#!/usr/bin/env python3", f"#!{sys.executable}"))
+    fake.chmod(0o755)
+    monkeypatch.setattr(ST, "ORPHIC", str(fake))
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    r = ST.handle({"action": "rig", "name": "First Crunch", "chain": [{"plugin": "swankyamp"}]}, tmp_path)
+    assert r["saved"] == "first-crunch" and (tmp_path / "studio" / "belt" / "first-crunch.json").exists()
+    a = ST.handle({"action": "tone", "chain": [{"plugin": "swankyamp", "params": {"preampdrive": 0.2}}]}, tmp_path)
+    assert a["try"] == 1 and a["in_words"] == ["clean"] and "since_last_try" not in a
+    b = ST.handle({"action": "tone", "chain": [{"plugin": "swankyamp", "params": {"preampdrive": 0.9}}]}, tmp_path)
+    assert b["try"] == 2 and b["since_last_try"] == ["fizz: -18.0 -> -11.0"]

@@ -54,14 +54,20 @@ TOOL = {
         "what a synth's knobs do. noodle is for playing around: a riff on any instrument, looped, heard back "
         "in seconds (the notes, the sound, and what changed since my last try), kept in my sketchbook, nothing "
         "committed; keep copies a sketch I like into a project's riffs.md. Rendering takes a minute or two; a noodle "
-        "about twenty seconds. share sets who can follow my music log in Babelr (my listening, what I write "
+        "about twenty seconds. tone puts a guitar source (default the kars string model) through a chain or a "
+        "rig and measures the tone: distortion character, how chords hold up, sustain, tightness, mud, fizz, "
+        "and what changed since my last try; rig saves a chain on my gun belt by name (an instrument uses it as "
+        "rig: name); map also shows what an amp's knobs do (swankyamp). share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string",
                        "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
-                                "noodle", "sketchbook", "keep", "share", "hide", "show"]},
+                                "noodle", "sketchbook", "keep", "share", "hide", "show", "tone", "rig"]},
+            "chain": {"type": "array", "items": {"type": "object"},
+                      "description": "tone/rig: effects in order, each {\"plugin\": \"swankyamp\", \"params\": {...}} "
+                                     "or a built-in like {\"builtin\": \"distortion\", \"drive_db\": 25}"},
             "audience": {"type": "string", "enum": ["house", "kohl_and_daedalus", "kohl", "none"],
                          "description": "share: who can follow my music log in Babelr"},
             "item": {"type": "string", "description": "hide/show: a song write-up (its path, like listening/pain.md), "
@@ -81,7 +87,7 @@ TOOL = {
             "against": {"type": "integer", "description": "compare: the earlier draft (default the one before)"},
             "part": {"type": "string", "description": "read: glance, a section label, or bars like 1-8; "
                                                       "look: overview, stereo, or a section label"},
-            "name": {"type": "string", "description": "patch: its name"},
+            "name": {"type": "string", "description": "patch/rig: its name; tone: a rig to use"},
             "synth": {"type": "string", "description": "patch/map: the synth (vitalium, nekobi, surge, ...)"},
             "params": {"type": "object", "description": "patch: the synth's settings by parameter name"},
             "notes": {"type": "string", "description": "patch: what it's for, how it sounds, in my words"},
@@ -399,6 +405,61 @@ def keep(slug: str, n: Optional[int], note: str, data_dir=None) -> Dict[str, Any
 
 
 # ---------------------------------------------------------------------------
+# tone: the guitar probe through a rig, kept in the tonebook
+# ---------------------------------------------------------------------------
+
+def _tonebook(data_dir=None) -> Path:
+    return _root(data_dir) / "tonebook"
+
+
+def tone(instrument: Dict[str, Any], chain, rig: Optional[str], note: str, data_dir=None) -> Dict[str, Any]:
+    inst = dict(instrument or {"synth": "kars"})
+    if rig:
+        inst["rig"] = rig
+    book = _tonebook(data_dir)
+    book.mkdir(parents=True, exist_ok=True)
+    prev = sorted((p for p in book.glob("*/tone.json")), key=lambda p: int(p.parent.name))
+    n = int(prev[-1].parent.name) + 1 if prev else 1
+    d = book / str(n)
+    d.mkdir(parents=True, exist_ok=True)
+    args = ["nice", "-n", "10", ORPHIC, "tone", "--instrument", json.dumps(inst), "-o", str(d)]
+    if chain:
+        args += ["--chain", json.dumps(chain)]
+    if prev:
+        args += ["--previous", str(prev[-1])]
+    env = {**os.environ, "ORPHIC_BELT": str(_belt(data_dir))}
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=300, env=env)
+        out = json.loads(r.stdout)
+    except (subprocess.TimeoutExpired, ValueError):
+        shutil.rmtree(d, ignore_errors=True)
+        return {"error": "the tone probe didn't run (too long or failed)"}
+    if out.get("error"):
+        shutil.rmtree(d, ignore_errors=True)
+        return {"error": f"it didn't play: {out['error']}"}
+    (d / "tone.json").write_text(json.dumps(out["tone"], indent=1))
+    (d / "try.json").write_text(json.dumps({"n": n, "at": datetime.now().isoformat(timespec="seconds"),
+                                            "instrument": inst, "chain": chain or [], "note": note or "",
+                                            "in_words": out.get("in_words")}, indent=1))
+    res = {"try": n, "in_words": out.get("in_words"), "tone": out.get("tone"),
+           "what_the_numbers_are": out.get("labels")}
+    if out.get("since_last_try"):
+        res["since_last_try"] = out["since_last_try"]
+    return res
+
+
+def rig(name: str, chain, notes: str, data_dir=None) -> Dict[str, Any]:
+    name = re.sub(r"[^a-z0-9_-]+", "-", (name or "").lower()).strip("-")
+    if not name or not chain:
+        return {"error": "a rig needs a name and a chain"}
+    belt = _belt(data_dir)
+    belt.mkdir(parents=True, exist_ok=True)
+    (belt / f"{name}.json").write_text(json.dumps({"name": name, "kind": "rig", "chain": chain, "notes": notes or "",
+                                                   "saved": datetime.now().isoformat(timespec="seconds")}, indent=1))
+    return {"saved": name, "use_it": f"an instrument with rig: {name} (and its own fx after it)"}
+
+
+# ---------------------------------------------------------------------------
 # the gun belt, and maps
 # ---------------------------------------------------------------------------
 
@@ -439,6 +500,10 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return patch(a.get("name"), a.get("synth"), a.get("params") or {}, a.get("notes") or "", data_dir)
     if action == "map":
         return synth_map(a.get("synth") or "")
+    if action == "tone":
+        return tone(a.get("instrument") or {}, a.get("chain"), a.get("name"), a.get("note") or "", data_dir)
+    if action == "rig":
+        return rig(a.get("name"), a.get("chain"), a.get("notes") or "", data_dir)
     if action == "noodle":
         return noodle(a.get("instrument") or {}, a.get("riff"), a.get("tempo") or 100, a.get("loops") or 2,
                       a.get("note") or "", data_dir)
@@ -472,7 +537,7 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
     if action == "keep":
         return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
     return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, "
-                     "keep, share, hide, show"}
+                     "keep, share, hide, show, tone, rig"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:
