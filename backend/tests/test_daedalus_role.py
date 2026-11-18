@@ -84,3 +84,22 @@ def test_routes_that_only_ask_for_a_login_refuse_the_role_too(token):
         with pytest.raises(HTTPException) as e:
             asyncio.run(require_auth(_request(method, path), creds))
         assert e.value.status_code == 403, (method, path)
+
+
+def _conn(method, path, token):
+    from starlette.requests import HTTPConnection
+    full = "/admin" + path
+    return HTTPConnection({"type": "http", "method": method, "path": full, "query_string": b"",
+                           "headers": [(b"authorization", f"Bearer {token}".encode())],
+                           "client": ("203.0.113.5", 4000), "route": SimpleNamespace(path=full),
+                           "endpoint": object()})
+
+
+def test_the_app_wide_guard_lets_the_role_through_only_on_its_routes(token):
+    from route_guard import route_guard
+    asyncio.run(route_guard(_conn("POST", "/scheduler/run-session/{template_id}", token)))
+    asyncio.run(route_guard(_conn("GET", "/features", token)))
+    for method, path in (("POST", "/thymos/reset"), ("GET", "/memory"), ("POST", "/scheduler/pause/{category}")):
+        with pytest.raises(HTTPException) as e:
+            asyncio.run(route_guard(_conn(method, path, token)))
+        assert e.value.status_code == 403, (method, path)

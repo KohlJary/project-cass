@@ -320,6 +320,22 @@ def _is_dangerous(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in DANGEROUS_PREFIXES)
 
 
+def _daedalus_may(conn: HTTPConnection, principal, method: str) -> bool:
+    """Daedalus's narrower role (routes/admin/auth.DAEDALUS_ROUTES; Cass and Kohl,
+    2026-11-17): a token with that role passes the guard for its routes only. The
+    route's own require_admin checks the same list and logs the call."""
+    from auth import ROLE_DAEDALUS
+    if principal is None or ROLE_DAEDALUS not in (principal.roles or ()):
+        return False
+    from routes.admin.auth import DAEDALUS_ROUTES, _log_daedalus
+    route = getattr(conn.scope.get("route"), "path", "") or conn.url.path
+    key = (method.upper(), route[len("/admin"):] if route.startswith("/admin/") else route)
+    if key in DAEDALUS_ROUTES:
+        return True
+    _log_daedalus(conn, key, False)
+    return False
+
+
 async def route_guard(conn: HTTPConnection):
     """App-wide dependency. See module docstring."""
     endpoint = conn.scope.get("endpoint")
@@ -355,7 +371,8 @@ async def route_guard(conn: HTTPConnection):
         _deny(conn, status.HTTP_401_UNAUTHORIZED, "Authentication required")
 
     if level == ADMIN and not principal_is_admin(principal, user_id):
-        _deny(conn, status.HTTP_403_FORBIDDEN, "Admin access required")
+        if not _daedalus_may(conn, principal, method):
+            _deny(conn, status.HTTP_403_FORBIDDEN, "Admin access required")
 
     conn.scope["cass_user_id"] = user_id
     return None
