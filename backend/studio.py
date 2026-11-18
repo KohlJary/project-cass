@@ -1,0 +1,364 @@
+"""
+studio: Cass makes music (plan "Cass's ears and studio", phase 4; Kohl, 2026-11-18).
+
+Her songs live in her workshop projects (workshop.py): a song is a text file she writes
+(song.yaml: tempo, instruments, sections bar by bar, an arrangement). Orphic (~/orphic,
+its own repository and virtualenv) renders it with Kohl's synths, General MIDI, and a
+real TR-808 kit, then Acousmatic listens back.
+
+- render: render the song; if it renders, commit it as a draft with her message (what
+  she changed and why), and keep the draft's audio, stems and listening record
+  (DATA_DIR/studio/<project>/draft-N). Her drafts and their messages are her decision log.
+- read / look: what her ears heard in a draft (as listen does for records).
+- compare: what changed between two drafts, measured (each part's level from her own
+  stems, which are exact; tempo, key, loudness, sections).
+- drafts: the list, with her messages.
+- help: the song format, the synths, the drum kit, her gun belt.
+- patch: put a patch (a synth and its settings) on her gun belt, to call by name.
+- map: a synth's Monochord map (what each knob does), where one exists.
+
+Lever `studio` (off by default). Offered in workshop sessions.
+"""
+from __future__ import annotations
+
+import ast
+import base64
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+LEVER = "studio"
+ORPHIC_HOME = Path(os.environ.get("ORPHIC_HOME", Path.home() / "orphic"))
+ORPHIC = os.environ.get("ORPHIC_BIN", str(ORPHIC_HOME / ".venv" / "bin" / "orphic"))
+RENDER_TIMEOUT = 900
+READ_CHARS = 18_000
+
+TOOL = {
+    "name": "studio",
+    "description": (
+        "My studio: make music in one of my workshop projects. I write a song as song.yaml (help shows the "
+        "format: tempo, instruments, sections bar by bar, an arrangement) with project write, then render: it's "
+        "played with Kohl's synths, General MIDI or a real TR-808 kit, my ears listen back, and if it rendered it's "
+        "committed as a draft with my message (what I changed and why), so my drafts are my decision log. "
+        "read and look show what my ears heard in a draft; compare says what changed between two drafts, "
+        "measured; drafts lists them. patch puts a synth setting on my gun belt to call by name; map shows "
+        "what a synth's knobs do. Rendering takes a minute or two."),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string",
+                       "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map"]},
+            "project": {"type": "string", "description": "the workshop project (its slug)"},
+            "song": {"type": "string", "description": "render: the song file in the project (default song.yaml)"},
+            "message": {"type": "string", "description": "render: what I changed and why, in my words"},
+            "draft": {"type": "integer", "description": "read/look: which draft (default the latest)"},
+            "against": {"type": "integer", "description": "compare: the earlier draft (default the one before)"},
+            "part": {"type": "string", "description": "read: glance, a section label, or bars like 1-8; "
+                                                      "look: overview, stereo, or a section label"},
+            "name": {"type": "string", "description": "patch: its name"},
+            "synth": {"type": "string", "description": "patch/map: the synth (vitalium, nekobi, surge, ...)"},
+            "params": {"type": "object", "description": "patch: the synth's settings by parameter name"},
+            "notes": {"type": "string", "description": "patch: what it's for, how it sounds, in my words"},
+        },
+        "required": ["action"],
+    },
+}
+
+
+def enabled() -> bool:
+    from features import is_enabled
+    return is_enabled(LEVER)
+
+
+def _root(data_dir: Optional[Path] = None) -> Path:
+    if data_dir is None:
+        from config import DATA_DIR
+        data_dir = Path(DATA_DIR)
+    return Path(data_dir) / "studio"
+
+
+def _belt(data_dir=None) -> Path:
+    return _root(data_dir) / "belt"
+
+
+def _drafts_path(slug: str, data_dir=None) -> Path:
+    return _root(data_dir) / slug / "drafts.json"
+
+
+def drafts(slug: str, data_dir=None) -> List[Dict[str, Any]]:
+    try:
+        return json.loads(_drafts_path(slug, data_dir).read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def _draft_dir(slug: str, n: int, data_dir=None) -> Path:
+    return _root(data_dir) / slug / f"draft-{n}"
+
+
+def _pick(slug: str, n: Optional[int], data_dir=None) -> Optional[Dict[str, Any]]:
+    ds = drafts(slug, data_dir)
+    if not ds:
+        return None
+    if n is None:
+        return ds[-1]
+    return next((d for d in ds if d["n"] == int(n)), None)
+
+
+# ---------------------------------------------------------------------------
+# help: the format, the instruments, the gun belt
+# ---------------------------------------------------------------------------
+
+def _song_doc() -> str:
+    try:
+        tree = ast.parse((ORPHIC_HOME / "orphic" / "song.py").read_text())
+        return ast.get_docstring(tree) or ""
+    except Exception:
+        return ""
+
+
+def help_text(data_dir=None) -> Dict[str, Any]:
+    maps = ORPHIC_HOME / "maps"
+    synths = ["vitalium", "nekobi", "surge", "sfizz", "kars"]
+    belt = sorted(p.stem for p in _belt(data_dir).glob("*.json")) if _belt(data_dir).exists() else []
+    return {
+        "song_format": _song_doc(),
+        "synths": {s: ("mapped (studio map)" if (maps / s).exists() or (maps / s.capitalize()).exists()
+                       else "not mapped yet") for s in synths},
+        "general_midi": "gm: a program number 1-128 (1 piano, 5 electric piano, 34 fingered bass, 49 strings, "
+                        "81 square lead, 89 new-age pad...); played by FluidSynth's FluidR3 set",
+        "drum_kit_808": "kick snare clap hat open rim cowbell low_tom mid_tom high_tom cymbal clave maracas; "
+                        "samples: {kick: BD7510} picks tone and decay (BDttdd, positions 00 25 50 75 10)",
+        "my_gun_belt": belt or "empty (studio patch puts one on)",
+    }
+
+
+# ---------------------------------------------------------------------------
+# render: a draft
+# ---------------------------------------------------------------------------
+
+def render(slug: str, song: str, message: str, data_dir=None) -> Dict[str, Any]:
+    import workshop as W
+    if not (message or "").strip():
+        return {"error": "a draft needs a message in my words: what I changed and why"}
+    try:
+        project = W._project(slug, data_dir)
+    except Exception as e:
+        return {"error": f"no project {slug}: {e}"}
+    song_path = (project / (song or "song.yaml")).resolve()
+    if project.resolve() not in song_path.parents or not song_path.exists():
+        return {"error": f"no {song or 'song.yaml'} in {slug}; write it with project write first"}
+    if not Path(ORPHIC).exists():
+        return {"error": "Orphic isn't installed where the vessel expects it"}
+    _root(data_dir).joinpath(slug).mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix="render-", dir=_root(data_dir) / slug))
+    env = {**os.environ, "ORPHIC_BELT": str(_belt(data_dir))}
+    try:
+        r = subprocess.run(["nice", "-n", "10", ORPHIC, "render", str(song_path), "-o", str(tmp), "--listen"],
+                           capture_output=True, text=True, timeout=RENDER_TIMEOUT, env=env)
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"error": f"the render took longer than {RENDER_TIMEOUT // 60} minutes and was stopped"}
+    try:
+        out = json.loads(r.stdout)    # Orphic prints one JSON object: the result, or {"error": ...}
+    except ValueError:
+        out = {"error": (r.stderr or "the render failed")[-600:]}
+    if r.returncode != 0 or out.get("error"):
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"error": f"it didn't render: {out.get('error') or r.stderr[-400:]}",
+                "note": "nothing was committed; fix the song and render again"}
+    c = W.commit(slug, message, data_dir)
+    if c.get("error") and "nothing has changed" not in c["error"]:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"error": c["error"]}
+    head = W._git(project, "rev-parse", "--short", "HEAD").strip()
+    ds = drafts(slug, data_dir)
+    n = (ds[-1]["n"] + 1) if ds else 1
+    final = _draft_dir(slug, n, data_dir)
+    tmp.rename(final)
+    entry = {"n": n, "commit": head, "at": datetime.now().isoformat(timespec="seconds"),
+             "song": song or "song.yaml", "message": message.strip(),
+             "same_song_as_before": bool(c.get("error"))}
+    ds.append(entry)
+    _drafts_path(slug, data_dir).write_text(json.dumps(ds, indent=1))
+    glance = ""
+    rec = final / "listening" / "record.md"
+    if rec.exists():
+        from listening import read_part
+        glance = read_part(rec.read_text(), "glance")
+    return {"draft": n, "commit": head, "title": out.get("title"), "length_s": out.get("length_s"),
+            "parts": out.get("tracks"), "would_have_clipped": out.get("would_have_clipped"),
+            "what_my_ears_heard": glance[:6000],
+            "note": "studio read / look for more; compare against an earlier draft"}
+
+
+# ---------------------------------------------------------------------------
+# read, look, compare
+# ---------------------------------------------------------------------------
+
+def read(slug: str, n: Optional[int], part: Optional[str], data_dir=None) -> Dict[str, Any]:
+    d = _pick(slug, n, data_dir)
+    if not d:
+        return {"error": "no such draft; render one first"}
+    rec = _draft_dir(slug, d["n"], data_dir) / "listening" / "record.md"
+    if not rec.exists():
+        return {"error": "that draft has no listening record"}
+    from listening import read_part
+    text = read_part(rec.read_text(), part)
+    if len(text) > READ_CHARS:
+        text = text[:READ_CHARS] + "\n[goes on; read a part: glance, a section label, or bars like 1-8]"
+    return {"draft": d["n"], "message": d["message"], "record": text}
+
+
+def look(slug: str, n: Optional[int], part: Optional[str], data_dir=None) -> Dict[str, Any]:
+    d = _pick(slug, n, data_dir)
+    if not d:
+        return {"error": "no such draft; render one first"}
+    from listening import MAX_IMAGE_BYTES, _image_path
+    img = _image_path(_draft_dir(slug, d["n"], data_dir) / "listening", part)
+    if not img or not img.exists():
+        return {"error": "no such picture; try overview, stereo, or a section label"}
+    data = img.read_bytes()
+    if len(data) > MAX_IMAGE_BYTES:
+        return {"error": "that picture is too big to show"}
+    return {"draft": d["n"], "picture": img.name,
+            "_images": [{"media_type": "image/png", "data": base64.b64encode(data).decode()}]}
+
+
+def _stem_levels(dd: Path) -> Dict[str, float]:
+    import numpy as np
+    import soundfile as sf
+    out = {}
+    for p in sorted((dd / "stems").glob("*.wav")):
+        y, _ = sf.read(p, always_2d=True)
+        rms = float(np.sqrt(np.mean(y ** 2)))
+        out[p.stem] = round(20 * np.log10(rms + 1e-12), 1)
+    return out
+
+
+def compare(slug: str, n: Optional[int], against: Optional[int], data_dir=None) -> Dict[str, Any]:
+    ds = drafts(slug, data_dir)
+    if len(ds) < 2:
+        return {"error": "there's only one draft so far"}
+    b = _pick(slug, n, data_dir) or ds[-1]
+    a = _pick(slug, against, data_dir) if against is not None else next(
+        (x for x in reversed(ds) if x["n"] < b["n"]), None)
+    if not a:
+        return {"error": "no earlier draft to compare with"}
+    da, db = _draft_dir(slug, a["n"], data_dir), _draft_dir(slug, b["n"], data_dir)
+    lines = []
+    la, lb = _stem_levels(da), _stem_levels(db)
+    for part in sorted(set(la) | set(lb)):
+        if part not in la:
+            lines.append(f"{part}: new in draft {b['n']}")
+        elif part not in lb:
+            lines.append(f"{part}: gone in draft {b['n']}")
+        elif abs(lb[part] - la[part]) >= 1.0:
+            lines.append(f"{part}: {lb[part] - la[part]:+.1f} dB")
+    try:
+        ra = json.loads((da / "listening" / "record.json").read_text())
+        rb = json.loads((db / "listening" / "record.json").read_text())
+        if abs(ra["rhythm"]["tempo"] - rb["rhythm"]["tempo"]) >= 1:
+            lines.append(f"tempo heard: {ra['rhythm']['tempo']} -> {rb['rhythm']['tempo']} BPM")
+        if ra["harmony"]["key"]["name"] != rb["harmony"]["key"]["name"]:
+            lines.append(f"key heard: {ra['harmony']['key']['name']} -> {rb['harmony']['key']['name']}")
+        la_, lb_ = ra["loudness"]["integrated_lufs"], rb["loudness"]["integrated_lufs"]
+        if abs(la_ - lb_) >= 1:
+            lines.append(f"loudness: {la_} -> {lb_} LUFS")
+        fa = " ".join(s["label"] for s in ra["form"]["sections"])
+        fb = " ".join(s["label"] for s in rb["form"]["sections"])
+        if fa != fb:
+            lines.append(f"form heard: {fa} -> {fb}")
+        ba, bb = [s.get("sound") or {} for s in (ra["form"]["sections"][0], rb["form"]["sections"][0])]
+        if ba.get("centroid_hz") and bb.get("centroid_hz"):
+            r = bb["centroid_hz"] / ba["centroid_hz"]
+            if r > 1.2 or r < 0.83:
+                lines.append(f"first section {'brighter' if r > 1 else 'darker'} ({ba['centroid_hz']} -> {bb['centroid_hz']} Hz)")
+    except (OSError, ValueError, KeyError, IndexError) as e:
+        lines.append(f"(couldn't compare the listening records: {e})")
+    return {"from": {"draft": a["n"], "message": a["message"]}, "to": {"draft": b["n"], "message": b["message"]},
+            "changes": lines or ["nothing measurable changed"],
+            "note": "each part's level is from my own stems (exact); the rest is what my ears heard"}
+
+
+# ---------------------------------------------------------------------------
+# the gun belt, and maps
+# ---------------------------------------------------------------------------
+
+def patch(name: str, synth: str, params: Dict[str, Any], notes: str, data_dir=None) -> Dict[str, Any]:
+    name = re.sub(r"[^a-z0-9_-]+", "-", (name or "").lower()).strip("-")
+    if not name or not synth:
+        return {"error": "a patch needs a name and a synth"}
+    belt = _belt(data_dir)
+    belt.mkdir(parents=True, exist_ok=True)
+    p = belt / f"{name}.json"
+    p.write_text(json.dumps({"name": name, "synth": synth, "params": params or {}, "notes": notes or "",
+                             "saved": datetime.now().isoformat(timespec="seconds")}, indent=1))
+    return {"saved": name, "use_it": f"an instrument with patch: {name}"}
+
+
+def synth_map(synth: str) -> Dict[str, Any]:
+    maps = ORPHIC_HOME / "maps"
+    for cand in (synth, synth.lower(), synth.capitalize(), synth.title()):
+        p = maps / cand / "map.md"
+        if p.exists():
+            text = p.read_text()
+            return {"synth": synth, "map": text[:READ_CHARS] + ("\n[cut]" if len(text) > READ_CHARS else "")}
+    return {"error": f"no map for {synth} yet"}
+
+
+# ---------------------------------------------------------------------------
+# the tool
+# ---------------------------------------------------------------------------
+
+def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
+    if not enabled():
+        return {"error": "my studio isn't switched on right now"}
+    action = (a.get("action") or "").strip()
+    slug = (a.get("project") or "").strip()
+    if action == "help":
+        return help_text(data_dir)
+    if action == "patch":
+        return patch(a.get("name"), a.get("synth"), a.get("params") or {}, a.get("notes") or "", data_dir)
+    if action == "map":
+        return synth_map(a.get("synth") or "")
+    if not slug:
+        return {"error": f"{action} needs a project (its slug)"}
+    if action == "render":
+        return render(slug, a.get("song") or "song.yaml", a.get("message") or "", data_dir)
+    if action == "drafts":
+        return {"project": slug, "drafts": drafts(slug, data_dir)}
+    if action == "read":
+        return read(slug, a.get("draft"), a.get("part"), data_dir)
+    if action == "look":
+        return look(slug, a.get("draft"), a.get("part"), data_dir)
+    if action == "compare":
+        return compare(slug, a.get("draft"), a.get("against"), data_dir)
+    return {"error": "action is one of help, render, drafts, read, look, compare, patch, map"}
+
+
+def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """The studio for a workshop session, by its lever."""
+    if not enabled():
+        return None
+    import asyncio
+
+    async def run(a):
+        a = dict(a or {})
+        if default_project and not a.get("project"):
+            a["project"] = default_project
+        try:
+            return await asyncio.to_thread(handle, a)
+        except Exception as e:
+            logger.warning(f"[studio] {e}", exc_info=True)
+            return {"error": f"studio failed: {type(e).__name__}: {e}"}
+    return {"studio": (TOOL, run)}

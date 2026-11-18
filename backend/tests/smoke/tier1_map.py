@@ -350,6 +350,12 @@ LEVER_COVERAGE = {
                 "an opinion, which reaches the self-model marked kohl_influenced. The feed fetch is faked. "
                 "Fast-suite: tests/test_kohl_blog.py.",
     },
+    "studio": {
+        "depth": "gate",
+        "tests": ["tests/smoke/test_studio.py::test_workshop_session_renders_a_draft"],
+        "note": "A workshop session with the lever on: studio help, then a render (Orphic faked) committed as a "
+                "draft with her message. Nothing starts on its own. Fast-suite: tests/test_studio.py.",
+    },
     "listening": {
         "depth": "gate",
         "tests": ["tests/smoke/test_listening.py::test_listen_reads_a_record_and_shows_a_picture"],
@@ -360,7 +366,8 @@ LEVER_COVERAGE = {
     "ask_daedalus": {
         "depth": "gate",
         "tests": [f"{AGENT_LOOP}::test_change_proposals_session_asks_daedalus",
-                  f"{AGENT_LOOP}::test_new_capabilities_session_carries_her_focus"],
+                  f"{AGENT_LOOP}::test_new_capabilities_session_carries_her_focus",
+                  "tests/smoke/test_studio.py::test_workshop_session_offers_daedalus_in_the_project"],
         "note": "A change-proposals session through the registry with the lever on; Claude Code "
                 "itself is faked. Fast-suite: tests/test_daedalus_bridge.py (fence, snapshot, cap).",
     },

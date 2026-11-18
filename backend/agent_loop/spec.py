@@ -145,7 +145,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     # Her workshop (workshop_turn.py; Kohl, 2026-11-18): her projects, each kept apart.
     ToolPack("workshop", "work on my projects: each a git history with its vision and state (software, "
                          "long writing, outreach), and run code in software ones, sandboxed",
-             ("project",)),
+             ("project", "work_with_daedalus", "studio")),   # the last two only when their levers put them in local_tools
     # My ears (listening.py; plan "Cass's ears and studio"): records from Kohl's library.
     ToolPack("listening", "listen to records from Kohl's music library: browse the shelf, listen to a "
                           "song or an album, read what was heard (form, chords, words, lines, drums, "

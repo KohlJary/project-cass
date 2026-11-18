@@ -48,6 +48,11 @@ DAEDALUS_LINE = ("\n\nI can work with Daedalus inside a project (work_with_daeda
                  "leaves what he changed uncommitted, so I look it over and commit it myself.")
 
 
+STUDIO_LINE = ("\n\nMy studio (studio) is here for music: I write a song as song.yaml in a project (studio help "
+               "shows the format), render it to hear it, and each render is committed as a draft with my message "
+               "about what I changed and why. My drafts are my record of how a song came to be.")
+
+
 def project_block(focus: Optional[str], data_dir=None) -> str:
     """The project her focus names, opened in front of her (or her list, if none does)."""
     projects = W.list_projects(data_dir)
@@ -86,6 +91,14 @@ async def run_workshop_turn(runner, *, duration_minutes: int = 30, max_turns: in
             extra = DAEDALUS_LINE
     except Exception as e:
         logger.warning(f"[workshop] couldn't offer Daedalus: {e}")
+    try:
+        from studio import studio_tools
+        st = studio_tools(default_project=focused_project(focus))
+        if st:
+            local.update(st)
+            extra += STUDIO_LINE
+    except Exception as e:
+        logger.warning(f"[workshop] couldn't offer the studio: {e}")
     return await run_session_turn(
         runner, session_type=TEMPLATE_ID, additions=INSTRUCTIONS + extra + opened,
         local_tools=local,

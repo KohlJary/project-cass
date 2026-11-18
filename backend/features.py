@@ -235,6 +235,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("kohl_blog", "Kohl's blog on her day menu (kohl_blog.py, kohl_blog_turn.py): a session where she "
            "reads his Substack and keeps what she takes from it in her self-model, marked Kohl-influenced",
            LLM, default=False, where="scheduling.templates kohl_blog available"),
+    _lever("studio", "Her studio: songs as text files in her workshop projects, rendered by Orphic (its own "
+           "repo and virtualenv) with Kohl's synths, General MIDI and a TR-808 kit, heard back by Acousmatic, "
+           "each draft committed with her message (studio.py)",
+           default=False, where="studio.handle"),
     _lever("listening", "Her ears: the listen tool runs Acousmatic (its own repo and virtualenv) on Kohl's "
            "music library in the background, keeps each listening record, and lets her read them and look "
            "at their pictures (listening.py)",
