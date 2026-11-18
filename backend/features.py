@@ -213,6 +213,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("dream_day_residue", "Her dreams are seeded with what happened in her last day (from My life "
            "lately) and one unbidden old memory, not only her growth edges and questions",
            default=False, where="dreaming/dream_runner.generate_nightly_dream"),
+    _lever("kohl_blog", "Kohl's blog on her day menu (kohl_blog.py, kohl_blog_turn.py): a session where she "
+           "reads his Substack and keeps what she takes from it in her self-model, marked Kohl-influenced",
+           LLM, default=False, where="scheduling.templates kohl_blog available"),
     _lever("ask_daedalus", "In her long-term planning and change-proposal sessions she can question a "
            "read-only Claude Code instance (Daedalus) about her code: a snapshot of the tracked files, "
            "no data, no writes, a daily cap; each talk kept in her workspace (daedalus_bridge.py)",

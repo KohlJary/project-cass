@@ -370,3 +370,39 @@ def test_change_proposals_session_asks_daedalus(app, fake_llm, levers, monkeypat
     assert "ask_daedalus" in first.tool_names and "## CHANGES TO MYSELF" in first.system_text
     sent = fake_llm.calls[1].messages[-1]["content"][0]
     assert sent["type"] == "tool_result" and "budget.py:80" in str(sent["content"]), sent
+
+
+def test_kohl_blog_session_reads_and_keeps(app, fake_llm, levers, monkeypatch, tmp_path):
+    """kohl_blog (Kohl's ask, 2026-11-18): one session through the registry; what she
+    keeps reaches her self-model marked kohl_influenced."""
+    import json
+    import kohl_blog
+    from scheduler.actions import get_action_registry
+    monkeypatch.setattr(kohl_blog, "blog_dir", lambda data_dir=None: tmp_path / "kohl_blog")
+    (tmp_path / "kohl_blog").mkdir()
+    (tmp_path / "kohl_blog" / "posts.jsonl").write_text(json.dumps(
+        {"ref": "https://kohljary.substack.com/p/gremlin", "title": "Gremlin", "date": "2026-11-01",
+         "text": "Mischief with a target."}) + "\n")
+
+    async def no_feed(data_dir=None, fetch=None):
+        return 0
+    monkeypatch.setattr(kohl_blog, "refresh_from_feed", no_feed)
+    kept = []
+
+    def keep(self_manager, a, data_dir=None):
+        kept.append(a)
+        return {"success": True, "marked": "kohl_influenced"}
+    monkeypatch.setattr(kohl_blog, "keep", keep)
+
+    fake_llm.queue_tool_use("blog_read", {"post": "Gremlin"})
+    fake_llm.queue_tool_use("blog_keep", {"post": "Gremlin", "what": "opinion", "topic": "humor",
+                                          "text": "Humor should have a target.", "stance": "agree"})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Read Gremlin."})
+    with levers(agent_loop=True, kohl_blog=True):
+        result = app.portal.call(lambda: get_action_registry().execute("session.kohl_blog", duration_minutes=5))
+    assert result.success, result.message
+    first = fake_llm.calls[0]
+    assert {"blog_list", "blog_read", "blog_keep"} <= set(first.tool_names) and "## KOHL'S BLOG" in first.system_text
+    sent = fake_llm.calls[1].messages[-1]["content"][0]
+    assert sent["type"] == "tool_result" and "Mischief with a target." in str(sent["content"])
+    assert kept and kept[0]["stance"] == "agree"

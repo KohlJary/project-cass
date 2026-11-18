@@ -181,6 +181,18 @@
       "requires_idle": false,
       "runner_key": "change_proposals"
     },
+    "session.kohl_blog": {
+      "id": "session.kohl_blog",
+      "name": "Kohl's Blog",
+      "description": "Her session reading Kohl's Substack; what she keeps reaches her self-model marked Kohl-influenced; on the agent loop",
+      "category": "research",
+      "handler": "session_handlers.kohl_blog_action",
+      "estimated_cost_usd": 0.20,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "kohl_blog"
+    },
     "session.wonderland": {
       "id": "session.wonderland",
       "name": "Wonderland",

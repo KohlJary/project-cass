@@ -28,7 +28,8 @@ KINDS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
                ("reflection_block", "synthesis_block", "meta_reflection", "growth_edge_work",
                 "long_term_planning", "wonderland_reflection", "change_proposals")),
     "learning": ("learning: research, knowledge, curiosity, the world's news",
-                 ("research_block", "knowledge_building", "curiosity_exploration", "world_check")),
+                 ("research_block", "knowledge_building", "curiosity_exploration", "world_check",
+                  "kohl_blog")),
     "making": ("making: writing, painting, music, art study, creative work, my homepage",
                ("creative_output", "writing_session", "painting", "art_study", "music", "homepage")),
     "out": ("out in the world: Bluesky, Wonderland",
@@ -46,7 +47,7 @@ SHAPE_FILE = "shape.json"
 SESSION_KINDS = {
     "reflection": "inward", "synthesis": "inward", "meta_reflection": "inward",
     "growth_edge": "inward", "long_term_planning": "inward", "change_proposals": "inward",
-    "research": "learning", "knowledge_building": "learning", "curiosity": "learning",
+    "research": "learning", "kohl_blog": "learning", "knowledge_building": "learning", "curiosity": "learning",
     "world_state": "learning",
     "creative": "making", "writing": "making", "homepage": "making",
     "social": "out", "wonderland": "out",

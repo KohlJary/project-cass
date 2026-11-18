@@ -313,6 +313,13 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Off by default; dream seeds only. Fast-suite: tests/test_entropy.py.",
     },
+    "kohl_blog": {
+        "depth": "gate",
+        "tests": [f"{AGENT_LOOP}::test_kohl_blog_session_reads_and_keeps"],
+        "note": "One Kohl's-blog session through the registry with the fake LLM: she reads a post and keeps "
+                "an opinion, which reaches the self-model marked kohl_influenced. The feed fetch is faked. "
+                "Fast-suite: tests/test_kohl_blog.py.",
+    },
     "ask_daedalus": {
         "depth": "gate",
         "tests": [f"{AGENT_LOOP}::test_change_proposals_session_asks_daedalus"],

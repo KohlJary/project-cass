@@ -302,6 +302,19 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _agent_loop_on(),
     ),
 
+    # Kohl's blog (Kohl's ask, 2026-11-18): she reads his Substack when she
+    # chooses, and keeps what she takes from it, marked as his (kohl_blog.py).
+    "kohl_blog": WorkUnitTemplate(
+        id="kohl_blog",
+        name="Kohl's Blog",
+        description="Read Kohl's writing on his Substack, at my own pace, and keep what I take from it, or argue with it.",
+        action_sequence=["session.kohl_blog"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.20,
+        category="research",
+        available=lambda: _agent_loop_on() and _kohl_blog_on(),
+    ),
+
     # Changes to herself, grounded in her code (plan "Cass talks with Daedalus",
     # phase 2): she reads how she works, asks Daedalus, and files asks. On the
     # loop, and only while she can ask Daedalus (lever ask_daedalus).
@@ -444,6 +457,14 @@ def get_templates_by_category(category: str) -> List[WorkUnitTemplate]:
 def list_templates() -> List[Dict[str, Any]]:
     """List all available templates."""
     return [t.to_dict() for t in WORK_TEMPLATES.values()]
+
+
+def _kohl_blog_on() -> bool:
+    try:
+        from kohl_blog_turn import available
+        return available()
+    except Exception:
+        return False
 
 
 def _daedalus_on() -> bool:

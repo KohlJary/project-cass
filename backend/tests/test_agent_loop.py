@@ -429,7 +429,7 @@ def _run_action(activity, managers):
 # Activities that only exist on the loop (her day plan, her homepage, her
 # social sessions, her Wonderland visits) have no legacy path to compare against.
 LOOP_ONLY_ACTIVITIES = {"day_planning", "homepage", "social", "wonderland", "long_term_planning",
-                        "change_proposals"}
+                        "change_proposals", "kohl_blog"}
 
 
 @pytest.mark.parametrize("activity", sorted(set(ACTIVITY_PACKS) - LOOP_ONLY_ACTIVITIES))

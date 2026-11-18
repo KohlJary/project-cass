@@ -299,6 +299,35 @@ async def long_term_planning_action(context: Dict[str, Any]) -> ActionResult:
                               "summary": result.summary})
 
 
+async def kohl_blog_action(context: Dict[str, Any]) -> ActionResult:
+    """Her session reading Kohl's blog (kohl_blog_turn.py). On the agent loop only."""
+    if not is_enabled("agent_loop"):
+        return ActionResult(success=False, message="Kohl's blog runs on the agent loop, which is off")
+    if not is_enabled("kohl_blog"):
+        return ActionResult(success=False, message="Kohl's blog (lever kohl_blog) is off")
+    managers = context.get("managers", {})
+    runner = managers.get("session_runner")
+    if not runner:
+        return ActionResult(success=False, message="GenericSessionRunner not available in managers")
+    runner.set_managers(managers)
+    runner.register_tool_handlers(get_default_handlers())
+    try:
+        from kohl_blog_turn import run_kohl_blog_turn
+        result = await run_kohl_blog_turn(
+            runner, duration_minutes=context.get("duration_minutes", 30),
+            max_turns=context.get("max_turns", 16), focus=context.get("focus"),
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "schedule")
+    except Exception as e:
+        logger.error(f"Kohl's blog session error: {e}", exc_info=True)
+        return ActionResult(success=False, message=f"Session error: {e}")
+    if result.status == "error":
+        return ActionResult(success=False, message=f"Kohl's blog session failed: {result.error}",
+                            data={"status": result.status, "error": result.error})
+    return ActionResult(success=True, message="Kohl's blog session complete", cost_usd=result.estimated_cost_usd,
+                        data={"session_id": result.session_id, "status": result.status,
+                              "summary": result.summary})
+
+
 async def change_proposals_action(context: Dict[str, Any]) -> ActionResult:
     """Her change proposals: how she works, questions to Daedalus, asks in Plans
     (change_proposal_turn.py). On the agent loop only."""
