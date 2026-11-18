@@ -51,3 +51,31 @@ def test_a_session_carries_lately_with_her_primary_partner(daemon_id, test_db):
     assert "**Lately with Kohl**" in session and "talked through February" in session
     chat = build_self_context(daemon_id, user_id="u-k")  # chat has its own timeline section
     assert "Lately with Kohl" not in chat
+
+
+def test_a_session_carries_where_they_talked_on_babelr(daemon_id, test_db, tmp_path, monkeypatch):
+    """Kohl, 2026-11-18: they talked on Babelr; her sessions only carried the main
+    thread, so she was still waiting for an answer she'd had."""
+    import json
+    import self_context as SC
+    from conversations import ConversationManager
+    from database import get_db
+    with get_db() as conn:
+        conn.execute("INSERT INTO users (id, display_name, is_admin, relationship, created_at, updated_at) "
+                     "VALUES ('u-k', 'Kohl', 1, 'primary_partner', 'now', 'now')")
+    links = tmp_path / "links.json"
+    links.write_text(json.dumps({"kohl": "u-k"}))
+    monkeypatch.setattr(SC, "_partner_babelr_names", lambda p: ["kohl"] if p == "u-k" else [])
+    cm = ConversationManager()
+    main = cm.get_or_create_continuous("u-k")
+    cm.update_working_summary(main.id, "Old news about February.")
+    other = cm.create_conversation(title="Babelr: #general")
+    cm.add_message(other.id, "user", "[Babelr #general] @robokohl: unrelated")
+    dm = cm.create_conversation(title="Babelr: DM with @kohl")
+    cm.add_message(dm.id, "user", "[Babelr DM] @kohl: I read your message about burning. The engagement was a year ago.")
+    cm.add_message(dm.id, "assistant", "Thank you for answering it.")
+    text = SC.build_self_context(daemon_id)
+    assert "*Babelr DM*" in text and "I read your message about burning" in text
+    assert "- me: Thank you for answering it." in text
+    assert "unrelated" not in text, "a channel he hasn't written in isn't theirs"
+    assert "Old news about February." in text, "the main thread still comes along"

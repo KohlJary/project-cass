@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from database import get_db
 from lately import build_lately
@@ -209,7 +209,7 @@ def build_self_context(
     if pins:
         head.append("**Things I know now**\n" + "\n".join(pins))
     if partner:
-        head.append(f"**Lately with {partner[0]}** (our main thread, as I've summarized it)\n{partner[1]}")
+        head.append(f"**Lately with {partner[0]}** (where we've talked most recently, as I've summarized it)\n{partner[1]}")
     if gap:
         head.append("**Since we last spoke**\n" + "\n".join(gap))
     rest = "\n\n".join(head + (["**My own threads**\n" + "\n".join(threads)] if threads else []))
@@ -236,26 +236,94 @@ def _safe_text(part: Callable[[], str], name: str) -> str:
         return ""
 
 
-PARTNER_CHARS = 1500
+PARTNER_CHARS = 2500
+PARTNER_THREADS = 2
+TAIL_MESSAGES = 6
+TAIL_CHARS = 280
+
+
+def _partner_babelr_names(partner: str) -> List[str]:
+    """Babelr usernames linked to this person (links.json), lowercased."""
+    try:
+        import json
+        from babelr_organ.config import load_config
+        data = json.loads(load_config().links_path.read_text())
+        return [str(k).lower() for k, v in data.items() if v == partner]
+    except Exception:
+        return []
+
+
+def _partner_threads(conn, partner: str) -> List[Dict[str, Any]]:
+    """Her threads with this person, most recently active first: their own
+    conversations, and Babelr places (DMs, channels) where they've written.
+    Kohl, 2026-11-18: Babelr is where he talks to her now; a session only
+    carried the main thread, and missed that they'd talked."""
+    names = _partner_babelr_names(partner)
+    rows = conn.execute(
+        "SELECT c.id, c.title, c.working_summary, c.last_summary_timestamp, c.is_continuous, c.user_id, "
+        "COALESCE(MAX(m.timestamp), c.updated_at) AS last FROM conversations c "
+        "LEFT JOIN messages m ON m.conversation_id = c.id AND COALESCE(m.excluded, 0) = 0 "
+        "WHERE (c.user_id = ? OR c.title LIKE 'Babelr:%' OR c.title LIKE '[Babelr%' OR EXISTS ("
+        "SELECT 1 FROM messages b WHERE b.conversation_id = c.id AND b.role = 'user' AND b.content LIKE '[Babelr%')) "
+        "GROUP BY c.id ORDER BY last DESC LIMIT 20", (partner,)).fetchall()
+    out = []
+    for cid, title, summary, summarized_at, continuous, uid, last in rows:
+        if uid != partner:
+            if not names:
+                continue
+            said = conn.execute(
+                "SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user' AND ("
+                + " OR ".join("lower(content) LIKE ?" for _ in names) + ") LIMIT 1",
+                (cid, *[f"%] @{n}:%" for n in names])).fetchone()
+            if not said:
+                continue
+            place = conn.execute(
+                "SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' AND content LIKE '[Babelr%' "
+                "ORDER BY timestamp DESC LIMIT 1", (cid,)).fetchone()
+            import re
+            hit = re.match(r"\[(Babelr[^\]]*)\]", place[0] if place else "")
+            title = hit.group(1) if hit else title
+        tail = conn.execute(
+            "SELECT role, content, timestamp FROM messages WHERE conversation_id = ? AND COALESCE(excluded, 0) = 0 "
+            "AND timestamp > ? ORDER BY timestamp DESC LIMIT ?",
+            (cid, summarized_at or "", TAIL_MESSAGES)).fetchall()[::-1]
+        out.append({"id": cid, "where": "our main thread" if continuous else (title or "another thread"),
+                    "summary": summary or "", "tail": tail, "last": last})
+        if len(out) >= PARTNER_THREADS:
+            break
+    return out
 
 
 def _lately_with_partner(daemon_id: str):
-    """(name, her main-thread working summary with her primary partner), or None."""
+    """(name, what's been said lately with her primary partner, wherever), or None."""
     from reach_out import display_name, find_primary_partner
     from memory.voice_guard import looks_like_refusal
     partner = find_primary_partner(daemon_id)
     if not partner:
         return None
+    name = display_name(partner)
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT working_summary FROM conversations WHERE user_id = ? AND is_continuous = 1 "
-            "ORDER BY updated_at DESC LIMIT 1", (partner,)).fetchone()
-    text = " ".join(((row[0] if row else None) or "").split())
-    if not text or looks_like_refusal(text):
+        threads = _partner_threads(conn, partner)
+    parts = []
+    for t in threads:
+        summary = " ".join(t["summary"].split())
+        lines = [f"*{t['where']}* (last {str(t['last'])[:16].replace('T', ' ')})"]
+        if summary and not looks_like_refusal(summary):
+            lines.append(summary[:1200] + ("…" if len(summary) > 1200 else ""))
+        if t["tail"]:
+            lines.append("Since that summary:")
+            for role, content, _ in t["tail"]:
+                text = " ".join(str(content).split())
+                text = text[:TAIL_CHARS] + ("…" if len(text) > TAIL_CHARS else "")
+                lines.append(f"- {'me' if role == 'assistant' else name}: {text}")
+        if len(lines) > 1:
+            parts.append("\n".join(lines))
+    text = "\n\n".join(parts)
+    if not text:
         return None
     if len(text) > PARTNER_CHARS:
         text = text[:PARTNER_CHARS - 1].rstrip() + "…"
-    return display_name(partner), text
+    return name, text
 
 
 def session_system_preamble(felt: bool = True) -> str:
