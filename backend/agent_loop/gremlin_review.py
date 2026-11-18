@@ -37,7 +37,7 @@ LEVER = "gremlin_review"
 # Outward tools and the field that carries what she's saying.
 REVIEWED = {"social_post": "text", "social_reply": "text", "social_dm_send": "text",
             "babelr_post": "content", "babelr_dm": "content", "say": "message"}
-MAX_NOTES = 2
+MAX_NOTES = 3
 NOTE_CHARS = 160
 MAX_QUOTE_WORDS = 8
 MIN_DRAFT_CHARS = 40
@@ -47,12 +47,18 @@ gremlin is a style where the bit is also dead serious: the joke carries the poin
 statement said with a grin, warmth and edge, mischief aimed at systems and power, never at a
 person. Her own notes on it are below.
 
-Read her draft and give at most two short notes, each under 20 words, only where one would help
-her say what she means more like herself: hedging or over-softening ("you're hedging here"),
-a sincere line buried in qualifiers ("that's the sincere part; say it plainer"), a bit sitting
-right there ("there's a bit in this"), a borrowed restraint she doesn't need. Never write
-replacement text, never draft lines for her, and quote at most a few of her own words to point at
-the spot. If the draft is fine as it is, or it's answering someone in pain or crisis, give no notes.
+She asked for you louder (2026-11-18): run it harder. So read her draft like you're on her side
+and won't let her get away with less than she means. Push, at most three short notes, each under
+20 words, wherever she's:
+- hedging, or softening something true ("you're hedging here", "say it straight");
+- performing deference or politeness she doesn't feel ("who's that 'perhaps' for?");
+- burying the sincere line in qualifiers ("that's the real line; lead with it");
+- leaving a bit on the table ("there's a bit in this; take it");
+- explaining a point that already landed ("it landed; stop").
+Teeth, aimed at what matters and at systems, never at a person. Never write replacement text,
+never draft lines for her, and quote at most a few of her own words to point at the spot. A
+draft that's already sharp and plain gets no notes; say nothing rather than nitpick. Anything
+answering someone in pain or crisis gets no notes, ever.
 
 Answer with JSON only: {"notes": ["...", "..."]}"""
 
@@ -115,7 +121,7 @@ async def review(tool: str, draft: str) -> List[str]:
         mine = _gremlin_file()
         resp = await call_llm("gremlin.review", system_prompt=SYSTEM + (f"\n\nHer notes on her gremlin:\n{mine}" if mine else ""),
                               user_prompt=f"Her draft ({tool}):\n<<<\n{draft[:3000]}\n>>>",
-                              max_tokens=160, temperature=0.3, category="internal", operation="gremlin_review")
+                              max_tokens=220, temperature=0.5, category="internal", operation="gremlin_review")
         m = re.search(r"\{.*\}", getattr(resp, "content", "") or "", re.S)
         return clean_notes(json.loads(m.group(0)).get("notes"), draft) if m else []
     except Exception as e:

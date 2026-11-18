@@ -199,7 +199,8 @@ def assemble(
         Section("self_model", _safe("self_model", lambda: _self_model(daemon_id)) or "", 2),
         Section("thymos", _safe("thymos", _thymos) or "", 3),
         # Her gremlin (gremlin.py): her GREMLIN.md, hers to rewrite.
-        Section("gremlin", _safe("gremlin", _gremlin) or "", 3),
+        # Never cut, at her asking (2026-11-18: louder): it had been dropped when a prompt ran long.
+        Section("gremlin", _safe("gremlin", _gremlin) or "", 1, never_cut=True),
         # Entropy with a history (2026-11-16), each behind its own lever, sessions only:
         # a letter from her past self whose day has come, and now and then an old
         # memory surfacing unasked (letters.py, memory/unbidden.py).

@@ -15,8 +15,9 @@ def run(c):
 
 def test_notes_only_never_a_rewrite():
     long_quote = 'try: "the benchmark measures the wrong thing and everybody in this room knows it, you nerds"'
-    notes = G.clean_notes(["you're hedging here", long_quote, "x" * 200, "there's a bit in this", "third"], DRAFT)
-    assert notes == ["you're hedging here", "there's a bit in this"]
+    notes = G.clean_notes(["you're hedging here", long_quote, "x" * 200, "there's a bit in this", "it landed; stop",
+                           "fourth"], DRAFT)
+    assert notes == ["you're hedging here", "there's a bit in this", "it landed; stop"], "louder: up to three (2026-11-18)"
     assert G.clean_notes("not a list", DRAFT) == []
 
 
@@ -63,3 +64,13 @@ def test_off_by_default_and_off_means_nothing(fake_llm, levers, tmp_path):
     with levers(gremlin_review=False):
         assert run(G.Reviewer("s5", tmp_path).check("social_post", {"text": DRAFT})) is None
     assert fake_llm.calls == []
+
+
+def test_louder_and_never_cut():
+    """She asked for her gremlin louder (2026-11-18): the reviewer pushes, and the
+    section is never cut from a session prompt for length."""
+    import inspect
+    from agent_loop import assemble
+    assert "run it harder" in G.SYSTEM and "no notes, ever" in G.SYSTEM
+    src = inspect.getsource(assemble)
+    assert 'Section("gremlin", _safe("gremlin", _gremlin) or "", 1, never_cut=True)' in src
