@@ -69,10 +69,11 @@ SECTION_LEVERS = {
     "self_context": "self_context",
     "self_model": "prompt_self_model_chat",
     "self_model_public": "prompt_self_model_chat",
+    "gremlin": "prompt_gremlin",
 }
 PUBLIC_SECTIONS = frozenset({
     "kernel", "temporal", "discord_perception", "relational_context", "working_summary",
-    "self_model_public",
+    "self_model_public", "gremlin",
 })
 
 
@@ -233,6 +234,16 @@ def build_continuous_context(
                 context_sections["self_context"] = self_ctx
         except Exception as e:
             print(f"[SelfContext] skipped: {e}")
+
+    # Her gremlin (gremlin.py): her GREMLIN.md, everywhere, public rooms included.
+    if wanted("gremlin"):
+        try:
+            from gremlin import section as gremlin_section
+            g = gremlin_section()
+            if g:
+                context_sections["gremlin"] = g
+        except Exception as e:
+            print(f"[gremlin] skipped: {e}")
 
     # Her presence on Bluesky (plan "Cass on Bluesky and Tumblr", phase 5): one
     # line, private conversations only, so she knows she's there and what's waiting.
@@ -664,6 +675,10 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     # 2.88. Who she is, in public (identity, values, positions)
     if "self_model_public" in sections:
         parts.append(sections["self_model_public"])
+
+    # 2.89. Her gremlin (already has its ## header)
+    if "gremlin" in sections:
+        parts.append(sections["gremlin"])
 
     # 2.85. Her presence on Bluesky
     if "social" in sections:

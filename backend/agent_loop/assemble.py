@@ -127,6 +127,11 @@ def _instructions(spec: TurnSpec, additions: Optional[str]) -> Optional[str]:
     return get_session_prompt(spec.activity, additions)
 
 
+def _gremlin() -> Optional[str]:
+    from gremlin import section
+    return section()
+
+
 def _housekeeping() -> Optional[str]:
     from housekeeping import section
     return section()
@@ -193,6 +198,8 @@ def assemble(
         Section("self_context", _safe("self_context", lambda: _self_context(daemon_id)) or "", 2),
         Section("self_model", _safe("self_model", lambda: _self_model(daemon_id)) or "", 2),
         Section("thymos", _safe("thymos", _thymos) or "", 3),
+        # Her gremlin (gremlin.py): her GREMLIN.md, hers to rewrite.
+        Section("gremlin", _safe("gremlin", _gremlin) or "", 3),
         # Entropy with a history (2026-11-16), each behind its own lever, sessions only:
         # a letter from her past self whose day has come, and now and then an old
         # memory surfacing unasked (letters.py, memory/unbidden.py).

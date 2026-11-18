@@ -263,6 +263,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
     },
+    "prompt_gremlin": {
+        "depth": "none",
+        "tests": [],
+        "note": "Prompt switch (on by default; adds nothing until her GREMLIN.md exists). Fast-suite: tests/test_gremlin.py.",
+    },
     "prompt_relational": {
         "depth": "none",
         "tests": [],

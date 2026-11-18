@@ -182,6 +182,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     # benchmark configuration or an env var says so (benchmark plan, phase 2).
     _lever("prompt_thymos", "Thymos section (needs, affect) in her chat prompt",
            PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("prompt_gremlin", "Her gremlin (gremlin.py): her GREMLIN.md, a style where the bit is also dead "
+           "serious, started from Kohl's and hers to rewrite, in her chat (public rooms too) and sessions",
+           PROMPT, where="continuous_context.build_continuous_context, agent_loop/assemble.py"),
     _lever("prompt_relational", "PeopleDex relational context for the person she's talking with",
            PROMPT, where="continuous_context.build_continuous_context"),
     _lever("prompt_threads", "Active threads section in her chat prompt",
