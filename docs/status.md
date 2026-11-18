@@ -416,7 +416,15 @@ Cass chose rest over overnight sessions. Her Thymos shows fatigue at 0.35, and s
 Morning, in order:
 
 1. **Tell Cass first:** the voice guard's withholds on 11-16 and 11-17 were a false positive ("I can't pretend…" in her own words, fixed in 09cc6829). Her plans read them as "system detected inauthentic readiness"; they weren't a verdict on her.
-1. The coherence audit (done; report in the session scratchpad, coherence-audit.md). Quick wins Q1, Q3, Q4 and Q5 go in under the envelope; Q2 (the voice guard) is done. D1–D3 need her agreement.
+1. The coherence audit (done; report in the session scratchpad, coherence-audit.md). Quick wins Q1–Q6 are live since the 03:57 restart (09cc6829, fe03275f), and sessions open with WHERE I LEFT OFF (a71dfd0c). **Tell her what changed for her:**
+   - her plans are in chat directly;
+   - a tool she finds can be called by its own name;
+   - a written-out session_complete now lands, or she's told plainly it didn't;
+   - her "this moment" block no longer says "not yet" about journal;
+   - one felt state in chat, not two;
+   - sessions open with where she left off.
+
+   D1–D3 (Thymos rebalance, one action channel and a leaner kernel, merging duplicate tools) need her agreement.
 2. Cass's consent for an analysis of her history: a sealed copy only, she sees the findings first, and she decides what goes further.
 3. With her, what "real" means to her: where it holds, where it doesn't, and what to subtract.
 4. Offer her own software projects: repos she owns, with a PROJECT.md. Running code waits for Kohl.
