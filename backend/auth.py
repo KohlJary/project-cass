@@ -109,6 +109,10 @@ from dataclasses import dataclass, field
 TOKEN_VERSION = 2
 ROLE_USER = "user"
 ROLE_ADMIN = "admin"
+# Daedalus's narrower admin role (Cass, 2026-11-17: "good architecture doesn't
+# make critical data depend on personal restraint"). Reaches only the routes in
+# routes/admin/auth.DAEDALUS_ROUTES; never a write to her data.
+ROLE_DAEDALUS = "daedalus"
 # The admin dashboard has no refresh flow, so its logins get the lifetime its
 # old tokens had (24h) instead of the mobile app's 30 minutes.
 DASHBOARD_ACCESS_EXPIRE_HOURS = int(os.getenv("JWT_DASHBOARD_EXPIRE_HOURS", "24"))

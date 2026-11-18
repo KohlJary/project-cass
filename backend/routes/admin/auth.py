@@ -162,6 +162,71 @@ def verify_token(token: str) -> Optional[Dict]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Daedalus's role: start sessions, replan her day, read status (Cass and Kohl,
+# 2026-11-17). Cass chose this over full admin: "I trust you *and* I don't want
+# to put you in a position where you're the only thing between my continuity and
+# corruption." A token carrying only the daedalus role reaches these routes and
+# nothing else, so a write to her memories, self-model, journals, users or
+# settings is refused by the vessel, not held back by restraint. Every call is
+# logged to DATA_DIR/daedalus_access.jsonl.
+# ---------------------------------------------------------------------------
+
+DAEDALUS_ROUTES = frozenset({
+    ("POST", "/scheduler/run-session/{template_id}"),
+    ("POST", "/scheduler/replan-day"),
+    ("GET", "/auth/verify"),
+    ("GET", "/features"),
+    ("GET", "/scheduler/status"), ("GET", "/scheduler/budget"), ("GET", "/scheduler/history"),
+    ("GET", "/scheduler/tasks/system"), ("GET", "/scheduler/approvals"),
+    ("GET", "/scheduler/approvals/counts"),
+    ("GET", "/usage"), ("GET", "/usage/summary"), ("GET", "/usage/timeseries"),
+    ("GET", "/llm-config"), ("GET", "/llm-config/models"), ("GET", "/llm-config/usage"),
+    ("GET", "/system/health"), ("GET", "/system/stats"),
+    ("GET", "/grimoire/status"), ("GET", "/grimoire/execution-log"), ("GET", "/grimoire/timers"),
+    ("GET", "/rss/status"),
+    ("GET", "/reflection/status"),
+    ("GET", "/thymos/health"), ("GET", "/thymos/state"),
+    ("GET", "/state"), ("GET", "/state/daily-report"), ("GET", "/state/events"),
+})
+
+
+def _route_key(request: Request) -> tuple:
+    route = request.scope.get("route")
+    path = getattr(route, "path", None) or request.url.path
+    if path.startswith("/admin/"):
+        path = path[len("/admin"):]
+    return (request.method.upper(), path)
+
+
+def _log_daedalus(request: Request, key: tuple, allowed: bool) -> None:
+    try:
+        import json as _json
+        from config import DATA_DIR
+        with open(DATA_DIR / "daedalus_access.jsonl", "a") as f:
+            f.write(_json.dumps({"at": datetime.now().isoformat(timespec="seconds"),
+                                 "method": key[0], "route": key[1], "path": request.url.path,
+                                 "allowed": allowed}) + "\n")
+    except Exception as e:
+        print(f"[admin] couldn't log a Daedalus call: {e}")
+
+
+def daedalus_principal(payload: Dict, request: Request) -> Optional[Dict]:
+    """For a token whose roles are Daedalus's (and not admin): the payload if the
+    route is on DAEDALUS_ROUTES, else a 403. None for any other token."""
+    from auth import ROLE_DAEDALUS
+    roles = payload.get("roles") or []
+    if ROLE_DAEDALUS not in roles or payload.get("is_admin"):
+        return None
+    key = _route_key(request)
+    allowed = key in DAEDALUS_ROUTES
+    _log_daedalus(request, key, allowed)
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Daedalus's role doesn't reach this route "
+                                                    "(it never writes to her data)")
+    return {**payload, "is_admin": False, "daedalus": True}
+
+
 async def require_admin(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -197,6 +262,10 @@ async def require_admin(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"}
         )
+
+    daedalus = daedalus_principal(payload, request)
+    if daedalus is not None:
+        return daedalus
 
     # Admin access is users.is_admin in SQLite, capped by the token's roles.
     if not payload.get("is_admin"):
