@@ -127,12 +127,37 @@ class LoopOutcome:
     completion: Optional[Dict[str, Any]] = None   # session_complete input, if called
     withheld: List[Dict[str, Any]] = field(default_factory=list)
     arrivals: int = 0                             # people who arrived mid-turn (fold.py)
+    extended: int = 0                             # steps she added with extend_session
+    summarized_at_cap: bool = False               # her summary was written at the step cap
 
 
 # One tool result's share of the prompt. A session's list_growth_edges once
 # returned 1.9 MB and made the next request 466k tokens (live check,
 # 2026-11-13); no single result may take the turn down.
 MAX_TOOL_RESULT_CHARS = 20_000
+
+# The step cap, made something she can see coming (Kohl, 2026-11-18, after her
+# first new-capabilities session ran out of steps mid-work and its summary was
+# lost): a warning one step before it, one extension of EXTEND_STEPS, and if
+# the cap comes anyway, one last call where she writes her summary.
+EXTEND_TOOL = "extend_session"
+EXTEND_STEPS = 12
+
+
+def cap_warning(end_tool: str) -> str:
+    return (f"[LOOP] One step left in this session. I can end it with {end_tool} (my summary, "
+            f"insights, and what I'd pick up next), or call {EXTEND_TOOL} once for {EXTEND_STEPS} more steps.")
+
+
+def cap_summary_request() -> str:
+    return ("[LOOP] I've reached this session's step cap, so it ends here. In a few lines, in my own words "
+            "and without calling any tool: what I did, what I found, and on a last line starting "
+            "\"Pick up next:\", what I'd pick up next time. This is kept as the session's summary.")
+
+
+def _pick_up(text: str) -> Optional[str]:
+    m = re.search(r"pick up next:\s*(.+)", text or "", re.I)
+    return m.group(1).strip()[:500] if m else None
 
 
 def cap_tool_result(content: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
@@ -195,16 +220,25 @@ async def run_loop(
         return (out.input_tokens + out.output_tokens + out.cache_write_tokens
                 + out.cache_read_tokens // CACHE_READ_DIVISOR)
 
+    cap = spec.max_iterations
+    session_like = can_end and end_tool == "session_complete"
+    extensions_left = 1 if session_like and EXTEND_TOOL in offered else 0
+    warned = False
     try:
         while True:
             reason = interrupted()
             if reason:
                 out.status, out.end_reason = "interrupted", reason
                 break
-            if out.model_calls >= spec.max_iterations:
+            if out.model_calls >= cap:
                 out.status = "max_turns"
-                out.end_reason = f"reached the cap of {spec.max_iterations} steps"
+                out.end_reason = f"reached the cap of {cap} steps"
+                if session_like:
+                    await _summary_at_cap(out, client, model, system, tools, history, max_tokens)
                 break
+            if session_like and not warned and out.model_calls == cap - 1:
+                warned = True
+                history.append({"role": "user", "content": cap_warning(end_tool)})
             if budget is not None and used() >= budget:
                 out.status, out.end_reason = "completed", "reached the token budget"
                 break
@@ -251,6 +285,18 @@ async def run_loop(
             ended = False
             for call in reply.tool_calls:
                 name, tool_input = call["name"], call.get("input") or {}
+                if name == EXTEND_TOOL and name in offered:
+                    if extensions_left > 0:
+                        extensions_left -= 1
+                        cap += EXTEND_STEPS
+                        out.extended += EXTEND_STEPS
+                        warned = False
+                        result = {"extended_by": EXTEND_STEPS, "steps_left": cap - out.model_calls}
+                    else:
+                        result = {"error": "I've already extended this session once; time to wrap up."}
+                    step.tool_results.append({"tool_name": name, "result": result})
+                    results.append({"id": call["id"], "name": name, "content": json.dumps(result)})
+                    continue
                 if name not in offered:
                     result: Any = {"error": f"{name} isn't available here "
                                             f"(not in this {spec.kind}'s tools)"}
@@ -290,3 +336,27 @@ async def run_loop(
         logger.error(f"[agent_loop] {spec.kind} turn failed: {e}", exc_info=True)
         out.status, out.error = "error", str(e)
     return out
+
+
+async def _summary_at_cap(out: LoopOutcome, client, model, system, tools, history, max_tokens) -> None:
+    """One last call at the cap: her summary in her words, kept as the completion.
+    Tools stay offered (the history has calls), but any she makes is ignored."""
+    history.append({"role": "user", "content": cap_summary_request()})
+    try:
+        reply = await client.create(model=model, system=system, tools=tools,
+                                    messages=history, max_tokens=max_tokens)
+    except Exception as e:
+        logger.warning(f"[agent_loop] summary at the cap failed: {e}")
+        return
+    out.model_calls += 1
+    out.input_tokens += reply.input_tokens
+    out.output_tokens += reply.output_tokens
+    out.cache_read_tokens += reply.cache_read_tokens
+    out.cache_write_tokens += reply.cache_write_tokens
+    text = (reply.text or "").strip()
+    out.steps.append(LoopStep(out.model_calls, reply.text, [], input_tokens=reply.input_tokens,
+                              output_tokens=reply.output_tokens))
+    if text and out.completion is None:
+        out.completion = {"summary": text, "key_insights": [],
+                          **({"pick_up_next": _pick_up(text)} if _pick_up(text) else {})}
+        out.summarized_at_cap = True

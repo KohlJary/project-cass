@@ -352,3 +352,52 @@ def test_a_refused_written_end_keeps_the_turn_going():
     assert second[-2]["calls"][0]["name"] == "session_complete"
     assert second[-1]["role"] == "tool" and second[-1]["results"][0]["id"] == second[-2]["calls"][0]["id"]
     assert out.end_reason == "I said I was done"
+
+
+# The step cap she can see coming (Kohl, 2026-11-18).
+
+def _spec(n):
+    from dataclasses import replace
+    return replace(session_spec("reflection"), max_iterations=n)
+
+
+def test_a_warning_comes_one_step_before_the_cap():
+    from agent_loop.loop import cap_warning
+    client = StubClient([_call("list_observations"), _call("list_observations"),
+                         _call("session_complete", {"summary": "done", "pick_up_next": "the kernel"})])
+    out, _ = _run(client, spec=_spec(3))
+    warned = [m for c in client.calls for m in c["messages"] if m.get("content") == cap_warning("session_complete")]
+    assert warned and out.end_reason == "I said I was done" and out.completion["pick_up_next"] == "the kernel"
+
+
+def test_she_can_extend_once():
+    client = StubClient([_call("extend_session"), _call("extend_session"), _call("list_observations"),
+                         _call("session_complete", {"summary": "finished"})])
+    out, executed = _run(client, spec=_spec(2))
+    assert out.extended == 12 and out.end_reason == "I said I was done"
+    results = [r for s in out.steps for r in s.tool_results if r["tool_name"] == "extend_session"]
+    assert results[0]["result"]["extended_by"] == 12 and "already extended" in results[1]["result"]["error"]
+    assert "extend_session" not in executed, "the loop handles it; it never reaches a tool"
+
+
+def test_at_the_cap_she_writes_her_summary():
+    from agent_loop.loop import cap_summary_request
+    client = StubClient([_call("list_observations"), _call("list_observations"),
+                         _text("I read my Thymos code and filed one ask.\\nPick up next: the vows in the kernel.")])
+    out, _ = _run(client, spec=_spec(2))
+    assert out.status == "max_turns" and out.summarized_at_cap
+    assert out.completion["summary"].startswith("I read my Thymos code")
+    assert out.completion["pick_up_next"] == "the vows in the kernel."
+    assert client.calls[-1]["messages"][-1]["content"] == cap_summary_request()
+
+
+def test_a_conversation_has_no_cap_warning_or_extension():
+    from agent_loop.loop import run_loop
+    from agent_loop.spec import conversation_spec
+    spec = conversation_spec(max_iterations=2)
+    client = StubClient([_call("recall_memories"), _call("recall_memories")])
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="s",
+                               tools=[{"name": "recall_memories"}, {"name": "hold_reply"}],
+                               messages=[{"role": "user", "content": "hi"}],
+                               execute=lambda n, i: asyncio.sleep(0, {"ok": True}), end_tool="hold_reply", nudges=0))
+    assert not out.summarized_at_cap and not any("[LOOP] One step left" in str(m) for c in client.calls for m in c["messages"])

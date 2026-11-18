@@ -301,10 +301,21 @@ TOOL_SESSION_COMPLETE = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Key insights from the session"
+            },
+            "pick_up_next": {
+                "type": "string",
+                "description": "Optional: what I'd pick up next time; my next day plan shows it"
             }
         },
         "required": ["summary"]
     }
+}
+
+# Handled by the agent loop itself (agent_loop/loop.py): 12 more steps, once.
+TOOL_EXTEND_SESSION = {
+    "name": "extend_session",
+    "description": "Add 12 more steps to this session, once, when I'm in the middle of something and near the step cap.",
+    "input_schema": {"type": "object", "properties": {"why": {"type": "string"}}},
 }
 
 
@@ -320,6 +331,7 @@ SESSION_TOOLS: Dict[str, List[Dict]] = {
         TOOL_LIST_GROWTH_EDGES,
         TOOL_RECALL_MEMORIES,
         TOOL_SESSION_COMPLETE,
+        TOOL_EXTEND_SESSION,
     ],
 
     "research": [
@@ -699,11 +711,13 @@ async def handle_session_complete(
     """Handle session_complete tool call - signals session end."""
     summary = tool_input.get("summary", "")
     key_insights = tool_input.get("key_insights", [])
+    pick_up_next = tool_input.get("pick_up_next")
 
     return {
         "session_ended": True,
         "summary": summary,
         "key_insights": key_insights,
+        **({"pick_up_next": pick_up_next} if pick_up_next else {}),
         "message": "Session marked as complete",
     }
 

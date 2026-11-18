@@ -300,3 +300,17 @@ def test_new_capabilities_is_on_her_menu_beside_change_proposals(levers, monkeyp
         assert T.WORK_TEMPLATES["new_capabilities"].available() and T.WORK_TEMPLATES["change_proposals"].available()
     with levers(agent_loop=True, ask_daedalus=False):
         assert not T.WORK_TEMPLATES["new_capabilities"].available()
+
+
+def test_the_recap_shows_what_she_left_herself(tmp_path):
+    from scheduling.day_recap import since_last_plan
+    now = datetime(2026, 11, 18, 7, 0)
+    _log(tmp_path, "day_planning", now - timedelta(hours=20))
+    d = tmp_path / "session_logs" / "new_capabilities" / "2026-11-17"
+    d.mkdir(parents=True)
+    (d / "x.json").write_text(json.dumps({"session_type": "new_capabilities", "started_at": "2026-11-17T22:00:00",
+                                          "summary": "Read my code.", "pick_up_next": "the kernel's vows",
+                                          "summarized_at_cap": True}))
+    text = since_last_plan(SimpleNamespace(root=tmp_path), tmp_path, now=now, refused=lambda s: [], sent=lambda s: [])
+    assert "(ran out of steps; summary written at the cap)" in text
+    assert "What I said I'd pick up next:\n- from new_capabilities (Tue 22:00): the kernel's vows" in text

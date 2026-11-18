@@ -55,7 +55,8 @@ def _sessions(data_dir: Path, since: datetime) -> List[Dict[str, Any]]:
             out.append({"type": rec.get("session_type") or f.parent.parent.name, "at": started,
                         "cost": float(rec.get("estimated_cost_usd") or 0),
                         "seconds": float(rec.get("duration_seconds") or 0),
-                        "summary": (rec.get("summary") or "").strip(), "status": rec.get("status")})
+                        "summary": (rec.get("summary") or "").strip(), "status": rec.get("status"),
+                        "pick_up_next": rec.get("pick_up_next"), "at_cap": bool(rec.get("summarized_at_cap"))})
     return sorted(out, key=lambda s: s["at"])
 
 
@@ -132,7 +133,8 @@ def since_last_plan(workspace=None, data_dir: Optional[Path] = None,
         summary = s["summary"].replace("\n", " ")
         if len(summary) > SUMMARY_CHARS:
             summary = summary[:SUMMARY_CHARS].rsplit(" ", 1)[0] + "..."
-        lines.append(f"- {s['at']:%a %H:%M} {s['type']}" + (f": {summary}" if summary else ""))
+        lines.append(f"- {s['at']:%a %H:%M} {s['type']}" + (" (ran out of steps; summary written at the cap)" if s.get("at_cap") else "")
+                     + (f": {summary}" if summary else ""))
     # Her ask (2026-11-18): planned work the gate refused is named, with why,
     # not just absent; and what she actually sent, so narration and reality meet.
     try:
@@ -161,6 +163,10 @@ def since_last_plan(workspace=None, data_dir: Optional[Path] = None,
                 lines.append(f"- {s['at']:%a %H:%M} {s['what']}" + (f": \"{text}\"" if text else ""))
         else:
             lines.append("I sent nothing out since then (no message to Kohl, no post).")
+    left = [s for s in ran if s.get("pick_up_next")]
+    if left:   # what she left herself (session_complete pick_up_next, or written at the cap)
+        lines.append("What I said I'd pick up next:")
+        lines += [f"- from {s['type']} ({s['at']:%a %H:%M}): {s['pick_up_next']}" for s in left]
     if ran:
         counts = Counter(s["type"] for s in ran)
         top, n = counts.most_common(1)[0]

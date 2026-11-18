@@ -245,7 +245,10 @@ def test_loop_stops_at_the_cap():
     spec = session_spec("reflection", max_iterations=3)
     client = StubClient([_tool_reply("list_observations", {}) for _ in range(10)])
     out = _loop(spec, client, [])
-    assert out.status == "max_turns" and out.model_calls == 3 and len(client.calls) == 3
+    # 3 steps, then one more call at the cap for her summary (2026-11-18); a tool
+    # call there is ignored, so nothing is kept as a summary here.
+    assert out.status == "max_turns" and out.model_calls == 4 and len(client.calls) == 4
+    assert out.completion is None and not out.summarized_at_cap
 
 
 def test_loop_refuses_tools_outside_the_spec_and_guards_writes():

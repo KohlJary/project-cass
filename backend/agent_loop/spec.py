@@ -136,8 +136,8 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("kohl_blog", "read Kohl's blog posts and keep what I take from them (or disagree with) in "
                           "my self-model, marked as coming from his writing",
              ("blog_list", "blog_read", "blog_keep")),
-    ToolPack("session", "end the session when I'm done",
-             ("session_complete",)),
+    ToolPack("session", "end the session when I'm done (with what I'd pick up next), or extend it once",
+             ("session_complete", "extend_session")),
 ]}
 
 # Packs whose tools run through tool_router (her chat handlers), and packs
