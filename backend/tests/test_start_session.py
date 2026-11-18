@@ -125,7 +125,7 @@ def test_her_chat_sees_what_her_sessions_actually_did(tmp_path):
     book.mark_running(w["id"])
     assert "running since" in WK.sessions_block(book, now=t0 + timedelta(minutes=1))
     book.finish(w["id"], WK.DONE, "Workshop session complete", ended="max_turns")
-    text = WK.sessions_block(book, now=datetime.now())
+    text = WK.sessions_block(book, now=t0 + timedelta(minutes=30))
     assert "reached its step cap" in text and "of 60 min" in text
     assert "saying I'll start one doesn't" in text
 
@@ -135,3 +135,40 @@ def test_start_session_keeps_her_done_when(tmp_path):
     book.start_now({"activity": "workshop", "why": "a song", "done_when": "one full draft, ready to show"},
                    "c", ["workshop"], now=datetime(2026, 11, 18, 12, 0))
     assert book.pending()[0]["done_when"] == "one full draft, ready to show"
+
+
+# ---------------------------------------------------------------------------
+# start_session asks the budget gate before saying "started" (2026-11-18, 17:36)
+# ---------------------------------------------------------------------------
+
+class _Budget:
+    def __init__(self, ok, left=0.16):
+        self.ok, self.left = ok, left
+
+    def can_spend(self, category, usd):
+        return self.ok
+
+    def get_remaining_budget(self, category):
+        return self.left
+
+
+def test_budget_refusal_says_why_and_whats_left():
+    from agent_loop.wakes import budget_refusal
+    msg = budget_refusal("workshop", budget=_Budget(False))
+    assert msg and msg.startswith("Not started") and "$0.16 left" in msg and "Nothing is running" in msg
+    assert budget_refusal("workshop", budget=_Budget(True)) is None
+
+
+def test_start_session_over_budget_records_nothing(monkeypatch, tmp_path):
+    import asyncio
+    from agent_loop import wakes
+    monkeypatch.setattr(wakes, "budget_refusal", lambda activity, budget=None: "Not started: over budget")
+    monkeypatch.setattr(wakes, "wakes_available", lambda: True)
+    monkeypatch.setattr(wakes, "startable", lambda: ["workshop"])
+    monkeypatch.setattr(wakes, "default_path", lambda: tmp_path / "wakes.json")
+    import features
+    monkeypatch.setattr(features, "is_enabled", lambda name: True)
+    _, handler = wakes.start_session_offer("t1")
+    out = asyncio.run(handler({"activity": "workshop", "why": "the notation", "minutes": 45}))
+    assert out == {"error": "Not started: over budget"}
+    assert not (tmp_path / "wakes.json").exists() or wakes.WakeBook(tmp_path / "wakes.json").all() == []

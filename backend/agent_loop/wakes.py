@@ -446,6 +446,29 @@ def origin_of(channel: Optional[str], where: str, person: Dict[str, Any]) -> Dic
     return o
 
 
+def budget_refusal(activity: str, budget=None) -> Optional[str]:
+    """Why the Heartbeat's budget gate would refuse this session now, or None.
+
+    Asked before start_session says "started": the gate used to refuse it a few
+    seconds later, after she'd been told it started (2026-11-18, 17:36: a workshop
+    session, over the curiosity budget, $0.16 left against a $0.30 estimate)."""
+    if budget is None:
+        try:
+            from heartbeat.wiring import get_heartbeat
+            budget = getattr(getattr(get_heartbeat(), "gate", None), "budget", None)
+        except Exception:
+            budget = None
+    if budget is None or not activity:
+        return None
+    category, estimate = wake_budget(activity)
+    if budget.can_spend(category, estimate):
+        return None
+    left = budget.get_remaining_budget(category)
+    return (f"Not started: today's {category.value} budget can't cover a {activity} session "
+            f"(about ${estimate:.2f}; ${left:.2f} left). It resets at midnight. Nothing is running; "
+            f"I can tell them so, or ask for the session another day (wake_me or my day plan).")
+
+
 def start_session_offer(turn_id: str, origin: Optional[Dict[str, Any]] = None):
     """(definition, handler) for chat, or None while the lever is off or nothing fires wakes."""
     import features
@@ -456,6 +479,9 @@ def start_session_offer(turn_id: str, origin: Optional[Dict[str, Any]] = None):
         return None
 
     async def handler(a):
+        refused = budget_refusal(str((a or {}).get("activity") or ""))
+        if refused:
+            return {"error": refused}
         out = WakeBook().start_now(a, turn_id, kinds, origin=origin)
         if isinstance(out, dict) and out.get("started"):
             import asyncio
