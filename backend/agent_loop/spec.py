@@ -363,6 +363,8 @@ SESSION_TOKEN_BUDGET = 500_000
 # hit 12 before she said she was done. Cass agreed to 24: a backstop, not a
 # target; the token budget above still applies.
 LOOP_MIN_STEPS = 24
+# Sessions where she makes things get a step per minute she asked for (Cass agreed, 2026-11-18).
+MAKING_SESSIONS = frozenset({"workshop", "creative"})
 
 
 def _lever_on(name: str) -> bool:

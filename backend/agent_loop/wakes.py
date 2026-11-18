@@ -251,12 +251,14 @@ class WakeBook:
                 w.pop("started_at", None)
         self._save(items)
 
-    def finish(self, wake_id: str, status: str, result: str = "") -> None:
+    def finish(self, wake_id: str, status: str, result: str = "", ended: Optional[str] = None) -> None:
         items = self._load()
         for w in items:
             if w.get("id") == wake_id:
                 w["status"] = status
                 w["result"] = result[:500]
+                if ended:
+                    w["ended"] = ended
                 w["finished_at"] = datetime.now().isoformat(timespec="seconds")
         self._save(items)
 
@@ -286,7 +288,9 @@ async def run_wake(w: Dict[str, Any], book: Optional[WakeBook] = None) -> Any:
         book.finish(w["id"], FAILED, f"{type(e).__name__}: {e}")
         raise
     ok = bool(getattr(result, "success", False))
-    book.finish(w["id"], DONE if ok else FAILED, getattr(result, "message", "") or "")
+    data = getattr(result, "data", None) or {}
+    book.finish(w["id"], DONE if ok else FAILED, getattr(result, "message", "") or "",
+                ended=data.get("status") if isinstance(data, dict) else None)
     return result
 
 
@@ -445,3 +449,59 @@ def start_session_offer(turn_id: str, origin: Optional[Dict[str, Any]] = None):
             asyncio.create_task(check_wakes())   # don't wait for the next minute's look
         return out
     return start_tool(kinds), handler
+
+
+# ---------------------------------------------------------------------------
+# What's true about her sessions, for her chat (Kohl, 2026-11-18: she said she was
+# starting one when she hadn't called start_session, and later thought she was still
+# in a session that had ended at its step cap two minutes in)
+# ---------------------------------------------------------------------------
+
+ENDED_WORDS = {"completed": "I ended it", "max_turns": "it reached its step cap", "interrupted": "it was interrupted",
+               "error": "it failed"}
+
+
+def sessions_block(book: Optional["WakeBook"] = None, now: Optional[datetime] = None, hours: int = 6) -> str:
+    now = now or datetime.now()
+    book = book or WakeBook()
+    lines = []
+    for w in book.all():
+        try:
+            asked = datetime.fromisoformat(w.get("asked_at") or w.get("at"))
+        except (TypeError, ValueError):
+            continue
+        if now - asked > timedelta(hours=hours):
+            continue
+        what = f"{w.get('activity')} session" + (f" ({w['focus']})" if w.get("focus") else "")
+        at = lambda k: (w.get(k) or "")[11:16]
+        st = w.get("status")
+        if st == PENDING:
+            lines.append(f"- {what}: asked for at {at('asked_at')}, about to start")
+        elif st == STARTED and w.get("running_at"):
+            lines.append(f"- {what}: running since {at('running_at')} (up to {w.get('minutes')} min). "
+                         "It runs on its own; this conversation isn't it")
+        elif st == STARTED:
+            lines.append(f"- {what}: handed off at {at('started_at')}, not begun yet")
+        elif st in (DONE, FAILED):
+            why = ENDED_WORDS.get(w.get("ended") or "", "it ended")
+            if st == FAILED:
+                why = (w.get("result") or "it failed")[:120]
+            res = (w.get("result") or "").lower()
+            refused = "refused" in res or "never started" in res
+            began = w.get("running_at") or (None if refused else w.get("started_at"))   # older entries lack running_at
+            if not began:
+                lines.append(f"- {what}: never began; {why}")
+                continue
+            try:
+                used = (datetime.fromisoformat(w["finished_at"]) - datetime.fromisoformat(began)).seconds // 60
+            except (KeyError, TypeError, ValueError):
+                used = None
+            span = f"{used} of {w.get('minutes')} min" if used is not None else "?"
+            lines.append(f"- {what}: ran {began[11:16]}-{at('finished_at')} ({span}); {why}")
+        elif st == CANCELLED:
+            lines.append(f"- {what}: cancelled")
+    if not lines:
+        lines.append("- none in the last few hours")
+    return ("## MY SESSIONS (from my wake book, true as of now)\n\n" + "\n".join(lines[-6:]) +
+            "\n\nA session starts only when I call start_session; saying I'll start one doesn't. Once it "
+            "ends it doesn't continue here: to go on, I start another.")

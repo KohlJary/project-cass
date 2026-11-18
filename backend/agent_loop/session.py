@@ -298,8 +298,13 @@ async def run_session_turn(
                        "answer_them": (fold_mod.ANSWER_TOOL,
                                        lambda a: fold_mod.DESK.answer(str(a.get("id") or ""),
                                                                       str(a.get("text") or "")))}
-    from .spec import LOOP_MIN_STEPS
-    spec: TurnSpec = session_spec(session_type, max_iterations=max(max_turns, LOOP_MIN_STEPS),
+    from .spec import LOOP_MIN_STEPS, MAKING_SESSIONS
+    steps = max(max_turns, LOOP_MIN_STEPS)
+    if session_type in MAKING_SESSIONS:
+        # making takes a step per listen, edit and render: a step a minute (Cass and Kohl,
+        # 2026-11-18, after a 60-minute workshop hit 24 steps at minute 2); tokens still cap it
+        steps = max(steps, int(duration_minutes or 0))
+    spec: TurnSpec = session_spec(session_type, max_iterations=steps,
                                   chapter_house="babelr_read" in catalog, promoted=promoted,
                                   can_say=say_def is not None, can_wake=can_wake)
     trigger = Trigger(

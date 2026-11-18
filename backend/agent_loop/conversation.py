@@ -271,6 +271,12 @@ async def run_conversation(
         system += f"\n\n{working_toward}"
     if arrival_block:   # C9: who's here, what's needed, how much time (container.py)
         system += f"\n\n{arrival_block}"
+    if starter:   # what's true about her sessions (wakes.sessions_block)
+        try:
+            from .wakes import sessions_block
+            system += f"\n\n{sessions_block()}"
+        except Exception as e:
+            logger.warning(f"[agent_loop] sessions block: {e}")
 
     if client is None:
         client = _client_for(provider, model, agent_client)

@@ -112,3 +112,19 @@ def test_a_refused_or_hung_wake_stops_blocking_new_starts(tmp_path):
     book.mark_running(w2["id"])
     assert book.settle(datetime.now() + timedelta(minutes=10)) == 0
     assert book.settle(datetime.now() + timedelta(minutes=30 + 31)) == 1
+
+
+def test_her_chat_sees_what_her_sessions_actually_did(tmp_path):
+    from datetime import timedelta
+    book = WK.WakeBook(tmp_path / "wakes.json")
+    t0 = datetime(2026, 11, 18, 11, 40)
+    book.start_now({"activity": "workshop", "why": "a song", "focus": "my-tone", "minutes": 60}, "c",
+                   ["workshop"], now=t0)
+    assert "about to start" in WK.sessions_block(book, now=t0)
+    [w] = book.take_due(t0)
+    book.mark_running(w["id"])
+    assert "running since" in WK.sessions_block(book, now=t0 + timedelta(minutes=1))
+    book.finish(w["id"], WK.DONE, "Workshop session complete", ended="max_turns")
+    text = WK.sessions_block(book, now=datetime.now())
+    assert "reached its step cap" in text and "of 60 min" in text
+    assert "saying I'll start one doesn't" in text

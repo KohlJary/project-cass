@@ -837,3 +837,26 @@ def test_ending_a_chat_started_session_without_replying_is_asked_once():
     out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys", tools=tools,
                                messages=[{"role": "user", "content": "begin"}], execute=execute))
     assert out.status == "completed" and out.model_calls == 2 and "reply_back" in executed
+
+
+def test_making_sessions_get_a_step_per_minute(monkeypatch):
+    """A 60-minute workshop hit 24 steps at minute 2 (2026-11-18); making sessions now get
+    a step per minute asked for, others keep the 24-step backstop."""
+    import asyncio
+    from agent_loop import session as S
+
+    class Seen(Exception):
+        pass
+
+    def fake_spec(session_type, max_iterations, **kw):
+        raise Seen(max_iterations)
+    monkeypatch.setattr(S, "session_spec", fake_spec)
+    for kind, minutes, want in (("workshop", 60, 60), ("workshop", 15, 24), ("reflection", 60, 24)):
+        try:
+            asyncio.run(S.run_session_turn(object(), session_type=kind, duration_minutes=minutes,
+                                           run_router=lambda *a, **k: None, catalog={}, usage_log=None,
+                                           workspace=object(), wakes=None, can_wake=False))
+        except Seen as e:
+            assert e.args[0] == want, (kind, minutes, e.args[0])
+        else:
+            raise AssertionError("the spec wasn't built")
