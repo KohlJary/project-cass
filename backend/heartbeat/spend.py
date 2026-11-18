@@ -35,6 +35,9 @@ _current: ContextVar[Optional["RunSpend"]] = ContextVar("heartbeat_run_spend", d
 class RunSpend:
     work_name: str
     run_id: Optional[int] = None
+    # The run's Work.budget_class (a TaskCategory, or None): sessions file
+    # their ledger rows under it (agent_loop.session.ledger_category).
+    budget_class: Optional[object] = None
     cost_usd: float = 0.0           # every ledger row in this run
     counted_usd: float = 0.0        # the part the budget gate counts
     rows: int = 0

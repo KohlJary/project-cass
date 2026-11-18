@@ -49,6 +49,12 @@ BUDGET_COUNTED_CALL_SITES = frozenset({
     "wiki.resynthesis",
     "wiki.resynthesis_validation",
     "session.legacy",
+    # Agent-loop sessions (2026-11-17): the loop's sessions replaced the
+    # legacy runner, whose spend counted, but logged as session.generic,
+    # which didn't. Each session files its rows under its run's budget class
+    # (agent_loop.session.ledger_category), so they land in its own bucket,
+    # not SYSTEM.
+    "session.generic",
 })
 
 
@@ -296,6 +302,8 @@ LEDGER_CATEGORY_MAP = {
     "internal": TaskCategory.SYSTEM,
     "synthesis": TaskCategory.REFLECTION,
     "growth_edge": TaskCategory.GROWTH,
+    "growth": TaskCategory.GROWTH,
+    "triggered": TaskCategory.TRIGGERED,
     "curiosity": TaskCategory.CURIOSITY,
     "dream": TaskCategory.SYSTEM,
     "journal": TaskCategory.SYSTEM,
@@ -306,7 +314,10 @@ def budget_category_for(ledger_category: Optional[str]) -> Optional[TaskCategory
     """The budget bucket a ledger row's spend goes in, or None if it isn't
     autonomous spend. "chat" is user-driven, so it is left out; an unknown
     category goes to SYSTEM; rows recorded as "unknown" are left out."""
-    if ledger_category == "chat":
+    if ledger_category in ("chat", "session"):
+        # "session": agent-loop session rows from before 2026-11-17, filed
+        # under the call site's prefix; uncounted then, so left out now (new
+        # session rows carry their run's budget class instead).
         return None
     task_cat = LEDGER_CATEGORY_MAP.get(ledger_category)
     if task_cat:

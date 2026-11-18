@@ -227,7 +227,7 @@ class Heartbeat:
             run_spend = token = None
             if self.measure_spend and work.log_runs:
                 run_spend = spend_mod.RunSpend(
-                    work_name=work.name, run_id=run_id,
+                    work_name=work.name, run_id=run_id, budget_class=work.budget_class,
                     charge=lambda category, usd, w=work: self._charge(w, category, usd),
                     late=lambda usd, rid=run_id, w=work: self._late_spend(w, rid, usd),
                 )

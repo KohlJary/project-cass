@@ -213,8 +213,10 @@ def test_research_budget_counting_unchanged():
     pytest.importorskip("anthropic")
     from scheduler.budget import BUDGET_COUNTED_CALL_SITES
     sites = {s for step in STEPS.values() for s in step.call_sites}
+    # session.generic counts since 2026-11-17 (agent-loop sessions, filed
+    # under their run's budget class: tests/test_session_budget.py).
     assert sites & BUDGET_COUNTED_CALL_SITES == {
-        "wiki.resynthesis", "wiki.resynthesis_validation", "session.legacy"}
+        "wiki.resynthesis", "wiki.resynthesis_validation", "session.legacy", "session.generic"}
 
 
 # ---------------------------------------------------------------------------

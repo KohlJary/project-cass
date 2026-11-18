@@ -90,6 +90,17 @@ def _since_last(runner) -> Optional[str]:
     return f"{gap} (a {kind} session)"
 
 
+def ledger_category() -> str:
+    """The ledger category a session's model calls are filed under: its
+    Heartbeat run's budget class (a phase unit's queue category, a wake's
+    reflection), so the budget charges its spend to that bucket. Outside a
+    Heartbeat run, "reflection", the budget a wake is checked against."""
+    from heartbeat import spend
+    run = spend.current()
+    cls = getattr(run, "budget_class", None) if run else None
+    return getattr(cls, "value", None) or "reflection"
+
+
 def _session_result_cls():
     from session.generic_runner import SessionResult
 
@@ -263,6 +274,9 @@ async def run_session_turn(
         # The call site's assignment picks the provider: Claude by default,
         # or a GPT / local model if Settings > LLM assigns one.
         client, model = model_client_for("session.generic", model, runner.client)
+
+    client.ledger = {**(getattr(client, "ledger", None) or {}),
+                     "category": ledger_category(), "operation": f"session.{session_type}"}
 
     logger.info(f"[agent_loop] starting {session_type} session {session_id} through the Turn")
     from . import felt
