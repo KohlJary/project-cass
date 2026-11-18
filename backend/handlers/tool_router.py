@@ -416,6 +416,7 @@ TOOL_REGISTRY = {
     # How I work, generated from the code (self_account.py)
     "how_i_work": "self_account",
     "my_record": "self_account",
+    "code_search": "self_account",   # her own code, read-only (code_search.py)
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",

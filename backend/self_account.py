@@ -444,10 +444,16 @@ MY_RECORD_TOOL = {
                      "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 365}}},
 }
 HOW_I_WORK_TOOLS.append(MY_RECORD_TOOL)
+# Her own code, searchable (her ask, 2026-11-18; code_search.py): same fence as ask_daedalus.
+from code_search import TOOL as _CODE_SEARCH_TOOL  # noqa: E402
+HOW_I_WORK_TOOLS.append(_CODE_SEARCH_TOOL)
 MY_RECORD_CAP = 16_000
 
 
 async def execute_self_account_tool(tool_name: str, tool_input: Dict[str, Any], **_) -> Dict[str, Any]:
+    if tool_name == "code_search":
+        from code_search import execute
+        return await execute(tool_input)
     if tool_name == "my_record":
         import asyncio
         from record import build, to_markdown
