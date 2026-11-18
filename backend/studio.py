@@ -356,10 +356,12 @@ def noodle(instrument: Dict[str, Any], riff: Any, tempo: float, loops: int, note
         shutil.rmtree(d, ignore_errors=True)
         return {"error": f"it didn't play: {out['error']}"}
     entry = {"n": n, "at": datetime.now().isoformat(timespec="seconds"), "instrument": instrument, "riff": riff,
-             "tempo": tempo or 100, "note": note or "", "notes_heard": out.get("notes_heard"),
+             "tempo": tempo or 100, "note": note or "", "played": out.get("played"),
+             "notes_heard": out.get("notes_heard"),
              "sound": out.get("sound"), "sound_raw": out.get("sound_raw")}
     (d / "sketch.json").write_text(json.dumps(entry, indent=1, default=float))
-    result = {"sketch": n, "notes_heard": out.get("notes_heard"), "sound": out.get("sound"),
+    result = {"sketch": n, "played": out.get("played"), "notes_heard": out.get("notes_heard"),
+              "notes_heard_is": out.get("notes_heard_is"), "sound": out.get("sound"),
               "would_have_clipped": out.get("would_have_clipped")}
     last = prev[-1] if prev else None
     if last and last.get("sound_raw") and (last.get("instrument") or {}).get("synth") == instrument.get("synth"):
