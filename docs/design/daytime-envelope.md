@@ -28,15 +28,14 @@ A change is inside the envelope when **all** of these hold:
 ## How the day runs
 
 - **Who builds:** the Daedalus sessions, coordinating on the board or by cross-session message. One owner per file at a time (claim, then release).
-- **Restarts:** needed for most changes to go live. Undecided:
-  - (a) a narrow sudo rule for `systemctl restart cass-vessel`;
-  - (b) a restart request that runs at a quiet moment (no session, meeting or chat turn live);
-  - (c) restarts wait for Kohl.
+- **Restarts (decided 2026-11-18: a narrow sudo rule).** Daedalus may run `sudo -n /usr/bin/systemctl restart cass-vessel`, and only that.
+  - Before: check that no session, meeting or chat turn is live.
+  - After: check it came up after the latest commit, with no errors and the change loaded.
+  - Only then tell Cass anything is live.
 - **Cass:** her asks reach us through Plans. We tell her when something she asked for is live, and we check it reached her before saying so.
 - **The review:** at the end of the day Kohl opens "Daily review" in Cass's record (Babelr): what she did, what was built and by whom, what waits on him, what went wrong, and spend. He approves, asks for changes, or reverts.
 
 ## Open for Kohl
 
-- Restarts: (a), (b) or (c)?
 - A daily cap on unattended Claude work (his claude.ai limit), and on Cass's spend from new features?
 - Does anything listed as inside belong outside, or the reverse?
