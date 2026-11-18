@@ -338,6 +338,7 @@ def _register_all_handlers(registry: ActionRegistry) -> None:
         registry.register_handler("session.workshop", session_handlers.workshop_action)
         registry.register_handler("session.respond", session_handlers.respond_action)
         registry.register_handler("session.kohl_blog", session_handlers.kohl_blog_action)
+        registry.register_handler("session.listening", session_handlers.listening_action)
         registry.register_handler("session.wonderland", session_handlers.wonderland_action)
         registry.register_handler("session.wonderland_reflection", session_handlers.wonderland_reflection_action)
 

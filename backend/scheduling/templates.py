@@ -302,6 +302,20 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _agent_loop_on(),
     ),
 
+    # Listening (plan "Cass's ears and studio", phase 2): time with Kohl's records at
+    # her own pace (listening_turn.py). On the loop, with her ears and her yes.
+    "listening": WorkUnitTemplate(
+        id="listening",
+        name="Listening",
+        description="Time with Kohl's records: a song, an album in order, or one I've heard before; "
+                    "and what it is to me, if I want to keep it.",
+        action_sequence=["session.listening"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.25,
+        category="research",
+        available=lambda: _agent_loop_on() and _listening_session_on(),
+    ),
+
     # Kohl's blog (Kohl's ask, 2026-11-18): she reads his Substack when she
     # chooses, and keeps what she takes from it, marked as his (kohl_blog.py).
     "kohl_blog": WorkUnitTemplate(
@@ -488,6 +502,14 @@ def _workshop_on() -> bool:
     try:
         from workshop_turn import available
         return available()
+    except Exception:
+        return False
+
+
+def _listening_session_on() -> bool:
+    try:
+        from features import is_enabled
+        return is_enabled("listening") and is_enabled("listening_session")
     except Exception:
         return False
 

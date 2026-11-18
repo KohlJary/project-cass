@@ -350,6 +350,18 @@ LEVER_COVERAGE = {
                 "an opinion, which reaches the self-model marked kohl_influenced. The feed fetch is faked. "
                 "Fast-suite: tests/test_kohl_blog.py.",
     },
+    "listening_session": {
+        "depth": "gate",
+        "tests": ["tests/smoke/test_listening.py::test_listening_session_runs_with_her_ears"],
+        "note": "One listening session through the registry with the fake LLM: her ears offered, the framing in "
+                "the prompt. On her menu only with listening and listening_session on.",
+    },
+    "start_sessions": {
+        "depth": "none",
+        "tests": [],
+        "note": "Nothing starts on its own; her start_session call in a chat turn adds a wake due now, run by "
+                "the agent_loop_wakes job like any wake. Fast-suite: tests/test_start_session.py.",
+    },
     "studio": {
         "depth": "gate",
         "tests": ["tests/smoke/test_studio.py::test_workshop_session_renders_a_draft"],

@@ -250,7 +250,15 @@ async def run_conversation(
                   if n in catalog or n in ("find_tools", "use_tool") + WORKSPACE_TOOL_NAMES]
     tool_names.append("hold_reply")   # C8: "whether and when" (hold.py)
     lines = load_lines()              # her default lines, from her data
-    tools = tool_definitions(tool_names, catalog, strict=False, extra=[hold_tool(lines)])
+    # Starting a session from here (wakes.start_session_offer; lever start_sessions).
+    from .wakes import origin_of, start_session_offer
+    turn_id = f"chat-{uuid.uuid4().hex[:8]}"
+    starter = start_session_offer(
+        turn_id, origin_of(channel, CHANNEL_WORDS.get(channel or "", channel or "a conversation"), person))
+    if starter:
+        tool_names.append("start_session")
+    tools = tool_definitions(tool_names, catalog, strict=False,
+                             extra=[hold_tool(lines)] + ([starter[0]] if starter else []))
 
     who = person.get("user_name") or "someone"
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
@@ -270,14 +278,14 @@ async def run_conversation(
     # (finalize_chat_turn then doesn't record the turn's total a second time).
     client.ledger = {"category": "chat", "operation": "conversation_step",
                      "conversation_id": person.get("conversation_id"), "user_id": person.get("user_id")}
-    turn_id = f"chat-{uuid.uuid4().hex[:8]}"
     box = tools_mod.ToolBox(
         offered=tool_names, session_tools=(), run_session=_no_session_tools,
         run_router=run_router or tools_mod.live_router(person.get("daemon_id"), person=person),
         catalog=catalog, log=tools_mod.UsageLog(), session_id=turn_id,
         end_tool="hold_reply",
         local={**{n: (lambda a, n=n: workspace.run(n, a, turn_id)) for n in WORKSPACE_TOOL_NAMES},
-               "hold_reply": lambda a: check(a, lines)})
+               "hold_reply": lambda a: check(a, lines),
+               **({"start_session": starter[1]} if starter else {})})
 
     async def execute(name: str, tool_input: Dict[str, Any]) -> Any:
         await say({"type": "thinking", "status": f"Executing: {name}..."})

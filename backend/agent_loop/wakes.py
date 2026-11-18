@@ -47,6 +47,32 @@ def wake_tool(activities) -> Dict[str, Any]:
     }
 
 
+# Starting a session now, from a conversation (start_session; Kohl, 2026-11-18: "she
+# needs to be able to kick off sessions from chat"). The same book and the same budgeted
+# run as wake_me, due now; one at a time, a few a day.
+START_LEVER = "start_sessions"
+STARTS_PER_DAY = 6
+START_MINUTES = (15, 60)
+
+
+def start_tool(activities) -> Dict[str, Any]:
+    return {
+        "name": "start_session",
+        "description": ("Start one of my sessions now, from this conversation: when I want to do something "
+                        "that needs time and tools a reply doesn't have (listen through an album, work in my "
+                        "studio or workshop, write, research). It runs in the background, within my budget, "
+                        "and this conversation goes on; what I do there is kept like any session. One at a time, "
+                        f"{STARTS_PER_DAY} a day."),
+        "input_schema": {"type": "object", "properties": {
+            "activity": {"type": "string", "enum": sorted(activities), "description": "What kind of session"},
+            "why": {"type": "string", "description": "Why now, in my words"},
+            "focus": {"type": "string", "description": "What it's for (an album, a project, a question)"},
+            "minutes": {"type": "integer", "minimum": START_MINUTES[0], "maximum": START_MINUTES[1],
+                        "description": "How long (default 30)"},
+        }, "required": ["activity", "why"]},
+    }
+
+
 def default_path() -> Path:
     from config import DATA_DIR
     return Path(DATA_DIR) / "agent_loop" / "wakes.json"
@@ -107,6 +133,41 @@ class WakeBook:
         self._save(items)
         return f"I'll be woken at {at.strftime('%A %H:%M')} ({activity}): {why[:200]}"
 
+    def start_now(self, tool_input: Dict[str, Any], turn_id: str, activities,
+                  now: Optional[datetime] = None, origin: Optional[Dict[str, Any]] = None) -> Any:
+        """The start_session tool: a wake due now, from a conversation."""
+        now = now or datetime.now()
+        why = str(tool_input.get("why") or "").strip()
+        if not why:
+            return {"error": "why is needed: why now, in my words"}
+        activity = str(tool_input.get("activity") or "")
+        if activity not in activities:
+            return {"error": f"activity must be one of: {', '.join(sorted(activities))}"}
+        try:
+            minutes = int(tool_input.get("minutes") or 30)
+        except (TypeError, ValueError):
+            minutes = 30
+        minutes = max(START_MINUTES[0], min(START_MINUTES[1], minutes))
+        items = self._load()
+        mine = [w for w in items if w.get("started_from") == "conversation"]
+        busy = [w for w in mine if w.get("status") in (PENDING, STARTED)]
+        if busy:
+            return {"error": f"a session I started is still going ({busy[0]['activity']}: {busy[0]['why'][:80]}); "
+                             "one at a time"}
+        today = now.date().isoformat()
+        used = sum(1 for w in mine if str(w.get("asked_at", "")).startswith(today))
+        if used >= STARTS_PER_DAY:
+            return {"error": f"I've started {STARTS_PER_DAY} sessions from conversations today; the count starts "
+                             "again tomorrow (wake_me or my day plan can still place one)"}
+        focus = str(tool_input.get("focus") or "").strip()[:300] or None
+        items.append({"id": uuid.uuid4().hex[:8], "at": now.isoformat(timespec="seconds"), "why": why[:500],
+                      "activity": activity, "focus": focus, "minutes": minutes, "asked_in": turn_id,
+                      "asked_at": now.isoformat(timespec="seconds"), "status": PENDING,
+                      "started_from": "conversation", "origin": origin or {}})
+        self._save(items)
+        return {"started": activity, "for": focus, "minutes": minutes,
+                "note": f"It starts in the background within a minute; I've {STARTS_PER_DAY - used - 1} more today."}
+
     def take_due(self, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """Due pending wakes, marked started (so a second look can't run them twice)."""
         now = now or datetime.now()
@@ -153,6 +214,8 @@ class WakeBook:
 # ---------------------------------------------------------------------------
 
 def wake_why(w: Dict[str, Any]) -> str:
+    if w.get("started_from") == "conversation":
+        return f"I started this from a conversation: {w.get('why')}"
     return f"I asked to be woken now: {w.get('why')}"
 
 
@@ -162,8 +225,10 @@ async def run_wake(w: Dict[str, Any], book: Optional[WakeBook] = None) -> Any:
     from scheduler.actions import get_action_registry
     try:
         result = await get_action_registry().execute(
-            f"session.{w['activity']}", duration_minutes=WAKE_SESSION_MINUTES,
-            why=wake_why(w), trigger_source="wake")
+            f"session.{w['activity']}", duration_minutes=int(w.get("minutes") or WAKE_SESSION_MINUTES),
+            why=wake_why(w), focus=w.get("focus"),
+            trigger_source="conversation" if w.get("started_from") == "conversation" else "wake",
+            **({"reply_to": w["origin"]} if w.get("origin") else {}))
     except Exception as e:
         book.finish(w["id"], FAILED, f"{type(e).__name__}: {e}")
         raise
@@ -256,3 +321,52 @@ def start_wake_watch(budget=None) -> bool:
 def wakes_available() -> bool:
     """Whether something will fire her wakes: Heartbeat, or the watcher."""
     return heartbeat_running() or (_watch_task is not None and not _watch_task.done())
+
+
+def startable() -> List[str]:
+    """Session kinds she can start from a conversation now: those with a session, whose
+    template is on her menu and available."""
+    from .spec import ACTIVITY_PACKS
+    try:
+        from scheduling.templates import WORK_TEMPLATES
+    except Exception:
+        return []
+    out = []
+    for k in ACTIVITY_PACKS:
+        t = WORK_TEMPLATES.get(k)
+        try:
+            if t is not None and t.is_available():
+                out.append(k)
+        except Exception:
+            continue
+    return sorted(out)
+
+
+ORIGIN_KEYS = ("place", "babelr_place", "partner", "dm_id", "channel_id")
+
+
+def origin_of(channel: Optional[str], where: str, person: Dict[str, Any]) -> Dict[str, Any]:
+    """Where a conversation-started session came from, for replying back there when it's done
+    (agent_loop/reply_back.py builds its Origin from this)."""
+    o = {"channel": channel, "where": where, "who": person.get("user_name"), "user_id": person.get("user_id"),
+         "conversation_id": person.get("conversation_id")}
+    o.update({k: person[k] for k in ORIGIN_KEYS if person.get(k) is not None})
+    return o
+
+
+def start_session_offer(turn_id: str, origin: Optional[Dict[str, Any]] = None):
+    """(definition, handler) for chat, or None while the lever is off or nothing fires wakes."""
+    import features
+    if not features.is_enabled(START_LEVER) or not features.is_enabled("agent_loop") or not wakes_available():
+        return None
+    kinds = startable()
+    if not kinds:
+        return None
+
+    async def handler(a):
+        out = WakeBook().start_now(a, turn_id, kinds, origin=origin)
+        if isinstance(out, dict) and out.get("started"):
+            import asyncio
+            asyncio.create_task(check_wakes())   # don't wait for the next minute's look
+        return out
+    return start_tool(kinds), handler

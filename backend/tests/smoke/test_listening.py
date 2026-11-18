@@ -47,3 +47,15 @@ def test_listen_reads_a_record_and_shows_a_picture(app, fake_llm, levers, monkey
     look = fake_llm.calls[3].messages[-1]["content"][0]
     assert isinstance(look["content"], list) and look["content"][1]["type"] == "image", look
     assert "_images" not in look["content"][0]["text"]
+
+
+def test_listening_session_runs_with_her_ears(app, fake_llm, levers):
+    """listening_session: one listening session through the registry with the fake LLM."""
+    from scheduler.actions import get_action_registry
+    fake_llm.queue_tool_use("session_complete", {"summary": "Listened.", "pick_up_next": "side two"})
+    with levers(agent_loop=True, listening=True, listening_session=True):
+        result = app.portal.call(lambda: get_action_registry().execute(
+            "session.listening", duration_minutes=5, focus="One-X"))
+    assert result.success, result.message
+    first = fake_llm.calls[0]
+    assert "## LISTENING" in first.system_text and "listen" in first.tool_names
