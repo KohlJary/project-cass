@@ -232,8 +232,8 @@ def _live_plans() -> tuple:
 
 def _live_reach_outs(limit: int = 500) -> List[Any]:
     from reach_out import ReachOutManager, find_primary_partner
-    from homepage_turn import her_daemon
-    daemon_id = her_daemon()[0]
+    from database import get_daemon_id
+    daemon_id = get_daemon_id()   # the id (her_daemon()[0] is the label: it read no reach-outs at all)
     partner = find_primary_partner(daemon_id)
     return ReachOutManager(daemon_id).history(partner, limit=limit) if partner else []
 

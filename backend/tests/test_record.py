@@ -103,3 +103,24 @@ def test_the_routes_need_a_record_token(monkeypatch, tmp_path):
     assert c.get("/record", headers={"Authorization": "Bearer room_x"}).status_code == 401
     assert c.get("/record?days=7", headers={"Authorization": "Bearer record_ok"}).json()["days"] == 7
     assert c.get("/record.md", headers={"Authorization": "Bearer record_ok"}).text.startswith("# Cass: the record")
+
+
+def test_reach_outs_are_read_for_her_daemon_id(monkeypatch):
+    """The first version passed her daemon's label where its id belongs and read
+    nothing, silently (2026-11-18)."""
+    import database
+    import reach_out
+    seen = {}
+    monkeypatch.setattr(database, "get_daemon_id", lambda: "daemon-uuid")
+    monkeypatch.setattr(reach_out, "find_primary_partner", lambda d: seen.setdefault("partner_for", d) and "kohl-id")
+
+    class Manager:
+        def __init__(self, daemon_id):
+            seen["manager_for"] = daemon_id
+
+        def history(self, user_id, limit=20):
+            seen["user"] = user_id
+            return ["one"]
+    monkeypatch.setattr(reach_out, "ReachOutManager", Manager)
+    assert R._live_reach_outs() == ["one"]
+    assert seen == {"partner_for": "daemon-uuid", "manager_for": "daemon-uuid", "user": "kohl-id"}
