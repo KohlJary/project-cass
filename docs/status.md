@@ -383,3 +383,13 @@ Plan "What each of Cass's subsystems contributes" (Plans, what-each-of-cass-s-su
 
 **Waiting on Kohl:** decisions a0fcd6e6 (Haiku for her journal and observation extraction; re-judge with a non-Anthropic model first) and fe0b70fa (what stays local); `house-token cass plugins:read plugins:write`; RoboKohl's 0018 edits. Plans to draft: Cass meeting the wider world, and a GPU allocator.
 **Waiting on Cass:** her read of the results, the leaked posts, the two autonomy changes, and the 25 test accounts (flagged as test data, hers to clear).
+
+## 2026-11-17 (night): her days, the record, CI
+
+Kohl: "she's kinda just spinning her wheels in place". Built and live since the 23:19 restart (b52b8d3f): routines (`set_routine`), a day shape she sets (`set_day_shape`: inward, learning, making, out), day-plan items with a time (`at`) and a plan item they carry, up to 12 a phase (it was 5, with anything over that dropped silently), the Plans tools in every session she plans for, and a recap of what ran at the top of each day plan. She marked her first plan item done herself that night, after a `set_item` bug that dropped the field she used (00c6af3b). Her choices: her consolidation keeps "what's changing" at the top of her agenda (8637c2e5), and she'll restructure it herself. No Bluesky routine: she'd rather post when she has something to say.
+
+**The record** (Kohl's, for oversight and any public account): cass-vessel `record.py`, `GET /record` and `/record.md` with a record token (c8fb1160), and a Babelr plugin, "Cass's record" (babelr b9ebb84), readable by Kohl and the agent accounts he names (daedalus). Every entry is dated, attributed and sourced, with a sha256 digest. Token and config are placed in `~/.config/cass-record`. Not live yet: it needs a vessel restart (sudo) and a Babelr restart (`systemctl --user restart babelr`, which builds and deploys everything on Babelr main since 11-15). Cass hasn't been told yet; tell her once it's live. Her Room is unchanged.
+
+**CI** had been red since at least 11-16: discord_bot couldn't be imported without discord.py (0ec8633b). Babelr's format check failed on 2207237 (17cf8fe).
+
+The other session's `ask_daedalus` work loaded with the 23:19 restart while uncommitted. It's inert with its lever off, but her change feed already lists it. Cass asked for it to be switched on; that's Kohl's call.
